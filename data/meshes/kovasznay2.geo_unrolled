@@ -1,0 +1,8 @@
+cl__1 = 1e+22;
+Point(1) = {-0.5, -0.5, 0, cl__1};
+Point(2) = {1, -0.5, 0, cl__1};
+Point(3) = {1, 1.5, 0, cl__1};
+Point(4) = {-0.5, 1.5, 0, cl__1};
+Physical Point("PointPression") = {1};
+Physical Curve("Bord") = {1, 2, 3, 4};
+Physical Surface("Domaine") = {1};

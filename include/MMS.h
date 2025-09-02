@@ -265,7 +265,7 @@ namespace ManufacturedSolution
         grad_p[2] = ft * pz_fun(p);
     }
 
-  private:
+  protected:
     //
     // The spatial derivatives that each derived class must overload
     //

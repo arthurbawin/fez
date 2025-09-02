@@ -18,8 +18,6 @@
 // #include <deal.II/grid/tria_accessor.h>
 // #include <deal.II/grid/tria_iterator.h>
 
-
-
 template <int dim>
 Triangulation<dim> read_mesh(const std::string &meshFile,
                              const MPI_Comm &comm)
@@ -88,6 +86,60 @@ Triangulation<dim> read_mesh(const std::string &meshFile,
   return distr_tria;
 }
 
+// #include <fstream>
+// #include <iostream>
+// #include <map>
+// #include <string>
+// #include <sstream>
+// #include <stdexcept>
+
+void
+read_gmsh_physical_names(const std::string &meshFile,
+                         std::map<unsigned int, std::string> &tag2name,
+                         std::map<std::string, unsigned int> &name2tag)
+{
+  std::ifstream in(meshFile);
+  if (!in)
+    throw std::runtime_error("Could not open file " + meshFile);
+
+  std::string line;
+  while (std::getline(in, line))
+  {
+    if (line == "$PhysicalNames")
+    {
+      // Next line contains the number of entries
+      unsigned int num;
+      if (!(in >> num))
+        throw std::runtime_error("Invalid $PhysicalNames section in " + meshFile);
+
+      // Each of the next 'num' lines: <dim> <id> "<name>"
+      for (unsigned int i = 0; i < num; ++i)
+      {
+        unsigned int dim, id;
+        std::string name;
+        in >> dim >> id;
+        in >> std::ws; // skip spaces before name
+        std::getline(in, name);
+
+        // Gmsh usually puts the name in quotes; strip them
+        if (!name.empty() && name.front() == '"')
+        {
+          name.erase(0, 1);
+          if (!name.empty() && name.back() == '"')
+            name.pop_back();
+        }
+
+        tag2name[id] = name;
+        name2tag[name] = id;
+      }
+
+      // Skip until end of section
+      while (std::getline(in, line) && line != "$EndPhysicalNames")
+        ;
+      break;
+    }
+  }
+}
 
 template <int dim>
 void print_mesh_info(const Triangulation<dim> &triangulation,

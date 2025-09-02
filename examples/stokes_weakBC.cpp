@@ -601,9 +601,9 @@ namespace MovingMeshTest
     {
       // meshFile = "../data/meshes/cylinderUltraCoarse.msh";
       // meshFile = "../data/meshes/cylinderSuperCoarse.msh";
-      // meshFile = "../data/meshes/cylinderCoarse.msh";
+      meshFile = "../data/meshes/cylinderCoarse.msh";
       // meshFile = "../data/meshes/cylinderMedium.msh";
-      meshFile = "../data/meshes/cylinderFine.msh";
+      // meshFile = "../data/meshes/cylinderFine.msh";
       
     }
     else
@@ -1179,7 +1179,7 @@ namespace MovingMeshTest
 
     const unsigned int n_total_comp = 4 * dim + 1;
 
-    unsigned int inletBoundary        = (dim == 2) ? 2 : 5;
+    unsigned int inletBoundary = (dim == 2) ? 2 : 5;
 
     std::vector<unsigned int> noSlipBoundaries, noMeshMovementBoundaries;
     if constexpr(dim == 2)
@@ -1650,7 +1650,7 @@ namespace MovingMeshTest
           ) * JxW;
 
           // Transient terms:
-          for(unsigned int iBDF = 0; iBDF < bdfCoeffs.size(); ++iBDF)
+          for(unsigned int iBDF = 0; iBDF < nBDF; ++iBDF)
           {
             local_rhs_i -= bdfCoeffs[iBDF] * velocity[iBDF] * phi_u[i] * JxW;
             local_rhs_i -= - bdfCoeffs[iBDF] * displacement[iBDF] * phi_w[i] * JxW;
@@ -1673,8 +1673,6 @@ namespace MovingMeshTest
       {
         if(face->at_boundary() && face->boundary_id() == cylinder_boundary_id)
         {
-          // fe_face_values.reinit(cell, face);
-
           const auto &current_u = scratchData.present_face_velocity_values;
           const auto &current_w = scratchData.present_face_mesh_velocity_values;
           const auto &current_l = scratchData.present_face_lambda_values;
@@ -2065,7 +2063,7 @@ main(int argc, char *argv[])
 
       const unsigned int cylinder_boundary_id = 4;
 
-      const double spring_stiffness = 0.1;
+      const double spring_stiffness = 1.;
 
       const double Re = 100.;
       const double D = 0.1;  // Diameter
@@ -2079,7 +2077,7 @@ main(int argc, char *argv[])
       const unsigned int bdf_order = 1;
       const double t0 = 0.;
       const double dt = 0.1;
-      const int nTimeSteps = 100;
+      const int nTimeSteps = 50;
       const double t1 = dt * nTimeSteps;
 
       const double Ur = pow(M_PI, 3./2.) * U / sqrt(spring_stiffness);

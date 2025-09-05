@@ -29,8 +29,8 @@ namespace ManufacturedSolution
       : TimeDependenceBase()
     {}
 
-    virtual double value(const double t) const override { return 1.; }
-    virtual double value_dot(const double t) const override { return 0.; }
+    virtual double value(const double /*t*/) const override { return 1.; }
+    virtual double value_dot(const double /*t*/) const override { return 0.; }
   };
 
   /**
@@ -101,7 +101,8 @@ namespace ManufacturedSolution
   public:
     FlowManufacturedSolutionBase(const TimeDependenceBase &time_function)
       : time_function(time_function)
-    {}
+    {
+    }
 
     // Virtual desctructor, making this an abstract class
     virtual ~FlowManufacturedSolutionBase() = 0;
@@ -265,38 +266,53 @@ namespace ManufacturedSolution
         grad_p[2] = ft * pz_fun(p);
     }
 
+    void newtonian_stress(const double      t,
+                          const Point<dim> &p,
+                          const double      mu,
+                          Tensor<2, dim>   &sigma) const
+    {
+      sigma = 0;
+      const double pressure = this->pressure(t, p);
+      for(unsigned int d = 0; d < dim; ++d)
+        sigma[d][d] = -pressure;
+
+      Tensor<2, dim> grad_u;
+      this->grad_velocity_ui_xj(t, p, grad_u);
+      sigma += mu * (grad_u + transpose(grad_u));
+    }
+
   protected:
     //
     // The spatial derivatives that each derived class must overload
     //
-    virtual double u_fun(const Point<dim> &p) const { return 0.; };
-    virtual double ux_fun(const Point<dim> &p) const { return 0.; };
-    virtual double uy_fun(const Point<dim> &p) const { return 0.; };
-    virtual double uz_fun(const Point<dim> &p) const { return 0.; };
-    virtual double uxx_fun(const Point<dim> &p) const { return 0.; };
-    virtual double uyy_fun(const Point<dim> &p) const { return 0.; };
-    virtual double uzz_fun(const Point<dim> &p) const { return 0.; };
+    virtual double u_fun(const Point<dim> &) const { return 0.; };
+    virtual double ux_fun(const Point<dim> &) const { return 0.; };
+    virtual double uy_fun(const Point<dim> &) const { return 0.; };
+    virtual double uz_fun(const Point<dim> &) const { return 0.; };
+    virtual double uxx_fun(const Point<dim> &) const { return 0.; };
+    virtual double uyy_fun(const Point<dim> &) const { return 0.; };
+    virtual double uzz_fun(const Point<dim> &) const { return 0.; };
 
-    virtual double v_fun(const Point<dim> &p) const { return 0.; };
-    virtual double vx_fun(const Point<dim> &p) const { return 0.; };
-    virtual double vy_fun(const Point<dim> &p) const { return 0.; };
-    virtual double vz_fun(const Point<dim> &p) const { return 0.; };
-    virtual double vxx_fun(const Point<dim> &p) const { return 0.; };
-    virtual double vyy_fun(const Point<dim> &p) const { return 0.; };
-    virtual double vzz_fun(const Point<dim> &p) const { return 0.; };
+    virtual double v_fun(const Point<dim> &) const { return 0.; };
+    virtual double vx_fun(const Point<dim> &) const { return 0.; };
+    virtual double vy_fun(const Point<dim> &) const { return 0.; };
+    virtual double vz_fun(const Point<dim> &) const { return 0.; };
+    virtual double vxx_fun(const Point<dim> &) const { return 0.; };
+    virtual double vyy_fun(const Point<dim> &) const { return 0.; };
+    virtual double vzz_fun(const Point<dim> &) const { return 0.; };
 
-    virtual double w_fun(const Point<dim> &p) const { return 0.; };
-    virtual double wx_fun(const Point<dim> &p) const { return 0.; };
-    virtual double wy_fun(const Point<dim> &p) const { return 0.; };
-    virtual double wz_fun(const Point<dim> &p) const { return 0.; };
-    virtual double wxx_fun(const Point<dim> &p) const { return 0.; };
-    virtual double wyy_fun(const Point<dim> &p) const { return 0.; };
-    virtual double wzz_fun(const Point<dim> &p) const { return 0.; };
+    virtual double w_fun(const Point<dim> &) const { return 0.; };
+    virtual double wx_fun(const Point<dim> &) const { return 0.; };
+    virtual double wy_fun(const Point<dim> &) const { return 0.; };
+    virtual double wz_fun(const Point<dim> &) const { return 0.; };
+    virtual double wxx_fun(const Point<dim> &) const { return 0.; };
+    virtual double wyy_fun(const Point<dim> &) const { return 0.; };
+    virtual double wzz_fun(const Point<dim> &) const { return 0.; };
 
-    virtual double p_fun(const Point<dim> &p) const { return 0.; };
-    virtual double px_fun(const Point<dim> &p) const { return 0.; };
-    virtual double py_fun(const Point<dim> &p) const { return 0.; };
-    virtual double pz_fun(const Point<dim> &p) const { return 0.; };
+    virtual double p_fun(const Point<dim> &) const { return 0.; };
+    virtual double px_fun(const Point<dim> &) const { return 0.; };
+    virtual double py_fun(const Point<dim> &) const { return 0.; };
+    virtual double pz_fun(const Point<dim> &) const { return 0.; };
 
     void check_derivatives() const;
   };
@@ -527,6 +543,7 @@ namespace ManufacturedSolution
   private:
     double u_fun(const Point<dim> &) const override { return 1.; }
     double v_fun(const Point<dim> &) const override { return 1.; }
+    double w_fun(const Point<dim> &) const override { return (dim == 3) ? 1. : 0.; }
     double p_fun(const Point<dim> &) const override { return 1.; }
   };
 
@@ -565,7 +582,7 @@ namespace ManufacturedSolution
     auto check = [&](double             exact,
                      double             numerical,
                      const std::string &name,
-                     const Point<dim>  &p) {
+                     const Point<dim>  &/*p*/) {
       const double err = std::abs(exact - numerical);
       AssertThrow(err < tol,
                   ExcMessage("Derivative check failed for " + name +

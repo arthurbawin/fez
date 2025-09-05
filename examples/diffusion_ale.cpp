@@ -757,15 +757,6 @@ namespace NS_MMS
     void apply_nonzero_constraints();
     void set_exact_solution();
 
-    enum PositionType
-    {
-      INITIAL,
-      CURRENT
-    };
-
-    void save_position_vector();
-    void set_position_vector(const PositionType type);
-
     void assemble_matrix(bool first_step);
     void assemble_local_matrix(
       bool                                                  first_step,
@@ -823,10 +814,8 @@ namespace NS_MMS
       bool update_cell_dof_values,
       bool use_full_solution);
 
-
     void solve_direct(bool first_step);
     void solve_newton();
-    void move_mesh();
     void output_results(const unsigned int convergence_index,
                         const unsigned int time_step,
                         const int          n_newton_iter = -1);
@@ -863,6 +852,7 @@ namespace NS_MMS
   public:
     QSimplex<dim> quadrature;
     QSimplex<dim-1> face_quadrature;
+
     parallel::fullydistributed::Triangulation<dim> triangulation;
     std::unique_ptr<Mapping<dim>>                  fixed_mapping;
     std::unique_ptr<Mapping<dim>>                  mapping;
@@ -909,11 +899,6 @@ namespace NS_MMS
     Solution<dim>     solution_fun;
     SourceTerm<dim>   source_term_fun;
     MeshVelocity<dim> mesh_velocity_fun;
-
-    // Contiguous maps from global vertex index to its position dofs,
-    // and vice versa.
-    std::vector<std::vector<unsigned int>> vertex2position_dof;
-    std::vector<unsigned int>              position_dof2vertex;
 
     // L1 in time, L2 in space
     double l2_err_u;

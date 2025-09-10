@@ -872,12 +872,22 @@ namespace NS_MMS
             previous_solutions[i], previous_face_position_values[i_face][i]);
         }
 
+        // ////////////////////////////////////////////
+        // std::cout << "Cell with vertices:\n";
+        // for (unsigned int iv = 0; iv < cell->n_vertices(); ++iv)
+        //   std::cout << std::setprecision(10) << "  " << cell->vertex(iv) << "\n";
+        // std::cout << "  Face " << i_face << " vertices:\n";
+        // for (unsigned int iv = 0; iv < face->n_vertices(); ++iv)
+        //   std::cout << std::setprecision(10) << "    " << face->vertex(iv) << "\n";
+        // std::cout << std::setprecision(10) << "J = " << active_fe_face_values->jacobian(0) << std::endl;
+        // ////////////////////////////////////////////
+
         for (unsigned int q = 0; q < n_faces_q_points; ++q)
         {
           face_JxW[i_face][q]       = active_fe_face_values->JxW(q);
           face_jacobians[i_face][q] = active_fe_face_values->jacobian(q);
+          const Tensor<2, dim> J = active_fe_face_values->jacobian(q);
 
-          // 2D only!
           if constexpr (dim == 2)
           {
             switch (i_face)
@@ -885,14 +895,23 @@ namespace NS_MMS
               case 0:
                 dxsids[0] = 1.;
                 dxsids[1] = 0.;
+
+                dxsids_array[0][0] = 1.;
+                dxsids_array[0][1] = 0.;
                 break;
               case 1:
                 dxsids[0] = -1.;
                 dxsids[1] = 1.;
+
+                dxsids_array[0][0] = -1.;
+                dxsids_array[0][1] =  1.;
                 break;
               case 2:
                 dxsids[0] = 0.;
                 dxsids[1] = -1.;
+
+                dxsids_array[0][0] = 0.;
+                dxsids_array[0][1] = -1.;
                 break;
               default:
                 DEAL_II_ASSERT_UNREACHABLE();
@@ -900,10 +919,51 @@ namespace NS_MMS
           }
           else
           {
-            DEAL_II_NOT_IMPLEMENTED();
+            switch (i_face)
+            {
+              // Using dealii's face ordering
+              case 3: // Opposite to v0
+                dxsids_array[0][0] = -1.; dxsids_array[1][0] = -1.;
+                dxsids_array[0][1] =  1.; dxsids_array[1][1] =  0.;
+                dxsids_array[0][2] =  0.; dxsids_array[1][2] =  1.;
+                break;
+              case 2: // Opposite to v1
+                dxsids_array[0][0] =  0.; dxsids_array[1][0] =  0.;
+                dxsids_array[0][1] =  1.; dxsids_array[1][1] =  0.;
+                dxsids_array[0][2] =  0.; dxsids_array[1][2] =  1.;
+                break;
+              case 1: // Opposite to v2
+                dxsids_array[0][0] =  1.; dxsids_array[1][0] =  0.;
+                dxsids_array[0][1] =  0.; dxsids_array[1][1] =  0.;
+                dxsids_array[0][2] =  0.; dxsids_array[1][2] =  1.;
+                break;
+              case 0: // Opposite to v3
+                dxsids_array[0][0] =  1.; dxsids_array[1][0] =  0.;
+                dxsids_array[0][1] =  0.; dxsids_array[1][1] =  1.;
+                dxsids_array[0][2] =  0.; dxsids_array[1][2] =  0.;
+                break;
+              default:
+                DEAL_II_ASSERT_UNREACHABLE();
+            }
           }
 
           face_dXds[i_face][q] = face_jacobians[i_face][q] * dxsids;
+
+          Tensor<2, dim-1> G;
+          G = 0;
+          for(unsigned int di = 0; di < dim-1; ++di)
+            for(unsigned int dj = 0; dj < dim-1; ++dj)
+              for(unsigned int im = 0; im < dim; ++im)
+                for(unsigned int in = 0; in < dim; ++in)
+                  for(unsigned int ip = 0; ip < dim; ++ip)
+                    G[di][dj] += dxsids_array[di][im] * J[in][im] * J[in][ip] * dxsids_array[dj][ip];
+          face_G[i_face][q] = G;
+          const double sqrt_det_G = sqrt(determinant(G));
+          const Tensor<2, dim-1> G_inverse = invert(G);
+          // std::cout << "G is " << G << std::endl;
+
+          // Result of G^(-1) * (J * dxsids)^T * grad_phi_x_j * dxsids
+          Tensor<2, dim-1> res;
 
           for (unsigned int k = 0; k < dofs_per_cell; ++k)
           {
@@ -915,7 +975,32 @@ namespace NS_MMS
               (*active_fe_face_values)[position].gradient(k, q);
             phi_l_face[i_face][q][k] =
               (*active_fe_face_values)[lambda].value(k, q);
+
+            const auto &grad_phi_x = grad_phi_x_face[i_face][q][k];
+
+            // std::cout << "grad_phi_x  is " << grad_phi_x << std::endl;
+            // std::cout << "pres_grad_x is " << present_face_position_gradient[i_face][q] << std::endl;
+
+
+            Tensor<2, dim> A = transpose(J) * (transpose(present_face_position_gradient[i_face][q]) * grad_phi_x 
+                                             + transpose(grad_phi_x) * present_face_position_gradient[i_face][q]) * J;
+
+            // std::cout << "A           is " << A << std::endl;
+
+            res = 0;
+            for(unsigned int di = 0; di < dim-1; ++di)
+              for(unsigned int dj = 0; dj < dim-1; ++dj)
+                for(unsigned int im = 0; im < dim-1; ++im)
+                  for(unsigned int in = 0; in < dim; ++in)
+                      for(unsigned int io = 0; io < dim; ++io)
+                        res[di][dj] += G_inverse[di][im] * dxsids_array[im][in] * A[in][io] * dxsids_array[dj][io];
+            // std::cout << "G_inverse   is " << G_inverse << std::endl;
+            // std::cout << "res         is " << res << std::endl;
+            // delta_dx[i_face][q][k] = 0.5 * sqrt_det_G * trace(res); // Choose this if multiplying by W
+            delta_dx[i_face][q][k] = 0.5 * trace(res); // Choose this if multiplying by JxW in the matrix
           }
+
+          // throw std::runtime_error("foo");
 
           // Face mesh velocity
           present_face_mesh_velocity_values[i_face][q] =
@@ -1029,6 +1114,14 @@ namespace NS_MMS
     Tensor<1, dim>                           dxsids;
     std::vector<std::vector<Tensor<1, dim>>> face_dXds;
 
+    // The reference jacobians partial xsi_dim/partial xsi_(dim-1)
+    std::array<Tensor<1, dim>, dim - 1>                           dxsids_array;
+    std::vector<std::vector<Tensor<2, dim-1>>> face_G;
+    // std::vector<std::vector<std::array<Tensor<1, dim>, dim - 1>>> face_preFactor;
+
+    // At face x quad node x phi_position_j
+    std::vector<std::vector<std::vector<double>>> delta_dx;
+
     std::vector<unsigned int> components;
 
     // Current and previous values and gradients for each quad node
@@ -1136,15 +1229,6 @@ namespace NS_MMS
     grad_phi_x.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
     div_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
 
-    // phi_u_face.resize(n_faces_q_points,
-    //                   std::vector<Tensor<1, dim>>(dofs_per_cell));
-    // phi_x_face.resize(n_faces_q_points,
-    //                   std::vector<Tensor<1, dim>>(dofs_per_cell));
-    // grad_phi_x_face.resize(n_faces_q_points,
-    //                   std::vector<Tensor<2, dim>>(dofs_per_cell));
-    // phi_l_face.resize(n_faces_q_points,
-    //                   std::vector<Tensor<1, dim>>(dofs_per_cell));
-
     phi_u_face.resize(n_faces,
                       std::vector<std::vector<Tensor<1, dim>>>(
                         n_faces_q_points,
@@ -1164,10 +1248,6 @@ namespace NS_MMS
                       std::vector<std::vector<Tensor<1, dim>>>(
                         n_faces_q_points,
                         std::vector<Tensor<1, dim>>(dofs_per_cell)));
-
-    // solution_on_weak_bc_full.resize(n_faces_q_points,
-    // Vector<double>(n_components));
-    // prescribed_velocity_weak_bc.resize(n_faces_q_points);
 
     solution_on_weak_bc_full.resize(
       n_faces,
@@ -1190,6 +1270,8 @@ namespace NS_MMS
     // face_jacobians.resize(n_faces, std::vector<DerivativeForm<1, dim,
     // dim>>(n_faces_q_points));
     face_dXds.resize(n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+    face_G.resize(n_faces, std::vector<Tensor<2, dim-1>>(n_faces_q_points));
+    delta_dx.resize(n_faces, std::vector<std::vector<double>>(n_faces_q_points, std::vector<double>(dofs_per_cell)));
   }
 
   class SimulationParameters
@@ -1526,7 +1608,8 @@ namespace NS_MMS
     }
     else
     {
-      meshFile = "../data/meshes/cube" + std::to_string(iMesh) + ".msh";
+      // meshFile = "../data/meshes/cube" + std::to_string(iMesh) + ".msh";
+      meshFile = "../data/meshes/holed3D_" + std::to_string(iMesh) + ".msh";
     }
 
     std::ifstream input(meshFile);
@@ -2213,9 +2296,8 @@ namespace NS_MMS
                                   local_matrix,
                                   distribute);
 
-      // std::cout << "Analytical non-elasticity matrix is " << std::endl;
-      // // std::cout << std::scientific;
-      // local_matrix.print(std::cout, 12, 3);
+      // // std::cout << "Analytical non-elasticity matrix is " << std::endl;
+      // // local_matrix.print(std::cout, 12, 3);
 
       // // Compare with FD matrix
       // FullMatrix<double> local_matrix_fd(dofs_per_cell, dofs_per_cell);
@@ -2233,20 +2315,19 @@ namespace NS_MMS
       //                                perturbed_local_rhs,
       //                                cell_dof_values);
 
-      // std::cout << "FD         non-elasticity matrix is " << std::endl;
-      // // std::cout << std::scientific;
-      // local_matrix_fd.print(std::cout, 12, 3);
+      // // std::cout << "FD         non-elasticity matrix is " << std::endl;
+      // // local_matrix_fd.print(std::cout, 12, 3);
 
       // diff_matrix.equ(1.0, local_matrix);
       // diff_matrix.add(-1.0, local_matrix_fd);
-      //  std::cout << "Error matrix is " << std::endl;
-      // diff_matrix.print(std::cout, 12, 3);
-      // std::cout << "Max difference is " << diff_matrix.linfty_norm()
-      //           << std::endl;
+      // // std::cout << "Error matrix is " << std::endl;
+      // // diff_matrix.print(std::cout, 12, 3);
+      // // std::cout << "Max difference is " << diff_matrix.linfty_norm()
+      // //           << std::endl;
       // max_diff = std::max(max_diff, diff_matrix.linfty_norm());
 
-      // if(n_printed++ == 1)
-      //   throw std::runtime_error("Testing FD");
+      // // if(n_printed++ == 5)
+      //   // throw std::runtime_error("Testing FD");
     }
 
     // pcout << "Max difference over all elements is " << max_diff << std::endl;
@@ -2568,7 +2649,8 @@ namespace NS_MMS
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
             const double JxW  = scratchData.face_JxW[i_face][q];
-            const auto  &dXds = scratchData.face_dXds[i_face][q];
+            const double W    = face_quadrature.weight(q);
+            // const auto  &dXds = scratchData.face_dXds[i_face][q];
 
             const auto &phi_u      = scratchData.phi_u_face[i_face][q];
             const auto &phi_x      = scratchData.phi_x_face[i_face][q];
@@ -2585,12 +2667,12 @@ namespace NS_MMS
               scratchData.present_face_position_gradient[i_face][q];
 
             // For 2D only for now
-            const Tensor<1, dim> present_dxds = present_grad_x * dXds;
+            // const Tensor<1, dim> present_dxds = present_grad_x * dXds;
             // Use norm square to allow using JxW once for all contributions
             // Thus, this is not actually the tangent x/norm(x), it is
             // x/norm(x)^2.
-            const Tensor<1, dim> present_tangent =
-              present_dxds / present_dxds.norm_square();
+            // const Tensor<1, dim> present_tangent =
+            //   present_dxds / present_dxds.norm_square();
 
             const auto &prescribed_velocity_weak_bc =
               scratchData.prescribed_velocity_weak_bc[i_face][q];
@@ -2612,8 +2694,8 @@ namespace NS_MMS
                 const bool         j_is_x      = is_position(component_j);
                 const bool         j_is_l      = is_lambda(component_j);
 
-                const double delta_dx_j =
-                  grad_phi_x[j] * dXds * present_tangent;
+                // const double delta_dx_j = grad_phi_x[j] * dXds * present_tangent;
+                const double delta_dx_2 = scratchData.delta_dx[i_face][q][j];
 
                 double local_matrix_ij = 0.;
 
@@ -2622,7 +2704,7 @@ namespace NS_MMS
 
                 if (i_is_u && j_is_x)
                 {
-                  local_matrix_ij += present_l * phi_u[i] * delta_dx_j;
+                  local_matrix_ij += present_l * phi_u[i] * delta_dx_2;
                 }
 
                 if (i_is_u && j_is_l)
@@ -2638,27 +2720,12 @@ namespace NS_MMS
 
                 if (i_is_l && j_is_x)
                 {
-                  // Tensor<2, dim> present_grad_xsi_pos = present_grad_x * J;
-                  // Tensor<1, dim> present_dxds = present_grad_xsi_pos *
-                  // dxsids; Tensor<1, dim> tangent = present_dxds /
-                  // present_dxds.norm(); Tensor<1, dim> dphi_x_ds =
-                  // grad_phi_x[j] * J * dxsids; Tensor<1, dim> present_dxds2 =
-                  // present_grad_x * dXds; Tensor<1, dim> tangent2 =
-                  // present_dxds2 / present_dxds2.norm(); Tensor<1, dim>
-                  // dphi_x_ds2 = grad_phi_x[j] * dXds;
-                  // // local_matrix_ij += present_dxds * dphi_x_ds /
-                  // present_dxds.norm();
-
-                  // Variation of the length:
-                  // local_matrix_ij += dphi_x_ds * tangent /
-                  // present_dxds.norm(); local_matrix_ij += delta_dx_j;
-
                   // Variation of int_K1D (present_u -
                   // prescribed_velocity_weak_bc) * phi_l[i] dx
                   local_matrix_ij +=
                     -grad_solution_velocity * phi_x[j] * phi_l[i];
                   local_matrix_ij += (present_u - prescribed_velocity_weak_bc) *
-                                     phi_l[i] * delta_dx_j;
+                                     phi_l[i] * delta_dx_2;
                 }
 
                 local_matrix_ij *= JxW;
@@ -2992,6 +3059,16 @@ namespace NS_MMS
                 local_rhs(i) -=
                   (present_u - prescribed_velocity_weak_bc) * phi_l[i] * JxW;
               }
+
+              /////////////////////////////////////////////////////
+              // if (i_is_l)
+              // {
+              //   // Test with boundary element length/area:
+              //   // local_rhs(i) -= sqrt(determinant(scratchData.face_G[i_face][q])) * W;
+              //   // local_rhs(i) -= JxW;
+              // }
+              /////////////////////////////////////////////////////
+
             }
           }
         }
@@ -3376,7 +3453,8 @@ namespace NS_MMS
     Vector<double> cellwise_errors(n_active_cells);
 
     // Choose another quadrature rule for error computation
-    const QWitherdenVincentSimplex<dim> err_quadrature(6);
+    const unsigned int n_points_1D = (dim == 2) ? 6 : 5;
+    const QWitherdenVincentSimplex<dim> err_quadrature(n_points_1D);
 
     //
     // Linfty errors
@@ -3805,15 +3883,15 @@ int main(int argc, char *argv[])
 
     const bool with_weak_velocity_bc = true;
 
-    param.position_boundary_names = {"SquareBoundary", "InnerBoundary"};
+    param.position_boundary_names = {"OuterBoundary", "InnerBoundary"};
     if(with_weak_velocity_bc)
     {
-      param.strong_velocity_boundary_names = {"SquareBoundary"};
+      param.strong_velocity_boundary_names = {"OuterBoundary"};
       param.weak_velocity_boundary_names   = {"InnerBoundary"};
     }
     else
     {
-      param.strong_velocity_boundary_names = {"SquareBoundary", "InnerBoundary"};
+      param.strong_velocity_boundary_names = {"OuterBoundary", "InnerBoundary"};
       param.weak_velocity_boundary_names   = {};
     }
 
@@ -3828,7 +3906,7 @@ int main(int argc, char *argv[])
     param.nTimeSteps = 11;
     param.t1         = param.dt * param.nTimeSteps;
 
-    param.nConvergenceCycles = 4;
+    param.nConvergenceCycles = 3;
 
     VERBOSE = true;
 

@@ -44,7 +44,7 @@ Plane Surface(1) = {1,2};   // annular domain
 // -----------------------------------------------------------------------------
 // Physical groups
 Physical Surface("Domain") = {1};
-Physical Curve("SquareBoundary") = {1,2,3,4};
+Physical Curve("OuterBoundary") = {1,2,3,4};
 Physical Curve("InnerBoundary") = {5,6,7,8};
 
 

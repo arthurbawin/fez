@@ -91,6 +91,8 @@ namespace fsi_decoupled
     double       prev_dt;
     unsigned int nTimeSteps;
 
+    double spring_stiffness;
+
     // Geometry and flow parameters
     double H;
     double L;
@@ -239,6 +241,8 @@ namespace fsi_decoupled
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override
     {
+      // throw std::runtime_error("Should not be here");
+
       const double t = this->get_time();
 
       if constexpr (dim == 2)
@@ -770,6 +774,7 @@ namespace fsi_decoupled
     void create_nonzero_constraints();
     void create_lambda_zero_constraints(const unsigned int boundary_id);
     void add_no_flux_constraints(AffineConstraints<double> &constraints);
+    void create_displacement_lambda_coupling_constraints(const unsigned int boundary_id, const bool first_newton_step);
     void create_sparsity_pattern();
     void set_initial_condition();
     void apply_nonzero_constraints();
@@ -898,6 +903,8 @@ namespace fsi_decoupled
     AffineConstraints<double> zero_constraints;
     AffineConstraints<double> nonzero_constraints;
     AffineConstraints<double> lambda_constraints;
+    AffineConstraints<double> position_constraints;
+    std::map<types::global_dof_index, Point<dim>> previous_positions;
 
     // The global index of the pressure DoF to constrain to the value
     // of the manufactured solution.
@@ -1021,6 +1028,7 @@ namespace fsi_decoupled
     {
       // meshFile = "../data/meshes/cylinderVeryCoarse.msh";
       // meshFile = "../data/meshes/cylinderCoarse.msh";
+      // meshFile = "../data/meshes/cyl_not_confined_ultra_coarse.msh";
       meshFile = "../data/meshes/cyl_not_confined1.msh";
       // meshFile = "../data/meshes/cyl_not_confined2.msh";
     }
@@ -1348,6 +1356,253 @@ namespace fsi_decoupled
   }
 
   template <int dim>
+  void FSI<dim>::create_displacement_lambda_coupling_constraints(const unsigned int boundary_id,
+                                                                 const bool first_newton_step)
+  {
+    const std::map<types::global_dof_index, Point<2>> dof_location_map =
+      DoFTools::map_dofs_to_support_points(*mapping, dof_handler);
+  
+    std::ofstream dof_location_file("dofs.gnuplot");
+    DoFTools::write_gnuplot_dof_support_point_info(dof_location_file,
+                                                   dof_location_map);
+
+    // Set constraints on the position DoFs on the cylinder.
+    // These are set to the weighted sum of the lagrange multiplier DoFs,
+    // that is, to the integral of lambda (up to the spring coefficient k)
+
+    // Each displacement DoF is constrained by all lambda DoFs on the cylinder.
+    // Those lambda DoF may not be owned or even ghosts, so we need to indicate that:
+    // - the constraint can store constraints for all lambda DoFs.
+    // - the displacement DoFs are coupled to all cylinder lambda DoFs. (?)
+
+    // Get and synchronize the lambda DoFs on the cylinder
+    const FEValuesExtractors::Vector position(x_lower);
+    const FEValuesExtractors::Vector lambda(l_lower);
+    std::set<types::boundary_id> boundary_ids;
+    boundary_ids.insert(boundary_id);
+
+    IndexSet local_lambda_dofs = 
+      DoFTools::extract_boundary_dofs(dof_handler, fe.component_mask(lambda), boundary_ids);
+    IndexSet local_displacement_dofs = 
+      DoFTools::extract_boundary_dofs(dof_handler, fe.component_mask(position), boundary_ids);
+    
+    const unsigned int n_local_lambda_dofs = local_lambda_dofs.n_elements();
+
+    // std::cout << local_lambda_dofs.n_elements() << " lambda dofs on proc " << Utilities::MPI::this_mpi_process(mpi_communicator) << std::endl;
+    
+    local_lambda_dofs = local_lambda_dofs & locally_owned_dofs;
+    local_displacement_dofs = local_displacement_dofs & locally_owned_dofs;
+    
+    // std::cout << local_lambda_dofs.n_elements() << " owned lambda dofs on proc " << Utilities::MPI::this_mpi_process(mpi_communicator) << std::endl;
+
+    // Convert local IndexSet to vector
+    std::vector<types::global_dof_index> local_lambda_dofs_vec = local_lambda_dofs.get_index_vector();
+
+    // Gather all lists to all processes
+    std::vector<std::vector<types::global_dof_index>> gathered_dofs =
+      Utilities::MPI::all_gather(mpi_communicator, local_lambda_dofs_vec);
+
+    std::vector<types::global_dof_index> gathered_dofs_flattened;
+    for (const auto &vec : gathered_dofs)
+      gathered_dofs_flattened.insert(gathered_dofs_flattened.end(), vec.begin(), vec.end());
+    
+    // std::cout << gathered_dofs_flattened.size() << " gathered lambda dofs on proc " << Utilities::MPI::this_mpi_process(mpi_communicator) << std::endl;
+
+    std::sort(gathered_dofs_flattened.begin(), gathered_dofs_flattened.end());
+
+    // IndexSet locally_stored_constraints(dof_handler.n_dofs());
+    // locally_stored_constraints = locally_relevant_dofs;
+    // // Add lambda dofs
+    // locally_stored_constraints.add_indices(gathered_dofs_flattened.begin(), gathered_dofs_flattened.end());
+    // locally_stored_constraints.compress();
+
+    // Alternatively, simply add the lambda DoFs to the list of locally relevant DoFs:
+    // Do this only if partition contains a chunk of the cylinder
+    if(n_local_lambda_dofs > 0)
+    {
+      locally_relevant_dofs.add_indices(gathered_dofs_flattened.begin(), gathered_dofs_flattened.end());
+      locally_relevant_dofs.compress();
+    }
+
+    position_constraints.clear();
+    // position_constraints.reinit(locally_owned_dofs, locally_stored_constraints);
+    position_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
+
+    // Compute the integral weights. This is done only once since the 
+    // constraint for each dimension is the same for all displacement dofs (rigid cylinder)
+    std::vector<std::map<unsigned int, double>> coeffs(dim);
+
+    FEFaceValues<dim> fe_face_values(*mapping,
+                            fe,
+                            face_quadrature,
+                            update_values | update_quadrature_points | update_JxW_values);
+
+    std::vector<types::global_dof_index> face_dofs(fe.n_dofs_per_face());
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+
+      for (const auto i_face : cell->face_indices())
+      {
+        const auto &face = cell->face(i_face);
+
+        if (!(face->at_boundary() && face->boundary_id() == boundary_id))
+          continue;
+
+        fe_face_values.reinit(cell, face);
+        face->get_dof_indices(face_dofs);
+
+        for (unsigned int q = 0; q < face_quadrature.size(); ++q)
+        {
+          const double JxW = fe_face_values.JxW(q);
+
+          for (unsigned int i = 0; i < fe.n_dofs_per_face(); ++i)
+          {
+            const unsigned int comp_i  = fe.face_system_to_component_index(i, i_face).first;
+
+            // Here we need to account for ghost DoF, which contribute to the integral on this element
+            // if(!locally_owned_dofs.is_element(face_dofs[i]))
+            if(!locally_relevant_dofs.is_element(face_dofs[i]))
+              continue;
+
+            if (is_lambda(comp_i))
+            {
+              const types::global_dof_index lambda_dof = face_dofs[i];
+              // Return the only nonzero component of the vector-valued shape function for lambda
+              const unsigned int d = comp_i - l_lower;
+              const double phi_i = fe_face_values.shape_value(i, q);
+              // const double phi_i_comp = fe_face_values.shape_value_component(i, q, d);
+              coeffs[d][lambda_dof] += phi_i * JxW;
+            }
+          }
+        }
+      }
+    }
+
+    // Gather the constraint weights
+    std::vector<std::vector<std::pair<unsigned int, double>>> gathered_coeffs(dim);
+    std::vector<std::map<unsigned int, double>> gathered_coeffs_map(dim);
+
+    for(unsigned int d = 0; d < dim; ++d)
+    {
+      std::vector<std::pair<unsigned int, double>> coeffs_vector(coeffs[d].begin(), coeffs[d].end());
+      std::vector<std::vector<std::pair<unsigned int, double>>> gathered =
+        Utilities::MPI::all_gather(MPI_COMM_WORLD, coeffs_vector);
+
+      // Flatten into single vector
+      // Duplicates are ignored by add_entries
+      // for (const auto &vec : gathered)
+      //   gathered_coeffs[d].insert(gathered_coeffs[d].end(), vec.begin(), vec.end());
+
+      // Put back into map and sum contributions to same DoF from different processes
+      for (const auto &vec : gathered)
+        for(const auto &pair : vec)
+          gathered_coeffs_map[d][pair.first] += pair.second;
+
+      gathered_coeffs[d].insert(gathered_coeffs[d].end(), gathered_coeffs_map[d].begin(), gathered_coeffs_map[d].end());
+
+      for (auto &vec : gathered_coeffs)
+        for(auto &pair : vec)
+          pair.second /= param.spring_stiffness;
+    }
+
+    ////////////////////////////////////////////////////
+    // for (unsigned int d = 0; d < dim; ++d)
+    // {
+    //   double sum = 0.;
+    //   std::cout << "Gathered coeffs for dim " << d << std::endl;
+    //   for(auto &pair : gathered_coeffs[d])
+    //   {
+    //     std::cout << pair.first << " : " << pair.second << std::endl;
+    //     sum += pair.second;
+    //   }
+    //   std::cout << "Sum coeffs is " << sum << std::endl;
+    // }
+    ////////////////////////////////////////////////////
+
+    // Get support points for position DoFs (the initial positions)
+    std::map<types::global_dof_index, Point<dim>> initial_positions;
+    DoFTools::map_dofs_to_support_points(*fixed_mapping,
+                                         dof_handler,
+                                         initial_positions,
+                                         fe.component_mask(position));
+    std::map<types::global_dof_index, Point<dim>> current_positions;
+    DoFTools::map_dofs_to_support_points(*mapping,
+                                         dof_handler,
+                                         current_positions,
+                                         fe.component_mask(position));
+
+    //
+    // Then constrain displacement DoFs on cylinder
+    //
+    unsigned int n_constrained = 0;
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+
+      for (const auto i_face : cell->face_indices())
+      {
+        const auto &face = cell->face(i_face);
+
+        if (!(face->at_boundary() && face->boundary_id() == boundary_id))
+          continue;
+
+        fe_face_values.reinit(cell, face);
+        face->get_dof_indices(face_dofs);
+
+        for (unsigned int i = 0; i < fe.n_dofs_per_face(); ++i)
+        {
+          if(!locally_owned_dofs.is_element(face_dofs[i]))
+            continue;
+
+          const unsigned int comp_i  = fe.face_system_to_component_index(i, i_face).first;
+        
+          //
+          // Displacement or position coupling
+          //
+          if (is_position(comp_i))
+          {
+            n_constrained++;
+            const unsigned int d = comp_i - x_lower;
+            position_constraints.add_line(face_dofs[i]);
+            position_constraints.add_entries(face_dofs[i], gathered_coeffs[d]);
+          
+            if(first_newton_step)
+            {
+              // Add the initial position X_0 as inhomogeneity
+              // std::cout << "Inhomogeneity would be " << initial_positions.at(face_dofs[i])[d] << std::endl;
+              position_constraints.set_inhomogeneity(face_dofs[i], initial_positions.at(face_dofs[i])[d]);
+            }
+            else
+            {
+              // std::cout << "Inhomogeneity would be " << initial_positions.at(face_dofs[i])[d] - current_positions.at(face_dofs[i])[d] << std::endl;
+              // const double previous_displacement = current_positions.at(face_dofs[i])[d] - initial_positions.at(face_dofs[i])[d];
+              // position_constraints.set_inhomogeneity(face_dofs[i], - previous_displacement);
+            }
+          }
+        }
+      }
+    }
+
+    // position_constraints.print(std::cout);
+
+    // std::cout << "position_constraints has      " << position_constraints.n_constraints() << " constraints" << std::endl;
+    // std::cout << "number of constrained dofs is " << n_constrained << std::endl;
+    // throw std::runtime_error("testing");
+
+    // position_constraints.make_consistent_in_parallel(locally_owned_dofs, position_constraints.get_local_lines(), mpi_communicator);
+    // position_constraints.make_consistent_in_parallel(locally_owned_dofs, locally_stored_constraints, mpi_communicator);
+    position_constraints.make_consistent_in_parallel(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
+
+    // std::cout << "position_constraints has      " << position_constraints.n_constraints() << " constraints" << std::endl;
+    position_constraints.close();
+  }
+
+  template <int dim>
   void FSI<dim>::create_zero_constraints()
   {
     zero_constraints.clear();
@@ -1400,6 +1655,11 @@ namespace fsi_decoupled
       lambda_constraints,
       AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
       true);
+
+    // Merge position - lambda coupling constraints
+    this->create_displacement_lambda_coupling_constraints(weak_bc_boundary_id, false);
+    zero_constraints.merge(position_constraints,
+      AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed, true);
 
     // Add no velocity flux constraints
     this->add_no_flux_constraints(zero_constraints);
@@ -1456,6 +1716,11 @@ namespace fsi_decoupled
       lambda_constraints,
       AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
       true);
+
+    // Merge position - lambda coupling constraints
+    this->create_displacement_lambda_coupling_constraints(weak_bc_boundary_id, true);
+    nonzero_constraints.merge(position_constraints,
+      AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed, true);
 
     // Add no velocity flux constraints
     this->add_no_flux_constraints(nonzero_constraints);
@@ -2221,7 +2486,6 @@ namespace fsi_decoupled
               if (i_is_l)
               {
                 local_rhs(i) -= (present_u - present_w) * phi_l[i] * JxW;
-                // local_rhs(i) -= (present_u)*phi_l[i] * JxW;
               }
             }
           }
@@ -2413,8 +2677,9 @@ namespace fsi_decoupled
       // and the Dirichlet BC no longer match.
       // The moving mapping has been updated through evaluation_point,
       // now recreate
+      this->create_zero_constraints();
       this->create_nonzero_constraints();
-      this->apply_nonzero_constraints();
+      // this->apply_nonzero_constraints();
       //////////////////////////////////////////////
 
       this->assemble_rhs(first_step);
@@ -2602,6 +2867,7 @@ namespace fsi_decoupled
     this->make_grid();
     this->setup_system();
     this->create_lambda_zero_constraints(weak_bc_boundary_id);
+    // this->create_displacement_lambda_coupling_constraints(weak_bc_boundary_id);
     this->create_zero_constraints();
     this->create_nonzero_constraints();
     this->create_sparsity_pattern();
@@ -2689,7 +2955,8 @@ int main(int argc, char *argv[])
 
     // Mesh position BC
     param.position_fixed_boundary_names  = {"Inlet", "Outlet", "NoFlux"};
-    param.position_moving_boundary_names = {"InnerBoundary"};
+    // param.position_moving_boundary_names = {"InnerBoundary"};
+    param.position_moving_boundary_names = {};
 
     // Velocity BC
     param.strong_velocity_boundary_names = {"Inlet"};
@@ -2704,7 +2971,7 @@ int main(int argc, char *argv[])
     // param.U = 2.*uMax/3.;
 
     // For the unconfined case
-    param.Re = 200.;
+    param.Re = 50.;
     param.H  = 16.;
     param.D  = 1.;
     param.U  = 1.;
@@ -2714,11 +2981,13 @@ int main(int argc, char *argv[])
     param.pseudo_solid_lambda = 1.;
 
     // Time integration
-    param.bdf_order  = 1;
+    param.bdf_order  = 2;
     param.t0         = 0.;
-    param.dt         = 0.05;
+    param.dt         = 0.005;
     param.nTimeSteps = 1000;
     param.t1         = param.dt * param.nTimeSteps;
+
+    param.spring_stiffness = 2.;
 
     VERBOSE = true;
 

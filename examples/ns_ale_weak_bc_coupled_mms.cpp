@@ -61,29 +61,29 @@ namespace LA
 #include <fstream>
 #include <iostream>
 
+/**
+ * This tests the implementation of the no-slip
+ * on the obstacle, coupling the fluid velocity 
+ * with the mesh velocity.
+ * 
+ * The manufactured mesh displacement is divergence free
+ * and the fluid velocity is d/dt(displacement), so that
+ * we have u = dx/dt on the obstacle without source term. 
+ * 
+ * The displacement is imposed (strong Dirichlet), and *not*
+ * coupled with the Lagrange multiplier.
+ */
+
 bool VERBOSE = false;
 
 // Fluid
-#define VISCOSITY 1. // 0.123
+#define VISCOSITY 1.
 
 // Pseudo-solid
-#define LAMBDA_PS 1. // 1.234
-#define MU_PS 1.     // 2.987
+#define LAMBDA_PS 1.
+#define MU_PS 1.
 
-// Enable time-dependent BC for mesh displacement
-bool WITH_MESH_DISPLACEMENT = true;
-
-// Enable dudt in Navier-Stokes
-#define WITH_TRANSIENT_NS
-
-#define WITH_CONVECTION
-
-// #define RIGID_MOTION
-// #define LINEAR_DISPLACEMENT
-#define QUADRATIC_DISPLACEMENT
-// #define NO_BOUNDARY_DISPLACEMENT
-// #define DIVERGENCE_FREE_DISPLACEMENT
-// #define CHI_FACTOR 10.
+#define NO_SLIP_ON_CYLINDER
 
 // #define DISCONTINUOUS_LAMBDA
 
@@ -94,198 +94,12 @@ namespace NS_MMS
   using namespace dealii;
   using namespace ManufacturedSolution;
 
-  void print_ifdefs()
-  {
-    if (WITH_MESH_DISPLACEMENT)
-      std::cout << "WITH_MESH_DISPLACEMENT: ON" << std::endl;
-    else
-      std::cout << "WITH_MESH_DISPLACEMENT: OFF" << std::endl;
-
-#if defined(WITH_TRANSIENT_NS)
-    std::cout << "WITH_TRANSIENT_NS:           ON" << std::endl;
-#else
-    std::cout << "WITH_TRANSIENT_NS:           OFF" << std::endl;
-#endif
-#if defined(WITH_CONVECTION)
-    std::cout << "WITH_CONVECTION:             ON" << std::endl;
-#else
-    std::cout << "WITH_CONVECTION:             OFF" << std::endl;
-#endif
-#if defined(LINEAR_DISPLACEMENT)
-    std::cout << "LINEAR_DISPLACEMENT:         ON" << std::endl;
-#else
-    std::cout << "LINEAR_DISPLACEMENT:         OFF" << std::endl;
-#endif
-#if defined(QUADRATIC_DISPLACEMENT)
-    std::cout << "QUADRATIC_DISPLACEMENT:      ON" << std::endl;
-#else
-    std::cout << "QUADRATIC_DISPLACEMENT:      OFF" << std::endl;
-#endif
-  }
-
-  double phi_fun(const double t)
-  {
-    if (WITH_MESH_DISPLACEMENT)
-      // return t;
-      return sin(2 * M_PI * t);
-    // return (t > 0) ? 4. * (t - tanh(t)) : 0.;
-    else
-      return 0.;
-  }
-
-  double phidot_fun(const double t)
-  {
-    if (WITH_MESH_DISPLACEMENT)
-      // return 1.;
-      return 2 * M_PI * cos(2 * M_PI * t);
-    // return (t > 0) ? 4. * tanh(t) * tanh(t) : 0.;
-    else
-      return 0.;
-  }
-
-  //
-  // Displacement manufactured solution
-  //
-  template <int dim>
-  double
-  chi_fun(const double phi, const Point<dim> &p, const unsigned int component)
-  {
-#if defined(RIGID_MOTION)
-
-    return (component == 0) ? (phi / 4.) : 0.;
-
-#elif defined(LINEAR_DISPLACEMENT)
-
-    // Linear displacement in each component
-    return phi / 4. * p[component];
-
-#elif defined(QUADRATIC_DISPLACEMENT)
-
-    // Quadratic displacement in each component
-    if constexpr (dim == 2)
-      return phi / 4. * p[component] * (p[component] - 1.);
-    else
-      return phi / 4. * p[component] * (p[component] - 1.);
-
-#elif defined(NO_BOUNDARY_DISPLACEMENT)
-
-    const double x = p[0];
-    const double y = p[1];
-
-    if constexpr (dim == 2)
-    {
-      if (component == 0)
-        return phi * x * (x - 1) * y * (y - 1);
-      else
-        return phi * x * (x - 1) * y * (y - 1);
-    }
-    else
-      DEAL_II_NOT_IMPLEMENTED();
-
-#elif defined(DIVERGENCE_FREE_DISPLACEMENT)
-
-    const double x = p[0];
-    const double y = p[1];
-
-    if constexpr (dim == 2)
-    {
-      if (component == 0)
-        return   phi / CHI_FACTOR * sin(M_PI*x) * sin(M_PI*x) * sin(2.*M_PI*y);
-      else
-        return - phi / CHI_FACTOR * sin(2.*M_PI*x) * sin(M_PI*y) * sin(M_PI*y);
-    }
-    else
-      DEAL_II_NOT_IMPLEMENTED();
-
-#else
-
-    // Displacement from Hay et al.
-    if constexpr (dim == 2)
-      return phi / 4. * p[0] * p[1] * (p[component] - 1.);
-    else
-      return phi / 4. * p[0] * p[1] * p[2] * (p[component] - 1.);
-
-#endif
-  }
-
-  //
-  // Mesh position manufactured solution
-  //
-  template <int dim>
-  double
-  pos_fun(const double phi, const Point<dim> &p, const unsigned int component)
-  {
-    return p[component] + chi_fun(phi, p, component);
-  }
-
-  //
-  // Mesh velocity from manufactured solution
-  //
-  template <int dim>
-  double wMesh_fun(const double       phidot,
-                   const Point<dim>  &p,
-                   const unsigned int component)
-  {
-#if defined(RIGID_MOTION)
-
-    return (component == 0) ? (phidot / 4.) : 0.;
-
-#elif defined(LINEAR_DISPLACEMENT)
-
-    // Linear displacement
-    return phidot / 4. * p[component];
-
-#elif defined(QUADRATIC_DISPLACEMENT)
-
-    // Quadratic displacement in each component
-    if constexpr (dim == 2)
-      return phidot / 4. * p[component] * (p[component] - 1.);
-    else
-      return phidot / 4. * p[component] * (p[component] - 1.);
-
-#elif defined(NO_BOUNDARY_DISPLACEMENT)
-
-    if constexpr (dim == 2)
-    {
-      if (component == 0)
-        return phidot * p[0] * (p[0] - 1) * p[1] * (p[1] - 1);
-      else
-        return phidot * p[0] * (p[0] - 1) * p[1] * (p[1] - 1);
-    }
-    else
-      DEAL_II_NOT_IMPLEMENTED();
-
-#elif defined(DIVERGENCE_FREE_DISPLACEMENT)
-
-    const double x = p[0];
-    const double y = p[1];
-
-    if constexpr (dim == 2)
-    {
-      if (component == 0)
-        return   phidot / CHI_FACTOR * sin(M_PI*x) * sin(M_PI*x) * sin(2.*M_PI*y);
-      else
-        return - phidot / CHI_FACTOR * sin(2.*M_PI*x) * sin(M_PI*y) * sin(M_PI*y);
-    }
-    else
-      DEAL_II_NOT_IMPLEMENTED();
-
-#else
-
-    // Displacement from Hay et al.
-    if constexpr (dim == 2)
-      return phidot / 4. * p[0] * p[1] * (p[component] - 1.);
-    else
-      return phidot / 4. * p[0] * p[1] * p[2] * (p[component] - 1.);
-
-#endif
-  }
-
   template <int dim>
   class Solution : public Function<dim>
   {
   public:
     const FlowManufacturedSolutionBase<dim> &flow_mms;
+    const MeshPositionMMSBase<dim>          &mesh_mms;
     const unsigned int                       n_components;
     const unsigned int                       u_lower = 0;
     const unsigned int                       p_lower = dim;
@@ -295,9 +109,11 @@ namespace NS_MMS
   public:
     Solution(const double                             time,
              const unsigned int                       n_components,
-             const FlowManufacturedSolutionBase<dim> &flow_mms)
+             const FlowManufacturedSolutionBase<dim> &flow_mms,
+             const MeshPositionMMSBase<dim>          &mesh_mms)
       : Function<dim>(n_components, time)
       , flow_mms(flow_mms)
+      , mesh_mms(mesh_mms)
       , n_components(n_components)
     {}
 
@@ -310,22 +126,16 @@ namespace NS_MMS
         DEAL_II_ASSERT_UNREACHABLE();
 
       const double t   = this->get_time();
-      const double phi = phi_fun(t);
 
       Vector<double> values(n_components);
 
-      // Velocity
-      values[0] = flow_mms.velocity(t, p, 0);
-      values[1] = flow_mms.velocity(t, p, 1);
-      // Pressure
-      values[2] = flow_mms.pressure(t, p);
-      // Mesh position
-      values[3] = pos_fun(phi, p, 0);
-      values[4] = pos_fun(phi, p, 1);
-      // Lagrange multiplier:
-      // Use dedicated "value" function below and give normal vector
-      values[5] = 0.;
-      values[6] = 0.;
+      values[p_lower] = flow_mms.pressure(t, p);
+      for(unsigned int d = 0; d < dim; ++d)
+      {
+        values[u_lower + d] = flow_mms.velocity(t, p, d);
+        values[x_lower + d] = mesh_mms.position(t, p, d);
+        values[l_lower + d] = 0.;
+      }
 
       return values[component];
     }
@@ -340,7 +150,6 @@ namespace NS_MMS
         DEAL_II_ASSERT_UNREACHABLE();
 
       const double t   = this->get_time();
-      const double phi = phi_fun(t);
 
       Tensor<1, dim> lambda;
       Tensor<2, dim> sigma;
@@ -354,34 +163,13 @@ namespace NS_MMS
                               Vector<double>   &values) const override
     {
       const double t   = this->get_time();
-      const double phi = phi_fun(t);
 
-      if constexpr (dim == 2)
+      values[p_lower] = flow_mms.pressure(t, p);
+      for(unsigned int d = 0; d < dim; ++d)
       {
-        // Velocity
-        values[0] = flow_mms.velocity(t, p, 0);
-        values[1] = flow_mms.velocity(t, p, 1);
-        // Pressure
-        values[2] = flow_mms.pressure(t, p);
-        // Mesh position
-        values[3] = pos_fun(phi, p, 0);
-        values[4] = pos_fun(phi, p, 1);
-        // Lagrange multiplier : use dedicated "value" function
-        values[5] = 0.;
-        values[6] = 0.;
-      }
-      else
-      {
-        // Velocity
-        values[0] = flow_mms.velocity(t, p, 0);
-        values[1] = flow_mms.velocity(t, p, 1);
-        values[2] = flow_mms.velocity(t, p, 2);
-        // Pressure
-        values[3] = flow_mms.pressure(t, p);
-        // Mesh position
-        values[4] = pos_fun(phi, p, 0);
-        values[5] = pos_fun(phi, p, 1);
-        values[6] = pos_fun(phi, p, 2);
+        values[u_lower + d] = flow_mms.velocity(t, p, d);
+        values[x_lower + d] = mesh_mms.position(t, p, d);
+        values[l_lower + d] = 0.;
       }
     }
 
@@ -435,26 +223,32 @@ namespace NS_MMS
   {
   public:
     const FlowManufacturedSolutionBase<dim> &flow_mms;
+    const MeshPositionMMSBase<dim>          &mesh_mms;
+    const unsigned int                       u_lower = 0;
+    const unsigned int                       p_lower = dim;
+    const unsigned int                       x_lower = dim + 1;
+    const unsigned int                       l_lower = 2 * dim + 1;
 
   public:
     SolutionAtFutureMeshPosition(
       const double                             time,
       const unsigned int                       n_components,
-      const FlowManufacturedSolutionBase<dim> &flow_mms)
+      const FlowManufacturedSolutionBase<dim> &flow_mms,
+      const MeshPositionMMSBase<dim>          &mesh_mms)
       : Function<dim>(n_components, time)
       , flow_mms(flow_mms)
+      , mesh_mms(mesh_mms)
     {}
 
     virtual double value(const Point<dim>  &p,
                          const unsigned int component = 0) const override
     {
       const double t   = this->get_time();
-      const double phi = phi_fun(t);
 
       // Get prescribed mesh position
       Point<dim> pFinal;
       for (unsigned int d = 0; d < dim; ++d)
-        pFinal[d] = pos_fun(phi, p, d);
+        pFinal[d] = mesh_mms.position(t, p, d);
 
       // Used only to return the pressure value when constraining
       // pressure DoF
@@ -468,36 +262,18 @@ namespace NS_MMS
                               Vector<double>   &values) const override
     {
       const double t   = this->get_time();
-      const double phi = phi_fun(t);
 
       // Get prescribed mesh position for this point
       Point<dim> pFinal;
       for (unsigned int d = 0; d < dim; ++d)
-        pFinal[d] = pos_fun(phi, p, d);
+        pFinal[d] = mesh_mms.position(t, p, d);
 
-      if constexpr (dim == 2)
+      values[p_lower] = flow_mms.pressure(t, pFinal);
+      for(unsigned int d = 0; d < dim; ++d)
       {
-        // Velocity
-        values[0] = flow_mms.velocity(t, pFinal, 0);
-        values[1] = flow_mms.velocity(t, pFinal, 1);
-        // Pressure
-        values[2] = flow_mms.pressure(t, pFinal);
-        // Mesh position
-        values[3] = pos_fun(phi, p, 0);
-        values[4] = pos_fun(phi, p, 1);
-      }
-      else
-      {
-        // Velocity
-        values[0] = flow_mms.velocity(t, pFinal, 0);
-        values[1] = flow_mms.velocity(t, pFinal, 1);
-        values[2] = flow_mms.velocity(t, pFinal, 2);
-        // Pressure
-        values[3] = flow_mms.pressure(t, pFinal);
-        // Mesh position
-        values[4] = pos_fun(phi, p, 0);
-        values[5] = pos_fun(phi, p, 1);
-        values[6] = pos_fun(phi, p, 2);
+        values[u_lower + d] = flow_mms.velocity(t, pFinal, d);
+        values[x_lower + d] = mesh_mms.position(t, p, d);
+        values[l_lower + d] = 0.;
       }
     }
   };
@@ -507,40 +283,25 @@ namespace NS_MMS
   class MeshVelocity : public Function<dim>
   {
   public:
-    MeshVelocity(const double time, const unsigned int n_components)
+    const MeshPositionMMSBase<dim>          &mesh_mms;
+    const unsigned int                       u_lower = 0;
+    const unsigned int                       p_lower = dim;
+    const unsigned int                       x_lower = dim + 1;
+    const unsigned int                       l_lower = 2 * dim + 1;
+
+  public:
+    MeshVelocity(const double time, const unsigned int n_components,
+      const MeshPositionMMSBase<dim>          &mesh_mms)
       : Function<dim>(n_components, time)
+      , mesh_mms(mesh_mms)
     {}
 
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override
     {
       const double t      = this->get_time();
-      const double phidot = phidot_fun(t);
-
-      if constexpr (dim == 2)
-      {
-        // Velocity
-        values[0] = 0.;
-        values[1] = 0.;
-        // Pressure
-        values[2] = 0.;
-        // Mesh position
-        values[3] = wMesh_fun(phidot, p, 0);
-        values[4] = wMesh_fun(phidot, p, 1);
-      }
-      else
-      {
-        // Velocity
-        values[0] = 0.;
-        values[1] = 0.;
-        values[2] = 0.;
-        // Pressure
-        values[3] = 0.;
-        // Mesh position
-        values[4] = wMesh_fun(phidot, p, 0);
-        values[5] = wMesh_fun(phidot, p, 1);
-        values[6] = wMesh_fun(phidot, p, 2);
-      }
+      for(unsigned int d = 0; d < dim; ++d)
+        values[x_lower + d] = mesh_mms.mesh_velocity(t, p, d);
     }
   };
 
@@ -549,23 +310,27 @@ namespace NS_MMS
   {
   public:
     const FlowManufacturedSolutionBase<dim> &flow_mms;
+    const MeshPositionMMSBase<dim>          &mesh_mms;
+    const unsigned int                       u_lower = 0;
+    const unsigned int                       p_lower = dim;
+    const unsigned int                       x_lower = dim + 1;
+    const unsigned int                       l_lower = 2 * dim + 1;
 
   public:
     SourceTerm(const double                             time,
                const unsigned int                       n_components,
-               const FlowManufacturedSolutionBase<dim> &flow_mms)
+               const FlowManufacturedSolutionBase<dim> &flow_mms,
+               const MeshPositionMMSBase<dim>          &mesh_mms)
       : Function<dim>(n_components, time)
       , flow_mms(flow_mms)
+      , mesh_mms(mesh_mms)
     {}
 
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override
     {
-      const double t        = this->get_time();
-      const double phi      = phi_fun(t);
-      const double mu       = VISCOSITY;
-      const double lambda_s = LAMBDA_PS;
-      const double mu_s     = MU_PS;
+      const double t  = this->get_time();
+      const double mu = VISCOSITY;
 
       Tensor<2, dim> grad_u;
       Tensor<1, dim> f, u, dudt_eulerian, uDotGradu, grad_p, lap_u;
@@ -579,23 +344,7 @@ namespace NS_MMS
       flow_mms.laplacian_velocity(t, p, lap_u);
 
       // Stokes/Navier-Stokes source term
-#if defined(WITH_TRANSIENT_NS) && defined(WITH_CONVECTION)
-
       f = -(dudt_eulerian + uDotGradu + grad_p - mu * lap_u);
-
-#elif defined(WITH_TRANSIENT_NS) && !defined(WITH_CONVECTION)
-
-      f = -(dudt_eulerian + grad_p - mu * lap_u);
-
-#elif !defined(WITH_TRANSIENT_NS) && defined(WITH_CONVECTION)
-
-      f = -(uDotGradu + grad_p - mu * lap_u);
-
-#else
-
-      f = -(grad_p - mu * lap_u);
-
-#endif
 
       for (unsigned int d = 0; d < dim; ++d)
         values[d] = f[d];
@@ -604,73 +353,12 @@ namespace NS_MMS
       values[dim] = 0.;
 
       // Pseudo-solid
-#if defined(RIGID_MOTION) || defined(LINEAR_DISPLACEMENT)
+      // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
+      Tensor<1, dim> f_PS;
+      mesh_mms.divergence_stress_tensor(t, p, MU_PS, LAMBDA_PS, f_PS);
 
       for (unsigned int d = 0; d < dim; ++d)
-        values[dim + 1 + d] = 0.;
-
-#elif defined(QUADRATIC_DISPLACEMENT)
-
-      for (unsigned int d = 0; d < dim; ++d)
-        values[dim + 1 + d] = (phi * (lambda_s + 2 * mu_s)) / 2;
-
-#elif defined(NO_BOUNDARY_DISPLACEMENT)
-
-      const double x = p[0];
-      const double y = p[1];
-
-      if constexpr (dim == 2)
-      {
-        values[3] =
-          (phi * (lambda_s + mu_s - 2 * lambda_s * x - 4 * lambda_s * y -
-                  4 * mu_s * x - 6 * mu_s * y + 2 * lambda_s * y * y +
-                  2 * mu_s * x * x + 4 * mu_s * y * y + 4 * lambda_s * x * y +
-                  4 * mu_s * x * y));
-        values[4] =
-          (phi * (lambda_s + mu_s - 4 * lambda_s * x - 2 * lambda_s * y -
-                  6 * mu_s * x - 4 * mu_s * y + 2 * lambda_s * x * x +
-                  4 * mu_s * x * x + 2 * mu_s * y * y + 4 * lambda_s * x * y +
-                  4 * mu_s * x * y));
-      }
-      else
-      {
-        const double z = p[2];
-        DEAL_II_NOT_IMPLEMENTED();
-      }
-
-#elif defined(DIVERGENCE_FREE_DISPLACEMENT)
-
-      const double x = p[0];
-      const double y = p[1];
-
-      if constexpr (dim == 2)
-      {
-        values[3] =  2.*mu_s*phi*M_PI*M_PI*sin(2.*M_PI*y)*(2.*cos(2.*M_PI*x) - 1.) / CHI_FACTOR;
-        values[4] = -2.*mu_s*phi*M_PI*M_PI*sin(2.*M_PI*x)*(2.*cos(2.*M_PI*y) - 1.) / CHI_FACTOR;
-      }
-      else
-      {
-        const double z = p[2];
-        DEAL_II_NOT_IMPLEMENTED();
-      }
-
-#else
-
-      const double x = p[0];
-      const double y = p[1];
-      const double h = 1.;
-
-      if constexpr (dim == 2)
-      {
-        // Source term for displacement from Hay et al.
-        values[3] = -(phi / 4. * (lambda_s * (h - 4 * y) + mu_s * (h - 6 * y)));
-        values[4] = -(phi / 4. * (lambda_s * (h - 4 * x) + mu_s * (h - 6 * x)));
-      }
-      else
-      {
-        DEAL_II_NOT_IMPLEMENTED();
-      }
-#endif
+        values[x_lower + d] = f_PS[d];
     }
 
     // Gradient of source term, using finite differences
@@ -1356,7 +1044,8 @@ namespace NS_MMS
   {
   public:
     MMS(const SimulationParameters              &param,
-        const FlowManufacturedSolutionBase<dim> &flow_mms);
+        const FlowManufacturedSolutionBase<dim> &flow_mms,
+        const MeshPositionMMSBase<dim>          &mesh_mms);
 
     void run();
 
@@ -1574,7 +1263,8 @@ namespace NS_MMS
 
   template <int dim>
   MMS<dim>::MMS(const SimulationParameters              &param,
-                const FlowManufacturedSolutionBase<dim> &flow_mms)
+                const FlowManufacturedSolutionBase<dim> &flow_mms,
+                const MeshPositionMMSBase<dim>          &mesh_mms)
     : param(param)
     , mpi_communicator(MPI_COMM_WORLD)
     , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
@@ -1601,11 +1291,11 @@ namespace NS_MMS
                       TimerOutput::never, // TimerOutput::summary,
                       TimerOutput::wall_times)
     , current_time(param.t0)
-    , solution_fun(Solution<dim>(current_time, n_components, flow_mms))
-    , source_term_fun(SourceTerm<dim>(current_time, n_components, flow_mms))
-    , mesh_velocity_fun(MeshVelocity<dim>(current_time, n_components))
+    , solution_fun(Solution<dim>(current_time, n_components, flow_mms, mesh_mms))
+    , source_term_fun(SourceTerm<dim>(current_time, n_components, flow_mms, mesh_mms))
+    , mesh_velocity_fun(MeshVelocity<dim>(current_time, n_components, mesh_mms))
     , solution_at_future_position_fun(
-        SolutionAtFutureMeshPosition<dim>(current_time, n_components, flow_mms))
+        SolutionAtFutureMeshPosition<dim>(current_time, n_components, flow_mms, mesh_mms))
   {}
 
   template <int dim>
@@ -2555,12 +2245,10 @@ namespace NS_MMS
 
       const auto &dxdt = scratchData.present_mesh_velocity_values[q];
 
-#if defined(WITH_TRANSIENT_NS)
       // BDF: current dudt
       Tensor<1, dim> dudt = bdfCoeffs[0] * present_velocity_values;
       for (unsigned int i = 1; i < bdfCoeffs.size(); ++i)
         dudt += bdfCoeffs[i] * scratchData.previous_velocity_values[i - 1][q];
-#endif
 
       const auto &source_term_velocity = scratchData.source_term_velocity[q];
       const auto &grad_source_velocity = scratchData.grad_source_velocity[q];
@@ -2582,26 +2270,20 @@ namespace NS_MMS
 
           if (i_is_u && j_is_u)
           {
-#if defined(WITH_TRANSIENT_NS)
             // Time-dependent
             local_matrix_ij += bdfCoeffs[0] * phi_u[i] * phi_u[j];
-#endif
 
-#if defined(WITH_CONVECTION)
             // Convection (OK)
             local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
                                 present_velocity_gradients * phi_u[j]) *
                                phi_u[i];
-#endif
 
             // Diffusion (OK)
             local_matrix_ij +=
               param.viscosity * scalar_product(grad_phi_u[i], grad_phi_u[j]);
 
-#if defined(WITH_TRANSIENT_NS)
             // ALE acceleration : - w dot grad(delta u)
             local_matrix_ij += grad_phi_u[j] * (-dxdt) * phi_u[i];
-#endif
           }
 
           if (i_is_u && j_is_p)
@@ -2612,7 +2294,6 @@ namespace NS_MMS
 
           if (i_is_u && j_is_x)
           {
-#if defined(WITH_TRANSIENT_NS)
             // Variation of time-dependent term with mesh position
             local_matrix_ij += dudt * phi_u[i] * trace(grad_phi_x[j]);
 
@@ -2623,16 +2304,13 @@ namespace NS_MMS
                                (-dxdt) * phi_u[i];
             local_matrix_ij += present_velocity_gradients * (-dxdt) * phi_u[i] *
                                trace(grad_phi_x[j]);
-#endif
 
-#if defined(WITH_CONVECTION)
             // Convection w.r.t. x (OK)
             local_matrix_ij += (-present_velocity_gradients * grad_phi_x[j]) *
                                present_velocity_values * phi_u[i];
             local_matrix_ij += present_velocity_gradients *
                                present_velocity_values * phi_u[i] *
                                trace(grad_phi_x[j]);
-#endif
 
             // Diffusion (OK)
             const Tensor<2, dim> d_grad_u =
@@ -2714,27 +2392,17 @@ namespace NS_MMS
 
             const auto &present_u =
               scratchData.present_face_velocity_values[i_face][q];
-            // const auto &present_x =
-            // scratchData.present_face_position_values[i_face][q];
+            const auto &present_w = 
+              scratchData.present_face_mesh_velocity_values[i_face][q];
             const auto &present_l =
               scratchData.present_face_lambda_values[i_face][q];
             const auto &present_grad_x =
               scratchData.present_face_position_gradient[i_face][q];
 
-            // For 2D only for now
-            // const Tensor<1, dim> present_dxds = present_grad_x * dXds;
-            // Use norm square to allow using JxW once for all contributions
-            // Thus, this is not actually the tangent x/norm(x), it is
-            // x/norm(x)^2.
-            // const Tensor<1, dim> present_tangent =
-            //   present_dxds / present_dxds.norm_square();
-
             const auto &prescribed_velocity_weak_bc =
               scratchData.prescribed_velocity_weak_bc[i_face][q];
             const auto &grad_solution_velocity =
               scratchData.grad_solution_velocity[i_face][q];
-
-            // const Tensor<2, dim> &J = scratchData.face_jacobians[i_face][q];
 
             for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
             {
@@ -2749,17 +2417,13 @@ namespace NS_MMS
                 const bool         j_is_x      = is_position(component_j);
                 const bool         j_is_l      = is_lambda(component_j);
 
-                // const double delta_dx_j = grad_phi_x[j] * dXds * present_tangent;
-                const double delta_dx_2 = scratchData.delta_dx[i_face][q][j];
+                const double delta_dx_j = scratchData.delta_dx[i_face][q][j];
 
                 double local_matrix_ij = 0.;
 
-                // local_matrix(i, j) += (phi_u[j] - bdfCoeffs[0] * phi_x[j]) *
-                // phi_l[i];
-
                 if (i_is_u && j_is_x)
                 {
-                  local_matrix_ij += present_l * phi_u[i] * delta_dx_2;
+                  local_matrix_ij += present_l * phi_u[i] * delta_dx_j;
                 }
 
                 if (i_is_u && j_is_l)
@@ -2770,17 +2434,19 @@ namespace NS_MMS
                 if (i_is_l && j_is_u)
                 {
                   local_matrix_ij += phi_u[j] * phi_l[i];
-                  // ADD MESH VELOCITY AFTER
                 }
 
                 if (i_is_l && j_is_x)
                 {
-                  // Variation of int_K1D (present_u -
-                  // prescribed_velocity_weak_bc) * phi_l[i] dx
+                #if defined(NO_SLIP_ON_CYLINDER)
+                  local_matrix_ij += -bdfCoeffs[0] * phi_x[j] * phi_l[i];
+                  local_matrix_ij += (present_u - present_w) * phi_l[i] * delta_dx_j;
+                #else
                   local_matrix_ij +=
                     -grad_solution_velocity * phi_x[j] * phi_l[i];
                   local_matrix_ij += (present_u - prescribed_velocity_weak_bc) *
-                                     phi_l[i] * delta_dx_2;
+                                     phi_l[i] * delta_dx_j;
+                #endif
                 }
 
                 local_matrix_ij *= JxW;
@@ -3026,20 +2692,12 @@ namespace NS_MMS
       {
         double local_rhs_i =
           -(
-            // Start with zero to allows + and - and ifdefs...
-            0.
-
-#if defined(WITH_CONVECTION)
             // Convection (OK)
-            + (present_velocity_gradients * present_velocity_values) * phi_u[i]
-#endif
+            (present_velocity_gradients * present_velocity_values) * phi_u[i]
 
-#if defined(WITH_TRANSIENT_NS)
             // Mesh movement
             - (present_velocity_gradients * present_mesh_velocity_values) *
                 phi_u[i]
-        // - phi_u[i] * (w * present_velocity_gradients)
-#endif
 
             // Diffusion (OK)
             + param.viscosity *
@@ -3055,13 +2713,11 @@ namespace NS_MMS
             - present_velocity_divergence * phi_p[i]) *
           JxW;
 
-#if defined(WITH_TRANSIENT_NS)
         // Transient terms:
         for (unsigned int iBDF = 0; iBDF < nBDF; ++iBDF)
         {
           local_rhs_i -= bdfCoeffs[iBDF] * velocity[iBDF] * phi_u[i] * JxW;
         }
-#endif
 
         local_rhs(i) += local_rhs_i;
       }
@@ -3086,10 +2742,8 @@ namespace NS_MMS
 
             const auto &present_u =
               scratchData.present_face_velocity_values[i_face][q];
-            // const auto &present_w =
-            // scratchData.present_face_mesh_velocity_values; const auto
-            // &present_x = scratchData.present_face_position_values; const auto
-            // &present_grad_x = scratchData.present_face_position_gradient;
+            const auto &present_w =
+              scratchData.present_face_mesh_velocity_values[i_face][q];
             const auto &present_l =
               scratchData.present_face_lambda_values[i_face][q];
 
@@ -3109,10 +2763,12 @@ namespace NS_MMS
 
               if (i_is_l)
               {
-                // local_rhs(i) -= (present_u[q] - present_w[q]) * phi_l[i] *
-                // JxW;
-                local_rhs(i) -=
-                  (present_u - prescribed_velocity_weak_bc) * phi_l[i] * JxW;
+              #if defined(NO_SLIP_ON_CYLINDER)
+                local_rhs(i) -= (present_u - present_w) * phi_l[i] * JxW;
+              #else
+                // Manufactured velocity on cylinder
+                local_rhs(i) -= (present_u - prescribed_velocity_weak_bc) * phi_l[i] * JxW;
+              #endif
               }
 
               /////////////////////////////////////////////////////
@@ -3373,6 +3029,40 @@ namespace NS_MMS
                              solution_names,
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
+
+    //////////////////////////////////////////
+    // Compute mesh velocity in post-processing
+    // This is not ideal, this is done by modifying the displacement and
+    // reexporting.
+    LA::MPI::Vector mesh_velocity;
+    mesh_velocity.reinit(locally_owned_dofs, mpi_communicator);
+    const FEValuesExtractors::Vector position(x_lower);
+    IndexSet                         disp_dofs =
+      DoFTools::extract_dofs(dof_handler, fe.component_mask(position));
+
+    for (const auto &i : disp_dofs)
+    {
+      if (!locally_owned_dofs.is_element(i))
+        continue;
+
+      double value = bdfCoeffs[0] * present_solution[i];
+      for (unsigned int iBDF = 1; iBDF < bdfCoeffs.size(); ++iBDF)
+        value += bdfCoeffs[iBDF] * previous_solutions[iBDF - 1][i];
+      mesh_velocity[i] = value;
+    }
+    mesh_velocity.compress(VectorOperation::insert);
+    std::vector<std::string> mesh_velocity_name(dim, "ph_velocity");
+    mesh_velocity_name.emplace_back("ph_pressure");
+    for (unsigned int i = 0; i < dim; ++i)
+      mesh_velocity_name.push_back("mesh_velocity");
+    for (unsigned int i = 0; i < dim; ++i)
+      mesh_velocity_name.push_back("ph_lambda");
+
+    data_out.add_data_vector(mesh_velocity,
+                             mesh_velocity_name,
+                             DataOut<dim>::type_dof_data,
+                             data_component_interpretation);
+    //////////////////////////////////////////
 
     // Plot exact solution
     std::vector<std::string> exact_solution_names(dim, "exact_velocity");
@@ -3760,11 +3450,11 @@ namespace NS_MMS
       param.nTimeSteps = 1;
     }
 
-    for (unsigned int iT = 1; iT <= nConvergence;
-    ++iT, this->param.dt /= 2., this->param.nTimeSteps *= 2.)
-    // for (unsigned int iT = 1; iT <= nConvergence; ++iT, ++iMesh)
     // for (unsigned int iT = 1; iT <= nConvergence;
-    // ++iT, ++iMesh, this->param.dt /= 2., this->param.nTimeSteps *= 2.)
+      // ++iT, this->param.dt /= 2., this->param.nTimeSteps *= 2.)
+    // for (unsigned int iT = 1; iT <= nConvergence; ++iT, ++iMesh)
+    for (unsigned int iT = 1; iT <= nConvergence;
+    ++iT, ++iMesh, this->param.dt /= 2., this->param.nTimeSteps *= 2.)
     {
       // pcout << "Convergence step " << iT << "/" << nConvergence << std::endl;
 
@@ -3927,8 +3617,6 @@ int main(int argc, char *argv[])
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
 
     const unsigned int rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
-    if (rank == 0)
-      print_ifdefs();
 
     SimulationParameters param;
 
@@ -3955,16 +3643,19 @@ int main(int argc, char *argv[])
     param.pseudo_solid_lambda = LAMBDA_PS;
 
     // Time integration
-    param.bdf_order  = 2;
+    param.bdf_order  = 1;
     param.t0         = 0.;
     param.dt         = 0.1;
     param.nTimeSteps = 11;
     param.t1         = param.dt * param.nTimeSteps;
 
-    param.nConvergenceCycles = 4;
+    param.nConvergenceCycles = 2;
 
     VERBOSE = true;
 
+    const unsigned int dim = 2;
+
+    // MMS for the flow
     // Possible time dependences G(t)
     std::vector<TimeDependenceBase *> time_functions;
     // time_functions.push_back(new ConstantTimeDep);
@@ -3973,8 +3664,6 @@ int main(int argc, char *argv[])
     time_functions.push_back(new PowerTimeDep(3));
     // time_functions.push_back(new SineTimeDep);
 
-    const unsigned int dim = 2;
-
     for (unsigned int iTest = 0; iTest < time_functions.size(); ++iTest)
     {
       // const FlowA<2> flow_mms(*time_functions[iTest]);
@@ -3982,19 +3671,38 @@ int main(int argc, char *argv[])
       // const FlowC<2> flow_mms(*time_functions[iTest]);
       // const FlowD<dim> flow_mms(*time_functions[iTest]);
 
-      const double          dpdx = 1.;
-      const Poiseuille<dim> flow_mms(*time_functions[iTest],
-                                     dpdx,
-                                     param.viscosity);
+      // const double          dpdx = 1.;
+      // const Poiseuille<dim> flow_mms(*time_functions[iTest],
+      //                                dpdx,
+      //                                param.viscosity);
 
-      // WITH_MESH_DISPLACEMENT = false;
+      // No mesh movement
       // {
-      //   MMS<dim> problem(param, flow_mms);
+      //   const SineTimeDep mesh_position_time_function(0.);
+      //   const QuadraticMeshPosition<dim> mesh_position_mms(mesh_position_time_function);
+
+      //   MMS<dim> problem(param, flow_mms, mesh_position_mms);
       //   problem.run();
       // }
-      WITH_MESH_DISPLACEMENT = true;
+
+      // With mesh movement
       {
-        MMS<dim> problem(param, flow_mms);
+        // const SineTimeDep mesh_position_time_function(1./4.);
+        // const QuadraticMeshPosition<dim> mesh_position_mms(mesh_position_time_function);
+
+        const SineTimeDep mesh_position_time_function(1./40.);
+        const DivergenceFreeMeshPosition<dim> mesh_position_mms(mesh_position_time_function);
+
+        const CosineTimeDep flow_time_function(2. * M_PI * 1./40.);
+        mesh_position_time_function.check_dependency(flow_time_function);
+        const DisplacementTimeDerivative<dim> flow_mms(flow_time_function);
+
+        // const double          dpdx = 1.;
+        // const Poiseuille<dim> flow_mms(flow_time_function,
+        //                                dpdx,
+        //                                param.viscosity);
+
+        MMS<dim> problem(param, flow_mms, mesh_position_mms);
         problem.run();
       }
     }

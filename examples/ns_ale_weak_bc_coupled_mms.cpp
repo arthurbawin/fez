@@ -63,13 +63,13 @@ namespace LA
 
 /**
  * This tests the implementation of the no-slip
- * on the obstacle, coupling the fluid velocity 
+ * on the obstacle, coupling the fluid velocity
  * with the mesh velocity.
- * 
+ *
  * The manufactured mesh displacement is divergence free
  * and the fluid velocity is d/dt(displacement), so that
- * we have u = dx/dt on the obstacle without source term. 
- * 
+ * we have u = dx/dt on the obstacle without source term.
+ *
  * The displacement is imposed (strong Dirichlet), and *not*
  * coupled with the Lagrange multiplier.
  */
@@ -84,15 +84,26 @@ bool VERBOSE = false;
 #define MU_PS 1.
 
 #define NO_SLIP_ON_CYLINDER
-
 // #define DISCONTINUOUS_LAMBDA
-
 // #define COMPARE_ANALYTIC_MATRIX_WITH_FD
 
 namespace NS_MMS
 {
   using namespace dealii;
   using namespace ManufacturedSolution;
+
+  enum class ConvergenceStudy
+  {
+    TIME,
+    SPACE,
+    TIME_AND_SPACE
+  };
+
+  enum class VelocityMapping
+  {
+    Reference, // Lagrangian description of velocity
+    Current,   // Eulerian
+  };
 
   template <int dim>
   class Solution : public Function<dim>
@@ -125,12 +136,12 @@ namespace NS_MMS
       if (component != p_lower)
         DEAL_II_ASSERT_UNREACHABLE();
 
-      const double t   = this->get_time();
+      const double t = this->get_time();
 
       Vector<double> values(n_components);
 
       values[p_lower] = flow_mms.pressure(t, p);
-      for(unsigned int d = 0; d < dim; ++d)
+      for (unsigned int d = 0; d < dim; ++d)
       {
         values[u_lower + d] = flow_mms.velocity(t, p, d);
         values[x_lower + d] = mesh_mms.position(t, p, d);
@@ -149,7 +160,7 @@ namespace NS_MMS
       if (!(l_lower <= component && component < l_lower + dim))
         DEAL_II_ASSERT_UNREACHABLE();
 
-      const double t   = this->get_time();
+      const double t = this->get_time();
 
       Tensor<1, dim> lambda;
       Tensor<2, dim> sigma;
@@ -162,10 +173,10 @@ namespace NS_MMS
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override
     {
-      const double t   = this->get_time();
+      const double t = this->get_time();
 
       values[p_lower] = flow_mms.pressure(t, p);
-      for(unsigned int d = 0; d < dim; ++d)
+      for (unsigned int d = 0; d < dim; ++d)
       {
         values[u_lower + d] = flow_mms.velocity(t, p, d);
         values[x_lower + d] = mesh_mms.position(t, p, d);
@@ -243,7 +254,7 @@ namespace NS_MMS
     virtual double value(const Point<dim>  &p,
                          const unsigned int component = 0) const override
     {
-      const double t   = this->get_time();
+      const double t = this->get_time();
 
       // Get prescribed mesh position
       Point<dim> pFinal;
@@ -261,7 +272,7 @@ namespace NS_MMS
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override
     {
-      const double t   = this->get_time();
+      const double t = this->get_time();
 
       // Get prescribed mesh position for this point
       Point<dim> pFinal;
@@ -269,7 +280,7 @@ namespace NS_MMS
         pFinal[d] = mesh_mms.position(t, p, d);
 
       values[p_lower] = flow_mms.pressure(t, pFinal);
-      for(unsigned int d = 0; d < dim; ++d)
+      for (unsigned int d = 0; d < dim; ++d)
       {
         values[u_lower + d] = flow_mms.velocity(t, pFinal, d);
         values[x_lower + d] = mesh_mms.position(t, p, d);
@@ -283,24 +294,34 @@ namespace NS_MMS
   class MeshVelocity : public Function<dim>
   {
   public:
-    const MeshPositionMMSBase<dim>          &mesh_mms;
-    const unsigned int                       u_lower = 0;
-    const unsigned int                       p_lower = dim;
-    const unsigned int                       x_lower = dim + 1;
-    const unsigned int                       l_lower = 2 * dim + 1;
+    const MeshPositionMMSBase<dim> &mesh_mms;
+    const unsigned int              u_lower = 0;
+    const unsigned int              p_lower = dim;
+    const unsigned int              x_lower = dim + 1;
+    const unsigned int              l_lower = 2 * dim + 1;
 
   public:
-    MeshVelocity(const double time, const unsigned int n_components,
-      const MeshPositionMMSBase<dim>          &mesh_mms)
+    MeshVelocity(const double                    time,
+                 const unsigned int              n_components,
+                 const MeshPositionMMSBase<dim> &mesh_mms)
       : Function<dim>(n_components, time)
       , mesh_mms(mesh_mms)
     {}
 
+    virtual double value(const Point<dim>  &p,
+                         const unsigned int component = 0) const override
+    {
+      if (!(x_lower <= component && component < x_lower + dim))
+        DEAL_II_ASSERT_UNREACHABLE();
+      const double t = this->get_time();
+      return mesh_mms.mesh_velocity(t, p, component - x_lower);
+    }
+
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override
     {
-      const double t      = this->get_time();
-      for(unsigned int d = 0; d < dim; ++d)
+      const double t = this->get_time();
+      for (unsigned int d = 0; d < dim; ++d)
         values[x_lower + d] = mesh_mms.mesh_velocity(t, p, d);
     }
   };
@@ -347,10 +368,10 @@ namespace NS_MMS
       f = -(dudt_eulerian + uDotGradu + grad_p - mu * lap_u);
 
       for (unsigned int d = 0; d < dim; ++d)
-        values[d] = f[d];
+        values[u_lower + d] = f[d];
 
       // Pressure
-      values[dim] = 0.;
+      values[p_lower] = flow_mms.velocity_divergence(t, p);
 
       // Pseudo-solid
       // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
@@ -501,28 +522,36 @@ namespace NS_MMS
       }
 
       // Source term
-      source_term_fun.vector_value_list(
-        active_fe_values->get_quadrature_points(), source_term_full);
+      source_term_fun.vector_value_list(active_fe_values->get_quadrature_points(), source_term_full);
+      // source_term_fun.vector_value_list(fe_values_fixed_mapping.get_quadrature_points(), source_term_full);
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
         for (int d = 0; d < dim; ++d)
           source_term_velocity[q][d] = source_term_full[q](u_lower + d);
+
+        source_term_pressure[q] = source_term_full[q](p_lower);
+
         for (int d = 0; d < dim; ++d)
           source_term_position[q][d] = source_term_full[q](x_lower + d);
       }
 
       // Gradient of source term
       // Only need to fill in for the scalar field
-      source_term_fun.vector_gradient_list(
-        active_fe_values->get_quadrature_points(), grad_source_term_full);
+      source_term_fun.vector_gradient_list(active_fe_values->get_quadrature_points(), grad_source_term_full);
+      // source_term_fun.vector_gradient_list(fe_values_fixed_mapping.get_quadrature_points(), grad_source_term_full);
 
       // Layout: grad_source_velocity[q] = df_i/dx_j
       for (unsigned int q = 0; q < n_q_points; ++q)
+      {
         for (int di = 0; di < dim; ++di)
+        {
+          grad_source_pressure[q][di] = grad_source_term_full[q][p_lower][di];
           for (int dj = 0; dj < dim; ++dj)
             grad_source_velocity[q][di][dj] =
               grad_source_term_full[q][u_lower + di][dj];
+        }
+      }
 
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
@@ -614,18 +643,21 @@ namespace NS_MMS
         // ////////////////////////////////////////////
         // std::cout << "Cell with vertices:\n";
         // for (unsigned int iv = 0; iv < cell->n_vertices(); ++iv)
-        //   std::cout << std::setprecision(10) << "  " << cell->vertex(iv) << "\n";
+        //   std::cout << std::setprecision(10) << "  " << cell->vertex(iv) <<
+        //   "\n";
         // std::cout << "  Face " << i_face << " vertices:\n";
         // for (unsigned int iv = 0; iv < face->n_vertices(); ++iv)
-        //   std::cout << std::setprecision(10) << "    " << face->vertex(iv) << "\n";
-        // std::cout << std::setprecision(10) << "J = " << active_fe_face_values->jacobian(0) << std::endl;
+        //   std::cout << std::setprecision(10) << "    " << face->vertex(iv) <<
+        //   "\n";
+        // std::cout << std::setprecision(10) << "J = " <<
+        // active_fe_face_values->jacobian(0) << std::endl;
         // ////////////////////////////////////////////
 
         for (unsigned int q = 0; q < n_faces_q_points; ++q)
         {
           face_JxW[i_face][q]       = active_fe_face_values->JxW(q);
           face_jacobians[i_face][q] = active_fe_face_values->jacobian(q);
-          const Tensor<2, dim> J = active_fe_face_values->jacobian(q);
+          const Tensor<2, dim> J    = active_fe_face_values->jacobian(q);
 
           if constexpr (dim == 2)
           {
@@ -643,7 +675,7 @@ namespace NS_MMS
                 dxsids[1] = 1.;
 
                 dxsids_array[0][0] = -1.;
-                dxsids_array[0][1] =  1.;
+                dxsids_array[0][1] = 1.;
                 break;
               case 2:
                 dxsids[0] = 0.;
@@ -662,24 +694,36 @@ namespace NS_MMS
             {
               // Using dealii's face ordering
               case 3: // Opposite to v0
-                dxsids_array[0][0] = -1.; dxsids_array[1][0] = -1.;
-                dxsids_array[0][1] =  1.; dxsids_array[1][1] =  0.;
-                dxsids_array[0][2] =  0.; dxsids_array[1][2] =  1.;
+                dxsids_array[0][0] = -1.;
+                dxsids_array[1][0] = -1.;
+                dxsids_array[0][1] = 1.;
+                dxsids_array[1][1] = 0.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 1.;
                 break;
               case 2: // Opposite to v1
-                dxsids_array[0][0] =  0.; dxsids_array[1][0] =  0.;
-                dxsids_array[0][1] =  1.; dxsids_array[1][1] =  0.;
-                dxsids_array[0][2] =  0.; dxsids_array[1][2] =  1.;
+                dxsids_array[0][0] = 0.;
+                dxsids_array[1][0] = 0.;
+                dxsids_array[0][1] = 1.;
+                dxsids_array[1][1] = 0.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 1.;
                 break;
               case 1: // Opposite to v2
-                dxsids_array[0][0] =  1.; dxsids_array[1][0] =  0.;
-                dxsids_array[0][1] =  0.; dxsids_array[1][1] =  0.;
-                dxsids_array[0][2] =  0.; dxsids_array[1][2] =  1.;
+                dxsids_array[0][0] = 1.;
+                dxsids_array[1][0] = 0.;
+                dxsids_array[0][1] = 0.;
+                dxsids_array[1][1] = 0.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 1.;
                 break;
               case 0: // Opposite to v3
-                dxsids_array[0][0] =  1.; dxsids_array[1][0] =  0.;
-                dxsids_array[0][1] =  0.; dxsids_array[1][1] =  1.;
-                dxsids_array[0][2] =  0.; dxsids_array[1][2] =  0.;
+                dxsids_array[0][0] = 1.;
+                dxsids_array[1][0] = 0.;
+                dxsids_array[0][1] = 0.;
+                dxsids_array[1][1] = 1.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 0.;
                 break;
               default:
                 DEAL_II_ASSERT_UNREACHABLE();
@@ -688,21 +732,22 @@ namespace NS_MMS
 
           face_dXds[i_face][q] = face_jacobians[i_face][q] * dxsids;
 
-          Tensor<2, dim-1> G;
+          Tensor<2, dim - 1> G;
           G = 0;
-          for(unsigned int di = 0; di < dim-1; ++di)
-            for(unsigned int dj = 0; dj < dim-1; ++dj)
-              for(unsigned int im = 0; im < dim; ++im)
-                for(unsigned int in = 0; in < dim; ++in)
-                  for(unsigned int ip = 0; ip < dim; ++ip)
-                    G[di][dj] += dxsids_array[di][im] * J[in][im] * J[in][ip] * dxsids_array[dj][ip];
+          for (unsigned int di = 0; di < dim - 1; ++di)
+            for (unsigned int dj = 0; dj < dim - 1; ++dj)
+              for (unsigned int im = 0; im < dim; ++im)
+                for (unsigned int in = 0; in < dim; ++in)
+                  for (unsigned int ip = 0; ip < dim; ++ip)
+                    G[di][dj] += dxsids_array[di][im] * J[in][im] * J[in][ip] *
+                                 dxsids_array[dj][ip];
           face_G[i_face][q] = G;
-          const double sqrt_det_G = sqrt(determinant(G));
-          const Tensor<2, dim-1> G_inverse = invert(G);
+          // const double             sqrt_det_G = sqrt(determinant(G));
+          const Tensor<2, dim - 1> G_inverse = invert(G);
           // std::cout << "G is " << G << std::endl;
 
           // Result of G^(-1) * (J * dxsids)^T * grad_phi_x_j * dxsids
-          Tensor<2, dim-1> res;
+          Tensor<2, dim - 1> res;
 
           for (unsigned int k = 0; k < dofs_per_cell; ++k)
           {
@@ -718,25 +763,35 @@ namespace NS_MMS
             const auto &grad_phi_x = grad_phi_x_face[i_face][q][k];
 
             // std::cout << "grad_phi_x  is " << grad_phi_x << std::endl;
-            // std::cout << "pres_grad_x is " << present_face_position_gradient[i_face][q] << std::endl;
+            // std::cout << "pres_grad_x is " <<
+            // present_face_position_gradient[i_face][q] << std::endl;
 
 
-            Tensor<2, dim> A = transpose(J) * (transpose(present_face_position_gradient[i_face][q]) * grad_phi_x 
-                                             + transpose(grad_phi_x) * present_face_position_gradient[i_face][q]) * J;
+            Tensor<2, dim> A =
+              transpose(J) *
+              (transpose(present_face_position_gradient[i_face][q]) *
+                 grad_phi_x +
+               transpose(grad_phi_x) *
+                 present_face_position_gradient[i_face][q]) *
+              J;
 
             // std::cout << "A           is " << A << std::endl;
 
             res = 0;
-            for(unsigned int di = 0; di < dim-1; ++di)
-              for(unsigned int dj = 0; dj < dim-1; ++dj)
-                for(unsigned int im = 0; im < dim-1; ++im)
-                  for(unsigned int in = 0; in < dim; ++in)
-                      for(unsigned int io = 0; io < dim; ++io)
-                        res[di][dj] += G_inverse[di][im] * dxsids_array[im][in] * A[in][io] * dxsids_array[dj][io];
+            for (unsigned int di = 0; di < dim - 1; ++di)
+              for (unsigned int dj = 0; dj < dim - 1; ++dj)
+                for (unsigned int im = 0; im < dim - 1; ++im)
+                  for (unsigned int in = 0; in < dim; ++in)
+                    for (unsigned int io = 0; io < dim; ++io)
+                      res[di][dj] += G_inverse[di][im] * dxsids_array[im][in] *
+                                     A[in][io] * dxsids_array[dj][io];
             // std::cout << "G_inverse   is " << G_inverse << std::endl;
             // std::cout << "res         is " << res << std::endl;
-            // delta_dx[i_face][q][k] = 0.5 * sqrt_det_G * trace(res); // Choose this if multiplying by W
-            delta_dx[i_face][q][k] = 0.5 * trace(res); // Choose this if multiplying by JxW in the matrix
+            // delta_dx[i_face][q][k] = 0.5 * sqrt_det_G * trace(res); // Choose
+            // this if multiplying by W
+            delta_dx[i_face][q][k] =
+              0.5 *
+              trace(res); // Choose this if multiplying by JxW in the matrix
           }
 
           // throw std::runtime_error("foo");
@@ -854,9 +909,10 @@ namespace NS_MMS
     std::vector<std::vector<Tensor<1, dim>>> face_dXds;
 
     // The reference jacobians partial xsi_dim/partial xsi_(dim-1)
-    std::array<Tensor<1, dim>, dim - 1>                           dxsids_array;
-    std::vector<std::vector<Tensor<2, dim-1>>> face_G;
-    // std::vector<std::vector<std::array<Tensor<1, dim>, dim - 1>>> face_preFactor;
+    std::array<Tensor<1, dim>, dim - 1>          dxsids_array;
+    std::vector<std::vector<Tensor<2, dim - 1>>> face_G;
+    // std::vector<std::vector<std::array<Tensor<1, dim>, dim - 1>>>
+    // face_preFactor;
 
     // At face x quad node x phi_position_j
     std::vector<std::vector<std::vector<double>>> delta_dx;
@@ -887,12 +943,14 @@ namespace NS_MMS
     std::vector<Vector<double>>
       source_term_full; // The source term with n_components
     std::vector<Tensor<1, dim>> source_term_velocity;
+    std::vector<double>         source_term_pressure;
     std::vector<Tensor<1, dim>> source_term_position;
 
     // Gradient of source term,
     // at each quad node, for each dof component, result is a Tensor<1, dim>
     std::vector<std::vector<Tensor<1, dim>>> grad_source_term_full;
     std::vector<Tensor<2, dim>>              grad_source_velocity;
+    std::vector<Tensor<1, dim>>              grad_source_pressure;
 
     // Shape functions and gradients for each quad node and each dof
     std::vector<std::vector<Tensor<1, dim>>> phi_u;
@@ -944,11 +1002,13 @@ namespace NS_MMS
 
     source_term_full.resize(n_q_points, Vector<double>(n_components));
     source_term_velocity.resize(n_q_points);
+    source_term_pressure.resize(n_q_points);
     source_term_position.resize(n_q_points);
 
     grad_source_term_full.resize(n_q_points,
                                  std::vector<Tensor<1, dim>>(n_components));
     grad_source_velocity.resize(n_q_points);
+    grad_source_pressure.resize(n_q_points);
 
     // BDF
     previous_velocity_values.resize(bdfCoeffs.size() - 1,
@@ -1009,8 +1069,10 @@ namespace NS_MMS
     // face_jacobians.resize(n_faces, std::vector<DerivativeForm<1, dim,
     // dim>>(n_faces_q_points));
     face_dXds.resize(n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
-    face_G.resize(n_faces, std::vector<Tensor<2, dim-1>>(n_faces_q_points));
-    delta_dx.resize(n_faces, std::vector<std::vector<double>>(n_faces_q_points, std::vector<double>(dofs_per_cell)));
+    face_G.resize(n_faces, std::vector<Tensor<2, dim - 1>>(n_faces_q_points));
+    delta_dx.resize(n_faces,
+                    std::vector<std::vector<double>>(
+                      n_faces_q_points, std::vector<double>(dofs_per_cell)));
   }
 
   class SimulationParameters
@@ -1024,6 +1086,9 @@ namespace NS_MMS
     std::vector<std::string> strong_velocity_boundary_names;
     std::vector<std::string> weak_velocity_boundary_names;
 
+    // Boundaries on which we want to compute the error ||w - wh||
+    std::vector<std::string> mesh_velocity_error_boundary_names;
+
     double       viscosity;
     double       pseudo_solid_mu;
     double       pseudo_solid_lambda;
@@ -1033,7 +1098,12 @@ namespace NS_MMS
     double       dt;
     double       prev_dt;
     unsigned int nTimeSteps;
-    unsigned int nConvergenceCycles;
+
+    ConvergenceStudy type_of_convergence_study;
+    unsigned int     nConvergenceCycles;
+    unsigned int     starting_mesh;
+
+    VelocityMapping  velocity_mapping_type = VelocityMapping::Current;
 
   public:
     SimulationParameters(){};
@@ -1058,6 +1128,8 @@ namespace NS_MMS
     void constrain_pressure_point(AffineConstraints<double> &constraints,
                                   bool                       set_to_zero);
     void create_lambda_zero_constraints(const unsigned int boundary_id);
+    // void create_fluid_velocity_mesh_velocity_constraints(const unsigned int
+    // boundary_id);
     void create_sparsity_pattern();
     void set_initial_condition();
     void apply_nonzero_constraints();
@@ -1130,6 +1202,11 @@ namespace NS_MMS
                                           double            &lambda_l2_error,
                                           double            &lambda_linf_error,
                                           Tensor<1, dim>    &error_on_integral);
+    void compute_mesh_velocity_error_on_boundary(const unsigned int boundary_id,
+                                                 double            &l2_error_dxdt,
+                                                 double            &linf_error_dxdt,
+                                                 double            &l2_error_fluid_velocity,
+                                                 double            &linf_error_fluid_velocity);
     void reset();
 
     SimulationParameters param;
@@ -1179,6 +1256,8 @@ namespace NS_MMS
     std::unique_ptr<Mapping<dim>>                  fixed_mapping;
     std::unique_ptr<Mapping<dim>>                  mapping;
 
+    const std::unique_ptr<Mapping<dim>>                  &velocity_mapping;
+
     // Description of the .msh mesh entities
     std::map<unsigned int, std::string> mesh_domains_tag2name;
     std::map<std::string, unsigned int> mesh_domains_name2tag;
@@ -1191,6 +1270,7 @@ namespace NS_MMS
     AffineConstraints<double> zero_constraints;
     AffineConstraints<double> nonzero_constraints;
     AffineConstraints<double> lambda_constraints;
+    AffineConstraints<double> velocity_constraints;
 
     // The global index of the pressure DoF to constrain to the value
     // of the manufactured solution.
@@ -1205,6 +1285,7 @@ namespace NS_MMS
     // The id of the boundary where weak Dirichlet BC are prescribed
     // for the velocity
     unsigned int weak_bc_boundary_id;
+    unsigned int mesh_velocity_error_boundary_id;
 
     LA::MPI::SparseMatrix system_matrix;
 
@@ -1248,12 +1329,16 @@ namespace NS_MMS
     double l2_err_p;
     double l2_err_x;
     double l2_err_w;
+    double l2_err_w_boundary;
+    double l2_err_u_boundary;
     double l2_err_l;
     // Linf in space and time
     double linf_error_u;
     double linf_error_p;
     double linf_error_x;
     double linf_error_w;
+    double linf_error_w_boundary;
+    double linf_error_u_boundary;
     double linf_error_l;
     double linf_error_Fx;
     double linf_error_Fy;
@@ -1284,6 +1369,7 @@ namespace NS_MMS
     , face_quadrature(QGaussSimplex<dim - 1>(4))
     , triangulation(mpi_communicator)
     , fixed_mapping(new MappingFE<dim>(FE_SimplexP<dim>(1)))
+    , velocity_mapping((param.velocity_mapping_type == VelocityMapping::Reference) ? fixed_mapping : mapping)
     , dof_handler(triangulation)
     , pcout(std::cout, (mpi_rank == 0))
     , computing_timer(mpi_communicator,
@@ -1291,12 +1377,38 @@ namespace NS_MMS
                       TimerOutput::never, // TimerOutput::summary,
                       TimerOutput::wall_times)
     , current_time(param.t0)
-    , solution_fun(Solution<dim>(current_time, n_components, flow_mms, mesh_mms))
-    , source_term_fun(SourceTerm<dim>(current_time, n_components, flow_mms, mesh_mms))
+    , solution_fun(
+        Solution<dim>(current_time, n_components, flow_mms, mesh_mms))
+    , source_term_fun(
+        SourceTerm<dim>(current_time, n_components, flow_mms, mesh_mms))
     , mesh_velocity_fun(MeshVelocity<dim>(current_time, n_components, mesh_mms))
     , solution_at_future_position_fun(
-        SolutionAtFutureMeshPosition<dim>(current_time, n_components, flow_mms, mesh_mms))
-  {}
+        SolutionAtFutureMeshPosition<dim>(current_time,
+                                          n_components,
+                                          flow_mms,
+                                          mesh_mms))
+  {
+    // std::cout << "Règle de quadrature dim-1 : " << std::endl;
+
+    // const std::vector<Point<dim-1>> &points = face_quadrature.get_points();
+
+    // for(auto &p : points)
+    //   std::cout << p << std::endl;
+
+    // switch(param.velocity_mapping_type)
+    // {
+    //   case VelocityMapping::Reference:
+    //     // velocity_mapping = std::make_unique(MappingFE<dim>(FE_SimplexP<dim>(1)));
+    //     velocity_mapping = fixed_mapping;
+    //     break;
+    //   case VelocityMapping::Current:
+    //     velocity_mapping = mapping;
+    //     // Do nothing for now,
+    //     // current mapping will be initialized when the MappingFEField
+    //     // is created
+    //     break;
+    // }
+  }
 
   template <int dim>
   void MMS<dim>::set_bdf_coefficients(const unsigned int order)
@@ -1344,8 +1456,9 @@ namespace NS_MMS
     {
       // meshFile = "../data/meshes/square" + std::to_string(iMesh) + ".msh";
       meshFile = "../data/meshes/holed" + std::to_string(iMesh) + ".msh";
-      // meshFile = "../data/meshes/holed_square" + std::to_string(iMesh) + ".msh";
-      // meshFile = "../data/meshes/square_criss_crossed" + std::to_string(iMesh) + ".msh";
+      // meshFile = "../data/meshes/holed_square" + std::to_string(iMesh) +
+      // ".msh"; meshFile = "../data/meshes/square_criss_crossed" +
+      // std::to_string(iMesh) + ".msh";
     }
     else
     {
@@ -1472,6 +1585,19 @@ namespace NS_MMS
       }
       weak_bc_boundary_id = mesh_domains_name2tag.at(str);
     }
+
+    for (auto str : param.mesh_velocity_error_boundary_names)
+    {
+      if (mesh_domains_name2tag.count(str) == 0)
+      {
+        throw std::runtime_error("Mesh velocity error should be "
+                                 "computed on the boundary named \"" +
+                                 str +
+                                 "\", but no physical entity with this name "
+                                 "was read from the mesh file.");
+      }
+      mesh_velocity_error_boundary_id = mesh_domains_name2tag.at(str);
+    }
   }
 
   template <int dim>
@@ -1537,6 +1663,10 @@ namespace NS_MMS
     // Set mapping as a solution-dependent mapping
     mapping = std::make_unique<MappingFEField<dim, dim, LA::MPI::Vector>>(
       dof_handler, evaluation_point, fe.component_mask(position));
+
+    // if(param.velocity_mapping_type == VelocityMapping::Current)
+      // velocity_mapping = std::make_unique<MappingFEField<dim, dim, LA::MPI::Vector>>(
+      //   dof_handler, evaluation_point, fe.component_mask(position));
   }
 
   template <int dim>
@@ -1581,7 +1711,8 @@ namespace NS_MMS
     evaluation_point = newton_update;
 
     // Set velocity with moving mapping
-    VectorTools::interpolate(*mapping,
+    // VectorTools::interpolate(*mapping,
+    VectorTools::interpolate(*velocity_mapping,
                              dof_handler,
                              solution_fun,
                              newton_update,
@@ -1664,7 +1795,7 @@ namespace NS_MMS
     if (locally_owned_dofs.is_element(constrained_pressure_dof))
     {
       // const double pAnalytic =
-      // solution_fun.value(constrained_pressure_support_point, p_lower);
+        // solution_fun.value(constrained_pressure_support_point, p_lower);
       const double pAnalytic = solution_at_future_position_fun.value(
         constrained_pressure_support_point, p_lower);
 
@@ -1808,6 +1939,98 @@ namespace NS_MMS
     pcout << n_constrained_dofs << " lambda DOFs are constrained" << std::endl;
   }
 
+  // template <int dim>
+  // void MMS<dim>::create_fluid_velocity_mesh_velocity_constraints(const
+  // unsigned int boundary_id)
+  // {
+  //   velocity_constraints.clear();
+  //   velocity_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);;
+
+  //   std::vector<types::global_dof_index>
+  //   local_face_dof_indices(fe.n_dofs_per_face());
+
+  //   // To get the physical positions of the DOFs
+  //   // std::vector<Point<dim>> support_points(dof_handler.n_dofs());
+  //   // DoFTools::map_dofs_to_support_points(mapping, dof_handler,
+  //   support_points);
+
+  //   for (const auto &cell : dof_handler.active_cell_iterators())
+  //   {
+  //     if (!cell->is_locally_owned())
+  //       continue;
+
+  //     for (const auto face_no : cell->face_indices())
+  //     {
+  //       if (cell->face(face_no)->at_boundary() &&
+  //       (cell->face(face_no)->boundary_id() == boundary_id))
+  //       {
+  //         cell->face(face_no)->get_dof_indices(local_face_dof_indices);
+
+  //         for(unsigned int i = 0; i < fe.n_dofs_per_face(); ++i)
+  //         {
+  //           const unsigned dof_fluid_velocity = local_face_dof_indices[i];
+
+  //           // Only constrain owned DOFs
+  //           if(!locally_owned_dofs.is_element(dof_fluid_velocity))
+  //             continue;
+
+  //           const unsigned comp_index  = fe.face_system_to_component_index(i,
+  //           face_no).first; const unsigned shape_index =
+  //           fe.face_system_to_component_index(i, face_no).second;
+
+
+  //           // Only constrain fluid velocity
+  //           if(comp_index >= dim)
+  //             continue;
+
+  //           // The associated mesh velocity dof component
+  //           const unsigned int mesh_velocity_comp_index = comp_index + 2 *
+  //           dim + 1;
+
+  //           bool matched = false;
+
+  //           for(unsigned int j = 0; j < fe.n_dofs_per_face(); ++j)
+  //           {
+  //             const unsigned comp_index_j  =
+  //             fe.face_system_to_component_index(j, face_no).first; const
+  //             unsigned shape_index_j = fe.face_system_to_component_index(j,
+  //             face_no).second;
+
+  //             // Find DOFs with matching shape_index
+  //             if(shape_index != shape_index_j)
+  //               continue;
+
+  //             // Find matching mesh_velocity DOF
+  //             if(mesh_velocity_comp_index != comp_index_j)
+  //               continue;
+
+  //             const unsigned dof_mesh_velocity  = local_face_dof_indices[j];
+
+  //             velocity_constraints.add_line(dof_fluid_velocity);
+  //             velocity_constraints.add_entry(dof_fluid_velocity,
+  //             dof_mesh_velocity, 1.0);
+  //             // velocity_constraints.set_inhomogeneity(dof_fluid_velocity,
+  //             0.0); // optional
+
+  //             matched = true;
+
+  //             break;
+  //           }
+
+  //           if(!matched)
+  //           {
+  //             throw std::runtime_error("Could not match a fluid velocity DOF
+  //             with a mesh velocity DOF on the cylinder. "
+  //               "This is probably because mesh velocity is represented with a
+  //               different FE space.");
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
+  //   velocity_constraints.close();
+  // }
+
   template <int dim>
   void MMS<dim>::create_zero_constraints()
   {
@@ -1835,7 +2058,8 @@ namespace NS_MMS
     {
       // This prescribes strong velocity BC at CURRENT mesh position,
       // but the mesh will move...
-      VectorTools::interpolate_boundary_values(*mapping,
+      // VectorTools::interpolate_boundary_values(*mapping,
+      VectorTools::interpolate_boundary_values(*velocity_mapping,
                                                dof_handler,
                                                mesh_domains_name2tag.at(str),
                                                Functions::ZeroFunction<dim>(
@@ -1853,6 +2077,11 @@ namespace NS_MMS
       lambda_constraints,
       AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
       true);
+
+    // zero_constraints.merge(
+    //   velocity_constraints,
+    //   AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
+    //   true);
 
     zero_constraints.close();
   }
@@ -1880,7 +2109,8 @@ namespace NS_MMS
     {
       // This prescribes strong velocity BC at CURRENT mesh position,
       // but the mesh will move...
-      VectorTools::interpolate_boundary_values(*mapping,
+      // VectorTools::interpolate_boundary_values(*mapping,
+      VectorTools::interpolate_boundary_values(*velocity_mapping,
                                                dof_handler,
                                                mesh_domains_name2tag.at(str),
                                                solution_fun,
@@ -1906,6 +2136,11 @@ namespace NS_MMS
       lambda_constraints,
       AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
       true);
+
+    // nonzero_constraints.merge(
+    //   velocity_constraints,
+    //   AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
+    //   true);
 
     nonzero_constraints.close();
   }
@@ -1941,7 +2176,8 @@ namespace NS_MMS
     evaluation_point = local_evaluation_point;
 
     // Set velocity and pressure with moving mapping
-    VectorTools::interpolate(*mapping,
+    // VectorTools::interpolate(*mapping,
+    VectorTools::interpolate(*velocity_mapping,
                              dof_handler,
                              solution_fun,
                              local_evaluation_point,
@@ -2074,7 +2310,7 @@ namespace NS_MMS
       Utilities::MPI::max(max_diff, mpi_communicator);
 
     pcout << "Max difference over all elements is " << global_max_diff
-            << std::endl;
+          << std::endl;
     // throw std::runtime_error("Testing FD");
 #endif
 
@@ -2251,7 +2487,9 @@ namespace NS_MMS
         dudt += bdfCoeffs[i] * scratchData.previous_velocity_values[i - 1][q];
 
       const auto &source_term_velocity = scratchData.source_term_velocity[q];
+      const auto &source_term_pressure = scratchData.source_term_pressure[q];
       const auto &grad_source_velocity = scratchData.grad_source_velocity[q];
+      const auto &grad_source_pressure = scratchData.grad_source_pressure[q];
 
       for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
       {
@@ -2332,7 +2570,7 @@ namespace NS_MMS
             local_matrix_ij +=
               -present_pressure_values * div_phi_u[i] * trace(grad_phi_x[j]);
 
-            // Source term (OK):
+            // Source term for velocity (OK):
             // Variation of the source term integral with mesh position.
             // det J is accounted for at the end when multiplying by JxW(q).
             local_matrix_ij += phi_u[i] * grad_source_velocity * phi_x[j];
@@ -2353,6 +2591,11 @@ namespace NS_MMS
               -trace(-present_velocity_gradients * grad_phi_x[j]) * phi_p[i];
             local_matrix_ij +=
               -present_velocity_divergence * phi_p[i] * trace(grad_phi_x[j]);
+
+            // Source term for pressure:
+            local_matrix_ij += phi_p[i] * grad_source_pressure * phi_x[j];
+            local_matrix_ij +=
+              source_term_pressure * phi_p[i] * trace(grad_phi_x[j]);
           }
 
           local_matrix_ij *= JxW;
@@ -2381,28 +2624,30 @@ namespace NS_MMS
         {
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
-            const double JxW  = scratchData.face_JxW[i_face][q];
-            const double W    = face_quadrature.weight(q);
+            const double JxW = scratchData.face_JxW[i_face][q];
+            // const double W   = face_quadrature.weight(q);
             // const auto  &dXds = scratchData.face_dXds[i_face][q];
 
-            const auto &phi_u      = scratchData.phi_u_face[i_face][q];
-            const auto &phi_x      = scratchData.phi_x_face[i_face][q];
-            const auto &grad_phi_x = scratchData.grad_phi_x_face[i_face][q];
-            const auto &phi_l      = scratchData.phi_l_face[i_face][q];
+            const auto &phi_u = scratchData.phi_u_face[i_face][q];
+            const auto &phi_x = scratchData.phi_x_face[i_face][q];
+            // const auto &grad_phi_x = scratchData.grad_phi_x_face[i_face][q];
+            const auto &phi_l = scratchData.phi_l_face[i_face][q];
 
             const auto &present_u =
               scratchData.present_face_velocity_values[i_face][q];
-            const auto &present_w = 
+            const auto &present_w =
               scratchData.present_face_mesh_velocity_values[i_face][q];
             const auto &present_l =
               scratchData.present_face_lambda_values[i_face][q];
-            const auto &present_grad_x =
-              scratchData.present_face_position_gradient[i_face][q];
+            // const auto &present_grad_x =
+            //   scratchData.present_face_position_gradient[i_face][q];
 
+#if !defined(NO_SLIP_ON_CYLINDER)
             const auto &prescribed_velocity_weak_bc =
               scratchData.prescribed_velocity_weak_bc[i_face][q];
             const auto &grad_solution_velocity =
               scratchData.grad_solution_velocity[i_face][q];
+#endif
 
             for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
             {
@@ -2438,15 +2683,16 @@ namespace NS_MMS
 
                 if (i_is_l && j_is_x)
                 {
-                #if defined(NO_SLIP_ON_CYLINDER)
+#if defined(NO_SLIP_ON_CYLINDER)
                   local_matrix_ij += -bdfCoeffs[0] * phi_x[j] * phi_l[i];
-                  local_matrix_ij += (present_u - present_w) * phi_l[i] * delta_dx_j;
-                #else
+                  local_matrix_ij +=
+                    (present_u - present_w) * phi_l[i] * delta_dx_j;
+#else
                   local_matrix_ij +=
                     -grad_solution_velocity * phi_x[j] * phi_l[i];
                   local_matrix_ij += (present_u - prescribed_velocity_weak_bc) *
                                      phi_l[i] * delta_dx_j;
-                #endif
+#endif
                 }
 
                 local_matrix_ij *= JxW;
@@ -2673,6 +2919,7 @@ namespace NS_MMS
       const auto &present_mesh_velocity_values =
         scratchData.present_mesh_velocity_values[q];
       const auto  &source_term_velocity = scratchData.source_term_velocity[q];
+      const auto  &source_term_pressure = scratchData.source_term_pressure[q];
       const double present_velocity_divergence =
         trace(present_velocity_gradients);
 
@@ -2710,7 +2957,10 @@ namespace NS_MMS
             + source_term_velocity * phi_u[i]
 
             // Continuity (OK)
-            - present_velocity_divergence * phi_p[i]) *
+            - present_velocity_divergence * phi_p[i]
+
+            // Pressure source term
+            + source_term_pressure * phi_p[i]) *
           JxW;
 
         // Transient terms:
@@ -2747,8 +2997,10 @@ namespace NS_MMS
             const auto &present_l =
               scratchData.present_face_lambda_values[i_face][q];
 
+#if !defined(NO_SLIP_ON_CYLINDER)
             const auto &prescribed_velocity_weak_bc =
               scratchData.prescribed_velocity_weak_bc[i_face][q];
+#endif
 
             for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
             {
@@ -2763,23 +3015,24 @@ namespace NS_MMS
 
               if (i_is_l)
               {
-              #if defined(NO_SLIP_ON_CYLINDER)
+#if defined(NO_SLIP_ON_CYLINDER)
                 local_rhs(i) -= (present_u - present_w) * phi_l[i] * JxW;
-              #else
+#else
                 // Manufactured velocity on cylinder
-                local_rhs(i) -= (present_u - prescribed_velocity_weak_bc) * phi_l[i] * JxW;
-              #endif
+                local_rhs(i) -=
+                  (present_u - prescribed_velocity_weak_bc) * phi_l[i] * JxW;
+#endif
               }
 
               /////////////////////////////////////////////////////
               // if (i_is_l)
               // {
               //   // Test with boundary element length/area:
-              //   // local_rhs(i) -= sqrt(determinant(scratchData.face_G[i_face][q])) * W;
+              //   // local_rhs(i) -=
+              //   sqrt(determinant(scratchData.face_G[i_face][q])) * W;
               //   // local_rhs(i) -= JxW;
               // }
               /////////////////////////////////////////////////////
-
             }
           }
         }
@@ -3064,18 +3317,36 @@ namespace NS_MMS
                              data_component_interpretation);
     //////////////////////////////////////////
 
-    // Plot exact solution
+    // Plot exact solution.
+    // The exact mesh position is rarely useful,
+    // instead display the exact mesh velocity in the same solution array.
     std::vector<std::string> exact_solution_names(dim, "exact_velocity");
     exact_solution_names.push_back("exact_pressure");
     for (unsigned int d = 0; d < dim; ++d)
-      exact_solution_names.push_back("exact_mesh_position");
+      // exact_solution_names.push_back("exact_mesh_position");
+      exact_solution_names.push_back("exact_mesh_velocity");
     for (unsigned int d = 0; d < dim; ++d)
       exact_solution_names.push_back("exact_lambda");
 
+    // Start by evaluating fields on moving mapping
     VectorTools::interpolate(*mapping,
                              dof_handler,
                              solution_fun,
                              exact_solution);
+    // Evaluate position on fixed mapping
+    VectorTools::interpolate(*fixed_mapping,
+                             dof_handler,
+                             mesh_velocity_fun,
+                             exact_solution,
+                             fe.component_mask(position));
+    // Evaluate velocity on velocity mapping
+    const FEValuesExtractors::Vector velocity(u_lower);
+    VectorTools::interpolate(*velocity_mapping,
+                             dof_handler,
+                             solution_fun,
+                             exact_solution,
+                             fe.component_mask(velocity));
+
     data_out.add_data_vector(exact_solution,
                              exact_solution_names,
                              DataOut<dim>::type_dof_data,
@@ -3101,18 +3372,18 @@ namespace NS_MMS
   void
   MMS<dim>::compute_lambda_error_on_boundary(const unsigned int boundary_id,
                                              double            &lambda_l2_error,
-                                             double &lambda_linf_error,
+                                             double         &lambda_linf_error,
                                              Tensor<1, dim> &error_on_integral)
   {
     double lambda_l2_local   = 0;
     double lambda_linf_local = 0;
 
-    Tensor<1, dim> lambda_integral, exact_integral, lambda_integral_local, exact_integral_local;
+    Tensor<1, dim> lambda_integral, exact_integral, lambda_integral_local,
+      exact_integral_local;
     lambda_integral_local = 0;
-    exact_integral_local = 0;
+    exact_integral_local  = 0;
 
     const FEValuesExtractors::Vector lambda(l_lower);
-    const unsigned int n_components = dof_handler.get_fe().n_components();
 
     FEFaceValues<dim> fe_face_values(*mapping,
                                      fe,
@@ -3159,7 +3430,7 @@ namespace NS_MMS
 
             // Increment the integral of lambda
             lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
-            exact_integral_local  += exact * fe_face_values.JxW(q);
+            exact_integral_local += exact * fe_face_values.JxW(q);
           }
         }
       }
@@ -3171,12 +3442,112 @@ namespace NS_MMS
     lambda_linf_error =
       Utilities::MPI::max(lambda_linf_local, mpi_communicator);
 
-    for(unsigned int d = 0; d < dim; ++d)
+    for (unsigned int d = 0; d < dim; ++d)
     {
-      lambda_integral[d] = Utilities::MPI::sum(lambda_integral_local[d], mpi_communicator);
-      exact_integral[d]  = Utilities::MPI::sum(exact_integral_local[d], mpi_communicator);
+      lambda_integral[d] =
+        Utilities::MPI::sum(lambda_integral_local[d], mpi_communicator);
+      exact_integral[d] =
+        Utilities::MPI::sum(exact_integral_local[d], mpi_communicator);
       error_on_integral[d] = std::abs(lambda_integral[d] - exact_integral[d]);
     }
+  }
+
+  template <int dim>
+  void MMS<dim>::compute_mesh_velocity_error_on_boundary(
+    const unsigned int boundary_id,
+    double            &l2_error_dxdt,
+    double            &linf_error_dxdt,
+    double            &l2_error_fluid_velocity,
+    double            &linf_error_fluid_velocity)
+  {
+    double l2_local_dxdt   = 0;
+    double linf_local_dxdt = 0;
+    double l2_local_fluid   = 0;
+    double linf_local_fluid = 0;
+
+    const FEValuesExtractors::Vector velocity(u_lower);
+    const FEValuesExtractors::Vector position(x_lower);
+
+    FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
+                                     fe,
+                                     face_quadrature,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values);
+    FEFaceValues<dim> fe_face_values(*velocity_mapping,
+                                     fe,
+                                     face_quadrature,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values);
+
+    const unsigned int n_faces_q_points = face_quadrature.size();
+    std::vector<std::vector<Tensor<1, dim>>> position_values(
+      bdfCoeffs.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
+    std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
+    std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
+    Tensor<1, dim>              diff, diff_fluid, exact;
+
+    for (auto cell : dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+
+      for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
+      {
+        const auto &face = cell->face(i_face);
+
+        if (face->at_boundary() && face->boundary_id() == boundary_id)
+        {
+          fe_face_values_fixed.reinit(cell, i_face);
+          fe_face_values.reinit(cell, i_face);
+
+          // Get current and previous FE solution values on the face
+          fe_face_values[velocity].get_function_values(present_solution,
+                                                       fluid_velocity_values);
+          fe_face_values_fixed[position].get_function_values(present_solution,
+                                                       position_values[0]);
+          for (unsigned int iBDF = 1; iBDF < bdfCoeffs.size(); ++iBDF)
+            fe_face_values_fixed[position].get_function_values(
+              previous_solutions[iBDF - 1], position_values[iBDF]);
+
+          // Evaluate exact solution at quadrature points
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            // Compute FE mesh velocity at node
+            mesh_velocity_values[q] = 0;
+            for (unsigned int iBDF = 0; iBDF < bdfCoeffs.size(); ++iBDF)
+              mesh_velocity_values[q] +=
+                bdfCoeffs[iBDF] * position_values[iBDF][q];
+
+            const Point<dim> &qpoint = fe_face_values_fixed.quadrature_point(q);
+
+            for (unsigned int d = 0; d < dim; ++d)
+              exact[d] = mesh_velocity_fun.value(qpoint, x_lower + d);
+
+            diff = mesh_velocity_values[q] - exact;
+            diff_fluid = fluid_velocity_values[q] - exact;
+
+            // std::cout << "dxdt sur le bord: " << mesh_velocity_values[q] << std::endl;
+            // std::cout << "u    sur le bord: " << fluid_velocity_values[q] << std::endl;
+
+            // w_exact - dx_h/dt
+            l2_local_dxdt += diff * diff * fe_face_values_fixed.JxW(q);
+            linf_local_dxdt = std::max(linf_local_dxdt, std::abs(diff.norm()));
+
+            // w_exact - u_h
+            l2_local_fluid += diff_fluid * diff_fluid * fe_face_values.JxW(q);
+            linf_local_fluid = std::max(linf_local_fluid, std::abs(diff_fluid.norm()));
+          }
+        }
+      }
+    }
+
+    l2_error_dxdt   = Utilities::MPI::sum(l2_local_dxdt, mpi_communicator);
+    l2_error_dxdt   = std::sqrt(l2_error_dxdt);
+    linf_error_dxdt = Utilities::MPI::max(linf_local_dxdt, mpi_communicator);
+
+    l2_error_fluid_velocity   = Utilities::MPI::sum(l2_local_fluid, mpi_communicator);
+    l2_error_fluid_velocity   = std::sqrt(l2_error_fluid_velocity);
+    linf_error_fluid_velocity = Utilities::MPI::max(linf_local_fluid, mpi_communicator);
   }
 
   template <int dim>
@@ -3198,7 +3569,7 @@ namespace NS_MMS
     Vector<double> cellwise_errors(n_active_cells);
 
     // Choose another quadrature rule for error computation
-    const unsigned int n_points_1D = (dim == 2) ? 6 : 5;
+    const unsigned int                  n_points_1D = (dim == 2) ? 6 : 5;
     const QWitherdenVincentSimplex<dim> err_quadrature(n_points_1D);
 
     //
@@ -3206,7 +3577,7 @@ namespace NS_MMS
     //
 
     // u
-    VectorTools::integrate_difference(*mapping,
+    VectorTools::integrate_difference(*velocity_mapping,
                                       dof_handler,
                                       present_solution,
                                       solution_fun,
@@ -3273,7 +3644,8 @@ namespace NS_MMS
     bool compute_mesh_velocity_error =
       !(param.bdf_order == 2 && time_step == 0);
 
-    double w_linf = 0.;
+    double w_linf = 0., w_l2_boundary = 0., w_linf_boundary = 0.;
+    double u_l2_boundary = 0., u_linf_boundary = 0.;
     if (compute_mesh_velocity_error)
     {
       // Error on mesh velocity
@@ -3289,6 +3661,15 @@ namespace NS_MMS
                                                  cellwise_errors,
                                                  VectorTools::Linfty_norm);
       linf_error_w = std::max(linf_error_w, w_linf);
+
+      // Mesh velocity on boundary
+      this->compute_mesh_velocity_error_on_boundary(mesh_velocity_error_boundary_id,
+                                                    w_l2_boundary,
+                                                    w_linf_boundary,
+                                                    u_l2_boundary,
+                                                    u_linf_boundary);
+      linf_error_w_boundary = std::max(linf_error_w_boundary, w_linf_boundary);
+      linf_error_u_boundary = std::max(linf_error_u_boundary, u_linf_boundary);
     }
 
     //
@@ -3296,7 +3677,7 @@ namespace NS_MMS
     //
 
     // u
-    VectorTools::integrate_difference(*mapping,
+    VectorTools::integrate_difference(*velocity_mapping,
                                       dof_handler,
                                       present_solution,
                                       solution_fun,
@@ -3375,6 +3756,8 @@ namespace NS_MMS
     l2_err_p += param.dt * p_l2_error;
     l2_err_x += param.dt * x_l2_error;
     l2_err_w += param.dt * w_l2_error;
+    l2_err_w_boundary += param.dt * w_l2_boundary;
+    l2_err_u_boundary += param.dt * u_l2_boundary;
     l2_err_l += param.dt * l_l2_error;
 
     if (VERBOSE)
@@ -3385,18 +3768,24 @@ namespace NS_MMS
             << "||e_p||_L2 = " << p_l2_error << " - "
             << "||e_x||_L2 = " << x_l2_error << " - "
             << "||e_w||_L2 = " << w_l2_error << " - "
+            << "||w_C||_L2 = " << w_l2_boundary << " - "
+            << "||u_C||_L2 = " << u_l2_boundary << " - "
             << "||e_l||_L2 = " << l_l2_error << std::endl;
       pcout << "Cumul.  L2 errors: "
             << "||e_u||_L2 = " << l2_err_u << " - "
             << "||e_p||_L2 = " << l2_err_p << " - "
             << "||e_x||_L2 = " << l2_err_x << " - "
             << "||e_w||_L2 = " << l2_err_w << " - "
+            << "||w_C||_L2 = " << l2_err_w_boundary << " - "
+            << "||u_C||_L2 = " << l2_err_u_boundary << " - "
             << "||e_l||_L2 = " << l2_err_l << std::endl;
       pcout << "Current Li errors: "
             << "||e_u||_Li = " << u_linf << " - "
             << "||e_p||_Li = " << p_linf << " - "
             << "||e_x||_Li = " << x_linf << " - "
             << "||e_w||_Li = " << w_linf << " - "
+            << "||w_C||_Li = " << w_linf_boundary << " - "
+            << "||u_C||_Li = " << u_linf_boundary << " - "
             << "||e_l||_Li = " << l_linf << " - "
             << "      e_Fx = " << error_on_integral[0] << " - "
             << "      e_Fy = " << error_on_integral[1] << std::endl;
@@ -3405,10 +3794,11 @@ namespace NS_MMS
             << "||e_p||_Li = " << linf_error_p << " - "
             << "||e_x||_Li = " << linf_error_x << " - "
             << "||e_w||_Li = " << linf_error_w << " - "
+            << "||w_C||_Li = " << linf_error_w_boundary << " - "
+            << "||u_C||_Li = " << linf_error_u_boundary << " - "
             << "||e_l||_Li = " << linf_error_l << " - "
             << "||eFx||_Li = " << linf_error_Fx << " - "
             << "||eFy||_Li = " << linf_error_Fy << std::endl;
-
     }
   }
 
@@ -3422,18 +3812,22 @@ namespace NS_MMS
     triangulation.clear();
 
     // Errors
-    linf_error_u = 0.;
-    linf_error_p = 0.;
-    linf_error_x = 0.;
-    linf_error_w = 0.;
-    linf_error_l = 0.;
-    linf_error_Fx = 0.;
-    linf_error_Fy = 0.;
-    l2_err_u     = 0.;
-    l2_err_p     = 0.;
-    l2_err_x     = 0.;
-    l2_err_w     = 0.;
-    l2_err_l     = 0.;
+    linf_error_u          = 0.;
+    linf_error_p          = 0.;
+    linf_error_x          = 0.;
+    linf_error_w          = 0.;
+    linf_error_w_boundary = 0.;
+    linf_error_u_boundary = 0.;
+    linf_error_l          = 0.;
+    linf_error_Fx         = 0.;
+    linf_error_Fy         = 0.;
+    l2_err_u              = 0.;
+    l2_err_p              = 0.;
+    l2_err_x              = 0.;
+    l2_err_w              = 0.;
+    l2_err_w_boundary     = 0.;
+    l2_err_u_boundary     = 0.;
+    l2_err_l              = 0.;
 
     // Constrained pressure DOF
     constrained_pressure_dof = numbers::invalid_dof_index;
@@ -3442,7 +3836,7 @@ namespace NS_MMS
   template <int dim>
   void MMS<dim>::run()
   {
-    unsigned int iMesh        = 1;
+    unsigned int iMesh        = param.starting_mesh;
     unsigned int nConvergence = param.nConvergenceCycles;
 
     if (param.bdf_order == 0)
@@ -3450,14 +3844,8 @@ namespace NS_MMS
       param.nTimeSteps = 1;
     }
 
-    // for (unsigned int iT = 1; iT <= nConvergence;
-      // ++iT, this->param.dt /= 2., this->param.nTimeSteps *= 2.)
-    // for (unsigned int iT = 1; iT <= nConvergence; ++iT, ++iMesh)
-    for (unsigned int iT = 1; iT <= nConvergence;
-    ++iT, ++iMesh, this->param.dt /= 2., this->param.nTimeSteps *= 2.)
+    for (unsigned int iConv = 1; iConv <= nConvergence; ++iConv)
     {
-      // pcout << "Convergence step " << iT << "/" << nConvergence << std::endl;
-
       this->reset();
 
       this->param.prev_dt = this->param.dt;
@@ -3472,12 +3860,13 @@ namespace NS_MMS
       this->make_grid(iMesh);
       this->setup_system();
       this->create_lambda_zero_constraints(weak_bc_boundary_id);
+      // this->create_fluid_velocity_mesh_velocity_constraints(weak_bc_boundary_id);
       this->create_zero_constraints();
       this->create_nonzero_constraints();
       this->create_sparsity_pattern();
       this->set_initial_condition();
 
-      this->output_results(iT, 0);
+      this->output_results(iConv, 0);
 
       for (unsigned int i = 0; i < param.nTimeSteps; ++i)
       {
@@ -3517,7 +3906,7 @@ namespace NS_MMS
         // this->set_exact_solution();
 
         this->compute_errors(i);
-        this->output_results(iT, i + 1);
+        this->output_results(iConv, i + 1);
 
         // Rotate solutions
         if (param.bdf_order > 0)
@@ -3539,10 +3928,26 @@ namespace NS_MMS
       convergence_table.add_value("Li_x", linf_error_x);
       convergence_table.add_value("L2_w", l2_err_w);
       convergence_table.add_value("Li_w", linf_error_w);
+      convergence_table.add_value("L2_wC", l2_err_w_boundary);
+      convergence_table.add_value("Li_wC", linf_error_w_boundary);
+      convergence_table.add_value("L2_uC", l2_err_u_boundary);
+      convergence_table.add_value("Li_uC", linf_error_u_boundary);
       convergence_table.add_value("L2_l", l2_err_l);
       convergence_table.add_value("Li_l", linf_error_l);
       convergence_table.add_value("e_Fx", linf_error_Fx);
       convergence_table.add_value("e_Fy", linf_error_Fy);
+
+      if (param.type_of_convergence_study == ConvergenceStudy::TIME ||
+          param.type_of_convergence_study == ConvergenceStudy::TIME_AND_SPACE)
+      {
+        this->param.dt /= 2.;
+        this->param.nTimeSteps *= 2.;
+      }
+      if (param.type_of_convergence_study == ConvergenceStudy::SPACE ||
+          param.type_of_convergence_study == ConvergenceStudy::TIME_AND_SPACE)
+      {
+        ++iMesh;
+      }
     }
 
     convergence_table.evaluate_convergence_rates(
@@ -3554,6 +3959,10 @@ namespace NS_MMS
     convergence_table.evaluate_convergence_rates(
       "L2_w", ConvergenceTable::reduction_rate_log2);
     convergence_table.evaluate_convergence_rates(
+      "L2_wC", ConvergenceTable::reduction_rate_log2);
+    convergence_table.evaluate_convergence_rates(
+      "L2_uC", ConvergenceTable::reduction_rate_log2);
+    convergence_table.evaluate_convergence_rates(
       "L2_l", ConvergenceTable::reduction_rate_log2);
     convergence_table.evaluate_convergence_rates(
       "Li_u", ConvergenceTable::reduction_rate_log2);
@@ -3563,6 +3972,10 @@ namespace NS_MMS
       "Li_x", ConvergenceTable::reduction_rate_log2);
     convergence_table.evaluate_convergence_rates(
       "Li_w", ConvergenceTable::reduction_rate_log2);
+    convergence_table.evaluate_convergence_rates(
+      "Li_wC", ConvergenceTable::reduction_rate_log2);
+    convergence_table.evaluate_convergence_rates(
+      "Li_uC", ConvergenceTable::reduction_rate_log2);
     convergence_table.evaluate_convergence_rates(
       "Li_l", ConvergenceTable::reduction_rate_log2);
     convergence_table.evaluate_convergence_rates(
@@ -3575,11 +3988,15 @@ namespace NS_MMS
     convergence_table.set_precision("L2_p", 4);
     convergence_table.set_precision("L2_x", 4);
     convergence_table.set_precision("L2_w", 4);
+    convergence_table.set_precision("L2_wC", 4);
+    convergence_table.set_precision("L2_uC", 4);
     convergence_table.set_precision("L2_l", 4);
     convergence_table.set_precision("Li_u", 4);
     convergence_table.set_precision("Li_p", 4);
     convergence_table.set_precision("Li_x", 4);
     convergence_table.set_precision("Li_w", 4);
+    convergence_table.set_precision("Li_wC", 4);
+    convergence_table.set_precision("Li_uC", 4);
     convergence_table.set_precision("Li_l", 4);
     convergence_table.set_precision("e_Fx", 4);
     convergence_table.set_precision("e_Fy", 4);
@@ -3587,11 +4004,15 @@ namespace NS_MMS
     convergence_table.set_scientific("L2_p", true);
     convergence_table.set_scientific("L2_x", true);
     convergence_table.set_scientific("L2_w", true);
+    convergence_table.set_scientific("L2_wC", true);
+    convergence_table.set_scientific("L2_uC", true);
     convergence_table.set_scientific("L2_l", true);
     convergence_table.set_scientific("Li_u", true);
     convergence_table.set_scientific("Li_p", true);
     convergence_table.set_scientific("Li_x", true);
     convergence_table.set_scientific("Li_w", true);
+    convergence_table.set_scientific("Li_wC", true);
+    convergence_table.set_scientific("Li_uC", true);
     convergence_table.set_scientific("Li_l", true);
     convergence_table.set_scientific("e_Fx", true);
     convergence_table.set_scientific("e_Fy", true);
@@ -3616,8 +4037,6 @@ int main(int argc, char *argv[])
 
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
 
-    const unsigned int rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
-
     SimulationParameters param;
 
     param.velocity_degree = 2;
@@ -3626,8 +4045,10 @@ int main(int argc, char *argv[])
 
     const bool with_weak_velocity_bc = true;
 
-    param.position_boundary_names = {"OuterBoundary", "InnerBoundary"};
-    if(with_weak_velocity_bc)
+    param.position_boundary_names            = {"OuterBoundary", "InnerBoundary"};
+    param.mesh_velocity_error_boundary_names = {"InnerBoundary"};
+
+    if (with_weak_velocity_bc)
     {
       param.strong_velocity_boundary_names = {"OuterBoundary"};
       param.weak_velocity_boundary_names   = {"InnerBoundary"};
@@ -3645,66 +4066,107 @@ int main(int argc, char *argv[])
     // Time integration
     param.bdf_order  = 1;
     param.t0         = 0.;
-    param.dt         = 0.1;
-    param.nTimeSteps = 11;
+    param.dt         = 0.05;
+    param.nTimeSteps = 10;
     param.t1         = param.dt * param.nTimeSteps;
 
-    param.nConvergenceCycles = 2;
+    // param.type_of_convergence_study = ConvergenceStudy::TIME;
+    // param.type_of_convergence_study = ConvergenceStudy::SPACE;
+    param.type_of_convergence_study = ConvergenceStudy::TIME_AND_SPACE;
+    param.nConvergenceCycles  = 3;
+    param.starting_mesh       = 1;
 
     VERBOSE = true;
 
     const unsigned int dim = 2;
 
-    // MMS for the flow
-    // Possible time dependences G(t)
-    std::vector<TimeDependenceBase *> time_functions;
-    // time_functions.push_back(new ConstantTimeDep);
-    // time_functions.push_back(new PowerTimeDep(1));
-    // time_functions.push_back(new PowerTimeDep(2));
-    time_functions.push_back(new PowerTimeDep(3));
-    // time_functions.push_back(new SineTimeDep);
+    // No mesh movement
+    // {
+    //   const SineTimeDep mesh_time_function(0.);
+    //   const QuadraticMeshPosition<dim>
+    //   mesh_position_mms(mesh_time_function);
 
-    for (unsigned int iTest = 0; iTest < time_functions.size(); ++iTest)
+    //   MMS<dim> problem(param, flow_mms, mesh_position_mms);
+    //   problem.run();
+    // }
+
+    // With mesh movement
     {
-      // const FlowA<2> flow_mms(*time_functions[iTest]);
-      // const FlowB<2> flow_mms(*time_functions[iTest]);
-      // const FlowC<2> flow_mms(*time_functions[iTest]);
-      // const FlowD<dim> flow_mms(*time_functions[iTest]);
-
-      // const double          dpdx = 1.;
-      // const Poiseuille<dim> flow_mms(*time_functions[iTest],
+      // const SineTimeDep mesh_time_function(1./4.);
+      // const QuadraticMeshPosition<dim>
+      // mesh_position_mms(mesh_time_function); const PowerTimeDep
+      // flow_time_function(3); const double          dpdx = 1.; const
+      // Poiseuille<dim> flow_mms(flow_time_function,
       //                                dpdx,
       //                                param.viscosity);
 
-      // No mesh movement
-      // {
-      //   const SineTimeDep mesh_position_time_function(0.);
-      //   const QuadraticMeshPosition<dim> mesh_position_mms(mesh_position_time_function);
+      // Constant mesh - Zero flow
+      // const double       C = 1.;
+      // const ConstantTimeDep mesh_time_function(C);
+      // const ConstantTimeDep flow_time_function(0.);
+      // mesh_time_function.check_dependency(flow_time_function);
 
-      //   MMS<dim> problem(param, flow_mms, mesh_position_mms);
-      //   problem.run();
-      // }
+      // Linear mesh - Constant flow
+      // const PowerTimeDep    mesh_time_function(1. / 4., 1);
+      // const ConstantTimeDep flow_time_function(1. / 4.);
+      // mesh_time_function.check_dependency(flow_time_function);
 
-      // With mesh movement
-      {
-        // const SineTimeDep mesh_position_time_function(1./4.);
-        // const QuadraticMeshPosition<dim> mesh_position_mms(mesh_position_time_function);
+      // Quartic mesh - Cubic flow
+      // const PowerTimeDep mesh_time_function(1., 4);
+      // const PowerTimeDep flow_time_function(4., 3);
+      // mesh_time_function.check_dependency(flow_time_function);
 
-        const SineTimeDep mesh_position_time_function(1./40.);
-        const DivergenceFreeMeshPosition<dim> mesh_position_mms(mesh_position_time_function);
+      // Sin mesh - Cos flow
+      const SineTimeDep   mesh_time_function(1./2.);
+      const CosineTimeDep flow_time_function(2. * M_PI * 1./2.);
+      mesh_time_function.check_dependency(flow_time_function);
 
-        const CosineTimeDep flow_time_function(2. * M_PI * 1./40.);
-        mesh_position_time_function.check_dependency(flow_time_function);
-        const DisplacementTimeDerivative<dim> flow_mms(flow_time_function);
+      // const double       C = 1. / 10.;
+      // const PowerTimeDep mesh_time_function(C, 3);
+      // const PowerTimeDep flow_time_function(3. * C, 2);
+      // mesh_time_function.check_dependency(flow_time_function);
 
-        // const double          dpdx = 1.;
-        // const Poiseuille<dim> flow_mms(flow_time_function,
-        //                                dpdx,
-        //                                param.viscosity);
+      // const DivergenceFreeMeshPosition<dim>
+      // mesh_position_mms(mesh_time_function); const
+      // DisplacementTimeDerivative<dim> flow_mms(flow_time_function);
 
-        MMS<dim> problem(param, flow_mms, mesh_position_mms);
-        problem.run();
-      }
+      // const QuadraticMeshPosition<dim> mesh_position_mms(mesh_time_function);
+      // const QuadraticFlow<dim> flow_mms(flow_time_function);
+      // const double dpdx = -1.;
+      // const Poiseuille<dim> flow_mms(flow_time_function,
+                                     // dpdx,
+                                     // param.viscosity);
+
+      const Point<dim> center(0.5, 0.5);
+      const double R0 = 0.15;
+      const double R1 = 0.35;
+      Tensor<1, dim> translation;
+      translation = 0;
+      translation[0] = 0.1;
+      translation[1] = 0.1;
+      
+      // Specify that the velocity should be evaluated on the reference
+      // configuration (initial mesh).
+      // This is because the velocity MMS uses the same functions as the
+      // mesh position MMS, which is a Lagrangian description.
+      // param.velocity_mapping_type = VelocityMapping::Reference;
+      param.velocity_mapping_type = VelocityMapping::Current;
+
+      const RigidMeshPosition<dim> mesh_position_mms(mesh_time_function,
+                                                     center,
+                                                     R0,
+                                                     R1,
+                                                     translation);
+      const RigidFlow<dim> flow_mms(flow_time_function,
+                                    mesh_time_function,
+                                             center,
+                                             R0,
+                                             R1,
+                                             translation);
+      // const ConstantFlow<dim> flow_mms(flow_time_function, translation);
+
+      MMS<dim> problem(param, flow_mms, mesh_position_mms);
+      problem.run();
     }
   }
   catch (const std::exception &exc)

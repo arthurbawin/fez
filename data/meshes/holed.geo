@@ -1,24 +1,27 @@
 // Parameters
-L = 1.0;       // square side
+X0 = 10.;
+Y0 = 10.;
+Lx = 5.0;      
+Ly = 1.0;
 R = 0.15;       // circle radius
 lc = 0.25;     // mesh size
 
 // -----------------------------------------------------------------------------
 // Points
 // Square corners
-Point(1) = {0, 0, 0, lc};
-Point(2) = {L, 0, 0, lc};
-Point(3) = {L, L, 0, lc};
-Point(4) = {0, L, 0, lc};
+Point(1) = {X0 + 0, Y0 + 0, 0, lc};
+Point(2) = {X0 + Lx, Y0 + 0, 0, lc};
+Point(3) = {X0 + Lx, Y0 + Ly, 0, lc};
+Point(4) = {X0 + 0, Y0 + Ly, 0, lc};
 
 // Circle center
-Point(9) = {L/2, L/2, 0, lc};
+Point(9) = {X0 + Lx/2, Y0 + Ly/2, 0, lc};
 
 // Circle points (4 points)
-Point(5) = {L/2+R, L/2, 0, lc};
-Point(6) = {L/2, L/2+R, 0, lc};
-Point(7) = {L/2-R, L/2, 0, lc};
-Point(8) = {L/2, L/2-R, 0, lc};
+Point(5) = {X0 + Lx/2+R, Y0 + Ly/2, 0, lc};
+Point(6) = {X0 + Lx/2,   Y0 + Ly/2+R, 0, lc};
+Point(7) = {X0 + Lx/2-R, Y0 + Ly/2, 0, lc};
+Point(8) = {X0 + Lx/2,   Y0 + Ly/2-R, 0, lc};
 
 // -----------------------------------------------------------------------------
 // Lines

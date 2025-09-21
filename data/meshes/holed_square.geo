@@ -1,19 +1,21 @@
 // Parameters
+X0 = 10.;
+Y0 = 10.;
 L = 1.0;       // outer square side
 R = 0.15;       // half side of inner square
 lc = 0.25;     // mesh size
 
 // -----------------------------------------------------------------------------
 // Outer square points
-Point(1) = {0, 0, 0, lc};
-Point(2) = {L, 0, 0, lc};
-Point(3) = {L, L, 0, lc};
-Point(4) = {0, L, 0, lc};
+Point(1) = {X0 + 0, Y0 + 0, 0, lc};
+Point(2) = {X0 + L, Y0 + 0, 0, lc};
+Point(3) = {X0 + L, Y0 + L, 0, lc};
+Point(4) = {X0 + 0, Y0 + L, 0, lc};
 
 // -----------------------------------------------------------------------------
 // Inner square points (centered at L/2,L/2)
-xc = L/2;
-yc = L/2;
+xc = X0 + L/2;
+yc = Y0 + L/2;
 Point(5) = {xc-R, yc-R, 0, lc};
 Point(6) = {xc+R, yc-R, 0, lc};
 Point(7) = {xc+R, yc+R, 0, lc};
@@ -42,5 +44,5 @@ Plane Surface(1) = {1,2};    // annular domain (square minus inner square)
 // -----------------------------------------------------------------------------
 // Physical groups
 Physical Surface("Domain") = {1};
-Physical Curve("SquareBoundary") = {1,2,3,4};
+Physical Curve("OuterBoundary") = {1,2,3,4};
 Physical Curve("InnerBoundary") = {5,6,7,8};

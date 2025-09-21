@@ -11,7 +11,7 @@ namespace ManufacturedSolution
 
   /**
    * Functions used to define the rigid displacement MMS
-   * 
+   *
    */
   double S_quintic(const double x)
   {
@@ -20,67 +20,90 @@ namespace ManufacturedSolution
 
   double dS_quintic(const double x)
   {
-    return 30. * (x-1.)*(x-1.) * x*x;
+    return 30. * (x - 1.) * (x - 1.) * x * x;
   }
 
   double d2S_quintic(const double x)
   {
-    return 60. * x * (2.*x*x - 3.*x + 1.);
+    return 60. * x * (2. * x * x - 3. * x + 1.);
   }
 
   /**
-   * Radial kernel 
+   * Radial kernel
    */
   template <int dim>
-  double kernel_fun(const Point<dim> &p, const Point<dim> &center, const double R0, const double R1)
+  double kernel_fun(const Point<dim> &p,
+                    const Point<dim> &center,
+                    const double      R0,
+                    const double      R1)
   {
     const double r = (p - center).norm();
-    if(r <= R0)
+    if (r <= R0)
       return 1.;
-    if(R0 < r && r <= R1)
-      return 1. - S_quintic((r - R0)/(R1 - R0));
+    if (R0 < r && r <= R1)
+      return 1. - S_quintic((r - R0) / (R1 - R0));
     else
       return 0.;
   }
 
   template <int dim>
-  double dr_kernel(const Point<dim> &p, const Point<dim> &center, const double R0, const double R1)
+  double dr_kernel(const Point<dim> &p,
+                   const Point<dim> &center,
+                   const double      R0,
+                   const double      R1)
   {
     const double r = (p - center).norm();
-    if(R0 < r && r <= R1)
-      return - dS_quintic((r - R0)/(R1 - R0)) / (R1 - R0);
+    if (R0 < r && r <= R1)
+      return -dS_quintic((r - R0) / (R1 - R0)) / (R1 - R0);
     else
       return 0.;
   }
 
   template <int dim>
-  double d2r_kernel(const Point<dim> &p, const Point<dim> &center, const double R0, const double R1)
+  double d2r_kernel(const Point<dim> &p,
+                    const Point<dim> &center,
+                    const double      R0,
+                    const double      R1)
   {
     const double r = (p - center).norm();
-    if(R0 < r && r <= R1)
-      return - d2S_quintic((r - R0)/(R1 - R0)) / (R1 - R0) / (R1 - R0);
+    if (R0 < r && r <= R1)
+      return -d2S_quintic((r - R0) / (R1 - R0)) / (R1 - R0) / (R1 - R0);
     else
       return 0.;
   }
 
   template <int dim>
-  double dxi_kernel(const Point<dim> &p, const Point<dim> &center, const double R0, const double R1, const unsigned int component)
+  double dxi_kernel(const Point<dim>  &p,
+                    const Point<dim>  &center,
+                    const double       R0,
+                    const double       R1,
+                    const unsigned int component)
   {
     const double r = (p - center).norm();
-    if(r < 1e-14) return 0.;
-    return dr_kernel(p, center, R0, R1) * (p[component] - center[component]) / r;
+    if (r < 1e-14)
+      return 0.;
+    return dr_kernel(p, center, R0, R1) * (p[component] - center[component]) /
+           r;
   }
 
   template <int dim>
-  double d2xij_kernel(const Point<dim> &p, const Point<dim> &center, const double R0, const double R1, const unsigned int comp_i, const unsigned int comp_j)
+  double d2xij_kernel(const Point<dim>  &p,
+                      const Point<dim>  &center,
+                      const double       R0,
+                      const double       R1,
+                      const unsigned int comp_i,
+                      const unsigned int comp_j)
   {
     const double r = (p - center).norm();
-    if(r < 1e-14) return 0.;
+    if (r < 1e-14)
+      return 0.;
 
     const double delta_ci = p[comp_i] - center[comp_i];
     const double delta_cj = p[comp_j] - center[comp_j];
-    const double dij     = (comp_i == comp_j) ? 1. : 0.;
-    return d2r_kernel(p, center, R0, R1) * (delta_ci*delta_cj / (r*r)) + dr_kernel(p, center, R0, R1) * (dij / r - delta_ci*delta_cj / (r*r*r));
+    const double dij      = (comp_i == comp_j) ? 1. : 0.;
+    return d2r_kernel(p, center, R0, R1) * (delta_ci * delta_cj / (r * r)) +
+           dr_kernel(p, center, R0, R1) *
+             (dij / r - delta_ci * delta_cj / (r * r * r));
   }
 
   //
@@ -314,6 +337,7 @@ namespace ManufacturedSolution
   };
 
   /**
+   * DEPRECATED? Used by MeshPositionMMS.
    * Abstract base class for a manufactured solution
    * with separable variables of the form:
    *
@@ -363,8 +387,7 @@ namespace ManufacturedSolution
   class FlowManufacturedSolutionBase
   {
   public:
-    FlowManufacturedSolutionBase()
-    {}
+    FlowManufacturedSolutionBase() {}
 
   public:
     // The component-th component of the manufactured velocity vector
@@ -482,8 +505,8 @@ namespace ManufacturedSolution
                        const Point<dim> &p,
                        Tensor<1, dim>   &grad_p) const
     {
-      grad_p[0]       = px_fun(p, t);
-      grad_p[1]       = py_fun(p, t);
+      grad_p[0] = px_fun(p, t);
+      grad_p[1] = py_fun(p, t);
       if constexpr (dim == 3)
         grad_p[2] = pz_fun(p, t);
     }
@@ -507,40 +530,41 @@ namespace ManufacturedSolution
     //
     // The fields and derivatives that each derived class must overload
     //
-#define DECLARE_PURE_VIRTUAL_FUN(fun_name) \
-  virtual double fun_name(const Point<dim> &/*p*/, const double /*t*/) const = 0 \
+#define DECLARE_PURE_VIRTUAL_FUN(fun_name)                              \
+  virtual double fun_name(const Point<dim> & /*p*/, const double /*t*/) \
+    const = 0
 
-  DECLARE_PURE_VIRTUAL_FUN(u_fun);
-  DECLARE_PURE_VIRTUAL_FUN(ut_fun);
-  DECLARE_PURE_VIRTUAL_FUN(ux_fun);
-  DECLARE_PURE_VIRTUAL_FUN(uy_fun);
-  DECLARE_PURE_VIRTUAL_FUN(uz_fun);
-  DECLARE_PURE_VIRTUAL_FUN(uxx_fun);
-  DECLARE_PURE_VIRTUAL_FUN(uyy_fun);
-  DECLARE_PURE_VIRTUAL_FUN(uzz_fun);
+    DECLARE_PURE_VIRTUAL_FUN(u_fun);
+    DECLARE_PURE_VIRTUAL_FUN(ut_fun);
+    DECLARE_PURE_VIRTUAL_FUN(ux_fun);
+    DECLARE_PURE_VIRTUAL_FUN(uy_fun);
+    DECLARE_PURE_VIRTUAL_FUN(uz_fun);
+    DECLARE_PURE_VIRTUAL_FUN(uxx_fun);
+    DECLARE_PURE_VIRTUAL_FUN(uyy_fun);
+    DECLARE_PURE_VIRTUAL_FUN(uzz_fun);
 
-  DECLARE_PURE_VIRTUAL_FUN(v_fun);
-  DECLARE_PURE_VIRTUAL_FUN(vt_fun);
-  DECLARE_PURE_VIRTUAL_FUN(vx_fun);
-  DECLARE_PURE_VIRTUAL_FUN(vy_fun);
-  DECLARE_PURE_VIRTUAL_FUN(vz_fun);
-  DECLARE_PURE_VIRTUAL_FUN(vxx_fun);
-  DECLARE_PURE_VIRTUAL_FUN(vyy_fun);
-  DECLARE_PURE_VIRTUAL_FUN(vzz_fun);
+    DECLARE_PURE_VIRTUAL_FUN(v_fun);
+    DECLARE_PURE_VIRTUAL_FUN(vt_fun);
+    DECLARE_PURE_VIRTUAL_FUN(vx_fun);
+    DECLARE_PURE_VIRTUAL_FUN(vy_fun);
+    DECLARE_PURE_VIRTUAL_FUN(vz_fun);
+    DECLARE_PURE_VIRTUAL_FUN(vxx_fun);
+    DECLARE_PURE_VIRTUAL_FUN(vyy_fun);
+    DECLARE_PURE_VIRTUAL_FUN(vzz_fun);
 
-  DECLARE_PURE_VIRTUAL_FUN(w_fun);
-  DECLARE_PURE_VIRTUAL_FUN(wt_fun);
-  DECLARE_PURE_VIRTUAL_FUN(wx_fun);
-  DECLARE_PURE_VIRTUAL_FUN(wy_fun);
-  DECLARE_PURE_VIRTUAL_FUN(wz_fun);
-  DECLARE_PURE_VIRTUAL_FUN(wxx_fun);
-  DECLARE_PURE_VIRTUAL_FUN(wyy_fun);
-  DECLARE_PURE_VIRTUAL_FUN(wzz_fun);
+    DECLARE_PURE_VIRTUAL_FUN(w_fun);
+    DECLARE_PURE_VIRTUAL_FUN(wt_fun);
+    DECLARE_PURE_VIRTUAL_FUN(wx_fun);
+    DECLARE_PURE_VIRTUAL_FUN(wy_fun);
+    DECLARE_PURE_VIRTUAL_FUN(wz_fun);
+    DECLARE_PURE_VIRTUAL_FUN(wxx_fun);
+    DECLARE_PURE_VIRTUAL_FUN(wyy_fun);
+    DECLARE_PURE_VIRTUAL_FUN(wzz_fun);
 
-  DECLARE_PURE_VIRTUAL_FUN(p_fun);
-  DECLARE_PURE_VIRTUAL_FUN(px_fun);
-  DECLARE_PURE_VIRTUAL_FUN(py_fun);
-  DECLARE_PURE_VIRTUAL_FUN(pz_fun);
+    DECLARE_PURE_VIRTUAL_FUN(p_fun);
+    DECLARE_PURE_VIRTUAL_FUN(px_fun);
+    DECLARE_PURE_VIRTUAL_FUN(py_fun);
+    DECLARE_PURE_VIRTUAL_FUN(pz_fun);
 
 #undef DECLARE_PURE_VIRTUAL_FUN
 
@@ -552,54 +576,73 @@ namespace ManufacturedSolution
 
       std::vector<Point<dim>> test_points;
       if constexpr (dim == 2)
-        test_points = {{0., 0.}, {0.3, 0.7}, {0.5, 0.5}, {0.9, 0.1}};
+        test_points = {{0., 0.}, {0.3, 0.7}, {0.52, 0.52}, {0.9, 0.1}};
       else if constexpr (dim == 3)
-        test_points = {{0., 0., 0.}, {0.3, 0.7, 0.2}, {0.5, 0.5, 0.5}, {0.9, 0.1, 0.4}};
+        test_points = {{0., 0., 0.},
+                       {0.3, 0.7, 0.2},
+                       {0.5, 0.5, 0.5},
+                       {0.9, 0.1, 0.4}};
 
-      auto finite_diff_first = [&](auto fun, const Point<dim> &p, const double &t) {
-        double t_plus = t + h, t_minus = t - h;
-        return (fun(p, t_plus) - fun(p, t_minus)) / (2.0 * h);
-      };
-
-      auto check_relative_error =
-        [&](double t, double exact, double numerical, double tol, std::string fun_name)
-        {
-          const double err = std::abs(exact - numerical);
-
-          if (err < tol)
-          {
-            // std::cout << std::scientific <<
-            //   "Time derivative check for " + fun_name + " at " + std::to_string(t) +
-            //   " passed:"
-            //   " exact = " << exact << ", FD = " << numerical << ", absolute error = " << err << std::endl;
-            return;
-          }
-
-          const double relative_err = err / std::abs(numerical);
-          AssertThrow(
-            relative_err < tol,
-            ExcMessage(
-              "Time derivative check for " + fun_name + " at " + std::to_string(t) +
-              " failed:"
-              " exact = " +
-              std::to_string(exact) + ", FD = " + std::to_string(numerical) +
-              ", absolute error = " + std::to_string(err) +
-              ", relative error = " + std::to_string(relative_err)));
+      auto finite_diff_first =
+        [&](auto fun, const Point<dim> &p, const double &t) {
+          double t_plus = t + h, t_minus = t - h;
+          return (fun(p, t_plus) - fun(p, t_minus)) / (2.0 * h);
         };
+
+      auto check_relative_error = [&](double      t,
+                                      double      exact,
+                                      double      numerical,
+                                      double      tol,
+                                      std::string fun_name) {
+        const double err = std::abs(exact - numerical);
+
+        if (err < tol)
+        {
+          // std::cout << std::scientific <<
+          //   "Time derivative check for " + fun_name + " at " +
+          //   std::to_string(t) + " passed:" " exact = " << exact << ", FD = "
+          //   << numerical << ", absolute error = " << err << std::endl;
+          return;
+        }
+
+        const double relative_err = err / std::abs(numerical);
+        AssertThrow(relative_err < tol,
+                    ExcMessage(
+                      "Time derivative check for " + fun_name + " at " +
+                      std::to_string(t) +
+                      " failed:"
+                      " exact = " +
+                      std::to_string(exact) +
+                      ", FD = " + std::to_string(numerical) +
+                      ", absolute error = " + std::to_string(err) +
+                      ", relative error = " + std::to_string(relative_err)));
+      };
 
       for (const auto &t : test_times)
       {
         for (const auto &p : test_points)
         {
           // Check all dfdt(p, t)
-          const double ut_fd =
-            finite_diff_first([&](const Point<dim> &pt, const double time) { return u_fun(pt, time); }, p, t);
+          const double ut_fd = finite_diff_first(
+            [&](const Point<dim> &pt, const double time) {
+              return u_fun(pt, time);
+            },
+            p,
+            t);
           check_relative_error(t, ut_fun(p, t), ut_fd, tol, "ut_fun");
-          const double vt_fd =
-            finite_diff_first([&](const Point<dim> &pt, const double time) { return v_fun(pt, time); }, p, t);
+          const double vt_fd = finite_diff_first(
+            [&](const Point<dim> &pt, const double time) {
+              return v_fun(pt, time);
+            },
+            p,
+            t);
           check_relative_error(t, vt_fun(p, t), vt_fd, tol, "vt_fun");
-          const double wt_fd =
-            finite_diff_first([&](const Point<dim> &pt, const double time) { return w_fun(pt, time); }, p, t);
+          const double wt_fd = finite_diff_first(
+            [&](const Point<dim> &pt, const double time) {
+              return w_fun(pt, time);
+            },
+            p,
+            t);
           check_relative_error(t, wt_fun(p, t), wt_fd, tol, "wt_fun");
         }
       }
@@ -609,9 +652,8 @@ namespace ManufacturedSolution
      * Checks that the derivatives provided match
      * the ones obtained with finite differences.
      */
-    void check_spatial_derivatives(
-      const double tol_order_1 = 1e-7,
-      const double tol_order_2 = 1e-4) const
+    void check_spatial_derivatives(const double tol_order_1 = 1e-7,
+                                   const double tol_order_2 = 1e-4) const
     {
       const double h_first  = 1e-8;
       const double h_second = 1e-5;
@@ -620,29 +662,36 @@ namespace ManufacturedSolution
 
       std::vector<Point<dim>> test_points;
       if constexpr (dim == 2)
-        test_points = {{0., 0.}, {0.3, 0.7}, {0.5, 0.5}, {0.9, 0.1}};
+        test_points = {{0., 0.}, {0.3, 0.7}, {0.52, 0.52}, {0.9, 0.1}};
       else if constexpr (dim == 3)
-        test_points = {{0., 0., 0.}, {0.3, 0.7, 0.2}, {0.5, 0.5, 0.5}, {0.9, 0.1, 0.4}};
+        test_points = {{0., 0., 0.},
+                       {0.3, 0.7, 0.2},
+                       {0.5, 0.5, 0.5},
+                       {0.9, 0.1, 0.4}};
 
-      auto finite_diff = [&](auto fun, const Point<dim> &p, const double t, unsigned int d) {
-        Point<dim> p_plus = p, p_minus = p;
-        p_plus[d] += h_first;
-        p_minus[d] -= h_first;
-        return (fun(p_plus, t) - fun(p_minus, t)) / (2.0 * h_first);
-      };
+      auto finite_diff =
+        [&](auto fun, const Point<dim> &p, const double t, unsigned int d) {
+          Point<dim> p_plus = p, p_minus = p;
+          p_plus[d] += h_first;
+          p_minus[d] -= h_first;
+          return (fun(p_plus, t) - fun(p_minus, t)) / (2.0 * h_first);
+        };
 
-      auto finite_diff2 = [&](auto fun, const Point<dim> &p, const double t, unsigned int d) {
-        Point<dim> p_plus = p, p_minus = p;
-        p_plus[d] += h_second;
-        p_minus[d] -= h_second;
-        return (fun(p_plus, t) - 2.0 * fun(p, t) + fun(p_minus, t)) /
-               (h_second * h_second);
-      };
+      auto finite_diff2 =
+        [&](auto fun, const Point<dim> &p, const double t, unsigned int d) {
+          Point<dim> p_plus = p, p_minus = p;
+          p_plus[d] += h_second;
+          p_minus[d] -= h_second;
+          return (fun(p_plus, t) - 2.0 * fun(p, t) + fun(p_minus, t)) /
+                 (h_second * h_second);
+        };
 
       auto check_order_1 =
         [&](double exact, double numerical, const std::string &name) {
           const double err = std::abs(exact - numerical);
-          AssertThrow(err < tol_order_1,
+          if(err < tol_order_1) return;
+          const double relative_err = err / std::abs(numerical);
+          AssertThrow(relative_err < tol_order_1,
                       ExcMessage("Derivative check failed for " + name +
                                  ": exact = " + std::to_string(exact) +
                                  ", FD = " + std::to_string(numerical) +
@@ -652,65 +701,112 @@ namespace ManufacturedSolution
       auto check_order_2 =
         [&](double exact, double numerical, const std::string &name) {
           const double err = std::abs(exact - numerical);
-          AssertThrow(err < tol_order_2,
+          if(err < tol_order_2) return;
+          const double relative_err = err / std::abs(numerical);
+          AssertThrow(relative_err < tol_order_2,
                       ExcMessage("Derivative check failed for " + name +
                                  ": exact = " + std::to_string(exact) +
                                  ", FD = " + std::to_string(numerical) +
                                  ", error = " + std::to_string(err)));
         };
 
-      for(const auto t : test_times)
+      for (const auto t : test_times)
       {
         for (const auto &p : test_points)
         {
           // --- u ---
-          check_order_1(ux_fun(p, t),
-                        finite_diff([&](auto q, auto tt) { return u_fun(q, tt); }, p, t, 0),
-                        "ux");
+          check_order_1(
+            ux_fun(p, t),
+            finite_diff([&](auto q, auto tt) { return u_fun(q, tt); }, p, t, 0),
+            "ux");
           if (dim > 1)
             check_order_1(uy_fun(p, t),
-                          finite_diff([&](auto q, auto tt) { return u_fun(q, tt); }, p, t, 1),
+                          finite_diff([&](auto q,
+                                          auto tt) { return u_fun(q, tt); },
+                                      p,
+                                      t,
+                                      1),
                           "uy");
           if (dim > 2)
             check_order_1(uz_fun(p, t),
-                          finite_diff([&](auto q, auto tt) { return u_fun(q, tt); }, p, t, 2),
+                          finite_diff([&](auto q,
+                                          auto tt) { return u_fun(q, tt); },
+                                      p,
+                                      t,
+                                      2),
                           "uz");
 
           check_order_2(uxx_fun(p, t),
-                        finite_diff2([&](auto q, auto tt) { return u_fun(q, tt); }, p, t, 0),
+                        finite_diff2([&](auto q,
+                                         auto tt) { return u_fun(q, tt); },
+                                     p,
+                                     t,
+                                     0),
                         "uxx");
           if (dim > 1)
             check_order_2(uyy_fun(p, t),
-                          finite_diff2([&](auto q, auto tt) { return u_fun(q, tt); }, p, t, 1),
+                          finite_diff2([&](auto q,
+                                           auto tt) { return u_fun(q, tt); },
+                                       p,
+                                       t,
+                                       1),
                           "uyy");
           if (dim > 2)
             check_order_2(uzz_fun(p, t),
-                          finite_diff2([&](auto q, auto tt) { return u_fun(q, tt); }, p, t, 2),
+                          finite_diff2([&](auto q,
+                                           auto tt) { return u_fun(q, tt); },
+                                       p,
+                                       t,
+                                       2),
                           "uzz");
 
           // --- v ---
           if (dim >= 2)
           {
             check_order_1(vx_fun(p, t),
-                          finite_diff([&](auto q, auto tt) { return v_fun(q, tt); }, p, t, 0),
+                          finite_diff([&](auto q,
+                                          auto tt) { return v_fun(q, tt); },
+                                      p,
+                                      t,
+                                      0),
                           "vx");
             check_order_1(vy_fun(p, t),
-                          finite_diff([&](auto q, auto tt) { return v_fun(q, tt); }, p, t, 1),
+                          finite_diff([&](auto q,
+                                          auto tt) { return v_fun(q, tt); },
+                                      p,
+                                      t,
+                                      1),
                           "vy");
             if (dim > 2)
               check_order_1(vz_fun(p, t),
-                            finite_diff([&](auto q, auto tt) { return v_fun(q, tt); }, p, t, 2),
+                            finite_diff([&](auto q,
+                                            auto tt) { return v_fun(q, tt); },
+                                        p,
+                                        t,
+                                        2),
                             "vz");
 
             check_order_2(vxx_fun(p, t),
-                          finite_diff2([&](auto q, auto tt) { return v_fun(q, tt); }, p, t, 0),
+                          finite_diff2([&](auto q,
+                                           auto tt) { return v_fun(q, tt); },
+                                       p,
+                                       t,
+                                       0),
                           "vxx");
             check_order_2(vyy_fun(p, t),
-                          finite_diff2([&](auto q, auto tt) { return v_fun(q, tt); }, p, t, 1),
+                          finite_diff2([&](auto q,
+                                           auto tt) { return v_fun(q, tt); },
+                                       p,
+                                       t,
+                                       1),
                           "vyy");
             if (dim > 2)
               check_order_2(vzz_fun(p, t),
-                            finite_diff2([&](auto q, auto tt) { return v_fun(q, tt); }, p, t, 2),
+                            finite_diff2([&](auto q,
+                                             auto tt) { return v_fun(q, tt); },
+                                         p,
+                                         t,
+                                         2),
                             "vzz");
           }
 
@@ -718,37 +814,70 @@ namespace ManufacturedSolution
           if (dim == 3)
           {
             check_order_1(wx_fun(p, t),
-                          finite_diff([&](auto q, auto tt) { return w_fun(q, tt); }, p, t, 0),
+                          finite_diff([&](auto q,
+                                          auto tt) { return w_fun(q, tt); },
+                                      p,
+                                      t,
+                                      0),
                           "wx");
             check_order_1(wy_fun(p, t),
-                          finite_diff([&](auto q, auto tt) { return w_fun(q, tt); }, p, t, 1),
+                          finite_diff([&](auto q,
+                                          auto tt) { return w_fun(q, tt); },
+                                      p,
+                                      t,
+                                      1),
                           "wy");
             check_order_1(wz_fun(p, t),
-                          finite_diff([&](auto q, auto tt) { return w_fun(q, tt); }, p, t, 2),
+                          finite_diff([&](auto q,
+                                          auto tt) { return w_fun(q, tt); },
+                                      p,
+                                      t,
+                                      2),
                           "wz");
 
             check_order_2(wxx_fun(p, t),
-                          finite_diff2([&](auto q, auto tt) { return w_fun(q, tt); }, p, t, 0),
+                          finite_diff2([&](auto q,
+                                           auto tt) { return w_fun(q, tt); },
+                                       p,
+                                       t,
+                                       0),
                           "wxx");
             check_order_2(wyy_fun(p, t),
-                          finite_diff2([&](auto q, auto tt) { return w_fun(q, tt); }, p, t, 1),
+                          finite_diff2([&](auto q,
+                                           auto tt) { return w_fun(q, tt); },
+                                       p,
+                                       t,
+                                       1),
                           "wyy");
             check_order_2(wzz_fun(p, t),
-                          finite_diff2([&](auto q, auto tt) { return w_fun(q, tt); }, p, t, 2),
+                          finite_diff2([&](auto q,
+                                           auto tt) { return w_fun(q, tt); },
+                                       p,
+                                       t,
+                                       2),
                           "wzz");
           }
 
           // --- p ---
-          check_order_1(px_fun(p, t),
-                        finite_diff([&](auto q, auto tt) { return p_fun(q, tt); }, p, t, 0),
-                        "px");
+          check_order_1(
+            px_fun(p, t),
+            finite_diff([&](auto q, auto tt) { return p_fun(q, tt); }, p, t, 0),
+            "px");
           if (dim > 1)
             check_order_1(py_fun(p, t),
-                          finite_diff([&](auto q, auto tt) { return p_fun(q, tt); }, p, t, 1),
+                          finite_diff([&](auto q,
+                                          auto tt) { return p_fun(q, tt); },
+                                      p,
+                                      t,
+                                      1),
                           "py");
           if (dim > 2)
             check_order_1(pz_fun(p, t),
-                          finite_diff([&](auto q, auto tt) { return p_fun(q, tt); }, p, t, 2),
+                          finite_diff([&](auto q,
+                                          auto tt) { return p_fun(q, tt); },
+                                      p,
+                                      t,
+                                      2),
                           "pz");
         }
       }
@@ -757,113 +886,126 @@ namespace ManufacturedSolution
 
   /**
    * Particular case of a space-time separable solution:
-   * 
+   *
    * u = f(t) * u_space(x,y,z)
    * p = f(t) * p_space(x,y,z) with a unique f(t).
-   * 
+   *
    */
   template <int dim>
   class SeparableFlowMMS : public FlowManufacturedSolutionBase<dim>
   {
   public:
     const TimeDependenceBase &time_function;
+
   public:
     SeparableFlowMMS(const TimeDependenceBase &time_function)
-     : FlowManufacturedSolutionBase<dim>()
-     , time_function(time_function)
+      : FlowManufacturedSolutionBase<dim>()
+      , time_function(time_function)
     {}
 
   protected:
-    double value_time(const double t) const { return this->time_function.value(t); }
-    double value_time_dot(const double t) const { return this->time_function.value_dot(t); }
+    double value_time(const double t) const
+    {
+      return this->time_function.value(t);
+    }
+    double value_time_dot(const double t) const
+    {
+      return this->time_function.value_dot(t);
+    }
 
-    double space_time_wrapper(const Point<dim> &p,
-                            double t,
-                            double (SeparableFlowMMS::*space_fun)(const Point<dim>&) const,
-                            double (SeparableFlowMMS::*time_fun)(double) const) const
+    double
+    space_time_wrapper(const Point<dim> &p,
+                       double            t,
+                       double (SeparableFlowMMS::*space_fun)(const Point<dim> &)
+                         const,
+                       double (SeparableFlowMMS::*time_fun)(double) const) const
     {
       return (this->*time_fun)(t) * (this->*space_fun)(p);
     }
 
     // These functions are final.
     // Only the spatial part can be overriden in derived classes.
-#define DEFINE_SPACE_TIME_FUN(fun_name, spatial_fun, time_fun) \
-  double fun_name(const Point<dim> &p, const double t) const override final { \
-    return space_time_wrapper(p, t, &SeparableFlowMMS::spatial_fun, &SeparableFlowMMS::time_fun); \
+#define DEFINE_SPACE_TIME_FUN(fun_name, spatial_fun, time_fun)              \
+  double fun_name(const Point<dim> &p, const double t) const override final \
+  {                                                                         \
+    return space_time_wrapper(p,                                            \
+                              t,                                            \
+                              &SeparableFlowMMS::spatial_fun,               \
+                              &SeparableFlowMMS::time_fun);                 \
   }
 
-  DEFINE_SPACE_TIME_FUN(u_fun,  u_space, value_time);
-  DEFINE_SPACE_TIME_FUN(ut_fun, u_space, value_time_dot);
-  DEFINE_SPACE_TIME_FUN(ux_fun, ux_space, value_time);
-  DEFINE_SPACE_TIME_FUN(uy_fun, uy_space, value_time);
-  DEFINE_SPACE_TIME_FUN(uz_fun, uz_space, value_time);
-  DEFINE_SPACE_TIME_FUN(uxx_fun, uxx_space, value_time);
-  DEFINE_SPACE_TIME_FUN(uyy_fun, uyy_space, value_time);
-  DEFINE_SPACE_TIME_FUN(uzz_fun, uzz_space, value_time);
+    DEFINE_SPACE_TIME_FUN(u_fun, u_space, value_time);
+    DEFINE_SPACE_TIME_FUN(ut_fun, u_space, value_time_dot);
+    DEFINE_SPACE_TIME_FUN(ux_fun, ux_space, value_time);
+    DEFINE_SPACE_TIME_FUN(uy_fun, uy_space, value_time);
+    DEFINE_SPACE_TIME_FUN(uz_fun, uz_space, value_time);
+    DEFINE_SPACE_TIME_FUN(uxx_fun, uxx_space, value_time);
+    DEFINE_SPACE_TIME_FUN(uyy_fun, uyy_space, value_time);
+    DEFINE_SPACE_TIME_FUN(uzz_fun, uzz_space, value_time);
 
-  DEFINE_SPACE_TIME_FUN(v_fun,     v_space, value_time);
-  DEFINE_SPACE_TIME_FUN(vt_fun,    v_space, value_time_dot);
-  DEFINE_SPACE_TIME_FUN(vx_fun,   vx_space, value_time);
-  DEFINE_SPACE_TIME_FUN(vy_fun,   vy_space, value_time);
-  DEFINE_SPACE_TIME_FUN(vz_fun,   vz_space, value_time);
-  DEFINE_SPACE_TIME_FUN(vxx_fun, vxx_space, value_time);
-  DEFINE_SPACE_TIME_FUN(vyy_fun, vyy_space, value_time);
-  DEFINE_SPACE_TIME_FUN(vzz_fun, vzz_space, value_time);
+    DEFINE_SPACE_TIME_FUN(v_fun, v_space, value_time);
+    DEFINE_SPACE_TIME_FUN(vt_fun, v_space, value_time_dot);
+    DEFINE_SPACE_TIME_FUN(vx_fun, vx_space, value_time);
+    DEFINE_SPACE_TIME_FUN(vy_fun, vy_space, value_time);
+    DEFINE_SPACE_TIME_FUN(vz_fun, vz_space, value_time);
+    DEFINE_SPACE_TIME_FUN(vxx_fun, vxx_space, value_time);
+    DEFINE_SPACE_TIME_FUN(vyy_fun, vyy_space, value_time);
+    DEFINE_SPACE_TIME_FUN(vzz_fun, vzz_space, value_time);
 
-  DEFINE_SPACE_TIME_FUN(w_fun,     w_space, value_time);
-  DEFINE_SPACE_TIME_FUN(wt_fun,    w_space, value_time_dot);
-  DEFINE_SPACE_TIME_FUN(wx_fun,   wx_space, value_time);
-  DEFINE_SPACE_TIME_FUN(wy_fun,   wy_space, value_time);
-  DEFINE_SPACE_TIME_FUN(wz_fun,   wz_space, value_time);
-  DEFINE_SPACE_TIME_FUN(wxx_fun, wxx_space, value_time);
-  DEFINE_SPACE_TIME_FUN(wyy_fun, wyy_space, value_time);
-  DEFINE_SPACE_TIME_FUN(wzz_fun, wzz_space, value_time);
+    DEFINE_SPACE_TIME_FUN(w_fun, w_space, value_time);
+    DEFINE_SPACE_TIME_FUN(wt_fun, w_space, value_time_dot);
+    DEFINE_SPACE_TIME_FUN(wx_fun, wx_space, value_time);
+    DEFINE_SPACE_TIME_FUN(wy_fun, wy_space, value_time);
+    DEFINE_SPACE_TIME_FUN(wz_fun, wz_space, value_time);
+    DEFINE_SPACE_TIME_FUN(wxx_fun, wxx_space, value_time);
+    DEFINE_SPACE_TIME_FUN(wyy_fun, wyy_space, value_time);
+    DEFINE_SPACE_TIME_FUN(wzz_fun, wzz_space, value_time);
 
-  DEFINE_SPACE_TIME_FUN(p_fun,    p_space, value_time);
-  DEFINE_SPACE_TIME_FUN(px_fun,  px_space, value_time);
-  DEFINE_SPACE_TIME_FUN(py_fun,  py_space, value_time);
-  DEFINE_SPACE_TIME_FUN(pz_fun,  pz_space, value_time);
+    DEFINE_SPACE_TIME_FUN(p_fun, p_space, value_time);
+    DEFINE_SPACE_TIME_FUN(px_fun, px_space, value_time);
+    DEFINE_SPACE_TIME_FUN(py_fun, py_space, value_time);
+    DEFINE_SPACE_TIME_FUN(pz_fun, pz_space, value_time);
 
-  #undef DEFINE_SPACE_TIME_FUN
+#undef DEFINE_SPACE_TIME_FUN
 
   protected:
     /**
      * The spatial parts only, with same name as space-time function.
      */
-#define DEFINE_SPACE_FUN(fun_name) \
-  virtual double fun_name(const Point<dim> &/*p*/) const \
-  {                                                  \
-    return 0.;                                       \
-  }                                                  \
+#define DEFINE_SPACE_FUN(fun_name)                        \
+  virtual double fun_name(const Point<dim> & /*p*/) const \
+  {                                                       \
+    return 0.;                                            \
+  }
 
-  DEFINE_SPACE_FUN(u_space);
-  DEFINE_SPACE_FUN(ux_space);
-  DEFINE_SPACE_FUN(uy_space);
-  DEFINE_SPACE_FUN(uz_space);
-  DEFINE_SPACE_FUN(uxx_space);
-  DEFINE_SPACE_FUN(uyy_space);
-  DEFINE_SPACE_FUN(uzz_space);
+    DEFINE_SPACE_FUN(u_space);
+    DEFINE_SPACE_FUN(ux_space);
+    DEFINE_SPACE_FUN(uy_space);
+    DEFINE_SPACE_FUN(uz_space);
+    DEFINE_SPACE_FUN(uxx_space);
+    DEFINE_SPACE_FUN(uyy_space);
+    DEFINE_SPACE_FUN(uzz_space);
 
-  DEFINE_SPACE_FUN(v_space);
-  DEFINE_SPACE_FUN(vx_space);
-  DEFINE_SPACE_FUN(vy_space);
-  DEFINE_SPACE_FUN(vz_space);
-  DEFINE_SPACE_FUN(vxx_space);
-  DEFINE_SPACE_FUN(vyy_space);
-  DEFINE_SPACE_FUN(vzz_space);
+    DEFINE_SPACE_FUN(v_space);
+    DEFINE_SPACE_FUN(vx_space);
+    DEFINE_SPACE_FUN(vy_space);
+    DEFINE_SPACE_FUN(vz_space);
+    DEFINE_SPACE_FUN(vxx_space);
+    DEFINE_SPACE_FUN(vyy_space);
+    DEFINE_SPACE_FUN(vzz_space);
 
-  DEFINE_SPACE_FUN(w_space);
-  DEFINE_SPACE_FUN(wx_space);
-  DEFINE_SPACE_FUN(wy_space);
-  DEFINE_SPACE_FUN(wz_space);
-  DEFINE_SPACE_FUN(wxx_space);
-  DEFINE_SPACE_FUN(wyy_space);
-  DEFINE_SPACE_FUN(wzz_space);
+    DEFINE_SPACE_FUN(w_space);
+    DEFINE_SPACE_FUN(wx_space);
+    DEFINE_SPACE_FUN(wy_space);
+    DEFINE_SPACE_FUN(wz_space);
+    DEFINE_SPACE_FUN(wxx_space);
+    DEFINE_SPACE_FUN(wyy_space);
+    DEFINE_SPACE_FUN(wzz_space);
 
-  DEFINE_SPACE_FUN(p_space);
-  DEFINE_SPACE_FUN(px_space);
-  DEFINE_SPACE_FUN(py_space);
-  DEFINE_SPACE_FUN(pz_space);
+    DEFINE_SPACE_FUN(p_space);
+    DEFINE_SPACE_FUN(px_space);
+    DEFINE_SPACE_FUN(py_space);
+    DEFINE_SPACE_FUN(pz_space);
 
 #undef DEFINE_SPACE_FUN
   };
@@ -873,48 +1015,48 @@ namespace ManufacturedSolution
   {
   public:
     NonSeparableFlowMMS()
-     : FlowManufacturedSolutionBase<dim>()
+      : FlowManufacturedSolutionBase<dim>()
     {}
 
   protected:
     // These are set to return 0, but can be overriden on derived classes
-#define DEFINE_NONSEPARABLE_FUN(fun_name) \
-  double fun_name(const Point<dim> &/*p*/, const double /*t*/) const override \
-  { \
-    return 0.; \
+#define DEFINE_NONSEPARABLE_FUN(fun_name)                                      \
+  double fun_name(const Point<dim> & /*p*/, const double /*t*/) const override \
+  {                                                                            \
+    return 0.;                                                                 \
   }
 
-  DEFINE_NONSEPARABLE_FUN(u_fun);
-  DEFINE_NONSEPARABLE_FUN(ut_fun);
-  DEFINE_NONSEPARABLE_FUN(ux_fun);
-  DEFINE_NONSEPARABLE_FUN(uy_fun);
-  DEFINE_NONSEPARABLE_FUN(uz_fun);
-  DEFINE_NONSEPARABLE_FUN(uxx_fun);
-  DEFINE_NONSEPARABLE_FUN(uyy_fun);
-  DEFINE_NONSEPARABLE_FUN(uzz_fun);
+    DEFINE_NONSEPARABLE_FUN(u_fun);
+    DEFINE_NONSEPARABLE_FUN(ut_fun);
+    DEFINE_NONSEPARABLE_FUN(ux_fun);
+    DEFINE_NONSEPARABLE_FUN(uy_fun);
+    DEFINE_NONSEPARABLE_FUN(uz_fun);
+    DEFINE_NONSEPARABLE_FUN(uxx_fun);
+    DEFINE_NONSEPARABLE_FUN(uyy_fun);
+    DEFINE_NONSEPARABLE_FUN(uzz_fun);
 
-  DEFINE_NONSEPARABLE_FUN(v_fun);
-  DEFINE_NONSEPARABLE_FUN(vt_fun);
-  DEFINE_NONSEPARABLE_FUN(vx_fun);
-  DEFINE_NONSEPARABLE_FUN(vy_fun);
-  DEFINE_NONSEPARABLE_FUN(vz_fun);
-  DEFINE_NONSEPARABLE_FUN(vxx_fun);
-  DEFINE_NONSEPARABLE_FUN(vyy_fun);
-  DEFINE_NONSEPARABLE_FUN(vzz_fun);
+    DEFINE_NONSEPARABLE_FUN(v_fun);
+    DEFINE_NONSEPARABLE_FUN(vt_fun);
+    DEFINE_NONSEPARABLE_FUN(vx_fun);
+    DEFINE_NONSEPARABLE_FUN(vy_fun);
+    DEFINE_NONSEPARABLE_FUN(vz_fun);
+    DEFINE_NONSEPARABLE_FUN(vxx_fun);
+    DEFINE_NONSEPARABLE_FUN(vyy_fun);
+    DEFINE_NONSEPARABLE_FUN(vzz_fun);
 
-  DEFINE_NONSEPARABLE_FUN(w_fun);
-  DEFINE_NONSEPARABLE_FUN(wt_fun);
-  DEFINE_NONSEPARABLE_FUN(wx_fun);
-  DEFINE_NONSEPARABLE_FUN(wy_fun);
-  DEFINE_NONSEPARABLE_FUN(wz_fun);
-  DEFINE_NONSEPARABLE_FUN(wxx_fun);
-  DEFINE_NONSEPARABLE_FUN(wyy_fun);
-  DEFINE_NONSEPARABLE_FUN(wzz_fun);
+    DEFINE_NONSEPARABLE_FUN(w_fun);
+    DEFINE_NONSEPARABLE_FUN(wt_fun);
+    DEFINE_NONSEPARABLE_FUN(wx_fun);
+    DEFINE_NONSEPARABLE_FUN(wy_fun);
+    DEFINE_NONSEPARABLE_FUN(wz_fun);
+    DEFINE_NONSEPARABLE_FUN(wxx_fun);
+    DEFINE_NONSEPARABLE_FUN(wyy_fun);
+    DEFINE_NONSEPARABLE_FUN(wzz_fun);
 
-  DEFINE_NONSEPARABLE_FUN(p_fun);
-  DEFINE_NONSEPARABLE_FUN(px_fun);
-  DEFINE_NONSEPARABLE_FUN(py_fun);
-  DEFINE_NONSEPARABLE_FUN(pz_fun);
+    DEFINE_NONSEPARABLE_FUN(p_fun);
+    DEFINE_NONSEPARABLE_FUN(px_fun);
+    DEFINE_NONSEPARABLE_FUN(py_fun);
+    DEFINE_NONSEPARABLE_FUN(pz_fun);
 
 #undef DEFINE_NONSEPARABLE_FUN
   };
@@ -924,7 +1066,7 @@ namespace ManufacturedSolution
   {
   public:
     const Tensor<1, dim> &C;
-    
+
   public:
     ConstantFlow(const TimeDependenceBase &time_function,
                  const Tensor<1, dim>     &C)
@@ -936,18 +1078,9 @@ namespace ManufacturedSolution
     }
 
   private:
-    double u_space(const Point<dim> &) const override
-    {
-      return C[0];
-    }
-    double v_space(const Point<dim> &) const override
-    {
-      return C[1];
-    }
-    double p_space(const Point<dim> &) const override
-    {
-      return 0.;
-    }
+    double u_space(const Point<dim> &) const override { return C[0]; }
+    double v_space(const Point<dim> &) const override { return C[1]; }
+    double p_space(const Point<dim> &) const override { return 0.; }
   };
 
   template <int dim>
@@ -965,6 +1098,7 @@ namespace ManufacturedSolution
       , dpdx(dpdx)
       , mu(mu)
     {
+      this->check_time_derivatives();
       this->check_spatial_derivatives();
     }
 
@@ -990,9 +1124,9 @@ namespace ManufacturedSolution
 
   /**
    * Non separable MMS:
-   * 
+   *
    * u_MMS(X, t) = translation * dfdt(t) * kernel(|x - x_center(t)|),
-   * 
+   *
    * where kernel is a C^2 bell-shaped function
    * and translation is the final (constant) translation vector.
    */
@@ -1000,10 +1134,30 @@ namespace ManufacturedSolution
   class RigidFlow : public NonSeparableFlowMMS<dim>
   {
   public:
-    const Point<dim> center;
-    const double R0;
-    const double R1;
+    const Point<dim>     center;
+    const double         R0;
+    const double         R1;
     const Tensor<1, dim> translation;
+
+    /* If this is true, then the pressure is set so that
+     *
+     *     lambda_MMS = - sigma(u_MMS, p_MMS) dot n
+     *
+     * on the cylinder is compatible with the mesh position
+     * boundary condition:
+     *
+     *    x_C = X_C + 1/k * int_Gamma lambda_MMS dx,
+     *
+     * while also ensuring u_MMS = d/dt(x_MMS) on the cylinder.
+     *
+     * That is, x_MMS, u_MMS/p_MMS and lambda_MMS are compatible
+     * and describe a fully coupled fluid-structure problem,
+     * without additional source terms.
+     *
+     * If this is false, then the pressure is arbitrary (e.g., linear).
+     */
+    const bool           coupled_pressure;
+    const double         spring_constant;
 
     const TimeDependenceBase &flow_time_function;
     // Need to know where the object is
@@ -1012,17 +1166,21 @@ namespace ManufacturedSolution
   public:
     RigidFlow(const TimeDependenceBase &flow_time_function,
               const TimeDependenceBase &mesh_time_function,
-              const Point<dim> &center,
-              const double R0,
-              const double R1,
-              const Tensor<1, dim> &translation)
+              const Point<dim>         &center,
+              const double              R0,
+              const double              R1,
+              const Tensor<1, dim>     &translation,
+              const bool                coupled_pressure,
+              const double              spring_constant)
       : NonSeparableFlowMMS<dim>()
-    , center(center)
-    , R0(R0)
-    , R1(R1)
-    , translation(translation)
-    , flow_time_function(flow_time_function)
-    , mesh_time_function(mesh_time_function)
+      , center(center)
+      , R0(R0)
+      , R1(R1)
+      , translation(translation)
+      , coupled_pressure(coupled_pressure)
+      , spring_constant(spring_constant)
+      , flow_time_function(flow_time_function)
+      , mesh_time_function(mesh_time_function)
     {
       this->check_time_derivatives();
       this->check_spatial_derivatives();
@@ -1032,121 +1190,339 @@ namespace ManufacturedSolution
     // u
     double u_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       return fdot * kernel_fun(p, current_center, R0, R1) * translation[0];
     };
     double ut_fun(const Point<dim> &p, const double t) const override
     {
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       const double r = (p - current_center).norm();
-      if(r < 1e-14) return 0.;
+      if (r < 1e-14)
+        return 0.;
       const double fdot   = mesh_time_function.value_dot(t);
       const double fddot  = mesh_time_function.value_ddot(t);
-      const double drdt   = - translation * (p - current_center) / r * fdot;
+      const double drdt   = -translation * (p - current_center) / r * fdot;
       const double phi    = kernel_fun(p, current_center, R0, R1);
-      const double dphidr = (R0 < r && r <= R1) ? - dS_quintic((r - R0)/(R1 - R0)) / (R1 - R0) : 0.;
+      const double dphidr = (R0 < r && r <= R1) ?
+                            -dS_quintic((r - R0) / (R1 - R0)) / (R1 - R0) :
+                            0.;
 
       return translation[0] * (fddot * phi + fdot * dphidr * drdt);
     };
     double ux_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       return fdot * dxi_kernel(p, current_center, R0, R1, 0) * translation[0];
     }
     double uy_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       return fdot * dxi_kernel(p, current_center, R0, R1, 1) * translation[0];
     }
     double uz_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       return fdot * dxi_kernel(p, current_center, R0, R1, 2) * translation[0];
     }
     double uxx_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
-      return fdot * d2xij_kernel(p, current_center, R0, R1, 0, 0) * translation[0];
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
+      return fdot * d2xij_kernel(p, current_center, R0, R1, 0, 0) *
+             translation[0];
     }
     double uyy_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
-      return fdot * d2xij_kernel(p, current_center, R0, R1, 1, 1) * translation[0];
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
+      return fdot * d2xij_kernel(p, current_center, R0, R1, 1, 1) *
+             translation[0];
     }
     double uzz_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
-      return fdot * d2xij_kernel(p, current_center, R0, R1, 2, 2) * translation[0];
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
+      return fdot * d2xij_kernel(p, current_center, R0, R1, 2, 2) *
+             translation[0];
     }
 
-    // y 
+    // y
     double v_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       return fdot * kernel_fun(p, current_center, R0, R1) * translation[1];
     };
     double vt_fun(const Point<dim> &p, const double t) const override
     {
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       const double r = (p - current_center).norm();
-      if(r < 1e-14) return 0.;
+      if (r < 1e-14)
+        return 0.;
       const double fdot   = mesh_time_function.value_dot(t);
       const double fddot  = mesh_time_function.value_ddot(t);
-      const double drdt   = - translation * (p - current_center) / r * fdot;
+      const double drdt   = -translation * (p - current_center) / r * fdot;
       const double phi    = kernel_fun(p, current_center, R0, R1);
-      const double dphidr = (R0 < r && r <= R1) ? - dS_quintic((r - R0)/(R1 - R0)) / (R1 - R0) : 0.;
+      const double dphidr = (R0 < r && r <= R1) ?
+                            -dS_quintic((r - R0) / (R1 - R0)) / (R1 - R0) :
+                            0.;
 
       return translation[1] * (fddot * phi + fdot * dphidr * drdt);
     };
     double vx_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       return fdot * dxi_kernel(p, current_center, R0, R1, 0) * translation[1];
     }
     double vy_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       return fdot * dxi_kernel(p, current_center, R0, R1, 1) * translation[1];
     }
     double vz_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
       return fdot * dxi_kernel(p, current_center, R0, R1, 2) * translation[1];
     }
     double vxx_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
-      return fdot * d2xij_kernel(p, current_center, R0, R1, 0, 0) * translation[1];
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
+      return fdot * d2xij_kernel(p, current_center, R0, R1, 0, 0) *
+             translation[1];
     }
     double vyy_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
-      return fdot * d2xij_kernel(p, current_center, R0, R1, 1, 1) * translation[1];
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
+      return fdot * d2xij_kernel(p, current_center, R0, R1, 1, 1) *
+             translation[1];
     }
     double vzz_fun(const Point<dim> &p, const double t) const override
     {
-      const double fdot = mesh_time_function.value_dot(t);
-      const Point<dim> current_center = center + translation * mesh_time_function.value(t);
-      return fdot * d2xij_kernel(p, current_center, R0, R1, 2, 2) * translation[1];
+      const double     fdot = mesh_time_function.value_dot(t);
+      const Point<dim> current_center =
+        center + translation * mesh_time_function.value(t);
+      return fdot * d2xij_kernel(p, current_center, R0, R1, 2, 2) *
+             translation[1];
     }
 
     // pressure
-    double p_fun(const Point<dim> &p, const double) const override { return p[0] + p[1]; }
-    double px_fun(const Point<dim> &, const double) const override { return 1.; }
-    double py_fun(const Point<dim> &, const double) const override { return 1.; }
+    double p_fun(const Point<dim> &p, const double t) const override
+    {
+      if(coupled_pressure)
+      {
+        const double R0_p = 1.;
+        const double     f = mesh_time_function.value(t);
+        const Tensor<1, dim> A = translation * f;
+        const Point<dim> current_center = center + translation * t;
+        const Tensor<1, dim> x_rel = p - current_center;
+        const double r = x_rel.norm();
+        if (r < 1e-14)
+          return 0.;
+
+        // Can be a different kernel from u_MMS and/or x_MMS
+        const double phi_p = kernel_fun(p, current_center, R0_p, R1);
+
+        return A * x_rel / (M_PI * R0 * r) * phi_p;
+      }
+      else
+      {
+        return p[0] + p[1];
+      }
+    }
+    double coupled_grad_p_fun(const Point<dim> &p, const double t, const unsigned int component) const
+    {
+      const double R0_p = 1.;
+      const double     f = mesh_time_function.value(t);
+      const Tensor<1, dim> A = translation * f;
+      const Point<dim> current_center = center + translation * f;
+      const Tensor<1, dim> x_rel = p - current_center;
+      const double r = x_rel.norm();
+      if (r < 1e-14)
+          return 0.;
+
+      // Can be a different kernel from u_MMS and/or x_MMS
+      const double phi    = kernel_fun(p, current_center, R0_p, R1);
+      const double dphidr = dr_kernel(p, current_center, R0_p, R1);
+
+      return (phi/r * A[component] + (dphidr/(r*r) - phi/(r*r*r)) * (A * x_rel) * x_rel[component]) / (M_PI * R0);
+    }
+    double px_fun(const Point<dim> &p, const double t) const override
+    {
+      if(coupled_pressure)
+        return coupled_grad_p_fun(p, t, 0);
+      else
+        return 1.;
+    }
+    double py_fun(const Point<dim> &p, const double t) const override
+    {
+      if(coupled_pressure)
+        return coupled_grad_p_fun(p, t, 1);
+      else
+        return 1.;
+    }
+  };
+
+  template <int dim>
+  class ConstantFlowCoupledPressure : public NonSeparableFlowMMS<dim>
+  {
+  public:
+    const Point<dim>     center;
+    const double         R0;
+    const double         R1;
+    const Tensor<1, dim> translation;
+    const double         spring_constant;
+
+    const TimeDependenceBase &flow_time_function;
+    const TimeDependenceBase &mesh_time_function;
+
+  public:
+    ConstantFlowCoupledPressure(const TimeDependenceBase &flow_time_function,
+              const TimeDependenceBase &mesh_time_function,
+              const Point<dim>         &center,
+              const double              R0,
+              const double              R1,
+              const Tensor<1, dim>     &translation,
+              const double              spring_constant)
+      : NonSeparableFlowMMS<dim>()
+      , center(center)
+      , R0(R0)
+      , R1(R1)
+      , translation(translation)
+      , spring_constant(spring_constant)
+      , flow_time_function(flow_time_function)
+      , mesh_time_function(mesh_time_function)
+    {
+      this->check_time_derivatives();
+      this->check_spatial_derivatives();
+    }
+
+  private:
+    // u
+    double u_fun(const Point<dim> &p, const double t) const override
+    {
+      const double     fdot = mesh_time_function.value_dot(t);
+      return 1./spring_constant * translation[0] * fdot;
+    };
+    double ut_fun(const Point<dim> &p, const double t) const override
+    {
+      const double fddot  = mesh_time_function.value_ddot(t);
+      return 1./spring_constant * translation[0] * fddot;
+    };
+
+    // y
+    double v_fun(const Point<dim> &p, const double t) const override
+    {
+      const double     fdot = mesh_time_function.value_dot(t);
+      return 1./spring_constant * translation[1] * fdot;
+    };
+    double vt_fun(const Point<dim> &p, const double t) const override
+    {
+      const double fddot  = mesh_time_function.value_ddot(t);
+      return 1./spring_constant * translation[1] * fddot;
+    };
+
+    // // u
+    // double u_fun(const Point<dim> &p, const double t) const override
+    // {
+    //   // return flow_time_function.value(t);
+    //   return 1.;
+    // };
+    // double ut_fun(const Point<dim> &p, const double t) const override
+    // {
+    //   // return flow_time_function.value_dot(t);
+    //   return 0.;
+    // };
+
+    // // y
+    // double v_fun(const Point<dim> &p, const double t) const override
+    // {
+    //   // return flow_time_function.value(t);
+    //   return 1.;
+    // };
+    // double vt_fun(const Point<dim> &p, const double t) const override
+    // {
+    //   // return flow_time_function.value_dot(t);
+    //   return 0.;
+    // };
+
+    // pressure
+    double p_fun(const Point<dim> &p, const double t) const override
+    {
+      const double R0_p = 1.;
+      const double     f = mesh_time_function.value(t);
+      const Tensor<1, dim> A = translation * f;
+      const Point<dim> current_center = center + translation * f;
+      const Tensor<1, dim> x_rel = p - current_center;
+      const double r = x_rel.norm();
+      if (r < 1e-14)
+        return 0.;
+
+      // std::cout << std::setprecision(8);
+      // std::cout << "Printing" << std::endl;
+      // std::cout << "f      :" << f << std::endl;
+      // std::cout << "d * f  :" << translation * f << std::endl;
+      // std::cout << "A      :" << A << std::endl;
+      // std::cout << "center :" << center << std::endl;
+      // std::cout << "current:" << current_center << std::endl;
+      // std::cout << "x      :" << p << std::endl;
+      // std::cout << "x_rel  :" << x_rel << std::endl;
+      // std::cout << "r      :" << r << std::endl;
+      // std::cout << "x_rel/r:" << x_rel/r << std::endl;
+
+      // Can be a different kernel from u_MMS and/or x_MMS
+      const double phi_p = kernel_fun(p, current_center, R0_p, R1);
+
+      return A * x_rel / (M_PI * R0 * r) * phi_p;
+    }
+    double coupled_grad_p_fun(const Point<dim> &p, const double t, const unsigned int component) const
+    {
+      const double R0_p = 1.;
+      const double     f = mesh_time_function.value(t);
+      const Tensor<1, dim> A = translation * f;
+      const Point<dim> current_center = center + translation * f;
+      const Tensor<1, dim> x_rel = p - current_center;
+      const double r = x_rel.norm();
+      if (r < 1e-14)
+          return 0.;
+
+      // Can be a different kernel from u_MMS and/or x_MMS
+      const double phi    = kernel_fun(p, current_center, R0_p, R1);
+      const double dphidr = dr_kernel(p, current_center, R0_p, R1);
+
+      return (phi/r * A[component] + (dphidr/(r*r) - phi/(r*r*r)) * (A * x_rel) * x_rel[component]) / (M_PI * R0);
+    }
+    double px_fun(const Point<dim> &p, const double t) const override
+    {
+      return coupled_grad_p_fun(p, t, 0);
+    }
+    double py_fun(const Point<dim> &p, const double t) const override
+    {
+      return coupled_grad_p_fun(p, t, 1);
+    }
   };
 
   /**
@@ -1622,7 +1998,7 @@ namespace ManufacturedSolution
 
   /**
    * x_MMS(X, t) = X_0 + f(t) * kernel(|X - center|) * translation,
-   * 
+   *
    * where kernel is a C^2 bell-shaped function
    * and translation is the final translation vector.
    */
@@ -1630,22 +2006,25 @@ namespace ManufacturedSolution
   class RigidMeshPosition : public MeshPositionMMSBase<dim>
   {
   public:
-    const Point<dim> center;
-    const double R0;
-    const double R1;
+    const Point<dim>     center;
+    const double         R0;
+    const double         R1;
     const Tensor<1, dim> translation;
+    const double spring_constant;
 
   public:
     RigidMeshPosition(const TimeDependenceBase &time_function,
-                      const Point<dim> &center,
-                      const double R0,
-                      const double R1,
-                      const Tensor<1, dim> &translation)
+                      const Point<dim>         &center,
+                      const double              R0,
+                      const double              R1,
+                      const Tensor<1, dim>     &translation,
+                      const double              spring_constant)
       : MeshPositionMMSBase<dim>(time_function)
       , center(center)
       , R0(R0)
       , R1(R1)
       , translation(translation)
+      , spring_constant(spring_constant)
     {
       this->check_spatial_derivatives();
     }
@@ -1654,81 +2033,80 @@ namespace ManufacturedSolution
     // x
     double x_fun(const Point<dim> &p) const override
     {
-      return kernel_fun(p, center, R0, R1) * translation[0];
+      return 1./spring_constant * kernel_fun(p, center, R0, R1) * translation[0];
     };
     double xX_fun(const Point<dim> &p) const override
     {
-      return dxi_kernel(p, center, R0, R1, 0) * translation[0];
+      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 0) * translation[0];
     }
     double xY_fun(const Point<dim> &p) const override
     {
-      return dxi_kernel(p, center, R0, R1, 1) * translation[0];
+      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 1) * translation[0];
     }
     double xZ_fun(const Point<dim> &p) const override
     {
-      return dxi_kernel(p, center, R0, R1, 2) * translation[0];
+      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 2) * translation[0];
     }
-    
+
     double xXX_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 0, 0) * translation[0];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 0) * translation[0];
     }
     double xXY_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 0, 1) * translation[0];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 1) * translation[0];
     }
     double xXZ_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 0, 2) * translation[0];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 2) * translation[0];
     }
     double xYY_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 1, 1) * translation[0];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 1, 1) * translation[0];
     }
     double xZZ_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 2, 2) * translation[0];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 2, 2) * translation[0];
     }
 
-    // y 
+    // y
     double y_fun(const Point<dim> &p) const override
     {
-      return kernel_fun(p, center, R0, R1) * translation[1];
+      return 1./spring_constant * kernel_fun(p, center, R0, R1) * translation[1];
     };
     double yX_fun(const Point<dim> &p) const override
     {
-      return dxi_kernel(p, center, R0, R1, 0) * translation[1];
+      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 0) * translation[1];
     }
     double yY_fun(const Point<dim> &p) const override
     {
-      return dxi_kernel(p, center, R0, R1, 1) * translation[1];
+      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 1) * translation[1];
     }
     double yZ_fun(const Point<dim> &p) const override
     {
-      return dxi_kernel(p, center, R0, R1, 2) * translation[1];
+      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 2) * translation[1];
     }
-    
+
     double yXX_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 0, 0) * translation[1];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 0) * translation[1];
     }
     double yXY_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 0, 1) * translation[1];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 1) * translation[1];
     }
     double yYZ_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 1, 2) * translation[1];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 1, 2) * translation[1];
     }
     double yYY_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 1, 1) * translation[1];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 1, 1) * translation[1];
     }
     double yZZ_fun(const Point<dim> &p) const override
     {
-      return d2xij_kernel(p, center, R0, R1, 2, 2) * translation[1];
+      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 2, 2) * translation[1];
     }
-
   };
 
   /**
@@ -1868,7 +2246,9 @@ namespace ManufacturedSolution
     auto check_order_1 =
       [&](double exact, double numerical, const std::string &name) {
         const double err = std::abs(exact - numerical);
-        AssertThrow(err < tol_order_1,
+        if(err < tol_order_1) return;
+        const double relative_err = err / std::abs(numerical);
+        AssertThrow(relative_err < tol_order_1,
                     ExcMessage("Derivative check failed for " + name +
                                ": exact = " + std::to_string(exact) +
                                ", FD = " + std::to_string(numerical) +
@@ -1878,7 +2258,9 @@ namespace ManufacturedSolution
     auto check_order_2 =
       [&](double exact, double numerical, const std::string &name) {
         const double err = std::abs(exact - numerical);
-        AssertThrow(err < tol_order_2,
+        if(err < tol_order_2) return;
+        const double relative_err = err / std::abs(numerical);
+        AssertThrow(relative_err < tol_order_2,
                     ExcMessage("Derivative check failed for " + name +
                                ": exact = " + std::to_string(exact) +
                                ", FD = " + std::to_string(numerical) +

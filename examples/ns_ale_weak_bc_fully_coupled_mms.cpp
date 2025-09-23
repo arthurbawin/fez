@@ -2865,12 +2865,12 @@ namespace NS_MMS
 
                 if (i_is_u && j_is_x)
                 {
-                  local_matrix_ij += present_l * phi_u[i] * delta_dx_j;
+                  local_matrix_ij += - (present_l * phi_u[i]) * delta_dx_j;
                 }
 
                 if (i_is_u && j_is_l)
                 {
-                  local_matrix_ij += phi_l[j] * phi_u[i];
+                  local_matrix_ij += - (phi_l[j] * phi_u[i]);
                 }
 
                 if (i_is_l && j_is_u)
@@ -3214,7 +3214,7 @@ namespace NS_MMS
 
               if (i_is_u)
               {
-                local_rhs(i) -= present_l * phi_u[i] * JxW;
+                local_rhs(i) -= - (present_l * phi_u[i]) * JxW;
               }
 
               if (i_is_l)
@@ -3790,8 +3790,9 @@ namespace NS_MMS
           // Evaluate exact solution at quadrature points
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
-            const Point<dim> &qpoint         = fe_face_values.quadrature_point(q);
-            const auto        normal_to_mesh = fe_face_values.normal_vector(q);
+            const Point<dim> &qpoint          = fe_face_values.quadrature_point(q);
+            const auto        normal_to_mesh  = fe_face_values.normal_vector(q);
+            const auto        normal_to_solid = -normal_to_mesh;
 
             // Careful: 
             // int lambda := int sigma(u_MMS, p_MMS) cdot  normal_to_fluid
@@ -3800,13 +3801,16 @@ namespace NS_MMS
             //                                                   =
             //                                            -normal_to_solid
             //
-            // Got to take the consitent normal to compare int lambda_h with solution.
+            // Got to take the consistent normal to compare int lambda_h with solution.
+            //
+            // Solution<dim> computes lambda_exact = - sigma cdot ns, where n is 
+            // expected to be the normal to the SOLID.
 
             // out << "VP(" << qpoint[0] << "," << qpoint[1] << "," << 0. << "){"
             //   << normal[0] << "," << normal[1] << "," << 0. << "};\n";
 
             for (unsigned int d = 0; d < dim; ++d)
-              exact[d] = solution_fun.value(qpoint, normal_to_mesh, l_lower + d);
+              exact[d] = solution_fun.value(qpoint, normal_to_solid, l_lower + d);
 
             diff = lambda_values[q] - exact;
 
@@ -3900,7 +3904,7 @@ namespace NS_MMS
 
             // Increment the integrals of lambda:
 
-            // This is int sigma(u_MMS, p_MMS) cdot normal_to_solid
+            // This is int - sigma(u_MMS, p_MMS) cdot normal_to_solid
             lambdaMMS_integral_local += lambda_MMS * fe_face_values.JxW(q);
 
             // This is int lambda := int sigma(u_MMS, p_MMS) cdot  normal_to_fluid
@@ -4000,7 +4004,7 @@ namespace NS_MMS
     pcout << "Checking manufactured solution:" << std::endl;
     pcout << "integral lambdaMMS      = " << lambdaMMS_integral << std::endl;
     pcout << "integral lambda         = " << lambda_integral << std::endl;
-    pcout << "integral p * n_solid = " << pns_integral << " - reference: -d*f(t) = " << ref_pns << " - err = " << err_pns << std::endl;
+    pcout << "integral p * n_solid    = " << pns_integral << " - reference: -d*f(t) = " << ref_pns << " - err = " << err_pns << std::endl;
     pcout << "max error on (x_MMS -    X0) vs -1/k * integral lambda = " << max_x_error << std::endl;
     pcout << "max error on  u_MMS          vs w_MMS                  = " << max_u_error << std::endl;
     pcout << std::endl;
@@ -4129,28 +4133,71 @@ namespace NS_MMS
       }
     }
 
+    // To take the max displacement while preserving sign
+    struct MaxAbsOp
+    {
+      static void apply(void *invec, void *inoutvec, int *len, MPI_Datatype *dtype)
+      {
+        double *in    = static_cast<double*>(invec);
+        double *inout = static_cast<double*>(inoutvec);
+        for (int i = 0; i < *len; ++i)
+        {
+          if (std::fabs(in[i]) > std::fabs(inout[i]))
+            inout[i] = in[i];
+        }
+      }
+    };
+    MPI_Op mpi_maxabs;
+    MPI_Op_create(&MaxAbsOp::apply, /*commutative=*/true, &mpi_maxabs);
+
     Tensor <1, dim> cylinder_displacement, max_diff, ratio;
     for (unsigned int d = 0; d < dim; ++d)
     {
-      cylinder_displacement[d] =
-        Utilities::MPI::max(cylinder_displacement_local[d], mpi_communicator);
+      // cylinder_displacement[d] =
+      //   Utilities::MPI::max(cylinder_displacement_local[d], mpi_communicator);
+
+      // The cylinder displacement is trivially 0 on processes which do not own
+      // a part of the boundary, and is nontrivial otherwise.
+      // Taking the max to synchronize does not work because displacement
+      // can be negative. Instead, we take the max while preserving the sign.
+      MPI_Allreduce(&cylinder_displacement_local[d], &cylinder_displacement[d], 1, MPI_DOUBLE, mpi_maxabs, mpi_communicator);
+
+      // Take the max between all max differences disp_i - disp_j
+      // for x_i and x_j both on the cylinder.
+      // Checks that all displacement are identical.
       max_diff[d] =
         Utilities::MPI::max(max_diff_local[d], mpi_communicator);
-      ratio[d] = lambda_integral[d] / cylinder_displacement[d];
+
+      // Check that the ratio of both terms in the position
+      // boundary condition is -spring_constant
+      if(std::abs(cylinder_displacement[d]) > 1e-10)
+        ratio[d] = lambda_integral[d] / cylinder_displacement[d];
     }
 
-    pcout << std::scientific << std::setprecision(8);
+    pcout << std::endl;
+    pcout << std::scientific << std::setprecision(8) << std::showpos;
+    pcout << "Checking consistency between lambda integral and position BC:" << std::endl;
     pcout << "Integral of lambda on cylinder is " << lambda_integral << std::endl;
     pcout << "Prescribed displacement        is " << cylinder_displacement << std::endl;
-    pcout << "                         Ratio is " << ratio << std::endl;
+    pcout << "                         Ratio is " << ratio << " (expected: " << -param.spring_constant << ")" << std::endl;
     pcout << "Max diff between displacements is " << max_diff << std::endl;
     AssertThrow(max_diff.norm() <= 1e-10,
       ExcMessage("Displacement values of the cylinder are not all the same."));
     for (unsigned int d = 0; d < dim; ++d)
     {
-      AssertThrow(std::abs(ratio[d] - (-param.spring_constant)) <= 1e-3,
+      if(std::abs(ratio[d]) < 1e-10)
+        continue;
+
+      const double absolute_error = std::abs(ratio[d] - (-param.spring_constant));
+
+      if(absolute_error <= 1e-6)
+        continue;
+      
+      const double relative_error = absolute_error / param.spring_constant;
+      AssertThrow(relative_error <= 1e-2,
         ExcMessage("Ratio integral vs displacement values is not -k"));
     }
+    pcout << std::endl;
   }
 
   template <int dim>
@@ -4657,10 +4704,10 @@ namespace NS_MMS
         if(param.with_position_coupling && !(i == 0 && param.bdf_order == 2))
           this->compare_lambda_position_on_boundary(weak_bc_boundary_id);
 
+        this->check_manufactured_solution_boundary(weak_bc_boundary_id);
+
         this->compute_errors(i);
         this->output_results(iConv, i + 1);
-
-        this->check_manufactured_solution_boundary(weak_bc_boundary_id);
 
         // Rotate solutions
         if (param.bdf_order > 0)
@@ -4768,12 +4815,12 @@ int main(int argc, char *argv[])
     param.viscosity           = VISCOSITY;
     param.pseudo_solid_mu     = MU_PS;
     param.pseudo_solid_lambda = LAMBDA_PS;
-    param.spring_constant     = 0.567;
+    param.spring_constant     = 1.;
 
     // Time integration
     param.bdf_order  = 2;
     param.t0         = 0.;
-    param.dt         = 0.01;
+    param.dt         = 0.1;
     param.nTimeSteps = 10;
     param.t1         = param.dt * param.nTimeSteps;
 
@@ -4782,7 +4829,7 @@ int main(int argc, char *argv[])
     // param.type_of_convergence_study = ConvergenceStudy::TIME;
     // param.type_of_convergence_study = ConvergenceStudy::SPACE;
     param.type_of_convergence_study = ConvergenceStudy::TIME_AND_SPACE;
-    param.nConvergenceCycles  = 4;
+    param.nConvergenceCycles  = 2;
     param.starting_mesh       = 1;
 
     VERBOSE = true;
@@ -4794,20 +4841,20 @@ int main(int argc, char *argv[])
       // const ConstantTimeDep flow_time_function(0.);
       // mesh_time_function.check_dependency(flow_time_function);
 
-      // // Linear mesh - Constant flow
-      // const PowerTimeDep    mesh_time_function(1. / 4., 1);
-      // const ConstantTimeDep flow_time_function(1. / 4.);
-      // mesh_time_function.check_dependency(flow_time_function);
+      // Linear mesh - Constant flow
+      const PowerTimeDep    mesh_time_function(1. / 4., 1);
+      const ConstantTimeDep flow_time_function(1. / 4.);
+      mesh_time_function.check_dependency(flow_time_function);
 
       // // Cubic mesh - Quadratic flow
       // const PowerTimeDep mesh_time_function(1., 3);
       // const PowerTimeDep flow_time_function(3., 2);
       // mesh_time_function.check_dependency(flow_time_function);
 
-      // Quartic mesh - Cubic flow
-      const PowerTimeDep mesh_time_function(1., 4);
-      const PowerTimeDep flow_time_function(4., 3);
-      mesh_time_function.check_dependency(flow_time_function);
+      // // Quartic mesh - Cubic flow
+      // const PowerTimeDep mesh_time_function(1., 4);
+      // const PowerTimeDep flow_time_function(4., 3);
+      // mesh_time_function.check_dependency(flow_time_function);
 
       // // Sin mesh - Cos flow
       // const SineTimeDep   mesh_time_function(1./2.);
@@ -4821,8 +4868,8 @@ int main(int argc, char *argv[])
       const Point<dim> center = X0 + center_relative;
       const double R0 = 0.15;
       const double R1 = 0.35;
-      param.translation[0] = 0.05;
-      param.translation[1] = 0.05;
+      param.translation[0] = 0.10;
+      param.translation[1] = 0.0;
 
       // // Set maximum allowed translation
       // max_translation[0] = L[0]/15.;

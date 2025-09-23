@@ -2346,12 +2346,12 @@ namespace fsi_coupled
 
                 if (i_is_u && j_is_x)
                 {
-                  local_matrix_ij += present_l * phi_u[i] * delta_dx_j;
+                  local_matrix_ij += - (present_l * phi_u[i]) * delta_dx_j;
                 }
 
                 if (i_is_u && j_is_l)
                 {
-                  local_matrix_ij += phi_l[j] * phi_u[i];
+                  local_matrix_ij += - (phi_l[j] * phi_u[i]);
                 }
 
                 if (i_is_l && j_is_u)
@@ -2674,7 +2674,7 @@ namespace fsi_coupled
 
               if (i_is_u)
               {
-                local_rhs(i) -= present_l * phi_u[i] * JxW;
+                local_rhs(i) -= - (present_l * phi_u[i]) * JxW;
               }
 
               if (i_is_l)
@@ -3751,7 +3751,7 @@ int main(int argc, char *argv[])
     param.pseudo_solid_mu     = 1.;
     param.pseudo_solid_lambda = 1.;
 
-    param.spring_constant     = 0.1;
+    param.spring_constant     = 1.;
 
     // Time integration
     param.bdf_order  = 2;

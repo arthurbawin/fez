@@ -1474,7 +1474,7 @@ namespace ManufacturedSolution
     {
       const double R0_p = 1.;
       const double     f = mesh_time_function.value(t);
-      const Tensor<1, dim> A = translation * f;
+      const Tensor<1, dim> A = - translation * f;
       const Point<dim> current_center = center + translation * f;
       const Tensor<1, dim> x_rel = p - current_center;
       const double r = x_rel.norm();
@@ -1502,7 +1502,7 @@ namespace ManufacturedSolution
     {
       const double R0_p = 1.;
       const double     f = mesh_time_function.value(t);
-      const Tensor<1, dim> A = translation * f;
+      const Tensor<1, dim> A = - translation * f;
       const Point<dim> current_center = center + translation * f;
       const Tensor<1, dim> x_rel = p - current_center;
       const double r = x_rel.norm();

@@ -81,7 +81,7 @@ bool VERBOSE = false;
 
 // Pseudo-solid
 #define LAMBDA_PS 1.
-#define MU_PS 1.
+#define MU_PS     1.
 
 #define NO_SLIP_ON_CYLINDER
 // #define COMPARE_ANALYTIC_MATRIX_WITH_FD
@@ -1278,6 +1278,7 @@ namespace NS_MMS
                                  double            &linf_error_fluid_velocity,
                                  double            &l2_x_error,
                                  double            &linf_x_error);
+    void check_velocity_boundary(const unsigned int boundary_id);
     void compare_lambda_position_on_boundary(const unsigned int boundary_id);
     void check_manufactured_solution_boundary(const unsigned int boundary_id);
     void reset();
@@ -1915,6 +1916,9 @@ namespace NS_MMS
     std::vector<types::global_dof_index> face_dofs(fe.n_dofs_per_face());
     for (const auto &cell : dof_handler.active_cell_iterators())
     {
+      // if (!cell->is_locally_owned())
+      //   continue;
+
       for (const auto f : cell->face_indices())
       {
         if (cell->face(f)->at_boundary() &&
@@ -1923,6 +1927,9 @@ namespace NS_MMS
           cell->face(f)->get_dof_indices(face_dofs);
           for (unsigned int idof = 0; idof < fe.n_dofs_per_face(); ++idof)
           {
+            if (!locally_owned_dofs.is_element(face_dofs[idof]))
+              continue;
+
             const unsigned int component =
               fe.face_system_to_component_index(idof).first;
 
@@ -1964,9 +1971,12 @@ namespace NS_MMS
     const unsigned int n_unconstrained = Utilities::MPI::sum(unconstrained_lambda_dofs.size(), mpi_communicator);
     const unsigned int n_constrained = Utilities::MPI::sum(n_constrained_local, mpi_communicator);
 
-    pcout << n_unconstrained
-          << " lambda DOFs are unconstrained" << std::endl;
-    pcout << n_constrained << " lambda DOFs are constrained" << std::endl;
+    if(VERBOSE)
+    {
+      pcout << n_unconstrained
+            << " lambda DOFs are unconstrained" << std::endl;
+      pcout << n_constrained << " lambda DOFs are constrained" << std::endl;
+    }
   }
 
   /**
@@ -3188,7 +3198,7 @@ namespace NS_MMS
         {
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
-            const double JxW   = scratchData.face_JxW[i_face][q];
+            const double face_JxW   = scratchData.face_JxW[i_face][q];
             const auto  &phi_u = scratchData.phi_u_face[i_face][q];
             const auto  &phi_l = scratchData.phi_l_face[i_face][q];
 
@@ -3214,18 +3224,18 @@ namespace NS_MMS
 
               if (i_is_u)
               {
-                local_rhs(i) -= - (present_l * phi_u[i]) * JxW;
+                local_rhs(i) -= - (phi_u[i] * present_l) * face_JxW;
               }
 
               if (i_is_l)
               {
 #if defined(NO_SLIP_ON_CYLINDER)
-                local_rhs(i) -= (present_u - present_w) * phi_l[i] * JxW;
-                local_rhs(i) -= face_source_term_lambda * phi_l[i] * JxW;
+                local_rhs(i) -= (present_u - present_w) * phi_l[i] * face_JxW;
+                local_rhs(i) -= face_source_term_lambda * phi_l[i] * face_JxW;
 #else
                 // Manufactured velocity on cylinder
                 local_rhs(i) -=
-                  (present_u - prescribed_velocity_weak_bc) * phi_l[i] * JxW;
+                  (present_u - prescribed_velocity_weak_bc) * phi_l[i] * face_JxW;
 #endif
               }
 
@@ -3597,9 +3607,39 @@ namespace NS_MMS
     if ((global_res > param.newton_tolerance) &&
         outer_iteration >= 50)
       {
+        pcout << "\tCurrent residual = "
+                              << std::setprecision(6)
+                              << std::setw(6) << current_res << std::endl;
         throw(std::runtime_error(
           "Stopping simulation because the non-linear solver has failed to converge"));
       }
+  }
+
+  std::string double_to_pstring(double value, int precision = 15)
+  {
+    std::ostringstream oss;
+    oss.imbue(std::locale::classic());       // ensure '.' decimal separator
+    oss << std::fixed << std::setprecision(precision) << value;
+    std::string s = oss.str();
+
+    // Remove trailing zeros after decimal point
+    auto pos = s.find('.');
+    if (pos != std::string::npos)
+    {
+      // trim trailing zeros
+      while (!s.empty() && s.back() == '0')
+        s.pop_back();
+      // if a trailing dot remains, remove it (so 2.000 -> "2")
+      if (!s.empty() && s.back() == '.')
+        s.pop_back();
+    }
+
+    // Replace dot with 'p' (if any)
+    for (char &c : s)
+      if (c == '.')
+        c = 'p';
+
+    return s;
   }
 
   template <int dim>
@@ -3732,7 +3772,10 @@ namespace NS_MMS
     else
     {
       // Export regular time step
-      std::string root = "../data/ns_ale_mms" + std::to_string(convergence_index) + "/";
+      std::string root = "../data/ns_ale_mms_k"
+        + double_to_pstring(param.spring_constant)
+        + "_"
+        + std::to_string(convergence_index) + "/";
       std::string fileName = "solution";
       data_out.write_vtu_with_pvtu_record(
         root, fileName, time_step, mpi_communicator, 2);
@@ -3927,8 +3970,8 @@ namespace NS_MMS
     }
     pns_integral = Utilities::MPI::sum(pns_integral_local, mpi_communicator);
 
-    // Reference solution for int_Gamma p*n_solid dx is - d * f(t).
-    const Tensor<1, dim> ref_pns = - param.translation * mesh_mms.time_function.value(this->current_time);
+    // Reference solution for int_Gamma p*n_solid dx is - k * d * f(t).
+    const Tensor<1, dim> ref_pns = - param.spring_constant * param.translation * mesh_mms.time_function.value(this->current_time);
     const double err_pns = (ref_pns - pns_integral).norm();
 
     //
@@ -4000,14 +4043,18 @@ namespace NS_MMS
       }
     }
 
-    pcout << std::endl;
-    pcout << "Checking manufactured solution:" << std::endl;
-    pcout << "integral lambdaMMS      = " << lambdaMMS_integral << std::endl;
-    pcout << "integral lambda         = " << lambda_integral << std::endl;
-    pcout << "integral p * n_solid    = " << pns_integral << " - reference: -d*f(t) = " << ref_pns << " - err = " << err_pns << std::endl;
-    pcout << "max error on (x_MMS -    X0) vs -1/k * integral lambda = " << max_x_error << std::endl;
-    pcout << "max error on  u_MMS          vs w_MMS                  = " << max_u_error << std::endl;
-    pcout << std::endl;
+    if(VERBOSE)
+    {
+      pcout << std::endl;
+      pcout << "Checking manufactured solution for k = " << param.spring_constant << " :" << std::endl;
+      pcout << "integral lambda         = " << lambda_integral << std::endl;
+      pcout << "integral lambdaMMS      = " << lambdaMMS_integral << std::endl;
+      pcout << "integral p * n_solid    = " << pns_integral << std::endl; 
+      pcout << "reference: -k*d*f(t)    = " << ref_pns << " - err = " << err_pns << std::endl;
+      pcout << "max error on (x_MMS -    X0) vs -1/k * integral lambda = " << max_x_error << std::endl;
+      pcout << "max error on  u_MMS          vs w_MMS                  = " << max_u_error << std::endl;
+      pcout << std::endl;
+    }
   }
 
   /**
@@ -4174,30 +4221,118 @@ namespace NS_MMS
         ratio[d] = lambda_integral[d] / cylinder_displacement[d];
     }
 
-    pcout << std::endl;
-    pcout << std::scientific << std::setprecision(8) << std::showpos;
-    pcout << "Checking consistency between lambda integral and position BC:" << std::endl;
-    pcout << "Integral of lambda on cylinder is " << lambda_integral << std::endl;
-    pcout << "Prescribed displacement        is " << cylinder_displacement << std::endl;
-    pcout << "                         Ratio is " << ratio << " (expected: " << -param.spring_constant << ")" << std::endl;
-    pcout << "Max diff between displacements is " << max_diff << std::endl;
-    AssertThrow(max_diff.norm() <= 1e-10,
-      ExcMessage("Displacement values of the cylinder are not all the same."));
-    for (unsigned int d = 0; d < dim; ++d)
+    if(VERBOSE)
     {
-      if(std::abs(ratio[d]) < 1e-10)
-        continue;
-
-      const double absolute_error = std::abs(ratio[d] - (-param.spring_constant));
-
-      if(absolute_error <= 1e-6)
-        continue;
-      
-      const double relative_error = absolute_error / param.spring_constant;
-      AssertThrow(relative_error <= 1e-2,
-        ExcMessage("Ratio integral vs displacement values is not -k"));
+      pcout << std::endl;
+      pcout << std::scientific << std::setprecision(8) << std::showpos;
+      pcout << "Checking consistency between lambda integral and position BC:" << std::endl;
+      pcout << "Integral of lambda on cylinder is " << lambda_integral << std::endl;
+      pcout << "Prescribed displacement        is " << cylinder_displacement << std::endl;
+      pcout << "                         Ratio is " << ratio << " (expected: " << -param.spring_constant << ")" << std::endl;
+      pcout << "Max diff between displacements is " << max_diff << std::endl;
     }
-    pcout << std::endl;
+      AssertThrow(max_diff.norm() <= 1e-10,
+        ExcMessage("Displacement values of the cylinder are not all the same."));
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        if(std::abs(ratio[d]) < 1e-10)
+          continue;
+
+        const double absolute_error = std::abs(ratio[d] - (-param.spring_constant));
+
+        if(absolute_error <= 1e-6)
+          continue;
+        
+        const double relative_error = absolute_error / param.spring_constant;
+        AssertThrow(relative_error <= 1e-2,
+          ExcMessage("Ratio integral vs displacement values is not -k"));
+      }
+    if(VERBOSE)
+    {
+      pcout << std::endl;
+    }
+  }
+
+  template <int dim>
+  void MMS<dim>::check_velocity_boundary(const unsigned int boundary_id)
+  {
+    // Check difference between uh and dxhdt
+    double l2_local = 0;
+    double li_local = 0;
+
+    const FEValuesExtractors::Vector velocity(u_lower);
+    const FEValuesExtractors::Vector position(x_lower);
+
+    FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
+                                     fe,
+                                     face_quadrature,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values);
+    FEFaceValues<dim> fe_face_values(*mapping,
+                                     fe,
+                                     face_quadrature,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values);
+
+    const unsigned int n_faces_q_points = face_quadrature.size();
+
+    std::vector<std::vector<Tensor<1, dim>>> position_values(
+      bdfCoeffs.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
+    std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
+    std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
+    Tensor<1, dim>              diff;
+
+    for (auto cell : dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+
+      for (const auto i_face : cell->face_indices())
+      {
+        const auto &face = cell->face(i_face);
+
+        if (face->at_boundary() && face->boundary_id() == boundary_id)
+        {
+          fe_face_values_fixed.reinit(cell, i_face);
+          fe_face_values.reinit(cell, i_face);
+
+          // Get current and previous FE solution values on the face
+          fe_face_values[velocity].get_function_values(present_solution,
+                                                       fluid_velocity_values);
+          fe_face_values_fixed[position].get_function_values(present_solution,
+                                                       position_values[0]);
+          for (unsigned int iBDF = 1; iBDF < bdfCoeffs.size(); ++iBDF)
+            fe_face_values_fixed[position].get_function_values(
+              previous_solutions[iBDF - 1], position_values[iBDF]);
+
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            // Compute FE mesh velocity at node
+            mesh_velocity_values[q] = 0;
+            for (unsigned int iBDF = 0; iBDF < bdfCoeffs.size(); ++iBDF)
+              mesh_velocity_values[q] +=
+                bdfCoeffs[iBDF] * position_values[iBDF][q];
+
+            diff = mesh_velocity_values[q] - fluid_velocity_values[q];
+
+            // std::cout << "wh = " << mesh_velocity_values[q] << " - uh = " << fluid_velocity_values[q] << " - diff = " << diff << std::endl;
+
+            // u_h - w_h
+            l2_local += diff * diff * fe_face_values_fixed.JxW(q);
+            li_local = std::max(li_local, std::abs(diff.norm()));
+          }
+        }
+      }
+    }
+
+    const double l2_error = std::sqrt(Utilities::MPI::sum(l2_local, mpi_communicator));
+    const double li_error = Utilities::MPI::max(li_local, mpi_communicator);
+
+    if(VERBOSE)
+    {
+      pcout << "||uh - wh||_L2 = " << l2_error << std::endl; 
+      pcout << "||uh - wh||_Li = " << li_error << std::endl;
+    } 
   }
 
   template <int dim>
@@ -4705,6 +4840,7 @@ namespace NS_MMS
           this->compare_lambda_position_on_boundary(weak_bc_boundary_id);
 
         this->check_manufactured_solution_boundary(weak_bc_boundary_id);
+        this->check_velocity_boundary(weak_bc_boundary_id);
 
         this->compute_errors(i);
         this->output_results(iConv, i + 1);
@@ -4756,7 +4892,8 @@ namespace NS_MMS
       convergence_boundary.set_scientific(key, true);
     }
 
-    pcout << "BDF order: " << param.bdf_order << " - Velocity P"
+    pcout << std::endl;
+    pcout << "Spring constant = " << param.spring_constant << " - BDF order: " << param.bdf_order << " - Velocity P"
           << param.velocity_degree << " - Pressure P"
           << param.velocity_degree - 1 << " - Position P"
           << param.position_degree << std::endl;
@@ -4765,7 +4902,6 @@ namespace NS_MMS
     {
       std::cout << "Error on domain:" << std::endl;
       convergence_domain.write_text(std::cout);
-      std::cout << std::endl;
       std::cout << "Error on boundary:" << std::endl;
       convergence_boundary.write_text(std::cout);
     }
@@ -4784,10 +4920,12 @@ int main(int argc, char *argv[])
 
     const unsigned int dim = 2;
 
+    std::vector<double> spring_constants = {100., 10., 1., 0.1, 0.01};
+
     SimulationParameters<dim> param;
 
     param.velocity_degree = 2;
-    param.position_degree = 1; // <================================================================================================
+    param.position_degree = 1;
     param.lambda_degree   = 2;
 
     param.with_weak_velocity_bc  = true;
@@ -4815,7 +4953,7 @@ int main(int argc, char *argv[])
     param.viscosity           = VISCOSITY;
     param.pseudo_solid_mu     = MU_PS;
     param.pseudo_solid_lambda = LAMBDA_PS;
-    param.spring_constant     = 1.;
+    // param.spring_constant     = 1.;
 
     // Time integration
     param.bdf_order  = 2;
@@ -4824,27 +4962,29 @@ int main(int argc, char *argv[])
     param.nTimeSteps = 10;
     param.t1         = param.dt * param.nTimeSteps;
 
-    param.newton_tolerance = 1e-12;
+    param.newton_tolerance = 1e-8 * LAMBDA_PS;
 
     // param.type_of_convergence_study = ConvergenceStudy::TIME;
     // param.type_of_convergence_study = ConvergenceStudy::SPACE;
     param.type_of_convergence_study = ConvergenceStudy::TIME_AND_SPACE;
-    param.nConvergenceCycles  = 2;
+    param.nConvergenceCycles  = 3;
     param.starting_mesh       = 1;
 
-    VERBOSE = true;
+    VERBOSE = false;
 
-    // With mesh movement
+    for(unsigned int i_spring = 0; i_spring < spring_constants.size(); ++i_spring)
     {
+      param.spring_constant = spring_constants[i_spring];
+
       // // Constant mesh - Zero flow
       // const ConstantTimeDep mesh_time_function(1.);
       // const ConstantTimeDep flow_time_function(0.);
       // mesh_time_function.check_dependency(flow_time_function);
 
-      // Linear mesh - Constant flow
-      const PowerTimeDep    mesh_time_function(1. / 4., 1);
-      const ConstantTimeDep flow_time_function(1. / 4.);
-      mesh_time_function.check_dependency(flow_time_function);
+      // // Linear mesh - Constant flow
+      // const PowerTimeDep    mesh_time_function(1. / 4., 1);
+      // const ConstantTimeDep flow_time_function(1. / 4.);
+      // mesh_time_function.check_dependency(flow_time_function);
 
       // // Cubic mesh - Quadratic flow
       // const PowerTimeDep mesh_time_function(1., 3);
@@ -4856,10 +4996,10 @@ int main(int argc, char *argv[])
       // const PowerTimeDep flow_time_function(4., 3);
       // mesh_time_function.check_dependency(flow_time_function);
 
-      // // Sin mesh - Cos flow
-      // const SineTimeDep   mesh_time_function(1./2.);
-      // const CosineTimeDep flow_time_function(2. * M_PI * 1./2.);
-      // mesh_time_function.check_dependency(flow_time_function);
+      // Sin mesh - Cos flow
+      const SineTimeDep   mesh_time_function(1./2.);
+      const CosineTimeDep flow_time_function(2. * M_PI * 1./2.);
+      mesh_time_function.check_dependency(flow_time_function);
 
       // Mesh origin
       const Point<dim> X0(10., 10.);
@@ -4867,19 +5007,9 @@ int main(int argc, char *argv[])
       const Point<dim> center_relative = 0.5 * L;
       const Point<dim> center = X0 + center_relative;
       const double R0 = 0.15;
-      const double R1 = 0.35;
+      const double R1 = 0.45;
       param.translation[0] = 0.10;
-      param.translation[1] = 0.0;
-
-      // // Set maximum allowed translation
-      // max_translation[0] = L[0]/15.;
-      // max_translation[1] = 0.;
-
-      // // Set effective translation vector d so that d / k * max(f(t)) = max_translation
-      // double dummy_time = 0., max_ft = 0.;
-      // for(unsigned int i = 0; i < param.nTimeSteps; ++i, dummy_time += param.dt)
-      //   max_ft = std::max(max_ft, mesh_time_function.value(dummy_time));
-      // translation = max_translation * param.spring_constant / max_ft;
+      param.translation[1] = 0.05;
 
       const RigidMeshPosition<dim> mesh_position_mms(mesh_time_function,
                                                      center,

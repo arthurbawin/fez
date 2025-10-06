@@ -1425,24 +1425,24 @@ namespace ManufacturedSolution
     double u_fun(const Point<dim> &p, const double t) const override
     {
       const double     fdot = mesh_time_function.value_dot(t);
-      return 1./spring_constant * translation[0] * fdot;
+      return translation[0] * fdot;
     };
     double ut_fun(const Point<dim> &p, const double t) const override
     {
       const double fddot  = mesh_time_function.value_ddot(t);
-      return 1./spring_constant * translation[0] * fddot;
+      return translation[0] * fddot;
     };
 
     // y
     double v_fun(const Point<dim> &p, const double t) const override
     {
       const double     fdot = mesh_time_function.value_dot(t);
-      return 1./spring_constant * translation[1] * fdot;
+      return translation[1] * fdot;
     };
     double vt_fun(const Point<dim> &p, const double t) const override
     {
       const double fddot  = mesh_time_function.value_ddot(t);
-      return 1./spring_constant * translation[1] * fddot;
+      return translation[1] * fddot;
     };
 
     // // u
@@ -1496,7 +1496,7 @@ namespace ManufacturedSolution
       // Can be a different kernel from u_MMS and/or x_MMS
       const double phi_p = kernel_fun(p, current_center, R0_p, R1);
 
-      return A * x_rel / (M_PI * R0 * r) * phi_p;
+      return spring_constant * A * x_rel / (M_PI * R0 * r) * phi_p;
     }
     double coupled_grad_p_fun(const Point<dim> &p, const double t, const unsigned int component) const
     {
@@ -1513,7 +1513,7 @@ namespace ManufacturedSolution
       const double phi    = kernel_fun(p, current_center, R0_p, R1);
       const double dphidr = dr_kernel(p, current_center, R0_p, R1);
 
-      return (phi/r * A[component] + (dphidr/(r*r) - phi/(r*r*r)) * (A * x_rel) * x_rel[component]) / (M_PI * R0);
+      return spring_constant * (phi/r * A[component] + (dphidr/(r*r) - phi/(r*r*r)) * (A * x_rel) * x_rel[component]) / (M_PI * R0);
     }
     double px_fun(const Point<dim> &p, const double t) const override
     {
@@ -2033,79 +2033,79 @@ namespace ManufacturedSolution
     // x
     double x_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * kernel_fun(p, center, R0, R1) * translation[0];
+      return kernel_fun(p, center, R0, R1) * translation[0];
     };
     double xX_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 0) * translation[0];
+      return dxi_kernel(p, center, R0, R1, 0) * translation[0];
     }
     double xY_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 1) * translation[0];
+      return dxi_kernel(p, center, R0, R1, 1) * translation[0];
     }
     double xZ_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 2) * translation[0];
+      return dxi_kernel(p, center, R0, R1, 2) * translation[0];
     }
 
     double xXX_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 0) * translation[0];
+      return d2xij_kernel(p, center, R0, R1, 0, 0) * translation[0];
     }
     double xXY_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 1) * translation[0];
+      return d2xij_kernel(p, center, R0, R1, 0, 1) * translation[0];
     }
     double xXZ_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 2) * translation[0];
+      return d2xij_kernel(p, center, R0, R1, 0, 2) * translation[0];
     }
     double xYY_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 1, 1) * translation[0];
+      return d2xij_kernel(p, center, R0, R1, 1, 1) * translation[0];
     }
     double xZZ_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 2, 2) * translation[0];
+      return d2xij_kernel(p, center, R0, R1, 2, 2) * translation[0];
     }
 
     // y
     double y_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * kernel_fun(p, center, R0, R1) * translation[1];
+      return kernel_fun(p, center, R0, R1) * translation[1];
     };
     double yX_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 0) * translation[1];
+      return dxi_kernel(p, center, R0, R1, 0) * translation[1];
     }
     double yY_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 1) * translation[1];
+      return dxi_kernel(p, center, R0, R1, 1) * translation[1];
     }
     double yZ_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * dxi_kernel(p, center, R0, R1, 2) * translation[1];
+      return dxi_kernel(p, center, R0, R1, 2) * translation[1];
     }
 
     double yXX_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 0) * translation[1];
+      return d2xij_kernel(p, center, R0, R1, 0, 0) * translation[1];
     }
     double yXY_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 0, 1) * translation[1];
+      return d2xij_kernel(p, center, R0, R1, 0, 1) * translation[1];
     }
     double yYZ_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 1, 2) * translation[1];
+      return d2xij_kernel(p, center, R0, R1, 1, 2) * translation[1];
     }
     double yYY_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 1, 1) * translation[1];
+      return d2xij_kernel(p, center, R0, R1, 1, 1) * translation[1];
     }
     double yZZ_fun(const Point<dim> &p) const override
     {
-      return 1./spring_constant * d2xij_kernel(p, center, R0, R1, 2, 2) * translation[1];
+      return d2xij_kernel(p, center, R0, R1, 2, 2) * translation[1];
     }
   };
 

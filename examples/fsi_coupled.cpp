@@ -63,6 +63,8 @@ namespace LA
 
 bool VERBOSE = false;
 
+// #define COMPARE_ANALYTIC_MATRIX_WITH_FD
+
 namespace fsi_coupled
 {
   using namespace dealii;
@@ -545,6 +547,12 @@ namespace fsi_coupled
           // Result of G^(-1) * (J * dxsids)^T * grad_phi_x_j * dxsids
           Tensor<2, dim - 1> res;
 
+          //////////////////////
+          // std::cout << "At quad node " << q << " : " << std::endl;
+          // Tensor<1, dim> sum;
+          // sum = 0;
+          //////////////////////
+
           for (unsigned int k = 0; k < dofs_per_cell; ++k)
           {
             phi_u_face[i_face][q][k] =
@@ -555,6 +563,11 @@ namespace fsi_coupled
               (*active_fe_face_values)[position].gradient(k, q);
             phi_l_face[i_face][q][k] =
               (*active_fe_face_values)[lambda].value(k, q);
+
+            ////////////////////
+            // std::cout << "Shape function is " << phi_l_face[i_face][q][k] << std::endl;
+            // sum += phi_l_face[i_face][q][k];
+            ////////////////////
 
             const auto &grad_phi_x = grad_phi_x_face[i_face][q][k];
 
@@ -589,6 +602,10 @@ namespace fsi_coupled
               0.5 *
               trace(res); // Choose this if multiplying by JxW in the matrix
           }
+
+          //////////////////////
+          // std::cout << "Sum is " << sum << std::endl;
+          //////////////////////
 
           // Face mesh velocity
           present_face_mesh_velocity_values[i_face][q] =
@@ -946,6 +963,8 @@ namespace fsi_coupled
     void compare_lambda_position_on_boundary(const unsigned int boundary_id);
     void compute_force_coefficients(const unsigned int boundary_id,
                                     const bool         export_force_table);
+    void check_velocity_boundary(const unsigned int boundary_id);
+    void check_lambda_weak_form(const unsigned int boundary_id);
 
     SimulationParameters<dim> param;
 
@@ -1133,9 +1152,10 @@ namespace fsi_coupled
     {
       // meshFile = "../data/meshes/cylinderVeryCoarse.msh";
       // meshFile = "../data/meshes/cylinderCoarse.msh";
+      // meshFile = "../data/meshes/cyl_not_confined_uber_coarse.msh";
       // meshFile = "../data/meshes/cyl_not_confined_ultra_coarse.msh";
-      // meshFile = "../data/meshes/cyl_not_confined1.msh";
-      meshFile = "../data/meshes/cyl_not_confined2.msh";
+      meshFile = "../data/meshes/cyl_not_confined1.msh";
+      // meshFile = "../data/meshes/cyl_not_confined2.msh";
     }
     else
     {
@@ -1599,6 +1619,7 @@ namespace fsi_coupled
 
     std::vector<types::global_dof_index> face_dofs(fe.n_dofs_per_face());
 
+    double sum_local = 0.;
     for (const auto &cell : dof_handler.active_cell_iterators())
     {
       if (!cell->is_locally_owned())
@@ -1617,6 +1638,7 @@ namespace fsi_coupled
         for (unsigned int q = 0; q < face_quadrature.size(); ++q)
         {
           const double JxW = fe_face_values_fixed.JxW(q);
+          sum_local += JxW;
 
           for (unsigned int i_dof = 0; i_dof < fe.n_dofs_per_face(); ++i_dof)
           {
@@ -1646,6 +1668,26 @@ namespace fsi_coupled
       }
     }
 
+    ///////////////////////////
+    const double length = Utilities::MPI::sum(sum_local, mpi_communicator);
+    pcout << "Length = " << length << std::endl;
+    ///////////////////////////
+
+    // Expected sum is -1/k * |Cylinder|
+    const double expected_weights_sum = -1./param.spring_constant * M_PI;
+
+    for(unsigned int d = 0; d < dim; ++d)
+    {
+      double weights_sum = 0.;
+      std::cout << "Weights for dim = " << d << std::endl;
+      for(const auto &[lambda_dof, weight] : coeffs[d])
+      {
+        std::cout << "Lambda dof: " << lambda_dof << " - weight: " << weight << std::endl;
+        weights_sum += weight;
+      }
+      std::cout << "Sum is = " << weights_sum << " - Expected : " << expected_weights_sum << std::endl;
+    }
+
     //
     // Gather the constraint weights
     //
@@ -1657,7 +1699,7 @@ namespace fsi_coupled
       std::vector<std::pair<unsigned int, double>> coeffs_vector(
         coeffs[d].begin(), coeffs[d].end());
       std::vector<std::vector<std::pair<unsigned int, double>>> gathered =
-        Utilities::MPI::all_gather(MPI_COMM_WORLD, coeffs_vector);
+        Utilities::MPI::all_gather(mpi_communicator, coeffs_vector);
 
       // Put back into map and sum contributions to same DoF from different
       // processes
@@ -1668,14 +1710,18 @@ namespace fsi_coupled
       position_lambda_coeffs[d].insert(position_lambda_coeffs[d].end(),
                                 gathered_coeffs_map[d].begin(),
                                 gathered_coeffs_map[d].end());
-
-      //
-      // Divide by spring constant k
-      //
-      // for (auto &vec : position_lambda_coeffs)
-      //   for (auto &pair : vec)
-      //     pair.second /= param.spring_constant;
     }
+
+    /////////////////////////////////
+    // position_lambda_coeffs.resize(dim);
+    // for(unsigned int d = 0; d < dim; ++d)
+    // {
+    //   position_lambda_coeffs[d].clear();
+    //   position_lambda_coeffs[d].insert(position_lambda_coeffs[d].end(),
+    //                               coeffs[d].begin(),
+    //                               coeffs[d].end());
+    // }
+    /////////////////////////////////
 
     // Get support points for position DoFs (the initial positions)
     // std::map<types::global_dof_index, Point<dim>> initial_positions;
@@ -1733,6 +1779,7 @@ namespace fsi_coupled
             const unsigned int d = comp - x_lower;
             position_constraints.add_line(face_dofs[i]);
             position_constraints.add_entries(face_dofs[i], position_lambda_coeffs[d]);
+            // position_constraints.add_entries(face_dofs[i], position_lambda_coeffs);
 
             if(!homogeneous)
             {
@@ -2002,7 +2049,7 @@ namespace fsi_coupled
 
     pcout << "Max difference over all elements is " << global_max_diff
           << std::endl;
-    // throw std::runtime_error("Testing FD");
+    AssertThrow(global_max_diff < 1e-5, ExcMessage("Analytic matrix is different from FD matrix."));
 #endif
 
     system_matrix.compress(VectorOperation::add);
@@ -2306,13 +2353,12 @@ namespace fsi_coupled
         {
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
-            const double JxW = scratchData.face_JxW[i_face][q];
+            const double face_JxW = scratchData.face_JxW[i_face][q];
             // const double W   = face_quadrature.weight(q);
             // const auto  &dXds = scratchData.face_dXds[i_face][q];
 
             const auto &phi_u = scratchData.phi_u_face[i_face][q];
             const auto &phi_x = scratchData.phi_x_face[i_face][q];
-            // const auto &grad_phi_x = scratchData.grad_phi_x_face[i_face][q];
             const auto &phi_l = scratchData.phi_l_face[i_face][q];
 
             const auto &present_u =
@@ -2322,7 +2368,7 @@ namespace fsi_coupled
             const auto &present_l =
               scratchData.present_face_lambda_values[i_face][q];
             
-            const auto &face_source_term_lambda = scratchData.face_source_term_lambda[i_face][q];
+            // const auto &face_source_term_lambda = scratchData.face_source_term_lambda[i_face][q];
             // This term is harder to implement if it is split into 2 contributions...
             // Could do finite differences inside the scratch.reinit function...
             // const auto &face_grad_source_lambda = scratchData.face_grad_source_lambda[i_face][q];
@@ -2362,13 +2408,26 @@ namespace fsi_coupled
                 if (i_is_l && j_is_x)
                 {
                   local_matrix_ij += -bdfCoeffs[0] * phi_x[j] * phi_l[i];
-                  local_matrix_ij +=
-                    (present_u - present_w) * phi_l[i] * delta_dx_j;
-                  local_matrix_ij += face_source_term_lambda * phi_l[i] * delta_dx_j;
-                  // local_matrix_ij += face_grad_source_lambda * phi_x[j] * phi_l[i];
+                  local_matrix_ij += (present_u - present_w) * phi_l[i] * delta_dx_j;
+
+                  // local_matrix_ij += (present_u) * phi_l[i] * delta_dx_j;
+
+                  // // Small mass term
+                  // local_matrix_ij += 1e-5 * present_l * phi_l[i] * delta_dx_j;
+
+                  // Tensor<1, dim> target;
+                  // target[0] = 0.123456;
+                  // target[1] = 0.987654;
+                  // local_matrix_ij += (present_u - target) * phi_l[i] * delta_dx_j;
                 }
 
-                local_matrix_ij *= JxW;
+                if(i_is_l && j_is_l)
+                {
+                  // // Small mass term
+                  // local_matrix_ij += 1e-5 * phi_l[j] * phi_l[i];
+                }
+
+                local_matrix_ij *= face_JxW;
                 local_matrix(i, j) += local_matrix_ij;
               }
             }
@@ -2653,9 +2712,9 @@ namespace fsi_coupled
         {
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
-            const double JxW   = scratchData.face_JxW[i_face][q];
-            const auto  &phi_u = scratchData.phi_u_face[i_face][q];
-            const auto  &phi_l = scratchData.phi_l_face[i_face][q];
+            const double face_JxW = scratchData.face_JxW[i_face][q];
+            const auto  &phi_u    = scratchData.phi_u_face[i_face][q];
+            const auto  &phi_l    = scratchData.phi_l_face[i_face][q];
 
             const auto &present_u =
               scratchData.present_face_velocity_values[i_face][q];
@@ -2664,23 +2723,31 @@ namespace fsi_coupled
             const auto &present_l =
               scratchData.present_face_lambda_values[i_face][q];
 
-            const auto &face_source_term_lambda = scratchData.face_source_term_lambda[i_face][q];
-
             for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
             {
+              double local_rhs_i = 0.;
+
               const unsigned int component_i = scratchData.components[i];
               const bool         i_is_u      = is_velocity(component_i);
               const bool         i_is_l      = is_lambda(component_i);
 
               if (i_is_u)
               {
-                local_rhs(i) -= - (present_l * phi_u[i]) * JxW;
+                local_rhs_i -= - (phi_u[i] * present_l) * face_JxW;
               }
 
               if (i_is_l)
               {
-                local_rhs(i) -= (present_u - present_w) * phi_l[i] * JxW;
-                local_rhs(i) -= face_source_term_lambda * phi_l[i] * JxW;
+                local_rhs(i) -= (present_u - present_w) * phi_l[i] * face_JxW;
+                // local_rhs(i) -= (present_u) * phi_l[i] * face_JxW;
+
+                // // Small mass term
+                // local_rhs(i) -= 1e-5 * present_l * phi_l[i] * face_JxW;
+
+                // Tensor<1, dim> target;
+                // target[0] = 0.123456;
+                // target[1] = 0.987654;
+                // local_rhs_i -= phi_l[i] * (present_u - target) * face_JxW;
               }
 
               /////////////////////////////////////////////////////
@@ -2689,9 +2756,11 @@ namespace fsi_coupled
               //   // Test with boundary element length/area:
               //   // local_rhs(i) -=
               //   sqrt(determinant(scratchData.face_G[i_face][q])) * W;
-              //   // local_rhs(i) -= JxW;
+              //   // local_rhs(i) -= face_JxW;
               // }
               /////////////////////////////////////////////////////
+
+              local_rhs(i) += local_rhs_i;
             }
           }
         }
@@ -3413,7 +3482,7 @@ namespace fsi_coupled
           // Evaluate exact solution at quadrature points
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
-            const Point<dim> &qpoint = fe_face_values.quadrature_point(q);
+            // const Point<dim> &qpoint = fe_face_values.quadrature_point(q);
 
             // Increment the integral of lambda
             lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
@@ -3473,7 +3542,8 @@ namespace fsi_coupled
           {
             const unsigned int d = comp - x_lower;
             if(d == 0 && first_displacement_x)
-            {first_displacement_x = false;
+            {
+              first_displacement_x = false;
               cylinder_displacement_local[d] = present_solution[face_dofs[i]] - this->initial_positions.at(face_dofs[i])[d];
             }
             if(d == 1 && first_displacement_y)
@@ -3494,134 +3564,246 @@ namespace fsi_coupled
       }
     }
 
+    // To take the max displacement while preserving sign
+    struct MaxAbsOp
+    {
+      static void apply(void *invec, void *inoutvec, int *len, MPI_Datatype *dtype)
+      {
+        double *in    = static_cast<double*>(invec);
+        double *inout = static_cast<double*>(inoutvec);
+        for (int i = 0; i < *len; ++i)
+        {
+          if (std::fabs(in[i]) > std::fabs(inout[i]))
+            inout[i] = in[i];
+        }
+      }
+    };
+    MPI_Op mpi_maxabs;
+    MPI_Op_create(&MaxAbsOp::apply, /*commutative=*/true, &mpi_maxabs);
+
     Tensor <1, dim> cylinder_displacement, max_diff, ratio;
     for (unsigned int d = 0; d < dim; ++d)
     {
-      cylinder_displacement[d] =
-        Utilities::MPI::max(cylinder_displacement_local[d], mpi_communicator);
+      // cylinder_displacement[d] =
+      //   Utilities::MPI::max(cylinder_displacement_local[d], mpi_communicator);
+
+      // The cylinder displacement is trivially 0 on processes which do not own
+      // a part of the boundary, and is nontrivial otherwise.
+      // Taking the max to synchronize does not work because displacement
+      // can be negative. Instead, we take the max while preserving the sign.
+      MPI_Allreduce(&cylinder_displacement_local[d], &cylinder_displacement[d], 1, MPI_DOUBLE, mpi_maxabs, mpi_communicator);
+
+      // Take the max between all max differences disp_i - disp_j
+      // for x_i and x_j both on the cylinder.
+      // Checks that all displacement are identical.
       max_diff[d] =
         Utilities::MPI::max(max_diff_local[d], mpi_communicator);
-      ratio[d] = lambda_integral[d] / cylinder_displacement[d];
+
+      // Check that the ratio of both terms in the position
+      // boundary condition is -spring_constant
+      if(std::abs(cylinder_displacement[d]) > 1e-10)
+        ratio[d] = lambda_integral[d] / cylinder_displacement[d];
     }
 
+    pcout << std::endl;
+    pcout << std::scientific << std::setprecision(8) << std::showpos;
+    pcout << "Checking consistency between lambda integral and position BC:" << std::endl;
     pcout << "Integral of lambda on cylinder is " << lambda_integral << std::endl;
     pcout << "Prescribed displacement        is " << cylinder_displacement << std::endl;
-    pcout << "                         Ratio is " << ratio << std::endl;
+    pcout << "                         Ratio is " << ratio << " (expected: " << -param.spring_constant << ")" << std::endl;
     pcout << "Max diff between displacements is " << max_diff << std::endl;
     AssertThrow(max_diff.norm() <= 1e-10,
       ExcMessage("Displacement values of the cylinder are not all the same."));
+    for (unsigned int d = 0; d < dim; ++d)
+    {
+      if(std::abs(ratio[d]) < 1e-10)
+        continue;
+
+      const double absolute_error = std::abs(ratio[d] - (-param.spring_constant));
+
+      if(absolute_error <= 1e-6)
+        continue;
+      
+      const double relative_error = absolute_error / param.spring_constant;
+      AssertThrow(relative_error <= 1e-2,
+        ExcMessage("Ratio integral vs displacement values is not -k"));
+    }
+    pcout << std::endl;
+    
+    // Tensor <1, dim> cylinder_displacement, max_diff, ratio;
+    // for (unsigned int d = 0; d < dim; ++d)
+    // {
+    //   cylinder_displacement[d] =
+    //     Utilities::MPI::max(cylinder_displacement_local[d], mpi_communicator);
+    //   max_diff[d] =
+    //     Utilities::MPI::max(max_diff_local[d], mpi_communicator);
+    //   ratio[d] = lambda_integral[d] / cylinder_displacement[d];
+    // }
+
+    // pcout << "Integral of lambda on cylinder is " << lambda_integral << std::endl;
+    // pcout << "Prescribed displacement        is " << cylinder_displacement << std::endl;
+    // pcout << "                         Ratio is " << ratio << std::endl;
+    // pcout << "Max diff between displacements is " << max_diff << std::endl;
+    // AssertThrow(max_diff.norm() <= 1e-10,
+    //   ExcMessage("Displacement values of the cylinder are not all the same."));
   }
 
-  // template <int dim>
-  // void FSI<dim>::compute_boundary_errors(
-  //   const unsigned int boundary_id,
-  //   double            &l2_error_dxdt,
-  //   double            &linf_error_dxdt,
-  //   double            &l2_error_fluid_velocity,
-  //   double            &linf_error_fluid_velocity,
-  //   double            &l2_x_error,
-  //   double            &linf_x_error)
-  // {
-  //   double l2_local_dxdt   = 0;
-  //   double linf_local_dxdt = 0;
-  //   double l2_local_fluid   = 0;
-  //   double linf_local_fluid = 0;
-  //   double l2_local_x = 0;
-  //   double linf_local_x = 0;
+  template <int dim>
+  void FSI<dim>::check_lambda_weak_form(const unsigned int boundary_id)
+  {
+    // Check difference between uh and dxhdt
+    double l2_local = 0;
+    double li_local = 0;
 
-  //   const FEValuesExtractors::Vector velocity(u_lower);
-  //   const FEValuesExtractors::Vector position(x_lower);
+    const FEValuesExtractors::Vector velocity(u_lower);
+    const FEValuesExtractors::Vector position(x_lower);
 
-  //   FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
-  //                                    fe,
-  //                                    face_quadrature,
-  //                                    update_values | update_quadrature_points |
-  //                                      update_JxW_values);
-  //   FEFaceValues<dim> fe_face_values(*mapping,
-  //                                    fe,
-  //                                    face_quadrature,
-  //                                    update_values | update_quadrature_points |
-  //                                      update_JxW_values);
+    FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
+                                     fe,
+                                     face_quadrature,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values);
+    FEFaceValues<dim> fe_face_values(*mapping,
+                                     fe,
+                                     face_quadrature,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values);
 
-  //   const unsigned int n_faces_q_points = face_quadrature.size();
-  //   std::vector<std::vector<Tensor<1, dim>>> position_values(
-  //     bdfCoeffs.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
-  //   std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
-  //   std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
-  //   Tensor<1, dim>              diff, diff_fluid, diff_x, w_exact, x_exact;
+    const unsigned int n_faces_q_points = face_quadrature.size();
 
-  //   for (auto cell : dof_handler.active_cell_iterators())
-  //   {
-  //     if (!cell->is_locally_owned())
-  //       continue;
+    std::vector<std::vector<Tensor<1, dim>>> position_values(
+      bdfCoeffs.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
+    std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
+    std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
+    Tensor<1, dim>              diff;
 
-  //     for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-  //     {
-  //       const auto &face = cell->face(i_face);
+    for (auto cell : dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
 
-  //       if (face->at_boundary() && face->boundary_id() == boundary_id)
-  //       {
-  //         fe_face_values_fixed.reinit(cell, i_face);
-  //         fe_face_values.reinit(cell, i_face);
+      for (const auto i_face : cell->face_indices())
+      {
+        const auto &face = cell->face(i_face);
 
-  //         // Get current and previous FE solution values on the face
-  //         fe_face_values[velocity].get_function_values(present_solution,
-  //                                                      fluid_velocity_values);
-  //         fe_face_values_fixed[position].get_function_values(present_solution,
-  //                                                      position_values[0]);
-  //         for (unsigned int iBDF = 1; iBDF < bdfCoeffs.size(); ++iBDF)
-  //           fe_face_values_fixed[position].get_function_values(
-  //             previous_solutions[iBDF - 1], position_values[iBDF]);
+        if (face->at_boundary() && face->boundary_id() == boundary_id)
+        {
+          fe_face_values_fixed.reinit(cell, i_face);
+          fe_face_values.reinit(cell, i_face);
 
-  //         // Evaluate exact solution at quadrature points
-  //         for (unsigned int q = 0; q < n_faces_q_points; ++q)
-  //         {
-  //           // Compute FE mesh velocity at node
-  //           mesh_velocity_values[q] = 0;
-  //           for (unsigned int iBDF = 0; iBDF < bdfCoeffs.size(); ++iBDF)
-  //             mesh_velocity_values[q] +=
-  //               bdfCoeffs[iBDF] * position_values[iBDF][q];
+          // Get current and previous FE solution values on the face
+          fe_face_values[velocity].get_function_values(present_solution,
+                                                       fluid_velocity_values);
+          fe_face_values_fixed[position].get_function_values(present_solution,
+                                                       position_values[0]);
+          for (unsigned int iBDF = 1; iBDF < bdfCoeffs.size(); ++iBDF)
+            fe_face_values_fixed[position].get_function_values(
+              previous_solutions[iBDF - 1], position_values[iBDF]);
 
-  //           const Point<dim> &qpoint = fe_face_values_fixed.quadrature_point(q);
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            // Compute FE mesh velocity at node
+            mesh_velocity_values[q] = 0;
+            for (unsigned int iBDF = 0; iBDF < bdfCoeffs.size(); ++iBDF)
+              mesh_velocity_values[q] +=
+                bdfCoeffs[iBDF] * position_values[iBDF][q];
 
-  //           for (unsigned int d = 0; d < dim; ++d)
-  //           {
-  //             x_exact[d] = solution_fun.value(qpoint, x_lower + d);
-  //             w_exact[d] = mesh_velocity_fun.value(qpoint, x_lower + d);
-  //           }
+            diff = mesh_velocity_values[q] - fluid_velocity_values[q];
 
-  //           diff = mesh_velocity_values[q] - w_exact;
-  //           diff_fluid = fluid_velocity_values[q] - w_exact;
-  //           diff_x = position_values[0][q] - x_exact;
+            std::cout << std::scientific << std::setprecision(8) << std::showpos;
+            std::cout << "wh = " << mesh_velocity_values[q] << " - uh = " << fluid_velocity_values[q] << " - diff = " << diff << std::endl;
 
-  //           // w_exact - dx_h/dt
-  //           l2_local_dxdt += diff * diff * fe_face_values_fixed.JxW(q);
-  //           linf_local_dxdt = std::max(linf_local_dxdt, std::abs(diff.norm()));
+            // u_h - w_h
+            l2_local += diff * diff * fe_face_values_fixed.JxW(q);
+            li_local = std::max(li_local, std::abs(diff.norm()));
+          }
+        }
+      }
+    }
 
-  //           // w_exact - u_h
-  //           l2_local_fluid += diff_fluid * diff_fluid * fe_face_values.JxW(q);
-  //           linf_local_fluid = std::max(linf_local_fluid, std::abs(diff_fluid.norm()));
+    const double l2_error = std::sqrt(Utilities::MPI::sum(l2_local, mpi_communicator));
+    const double li_error = Utilities::MPI::max(li_local, mpi_communicator);
+    pcout << "||uh - wh||_L2 = " << l2_error << std::endl; 
+    pcout << "||uh - wh||_Li = " << li_error << std::endl; 
+  }
 
-  //           // x_exact - x_h
-  //           l2_local_x += diff_x * diff_x * fe_face_values.JxW(q);
-  //           linf_local_x = std::max(linf_local_x, std::abs(diff_x.norm()));
-  //         }
-  //       }
-  //     }
-  //   }
+  template <int dim>
+  void FSI<dim>::check_velocity_boundary(const unsigned int boundary_id)
+  {
+    // Check difference between uh and dxhdt
+    double l2_local = 0;
+    double li_local = 0;
 
-  //   l2_error_dxdt   = Utilities::MPI::sum(l2_local_dxdt, mpi_communicator);
-  //   l2_error_dxdt   = std::sqrt(l2_error_dxdt);
-  //   linf_error_dxdt = Utilities::MPI::max(linf_local_dxdt, mpi_communicator);
+    const FEValuesExtractors::Vector velocity(u_lower);
+    const FEValuesExtractors::Vector position(x_lower);
 
-  //   l2_error_fluid_velocity   = Utilities::MPI::sum(l2_local_fluid, mpi_communicator);
-  //   l2_error_fluid_velocity   = std::sqrt(l2_error_fluid_velocity);
-  //   linf_error_fluid_velocity = Utilities::MPI::max(linf_local_fluid, mpi_communicator);
+    FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
+                                     fe,
+                                     face_quadrature,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values);
+    FEFaceValues<dim> fe_face_values(*mapping,
+                                     fe,
+                                     face_quadrature,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values);
 
-  //   l2_x_error   = Utilities::MPI::sum(l2_local_x, mpi_communicator);
-  //   l2_x_error   = std::sqrt(l2_x_error);
-  //   linf_x_error = Utilities::MPI::max(linf_local_x, mpi_communicator);
-  // }
+    const unsigned int n_faces_q_points = face_quadrature.size();
+
+    std::vector<std::vector<Tensor<1, dim>>> position_values(
+      bdfCoeffs.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
+    std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
+    std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
+    Tensor<1, dim>              diff;
+
+    for (auto cell : dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+
+      for (const auto i_face : cell->face_indices())
+      {
+        const auto &face = cell->face(i_face);
+
+        if (face->at_boundary() && face->boundary_id() == boundary_id)
+        {
+          fe_face_values_fixed.reinit(cell, i_face);
+          fe_face_values.reinit(cell, i_face);
+
+          // Get current and previous FE solution values on the face
+          fe_face_values[velocity].get_function_values(present_solution,
+                                                       fluid_velocity_values);
+          fe_face_values_fixed[position].get_function_values(present_solution,
+                                                       position_values[0]);
+          for (unsigned int iBDF = 1; iBDF < bdfCoeffs.size(); ++iBDF)
+            fe_face_values_fixed[position].get_function_values(
+              previous_solutions[iBDF - 1], position_values[iBDF]);
+
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            // Compute FE mesh velocity at node
+            mesh_velocity_values[q] = 0;
+            for (unsigned int iBDF = 0; iBDF < bdfCoeffs.size(); ++iBDF)
+              mesh_velocity_values[q] +=
+                bdfCoeffs[iBDF] * position_values[iBDF][q];
+
+            diff = mesh_velocity_values[q] - fluid_velocity_values[q];
+
+            std::cout << "wh = " << mesh_velocity_values[q] << " - uh = " << fluid_velocity_values[q] << " - diff = " << diff << std::endl;
+
+            // u_h - w_h
+            l2_local += diff * diff * fe_face_values_fixed.JxW(q);
+            li_local = std::max(li_local, std::abs(diff.norm()));
+          }
+        }
+      }
+    }
+
+    const double l2_error = std::sqrt(Utilities::MPI::sum(l2_local, mpi_communicator));
+    const double li_error = Utilities::MPI::max(li_local, mpi_communicator);
+    pcout << "||uh - wh||_L2 = " << l2_error << std::endl; 
+    pcout << "||uh - wh||_Li = " << li_error << std::endl; 
+  }
 
   template <int dim>
   void FSI<dim>::run()
@@ -3680,6 +3862,8 @@ namespace fsi_coupled
         }
 
         this->compare_lambda_position_on_boundary(weak_bc_boundary_id);
+        this->check_velocity_boundary(weak_bc_boundary_id);
+        // this->check_lambda_weak_form(weak_bc_boundary_id);
 
         const bool export_force_table = (i % 5) == 0;
         this->compute_force_coefficients(weak_bc_boundary_id, export_force_table);
@@ -3748,10 +3932,10 @@ int main(int argc, char *argv[])
     param.U  = 1.;
 
     param.viscosity           = param.U * param.D / param.Re;
-    param.pseudo_solid_mu     = 1.;
-    param.pseudo_solid_lambda = 1.;
+    param.pseudo_solid_mu     = 1e-5;
+    param.pseudo_solid_lambda = 1e-5;
 
-    param.spring_constant     = 1.;
+    param.spring_constant     = 1;
 
     // Time integration
     param.bdf_order  = 2;

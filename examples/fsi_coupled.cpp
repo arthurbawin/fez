@@ -3746,7 +3746,7 @@ int main(int argc, char *argv[])
     param.output_dir = "../data/fsi_coupled/";
 
     param.velocity_degree = 2;
-    param.position_degree = 1;
+    param.position_degree = 2;
     param.lambda_degree   = 2;
 
     param.with_position_coupling = true; 

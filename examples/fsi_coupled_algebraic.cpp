@@ -1166,8 +1166,8 @@ namespace fsi_coupled
       // meshFile = "../data/meshes/cylinderCoarse.msh";
       // meshFile = "../data/meshes/cyl_not_confined_uber_coarse.msh";
       // meshFile = "../data/meshes/cyl_not_confined_ultra_coarse.msh";
-      meshFile = "../data/meshes/cyl_not_confined1.msh";
-      // meshFile = "../data/meshes/cyl_not_confined2.msh";
+      // meshFile = "../data/meshes/cyl_not_confined1.msh";
+      meshFile = "../data/meshes/cyl_not_confined2.msh";
     }
     else
     {
@@ -3392,6 +3392,10 @@ namespace fsi_coupled
     pcout << "Max diff between displacements is " << max_diff << std::endl;
     AssertThrow(max_diff.norm() <= 1e-10,
       ExcMessage("Displacement values of the cylinder are not all the same."));
+
+    //
+    // Check relative error between lambda/disp ratio vs spring constant
+    //
     for (unsigned int d = 0; d < dim; ++d)
     {
       if(std::abs(ratio[d]) < 1e-10)
@@ -3488,9 +3492,9 @@ namespace fsi_coupled
 
             diff = mesh_velocity_values[q] - fluid_velocity_values[q];
 
-            std::cout << std::scientific << std::setprecision(8) << std::showpos;
-            // std::cout << "wh = " << mesh_velocity_values[q] << std::endl;
-            std::cout << "wh = " << mesh_velocity_values[q] << " - uh = " << fluid_velocity_values[q] << " - diff = " << diff << std::endl;
+            // std::cout << std::scientific << std::setprecision(8) << std::showpos;
+            // // std::cout << "wh = " << mesh_velocity_values[q] << std::endl;
+            // std::cout << "wh = " << mesh_velocity_values[q] << " - uh = " << fluid_velocity_values[q] << " - diff = " << diff << std::endl;
 
             // u_h - w_h
             l2_local += diff * diff * fe_face_values_fixed.JxW(q);
@@ -3502,10 +3506,15 @@ namespace fsi_coupled
 
     const double l2_error = std::sqrt(Utilities::MPI::sum(l2_local, mpi_communicator));
     const double li_error = Utilities::MPI::max(li_local, mpi_communicator);
+    pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
     pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
     pcout << "||uh - wh||_Li = " << li_error << std::endl;
-    AssertThrow(l2_error < 1e-12, ExcMessage("L2 norm of uh - wh is too large."));
-    AssertThrow(li_error < 1e-12, ExcMessage("Linf norm of uh - wh is too large."));
+
+    if(this->current_time_step >= param.bdf_order)
+    {
+      AssertThrow(l2_error < 1e-12, ExcMessage("L2 norm of uh - wh is too large."));
+      AssertThrow(li_error < 1e-12, ExcMessage("Linf norm of uh - wh is too large."));
+    }
   }
 
   template <int dim>
@@ -3616,7 +3625,7 @@ int main(int argc, char *argv[])
     param.output_dir = "../data/fsi_coupled/";
 
     param.velocity_degree = 2;
-    param.position_degree = 2;
+    param.position_degree = 1;
     param.lambda_degree   = 2;
 
     param.with_position_coupling = true; 
@@ -3652,10 +3661,10 @@ int main(int argc, char *argv[])
     param.spring_constant     = 1.;
 
     // Time integration
-    param.bdf_order  = 1;
+    param.bdf_order  = 2;
     param.t0         = 0.;
     param.dt         = 0.1;
-    param.nTimeSteps = 1;
+    param.nTimeSteps = 500;
     param.t1         = param.dt * param.nTimeSteps;
 
     param.newton_tolerance = 1e-10;

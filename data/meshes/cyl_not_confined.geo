@@ -1,5 +1,7 @@
 SetFactory("OpenCASCADE");
 
+X0 = 100.;
+Y0 = 100.;
 H = 16;
 L = 32;
 r = 0.5;
@@ -7,17 +9,17 @@ cx = 8;
 cy = 8;
 lc_domain = H/5;
 
-Point(1) = {0, 0, 0, lc_domain};
-Point(2) = {L, 0, 0, lc_domain};
-Point(3) = {L, H, 0, lc_domain};
-Point(4) = {0, H, 0, lc_domain};
+Point(1) = {X0 + 0, Y0 + 0, 0, lc_domain};
+Point(2) = {X0 + L, Y0 + 0, 0, lc_domain};
+Point(3) = {X0 + L, Y0 + H, 0, lc_domain};
+Point(4) = {X0 + 0, Y0 + H, 0, lc_domain};
 
 Line(1) = {1, 2};
 Line(2) = {2, 3};
 Line(3) = {3, 4};
 Line(4) = {4, 1};
 
-Circle(5) = {cx, cy, 0, r, 2*Pi, 0};
+Circle(5) = {X0 + cx, Y0 + cy, 0, r, 2*Pi, 0};
 
 Characteristic Length{ PointsOf{ Curve{5}; } } = lc_domain/20;
 

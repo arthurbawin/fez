@@ -73,6 +73,8 @@ namespace fsi_coupled
   class SimulationParameters
   {
   public:
+    std::string output_dir;
+
     unsigned int velocity_degree;
     unsigned int position_degree;
     unsigned int lambda_degree;
@@ -417,9 +419,13 @@ namespace fsi_coupled
         {
           (*active_fe_face_values)[velocity].get_function_values(
             current_solution, present_face_velocity_values[i_face]);
-          (*active_fe_face_values)[position].get_function_values(
+          // (*active_fe_face_values)[position].get_function_values(
+            // current_solution, present_face_position_values[i_face]);
+          fe_face_values_fixed_mapping[position].get_function_values(
             current_solution, present_face_position_values[i_face]);
-          (*active_fe_face_values)[position].get_function_gradients(
+          // (*active_fe_face_values)[position].get_function_gradients(
+          //   current_solution, present_face_position_gradient[i_face]);
+          fe_face_values_fixed_mapping[position].get_function_gradients(
             current_solution, present_face_position_gradient[i_face]);
           (*active_fe_face_values)[lambda].get_function_values(
             current_solution, present_face_lambda_values[i_face]);
@@ -447,8 +453,8 @@ namespace fsi_coupled
 
         for (unsigned int i = 0; i < previous_solutions.size(); ++i)
         {
-          (*active_fe_face_values)[position].get_function_values(
-            previous_solutions[i], previous_face_position_values[i_face][i]);
+          // (*active_fe_face_values)[position].get_function_values(previous_solutions[i], previous_face_position_values[i_face][i]);
+          fe_face_values_fixed_mapping[position].get_function_values(previous_solutions[i], previous_face_position_values[i_face][i]);
         }
 
         for (unsigned int q = 0; q < n_faces_q_points; ++q)
@@ -963,8 +969,9 @@ namespace fsi_coupled
     void compare_lambda_position_on_boundary(const unsigned int boundary_id);
     void compute_force_coefficients(const unsigned int boundary_id,
                                     const bool         export_force_table);
+    void write_cylinder_position(const unsigned int boundary_id,
+                                 const bool         export_position_table);
     void check_velocity_boundary(const unsigned int boundary_id);
-    void check_lambda_weak_form(const unsigned int boundary_id);
 
     SimulationParameters<dim> param;
 
@@ -1072,6 +1079,7 @@ namespace fsi_coupled
     MeshPositionCircle<dim> mesh_position_circle_fun;
 
     TableHandler forces_table;
+    TableHandler cylinder_position_table;
   };
 
   template <int dim>
@@ -2738,11 +2746,11 @@ namespace fsi_coupled
 
               if (i_is_l)
               {
-                local_rhs(i) -= (present_u - present_w) * phi_l[i] * face_JxW;
-                // local_rhs(i) -= (present_u) * phi_l[i] * face_JxW;
+                local_rhs_i -= (present_u - present_w) * phi_l[i] * face_JxW;
+                // local_rhs_i -= (present_u) * phi_l[i] * face_JxW;
 
                 // // Small mass term
-                // local_rhs(i) -= 1e-5 * present_l * phi_l[i] * face_JxW;
+                // local_rhs_i -= 1e-5 * present_l * phi_l[i] * face_JxW;
 
                 // Tensor<1, dim> target;
                 // target[0] = 0.123456;
@@ -2754,9 +2762,9 @@ namespace fsi_coupled
               // if (i_is_l)
               // {
               //   // Test with boundary element length/area:
-              //   // local_rhs(i) -=
+              //   // local_rhs_i -=
               //   sqrt(determinant(scratchData.face_G[i_face][q])) * W;
-              //   // local_rhs(i) -= face_JxW;
+              //   // local_rhs_i -= face_JxW;
               // }
               /////////////////////////////////////////////////////
 
@@ -3205,10 +3213,9 @@ namespace fsi_coupled
     else
     {
       // Export regular time step
-      std::string root = "../data/fsi_coupled/";
       std::string fileName = "solution";
       data_out.write_vtu_with_pvtu_record(
-        root, fileName, time_step, mpi_communicator, 2);
+        param.output_dir, fileName, time_step, mpi_communicator, 2);
     }
   }
 
@@ -3260,185 +3267,89 @@ namespace fsi_coupled
 
     const double factor = 1. / (0.5 * param.rho * param.U * param.U * param.D);
 
+    //
+    // Forces on the cylinder are the NEGATIVE of the integral of lambda
+    //
     forces_table.add_value("time", current_time);
-    forces_table.add_value("CFx", lambda_integral[0] * factor);
-    forces_table.add_value("CFy", lambda_integral[1] * factor);
+    forces_table.add_value("CFx", - lambda_integral[0] * factor);
+    forces_table.add_value("CFy", - lambda_integral[1] * factor);
     if constexpr (dim == 3)
     {
-      forces_table.add_value("CFz", lambda_integral[2] * factor);
+      forces_table.add_value("CFz", - lambda_integral[2] * factor);
     }
 
     if (export_force_table && mpi_rank == 0)
     {
-      std::ofstream outfile("../data/fsi_coupled/forces.txt");
+      std::ofstream outfile(param.output_dir + "forces.txt");
       forces_table.write_text(outfile);
     }
   }
 
-  // template <int dim>
-  // void
-  // FSI<dim>::check_manufactured_solution_boundary(const unsigned int boundary_id)
-  // {
-  //   Tensor<1, dim> lambdaMMS_integral, lambdaMMS_integral_local;
-  //   Tensor<1, dim> lambda_integral, lambda_integral_local;
-  //   Tensor<1, dim> pns_integral, pns_integral_local;
-  //   lambdaMMS_integral_local = 0;
-  //   lambda_integral_local = 0;
-  //   pns_integral_local = 0;
+  /**
+   * Compute the average of the position vector on the cylinder.
+   */
+  template <int dim>
+  void FSI<dim>::write_cylinder_position(const unsigned int boundary_id,
+                                         const bool export_position_table)
+  {
+    Tensor<1, dim> average_position, position_integral_local;
+    double boundary_measure_local = 0.;
 
-  //   const FEValuesExtractors::Vector lambda(l_lower);
+    const FEValuesExtractors::Vector position(x_lower);
 
-  //   FEFaceValues<dim> fe_face_values(*mapping,
-  //                                    fe,
-  //                                    face_quadrature,
-  //                                    update_values | update_quadrature_points |
-  //                                      update_JxW_values |
-  //                                      update_normal_vectors);
-  //   FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
-  //                                    fe,
-  //                                    face_quadrature,
-  //                                    update_values | update_quadrature_points |
-  //                                      update_JxW_values);
+    FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
+                                     fe,
+                                     face_quadrature,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values |
+                                       update_normal_vectors);
 
-  //   const unsigned int n_faces_q_points = face_quadrature.size();
-  //   Tensor<1, dim> lambda_MMS;
-  //   std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
+    const unsigned int          n_faces_q_points = face_quadrature.size();
+    std::vector<Tensor<1, dim>> position_values(n_faces_q_points);
 
-  //   //
-  //   // First compute integral over cylinder of lambda_MMS
-  //   //
-  //   for (auto cell : dof_handler.active_cell_iterators())
-  //   {
-  //     if (!cell->is_locally_owned())
-  //       continue;
-  //     for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-  //     {
-  //       const auto &face = cell->face(i_face);
-  //       if (face->at_boundary() && face->boundary_id() == boundary_id)
-  //       {
-  //         fe_face_values.reinit(cell, i_face);
+    for (auto cell : dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
 
-  //         // Get FE solution values on the face
-  //         fe_face_values[lambda].get_function_values(present_solution,
-  //                                                    lambda_values);
+      for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
+      {
+        const auto &face = cell->face(i_face);
 
-  //         // Evaluate exact solution at quadrature points
-  //         for (unsigned int q = 0; q < n_faces_q_points; ++q)
-  //         {
-  //           const Point<dim> &qpoint          =   fe_face_values.quadrature_point(q);
-  //           const auto        normal_to_solid = - fe_face_values.normal_vector(q);
+        if (face->at_boundary() && face->boundary_id() == boundary_id)
+        {
+          fe_face_values_fixed.reinit(cell, i_face);
 
-  //           const double p_MMS = solution_fun.value(qpoint, p_lower);
-  //           for (unsigned int d = 0; d < dim; ++d)
-  //             lambda_MMS[d] = solution_fun.value(qpoint, normal_to_solid, l_lower + d);
+          // Get FE solution values on the face
+          fe_face_values_fixed[position].get_function_values(present_solution,
+                                                             position_values);
 
-  //           // Increment the integrals of lambda:
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            boundary_measure_local  += fe_face_values_fixed.JxW(q);
+            position_integral_local += position_values[q] * fe_face_values_fixed.JxW(q);
+          }
+        }
+      }
+    }
 
-  //           // This is int sigma(u_MMS, p_MMS) cdot normal_to_solid
-  //           lambdaMMS_integral_local += lambda_MMS * fe_face_values.JxW(q);
+    const double boundary_measure = Utilities::MPI::sum(boundary_measure_local, mpi_communicator);
+    for (unsigned int d = 0; d < dim; ++d)
+      average_position[d] = 1./boundary_measure *
+        Utilities::MPI::sum(position_integral_local[d], mpi_communicator);
 
-  //           // This is int lambda := int sigma(u_MMS, p_MMS) cdot  normal_to_fluid
-  //           //                                                    -normal_to_solid
-  //           lambda_integral_local    += lambda_values[q] * fe_face_values.JxW(q);
+    cylinder_position_table.add_value("time", current_time);
+    cylinder_position_table.add_value("xc", average_position[0]);
+    cylinder_position_table.add_value("yc", average_position[1]);
+    if constexpr (dim == 3)
+      cylinder_position_table.add_value("zc", average_position[2]);
 
-  //           // Increment integral of p * n_solid
-  //           pns_integral_local += p_MMS * normal_to_solid * fe_face_values.JxW(q);
-  //         }
-  //       }
-  //     }
-  //   }
-
-  //   for (unsigned int d = 0; d < dim; ++d)
-  //   {
-  //     lambdaMMS_integral[d] =
-  //       Utilities::MPI::sum(lambdaMMS_integral_local[d], mpi_communicator);
-  //     lambda_integral[d] =
-  //       Utilities::MPI::sum(lambda_integral_local[d], mpi_communicator);
-  //   }
-  //   pns_integral = Utilities::MPI::sum(pns_integral_local, mpi_communicator);
-
-  //   // Reference solution for int_Gamma p*n_solid dx is - d * f(t).
-  //   const Tensor<1, dim> ref_pns = - param.translation * mesh_mms.time_function.value(this->current_time);
-  //   const double err_pns = (ref_pns - pns_integral).norm();
-
-  //   //
-  //   // Check x_MMS
-  //   //
-  //   Tensor<1, dim> x_MMS;
-  //   double max_x_error = 0.;
-  //   for (auto cell : dof_handler.active_cell_iterators())
-  //   {
-  //     if (!cell->is_locally_owned())
-  //       continue;
-  //     for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-  //     {
-  //       const auto &face = cell->face(i_face);
-  //       if (face->at_boundary() && face->boundary_id() == boundary_id)
-  //       {
-  //         fe_face_values_fixed.reinit(cell, i_face);
-
-  //         // Evaluate exact solution at quadrature points
-  //         for (unsigned int q = 0; q < n_faces_q_points; ++q)
-  //         {
-  //           const Point<dim> &qpoint_fixed = fe_face_values_fixed.quadrature_point(q);
-
-  //           for (unsigned int d = 0; d < dim; ++d)
-  //             x_MMS[d] = solution_fun.value(qpoint_fixed, x_lower + d);
-
-  //           const Tensor<1, dim> ref = -1./param.spring_constant * lambdaMMS_integral;
-  //           const double err = ((x_MMS - qpoint_fixed) - ref).norm();
-  //           // std::cout << "x_MMS - X0 at quad node is " << x_MMS  - qpoint_fixed << " - diff = " << err << std::endl;
-  //           max_x_error = std::max(max_x_error, err);
-  //         }
-  //       }
-  //     }
-  //   }
-
-  //   //
-  //   // Check u_MMS
-  //   //
-  //   Tensor<1, dim> u_MMS, w_MMS;
-  //   double max_u_error = 0.;
-  //   for (auto cell : dof_handler.active_cell_iterators())
-  //   {
-  //     if (!cell->is_locally_owned())
-  //       continue;
-  //     for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-  //     {
-  //       const auto &face = cell->face(i_face);
-  //       if (face->at_boundary() && face->boundary_id() == boundary_id)
-  //       {
-  //         fe_face_values.reinit(cell, i_face);
-  //         fe_face_values_fixed.reinit(cell, i_face);
-
-  //         for (unsigned int q = 0; q < n_faces_q_points; ++q)
-  //         {
-  //           const Point<dim> &qpoint = fe_face_values.quadrature_point(q);
-  //           const Point<dim> &qpoint_fixed  = fe_face_values_fixed.quadrature_point(q);
-
-  //           for (unsigned int d = 0; d < dim; ++d)
-  //           {
-  //             u_MMS[d] = solution_fun.value(qpoint, u_lower + d);
-  //             w_MMS[d] = mesh_velocity_fun.value(qpoint_fixed, x_lower + d);
-  //           }
-
-  //           const double err = (u_MMS - w_MMS).norm();
-  //           // std::cout << "u_MMS & w_MMS at quad node are " << u_MMS << " , " << w_MMS << " - norm diff = " << err << std::endl;
-  //           max_u_error = std::max(max_u_error, err);
-  //         }
-  //       }
-  //     }
-  //   }
-
-  //   pcout << std::endl;
-  //   pcout << "Checking manufactured solution:" << std::endl;
-  //   pcout << "integral lambdaMMS      = " << lambdaMMS_integral << std::endl;
-  //   pcout << "integral lambda         = " << lambda_integral << std::endl;
-  //   pcout << "integral p * n_solid = " << pns_integral << " - reference: -d*f(t) = " << ref_pns << " - err = " << err_pns << std::endl;
-  //   pcout << "max error on (x_MMS -    X0) vs -1/k * integral lambda = " << max_x_error << std::endl;
-  //   pcout << "max error on  u_MMS          vs w_MMS                  = " << max_u_error << std::endl;
-  //   pcout << std::endl;
-  // }
+    if (export_position_table && mpi_rank == 0)
+    {
+      std::ofstream outfile(param.output_dir + "cylinder_center.txt");
+      cylinder_position_table.write_text(outfile);
+    }
+  }
 
   /**
    * Compute integral of lambda (fluid force), compare to position dofs
@@ -3649,85 +3560,6 @@ namespace fsi_coupled
   }
 
   template <int dim>
-  void FSI<dim>::check_lambda_weak_form(const unsigned int boundary_id)
-  {
-    // Check difference between uh and dxhdt
-    double l2_local = 0;
-    double li_local = 0;
-
-    const FEValuesExtractors::Vector velocity(u_lower);
-    const FEValuesExtractors::Vector position(x_lower);
-
-    FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
-                                     fe,
-                                     face_quadrature,
-                                     update_values | update_quadrature_points |
-                                       update_JxW_values);
-    FEFaceValues<dim> fe_face_values(*mapping,
-                                     fe,
-                                     face_quadrature,
-                                     update_values | update_quadrature_points |
-                                       update_JxW_values);
-
-    const unsigned int n_faces_q_points = face_quadrature.size();
-
-    std::vector<std::vector<Tensor<1, dim>>> position_values(
-      bdfCoeffs.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
-    std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
-    std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
-    Tensor<1, dim>              diff;
-
-    for (auto cell : dof_handler.active_cell_iterators())
-    {
-      if (!cell->is_locally_owned())
-        continue;
-
-      for (const auto i_face : cell->face_indices())
-      {
-        const auto &face = cell->face(i_face);
-
-        if (face->at_boundary() && face->boundary_id() == boundary_id)
-        {
-          fe_face_values_fixed.reinit(cell, i_face);
-          fe_face_values.reinit(cell, i_face);
-
-          // Get current and previous FE solution values on the face
-          fe_face_values[velocity].get_function_values(present_solution,
-                                                       fluid_velocity_values);
-          fe_face_values_fixed[position].get_function_values(present_solution,
-                                                       position_values[0]);
-          for (unsigned int iBDF = 1; iBDF < bdfCoeffs.size(); ++iBDF)
-            fe_face_values_fixed[position].get_function_values(
-              previous_solutions[iBDF - 1], position_values[iBDF]);
-
-          for (unsigned int q = 0; q < n_faces_q_points; ++q)
-          {
-            // Compute FE mesh velocity at node
-            mesh_velocity_values[q] = 0;
-            for (unsigned int iBDF = 0; iBDF < bdfCoeffs.size(); ++iBDF)
-              mesh_velocity_values[q] +=
-                bdfCoeffs[iBDF] * position_values[iBDF][q];
-
-            diff = mesh_velocity_values[q] - fluid_velocity_values[q];
-
-            std::cout << std::scientific << std::setprecision(8) << std::showpos;
-            std::cout << "wh = " << mesh_velocity_values[q] << " - uh = " << fluid_velocity_values[q] << " - diff = " << diff << std::endl;
-
-            // u_h - w_h
-            l2_local += diff * diff * fe_face_values_fixed.JxW(q);
-            li_local = std::max(li_local, std::abs(diff.norm()));
-          }
-        }
-      }
-    }
-
-    const double l2_error = std::sqrt(Utilities::MPI::sum(l2_local, mpi_communicator));
-    const double li_error = Utilities::MPI::max(li_local, mpi_communicator);
-    pcout << "||uh - wh||_L2 = " << l2_error << std::endl; 
-    pcout << "||uh - wh||_Li = " << li_error << std::endl; 
-  }
-
-  template <int dim>
   void FSI<dim>::check_velocity_boundary(const unsigned int boundary_id)
   {
     // Check difference between uh and dxhdt
@@ -3789,7 +3621,8 @@ namespace fsi_coupled
 
             diff = mesh_velocity_values[q] - fluid_velocity_values[q];
 
-            std::cout << "wh = " << mesh_velocity_values[q] << " - uh = " << fluid_velocity_values[q] << " - diff = " << diff << std::endl;
+            std::cout << "wh = " << mesh_velocity_values[q] << std::endl;
+            // std::cout << "wh = " << mesh_velocity_values[q] << " - uh = " << fluid_velocity_values[q] << " - diff = " << diff << std::endl;
 
             // u_h - w_h
             l2_local += diff * diff * fe_face_values_fixed.JxW(q);
@@ -3827,6 +3660,7 @@ namespace fsi_coupled
 
       this->set_initial_condition();
       this->output_results(0);
+      this->write_cylinder_position(weak_bc_boundary_id, true);
 
       for (unsigned int i = 0; i < param.nTimeSteps; ++i, ++(this->current_time_step))
       {
@@ -3863,10 +3697,11 @@ namespace fsi_coupled
 
         this->compare_lambda_position_on_boundary(weak_bc_boundary_id);
         this->check_velocity_boundary(weak_bc_boundary_id);
-        // this->check_lambda_weak_form(weak_bc_boundary_id);
 
         const bool export_force_table = (i % 5) == 0;
         this->compute_force_coefficients(weak_bc_boundary_id, export_force_table);
+        const bool export_position_table = (i % 5) == 0;
+        this->write_cylinder_position(weak_bc_boundary_id, export_position_table);
         this->output_results(i + 1);
 
         // Rotate solutions
@@ -3878,12 +3713,19 @@ namespace fsi_coupled
         }
       }
 
-      // Write forces
+      // Write forces and cylinder position
       if (mpi_rank == 0)
       {
-        forces_table.write_text(std::cout);
-        std::ofstream outfile("../data/fsi_coupled/forces.txt");
-        forces_table.write_text(outfile);
+        {
+          forces_table.write_text(std::cout);
+          std::ofstream outfile(param.output_dir + "forces.txt");
+          forces_table.write_text(outfile);
+        }
+
+        {
+          std::ofstream outfile(param.output_dir + "cylinder_center.txt");
+          cylinder_position_table.write_text(outfile);
+        }
       }
   }
 } // namespace fsi_coupled
@@ -3901,11 +3743,13 @@ int main(int argc, char *argv[])
 
     SimulationParameters<dim> param;
 
+    param.output_dir = "../data/fsi_coupled/";
+
     param.velocity_degree = 2;
-    param.position_degree = 1;
+    param.position_degree = 2;
     param.lambda_degree   = 2;
 
-    param.with_position_coupling = true; // <=========================================================== 
+    param.with_position_coupling = true; 
 
     //
     // Mesh position BC
@@ -3932,13 +3776,13 @@ int main(int argc, char *argv[])
     param.U  = 1.;
 
     param.viscosity           = param.U * param.D / param.Re;
-    param.pseudo_solid_mu     = 1e-5;
-    param.pseudo_solid_lambda = 1e-5;
+    param.pseudo_solid_mu     = 1.;
+    param.pseudo_solid_lambda = 1.;
 
     param.spring_constant     = 1;
 
     // Time integration
-    param.bdf_order  = 2;
+    param.bdf_order  = 1;
     param.t0         = 0.;
     param.dt         = 0.1;
     param.nTimeSteps = 500;

@@ -1092,6 +1092,8 @@ namespace NS_MMS
     double       viscosity;
     double       pseudo_solid_mu;
     double       pseudo_solid_lambda;
+    double       spring_constant;
+
     unsigned int bdf_order;
     double       t0;
     double       t1;
@@ -4062,9 +4064,10 @@ int main(int argc, char *argv[])
     param.viscosity           = VISCOSITY;
     param.pseudo_solid_mu     = MU_PS;
     param.pseudo_solid_lambda = LAMBDA_PS;
+    param.spring_constant     = 1.;
 
     // Time integration
-    param.bdf_order  = 1;
+    param.bdf_order  = 2;
     param.t0         = 0.;
     param.dt         = 0.05;
     param.nTimeSteps = 10;
@@ -4157,12 +4160,17 @@ int main(int argc, char *argv[])
                                                      R0,
                                                      R1,
                                                      translation);
+
+      const bool coupled_pressure = true;
       const RigidFlow<dim> flow_mms(flow_time_function,
                                     mesh_time_function,
-                                             center,
-                                             R0,
-                                             R1,
-                                             translation);
+                                    center,
+                                    R0,
+                                    R1,
+                                    translation,
+                                    coupled_pressure,
+                                    param.spring_constant);
+
       // const ConstantFlow<dim> flow_mms(flow_time_function, translation);
 
       MMS<dim> problem(param, flow_mms, mesh_position_mms);

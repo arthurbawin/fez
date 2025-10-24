@@ -1,7 +1,7 @@
 SetFactory("OpenCASCADE");
 
-X0 = 100.;
-Y0 = 100.;
+X0 = 0.;
+Y0 = 0.;
 H = 16;
 L = 32;
 r = 0.5;

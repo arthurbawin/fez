@@ -40,6 +40,10 @@ namespace Parameters
   {
     std::string filename;
 
+    // Name of each mesh physical entities
+    std::map<types::boundary_id, std::string> id2name;
+    std::map<std::string, types::boundary_id> name2id;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };

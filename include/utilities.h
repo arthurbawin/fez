@@ -18,11 +18,16 @@ unsigned int read_problem_dimension(const std::string &parameter_file)
   prm.declare_entry("dimension",
                     "2",
                     Patterns::Integer(2, 3),
-                    "Problem dimension (2 or 3)");
+                    "Problem dimension (2 or 3)",
+                    true);
   prm.leave_subsection();
 
   // Read only this structure from the file
-  prm.parse_input(parameter_file, /*last_line=*/"", /*skip_undefined=*/true);
+  // Parse will fail if the "Dimension" block is not specified
+  prm.parse_input(parameter_file,
+                  /*last_line=*/"",
+                  /*skip_undefined=*/true,
+                  /*assert_mandatory_entries_are_found=*/true);
 
   // Parse
   prm.enter_subsection("Dimension");
@@ -35,9 +40,9 @@ unsigned int read_problem_dimension(const std::string &parameter_file)
 /**
  * Perform a dry run to read the number of boundary conditions of each type.
  */
-void
-read_number_of_boundary_conditions(const std::string &parameter_file,
-                                   Parameters::BoundaryConditionsCount &bc_count)
+void read_number_of_boundary_conditions(
+  const std::string                   &parameter_file,
+  Parameters::BoundaryConditionsCount &bc_count)
 {
   ParameterHandler prm;
 
@@ -70,7 +75,7 @@ read_number_of_boundary_conditions(const std::string &parameter_file,
   prm.enter_subsection("Fluid boundary conditions");
   bc_count.n_fluid_bc = prm.get_integer("number");
   prm.leave_subsection();
-  
+
   prm.enter_subsection("Pseudosolid boundary conditions");
   bc_count.n_pseudosolid_bc = prm.get_integer("number");
   prm.leave_subsection();

@@ -1,9 +1,10 @@
 
 #include <MMS.h>
-#include <Mesh.h>
+#include <mesh.h>
 #include <scratch_data.h>
 #include <parameter_reader.h>
 #include <utilities.h>
+#include <boundary_conditions.h>
 
 #include <deal.II/base/function.h>
 #include <deal.II/base/quadrature_lib.h>
@@ -528,6 +529,11 @@ namespace fsi_coupled
     read_gmsh_physical_names(param.mesh.filename,
                              mesh_domains_tag2name,
                              mesh_domains_name2tag);
+
+    CONTINUE HERE
+    // read_mesh(triangulation, param);
+
+    // mesh_domains_name2tag = param.mesh.name2id;
 
     // Print mesh info
     if (mpi_rank == 0)
@@ -2439,7 +2445,7 @@ namespace fsi_coupled
     // To take the max displacement while preserving sign
     struct MaxAbsOp
     {
-      static void apply(void *invec, void *inoutvec, int *len, MPI_Datatype *dtype)
+      static void apply(void *invec, void *inoutvec, int *len, MPI_Datatype */*dtype*/)
       {
         double *in    = static_cast<double*>(invec);
         double *inout = static_cast<double*>(inoutvec);
@@ -2744,11 +2750,20 @@ int main(int argc, char *argv[])
     if(dim == 2)
     {
       ParameterHandler prm;
-      ParameterReader<2>  param;
+      ParameterReader<2>  param(bc_count);
       param.declare(prm);
 
       prm.parse_input(parameter_file);
       param.read(prm);
+
+      for(auto &bc : param.fluid_bc)
+      {
+        pcout << "Found BC: " << bc.id << std::endl;
+        pcout << "Found BC: " << bc.gmsh_name << std::endl;
+        if(bc.type == BoundaryConditions::Type::slip)
+          pcout << "Found BC: slip" << std::endl;
+      }
+
 
       /////////////////////////////////////////////////////////////////////////////////
       if(!param.fsi.enable_coupling)
@@ -2762,7 +2777,7 @@ int main(int argc, char *argv[])
     else if(dim == 3)
     {
       ParameterHandler prm;
-      ParameterReader<3>  param;
+      ParameterReader<3>  param(bc_count);
       param.declare(prm);
 
       prm.parse_input(parameter_file);

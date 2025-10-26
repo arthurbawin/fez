@@ -13,6 +13,7 @@ end
 
 subsection Mesh
   set Mesh file = ../data/meshes/cyl_not_confined1.msh
+  #set Mesh file = ../data/meshes/cylinderCoarse3D.msh
 end
 
 subsection Time integration
@@ -52,20 +53,42 @@ subsection Physical properties
 end
 
 subsection FSI
-  set enable coupling = false
+  set enable coupling = true
   set spring constant = 1
 end
 
-#subsection Fluid boundary conditions
- # set number = 4
-  #subsection boundary Inlet
-  #  set allo = 1
-  #end
-#end
+subsection Fluid boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 1
+    set name = Outlet
+    set type = outflow
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = Inlet
+    set type = input_function
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = NoFlux
+    set type = slip
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = InnerBoundary
+    set type = weak_no_slip
+  end
+end
 
-#subsection Pseudosolid boundary conditions
-#  set number = 4
-#end
+subsection Pseudosolid boundary conditions
+  set number = 1
+  subsection boundary 0
+    set id   = 1
+    set name = Outlet
+    set type = fixed
+  end
+end
 
 #subsection My vector function
 #set Function constants  = kappa=.1, lambda=2.

@@ -2,6 +2,8 @@
 #define BOUNDARY_CONDITIONS_H
 
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/base/parsed_function.h>
+#include <deal.II/lac/vector.h>
 
 using namespace dealii;
 
@@ -24,19 +26,20 @@ namespace BoundaryConditions
    */
   enum class Type
   {
+    // Common
     none,
+    input_function,
 
     // Flow
-    input_function,
     outflow,      // Do nothing
     no_slip,      // Enforce given functions
     weak_no_slip, // Check that lagrange mult is defined, couple
-    slip,         // enforce no_flux
+    slip,         // Enforce no_flux
 
     // Pseudo_solid
-    fixed,            // Enforce 0
+    fixed, // Enforce 0 displacement. Default when no BC is prescribed?
     coupled_to_fluid, // Couple to lagrange mult
-    no_flux
+    no_flux           // Slip. Have to check what happens at corners, etc.
   };
 
   /**
@@ -66,15 +69,42 @@ namespace BoundaryConditions
                                  const unsigned int boundary_id);
   };
 
+  /**
+   * A boundary condition for the incompressible Navier-Stokes equations.
+   */
   template <int dim>
   class FluidBC : public BoundaryCondition
   {
+  public:
+    /**
+     * The flow components imposed by a user function. Only used for bc of type
+     * input_function. When declaring the possible entries of the parameter
+     * file, we do not know beforehand which bc will be associated to a user
+     * function. For now, *all* boundary conditions have functions.
+     */
+    std::shared_ptr<Functions::ParsedFunction<dim>> u;
+    std::shared_ptr<Functions::ParsedFunction<dim>> v;
+    std::shared_ptr<Functions::ParsedFunction<dim>> w;
+
+  public:
+    // Constructor. Allocates the pointers to the user functions.
+    FluidBC()
+    {
+      u = std::make_shared<Functions::ParsedFunction<dim>>();
+      v = std::make_shared<Functions::ParsedFunction<dim>>();
+      w = std::make_shared<Functions::ParsedFunction<dim>>();
+    };
+
   public:
     void declare_parameters(ParameterHandler &prm) override;
     void read_parameters(ParameterHandler  &prm,
                          const unsigned int boundary_id) override;
   };
 
+  /**
+   * A boundary condition for the linear elasticity equations,
+   * for the mesh movement analogy.
+   */
   template <int dim>
   class PseudosolidBC : public BoundaryCondition
   {
@@ -84,7 +114,8 @@ namespace BoundaryConditions
                          const unsigned int boundary_id) override;
   };
 
-  // FIXME: template the declare and read functions below
+  // FIXME: templatize the "declare" and "read" functions below,
+  // so that one function handles all types of BC vectors.
   template <int dim>
   void declare_fluid_boundary_conditions(ParameterHandler          &prm,
                                          std::vector<FluidBC<dim>> &fluid_bc)
@@ -146,6 +177,19 @@ namespace BoundaryConditions
       Patterns::Selection(
         "none|input_function|outflow|no_slip|weak_no_slip|slip"),
       "Type of fluid boundary condition");
+
+    // Imposed functions, if any
+    prm.enter_subsection("u");
+    u->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("v");
+    v->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("w");
+    w->declare_parameters(prm);
+    prm.leave_subsection();
   }
 
   template <int dim>
@@ -173,11 +217,24 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed fluid boundary conditions is smaller than "
         "the specified \"number\" field.");
+
+    prm.enter_subsection("u");
+    u->parse_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("v");
+    v->parse_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("w");
+    w->parse_parameters(prm);
+    prm.leave_subsection();
   }
 
   template <int dim>
-  void declare_pseudosolid_boundary_conditions(ParameterHandler          &prm,
-                                         std::vector<PseudosolidBC<dim>> &pseudosolid_bc)
+  void declare_pseudosolid_boundary_conditions(
+    ParameterHandler                &prm,
+    std::vector<PseudosolidBC<dim>> &pseudosolid_bc)
   {
     prm.enter_subsection("Pseudosolid boundary conditions");
     {
@@ -200,8 +257,9 @@ namespace BoundaryConditions
   }
 
   template <int dim>
-  void read_pseudosolid_boundary_conditions(ParameterHandler          &prm,
-                                      std::vector<PseudosolidBC<dim>> &pseudosolid_bc)
+  void read_pseudosolid_boundary_conditions(
+    ParameterHandler                &prm,
+    std::vector<PseudosolidBC<dim>> &pseudosolid_bc)
   {
     prm.enter_subsection("Pseudosolid boundary conditions");
     {
@@ -224,7 +282,7 @@ namespace BoundaryConditions
     prm.declare_entry("type",
                       "none",
                       Patterns::Selection(
-                        "none|fixed|coupled_to_fluid|no_flux"),
+                        "none|fixed|coupled_to_fluid|no_flux|input_function"),
                       "Type of pseudosolid boundary condition");
   }
 
@@ -242,6 +300,8 @@ namespace BoundaryConditions
       type = Type::coupled_to_fluid;
     if (parsed_type == "no_flux")
       type = Type::no_flux;
+    if (parsed_type == "input_function")
+      type = Type::input_function;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Pseudosolid boundary condition for boundary " +
@@ -252,5 +312,83 @@ namespace BoundaryConditions
         "the specified \"number\" field.");
   }
 } // namespace BoundaryConditions
+
+/**
+ * Flow velocity prescribed by individual ParsedFunctions u,v,w.
+ * The parameter @p u_lower is the first velocity component in the
+ * solution vector (zero-based).
+ * 
+ * Note that the time dependency (if any) is accounted for by
+ * setting the time of the underlying ParsedFunctions through set_time(t),
+ * and calling e.g. u->value(p), and not u->value(p,t).
+ */
+template <int dim>
+class ComponentwiseFlowVelocity : public Function<dim>
+{
+public:
+  const unsigned int u_lower;
+  std::shared_ptr<Functions::ParsedFunction<dim>> u;
+  std::shared_ptr<Functions::ParsedFunction<dim>> v;
+  std::shared_ptr<Functions::ParsedFunction<dim>> w;
+
+public:
+  ComponentwiseFlowVelocity(const unsigned int u_lower,
+                    const unsigned int n_components,
+                    std::shared_ptr<Functions::ParsedFunction<dim>> u,
+                    std::shared_ptr<Functions::ParsedFunction<dim>> v,
+                    std::shared_ptr<Functions::ParsedFunction<dim>> w)
+    : Function<dim>(n_components)
+    , u_lower(u_lower)
+    , u(u)
+    , v(v)
+    , w(w)
+  {}
+
+  virtual double value(const Point<dim> &p,
+                       unsigned int component) const override
+  {
+    if(component == u_lower + 0)
+      return u->value(p);
+    if(component == u_lower + 1)
+      return v->value(p);
+    if(component == u_lower + 2)
+      return w->value(p);
+    return 0.;
+  }
+};
+
+/**
+ * This function is meant to represent the spatial identity function,
+ * and is used to enforce a no displacement boundary condition for a
+ * pseudosolid mesh movement problem, that is, x(X) = X.
+ * 
+ * The only trick is that depending on the problem, the index of the
+ * position variables in the solution vector may vary, so this needs
+ * to be specified by the @p x_lower parameter.
+ * 
+ * Note that if we were solving for the displacement instead of the
+ * position, this function would simply be the zero function.
+ */
+template <int dim>
+class FixedMeshPosition : public Function<dim>
+{
+public:
+  // Lower bound of the mesh position variable (first component)
+  const unsigned int x_lower;
+
+public:
+  FixedMeshPosition(const unsigned int x_lower,
+                    const unsigned int n_components)
+    : Function<dim>(n_components)
+    , x_lower(x_lower)
+  {}
+
+  virtual void vector_value(const Point<dim> &p,
+                            Vector<double>   &values) const override
+  {
+    for (unsigned int d = 0; d < dim; ++d)
+      values[x_lower + d] = p[d];
+  }
+};
 
 #endif

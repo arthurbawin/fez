@@ -12,14 +12,14 @@ subsection Output
 end
 
 subsection Mesh
-  set Mesh file = ../data/meshes/cyl_not_confined1.msh
-  #set Mesh file = ../data/meshes/cylinderCoarse3D.msh
+  set mesh file = ../data/meshes/cyl_not_confined1.msh
+  #set mesh file = ../data/meshes/cylinderCoarse3D.msh
 end
 
 subsection Time integration
   set dt        = 0.1
   set t_initial = 0
-  set t_end     = 2.5
+  set t_end     = 0.5
   set scheme    = BDF2
 end
 
@@ -68,6 +68,14 @@ subsection Fluid boundary conditions
     set id   = 2
     set name = Inlet
     set type = input_function
+
+    subsection u
+      set Function expression = 2
+    end
+    subsection v
+      set Function expression = 0
+    end
+
   end
   subsection boundary 2
     set id   = 3
@@ -89,9 +97,3 @@ subsection Pseudosolid boundary conditions
     set type = fixed
   end
 end
-
-#subsection My vector function
-#set Function constants  = kappa=.1, lambda=2.
-#set Function expression = if(y>.5, kappa*x*(1-x),0); t^2*cos(lambda*pi*x)
-#set Variable names      = x,y,t
-#end

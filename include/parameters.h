@@ -10,22 +10,22 @@ using namespace dealii;
  */
 namespace Parameters
 {
-  // enum class Verbosity
-  // {
+  /**
+   * Verbosity is set to "verbose" by default for all structures.
+   */
+  enum class Verbosity
+  {
+    quiet,
+    verbose
+  };
 
-  // };
-
-  // The problem dimension is read in a first pass to instantiate the right
-  // data. Because dimension in deal.II is not a simulation parameters per se,
+  // The problem dimension is read in a first pass to instantiate the right pre-compiled solver.
+  // Because dimension in deal.II is not a simulation parameters per se,
   // this is not done here, but in utilities.h. However, the "Dimension" block
   // read by the function in utilities.h should still be read in the real run to
-  // avoid an exception. This is done here, through a dummy parameters
-  // structure.
+  // avoid an exception. This is done here, and the dimension is not parsed.
   struct DummyDimension
-  {
-    // This value is unused
-    unsigned int dummy_dimension;
-
+  {    
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -43,6 +43,8 @@ namespace Parameters
     // Name of each mesh physical entities
     std::map<types::boundary_id, std::string> id2name;
     std::map<std::string, types::boundary_id> name2id;
+
+    Verbosity verbosity;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

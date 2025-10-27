@@ -3,6 +3,22 @@
 
 using namespace Parameters;
 
+#define DECLARE_VERBOSITY_PARAM(prm)                                           \
+  (prm).declare_entry("verbosity",                                             \
+                      "verbose",                                               \
+                      Patterns::Selection("quiet|verbose"),                    \
+                      "Level of message display in console: quiet or verbose " \
+                      "(default: verbose)");
+
+#define READ_VERBOSITY_PARAM(prm)                                \
+  {                                                              \
+    const std::string parsed_verbosity = (prm).get("verbosity"); \
+    if (parsed_verbosity == "quiet")                             \
+      verbosity = Verbosity::quiet;                              \
+    if (parsed_verbosity == "verbose")                           \
+      verbosity = Verbosity::verbose;                            \
+  }
+
 /**
  * These should agree with the declare_entry in utilities.h
  */
@@ -10,6 +26,7 @@ void DummyDimension::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Dimension");
   {
+    // Read in utilities, declared here but not parsed
     prm.declare_entry("dimension",
                       "2",
                       Patterns::Integer(),
@@ -20,21 +37,22 @@ void DummyDimension::declare_parameters(ParameterHandler &prm)
 
 void DummyDimension::read_parameters(ParameterHandler &prm)
 {
-  prm.enter_subsection("Dimension");
-  {
-    dummy_dimension = prm.get_integer("dimension");
-  }
-  prm.leave_subsection();
+  // Nothing to do, dimension was read in utilities.h
+  // prm.enter_subsection("Dimension");
+  // {
+  // }
+  // prm.leave_subsection();
 }
 
 void Mesh::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Mesh");
   {
-    prm.declare_entry("Mesh file",
+    prm.declare_entry("mesh file",
                       "",
                       Patterns::FileName(),
                       "Mesh file in .msh format (Gmsh msh4)");
+    DECLARE_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
 }
@@ -43,7 +61,8 @@ void Mesh::read_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Mesh");
   {
-    filename = prm.get("Mesh file");
+    filename = prm.get("mesh file");
+    READ_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
 }
@@ -347,3 +366,6 @@ void FSI::read_parameters(ParameterHandler &prm)
   }
   prm.leave_subsection();
 }
+
+#undef DECLARE_VERBOSITY_PARAM
+#undef READ_VERBOSITY_PARAM

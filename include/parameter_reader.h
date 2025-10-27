@@ -16,7 +16,7 @@ public:
   //
   // Parameters
   //
-  Parameters::DummyDimension     dummy_dimension;
+  Parameters::DummyDimension            dummy_dimension;
   Parameters::Mesh               mesh;
   Parameters::Output             output;
   Parameters::FiniteElements     finite_elements;

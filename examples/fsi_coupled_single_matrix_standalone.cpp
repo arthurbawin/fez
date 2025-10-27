@@ -83,6 +83,7 @@ namespace fsi_coupled
 
     // std::vector<std::string> position_boundary_names;
     std::vector<std::string> position_fixed_boundary_names;
+    std::vector<std::string> position_semi_fixed_boundary_names;
     std::vector<std::string> position_moving_boundary_names;
     std::vector<std::string> strong_velocity_boundary_names;
     std::vector<std::string> weak_velocity_boundary_names;
@@ -93,6 +94,7 @@ namespace fsi_coupled
 
     bool with_weak_velocity_bc;
     bool with_position_coupling;
+    bool with_fixed_position;
 
     Tensor<1, dim> translation;
 
@@ -252,7 +254,7 @@ namespace fsi_coupled
       {
         values[x_lower + d] = p[d];
         if(d == 1)
-          values[x_lower + d] = p[d] + param.H / 50. * sin(0.1 * M_PI * t);
+          values[x_lower + d] = p[d] + 0.5 * sin(0.1 * M_PI * t);
       }
     }
   };
@@ -795,6 +797,7 @@ namespace fsi_coupled
                                            const bool homogeneous);
 
     void add_no_flux_constraints(AffineConstraints<double> &constraints);
+    void add_semi_fixed_constraints(AffineConstraints<double> &constraints);
     void create_sparsity_pattern();
     void set_initial_condition();
     // void apply_nonzero_constraints();
@@ -1108,6 +1111,8 @@ namespace fsi_coupled
     std::vector<std::string> all_boundaries;
     for (auto str : param.position_fixed_boundary_names)
       all_boundaries.push_back(str);
+    for (auto str : param.position_semi_fixed_boundary_names)
+      all_boundaries.push_back(str);
     for (auto str : param.position_moving_boundary_names)
       all_boundaries.push_back(str);
     for (auto str : param.strong_velocity_boundary_names)
@@ -1360,6 +1365,18 @@ namespace fsi_coupled
       dof_handler, u_lower, no_normal_flux_boundaries, constraints, *mapping);
   }
 
+  template <int dim>
+  void FSI<dim>::add_semi_fixed_constraints(AffineConstraints<double> &constraints)
+  {
+    std::set<types::boundary_id> semi_fixed_boundaries;
+    for (auto str : param.position_semi_fixed_boundary_names)
+      semi_fixed_boundaries.insert(this->mesh_domains_name2tag.at(str));
+
+    // (δx)·n_ref = 0 sur ces frontières
+    VectorTools::compute_no_normal_flux_constraints(
+        dof_handler, x_lower, semi_fixed_boundaries, constraints, *fixed_mapping);
+  }
+
   /**
    * On the cylinder, we have
    * 
@@ -1599,6 +1616,8 @@ namespace fsi_coupled
 
     // Add no velocity flux constraints
     this->add_no_flux_constraints(zero_constraints);
+    // Add no semi fixed contraints
+    this->add_semi_fixed_constraints(zero_constraints);
 
     zero_constraints.close();
 
@@ -1656,6 +1675,9 @@ namespace fsi_coupled
 
     // Add no velocity flux constraints
     this->add_no_flux_constraints(nonzero_constraints);
+
+    // Add no semi fixed contraints
+    this->add_semi_fixed_constraints(nonzero_constraints);
 
     nonzero_constraints.close();
 
@@ -3252,51 +3274,80 @@ int main(int argc, char *argv[])
 
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
 
-    const unsigned int dim = 2;
+    const unsigned int dim = 3;
 
     SimulationParameters<dim> param;
 
-    param.output_dir = "../data/fsi_coupled/";
-
-    if constexpr (dim == 2)
-    {
-      // param.mesh_file = "../data/meshes/cyl_not_confined_uber_coarse.msh";
-      // param.mesh_file = "../data/meshes/cyl_not_confined_ultra_coarse.msh";
-      // param.mesh_file = "../data/meshes/cyl_not_confined_coarser.msh";
-      param.mesh_file = "../data/meshes/cyl_not_confined1.msh";
-      // param.mesh_file = "../data/meshes/cyl_not_confined2.msh";
-    }
-    else
-    {
-      param.mesh_file = "../data/meshes/cylinderCoarse3D.msh";
-    }
+    param.output_dir = "../data/decoupled3d_fsi_fixed/";
 
     param.velocity_degree = 2;
     param.position_degree = 1;
     param.lambda_degree   = 2;
 
-    param.with_position_coupling = true; 
+    param.with_position_coupling = false;
+    param.with_fixed_position = true;
+
+    AssertThrow(!(param.with_fixed_position && param.with_position_coupling),
+            dealii::ExcMessage("Could not mix coupling constraint with fixed constraint"));
+
+    if (dim == 2){
+      param.mesh_file = "../data/meshes/cyl_not_confined.msh";}
+    else{
+      param.mesh_file = "../data/meshes/cyl_not_confined3D.msh";}
 
     //
     // Mesh position BC
     //
-    param.position_fixed_boundary_names = {"Inlet", "Outlet", "NoFlux"};
-    if(!param.with_position_coupling)
-      // param.position_fixed_boundary_names.push_back("InnerBoundary");
-      param.position_moving_boundary_names = {"InnerBoundary"};
-
-    //
-    // Velocity BC
-    //
-    param.strong_velocity_boundary_names = {"Inlet"};
-    param.weak_velocity_boundary_names   = {"InnerBoundary"};
-    param.noflux_velocity_boundary_names = {"NoFlux"};
-
-    // Specify that mesh velocity error should be computed on this boundary
-    // param.mesh_velocity_error_boundary_names = {"InnerBoundary"};
+    if (dim == 2) 
+    {
+      if(!param.with_position_coupling && param.with_fixed_position)
+      {
+        param.position_fixed_boundary_names = {"Inlet", "Outlet", "NoFlux","InnerBoundary"};
+      }
+      else if (!param.with_position_coupling && !param.with_fixed_position)
+      {
+        param.position_moving_boundary_names = {"InnerBoundary"};
+        param.position_fixed_boundary_names = {"Inlet", "Outlet", "NoFlux"};
+      }
+      else 
+      {
+        param.position_fixed_boundary_names = {"Inlet", "Outlet", "NoFlux"};
+      }
+      
+      //
+      // Velocity BC
+      //
+      param.strong_velocity_boundary_names = {"Inlet"};
+      param.noflux_velocity_boundary_names = {"NoFlux"};
+      param.weak_velocity_boundary_names = {"InnerBoundary"};
+    }
+    else if (dim == 3)
+    {
+      if(!param.with_position_coupling && param.with_fixed_position)
+      {
+        param.position_fixed_boundary_names = {"InnerBoundary","Inlet","Outlet","Top","Bottom","Front","Back"};
+      }
+      else if (!param.with_position_coupling && !param.with_fixed_position)
+      {
+        param.position_moving_boundary_names = {"InnerBoundary"};
+        param.position_fixed_boundary_names = {"Inlet","Outlet","Top","Bottom"};
+        param.position_semi_fixed_boundary_names = {"Front","Back"};
+      }
+      else 
+      {
+        param.position_fixed_boundary_names = {"Inlet","Outlet","Top","Bottom"};
+        param.position_semi_fixed_boundary_names = {"Front","Back"};
+      }
+      //
+      // Velocity BC
+      //
+      param.strong_velocity_boundary_names = {"Inlet"};
+      param.noflux_velocity_boundary_names = {"Top", "Bottom"};
+      param.weak_velocity_boundary_names = {"InnerBoundary"};
+    }
 
     // For the unconfined case
-    param.Re  = 200.;
+    param.Re  = 50.;
     param.H   = 16.;
     param.D   = 1.;
     param.U   = 1.;
@@ -3307,16 +3358,17 @@ int main(int argc, char *argv[])
     param.pseudo_solid_mu     = 1.;
     param.pseudo_solid_lambda = 1.;
 
-    param.spring_constant     = 1.;
+    const double Ur = 7.5;
+    param.spring_constant     = ((param.rho*M_PI)/((Ur*Ur)/(M_PI*M_PI*param.U*param.U)));
 
     // Time integration
     param.bdf_order  = 2;
     param.t0         = 0.;
     param.dt         = 0.1;
-    param.nTimeSteps = 5;
+    param.nTimeSteps = 1000;
     param.t1         = param.dt * param.nTimeSteps;
 
-    param.newton_tolerance = 1e-12;
+    param.newton_tolerance = 1e-10;
     param.with_line_search = true;
 
     VERBOSE = true;

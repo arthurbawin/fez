@@ -2,6 +2,7 @@
 #define PARAMETER_READER_H
 
 #include <boundary_conditions.h>
+#include <initial_conditions.h>
 #include <parameters.h>
 
 using namespace dealii;
@@ -16,7 +17,7 @@ public:
   //
   // Parameters
   //
-  Parameters::DummyDimension            dummy_dimension;
+  Parameters::DummyDimension     dummy_dimension;
   Parameters::Mesh               mesh;
   Parameters::Output             output;
   Parameters::FiniteElements     finite_elements;
@@ -26,11 +27,14 @@ public:
   Parameters::NonLinearSolver    nonlinear_solver;
 
   //
-  // Boundary conditions
+  // Initial and boundary conditions
   //
+  Parameters::InitialConditions<dim>                  initial_conditions;
   Parameters::BoundaryConditionsCount                 bc_count;
   std::vector<BoundaryConditions::FluidBC<dim>>       fluid_bc;
   std::vector<BoundaryConditions::PseudosolidBC<dim>> pseudosolid_bc;
+
+
 
 public:
   /**
@@ -54,6 +58,7 @@ public:
     fsi.declare_parameters(prm);
     time_integration.declare_parameters(prm);
     nonlinear_solver.declare_parameters(prm);
+    initial_conditions.declare_parameters(prm);
     BoundaryConditions::declare_fluid_boundary_conditions(prm, fluid_bc);
     BoundaryConditions::declare_pseudosolid_boundary_conditions(prm,
                                                                 pseudosolid_bc);
@@ -69,6 +74,7 @@ public:
     fsi.read_parameters(prm);
     time_integration.read_parameters(prm);
     nonlinear_solver.read_parameters(prm);
+    initial_conditions.read_parameters(prm);
     BoundaryConditions::read_fluid_boundary_conditions(prm, fluid_bc);
     BoundaryConditions::read_pseudosolid_boundary_conditions(prm,
                                                              pseudosolid_bc);

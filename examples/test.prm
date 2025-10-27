@@ -7,7 +7,7 @@ subsection Dimension
 end
 
 subsection Output
-  set output directory = ../data/fsi_coupled/
+  set output directory = ../data/test/
   set output prefix    = solution
 end
 
@@ -19,7 +19,7 @@ end
 subsection Time integration
   set dt        = 0.1
   set t_initial = 0
-  set t_end     = 0.5
+  set t_end     = 10.
   set scheme    = BDF2
 end
 
@@ -57,6 +57,12 @@ subsection FSI
   set spring constant = 1
 end
 
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0
+  end
+end
+
 subsection Fluid boundary conditions
   set number = 4
   subsection boundary 0
@@ -70,7 +76,7 @@ subsection Fluid boundary conditions
     set type = input_function
 
     subsection u
-      set Function expression = 2
+      set Function expression = 1
     end
     subsection v
       set Function expression = 0

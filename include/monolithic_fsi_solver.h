@@ -61,10 +61,42 @@ public:
    */
   void create_sparsity_pattern();
 
+    /**
+   * Create the AffineConstraints storing the lambda = 0
+   * constraints everywhere, except on the boundary of interest
+   * on which a weakly enforced no-slip condition is prescribed.
+   */
+  void create_lagrange_multiplier_constraints();
+
+  /**
+   * 
+   */
+  void create_position_lagrange_mult_coupling_data();
+
+  /**
+   * 
+   */
+  void set_initial_conditions();
+
+  /**
+   * 
+   */
+  void update_boundary_conditions();
+
+  /**
+   * 
+   */
+  void assemble_local_matrix();
+
   /**
    *
    */
   virtual void assemble_matrix() override;
+
+  /**
+   * 
+   */
+  void assemble_local_rhs();
 
   /**
    *
@@ -80,18 +112,6 @@ public:
    *
    */
   void output_results() const;
-
-  /**
-   * Create the AffineConstraints storing the lambda = 0
-   * constraints everywhere, except on the boundary of interest
-   * on which a weakly enforced no-slip condition is prescribed.
-   */
-  void create_lagrange_multiplier_constraints();
-
-  /**
-   * 
-   */
-  void create_position_lagrange_mult_coupling_data();
 
 protected:
   // Ordering of the FE system for the FSI solver.

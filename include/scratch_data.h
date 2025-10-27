@@ -11,11 +11,7 @@
 using namespace dealii;
 
 /**
- * 
- * 
- * 
- * 
- * 
+ * Scratch data for the monolithic fluid-structure interaction solver.
  */
 template <int dim>
 class ScratchData

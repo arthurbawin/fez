@@ -22,9 +22,16 @@ public:
   void set_bdf_coefficients();
 
   /**
-   * Rotates the computed time step i+1 to position i.
+   * Returns true if the simulation should stop:
+   * - always true if simulation is steady
+   * - if t >= t_end if unsteady
    */
-  void rotate();
+  bool is_finished();
+
+  /**
+   * Rotate the computed time step i+1 to position i.
+   */
+  void advance();
 
   /**
    * Compute the approximation of the time derivative of the field associated to
@@ -37,6 +44,18 @@ public:
     const types::global_dof_index  index,
     const VectorType              &present_solution,
     const std::vector<VectorType> &previous_solutions) const;
+
+  /**
+   * Same as above but for the time derivative of a vector (Tensor<1, dim>),
+   * given the current and previous vectors, at index-th quadrature node.
+   * 
+   * This is tailored for a previous_solutions vector stored in a scratch data.
+   */
+  template <int dim>
+  Tensor<1, dim> compute_time_derivative_at_quadrature_node(
+    const unsigned int index,
+    const Tensor<1, dim>              &present_solution,
+    const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const;
 
 public:
   double              current_time;
@@ -55,6 +74,8 @@ public:
   std::vector<double> bdf_coefficients;
 };
 
+/* ---------------- template functions ----------------- */
+
 template <typename VectorType>
 double TimeHandler::compute_time_derivative(
   const types::global_dof_index  index,
@@ -67,7 +88,26 @@ double TimeHandler::compute_time_derivative(
       scheme == Parameters::TimeIntegration::Scheme::BDF2)
   {
     double value_dot = bdf_coefficients[0] * present_solution[index];
-    for (unsigned int i = 1; i < n_previous_solutions; ++i)
+    for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
+      value_dot += bdf_coefficients[i] * previous_solutions[i - 1][index];
+    return value_dot;
+  }
+  DEAL_II_ASSERT_UNREACHABLE();
+}
+
+template <int dim>
+Tensor<1, dim> TimeHandler::compute_time_derivative_at_quadrature_node(
+    const unsigned int index,
+    const Tensor<1, dim>              &present_solution,
+    const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const
+{
+  if (scheme == Parameters::TimeIntegration::Scheme::stationary)
+    return Tensor<1, dim>();
+  if (scheme == Parameters::TimeIntegration::Scheme::BDF1 ||
+      scheme == Parameters::TimeIntegration::Scheme::BDF2)
+  {
+    Tensor<1, dim> value_dot = bdf_coefficients[0] * present_solution;
+    for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
       value_dot += bdf_coefficients[i] * previous_solutions[i - 1][index];
     return value_dot;
   }

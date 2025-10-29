@@ -38,10 +38,6 @@ void DummyDimension::declare_parameters(ParameterHandler &prm)
 void DummyDimension::read_parameters(ParameterHandler &prm)
 {
   // Nothing to do, dimension was read in utilities.h
-  // prm.enter_subsection("Dimension");
-  // {
-  // }
-  // prm.leave_subsection();
 }
 
 void Mesh::declare_parameters(ParameterHandler &prm)
@@ -258,6 +254,7 @@ void NonLinearSolver::declare_parameters(ParameterHandler &prm)
       "true",
       Patterns::Bool(),
       "Compute exact Jacobian matrix. If false, use finite differences.");
+    DECLARE_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
 }
@@ -271,6 +268,7 @@ void NonLinearSolver::read_parameters(ParameterHandler &prm)
     max_iterations       = prm.get_integer("max_iterations");
     enable_line_search   = prm.get_bool("enable_line_search");
     analytic_jacobian    = prm.get_bool("analytic_jacobian");
+    READ_VERBOSITY_PARAM(prm);
   }
   prm.leave_subsection();
 }
@@ -292,6 +290,7 @@ void TimeIntegration::declare_parameters(ParameterHandler &prm)
                       "stationary",
                       Patterns::Selection("stationary|BDF1|BDF2"),
                       "Time stepping scheme (default is stationary)");
+    DECLARE_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
 }
@@ -327,6 +326,7 @@ void TimeIntegration::read_parameters(ParameterHandler &prm)
     else
       throw std::runtime_error("Unknown time intergation scheme : " +
                                parsed_scheme);
+    READ_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
 }

@@ -14,17 +14,17 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , current_dt(time_parameters.dt)
   , scheme(time_parameters.scheme)
 {
-  switch(scheme)
+  switch (scheme)
   {
-  case STAT:
-    n_previous_solutions = 0;
-    break;
-  case BDF1:
-    n_previous_solutions = 1;
-    break;
-  case BDF2:
-    n_previous_solutions = 2;
-    break;
+    case STAT:
+      n_previous_solutions = 0;
+      break;
+    case BDF1:
+      n_previous_solutions = 1;
+      break;
+    case BDF2:
+      n_previous_solutions = 2;
+      break;
   }
 
   previous_times.resize(n_previous_solutions + 1, initial_time);
@@ -59,17 +59,26 @@ void TimeHandler::set_bdf_coefficients()
   }
 }
 
-void TimeHandler::rotate()
+bool TimeHandler::is_finished()
 {
-  // FIXME: Check this properly
+  if(scheme == STAT)
+    return true;
+  return current_time >= final_time - 1e-10;
+}
+
+void TimeHandler::advance()
+{
+  // Rotate the times and time steps
   for (unsigned int i = n_previous_solutions - 1; i >= 1; --i)
   {
     previous_times[i] = previous_times[i - 1];
-    time_steps[i] = time_steps[i - 1];
+    time_steps[i]     = time_steps[i - 1];
   }
+
+  // Update values and coefficients
   current_time += current_dt;
   current_time_iteration++;
   previous_times[0] = current_time;
-  time_steps[0] = current_dt;
+  time_steps[0]     = current_dt;
   set_bdf_coefficients();
 }

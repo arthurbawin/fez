@@ -19,13 +19,14 @@ namespace Parameters
     verbose
   };
 
-  // The problem dimension is read in a first pass to instantiate the right pre-compiled solver.
-  // Because dimension in deal.II is not a simulation parameters per se,
-  // this is not done here, but in utilities.h. However, the "Dimension" block
-  // read by the function in utilities.h should still be read in the real run to
-  // avoid an exception. This is done here, and the dimension is not parsed.
+  // The problem dimension is read in a first pass to instantiate the right
+  // pre-compiled solver. Because dimension in deal.II is not a simulation
+  // parameters per se, this is not done here, but in utilities.h. However, the
+  // "Dimension" block read by the function in utilities.h should still be read
+  // in the real run to avoid an exception. This is done here, and the dimension
+  // is not parsed.
   struct DummyDimension
-  {    
+  {
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -119,6 +120,7 @@ namespace Parameters
     unsigned int max_iterations;
     bool         enable_line_search;
     bool         analytic_jacobian;
+    Verbosity    verbosity;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -133,6 +135,7 @@ namespace Parameters
     double       t_initial;
     double       t_end;
     unsigned int n_constant_timesteps;
+    Verbosity    verbosity;
 
     enum class Scheme
     {

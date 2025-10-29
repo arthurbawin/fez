@@ -1,12 +1,6 @@
 #ifndef MONOLITHIC_FSI_SOLVER_H
 #define MONOLITHIC_FSI_SOLVER_H
 
-#include <generic_solver.h>
-#include <parameter_reader.h>
-#include <time_handler.h>
-#include <types.h>
-
-#include <deal.II/lac/generic_linear_algebra.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/table_handler.h>
@@ -18,7 +12,13 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/generic_linear_algebra.h>
 #include <deal.II/lac/petsc_sparse_matrix.h>
+#include <generic_solver.h>
+#include <parameter_reader.h>
+#include <time_handler.h>
+#include <types.h>
+#include <scratch_data.h>
 
 using namespace dealii;
 
@@ -27,7 +27,7 @@ using namespace dealii;
  * It is a somewhat niche class, which treats a single obstacle for now.
  */
 template <int dim>
-class MonolithicFSISolver : public GenericSolver<dim, ParVectorType>
+class MonolithicFSISolver : public GenericSolver<ParVectorType>
 {
 public:
   MonolithicFSISolver(const ParameterReader<dim> &param);
@@ -57,11 +57,19 @@ public:
   void create_nonzero_constraints();
 
   /**
+   * 
+   */
+  virtual AffineConstraints<double>& get_nonzero_constraints() override
+  {
+    return nonzero_constraints;
+  }
+
+  /**
    *
    */
   void create_sparsity_pattern();
 
-    /**
+  /**
    * Create the AffineConstraints storing the lambda = 0
    * constraints everywhere, except on the boundary of interest
    * on which a weakly enforced no-slip condition is prescribed.
@@ -69,24 +77,42 @@ public:
   void create_lagrange_multiplier_constraints();
 
   /**
-   * 
+   *
    */
   void create_position_lagrange_mult_coupling_data();
 
   /**
-   * 
+   *
    */
   void set_initial_conditions();
 
   /**
-   * 
+   *
    */
   void update_boundary_conditions();
 
   /**
-   * 
+   *
    */
-  void assemble_local_matrix();
+  void add_algebraic_position_coupling_to_matrix();
+
+  /**
+   *
+   */
+  void add_algebraic_position_coupling_to_rhs();
+
+  /**
+   *
+   */
+  void assemble_local_matrix(
+    bool                                                  first_step,
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    ScratchData<dim>                                     &scratchData,
+    ParVectorType                                      &current_solution,
+    std::vector<ParVectorType>                         &previous_solutions,
+    std::vector<types::global_dof_index>                 &local_dof_indices,
+    FullMatrix<double>                                   &local_matrix,
+    bool                                                  distribute);
 
   /**
    *
@@ -94,9 +120,19 @@ public:
   virtual void assemble_matrix() override;
 
   /**
-   * 
+   *
    */
-  void assemble_local_rhs();
+  void
+  assemble_local_rhs(bool first_step,
+                     const typename DoFHandler<dim>::active_cell_iterator &cell,
+                     ScratchData<dim>                     &scratchData,
+                     ParVectorType                      &current_solution,
+                     std::vector<ParVectorType>         &previous_solutions,
+                     std::vector<types::global_dof_index> &local_dof_indices,
+                     Vector<double>                       &local_rhs,
+                     std::vector<double>                  &cell_dof_values,
+                     bool                                  distribute,
+                     bool                                  use_full_solution);
 
   /**
    *
@@ -106,12 +142,33 @@ public:
   /**
    *
    */
-  virtual void solve_linear_system() override;
+  virtual void solve_linear_system(const bool apply_inhomogeneous_constraints) override;
 
   /**
    *
    */
   void output_results() const;
+
+  /**
+   * 
+   */
+  void compare_forces_and_position_on_obstacle() const;
+
+  /**
+   * 
+   */
+  void check_velocity_boundary() const;
+
+  /**
+   * Compute the "raw" forces on the obstacle.
+   * These need to nondimensionalized to obtain the force coefficients.
+   */
+  void compute_forces(const bool export_table);
+
+  /**
+   * 
+   */
+  void write_cylinder_position(const bool export_table);
 
 protected:
   // Ordering of the FE system for the FSI solver.
@@ -149,13 +206,15 @@ protected:
   }
 
 protected:
+  ParameterReader<dim> param;
+
   QSimplex<dim>     quadrature;
   QSimplex<dim - 1> face_quadrature;
 
   parallel::fullydistributed::Triangulation<dim> triangulation;
   std::unique_ptr<Mapping<dim>>                  fixed_mapping;
   std::unique_ptr<Mapping<dim>>                  mapping;
-  FESystem<dim> fe;
+  FESystem<dim>                                  fe;
 
   DoFHandler<dim> dof_handler;
 
@@ -177,16 +236,12 @@ protected:
   // Position-lambda constraints on the cylinder
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
   std::vector<std::vector<std::pair<unsigned int, double>>>
-                                                position_lambda_coeffs;
-  std::map<types::global_dof_index, Point<dim>> initial_positions;
+                                                  position_lambda_coeffs;
+  std::map<types::global_dof_index, Point<dim>>   initial_positions;
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
 
-  // The id of the boundary where weak Dirichlet BC are prescribed
-  // for the velocity
-  unsigned int weak_bc_boundary_id;
-
   dealii::LinearAlgebraPETSc::MPI::SparseMatrix system_matrix;
-  std::vector<ParVectorType> previous_solutions;
+  std::vector<ParVectorType>                    previous_solutions;
 
 
   TableHandler forces_table;

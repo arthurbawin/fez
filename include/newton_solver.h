@@ -1,9 +1,11 @@
 #ifndef NEWTON_SOLVER_H
 #define NEWTON_SOLVER_H
 
-#include <nonlinear_solver.h>
+/**
+ * This structure and solve function are borrowed from the Lethe project.
+ */
 
-using namespace dealii;
+#include <nonlinear_solver.h>
 
 /**
  * Generic Newton nonlinear solver.
@@ -15,19 +17,27 @@ public:
   /**
    * Constructor
    */
-  NewtonSolver(){};
+  NewtonSolver(const Parameters::NonLinearSolver &param,
+               GenericSolver<VectorType>         *solver)
+  : NonLinearSolver<VectorType>(param, solver)
+  {}
 
 public:
-  void solve(const bool is_initial_step)
+  /**
+   * Solve the nonlinear problem with Newton-Raphson's method.
+   */
+  void solve(const bool first_step) override
   {
     double global_res;
     double current_res;
     double last_res;
-    bool   first_step     = is_initial_step;
     unsigned int outer_iteration = 0;
     last_res              = 1e6;
     current_res           = 1e6;
     global_res            = 1e6;
+
+    auto solver = this->solver;
+    const bool verbose = this->param.verbosity == Parameters::Verbosity::verbose;
 
     // current_res and global_res are different as one is defined based on the l2
     // norm of the residual vector (current_res) and the other (global_res) is
@@ -37,51 +47,47 @@ public:
     // the alpha scheme as this scheme only monitors the convergence of the
     // non-linear system of equation (the matrix problem).
 
-    // auto &evaluation_point = solver->get_evaluation_point();
-    // auto &present_solution = solver->get_present_solution();
-
-    while ((global_res > this->param.newton_tolerance) &&
+    while ((global_res > this->param.tolerance) &&
            outer_iteration < 50)
       {
-        evaluation_point = present_solution;
+        solver->evaluation_point = solver->present_solution;
 
-        this->assemble_matrix(false);
+        solver->assemble_matrix();
 
         // if (outer_iteration == 0)
-          this->assemble_rhs(false);
+          solver->assemble_rhs();
 
-        current_res      = this->system_rhs.l2_norm();
+        current_res      = solver->system_rhs.l2_norm();
         if (outer_iteration == 0)
         {
           last_res         = current_res;
         }
 
-        if (VERBOSE)
+        if (verbose)
         {
-          pcout << std::scientific << std::setprecision(16) << std::showpos;
-          pcout << "Newton iteration: " << outer_iteration << "  - Residual:  " << current_res << std::endl;
+          solver->pcout << std::scientific << std::setprecision(16) << std::showpos;
+          solver->pcout << "Newton iteration: " << outer_iteration << "  - Residual:  " << current_res << std::endl;
         }
 
-        this->solve_direct(first_step);
+        solver->solve_linear_system(first_step);
         double last_alpha_res = current_res;
 
-        if(param.with_line_search)
+        if(this->param.enable_line_search)
         {
           unsigned int alpha_iter = 0;
           for (double alpha = 1.0; alpha > 1e-1; alpha *= 0.5)
           {
-            local_evaluation_point       = present_solution;
-            local_evaluation_point.add(alpha, newton_update);
-            nonzero_constraints.distribute(local_evaluation_point);
-            evaluation_point = local_evaluation_point;
-            this->assemble_rhs(false);
+            solver->local_evaluation_point       = solver->present_solution;
+            solver->local_evaluation_point.add(alpha, solver->newton_update);
+            solver->distribute_nonzero_constraints();
+            solver->evaluation_point = solver->local_evaluation_point;
+            solver->assemble_rhs();
 
-            // auto &system_rhs = solver->get_system_rhs();
-            current_res      = system_rhs.l2_norm();
+            current_res      = solver->system_rhs.l2_norm();
 
-            if (VERBOSE)
+            if (verbose)
             {
-              pcout << "\talpha = " << std::setw(6) << alpha
+              solver->pcout << "\talpha = " << std::setw(6) << alpha
                             << std::setw(0) << " res = "
                             << std::setprecision(6)
                             << std::setw(6) << current_res << std::endl;
@@ -93,14 +99,14 @@ public:
             if (current_res > last_alpha_res and alpha_iter != 0)
               {
                 alpha                  = 2 * alpha;
-                local_evaluation_point = present_solution;
-                local_evaluation_point.add(alpha, newton_update);
-                nonzero_constraints.distribute(local_evaluation_point);
-                evaluation_point = local_evaluation_point;
+                solver->local_evaluation_point = solver->present_solution;
+                solver->local_evaluation_point.add(alpha, solver->newton_update);
+                solver->distribute_nonzero_constraints();
+                solver->evaluation_point = solver->local_evaluation_point;
 
-                if (VERBOSE)
+                if (verbose)
                 {
-                  pcout
+                  solver->pcout
                     << "\t\talpha value was kept at alpha = " << alpha
                     << " since alpha = " << alpha / 2
                     << " increased the residual" << std::endl;
@@ -109,7 +115,7 @@ public:
                 break;
               }
             if (current_res < 0.1 * last_res ||
-                last_res < param.newton_tolerance)
+                last_res < this->param.tolerance)
               {
                 break;
               }
@@ -119,28 +125,28 @@ public:
         }
         else
         {
-          local_evaluation_point       = present_solution;
-          local_evaluation_point.add(1., newton_update);
-          nonzero_constraints.distribute(local_evaluation_point);
-          evaluation_point = local_evaluation_point;
+          solver->local_evaluation_point       = solver->present_solution;
+          solver->local_evaluation_point.add(1., solver->newton_update);
+          solver->distribute_nonzero_constraints();
+          solver->evaluation_point = solver->local_evaluation_point;
         }
 
         // global_res       = solver->get_current_residual();
         global_res       = current_res;
-        present_solution = evaluation_point;
+        solver->present_solution = solver->evaluation_point;
         last_res         = current_res;
         ++outer_iteration;
       }
 
     // If the non-linear solver has not converged abort simulation if
     // abort_at_convergence_failure=true
-    if ((global_res > param.newton_tolerance) &&
+    if ((global_res > this->param.tolerance) &&
         outer_iteration >= 50)
       {
         throw(std::runtime_error(
           "Stopping simulation because the non-linear solver has failed to converge"));
       }
   }
-}
+};
 
 #endif

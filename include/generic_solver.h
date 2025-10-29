@@ -1,11 +1,19 @@
 #ifndef GENERIC_SOLVER_H
 #define GENERIC_SOLVER_H
 
+/**
+ * This structure is borrowed from the Lethe project.
+ */
+
 #include <parameter_reader.h>
 #include <types.h>
+#include <nonlinear_solver.h>
+#include <newton_solver.h>
 
 #include <deal.II/base/timer.h>
 #include <deal.II/base/conditional_ostream.h>
+#include <deal.II/base/observer_pointer.h>
+#include <deal.II/lac/affine_constraints.h>
 
 using namespace dealii;
 
@@ -21,13 +29,12 @@ using namespace dealii;
  * to select what is needed from the parameters to avoid templating the whole
  * class.
  */
-template <int dim, typename VectorType>
-class GenericSolver
+template <typename VectorType>
+class GenericSolver : public EnableObserverPointer
 {
 public:
-  GenericSolver(const ParameterReader<dim> &param)
-    : param(param)
-  , mpi_communicator(MPI_COMM_WORLD)
+  GenericSolver(const Parameters::NonLinearSolver &nonlinear_solver_param)
+    : mpi_communicator(MPI_COMM_WORLD)
   , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
   , mpi_size(Utilities::MPI::n_mpi_processes(mpi_communicator))
   , pcout(std::cout, (mpi_rank == 0))
@@ -35,13 +42,13 @@ public:
                     pcout,
                     TimerOutput::summary,
                     TimerOutput::wall_times)
-  {}
-
-public:
-  virtual ~GenericSolver()
   {
-
+    // Create the nonlinear solver (Newton-Raphson solver)
+    nonlinear_solver = std::make_shared<NewtonSolver<VectorType>>(nonlinear_solver_param, this);
   }
+
+  virtual ~GenericSolver()
+  {}
 
 public:
   /**
@@ -62,19 +69,31 @@ public:
   /**
    *
    */
-  virtual void solve_linear_system() = 0;
+  virtual void solve_linear_system(const bool apply_inhomogeneous_constraints) = 0;
 
   /**
    *
    */
-  virtual void solve_nonlinear_problem()
+  void solve_nonlinear_problem(const bool first_step)
 	{
-		pcout << "Solving nonlinear problem" << std::endl;
+		nonlinear_solver->solve(first_step);
 	}
 
-protected:
-  ParameterReader<dim> param;
+  /**
+   * 
+   */
+  virtual AffineConstraints<double>& get_nonzero_constraints() = 0;
 
+  /**
+   * 
+   */
+  void distribute_nonzero_constraints()
+  {
+    const auto &nonzero_constraints = this->get_nonzero_constraints(); 
+    nonzero_constraints.distribute(local_evaluation_point);
+  }
+
+protected:
   MPI_Comm           mpi_communicator;
   const unsigned int mpi_rank;
   const unsigned int mpi_size;
@@ -90,6 +109,12 @@ protected:
   VectorType local_evaluation_point;
   VectorType newton_update;
   VectorType system_rhs;
+
+  std::shared_ptr<NonLinearSolver<VectorType>> nonlinear_solver;
+
+  // Friend-ness is not inherited, so each derived nonlinear solver
+  // should be marked as friend individually.
+  friend class NewtonSolver<VectorType>;
 };
 
 #endif

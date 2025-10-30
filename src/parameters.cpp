@@ -193,7 +193,7 @@ void PhysicalProperties::declare_parameters(ParameterHandler &prm)
     // Declare the pseudosolid subsections
     prm.declare_entry(
       "number of pseudosolids",
-      "1",
+      "0",
       Patterns::Integer(),
       "Number of pseudosolids (linear elastic analogy for mesh movement)");
 

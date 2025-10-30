@@ -98,9 +98,7 @@ void read_gmsh_physical_names(const std::string                   &meshFile,
 }
 
 /**
- * Check that all boundary ids found in the mesh have a matching name in the
- * mesh file. That is, all boundaries must be part of a named Gmsh
- * Physical Entity.
+ * Perform checks on the mesh boundary ids and entities.
  */
 template <int dim>
 void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
@@ -111,6 +109,11 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
     if (face->at_boundary())
       boundary_count[face->boundary_id()]++;
 
+  /**
+   * Check that all boundary ids found in the mesh have a matching name in the
+   * mesh file. That is, all boundaries must be part of a named Gmsh
+   * Physical Entity.
+   */
   for (const auto &[id, count] : boundary_count)
     AssertThrow(
       param.mesh.id2name.count(id) == 1,
@@ -121,6 +124,38 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
         "geometric entity (i.e., a boundary curve or surface) in the mesh that "
         "is not associated to any named Physical Entity. Make sure that all "
         "boundaries are part of a named group."));
+
+  /**
+   * Check that all boundary ids found in the mesh have a matching name in the
+   * parameter file.
+   * For now, all dim-1 dimensional boundary entity should have an assigned
+   * boundary condition in the parameter file.
+   */
+  for (const auto &[id, count] : boundary_count)
+  {
+    // Check that each boundary id appears in the fluid boundary conditions
+    AssertThrow(
+      std::count_if(param.fluid_bc.begin(),
+                    param.fluid_bc.end(),
+                    [id](const auto &bc) { return bc.id == id; }) == 1,
+      ExcMessage("No fluid boundary condition was assigned to boundary " +
+                 std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+                 "). For now, all boundaries must be assigned a boundary "
+                 "condition for all relevant fields."));
+
+    if(param.physical_properties.n_pseudosolids > 0)
+    {
+      // Check that each boundary id appears in the pseudosolid boundary conditions
+      AssertThrow(
+        std::count_if(param.pseudosolid_bc.begin(),
+                      param.pseudosolid_bc.end(),
+                      [id](const auto &bc) { return bc.id == id; }) == 1,
+        ExcMessage("No pseudosolid boundary condition was assigned to boundary " +
+                   std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+                   "). For now, all boundaries must be assigned a boundary "
+                   "condition for all relevant fields."));
+    }
+  }
 }
 
 template <int dim>

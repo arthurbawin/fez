@@ -58,10 +58,6 @@ template <int dim>
 void MonolithicFSISolver<dim>::run()
 {
   read_mesh(triangulation, this->param);
-
-  // SET TIME OF FUNCTIONS, EITHER BEFORE OR AFTER ROTATE
-
-  // time_handler.rotate();
   setup_dofs();
   create_lagrange_multiplier_constraints();
   create_position_lagrange_mult_coupling_data();
@@ -71,7 +67,6 @@ void MonolithicFSISolver<dim>::run()
   set_initial_conditions();
   output_results();
 
-  // for (unsigned int i = 0; i < 2; ++i, ++time_handler.current_time_iteration)
   while (!time_handler.is_finished())
   {
     time_handler.advance();
@@ -83,8 +78,9 @@ void MonolithicFSISolver<dim>::run()
             << std::endl;
 
     update_boundary_conditions();
-    if (time_handler.current_time_iteration == 1 && param.time_integration.scheme ==
-                    Parameters::TimeIntegration::Scheme::BDF2)
+    if (time_handler.current_time_iteration == 1 &&
+        param.time_integration.scheme ==
+          Parameters::TimeIntegration::Scheme::BDF2)
     {
       // FIXME: Start with BDF1
       set_initial_conditions();
@@ -103,9 +99,11 @@ void MonolithicFSISolver<dim>::run()
     // Always check that weak no-slip is satisfied
     check_velocity_boundary();
 
-    const bool export_force_table = (time_handler.current_time_iteration % 5) == 0;
+    const bool export_force_table =
+      (time_handler.current_time_iteration % 5) == 0;
     compute_forces(export_force_table);
-    const bool export_position_table = (time_handler.current_time_iteration % 5) == 0;
+    const bool export_position_table =
+      (time_handler.current_time_iteration % 5) == 0;
     write_cylinder_position(export_position_table);
 
     output_results();
@@ -676,14 +674,14 @@ void MonolithicFSISolver<dim>::assemble_matrix()
   Vector<double>      ref_local_rhs(dofs_per_cell);
   Vector<double>      perturbed_local_rhs(dofs_per_cell);
 
-  ScratchData<dim> scratchData(fe,
-                               quadrature,
-                               *fixed_mapping,
-                               *mapping,
-                               face_quadrature,
-                               dofs_per_cell,
-                               weak_no_slip_boundary_id,
-                               time_handler.bdf_coefficients);
+  ScratchDataMonolithicFSI<dim> scratchData(fe,
+                                            quadrature,
+                                            *fixed_mapping,
+                                            *mapping,
+                                            face_quadrature,
+                                            dofs_per_cell,
+                                            weak_no_slip_boundary_id,
+                                            time_handler.bdf_coefficients);
 
   for (const auto &cell : dof_handler.active_cell_iterators() |
                             IteratorFilters::LocallyOwnedCell())
@@ -786,12 +784,6 @@ void MonolithicFSISolver<dim>::assemble_matrix()
 
   system_matrix.compress(VectorOperation::add);
 
-  // Write matrix to file
-  {
-    std::ofstream outfile(this->param.output.output_dir + "matrix.txt");
-    system_matrix.print(outfile);
-  }
-
   if (this->param.fsi.enable_coupling)
     this->add_algebraic_position_coupling_to_matrix();
 }
@@ -800,7 +792,7 @@ template <int dim>
 void MonolithicFSISolver<dim>::assemble_local_matrix(
   bool                                                  first_step,
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData<dim>                                     &scratchData,
+  ScratchDataMonolithicFSI<dim>                        &scratchData,
   ParVectorType                                        &current_solution,
   std::vector<ParVectorType>                           &previous_solutions,
   std::vector<types::global_dof_index>                 &local_dof_indices,
@@ -1128,14 +1120,14 @@ void MonolithicFSISolver<dim>::assemble_rhs()
   std::vector<double>                  cell_dof_values(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
-  ScratchData<dim> scratchData(fe,
-                               quadrature,
-                               *fixed_mapping,
-                               *mapping,
-                               face_quadrature,
-                               dofs_per_cell,
-                               weak_no_slip_boundary_id,
-                               time_handler.bdf_coefficients);
+  ScratchDataMonolithicFSI<dim> scratchData(fe,
+                                            quadrature,
+                                            *fixed_mapping,
+                                            *mapping,
+                                            face_quadrature,
+                                            dofs_per_cell,
+                                            weak_no_slip_boundary_id,
+                                            time_handler.bdf_coefficients);
 
   for (const auto &cell : dof_handler.active_cell_iterators() |
                             IteratorFilters::LocallyOwnedCell())
@@ -1157,12 +1149,6 @@ void MonolithicFSISolver<dim>::assemble_rhs()
 
   this->system_rhs.compress(VectorOperation::add);
 
-  // Write rhs to file
-  {
-    std::ofstream outfile(this->param.output.output_dir + "rhs.txt");
-    this->system_rhs.print(outfile, 16, true, false);
-  }
-
   if (this->param.fsi.enable_coupling)
     this->add_algebraic_position_coupling_to_rhs();
 }
@@ -1171,7 +1157,7 @@ template <int dim>
 void MonolithicFSISolver<dim>::assemble_local_rhs(
   bool                                                  first_step,
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData<dim>                                     &scratchData,
+  ScratchDataMonolithicFSI<dim>                        &scratchData,
   ParVectorType                                        &current_solution,
   std::vector<ParVectorType>                           &previous_solutions,
   std::vector<types::global_dof_index>                 &local_dof_indices,
@@ -1848,8 +1834,7 @@ void MonolithicFSISolver<dim>::compute_forces(const bool export_table)
                                    fe,
                                    face_quadrature,
                                    update_values | update_quadrature_points |
-                                     update_JxW_values |
-                                     update_normal_vectors);
+                                     update_JxW_values | update_normal_vectors);
 
   const unsigned int          n_faces_q_points = face_quadrature.size();
   std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
@@ -1863,7 +1848,8 @@ void MonolithicFSISolver<dim>::compute_forces(const bool export_table)
     {
       const auto &face = cell->face(i_face);
 
-      if (face->at_boundary() && face->boundary_id() == weak_no_slip_boundary_id)
+      if (face->at_boundary() &&
+          face->boundary_id() == weak_no_slip_boundary_id)
       {
         fe_face_values.reinit(cell, i_face);
 
@@ -1890,11 +1876,11 @@ void MonolithicFSISolver<dim>::compute_forces(const bool export_table)
   // Forces on the cylinder are the NEGATIVE of the integral of lambda
   //
   forces_table.add_value("time", time_handler.current_time);
-  forces_table.add_value("CFx", - lambda_integral[0]);
-  forces_table.add_value("CFy", - lambda_integral[1]);
+  forces_table.add_value("CFx", -lambda_integral[0]);
+  forces_table.add_value("CFy", -lambda_integral[1]);
   if constexpr (dim == 3)
   {
-    forces_table.add_value("CFz", - lambda_integral[2]);
+    forces_table.add_value("CFz", -lambda_integral[2]);
   }
 
   if (export_table && mpi_rank == 0)
@@ -1908,16 +1894,17 @@ template <int dim>
 void MonolithicFSISolver<dim>::write_cylinder_position(const bool export_table)
 {
   Tensor<1, dim> average_position, position_integral_local;
-  double boundary_measure_local = 0.;
+  double         boundary_measure_local = 0.;
 
   const FEValuesExtractors::Vector position(x_lower);
 
   FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
-                                   fe,
-                                   face_quadrature,
-                                   update_values | update_quadrature_points |
-                                     update_JxW_values |
-                                     update_normal_vectors);
+                                         fe,
+                                         face_quadrature,
+                                         update_values |
+                                           update_quadrature_points |
+                                           update_JxW_values |
+                                           update_normal_vectors);
 
   const unsigned int          n_faces_q_points = face_quadrature.size();
   std::vector<Tensor<1, dim>> position_values(n_faces_q_points);
@@ -1931,7 +1918,8 @@ void MonolithicFSISolver<dim>::write_cylinder_position(const bool export_table)
     {
       const auto &face = cell->face(i_face);
 
-      if (face->at_boundary() && face->boundary_id() == weak_no_slip_boundary_id)
+      if (face->at_boundary() &&
+          face->boundary_id() == weak_no_slip_boundary_id)
       {
         fe_face_values_fixed.reinit(cell, i_face);
 
@@ -1941,16 +1929,19 @@ void MonolithicFSISolver<dim>::write_cylinder_position(const bool export_table)
 
         for (unsigned int q = 0; q < n_faces_q_points; ++q)
         {
-          boundary_measure_local  += fe_face_values_fixed.JxW(q);
-          position_integral_local += position_values[q] * fe_face_values_fixed.JxW(q);
+          boundary_measure_local += fe_face_values_fixed.JxW(q);
+          position_integral_local +=
+            position_values[q] * fe_face_values_fixed.JxW(q);
         }
       }
     }
   }
 
-  const double boundary_measure = Utilities::MPI::sum(boundary_measure_local, mpi_communicator);
+  const double boundary_measure =
+    Utilities::MPI::sum(boundary_measure_local, mpi_communicator);
   for (unsigned int d = 0; d < dim; ++d)
-    average_position[d] = 1./boundary_measure *
+    average_position[d] =
+      1. / boundary_measure *
       Utilities::MPI::sum(position_integral_local[d], mpi_communicator);
 
   cylinder_position_table.add_value("time", time_handler.current_time);

@@ -12,7 +12,7 @@ void read_mesh(
   parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
   ParameterReader<dim>                            &param);
 
-// To remove: used only by make_grid() in sandalone examples
+// To remove: used only by make_grid() in standalone examples
 void read_gmsh_physical_names(const std::string                   &meshFile,
                               std::map<unsigned int, std::string> &tag2name,
                               std::map<std::string, unsigned int> &name2tag);

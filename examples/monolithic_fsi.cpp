@@ -1,10 +1,6 @@
 
-#include <MMS.h>
-#include <mesh.h>
-#include <scratch_data.h>
 #include <parameter_reader.h>
 #include <utilities.h>
-#include <boundary_conditions.h>
 #include <monolithic_fsi_solver.h>
 
 int main(int argc, char *argv[])
@@ -17,7 +13,7 @@ int main(int argc, char *argv[])
     ConditionalOStream pcout(
         std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
 
-    std::string parameter_file = "../examples/test.prm";
+    std::string parameter_file = "../examples/test_2d_fsi.prm";
 
     const unsigned int dim = read_problem_dimension(parameter_file);
     Parameters::BoundaryConditionsCount bc_count;

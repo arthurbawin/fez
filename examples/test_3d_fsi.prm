@@ -1,6 +1,6 @@
 
 subsection Dimension
-  set dimension = 2
+  set dimension = 3
 end
 
 subsection Output
@@ -9,16 +9,14 @@ subsection Output
 end
 
 subsection Mesh
-  #set mesh file = ../data/meshes/cyl_not_confined_uber_coarse.msh
-  set mesh file = ../data/meshes/cyl_not_confined1.msh
-  #set mesh file = ../data/meshes/cylinderCoarse3D.msh
+  set mesh file = ../data/meshes/cyl_not_confined_3d_coarse.msh
 end
 
 subsection Time integration
   set dt        = 0.1
   set t_initial = 0
   set t_end     = 0.5
-  set scheme    = BDF2
+  set scheme    = BDF1
 end
 
 subsection Nonlinear solver
@@ -51,25 +49,40 @@ subsection Physical properties
 end
 
 subsection FSI
-  set enable coupling = true
+  set enable coupling = false
   set spring constant = 1
 end
 
 subsection Initial conditions
   subsection velocity
-    set Function expression = 1; 0
+    set Function expression = 1; 0; 0
   end
 end
 
 subsection Fluid boundary conditions
-  set number = 4
+  set number = 7
   subsection boundary 0
     set id   = 1
-    set name = Outlet
-    set type = outflow
+    set name = Back
+    set type = slip
   end
   subsection boundary 1
     set id   = 2
+    set name = Front
+    set type = slip
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = Bottom
+    set type = slip
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = Top
+    set type = slip
+  end
+  subsection boundary 4
+    set id   = 5
     set name = Inlet
     set type = input_function
 
@@ -79,39 +92,57 @@ subsection Fluid boundary conditions
     subsection v
       set Function expression = 0
     end
+    subsection w
+      set Function expression = 0
+    end
   end
-  subsection boundary 2
-    set id   = 3
-    set name = NoFlux
-    set type = slip
+  subsection boundary 5
+    set id   = 6
+    set name = Outlet
+    set type = outflow
   end
-  subsection boundary 3
-    set id   = 4
-    set name = InnerBoundary
+  subsection boundary 6
+    set id   = 7
+    set name = Cylinder
     set type = weak_no_slip
   end
 end
 
 subsection Pseudosolid boundary conditions
-  set number = 4
+  set number = 7
   subsection boundary 0
     set id   = 1
-    set name = Outlet
+    set name = Back
     set type = fixed
   end
   subsection boundary 1
     set id   = 2
-    set name = Inlet
+    set name = Front
     set type = fixed
   end
   subsection boundary 2
     set id   = 3
-    set name = NoFlux
+    set name = Bottom
     set type = fixed
   end
   subsection boundary 3
     set id   = 4
-    set name = InnerBoundary
+    set name = Top
+    set type = fixed
+  end
+  subsection boundary 4
+    set id   = 5
+    set name = Inlet
+    set type = fixed
+  end
+  subsection boundary 5
+    set id   = 6
+    set name = Outlet
+    set type = fixed
+  end
+  subsection boundary 6
+    set id   = 7
+    set name = Cylinder
     set type = coupled_to_fluid
   end
 end

@@ -40,6 +40,27 @@ void DummyDimension::read_parameters(ParameterHandler &prm)
   // Nothing to do, dimension was read in utilities.h
 }
 
+void Timer::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Timer");
+  {
+    prm.declare_entry("enable timer",
+                      "false",
+                      Patterns::Bool(),
+                      "Enable summary of elapsed time in solver components");
+  }
+  prm.leave_subsection();
+}
+
+void Timer::read_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Timer");
+  {
+    enable_timer = prm.get_bool("enable timer");
+  }
+  prm.leave_subsection();
+}
+
 void Mesh::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Mesh");
@@ -67,6 +88,10 @@ void Output::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Output");
   {
+    prm.declare_entry("write results",
+                      "true",
+                      Patterns::Bool(),
+                      "Enable/disable output writing");
     prm.declare_entry("output directory",
                       "./",
                       Patterns::FileName(),
@@ -83,6 +108,7 @@ void Output::read_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Output");
   {
+    write_results = prm.get_bool("write results");
     output_dir    = prm.get("output directory");
     output_prefix = prm.get("output prefix");
   }

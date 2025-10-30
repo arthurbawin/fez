@@ -11,7 +11,7 @@
 
 template <int dim>
 MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
-  : GenericSolver<ParVectorType>(param.nonlinear_solver)
+  : GenericSolver<ParVectorType>(param.nonlinear_solver, param.timer)
   , param(param)
   , quadrature(QGaussSimplex<dim>(4))
   , face_quadrature(QGaussSimplex<dim - 1>(4))

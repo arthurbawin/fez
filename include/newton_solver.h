@@ -19,7 +19,7 @@ public:
    */
   NewtonSolver(const Parameters::NonLinearSolver &param,
                GenericSolver<VectorType>         *solver)
-  : NonLinearSolver<VectorType>(param, solver)
+    : NonLinearSolver<VectorType>(param, solver)
   {}
 
 public:
@@ -28,124 +28,138 @@ public:
    */
   void solve(const bool first_step) override
   {
-    double global_res;
-    double current_res;
-    double last_res;
-    unsigned int outer_iteration = 0;
-    last_res              = 1e6;
-    current_res           = 1e6;
-    global_res            = 1e6;
+    bool         stop = false;
+    unsigned int iter = 0;
+    // double       norm_increment = 0;
+    double norm_residual = 0;
+    double last_residual;
+    bool   recompute_rhs = true;
 
-    auto solver = this->solver;
-    const bool verbose = this->param.verbosity == Parameters::Verbosity::verbose;
+    auto       solver = this->solver;
+    const bool verbose =
+      this->param.verbosity == Parameters::Verbosity::verbose;
 
-    // current_res and global_res are different as one is defined based on the l2
-    // norm of the residual vector (current_res) and the other (global_res) is
-    // defined by the physical solver and may differ from the l2_norm of the
-    // residual vector. Only the global_res is compared to the tolerance in order
-    // to evaluate if the nonlinear system is solved. Only current_res is used for
-    // the alpha scheme as this scheme only monitors the convergence of the
-    // non-linear system of equation (the matrix problem).
+    while (!stop)
+    {
+      solver->evaluation_point = solver->present_solution;
 
-    while ((global_res > this->param.tolerance) &&
-           outer_iteration < 50)
+      // Assemble residual and check if tolerance is reached
+      // Linfty norm does not scale with the number of RHS entries
+      if (recompute_rhs)
       {
-        solver->evaluation_point = solver->present_solution;
+        solver->assemble_rhs();
+        norm_residual = solver->system_rhs.l2_norm();
+      }
 
-        solver->assemble_matrix();
+      if (verbose)
+      {
+        solver->pcout << "Newton iter. " << std::setw(2) << iter << ": "
+                      << std::scientific
+                      << std::setprecision(8)
+                      // << "incr. = "  << norm_increment << " "
+                      << "         nonlinear residual = " << norm_residual
+                      << std::endl;
+      }
 
-        // if (outer_iteration == 0)
-          solver->assemble_rhs();
+      // Abort if residual is too high
+      if (iter > 0 && norm_residual > this->param.divergence_tolerance)
+      {
+        // throw std::runtime_error("Nonlinear solver diverged: " +
+        // std::to_string(norm_residual) " > divergence tolerance = " +
+        // std::to_string(this->param.divergence_tolerance));
+        throw std::runtime_error("Nonlinear solver diverged");
+      }
 
-        current_res      = solver->system_rhs.l2_norm();
-        if (outer_iteration == 0)
+      if (iter == 0)
+        last_residual = norm_residual;
+
+      if (norm_residual <= this->param.tolerance)
+      {
+        solver->pcout
+          << "Stopping because residual is below prescribed tolerance ("
+          << std::setprecision(2) << this->param.tolerance << ")" << std::endl;
+        break;
+      }
+
+      // Assemble matrix and solve
+      solver->assemble_matrix();
+      solver->solve_linear_system(first_step);
+      // norm_increment = solver->newton_update.linfty_norm();
+
+      if (this->param.enable_line_search)
+      {
+        double       norm_ls_residual;
+        unsigned int ls_iter = 0;
+
+        for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
         {
-          last_res         = current_res;
-        }
+          // Compute NL(u + alpha * du) and check if residual decreases
+          solver->local_evaluation_point = solver->present_solution;
+          solver->local_evaluation_point.add(alpha, solver->newton_update);
+          solver->distribute_nonzero_constraints();
+          solver->evaluation_point = solver->local_evaluation_point;
+          solver->assemble_rhs(); // NL(u + alpha * du)
+          norm_ls_residual = solver->system_rhs.l2_norm();
 
-        if (verbose)
-        {
-          solver->pcout << std::scientific << std::setprecision(16) << std::showpos;
-          solver->pcout << "Newton iteration: " << outer_iteration << "  - Residual:  " << current_res << std::endl;
-        }
+          solver->pcout << "\tLine search with alpha = " << std::fixed
+                        << std::setprecision(3) << alpha << std::scientific
+                        << std::setprecision(8)
+                        << " : res = " << norm_ls_residual << std::endl;
 
-        solver->solve_linear_system(first_step);
-        double last_alpha_res = current_res;
-
-        if(this->param.enable_line_search)
-        {
-          unsigned int alpha_iter = 0;
-          for (double alpha = 1.0; alpha > 1e-1; alpha *= 0.5)
+          // Exit if next residual is below tolerance
+          if (norm_ls_residual <= this->param.tolerance)
           {
-            solver->local_evaluation_point       = solver->present_solution;
+            solver->pcout << "Stopping because residual is below "
+                             "prescribed tolerance ("
+                          << std::setprecision(2) << this->param.tolerance
+                          << ")" << std::endl;
+            last_residual = norm_ls_residual;
+            stop          = true;
+            break;
+          }
+
+          // Accept step if an Armijo-like sufficient condition is satisfied,
+          // exit line search and continue Newton iterations.
+          if (norm_ls_residual <= 0.1 * last_residual)
+          {
+            // RHS was just computed, no need to recompute
+            recompute_rhs = false;
+            last_residual = norm_ls_residual;
+            norm_residual = norm_ls_residual;
+            break;
+          }
+
+          // If residual increased, backtrack and exit
+          // Do not reject first iteration
+          if (norm_ls_residual > last_residual && ls_iter > 0)
+          {
+            solver->pcout << "\tRejecting last step and backtracking"
+                          << std::endl;
+            // RHS will need to be recomputed for backtracked solution
+            recompute_rhs = true;
+            alpha *= 2.;
+            solver->local_evaluation_point = solver->present_solution;
             solver->local_evaluation_point.add(alpha, solver->newton_update);
             solver->distribute_nonzero_constraints();
             solver->evaluation_point = solver->local_evaluation_point;
-            solver->assemble_rhs();
-
-            current_res      = solver->system_rhs.l2_norm();
-
-            if (verbose)
-            {
-              solver->pcout << "\talpha = " << std::setw(6) << alpha
-                            << std::setw(0) << " res = "
-                            << std::setprecision(6)
-                            << std::setw(6) << current_res << std::endl;
-            }
-
-            // If it's not the first iteration of alpha check if the residual is
-            // smaller than the last alpha iteration. If it's not smaller, we fall
-            // back to the last alpha iteration.
-            if (current_res > last_alpha_res and alpha_iter != 0)
-              {
-                alpha                  = 2 * alpha;
-                solver->local_evaluation_point = solver->present_solution;
-                solver->local_evaluation_point.add(alpha, solver->newton_update);
-                solver->distribute_nonzero_constraints();
-                solver->evaluation_point = solver->local_evaluation_point;
-
-                if (verbose)
-                {
-                  solver->pcout
-                    << "\t\talpha value was kept at alpha = " << alpha
-                    << " since alpha = " << alpha / 2
-                    << " increased the residual" << std::endl;
-                }
-                current_res = last_alpha_res;
-                break;
-              }
-            if (current_res < 0.1 * last_res ||
-                last_res < this->param.tolerance)
-              {
-                break;
-              }
-            last_alpha_res = current_res;
-            alpha_iter++;
+            break;
           }
-        }
-        else
-        {
-          solver->local_evaluation_point       = solver->present_solution;
-          solver->local_evaluation_point.add(1., solver->newton_update);
-          solver->distribute_nonzero_constraints();
-          solver->evaluation_point = solver->local_evaluation_point;
-        }
 
-        // global_res       = solver->get_current_residual();
-        global_res       = current_res;
-        solver->present_solution = solver->evaluation_point;
-        last_res         = current_res;
-        ++outer_iteration;
+          last_residual = norm_ls_residual;
+        }
       }
-
-    // If the non-linear solver has not converged abort simulation if
-    // abort_at_convergence_failure=true
-    if ((global_res > this->param.tolerance) &&
-        outer_iteration >= 50)
+      else
       {
-        throw(std::runtime_error(
-          "Stopping simulation because the non-linear solver has failed to converge"));
+        // Increment solution and go to next iteration
+        solver->local_evaluation_point = solver->present_solution;
+        solver->local_evaluation_point.add(1., solver->newton_update);
+        solver->distribute_nonzero_constraints();
+        solver->evaluation_point = solver->local_evaluation_point;
       }
+
+      solver->present_solution = solver->evaluation_point;
+      ++iter;
+    }
   }
 };
 

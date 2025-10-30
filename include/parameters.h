@@ -31,6 +31,14 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
+  struct Timer
+  {
+    bool enable_timer;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
   struct BoundaryConditionsCount
   {
     unsigned int n_fluid_bc;
@@ -53,6 +61,7 @@ namespace Parameters
 
   struct Output
   {
+    bool write_results;
     std::string output_dir;
     std::string output_prefix;
 

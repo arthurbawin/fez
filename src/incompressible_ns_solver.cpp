@@ -12,7 +12,7 @@
 template <int dim>
 IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
   const ParameterReader<dim> &param)
-  : GenericSolver<ParVectorType>(param.nonlinear_solver)
+  : GenericSolver<ParVectorType>(param.nonlinear_solver, param.timer)
   , param(param)
   , quadrature(QGaussSimplex<dim>(4))
   , face_quadrature(QGaussSimplex<dim - 1>(4))
@@ -340,7 +340,6 @@ void IncompressibleNavierStokesSolver<dim>::assemble_matrix()
 
       for (unsigned int j = 0; j < dofs_per_cell; ++j)
       {
-        const unsigned int comp     = fe.system_to_component_index(j).first;
         const double       og_value = cell_dof_values[j];
         cell_dof_values[j] += h;
 
@@ -408,15 +407,11 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix(
       scratchData.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratchData.present_velocity_gradients[q];
-    const double present_velocity_divergence =
-      trace(present_velocity_gradients);
-    const double present_pressure_values =
-      scratchData.present_pressure_values[q];
 
-    const auto &source_term_velocity = scratchData.source_term_velocity[q];
-    const auto &source_term_pressure = scratchData.source_term_pressure[q];
-    const auto &grad_source_velocity = scratchData.grad_source_velocity[q];
-    const auto &grad_source_pressure = scratchData.grad_source_pressure[q];
+    // const auto &source_term_velocity = scratchData.source_term_velocity[q];
+    // const auto &source_term_pressure = scratchData.source_term_pressure[q];
+    // const auto &grad_source_velocity = scratchData.grad_source_velocity[q];
+    // const auto &grad_source_pressure = scratchData.grad_source_pressure[q];
 
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
     {
@@ -651,63 +646,66 @@ void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
   TimerOutput::Scope t(computing_timer, "Solve direct");
 
   ParVectorType completely_distributed_solution(locally_owned_dofs,
-                                                this->mpi_communicator);
+                                                mpi_communicator);
 
   // Solve with MUMPS
   SolverControl                    solver_control;
   PETScWrappers::SparseDirectMUMPS solver(solver_control);
   solver.solve(system_matrix,
                completely_distributed_solution,
-               this->system_rhs);
+               system_rhs);
 
-  this->newton_update = completely_distributed_solution;
+  newton_update = completely_distributed_solution;
 
   if (apply_inhomogeneous_constraints)
   {
     throw std::runtime_error("First step");
-    nonzero_constraints.distribute(this->newton_update);
+    nonzero_constraints.distribute(newton_update);
   }
   else
-    zero_constraints.distribute(this->newton_update);
+    zero_constraints.distribute(newton_update);
 }
 
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::output_results() const
 {
-  //
-  // Plot FE solution
-  //
-  std::vector<std::string> solution_names(dim, "velocity");
-  solution_names.push_back("pressure");
+  if(param.output.write_results)
+  {
+    //
+    // Plot FE solution
+    //
+    std::vector<std::string> solution_names(dim, "velocity");
+    solution_names.push_back("pressure");
 
-  std::vector<DataComponentInterpretation::DataComponentInterpretation>
-    data_component_interpretation(
-      dim, DataComponentInterpretation::component_is_part_of_vector);
-  data_component_interpretation.push_back(
-    DataComponentInterpretation::component_is_scalar);
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      data_component_interpretation(
+        dim, DataComponentInterpretation::component_is_part_of_vector);
+    data_component_interpretation.push_back(
+      DataComponentInterpretation::component_is_scalar);
 
-  DataOut<dim> data_out;
-  data_out.attach_dof_handler(dof_handler);
-  data_out.add_data_vector(this->present_solution,
-                           solution_names,
-                           DataOut<dim>::type_dof_data,
-                           data_component_interpretation);
-  //
-  // Partition
-  //
-  Vector<float> subdomain(triangulation.n_active_cells());
-  for (unsigned int i = 0; i < subdomain.size(); ++i)
-    subdomain(i) = triangulation.locally_owned_subdomain();
-  data_out.add_data_vector(subdomain, "subdomain");
+    DataOut<dim> data_out;
+    data_out.attach_dof_handler(dof_handler);
+    data_out.add_data_vector(present_solution,
+                             solution_names,
+                             DataOut<dim>::type_dof_data,
+                             data_component_interpretation);
+    //
+    // Partition
+    //
+    Vector<float> subdomain(triangulation.n_active_cells());
+    for (unsigned int i = 0; i < subdomain.size(); ++i)
+      subdomain(i) = triangulation.locally_owned_subdomain();
+    data_out.add_data_vector(subdomain, "subdomain");
 
-  data_out.build_patches(*mapping, 2);
+    data_out.build_patches(*mapping, 2);
 
-  // Export regular time step
-  data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
-                                      this->param.output.output_prefix,
-                                      time_handler.current_time_iteration,
-                                      this->mpi_communicator,
-                                      2);
+    // Export regular time step
+    data_out.write_vtu_with_pvtu_record(param.output.output_dir,
+                                        param.output.output_prefix,
+                                        time_handler.current_time_iteration,
+                                        mpi_communicator,
+                                        2);
+  }
 }
 
 // Explicit instantiation

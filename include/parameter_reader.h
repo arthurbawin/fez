@@ -18,6 +18,7 @@ public:
   // Parameters
   //
   Parameters::DummyDimension     dummy_dimension;
+  Parameters::Timer              timer;
   Parameters::Mesh               mesh;
   Parameters::Output             output;
   Parameters::FiniteElements     finite_elements;
@@ -51,6 +52,7 @@ public:
   void declare(ParameterHandler &prm)
   {
     dummy_dimension.declare_parameters(prm);
+    timer.declare_parameters(prm);
     mesh.declare_parameters(prm);
     output.declare_parameters(prm);
     finite_elements.declare_parameters(prm);
@@ -67,6 +69,7 @@ public:
   void read(ParameterHandler &prm)
   {
     dummy_dimension.read_parameters(prm);
+    timer.read_parameters(prm);
     mesh.read_parameters(prm);
     output.read_parameters(prm);
     finite_elements.read_parameters(prm);

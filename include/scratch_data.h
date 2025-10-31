@@ -11,6 +11,17 @@
 using namespace dealii;
 
 /**
+ * reinit functions can be called with a parallel PETSc vector
+ * (when computing an analytic matrix), or with the local vector
+ * of dof values (when computing matrix with finite differences).
+ * This checks at compile time that the given vector is either.
+ */
+template <typename T>
+constexpr bool is_supported_vector_v =
+  std::is_same_v<T, dealii::LinearAlgebraPETSc::MPI::Vector> ||
+  std::is_same_v<T, std::vector<double>>;
+
+/**
  * Scratch data for the monolithic fluid-structure interaction solver.
  */
 template <int dim>
@@ -81,6 +92,10 @@ public:
               const VectorType1              &current_solution,
               const std::vector<VectorType2> &previous_solutions)
   {
+    static_assert(is_supported_vector_v<VectorType1>,
+                  "reinit expects either deal.II PETSc parallel vector or "
+                  "std::vector for the current_solution");
+
     fe_values.reinit(cell);
 
     for (const unsigned int i : fe_values.dof_indices())
@@ -102,7 +117,7 @@ public:
       fe_values[pressure].get_function_values(current_solution,
                                               present_pressure_values);
     }
-    else if constexpr (std::is_same<VectorType1, std::vector<double>>::value)
+    if constexpr (std::is_same<VectorType1, std::vector<double>>::value)
     {
       fe_values[velocity].get_function_values_from_local_dof_values(
         current_solution, present_velocity_values);
@@ -110,12 +125,6 @@ public:
         current_solution, present_velocity_gradients);
       fe_values[pressure].get_function_values_from_local_dof_values(
         current_solution, present_pressure_values);
-    }
-    else
-    {
-      static_assert(false,
-                    "reinit expects dealii::LinearAlgebraPETSc::MPI::Vector or "
-                    "std::vector<double>");
     }
 
     // Previous solutions
@@ -157,7 +166,7 @@ public:
 
   const std::vector<double> &bdfCoeffs;
 
-  std::vector<double>              JxW;
+  std::vector<double>       JxW;
   std::vector<unsigned int> components;
 
   // Current and previous values and gradients for each quad node
@@ -325,6 +334,10 @@ public:
               const VectorType1              &current_solution,
               const std::vector<VectorType2> &previous_solutions)
   {
+    static_assert(is_supported_vector_v<VectorType1>,
+                  "reinit expects either deal.II PETSc parallel vector or "
+                  "std::vector for the current_solution");
+
     fe_values.reinit(cell);
     fe_values_fixed.reinit(cell);
 
@@ -360,7 +373,7 @@ public:
       fe_values_fixed[position].get_function_gradients(
         current_solution, present_position_gradients);
     }
-    else if constexpr (std::is_same<VectorType1, std::vector<double>>::value)
+    if constexpr (std::is_same<VectorType1, std::vector<double>>::value)
     {
       //
       // Evaluate velocity and pressure on moving mapping
@@ -379,12 +392,6 @@ public:
         current_solution, present_position_values);
       fe_values_fixed[position].get_function_gradients_from_local_dof_values(
         current_solution, present_position_gradients);
-    }
-    else
-    {
-      static_assert(false,
-                    "reinit expects dealii::LinearAlgebraPETSc::MPI::Vector or "
-                    "std::vector<double>");
     }
 
     // Previous solutions

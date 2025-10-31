@@ -461,7 +461,7 @@ public:
         fe_face_values_fixed[position].get_function_gradients(
           current_solution, present_face_position_gradient[i_face]);
       }
-      else if constexpr (std::is_same<VectorType1, std::vector<double>>::value)
+      if constexpr (std::is_same<VectorType1, std::vector<double>>::value)
       {
         fe_face_values[velocity].get_function_values_from_local_dof_values(
           current_solution, present_face_velocity_values[i_face]);
@@ -474,12 +474,6 @@ public:
         fe_face_values_fixed[position]
           .get_function_gradients_from_local_dof_values(
             current_solution, present_face_position_gradient[i_face]);
-      }
-      else
-      {
-        static_assert(false,
-                      "reinit expects dealii::LinearAlgebraPETSc::MPI::Vector "
-                      "or std::vector<double>");
       }
 
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)

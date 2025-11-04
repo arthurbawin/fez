@@ -1,11 +1,16 @@
 cmake_minimum_required(VERSION 3.15)
-project(fez LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Options for the fez project
+option(ENABLE_TESTING "Enable testing" OFF)
+
 # Find deal.II
 find_package(deal.II 9.5.0 REQUIRED HINTS ${DEAL_II_DIR} CONFIG)
+DEAL_II_INITIALIZE_CACHED_VARIABLES()
+
+project(fez LANGUAGES CXX)
 
 # === Add Eigen (standard + unsupported) ===
 set(EIGEN3_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/contrib/eigen)
@@ -13,7 +18,7 @@ include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(${EIGEN3_INCLUDE_DIR}/unsupported)
 
 # Include the headers
-include_directories(include)
+include_directories(${CMAKE_SOURCE_DIR}/include)
 
 # === Build a library from src/ ===
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS src/*.cpp)
@@ -36,3 +41,9 @@ foreach(example_src ${EXAMPLE_FILES})
     target_link_libraries(${example_name} project_src)
     deal_ii_setup_target(${example_name})
 endforeach()
+
+# Tests
+if(ENABLE_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

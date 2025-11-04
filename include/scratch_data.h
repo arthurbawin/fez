@@ -28,6 +28,11 @@ template <int dim>
 class ScratchDataNS
 {
 public:
+  /**
+   * Constructor
+   * 
+   * FIXME: Incompressible NS does not requires all these FEValues updates (e.g. inverse jacobians)
+   */
   ScratchDataNS(const FESystem<dim>       &fe,
                 const Quadrature<dim>     &cell_quadrature,
                 const Mapping<dim>        &mapping,
@@ -48,25 +53,57 @@ public:
                        update_jacobians | update_inverse_jacobians)
     , n_q_points(cell_quadrature.size())
 
-    // We assume that simplicial meshes with all tris or tets
+    // We assume simplicial meshes with all tris or tets
     , n_faces((dim == 3) ? 4 : 3)
 
     , n_faces_q_points(face_quadrature.size())
     , dofs_per_cell(dofs_per_cell)
     , bdfCoeffs(bdfCoeffs)
   {
+    velocity.first_vector_component = u_lower;
+    pressure.component              = p_lower;
     this->allocate();
   }
 
+  /**
+   * Copy constructor. Needed to use WorkStreams: FEValues must be created "by hand" 
+   * because their copy constructor is deleted to avoid involuntary expensive copies.
+   */
+  ScratchDataNS(const ScratchDataNS &other)
+    : fe_values(other.fe_values.get_mapping(),
+                other.fe_values.get_fe(),
+                other.fe_values.get_quadrature(),
+                update_values | update_gradients | update_quadrature_points |
+                  update_JxW_values | update_jacobians |
+                  update_inverse_jacobians)
+    , fe_face_values(other.fe_face_values.get_mapping(),
+                     other.fe_face_values.get_fe(),
+                     other.fe_face_values.get_quadrature(),
+                     update_values | update_gradients |
+                       update_quadrature_points | update_JxW_values |
+                       update_jacobians | update_inverse_jacobians)
+    , n_q_points(other.n_q_points)
+    , n_faces(other.n_faces)
+    , n_faces_q_points(other.n_faces_q_points)
+    , dofs_per_cell(other.dofs_per_cell)
+    , bdfCoeffs(other.bdfCoeffs)
+  {
+    velocity.first_vector_component = u_lower;
+    pressure.component              = p_lower;
+    this->allocate();
+  }
 
   void allocate()
   {
-    components.resize(dofs_per_cell);
     JxW.resize(n_q_points);
+    components.resize(dofs_per_cell);
 
     present_velocity_values.resize(n_q_points);
     present_velocity_gradients.resize(n_q_points);
     present_pressure_values.resize(n_q_points);
+    // BDF
+    previous_velocity_values.resize(bdfCoeffs.size() - 1,
+                                    std::vector<Tensor<1, dim>>(n_q_points));
 
     source_term_full.resize(n_q_points, Vector<double>(n_components));
     source_term_velocity.resize(n_q_points);
@@ -76,10 +113,6 @@ public:
                                  std::vector<Tensor<1, dim>>(n_components));
     grad_source_velocity.resize(n_q_points);
     grad_source_pressure.resize(n_q_points);
-
-    // BDF
-    previous_velocity_values.resize(bdfCoeffs.size() - 1,
-                                    std::vector<Tensor<1, dim>>(n_q_points));
 
     phi_u.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
     grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
@@ -100,9 +133,6 @@ public:
 
     for (const unsigned int i : fe_values.dof_indices())
       components[i] = fe_values.get_fe().system_to_component_index(i).first;
-
-    const FEValuesExtractors::Vector velocity(u_lower);
-    const FEValuesExtractors::Scalar pressure(p_lower);
 
     //
     // Volume-related quantities
@@ -149,11 +179,12 @@ public:
   }
 
 public:
-  const unsigned int n_components = 3 * dim + 1;
+  const unsigned int n_components = dim + 1;
   const unsigned int u_lower      = 0;
   const unsigned int p_lower      = dim;
-  const unsigned int x_lower      = dim + 1;
-  const unsigned int l_lower      = 2 * dim + 1;
+
+  FEValuesExtractors::Vector velocity;
+  FEValuesExtractors::Scalar pressure;
 
 public:
   FEValues<dim>     fe_values;
@@ -164,7 +195,7 @@ public:
   const unsigned int n_faces_q_points;
   const unsigned int dofs_per_cell;
 
-  const std::vector<double> &bdfCoeffs;
+  const std::vector<double> bdfCoeffs;
 
   std::vector<double>       JxW;
   std::vector<unsigned int> components;
@@ -638,7 +669,7 @@ public:
   // applied with Lagrange multiplier. Only 1 for now.
   const unsigned int boundary_id;
 
-  const std::vector<double> &bdfCoeffs;
+  const std::vector<double> bdfCoeffs;
 
   std::vector<double>              JxW_moving;
   std::vector<double>              JxW_fixed;

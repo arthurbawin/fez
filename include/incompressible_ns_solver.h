@@ -16,6 +16,7 @@
 #include <generic_solver.h>
 #include <parameter_reader.h>
 #include <scratch_data.h>
+#include <copy_data.h>
 #include <time_handler.h>
 #include <types.h>
 
@@ -80,7 +81,7 @@ public:
   /**
    *
    */
-  void assemble_local_matrix(
+  void assemble_local_matrix_og(
     bool                                                  first_step,
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchDataNS<dim>                                   &scratchData,
@@ -89,6 +90,13 @@ public:
     std::vector<types::global_dof_index>                 &local_dof_indices,
     FullMatrix<double>                                   &local_matrix,
     bool                                                  distribute);
+
+  void assemble_local_matrix(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    ScratchDataNS<dim>                                   &scratchData,
+    CopyData                                             &copy_data);
+
+  void copy_local_to_global_matrix(const CopyData &copy_data);
 
   /**
    *
@@ -99,7 +107,7 @@ public:
    *
    */
   void
-  assemble_local_rhs(bool first_step,
+  assemble_local_rhs_og(bool first_step,
                      const typename DoFHandler<dim>::active_cell_iterator &cell,
                      ScratchDataNS<dim>                   &scratchData,
                      ParVectorType                        &current_solution,
@@ -109,6 +117,14 @@ public:
                      std::vector<double>                  &cell_dof_values,
                      bool                                  distribute,
                      bool                                  use_full_solution);
+
+  void
+  assemble_local_rhs(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    ScratchDataNS<dim>                                   &scratchData,
+    CopyData                                             &copy_data);
+
+  void copy_local_to_global_rhs(const CopyData &copy_data);
 
   /**
    *

@@ -1,4 +1,6 @@
 
+#include <deal.II/base/multithread_info.h>
+#include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
@@ -286,93 +288,123 @@ void IncompressibleNavierStokesSolver<dim>::assemble_matrix()
                                  dofs_per_cell,
                                  time_handler.bdf_coefficients);
 
-  for (const auto &cell : dof_handler.active_cell_iterators() |
-                            IteratorFilters::LocallyOwnedCell())
+  // CopyData copyData(dofs_per_cell);
+
+  //
+  // Multi-threaded assembly
+  //
+  if (this->param.nonlinear_solver.analytic_jacobian)
   {
-    if (!cell->is_locally_owned())
-      continue;
+    pcout << "Assembling matrix on " << MultithreadInfo::n_threads()
+          << " threads out of " << MultithreadInfo::n_cores() << " cores"
+          << std::endl;
 
-    cell->get_dof_indices(local_dof_indices);
+#if defined(DEAL_II_WITH_PETSC)
+    AssertThrow(MultithreadInfo::is_running_single_threaded(),
+                ExcMessage(
+                  "Solver is running with more than 1 thread, but was compiled "
+                  "with PETSc and currently uses PETSc wrappers for parallel "
+                  "matrix and vectors, which are not thread safe."));
+#endif
 
-    if (this->param.nonlinear_solver.analytic_jacobian)
-    {
-      //
-      // Analytic jacobian matrix
-      //
-      const bool distribute = true;
-      this->assemble_local_matrix(first_step,
-                                  cell,
-                                  scratchData,
-                                  this->evaluation_point,
-                                  previous_solutions,
-                                  local_dof_indices,
-                                  local_matrix,
-                                  distribute);
-    }
-    else
-    {
-      //
-      // Finite differences
-      //
-      const double h      = 1.e-8;
-      local_matrix        = 0.;
-      ref_local_rhs       = 0.;
-      perturbed_local_rhs = 0.;
-
-      // Get the local dofs values
-      for (unsigned int j = 0; j < dofs_per_cell; ++j)
-        cell_dof_values[j] = this->evaluation_point[local_dof_indices[j]];
-
-      const bool distribute_rhs    = false;
-      const bool use_full_solution = false;
-
-      // Compute non-perturbed RHS
-      this->assemble_local_rhs(first_step,
-                               cell,
-                               scratchData,
-                               this->evaluation_point,
-                               previous_solutions,
-                               local_dof_indices,
-                               ref_local_rhs,
-                               cell_dof_values,
-                               distribute_rhs,
-                               use_full_solution);
-
-      for (unsigned int j = 0; j < dofs_per_cell; ++j)
-      {
-        const double       og_value = cell_dof_values[j];
-        cell_dof_values[j] += h;
-
-        // Compute perturbed RHS
-        // Reinit is called in the local rhs function
-        this->assemble_local_rhs(first_step,
-                                 cell,
-                                 scratchData,
-                                 this->evaluation_point,
-                                 previous_solutions,
-                                 local_dof_indices,
-                                 perturbed_local_rhs,
-                                 cell_dof_values,
-                                 distribute_rhs,
-                                 use_full_solution);
-
-        // Finite differences (with sign change as residual is -NL(u))
-        for (unsigned int i = 0; i < dofs_per_cell; ++i)
-        {
-          local_matrix(i, j) = -(perturbed_local_rhs(i) - ref_local_rhs(i)) / h;
-        }
-
-        // Restore solution
-        cell_dof_values[j] = og_value;
-      }
-    }
+    WorkStream::run(
+      dof_handler.begin_active(),
+      dof_handler.end(),
+      *this,
+      &IncompressibleNavierStokesSolver::assemble_local_matrix,
+      &IncompressibleNavierStokesSolver::copy_local_to_global_matrix,
+      scratchData,
+      CopyData(dofs_per_cell));
   }
+
+  // for (const auto &cell : dof_handler.active_cell_iterators() |
+  //                           IteratorFilters::LocallyOwnedCell())
+  // {
+  //   if (!cell->is_locally_owned())
+  //     continue;
+
+  //   cell->get_dof_indices(local_dof_indices);
+
+  //   if (this->param.nonlinear_solver.analytic_jacobian)
+  //   {
+  //     //
+  //     // Analytic jacobian matrix
+  //     //
+  //     const bool distribute = true;
+  //     this->assemble_local_matrix_og(first_step,
+  //                                 cell,
+  //                                 scratchData,
+  //                                 this->evaluation_point,
+  //                                 previous_solutions,
+  //                                 local_dof_indices,
+  //                                 local_matrix,
+  //                                 distribute);
+  //   }
+  //   else
+  //   {
+  //     //
+  //     // Finite differences
+  //     //
+  //     const double h      = 1.e-8;
+  //     local_matrix        = 0.;
+  //     ref_local_rhs       = 0.;
+  //     perturbed_local_rhs = 0.;
+
+  //     // Get the local dofs values
+  //     for (unsigned int j = 0; j < dofs_per_cell; ++j)
+  //       cell_dof_values[j] = this->evaluation_point[local_dof_indices[j]];
+
+  //     const bool distribute_rhs    = false;
+  //     const bool use_full_solution = false;
+
+  //     // Compute non-perturbed RHS
+  //     this->assemble_local_rhs(first_step,
+  //                              cell,
+  //                              scratchData,
+  //                              this->evaluation_point,
+  //                              previous_solutions,
+  //                              local_dof_indices,
+  //                              ref_local_rhs,
+  //                              cell_dof_values,
+  //                              distribute_rhs,
+  //                              use_full_solution);
+
+  //     for (unsigned int j = 0; j < dofs_per_cell; ++j)
+  //     {
+  //       const double       og_value = cell_dof_values[j];
+  //       cell_dof_values[j] += h;
+
+  //       // Compute perturbed RHS
+  //       // Reinit is called in the local rhs function
+  //       this->assemble_local_rhs(first_step,
+  //                                cell,
+  //                                scratchData,
+  //                                this->evaluation_point,
+  //                                previous_solutions,
+  //                                local_dof_indices,
+  //                                perturbed_local_rhs,
+  //                                cell_dof_values,
+  //                                distribute_rhs,
+  //                                use_full_solution);
+
+  //       // Finite differences (with sign change as residual is -NL(u))
+  //       for (unsigned int i = 0; i < dofs_per_cell; ++i)
+  //       {
+  //         local_matrix(i, j) = -(perturbed_local_rhs(i) - ref_local_rhs(i)) /
+  //         h;
+  //       }
+
+  //       // Restore solution
+  //       cell_dof_values[j] = og_value;
+  //     }
+  //   }
+  // }
 
   system_matrix.compress(VectorOperation::add);
 }
 
 template <int dim>
-void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix(
+void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix_og(
   bool                                                  first_step,
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchDataNS<dim>                                   &scratchData,
@@ -490,6 +522,117 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix(
 }
 
 template <int dim>
+void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  ScratchDataNS<dim>                                   &scratchData,
+  CopyData                                             &copy_data)
+{
+  copy_data.cell_is_locally_owned = cell->is_locally_owned();
+
+  if (!cell->is_locally_owned())
+    return;
+
+  scratchData.reinit(cell, this->evaluation_point, this->previous_solutions);
+
+  auto &local_matrix = copy_data.local_matrix;
+  local_matrix       = 0;
+
+  const double kinematic_viscosity =
+    this->param.physical_properties.fluids[0].kinematic_viscosity;
+
+  const double bdf_c0 = time_handler.bdf_coefficients[0];
+
+  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  {
+    const double JxW = scratchData.JxW[q];
+
+    const auto &phi_u      = scratchData.phi_u[q];
+    const auto &grad_phi_u = scratchData.grad_phi_u[q];
+    const auto &div_phi_u  = scratchData.div_phi_u[q];
+    const auto &phi_p      = scratchData.phi_p[q];
+
+    const auto &present_velocity_values =
+      scratchData.present_velocity_values[q];
+    const auto &present_velocity_gradients =
+      scratchData.present_velocity_gradients[q];
+
+    // const auto &source_term_velocity = scratchData.source_term_velocity[q];
+    // const auto &source_term_pressure = scratchData.source_term_pressure[q];
+    // const auto &grad_source_velocity = scratchData.grad_source_velocity[q];
+    // const auto &grad_source_pressure = scratchData.grad_source_pressure[q];
+
+    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    {
+      const unsigned int component_i = scratchData.components[i];
+      const bool         i_is_u      = is_velocity(component_i);
+      const bool         i_is_p      = is_pressure(component_i);
+
+      for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
+      {
+        const unsigned int component_j = scratchData.components[j];
+        const bool         j_is_u      = is_velocity(component_j);
+        const bool         j_is_p      = is_pressure(component_j);
+
+        bool   assemble        = false;
+        double local_matrix_ij = 0.;
+
+        if (i_is_u && j_is_u)
+        {
+          assemble = true;
+
+          // Time-dependent
+          local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
+
+          // Convection
+          local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
+                              present_velocity_gradients * phi_u[j]) *
+                             phi_u[i];
+
+          // Diffusion
+          local_matrix_ij +=
+            kinematic_viscosity * scalar_product(grad_phi_u[i], grad_phi_u[j]);
+        }
+
+        if (i_is_u && j_is_p)
+        {
+          assemble = true;
+
+          // Pressure gradient
+          local_matrix_ij += -div_phi_u[i] * phi_p[j];
+        }
+
+        if (i_is_p && j_is_u)
+        {
+          assemble = true;
+
+          // Continuity : variation w.r.t. u
+          local_matrix_ij += -phi_p[i] * div_phi_u[j];
+        }
+
+        if (assemble)
+        {
+          local_matrix_ij *= JxW;
+          local_matrix(i, j) += local_matrix_ij;
+        }
+      }
+    }
+  }
+  cell->get_dof_indices(copy_data.local_dof_indices);
+}
+
+template <int dim>
+void IncompressibleNavierStokesSolver<dim>::copy_local_to_global_matrix(
+  const CopyData &copy_data)
+{
+  if (!copy_data.cell_is_locally_owned)
+    return;
+
+  zero_constraints.distribute_local_to_global(copy_data.local_matrix,
+                                              copy_data.local_dof_indices,
+                                              this->system_matrix);
+}
+
+template <int dim>
 void IncompressibleNavierStokesSolver<dim>::assemble_rhs()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble RHS");
@@ -511,29 +654,42 @@ void IncompressibleNavierStokesSolver<dim>::assemble_rhs()
                                  dofs_per_cell,
                                  time_handler.bdf_coefficients);
 
-  for (const auto &cell : dof_handler.active_cell_iterators() |
-                            IteratorFilters::LocallyOwnedCell())
-  {
-    local_rhs              = 0;
-    bool distribute        = true;
-    bool use_full_solution = true;
-    this->assemble_local_rhs(first_step,
-                             cell,
-                             scratchData,
-                             this->evaluation_point,
-                             previous_solutions,
-                             local_dof_indices,
-                             local_rhs,
-                             cell_dof_values,
-                             distribute,
-                             use_full_solution);
-  }
+  CopyData copyData(dofs_per_cell);
+
+  pcout << "Assembling rhs on " << MultithreadInfo::n_threads()
+        << " threads out of " << MultithreadInfo::n_cores() << " cores"
+        << std::endl;
+  WorkStream::run(dof_handler.begin_active(),
+                  dof_handler.end(),
+                  *this,
+                  &IncompressibleNavierStokesSolver::assemble_local_rhs,
+                  &IncompressibleNavierStokesSolver::copy_local_to_global_rhs,
+                  scratchData,
+                  copyData);
+
+  // for (const auto &cell : dof_handler.active_cell_iterators() |
+  //                           IteratorFilters::LocallyOwnedCell())
+  // {
+  //   local_rhs              = 0;
+  //   bool distribute        = true;
+  //   bool use_full_solution = true;
+  //   this->assemble_local_rhs(first_step,
+  //                            cell,
+  //                            scratchData,
+  //                            this->evaluation_point,
+  //                            previous_solutions,
+  //                            local_dof_indices,
+  //                            local_rhs,
+  //                            cell_dof_values,
+  //                            distribute,
+  //                            use_full_solution);
+  // }
 
   this->system_rhs.compress(VectorOperation::add);
 }
 
 template <int dim>
-void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
+void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs_og(
   bool                                                  first_step,
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchDataNS<dim>                                   &scratchData,
@@ -640,6 +796,104 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
 }
 
 template <int dim>
+void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  ScratchDataNS<dim>                                   &scratchData,
+  CopyData                                             &copy_data)
+{
+  copy_data.cell_is_locally_owned = cell->is_locally_owned();
+
+  if (!cell->is_locally_owned())
+    return;
+
+  scratchData.reinit(cell, evaluation_point, previous_solutions);
+
+  auto &local_rhs = copy_data.local_rhs;
+  local_rhs       = 0;
+
+  const double kinematic_viscosity =
+    this->param.physical_properties.fluids[0].kinematic_viscosity;
+
+  const std::vector<double> bdf_coefficients = time_handler.bdf_coefficients;
+
+  const unsigned int          nBDF = bdf_coefficients.size();
+  std::vector<Tensor<1, dim>> velocity(nBDF);
+
+  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  {
+    const double JxW = scratchData.JxW[q];
+
+    const auto &present_velocity_values =
+      scratchData.present_velocity_values[q];
+    const auto &present_velocity_gradients =
+      scratchData.present_velocity_gradients[q];
+    const auto &present_pressure_values =
+      scratchData.present_pressure_values[q];
+    const auto  &source_term_velocity = scratchData.source_term_velocity[q];
+    const auto  &source_term_pressure = scratchData.source_term_pressure[q];
+    const double present_velocity_divergence =
+      trace(present_velocity_gradients);
+
+    // BDF
+    velocity[0] = present_velocity_values;
+    for (unsigned int i = 1; i < nBDF; ++i)
+    {
+      velocity[i] = scratchData.previous_velocity_values[i - 1][q];
+    }
+
+    const auto &phi_p      = scratchData.phi_p[q];
+    const auto &phi_u      = scratchData.phi_u[q];
+    const auto &grad_phi_u = scratchData.grad_phi_u[q];
+    const auto &div_phi_u  = scratchData.div_phi_u[q];
+
+    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    {
+      double local_rhs_i = -(
+        // Convection
+        (present_velocity_gradients * present_velocity_values) * phi_u[i]
+
+        // Diffusion
+        + kinematic_viscosity *
+            scalar_product(present_velocity_gradients, grad_phi_u[i])
+
+        // Pressure gradient
+        - div_phi_u[i] * present_pressure_values
+
+        // Momentum source term
+        + source_term_velocity * phi_u[i]
+
+        // Continuity
+        - present_velocity_divergence * phi_p[i]
+
+        // Pressure source term
+        + source_term_pressure * phi_p[i]);
+
+      // Transient terms:
+      for (unsigned int iBDF = 0; iBDF < nBDF; ++iBDF)
+      {
+        local_rhs_i -= bdf_coefficients[iBDF] * velocity[iBDF] * phi_u[i];
+      }
+
+      local_rhs_i *= JxW;
+      local_rhs(i) += local_rhs_i;
+    }
+  }
+  cell->get_dof_indices(copy_data.local_dof_indices);
+}
+
+template <int dim>
+void IncompressibleNavierStokesSolver<dim>::copy_local_to_global_rhs(
+  const CopyData &copy_data)
+{
+  if (!copy_data.cell_is_locally_owned)
+    return;
+
+  zero_constraints.distribute_local_to_global(copy_data.local_rhs,
+                                              copy_data.local_dof_indices,
+                                              this->system_rhs);
+}
+
+template <int dim>
 void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
   const bool apply_inhomogeneous_constraints)
 {
@@ -651,9 +905,7 @@ void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
   // Solve with MUMPS
   SolverControl                    solver_control;
   PETScWrappers::SparseDirectMUMPS solver(solver_control);
-  solver.solve(system_matrix,
-               completely_distributed_solution,
-               system_rhs);
+  solver.solve(system_matrix, completely_distributed_solution, system_rhs);
 
   newton_update = completely_distributed_solution;
 
@@ -669,7 +921,7 @@ void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::output_results() const
 {
-  if(param.output.write_results)
+  if (param.output.write_results)
   {
     //
     // Plot FE solution

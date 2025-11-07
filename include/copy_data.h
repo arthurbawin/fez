@@ -8,7 +8,6 @@ using namespace dealii;
 
 /**
  * 
- * 
  */
 class CopyData
 {

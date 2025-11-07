@@ -22,11 +22,6 @@ using namespace dealii;
  * - simulation parameters
  * - mpi communicator
  * - nonlinear solver
- * - linear system solver
- *
- * TODO: the template dim only affects the ParameterReader, maybe it's best
- * to select what is needed from the parameters to avoid templating the whole
- * class.
  */
 template <typename VectorType>
 class GenericSolver : public EnableObserverPointer
@@ -98,7 +93,14 @@ public:
     nonzero_constraints.distribute(local_evaluation_point);
   }
 
-protected:
+  // Non-const getters
+  VectorType &get_present_solution() { return present_solution; }
+  VectorType &get_evaluation_point() { return evaluation_point; }
+  VectorType &get_local_evaluation_point() { return local_evaluation_point; }
+  VectorType &get_newton_update() { return newton_update; }
+  VectorType &get_system_rhs() { return system_rhs; }
+
+public:
   MPI_Comm           mpi_communicator;
   const unsigned int mpi_rank;
   const unsigned int mpi_size;
@@ -106,6 +108,7 @@ protected:
   ConditionalOStream pcout;
   TimerOutput        computing_timer;
 
+protected:
   // If parallel vector type, these are vectors with ghost entries (read only)
   VectorType present_solution;
   VectorType evaluation_point;

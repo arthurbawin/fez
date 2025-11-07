@@ -2,13 +2,25 @@
 #define TYPES_H
 
 #include <deal.II/lac/generic_linear_algebra.h>
-#include <deal.II/lac/petsc_vector.h>
-#include <deal.II/lac/vector.h>
+#include <deal.II/lac/petsc_matrix_base.h>
+#include <deal.II/lac/trilinos_sparse_matrix.h>
 
-#if defined(DEAL_II_WITH_PETSC)
-using ParVectorType = dealii::LinearAlgebraPETSc::MPI::Vector;
+// Linear algebra
+namespace LA
+{
+#if defined(FEZ_WITH_PETSC)
+  using ParMatrixType = dealii::LinearAlgebraPETSc::MPI::SparseMatrix;
+	using ParVectorType = dealii::LinearAlgebraPETSc::MPI::Vector;
+	using ConstMatrixIterator = PETScWrappers::MatrixIterators::const_iterator;
+#elif defined(FEZ_WITH_TRILINOS)
+  using ParMatrixType = dealii::LinearAlgebraTrilinos::MPI::SparseMatrix;
+	using ParVectorType = dealii::LinearAlgebraTrilinos::MPI::Vector;
+	using ConstMatrixIterator = TrilinosWrappers::SparseMatrixIterators::Iterator<true>;
 #else
-using ParVectorType = dealii::LinearAlgebra::distributed::Vector<double>;
+
+	#error FEZ_WITH_PETSC or FEZ_WITH_TRILINOS required
+
 #endif
+} // namespace LA
 
 #endif

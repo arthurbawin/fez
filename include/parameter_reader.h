@@ -4,6 +4,8 @@
 #include <boundary_conditions.h>
 #include <initial_conditions.h>
 #include <parameters.h>
+#include <source_terms.h>
+#include <manufactured_solution.h>
 
 using namespace dealii;
 
@@ -17,15 +19,16 @@ public:
   //
   // Parameters
   //
-  Parameters::DummyDimension     dummy_dimension;
-  Parameters::Timer              timer;
-  Parameters::Mesh               mesh;
-  Parameters::Output             output;
-  Parameters::FiniteElements     finite_elements;
-  Parameters::PhysicalProperties physical_properties;
-  Parameters::FSI                fsi;
-  Parameters::TimeIntegration    time_integration;
-  Parameters::NonLinearSolver    nonlinear_solver;
+  Parameters::DummyDimension       dummy_dimension;
+  Parameters::Timer                timer;
+  Parameters::Mesh                 mesh;
+  Parameters::Output               output;
+  Parameters::FiniteElements       finite_elements;
+  Parameters::PhysicalProperties   physical_properties;
+  Parameters::FSI                  fsi;
+  Parameters::TimeIntegration      time_integration;
+  Parameters::NonLinearSolver      nonlinear_solver;
+  Parameters::MMS                  mms_param;
 
   //
   // Initial and boundary conditions
@@ -35,7 +38,15 @@ public:
   std::vector<BoundaryConditions::FluidBC<dim>>       fluid_bc;
   std::vector<BoundaryConditions::PseudosolidBC<dim>> pseudosolid_bc;
 
+  //
+  // Source terms
+  //
+  Parameters::SourceTerms<dim> source_terms;
 
+  //
+  // Manufactured solution
+  //
+  ManufacturedSolution::ManufacturedSolution<dim> mms;
 
 public:
   /**
@@ -64,6 +75,9 @@ public:
     BoundaryConditions::declare_fluid_boundary_conditions(prm, fluid_bc);
     BoundaryConditions::declare_pseudosolid_boundary_conditions(prm,
                                                                 pseudosolid_bc);
+    source_terms.declare_parameters(prm);
+    mms_param.declare_parameters(prm);
+    mms.declare_parameters(prm);
   }
 
   void read(ParameterHandler &prm)
@@ -81,6 +95,9 @@ public:
     BoundaryConditions::read_fluid_boundary_conditions(prm, fluid_bc);
     BoundaryConditions::read_pseudosolid_boundary_conditions(prm,
                                                              pseudosolid_bc);
+    source_terms.read_parameters(prm);
+    mms_param.read_parameters(prm);
+    mms.read_parameters(prm);
   }
 };
 

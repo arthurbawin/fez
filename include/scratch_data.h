@@ -7,19 +7,19 @@
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping.h>
 #include <deal.II/lac/generic_linear_algebra.h>
+#include <types.h>
 
 using namespace dealii;
 
 /**
- * reinit functions can be called with a parallel PETSc vector
- * (when computing an analytic matrix), or with the local vector
+ * reinit functions can be called with a LA::ParVectorType
+ * (when computing an analytic matrix), or with the local std::vector
  * of dof values (when computing matrix with finite differences).
  * This checks at compile time that the given vector is either.
  */
 template <typename T>
-constexpr bool is_supported_vector_v =
-  std::is_same_v<T, dealii::LinearAlgebraPETSc::MPI::Vector> ||
-  std::is_same_v<T, std::vector<double>>;
+constexpr bool is_supported_vector_v = std::is_same_v<T, LA::ParVectorType> ||
+                                       std::is_same_v<T, std::vector<double>>;
 
 /**
  * Scratch data for the monolithic fluid-structure interaction solver.
@@ -30,8 +30,9 @@ class ScratchDataNS
 public:
   /**
    * Constructor
-   * 
-   * FIXME: Incompressible NS does not requires all these FEValues updates (e.g. inverse jacobians)
+   *
+   * FIXME: Incompressible NS does not requires all these FEValues updates (e.g.
+   * inverse jacobians)
    */
   ScratchDataNS(const FESystem<dim>       &fe,
                 const Quadrature<dim>     &cell_quadrature,
@@ -66,8 +67,9 @@ public:
   }
 
   /**
-   * Copy constructor. Needed to use WorkStreams: FEValues must be created "by hand" 
-   * because their copy constructor is deleted to avoid involuntary expensive copies.
+   * Copy constructor. Needed to use WorkStreams: FEValues must be created "by
+   * hand" because their copy constructor is deleted to avoid involuntary
+   * expensive copies.
    */
   ScratchDataNS(const ScratchDataNS &other)
     : fe_values(other.fe_values.get_mapping(),
@@ -123,11 +125,12 @@ public:
   template <typename VectorType1, typename VectorType2>
   void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
               const VectorType1              &current_solution,
-              const std::vector<VectorType2> &previous_solutions)
+              const std::vector<VectorType2> &previous_solutions,
+              const std::shared_ptr<Function<dim>> &source_terms)
   {
     static_assert(is_supported_vector_v<VectorType1>,
-                  "reinit expects either deal.II PETSc parallel vector or "
-                  "std::vector for the current_solution");
+                  "reinit expects the current_solution to be either a deal.II "
+                  "wrapper to a PETSc or Trilinos vector, or an std::vector");
 
     fe_values.reinit(cell);
 
@@ -137,24 +140,26 @@ public:
     //
     // Volume-related quantities
     //
-    if constexpr (std::is_same<VectorType1,
-                               dealii::LinearAlgebraPETSc::MPI::Vector>::value)
-    {
-      fe_values[velocity].get_function_values(current_solution,
-                                              present_velocity_values);
-      fe_values[velocity].get_function_gradients(current_solution,
-                                                 present_velocity_gradients);
-      fe_values[pressure].get_function_values(current_solution,
-                                              present_pressure_values);
-    }
     if constexpr (std::is_same<VectorType1, std::vector<double>>::value)
     {
+      // Evaluate solution with local dof values (when computing finite
+      // differences)
       fe_values[velocity].get_function_values_from_local_dof_values(
         current_solution, present_velocity_values);
       fe_values[velocity].get_function_gradients_from_local_dof_values(
         current_solution, present_velocity_gradients);
       fe_values[pressure].get_function_values_from_local_dof_values(
         current_solution, present_pressure_values);
+    }
+    else
+    {
+      // Evaluate solution with full solution vector
+      fe_values[velocity].get_function_values(current_solution,
+                                              present_velocity_values);
+      fe_values[velocity].get_function_gradients(current_solution,
+                                                 present_velocity_gradients);
+      fe_values[pressure].get_function_values(current_solution,
+                                              present_pressure_values);
     }
 
     // Previous solutions
@@ -164,9 +169,17 @@ public:
                                               previous_velocity_values[i]);
     }
 
+    // Source terms with layout u-v-(w-)p
+    source_terms->vector_value_list(fe_values.get_quadrature_points(), source_term_full);
+
+    // Get jacobian, shape functions and set source terms
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       JxW[q] = fe_values.JxW(q);
+
+      for (int d = 0; d < dim; ++d)
+        source_term_velocity[q][d] = source_term_full[q](u_lower + d);
+      source_term_pressure[q] = source_term_full[q](p_lower);
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -366,8 +379,8 @@ public:
               const std::vector<VectorType2> &previous_solutions)
   {
     static_assert(is_supported_vector_v<VectorType1>,
-                  "reinit expects either deal.II PETSc parallel vector or "
-                  "std::vector for the current_solution");
+                  "reinit expects the current_solution to be either a deal.II "
+                  "wrapper to a PETSc or Trilinos vector, or an std::vector");
 
     fe_values.reinit(cell);
     fe_values_fixed.reinit(cell);
@@ -383,27 +396,6 @@ public:
     //
     // Volume-related quantities
     //
-    if constexpr (std::is_same<VectorType1,
-                               dealii::LinearAlgebraPETSc::MPI::Vector>::value)
-    {
-      //
-      // Evaluate velocity and pressure on moving mapping
-      //
-      fe_values[velocity].get_function_values(current_solution,
-                                              present_velocity_values);
-      fe_values[velocity].get_function_gradients(current_solution,
-                                                 present_velocity_gradients);
-      fe_values[pressure].get_function_values(current_solution,
-                                              present_pressure_values);
-
-      //
-      // Evaluate position on fixed mapping
-      //
-      fe_values_fixed[position].get_function_values(current_solution,
-                                                    present_position_values);
-      fe_values_fixed[position].get_function_gradients(
-        current_solution, present_position_gradients);
-    }
     if constexpr (std::is_same<VectorType1, std::vector<double>>::value)
     {
       //
@@ -422,6 +414,26 @@ public:
       fe_values_fixed[position].get_function_values_from_local_dof_values(
         current_solution, present_position_values);
       fe_values_fixed[position].get_function_gradients_from_local_dof_values(
+        current_solution, present_position_gradients);
+    }
+    else
+    {
+      //
+      // Evaluate velocity and pressure on moving mapping
+      //
+      fe_values[velocity].get_function_values(current_solution,
+                                              present_velocity_values);
+      fe_values[velocity].get_function_gradients(current_solution,
+                                                 present_velocity_gradients);
+      fe_values[pressure].get_function_values(current_solution,
+                                              present_pressure_values);
+
+      //
+      // Evaluate position on fixed mapping
+      //
+      fe_values_fixed[position].get_function_values(current_solution,
+                                                    present_position_values);
+      fe_values_fixed[position].get_function_gradients(
         current_solution, present_position_gradients);
     }
 
@@ -478,20 +490,6 @@ public:
       fe_face_values.reinit(cell, face);
       fe_face_values_fixed.reinit(cell, face);
 
-      if constexpr (std::is_same<
-                      VectorType1,
-                      dealii::LinearAlgebraPETSc::MPI::Vector>::value)
-      {
-        fe_face_values[velocity].get_function_values(
-          current_solution, present_face_velocity_values[i_face]);
-        fe_face_values[lambda].get_function_values(
-          current_solution, present_face_lambda_values[i_face]);
-
-        fe_face_values_fixed[position].get_function_values(
-          current_solution, present_face_position_values[i_face]);
-        fe_face_values_fixed[position].get_function_gradients(
-          current_solution, present_face_position_gradient[i_face]);
-      }
       if constexpr (std::is_same<VectorType1, std::vector<double>>::value)
       {
         fe_face_values[velocity].get_function_values_from_local_dof_values(
@@ -505,6 +503,18 @@ public:
         fe_face_values_fixed[position]
           .get_function_gradients_from_local_dof_values(
             current_solution, present_face_position_gradient[i_face]);
+      }
+      else
+      {
+        fe_face_values[velocity].get_function_values(
+          current_solution, present_face_velocity_values[i_face]);
+        fe_face_values[lambda].get_function_values(
+          current_solution, present_face_lambda_values[i_face]);
+
+        fe_face_values_fixed[position].get_function_values(
+          current_solution, present_face_position_values[i_face]);
+        fe_face_values_fixed[position].get_function_gradients(
+          current_solution, present_face_position_gradient[i_face]);
       }
 
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)

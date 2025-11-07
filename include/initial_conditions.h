@@ -20,23 +20,18 @@ namespace Parameters
   // All initial conditions are nodal for now (suitable for continuous Galerkin,
   // but not for DG)
 
-  // enum class Type
-  // {
-  //   nodal
-  // };
-
   /**
    * Initial velocity condition.
-   * 
+   *
    * Because most applications (FSI, Cahn-Hilliard, etc.) will be tackled in a
    * monolithic fashion, the number of components for the solution vector varies
-   * from one problem to another, and we need to specify the u_lower bound and 
+   * from one problem to another, and we need to specify the u_lower bound and
    * the number of components at creation.
-   * 
+   *
    * As a result, the actual initial_velocity (and other fields) can only be
-   * created once the number of vector components is known, that us, when the type
-   * of problem is selected (flow only, FSI, Cahn-Hilliard, etc.)
-   * 
+   * created once the number of vector components is known, that is, when the
+   * type of problem is selected (flow only, FSI, Cahn-Hilliard, etc.)
+   *
    * FIXME: Think of a better way of creating these functions...
    */
   template <int dim>
@@ -44,16 +39,16 @@ namespace Parameters
   {
   public:
     const unsigned int                              u_lower;
-    std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity;
+    std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity_callback;
 
   public:
     InitialVelocity(
       const unsigned int                              u_lower,
       const unsigned int                              n_components,
-      std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity)
+      std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity_callback)
       : Function<dim>(n_components)
       , u_lower(u_lower)
-      , initial_velocity(initial_velocity)
+      , initial_velocity_callback(initial_velocity_callback)
     {}
 
     virtual double value(const Point<dim> &p,
@@ -61,7 +56,7 @@ namespace Parameters
     {
       for (unsigned int d = 0; d < dim; ++d)
         if (component == u_lower + d)
-          return initial_velocity->value(p, d);
+          return initial_velocity_callback->value(p, d);
       return 0.;
     }
   };
@@ -78,12 +73,24 @@ namespace Parameters
           std::make_shared<Functions::ParsedFunction<dim>>(dim))
     {}
 
-  public:
-    std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity_callback;
-    std::shared_ptr<InitialVelocity<dim>>           initial_velocity;
+    /**
+     * Create the actual initial velocity.
+     * This must be called by the various derived solver, for which
+     * the number of variables (components) and layout is known.
+     */
+    void create_initial_velocity(const unsigned int u_lower,
+                                 const unsigned int n_components)
+    {
+      initial_velocity = std::make_shared<Parameters::InitialVelocity<dim>>(
+        u_lower, n_components, initial_velocity_callback);
+    }
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
+
+  public:
+    std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity_callback;
+    std::shared_ptr<InitialVelocity<dim>>           initial_velocity;
   };
 
   template <int dim>

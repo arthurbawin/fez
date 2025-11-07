@@ -357,6 +357,43 @@ void TimeIntegration::read_parameters(ParameterHandler &prm)
   prm.leave_subsection();
 }
 
+void MMS::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Manufactured solution");
+  {
+    prm.declare_entry("enable",
+                      "false",
+                      Patterns::Bool(),
+                      "Enable convergence study for the prescribed manufactured solution. This overrides the given mesh filename.");
+    prm.declare_entry("mesh prefix",
+                      "",
+                      Patterns::Anything(),
+                      "Prefix (including full path) for the meshes to use for the convergence study");
+    prm.declare_entry("first mesh",
+                      "0",
+                      Patterns::Integer(),
+                      "Index of the first mesh, which will be (mesh prefix)_(first mesh).msh");
+    prm.declare_entry("last mesh",
+                      "0",
+                      Patterns::Integer(),
+                      "Index of the last mesh, which will be (mesh prefix)_(last mesh).msh");
+  }
+  prm.leave_subsection();
+}
+
+void MMS::read_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Manufactured solution");
+  {
+    enable           = prm.get_bool("enable");
+    mesh_prefix      = prm.get("mesh prefix");
+    first_mesh_index = prm.get_integer("first mesh");
+    last_mesh_index  = prm.get_integer("last mesh");
+    n_convergence    = std::max(0u, 1 + last_mesh_index - first_mesh_index);
+  }
+  prm.leave_subsection();
+}
+
 void FSI::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("FSI");

@@ -1,0 +1,60 @@
+#ifndef MANUFACTURED_SOLUTION_H
+#define MANUFACTURED_SOLUTION_H
+
+#include <deal.II/base/parameter_handler.h>
+#include <parsed_function_symengine.h>
+
+namespace ManufacturedSolution
+{
+  using namespace dealii;
+
+  /**
+   *
+   */
+  template <int dim>
+  class ManufacturedSolution
+  {
+  public:
+    ManufacturedSolution()
+      : exact_velocity(std::make_shared<VectorSDParsedFunction<dim>>())
+      , exact_pressure(std::make_shared<ScalarSDParsedFunction<dim>>())
+    {}
+
+  public:
+    std::shared_ptr<VectorSDParsedFunction<dim>> exact_velocity;
+    std::shared_ptr<ScalarSDParsedFunction<dim>> exact_pressure;
+
+    void declare_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Manufactured solution");
+      {
+        prm.enter_subsection("exact velocity");
+        exact_velocity->declare_parameters(prm, dim);
+        prm.leave_subsection();
+        prm.enter_subsection("exact pressure");
+        exact_pressure->declare_parameters(prm, 1);
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
+    }
+    void read_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Manufactured solution");
+      {
+        std::cout << "Reading velocity" << std::endl;
+        prm.enter_subsection("exact velocity");
+        exact_velocity->parse_parameters(prm);
+        prm.leave_subsection();
+        std::cout << "Done velocity" << std::endl;
+        std::cout << "Reading pressure" << std::endl;
+        prm.enter_subsection("exact pressure");
+        exact_pressure->parse_parameters(prm);
+        prm.leave_subsection();
+        std::cout << "Done pressure" << std::endl;
+      }
+      prm.leave_subsection();
+    }
+  };
+} // namespace ManufacturedSolution
+
+#endif

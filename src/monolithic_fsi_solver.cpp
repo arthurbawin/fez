@@ -8,10 +8,11 @@
 #include <mesh.h>
 #include <monolithic_fsi_solver.h>
 #include <scratch_data.h>
+#include <linear_direct_solver.h>
 
 template <int dim>
 MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
-  : GenericSolver<ParVectorType>(param.nonlinear_solver, param.timer)
+  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver, param.timer)
   , param(param)
   , quadrature(QGaussSimplex<dim>(4))
   , face_quadrature(QGaussSimplex<dim - 1>(4))
@@ -148,7 +149,7 @@ void MonolithicFSISolver<dim>::setup_dofs()
   previous_solutions.resize(time_handler.n_previous_solutions);
   for (auto &previous_sol : previous_solutions)
   {
-    previous_sol.clear();
+    // previous_sol.clear();
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   }
 
@@ -170,7 +171,7 @@ void MonolithicFSISolver<dim>::setup_dofs()
                                        fe.component_mask(position));
 
   // Create the solution-dependent mapping
-  mapping = std::make_unique<MappingFEField<dim, dim, ParVectorType>>(
+  mapping = std::make_unique<MappingFEField<dim, dim, LA::ParVectorType>>(
     dof_handler, this->evaluation_point, fe.component_mask(position));
 }
 
@@ -793,8 +794,8 @@ void MonolithicFSISolver<dim>::assemble_local_matrix(
   bool                                                  first_step,
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchDataMonolithicFSI<dim>                        &scratchData,
-  ParVectorType                                        &current_solution,
-  std::vector<ParVectorType>                           &previous_solutions,
+  LA::ParVectorType                                        &current_solution,
+  std::vector<LA::ParVectorType>                           &previous_solutions,
   std::vector<types::global_dof_index>                 &local_dof_indices,
   FullMatrix<double>                                   &local_matrix,
   bool                                                  distribute)
@@ -1158,8 +1159,8 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
   bool                                                  first_step,
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchDataMonolithicFSI<dim>                        &scratchData,
-  ParVectorType                                        &current_solution,
-  std::vector<ParVectorType>                           &previous_solutions,
+  LA::ParVectorType                                        &current_solution,
+  std::vector<LA::ParVectorType>                           &previous_solutions,
   std::vector<types::global_dof_index>                 &local_dof_indices,
   Vector<double>                                       &local_rhs,
   std::vector<double>                                  &cell_dof_values,
@@ -1369,14 +1370,14 @@ void MonolithicFSISolver<dim>::add_algebraic_position_coupling_to_matrix()
   // Add algebraic constraints position-lambda
   //
   std::map<types::global_dof_index,
-           std::vector<PETScWrappers::MatrixIterators::const_iterator>>
+           std::vector<LA::ConstMatrixIterator>>
     position_row_entries;
   // Get row entries for each pos_dof
   for (const auto &[pos_dof, d] : coupled_position_dofs)
   {
     if (locally_owned_dofs.is_element(pos_dof))
     {
-      std::vector<PETScWrappers::MatrixIterators::const_iterator> row_entries;
+      std::vector<LA::ConstMatrixIterator> row_entries;
       for (auto it = system_matrix.begin(pos_dof);
            it != system_matrix.end(pos_dof);
            ++it)
@@ -1422,27 +1423,28 @@ template <int dim>
 void MonolithicFSISolver<dim>::solve_linear_system(
   const bool apply_inhomogeneous_constraints)
 {
-  TimerOutput::Scope t(computing_timer, "Solve direct");
+  solve_linear_system_direct(this, system_matrix, locally_owned_dofs, zero_constraints);
+  // TimerOutput::Scope t(computing_timer, "Solve direct");
 
-  ParVectorType completely_distributed_solution(locally_owned_dofs,
-                                                this->mpi_communicator);
+  // LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
+  //                                               this->mpi_communicator);
 
-  // Solve with MUMPS
-  SolverControl                    solver_control;
-  PETScWrappers::SparseDirectMUMPS solver(solver_control);
-  solver.solve(system_matrix,
-               completely_distributed_solution,
-               this->system_rhs);
+  // // Solve with MUMPS
+  // SolverControl                    solver_control;
+  // PETScWrappers::SparseDirectMUMPS solver(solver_control);
+  // solver.solve(system_matrix,
+  //              completely_distributed_solution,
+  //              this->system_rhs);
 
-  this->newton_update = completely_distributed_solution;
+  // this->newton_update = completely_distributed_solution;
 
-  if (apply_inhomogeneous_constraints)
-  {
-    throw std::runtime_error("First step");
-    nonzero_constraints.distribute(this->newton_update);
-  }
-  else
-    zero_constraints.distribute(this->newton_update);
+  // if (apply_inhomogeneous_constraints)
+  // {
+  //   throw std::runtime_error("First step");
+  //   nonzero_constraints.distribute(this->newton_update);
+  // }
+  // else
+  //   zero_constraints.distribute(this->newton_update);
 }
 
 /**
@@ -1778,7 +1780,7 @@ void MonolithicFSISolver<dim>::output_results() const
   // This is not ideal, this is done by modifying the displacement and
   // reexporting.
   //
-  ParVectorType mesh_velocity;
+  LA::ParVectorType mesh_velocity;
   mesh_velocity.reinit(locally_owned_dofs, this->mpi_communicator);
   const FEValuesExtractors::Vector position(x_lower);
   IndexSet                         disp_dofs =

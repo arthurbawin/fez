@@ -12,8 +12,6 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/affine_constraints.h>
-#include <deal.II/lac/generic_linear_algebra.h>
-#include <deal.II/lac/petsc_sparse_matrix.h>
 #include <generic_solver.h>
 #include <parameter_reader.h>
 #include <time_handler.h>
@@ -27,7 +25,7 @@ using namespace dealii;
  * It is a somewhat niche class, which treats a single obstacle for now.
  */
 template <int dim>
-class MonolithicFSISolver : public GenericSolver<ParVectorType>
+class MonolithicFSISolver : public GenericSolver<LA::ParVectorType>
 {
 public:
   MonolithicFSISolver(const ParameterReader<dim> &param);
@@ -108,8 +106,8 @@ public:
     bool                                                  first_step,
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchDataMonolithicFSI<dim>                                     &scratchData,
-    ParVectorType                                      &current_solution,
-    std::vector<ParVectorType>                         &previous_solutions,
+    LA::ParVectorType                                      &current_solution,
+    std::vector<LA::ParVectorType>                         &previous_solutions,
     std::vector<types::global_dof_index>                 &local_dof_indices,
     FullMatrix<double>                                   &local_matrix,
     bool                                                  distribute);
@@ -126,8 +124,8 @@ public:
   assemble_local_rhs(bool first_step,
                      const typename DoFHandler<dim>::active_cell_iterator &cell,
                      ScratchDataMonolithicFSI<dim>                     &scratchData,
-                     ParVectorType                      &current_solution,
-                     std::vector<ParVectorType>         &previous_solutions,
+                     LA::ParVectorType                      &current_solution,
+                     std::vector<LA::ParVectorType>         &previous_solutions,
                      std::vector<types::global_dof_index> &local_dof_indices,
                      Vector<double>                       &local_rhs,
                      std::vector<double>                  &cell_dof_values,
@@ -212,8 +210,8 @@ protected:
   QSimplex<dim - 1> face_quadrature;
 
   parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::unique_ptr<Mapping<dim>>                  fixed_mapping;
-  std::unique_ptr<Mapping<dim>>                  mapping;
+  std::shared_ptr<Mapping<dim>>                  fixed_mapping;
+  std::shared_ptr<Mapping<dim>>                  mapping;
   FESystem<dim>                                  fe;
 
   DoFHandler<dim> dof_handler;
@@ -240,8 +238,9 @@ protected:
   std::map<types::global_dof_index, Point<dim>>   initial_positions;
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
 
-  dealii::LinearAlgebraPETSc::MPI::SparseMatrix system_matrix;
-  std::vector<ParVectorType>                    previous_solutions;
+  // dealii::LinearAlgebraPETSc::MPI::SparseMatrix system_matrix;
+  LA::ParMatrixType system_matrix;
+  std::vector<LA::ParVectorType>                    previous_solutions;
 
 
   TableHandler forces_table;

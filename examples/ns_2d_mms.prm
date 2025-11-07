@@ -1,0 +1,105 @@
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write results    = false
+  set output directory = ../data/test/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  set mesh file = ../tests/incompressible_ns/cylinder_2d.msh
+end
+
+subsection Time integration
+  set dt        = 0.1
+  set t_initial = 0
+  set t_end     = 0.1
+  set scheme    = BDF1
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 50
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+end
+
+subsection FiniteElements
+  set Velocity degree            = 2
+  set Pressure degree            = 1
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid
+    set density             = 1
+    set kinematic viscosity = 0.005
+  end
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 1
+    set name = Outlet
+    set type = outflow
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = Inlet
+    set type = input_function
+    subsection u
+      set Function expression = 1
+    end
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = NoFlux
+    set type = slip
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = InnerBoundary
+    set type = no_slip
+  end
+end
+
+subsection Source terms
+  subsection fluid
+    set Function expression = 0; 0; 0
+  end
+  subsection pseudosolid
+    set Function expression = 0; 0
+  end
+end
+
+subsection Manufactured solution
+  set enable      = true
+  set mesh prefix = ../data/meshes/mms/square_mms
+  set first mesh  = 1
+  set last mesh   = 1
+  subsection exact velocity
+    set Function expression = (x**2 + 4*x*y) * t; y * t^2
+  end
+  subsection exact pressure
+    set Function constants  = k=2.
+    set Function expression = 1.23 * x^2 * k * t
+  end
+end

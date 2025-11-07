@@ -157,6 +157,31 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
+  struct MMS
+  {
+    bool enable;
+
+    enum class Type
+    {
+      space,
+      time,
+      space_time
+    } type;
+
+    std::string mesh_prefix;
+    unsigned int first_mesh_index;
+    unsigned int last_mesh_index;
+    unsigned int n_convergence;
+
+    void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
+    {
+      mesh_param.filename = mesh_prefix + std::to_string(index) + ".msh";
+    }
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
   /**
    * Fluid-structure interaction
    */

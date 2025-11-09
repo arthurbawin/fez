@@ -8,7 +8,7 @@
 namespace ManufacturedSolution
 {
   template <int dim>
-  ParsedFunctionSymEngineBase<dim>::ParsedFunctionSymEngineBase(
+  ParsedFunctionSDBase<dim>::ParsedFunctionSDBase(
     const unsigned int n_components)
     : n_components(n_components)
     , function_object(n_components)
@@ -18,7 +18,7 @@ namespace ManufacturedSolution
    * This is exactly the deal.II function (parsed_function.cc)
    */
   template <int dim>
-  void ParsedFunctionSymEngineBase<dim>::declare_parameters(
+  void ParsedFunctionSDBase<dim>::declare_parameters(
     ParameterHandler  &prm,
     const unsigned int n_components,
     const std::string &input_expr)
@@ -112,7 +112,7 @@ namespace ManufacturedSolution
   }
 
   template <int dim>
-  void ParsedFunctionSymEngineBase<dim>::parse_parameters(ParameterHandler &prm)
+  void ParsedFunctionSDBase<dim>::parse_parameters(ParameterHandler &prm)
   {
     std::string vnames         = prm.get("Variable names");
     std::string expression     = prm.get("Function expression");
@@ -167,6 +167,23 @@ namespace ManufacturedSolution
     this->create_symbolic_derivatives(vnames, constants, time_dependent);
   }
 
+  namespace {
+
+    // SymEngine parses exponents as "**", whereas muParser expects "^".
+    // This function replaces the all **'s in a string by ^'s.
+    std::string replace_all_exponents(std::string s)
+    {
+      size_t pos = 0;
+      const std::string from = "**";
+      const std::string to   = "^";
+      while ((pos = s.find(from, pos)) != std::string::npos) {
+        s.replace(pos, from.length(), to);
+        pos += to.length();
+      }
+      return s;
+    }
+  }
+
   template <int dim>
   void ScalarSDParsedFunction<dim>::create_symbolic_derivatives(
     const std::string                   variables,
@@ -199,7 +216,7 @@ namespace ManufacturedSolution
     {
       std::stringstream sstream;
       sstream << grad_f[d];
-      grad_expressions.push_back(sstream.str());
+      grad_expressions.push_back(replace_all_exponents(sstream.str()));
     }
     grad_function_object.initialize(variables,
                                     grad_expressions,
@@ -222,7 +239,7 @@ namespace ManufacturedSolution
       {
         std::stringstream sstream;
         sstream << hess_i[dj];
-        hess_expressions.push_back(sstream.str());
+        hess_expressions.push_back(replace_all_exponents(sstream.str()));
       }
     }
     hess_function_object.initialize(variables,
@@ -237,7 +254,7 @@ namespace ManufacturedSolution
     {
       std::stringstream sstream;
       sstream << fdot;
-      dfdt.initialize(variables, sstream.str(), constants, time_dependent);
+      dfdt.initialize(variables, replace_all_exponents(sstream.str()), constants, time_dependent);
     }
   }
 
@@ -278,12 +295,19 @@ namespace ManufacturedSolution
       {
         std::stringstream sstream;
         sstream << grad_f[d];
-        grad_expressions.push_back(sstream.str());
+        grad_expressions.push_back(replace_all_exponents(sstream.str()));
       }
       grad_function_object[i_comp]->initialize(variables,
                                                grad_expressions,
                                                constants,
                                                time_dependent);
+
+      std::cout << "Converted gradient is : " << std::endl;
+      for(auto str : grad_expressions)
+        std::cout << str << std::endl;
+      const auto expr2 = this->grad_function_object[i_comp]->get_expressions();
+      for(unsigned int d = 0; d < dim; ++d)
+        std::cout << "\t" << expr2[d] << std::endl;
 
       //
       // Get symbolic hessian of component
@@ -301,7 +325,7 @@ namespace ManufacturedSolution
         {
           std::stringstream sstream;
           sstream << hess_i[dj];
-          hess_expressions.push_back(sstream.str());
+          hess_expressions.push_back(replace_all_exponents(sstream.str()));
         }
       }
       hess_function_object[i_comp]->initialize(variables,
@@ -316,7 +340,7 @@ namespace ManufacturedSolution
       {
         std::stringstream sstream;
         sstream << fdot;
-        time_derivatives += sstream.str() + ";";
+        time_derivatives += replace_all_exponents(sstream.str()) + ";";
       }
     }
     std::cout << "Time derivatives initialized from " << time_derivatives
@@ -325,8 +349,8 @@ namespace ManufacturedSolution
   }
 
   // Explicit instantiations
-  template class ParsedFunctionSymEngineBase<2>;
-  template class ParsedFunctionSymEngineBase<3>;
+  template class ParsedFunctionSDBase<2>;
+  template class ParsedFunctionSDBase<3>;
   template class ScalarSDParsedFunction<2>;
   template class ScalarSDParsedFunction<3>;
   template class VectorSDParsedFunction<2>;

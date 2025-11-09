@@ -42,7 +42,7 @@ unsigned int read_problem_dimension(const std::string &parameter_file)
  */
 void read_number_of_boundary_conditions(
   const std::string                   &parameter_file,
-  Parameters::BoundaryConditionsCount &bc_count)
+  Parameters::BoundaryConditionsData &bc_data)
 {
   ParameterHandler prm;
 
@@ -73,11 +73,11 @@ void read_number_of_boundary_conditions(
 
   // Parse
   prm.enter_subsection("Fluid boundary conditions");
-  bc_count.n_fluid_bc = prm.get_integer("number");
+  bc_data.n_fluid_bc = prm.get_integer("number");
   prm.leave_subsection();
 
   prm.enter_subsection("Pseudosolid boundary conditions");
-  bc_count.n_pseudosolid_bc = prm.get_integer("number");
+  bc_data.n_pseudosolid_bc = prm.get_integer("number");
   prm.leave_subsection();
 }
 

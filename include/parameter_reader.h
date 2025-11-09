@@ -34,7 +34,7 @@ public:
   // Initial and boundary conditions
   //
   Parameters::InitialConditions<dim>                  initial_conditions;
-  Parameters::BoundaryConditionsCount                 bc_count;
+  Parameters::BoundaryConditionsData                  bc_data;
   std::vector<BoundaryConditions::FluidBC<dim>>       fluid_bc;
   std::vector<BoundaryConditions::PseudosolidBC<dim>> pseudosolid_bc;
 
@@ -52,11 +52,11 @@ public:
   /**
    * Constructor
    */
-  ParameterReader(const Parameters::BoundaryConditionsCount &bc_count)
-    : bc_count(bc_count)
+  ParameterReader(const Parameters::BoundaryConditionsData &bc_data)
+    : bc_data(bc_data)
   {
-    fluid_bc.resize(bc_count.n_fluid_bc);
-    pseudosolid_bc.resize(bc_count.n_pseudosolid_bc);
+    fluid_bc.resize(bc_data.n_fluid_bc);
+    pseudosolid_bc.resize(bc_data.n_pseudosolid_bc);
   }
 
 public:
@@ -72,6 +72,7 @@ public:
     time_integration.declare_parameters(prm);
     nonlinear_solver.declare_parameters(prm);
     initial_conditions.declare_parameters(prm);
+    bc_data.declare_parameters(prm);
     BoundaryConditions::declare_fluid_boundary_conditions(prm, fluid_bc);
     BoundaryConditions::declare_pseudosolid_boundary_conditions(prm,
                                                                 pseudosolid_bc);
@@ -92,6 +93,7 @@ public:
     time_integration.read_parameters(prm);
     nonlinear_solver.read_parameters(prm);
     initial_conditions.read_parameters(prm);
+    bc_data.read_parameters(prm);
     BoundaryConditions::read_fluid_boundary_conditions(prm, fluid_bc);
     BoundaryConditions::read_pseudosolid_boundary_conditions(prm,
                                                              pseudosolid_bc);

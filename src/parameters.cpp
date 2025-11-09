@@ -61,6 +61,27 @@ void Timer::read_parameters(ParameterHandler &prm)
   prm.leave_subsection();
 }
 
+void BoundaryConditionsData::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Fluid boundary conditions");
+  {
+    prm.declare_entry("fix pressure constant",
+                      "false",
+                      Patterns::Bool(),
+                      "Fix pressure nullspace");
+  }
+  prm.leave_subsection();
+}
+
+void BoundaryConditionsData::read_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Fluid boundary conditions");
+  {
+    fix_pressure_constant = prm.get_bool("fix pressure constant");
+  }
+  prm.leave_subsection();
+}
+
 void Mesh::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Mesh");
@@ -361,22 +382,48 @@ void MMS::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Manufactured solution");
   {
-    prm.declare_entry("enable",
-                      "false",
-                      Patterns::Bool(),
-                      "Enable convergence study for the prescribed manufactured solution. This overrides the given mesh filename.");
-    prm.declare_entry("mesh prefix",
-                      "",
-                      Patterns::Anything(),
-                      "Prefix (including full path) for the meshes to use for the convergence study");
-    prm.declare_entry("first mesh",
-                      "0",
+    prm.declare_entry(
+      "enable",
+      "false",
+      Patterns::Bool(),
+      "Enable convergence study for the prescribed manufactured solution. This "
+      "overrides the given mesh filename.");
+    prm.declare_entry("type",
+                      "space",
+                      Patterns::Selection("space|time|spacetime"),
+                      "Choose between space and/or time convergence study.");
+    prm.declare_entry("convergence steps",
+                      "1",
                       Patterns::Integer(),
-                      "Index of the first mesh, which will be (mesh prefix)_(first mesh).msh");
-    prm.declare_entry("last mesh",
-                      "0",
-                      Patterns::Integer(),
-                      "Index of the last mesh, which will be (mesh prefix)_(last mesh).msh");
+                      "Number of steps in the convergence study");
+    prm.enter_subsection("Space convergence");
+    {
+      prm.declare_entry("mesh prefix",
+                        "",
+                        Patterns::Anything(),
+                        "Prefix (including full path) for the meshes to use "
+                        "for the spatial convergence study");
+      prm.declare_entry("first mesh",
+                        "0",
+                        Patterns::Integer(),
+                        "Index of the first mesh, which will be (mesh "
+                        "prefix)_(first mesh).msh");
+    }
+    prm.leave_subsection();
+    prm.enter_subsection("Time convergence");
+    {
+      prm.declare_entry(
+        "use spatial mesh",
+        "false",
+        Patterns::Bool(),
+        "If true, use the mesh provided for the spatial convergence study. If false, use the provided mesh in the Mesh subsection.");
+      prm.declare_entry(
+        "time step reduction",
+        "0.5",
+        Patterns::Double(),
+        "Reduction factor between two time steps in a time convergence study.");
+    }
+    prm.leave_subsection();
   }
   prm.leave_subsection();
 }
@@ -385,11 +432,27 @@ void MMS::read_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Manufactured solution");
   {
-    enable           = prm.get_bool("enable");
-    mesh_prefix      = prm.get("mesh prefix");
-    first_mesh_index = prm.get_integer("first mesh");
-    last_mesh_index  = prm.get_integer("last mesh");
-    n_convergence    = std::max(0u, 1 + last_mesh_index - first_mesh_index);
+    enable        = prm.get_bool("enable");
+    const std::string parsed_type = prm.get("type");
+    if (parsed_type == "space")
+      type = Type::space;
+    else if (parsed_type == "time")
+      type = Type::time;
+    else if (parsed_type == "spacetime")
+      type = Type::spacetime;
+    n_convergence = prm.get_integer("convergence steps");
+    prm.enter_subsection("Space convergence");
+    {
+      mesh_prefix      = prm.get("mesh prefix");
+      first_mesh_index = prm.get_integer("first mesh");
+    }
+    prm.leave_subsection();
+    prm.enter_subsection("Time convergence");
+    {
+      use_space_convergence_mesh = prm.get_bool("use spatial mesh");
+      time_step_reduction_factor = prm.get_double("time step reduction");
+    }
+    prm.leave_subsection();
   }
   prm.leave_subsection();
 }

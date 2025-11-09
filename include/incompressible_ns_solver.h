@@ -12,6 +12,7 @@
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <error_handler.h>
 #include <generic_solver.h>
 #include <parameter_reader.h>
 #include <scratch_data.h>
@@ -31,12 +32,16 @@ template <int dim>
 class IncompressibleNavierStokesSolver : public GenericSolver<LA::ParVectorType>
 {
 public:
+  /**
+   * Constructor
+   */
   IncompressibleNavierStokesSolver(const ParameterReader<dim> &param);
 
-public:
+  /**
+   * Destructor
+   */
   virtual ~IncompressibleNavierStokesSolver() {}
 
-public:
   /**
    * Solve the flow problem
    */
@@ -61,6 +66,12 @@ public:
   {
     return nonzero_constraints;
   }
+
+  /**
+   *
+   */
+  void constrain_pressure_point(AffineConstraints<double> &constraints,
+                                const bool                 set_to_zero);
 
   /**
    * Create the sparsity pattern and allocate matrix
@@ -123,19 +134,63 @@ public:
   solve_linear_system(const bool apply_inhomogeneous_constraints) override;
 
   /**
+   *
+   */
+  void compute_errors();
+
+  /**
    * Write the velocity and pressure to vtu file.
    */
   void output_results() const;
 
   /**
-   * Set source terms explicitly after creation and override the source terms
-   * read from the parameter file, for instance when performing manufactured
-   * solutions tests.
+   * Reset the resolution related structures (mesh, dof_handler, etc.) in
+   * between two runs, e.g. when performing convergence tests.
    */
-  void set_source_terms(const std::shared_ptr<Function<dim>> source_terms)
+  void reset();
+
+  /**
+   * Exact solution when performing a convergence study with a manufactured
+   * solution.
+   */
+  class MMSSolution : public Function<dim>
   {
-    this->source_terms = source_terms;
-  }
+  public:
+    MMSSolution(const double                                           time,
+                const ManufacturedSolution::ManufacturedSolution<dim> &mms)
+      : Function<dim>(n_components, time)
+    , mms(mms)
+    {}
+
+    virtual double value(const Point<dim>  &p,
+                         const unsigned int component = 0) const override
+    {
+      Assert(component < dim + 1,
+             ExcMessage(
+               "Navier-Stokes MMS solution only has dim + 1 components."));
+      if (component < dim)
+        return mms.exact_velocity->value(p, component);
+      else
+        return mms.exact_pressure->value(p);
+    }
+
+    virtual void vector_value(const Point<dim> &p,
+                              Vector<double>   &values) const override
+    {
+      Assert(values.size() == dim + 1,
+             ExcMessage(
+               "Navier-Stokes MMS solution expects dim + 1 components."));
+      for (unsigned int d = 0; d < dim; ++d)
+        values[u_lower + d] = mms.exact_velocity->value(p, d);
+      values[p_lower] = mms.exact_pressure->value(p);
+    }
+
+  protected:
+    static constexpr unsigned int n_components = dim + 1;
+    static constexpr unsigned int u_lower      = 0;
+    static constexpr unsigned int p_lower      = dim;
+    const ManufacturedSolution::ManufacturedSolution<dim> &mms;
+  };
 
   /**
    * Source term called when performing a convergence study.
@@ -144,15 +199,28 @@ public:
    */
   class MMSSourceTerm : public Function<dim>
   {
-  protected:
-    const ManufacturedSolution::ManufacturedSolution<dim> &mms;
   public:
-    MMSSourceTerm(const double time,
-      const unsigned int n_components,
-      const ManufacturedSolution::ManufacturedSolution<dim> &mms);
+    MMSSourceTerm(const double                          time,
+                  const Parameters::PhysicalProperties &physical_properties,
+                  const ManufacturedSolution::ManufacturedSolution<dim> &mms)
+      : Function<dim>(n_components, time)
+      , physical_properties(physical_properties)
+      , mms(mms)
+    {}
 
+    /**
+     * Evaluate the combined velocity-pressure source term for the
+     * incompressible Navier-Stokes momentum-mass equations.
+     */
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override;
+
+  protected:
+    static constexpr unsigned int         n_components = dim + 1;
+    static constexpr unsigned int         u_lower      = 0;
+    static constexpr unsigned int         p_lower      = dim;
+    const Parameters::PhysicalProperties &physical_properties;
+    const ManufacturedSolution::ManufacturedSolution<dim> &mms;
   };
 
 protected:
@@ -160,11 +228,11 @@ protected:
   // Each field is in the half-open [lower, upper)
   // Check for matching component by doing e.g.:
   // if(u_lower <= comp && comp < u_upper)
-  const unsigned int n_components = dim + 1;
-  const unsigned int u_lower      = 0;
-  const unsigned int u_upper      = dim;
-  const unsigned int p_lower      = dim;
-  const unsigned int p_upper      = dim + 1;
+  static constexpr unsigned int n_components = dim + 1;
+  static constexpr unsigned int u_lower      = 0;
+  static constexpr unsigned int u_upper      = dim;
+  static constexpr unsigned int p_lower      = dim;
+  static constexpr unsigned int p_upper      = dim + 1;
 
   /**
    * Quality-of-life functions to check which field a given component is
@@ -196,15 +264,19 @@ protected:
   AffineConstraints<double> zero_constraints;
   AffineConstraints<double> nonzero_constraints;
 
+  types::global_dof_index constrained_pressure_dof = numbers::invalid_dof_index;
+  Point<dim>              constrained_pressure_support_point;
+
   LA::ParMatrixType              system_matrix;
   std::vector<LA::ParVectorType> previous_solutions;
 
   std::shared_ptr<Function<dim>> source_terms;
+  std::shared_ptr<Function<dim>> exact_solution;
 
   TableHandler forces_table;
   TableHandler cylinder_position_table;
 
-  ConvergenceTable mms_errors;
+  ErrorHandler error_handler;
 };
 
 #endif

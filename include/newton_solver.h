@@ -159,6 +159,14 @@ public:
 
       solver->present_solution = solver->evaluation_point;
       ++iter;
+
+      if(iter > this->param.max_iterations)
+        stop = true;
+    }
+
+    if(iter > this->param.max_iterations && norm_residual > this->param.tolerance)
+    {
+      throw std::runtime_error("Nonlinear solver did not converge");
     }
   }
 };

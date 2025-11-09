@@ -62,23 +62,30 @@ void TimeHandler::set_bdf_coefficients()
 bool TimeHandler::is_finished()
 {
   if(scheme == STAT)
-    return true;
+  {
+    // Stop after a single "time step"
+    return current_time_iteration > 0;
+  }
   return current_time >= final_time - 1e-10;
 }
 
 void TimeHandler::advance()
 {
-  // Rotate the times and time steps
-  for (unsigned int i = n_previous_solutions - 1; i >= 1; --i)
-  {
-    previous_times[i] = previous_times[i - 1];
-    time_steps[i]     = time_steps[i - 1];
-  }
-
-  // Update values and coefficients
-  current_time += current_dt;
   current_time_iteration++;
-  previous_times[0] = current_time;
-  time_steps[0]     = current_dt;
-  set_bdf_coefficients();
+  
+  if(scheme != STAT)
+  {
+    // Rotate the times and time steps
+    for (unsigned int i = n_previous_solutions - 1; i >= 1; --i)
+    {
+      previous_times[i] = previous_times[i - 1];
+      time_steps[i]     = time_steps[i - 1];
+    }
+
+    // Update values and coefficients
+    current_time += current_dt;
+    previous_times[0] = current_time;
+    time_steps[0]     = current_dt;
+    set_bdf_coefficients();
+  }
 }

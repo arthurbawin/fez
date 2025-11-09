@@ -125,7 +125,7 @@ namespace BoundaryConditions
       // The number was already parsed in a first dry run
       prm.declare_entry(
         "number",
-        "0", // Utilities::int_to_string(number_of_boundary_conditions),
+        "0",
         Patterns::Integer(),
         "Number of fluid boundary conditions");
 

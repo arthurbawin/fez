@@ -39,10 +39,15 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
-  struct BoundaryConditionsCount
+  struct BoundaryConditionsData
   {
     unsigned int n_fluid_bc;
     unsigned int n_pseudosolid_bc;
+
+    bool fix_pressure_constant;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
   };
 
   struct Mesh
@@ -61,7 +66,7 @@ namespace Parameters
 
   struct Output
   {
-    bool write_results;
+    bool        write_results;
     std::string output_dir;
     std::string output_prefix;
 
@@ -165,13 +170,16 @@ namespace Parameters
     {
       space,
       time,
-      space_time
+      spacetime
     } type;
 
-    std::string mesh_prefix;
-    unsigned int first_mesh_index;
-    unsigned int last_mesh_index;
     unsigned int n_convergence;
+
+    std::string  mesh_prefix;
+    unsigned int first_mesh_index;
+
+    bool use_space_convergence_mesh;
+    double time_step_reduction_factor;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {

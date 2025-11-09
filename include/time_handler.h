@@ -22,6 +22,14 @@ public:
   void set_bdf_coefficients();
 
   /**
+   * Returns true if the time integration scheme is "stationary"
+   */
+  bool is_steady()
+  {
+    return scheme == Parameters::TimeIntegration::Scheme::stationary;
+  }
+
+  /**
    * Returns true if the simulation should stop:
    * - always true if simulation is steady
    * - if t >= t_end if unsteady
@@ -74,7 +82,7 @@ public:
   std::vector<double> bdf_coefficients;
 };
 
-/* ---------------- template functions ----------------- */
+/* ---------------- Template functions ----------------- */
 
 template <typename VectorType>
 double TimeHandler::compute_time_derivative(

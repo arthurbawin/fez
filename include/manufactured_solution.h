@@ -1,6 +1,7 @@
 #ifndef MANUFACTURED_SOLUTION_H
 #define MANUFACTURED_SOLUTION_H
 
+#include <deal.II/base/function.h>
 #include <deal.II/base/parameter_handler.h>
 #include <parsed_function_symengine.h>
 

@@ -8,6 +8,7 @@
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <errors.h>
 #include <incompressible_ns_solver.h>
 #include <linear_direct_solver.h>
 #include <mesh.h>
@@ -28,6 +29,7 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
        1)
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
+  , error_handler(param.mms_param)
 {
   // Create the initial condition functions for this problem, once the layout of
   // the variables is known (and in particular, the number of components).
@@ -36,9 +38,25 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
 
   if (param.mms_param.enable)
   {
+    // Assign the manufactured solution
+    this->exact_solution =
+      std::make_shared<IncompressibleNavierStokesSolver<dim>::MMSSolution>(
+        time_handler.current_time, this->param.mms);
+
     // Create the source term function for the given MMS and override source
-    // terms this->source_terms =
-    // std::make_shared<IncompressibleNavierStokesSolver::MMSSourceTerm>()
+    // terms
+    this->source_terms =
+      std::make_shared<IncompressibleNavierStokesSolver<dim>::MMSSourceTerm>(
+        time_handler.current_time,
+        this->param.physical_properties,
+        this->param.mms);
+
+    error_handler.create_entry("n_elm");
+    error_handler.create_entry("n_dof");
+    error_handler.create_entry("L2_u");
+    error_handler.create_entry("L2_p");
+    error_handler.create_entry("Li_u");
+    error_handler.create_entry("Li_p");
   }
   else
   {
@@ -47,94 +65,82 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
 }
 
 template <int dim>
-IncompressibleNavierStokesSolver<dim>::MMSSourceTerm::MMSSourceTerm(
-  const double       time,
-  const unsigned int n_components,
-  const ManufacturedSolution::ManufacturedSolution<dim> &mms)
-  : Function<dim>(n_components, time)
-, mms(mms)
-{}
-
-template <int dim>
 void IncompressibleNavierStokesSolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
-  // const double t  = this->get_time();
-  // const double mu = VISCOSITY;
+  const double rho = physical_properties.fluids[0].density;
+  const double nu  = physical_properties.fluids[0].kinematic_viscosity;
+  const double mu  = rho * nu;
 
   Tensor<2, dim> grad_u;
   Tensor<1, dim> f, u, dudt_eulerian, uDotGradu, grad_p, lap_u;
 
   mms.exact_velocity->time_derivative(p, dudt_eulerian);
-  mms.exact_velocity->gradient(p, grad_u);
+  mms.exact_velocity->value(p, u);
+  // mms.exact_velocity->gradient_vi_xj(p, grad_u);
+  mms.exact_velocity->gradient_vj_xi(p, grad_u);
   mms.exact_velocity->laplacian(p, lap_u);
   mms.exact_pressure->gradient(p, grad_p);
 
-  // flow_mms.velocity_time_derivative(t, p, dudt_eulerian);
-  // flow_mms.velocity(t, p, u);
-  // // flow_mms.grad_velocity_ui_xj(t, p, grad_u);
-  // flow_mms.grad_velocity_uj_xi(t, p, grad_u);
-  // uDotGradu = u * grad_u;
-  // flow_mms.grad_pressure(t, p, grad_p);
-  // flow_mms.laplacian_velocity(t, p, lap_u);
+  // FIXME: double, triple and quadruple-check index convention
+  uDotGradu = u * grad_u;
 
-  // // Stokes/Navier-Stokes source term
-  // f = -(dudt_eulerian + uDotGradu + grad_p - mu * lap_u);
+  // Navier-Stokes momentum (velocity) source term
+  f = -(dudt_eulerian + uDotGradu + grad_p - mu * lap_u);
 
-  // for (unsigned int d = 0; d < dim; ++d)
-  //   values[u_lower + d] = f[d];
+  for (unsigned int d = 0; d < dim; ++d)
+    values[u_lower + d] = f[d];
 
-  // //
-  // // Pressure
-  // //
-  // values[p_lower] = flow_mms.velocity_divergence(t, p);
+  // Mass conservation (pressure) source term
+  values[p_lower] = mms.exact_velocity->divergence(p);
+}
 
-  // //
-  // // Pseudo-solid
-  // //
-  // // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
-  // Tensor<1, dim> f_PS;
-  // mesh_mms.divergence_stress_tensor(t, p, MU_PS, LAMBDA_PS, f_PS);
+template <int dim>
+void IncompressibleNavierStokesSolver<dim>::reset()
+{
+  // Mesh
+  triangulation.clear();
 
-  // for (unsigned int d = 0; d < dim; ++d)
-  //   values[x_lower + d] = f_PS[d];
+  // Time handler (move assign a new time handler)
+  time_handler = TimeHandler(param.time_integration);
 
-  // //
-  // // Lagrange multiplier: to have u = dxdt on boundary.
-  // // dxdt must be evaluated on initial mesh!
-  // // For now, return only u(x,t) on current mesh, and
-  // // "assemble" the lambda source term where it is needed.
-  // //
-  // Tensor<1, dim> dxdt;
-  // // mesh_mms.mesh_velocity(t, pInitial, dxdt);
-  // // Tensor<1, dim> f_lambda = - (u - dxdt);
-  // for (unsigned int d = 0; d < dim; ++d)
-  //   values[l_lower + d] = u[d];
+  // Pressure DOF
+  constrained_pressure_dof = numbers::invalid_dof_index;
 }
 
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::run()
 {
-  pcout << "param.mms.first         = " << param.mms_param.first_mesh_index
-        << std::endl;
-  pcout << "param.mms_param.last          = " << param.mms_param.last_mesh_index
-        << std::endl;
-  pcout << "param.mms_param.n_convergence = " << param.mms_param.n_convergence << std::endl;
-
+  /**
+   * Solve the problem within a convergence loop. If not testing against a
+   * manufactured solution, then a single convergence iteration is performed.
+   */
   for (unsigned int i_conv = param.mms_param.first_mesh_index;
-       i_conv <= param.mms_param.last_mesh_index;
+       i_conv <= param.mms_param.n_convergence;
        ++i_conv)
   {
     // If a manufactured solution test is run, bypass the given mesh file
-    // and run the prescribed suffix.
+    // and run the i_conv-th prescribed mms mesh
     if (param.mms_param.enable)
     {
-      param.mms_param.override_mesh_filename(param.mesh, i_conv);
-      pcout << "Convergence test with manufactured solution:" << std::endl;
-      pcout << "Mesh file was changed to " << param.mesh.filename << std::endl;
+      // Change the mesh file. Keep previous mesh file only if it is a time
+      // convergence study.
+      bool update_mesh =
+        param.mms_param.type == Parameters::MMS::Type::space ||
+        param.mms_param.type == Parameters::MMS::Type::spacetime ||
+        (param.mms_param.type == Parameters::MMS::Type::time && i_conv == 1);
+
+      if (update_mesh)
+      {
+        param.mms_param.override_mesh_filename(param.mesh, i_conv);
+        pcout << "Convergence test with manufactured solution:" << std::endl;
+        pcout << "Mesh file was changed to " << param.mesh.filename
+              << std::endl;
+      }
     }
 
+    reset();
     read_mesh(triangulation, param);
     setup_dofs();
     create_zero_constraints();
@@ -168,14 +174,22 @@ void IncompressibleNavierStokesSolver<dim>::run()
         solve_nonlinear_problem(false);
       }
 
+      compute_errors();
       output_results();
 
-      // Rotate solutions
-      for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-        previous_solutions[j] = previous_solutions[j - 1];
-      previous_solutions[0] = present_solution;
+      if (!time_handler.is_steady())
+      {
+        // Rotate solutions
+        for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
+          previous_solutions[j] = previous_solutions[j - 1];
+        previous_solutions[0] = present_solution;
+      }
     }
   }
+
+  error_handler.compute_rates();
+  if (mpi_rank == 0)
+    error_handler.write_rates();
 }
 
 template <int dim>
@@ -225,6 +239,92 @@ void IncompressibleNavierStokesSolver<dim>::setup_dofs()
 }
 
 template <int dim>
+void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
+  AffineConstraints<double> &constraints,
+  const bool                 set_to_zero)
+{
+  // Determine the pressure dof the first time
+  if (constrained_pressure_dof == numbers::invalid_dof_index)
+  {
+    // Choose a fixed physical reference location
+    // Here it's the origin (Point<dim> is initialized at 0)
+    const Point<dim> reference_point;
+
+    const FEValuesExtractors::Scalar pressure(p_lower);
+    IndexSet                         pressure_dofs =
+      DoFTools::extract_dofs(dof_handler, fe.component_mask(pressure));
+
+    // Get support points for locally relevant DoFs
+    std::map<types::global_dof_index, Point<dim>> support_points;
+    DoFTools::map_dofs_to_support_points(*mapping, dof_handler, support_points);
+
+    double                  local_min_dist = std::numeric_limits<double>::max();
+    types::global_dof_index local_dof      = numbers::invalid_dof_index;
+
+    for (auto idx : pressure_dofs)
+    {
+      if (!locally_owned_dofs.is_element(idx))
+        continue;
+
+      const double dist = support_points[idx].distance(reference_point);
+      if (dist < local_min_dist)
+      {
+        local_min_dist = dist;
+        local_dof      = idx;
+      }
+    }
+
+    // Prepare for MPI_MINLOC reduction
+    struct MinLoc
+    {
+      double                  dist;
+      types::global_dof_index dof;
+    } local_pair{local_min_dist, local_dof}, global_pair;
+
+    // MPI reduction to find the global closest DoF
+    MPI_Allreduce(&local_pair,
+                  &global_pair,
+                  1,
+                  MPI_DOUBLE_INT,
+                  MPI_MINLOC,
+                  mpi_communicator);
+
+    constrained_pressure_dof = global_pair.dof;
+
+    // Set support point for MMS evaluation
+    if (locally_owned_dofs.is_element(constrained_pressure_dof))
+    {
+      constrained_pressure_support_point =
+        support_points[constrained_pressure_dof];
+    }
+  }
+
+  // Constrain that DoF globally
+  if (locally_owned_dofs.is_element(constrained_pressure_dof))
+  {
+    constraints.add_line(constrained_pressure_dof);
+    if (set_to_zero)
+    {
+      constraints.constrain_dof_to_zero(constrained_pressure_dof);
+    }
+    else
+    {
+      // const double pAnalytic = solution_at_future_position_fun.value(
+      //   constrained_pressure_support_point, p_lower);
+      AssertThrow(exact_solution != nullptr,
+                  ExcMessage("Cannot constrain pressure DOF to exact pressure "
+                             "value because the exact solution is NULL"));
+      const double pAnalytic =
+        exact_solution->value(constrained_pressure_support_point, p_lower);
+      constraints.set_inhomogeneity(constrained_pressure_dof, pAnalytic);
+    }
+  }
+  constraints.make_consistent_in_parallel(locally_owned_dofs,
+                                          constraints.get_local_lines(),
+                                          mpi_communicator);
+}
+
+template <int dim>
 void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
 {
   zero_constraints.clear();
@@ -257,6 +357,12 @@ void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
     // Add no velocity flux constraints
     VectorTools::compute_no_normal_flux_constraints(
       dof_handler, u_lower, no_flux_boundaries, zero_constraints, *mapping);
+  }
+
+  if (param.bc_data.fix_pressure_constant)
+  {
+    bool set_to_zero = true;
+    constrain_pressure_point(zero_constraints, set_to_zero);
   }
 
   zero_constraints.close();
@@ -306,6 +412,12 @@ void IncompressibleNavierStokesSolver<dim>::create_nonzero_constraints()
     // Add no velocity flux constraints
     VectorTools::compute_no_normal_flux_constraints(
       dof_handler, u_lower, no_flux_boundaries, nonzero_constraints, *mapping);
+  }
+
+  if (param.bc_data.fix_pressure_constant)
+  {
+    bool set_to_zero = false;
+    constrain_pressure_point(nonzero_constraints, set_to_zero);
   }
 
   nonzero_constraints.close();
@@ -652,12 +764,99 @@ void IncompressibleNavierStokesSolver<dim>::copy_local_to_global_rhs(
 
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
-  const bool apply_inhomogeneous_constraints)
+  const bool /*apply_inhomogeneous_constraints*/)
 {
   solve_linear_system_direct(this,
                              system_matrix,
                              locally_owned_dofs,
                              zero_constraints);
+}
+
+template <int dim>
+void IncompressibleNavierStokesSolver<dim>::compute_errors()
+{
+  const unsigned int n_active_cells = triangulation.n_active_cells();
+  Vector<double>     cellwise_errors(n_active_cells);
+
+  const ComponentSelectFunction<dim> velocity_mask(std::make_pair(u_lower,
+                                                                  u_upper),
+                                                   n_components);
+  const ComponentSelectFunction<dim> pressure_mask(p_lower, n_components);
+
+  // Choose another quadrature rule for error computation
+  const unsigned int                  n_points_1D = (dim == 2) ? 6 : 5;
+  const QWitherdenVincentSimplex<dim> err_quadrature(n_points_1D);
+
+  // L2 - u
+  const double l2_u =
+    compute_error_norm<dim, LA::ParVectorType>(triangulation,
+                                               *mapping,
+                                               dof_handler,
+                                               present_solution,
+                                               *exact_solution,
+                                               cellwise_errors,
+                                               err_quadrature,
+                                               VectorTools::L2_norm,
+                                               &velocity_mask);
+
+  // L2 - p
+  const double l2_p =
+    compute_error_norm<dim, LA::ParVectorType>(triangulation,
+                                               *mapping,
+                                               dof_handler,
+                                               present_solution,
+                                               *exact_solution,
+                                               cellwise_errors,
+                                               err_quadrature,
+                                               VectorTools::L2_norm,
+                                               &pressure_mask);
+
+  // Linf - u
+  const double li_u =
+    compute_error_norm<dim, LA::ParVectorType>(triangulation,
+                                               *mapping,
+                                               dof_handler,
+                                               present_solution,
+                                               *exact_solution,
+                                               cellwise_errors,
+                                               err_quadrature,
+                                               VectorTools::Linfty_norm,
+                                               &velocity_mask);
+
+  // Linf - p
+  const double li_p =
+    compute_error_norm<dim, LA::ParVectorType>(triangulation,
+                                               *mapping,
+                                               dof_handler,
+                                               present_solution,
+                                               *exact_solution,
+                                               cellwise_errors,
+                                               err_quadrature,
+                                               VectorTools::Linfty_norm,
+                                               &pressure_mask);
+
+  if (time_handler.is_steady())
+  {
+    // Steady solver: simply add errors to convergence table
+    error_handler.add_value("n_elm", triangulation.n_active_cells());
+    error_handler.add_value("n_dof", dof_handler.n_dofs());
+    error_handler.add_value("L2_u", l2_u);
+    error_handler.add_value("L2_p", l2_p);
+    error_handler.add_value("Li_u", li_u);
+    error_handler.add_value("Li_p", li_p);
+  }
+  else
+  {
+    error_handler.add_value("n_elm", triangulation.n_active_cells());
+    error_handler.add_value("n_dof", dof_handler.n_dofs());
+    error_handler.add_value("L2_u", l2_u);
+    error_handler.add_value("L2_p", l2_p);
+    error_handler.add_value("Li_u", li_u);
+    error_handler.add_value("Li_p", li_p);
+  }
+
+  //   l2_err_u += param.dt * u_l2_error;
+  //   l2_err_p += param.dt * p_l2_error;
 }
 
 template <int dim>

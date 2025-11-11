@@ -84,6 +84,11 @@ public:
   void set_initial_conditions();
 
   /**
+   * Set solution to exact solution, if provided
+   */
+  void set_exact_solution();
+
+  /**
    * Recreate and apply nonhomogeneous constraints
    */
   void update_boundary_conditions();
@@ -108,6 +113,8 @@ public:
    * into the global matrix. Passed to WorkStream::run (see above).
    */
   void copy_local_to_global_matrix(const CopyData &copy_data);
+
+  void compare_analytical_matrix_with_fd();
 
   /**
    * Assemble the Newton residual at the current evluation point
@@ -150,6 +157,11 @@ public:
   void reset();
 
   /**
+   * Update time in all relevant structures (boundary conditions, source terms, exact solution).
+   */
+  void set_time();
+
+  /**
    * Exact solution when performing a convergence study with a manufactured
    * solution.
    */
@@ -161,6 +173,12 @@ public:
       : Function<dim>(n_components, time)
     , mms(mms)
     {}
+
+    // Update time in the mms functions
+    virtual void set_time(const double new_time) override
+    {
+      mms.set_time(new_time);
+    }
 
     virtual double value(const Point<dim>  &p,
                          const unsigned int component = 0) const override
@@ -189,7 +207,9 @@ public:
     static constexpr unsigned int n_components = dim + 1;
     static constexpr unsigned int u_lower      = 0;
     static constexpr unsigned int p_lower      = dim;
-    const ManufacturedSolution::ManufacturedSolution<dim> &mms;
+
+    // MMS cannot be const since its internal time must be updated
+    ManufacturedSolution::ManufacturedSolution<dim> mms;
   };
 
   /**
@@ -208,6 +228,12 @@ public:
       , mms(mms)
     {}
 
+    // Update time in the mms functions
+    virtual void set_time(const double new_time) override
+    {
+      mms.set_time(new_time);
+    }
+
     /**
      * Evaluate the combined velocity-pressure source term for the
      * incompressible Navier-Stokes momentum-mass equations.
@@ -220,7 +246,9 @@ public:
     static constexpr unsigned int         u_lower      = 0;
     static constexpr unsigned int         p_lower      = dim;
     const Parameters::PhysicalProperties &physical_properties;
-    const ManufacturedSolution::ManufacturedSolution<dim> &mms;
+
+    // MMS cannot be const since its internal time must be updated
+    ManufacturedSolution::ManufacturedSolution<dim> mms;
   };
 
 protected:
@@ -233,6 +261,9 @@ protected:
   static constexpr unsigned int u_upper      = dim;
   static constexpr unsigned int p_lower      = dim;
   static constexpr unsigned int p_upper      = dim + 1;
+
+  const FEValuesExtractors::Vector velocity_extractor;
+  const FEValuesExtractors::Scalar pressure_extractor;
 
   /**
    * Quality-of-life functions to check which field a given component is
@@ -258,6 +289,9 @@ protected:
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler;
 
+  const ComponentMask velocity_mask;
+  const ComponentMask pressure_mask;
+
   IndexSet locally_owned_dofs;
   IndexSet locally_relevant_dofs;
 
@@ -275,8 +309,6 @@ protected:
 
   TableHandler forces_table;
   TableHandler cylinder_position_table;
-
-  ErrorHandler error_handler;
 };
 
 #endif

@@ -29,6 +29,7 @@ namespace BoundaryConditions
     // Common
     none,
     input_function,
+    mms, // Set boundary to prescribed manufactured solution
 
     // Flow
     outflow,      // Do nothing
@@ -67,6 +68,11 @@ namespace BoundaryConditions
     virtual void declare_parameters(ParameterHandler &prm);
     virtual void read_parameters(ParameterHandler  &prm,
                                  const unsigned int boundary_id);
+
+    /**
+     * Update the time in the underlying functions, if applicable.
+     */
+    virtual void set_time(const double new_time) = 0;
   };
 
   /**
@@ -95,9 +101,16 @@ namespace BoundaryConditions
       w = std::make_shared<Functions::ParsedFunction<dim>>();
     };
 
+    virtual void set_time(const double new_time) override
+    {
+      u->set_time(new_time);
+      v->set_time(new_time);
+      w->set_time(new_time);
+    }
+
   public:
-    void declare_parameters(ParameterHandler &prm) override;
-    void read_parameters(ParameterHandler  &prm,
+    virtual void declare_parameters(ParameterHandler &prm) override;
+    virtual void read_parameters(ParameterHandler  &prm,
                          const unsigned int boundary_id) override;
   };
 
@@ -109,9 +122,10 @@ namespace BoundaryConditions
   class PseudosolidBC : public BoundaryCondition
   {
   public:
-    void declare_parameters(ParameterHandler &prm) override;
-    void read_parameters(ParameterHandler  &prm,
+    virtual void declare_parameters(ParameterHandler &prm) override;
+    virtual void read_parameters(ParameterHandler  &prm,
                          const unsigned int boundary_id) override;
+    virtual void set_time(const double) override {}
   };
 
   // FIXME: templatize the "declare" and "read" functions below,
@@ -175,7 +189,7 @@ namespace BoundaryConditions
       "type",
       "none",
       Patterns::Selection(
-        "none|input_function|outflow|no_slip|weak_no_slip|slip"),
+        "none|input_function|outflow|no_slip|weak_no_slip|slip|mms"),
       "Type of fluid boundary condition");
 
     // Imposed functions, if any
@@ -210,6 +224,8 @@ namespace BoundaryConditions
       type = Type::weak_no_slip;
     if (parsed_type == "slip")
       type = Type::slip;
+    if (parsed_type == "mms")
+      type = Type::mms;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Fluid boundary condition for boundary " + std::to_string(boundary_id) +
@@ -282,7 +298,7 @@ namespace BoundaryConditions
     prm.declare_entry("type",
                       "none",
                       Patterns::Selection(
-                        "none|fixed|coupled_to_fluid|no_flux|input_function"),
+                        "none|fixed|coupled_to_fluid|no_flux|input_function|mms"),
                       "Type of pseudosolid boundary condition");
   }
 
@@ -302,6 +318,8 @@ namespace BoundaryConditions
       type = Type::no_flux;
     if (parsed_type == "input_function")
       type = Type::input_function;
+    if (parsed_type == "mms")
+      type = Type::mms;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Pseudosolid boundary condition for boundary " +

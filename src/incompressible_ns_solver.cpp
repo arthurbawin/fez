@@ -1,4 +1,5 @@
 
+#include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -17,7 +18,13 @@
 template <int dim>
 IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
   const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver, param.timer)
+  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
+                                     param.timer,
+                                     param.mesh,
+                                     param.time_integration,
+                                     param.mms_param)
+  , velocity_extractor(u_lower)
+  , pressure_extractor(p_lower)
   , param(param)
   , quadrature(QGaussSimplex<dim>(4))
   , face_quadrature(QGaussSimplex<dim - 1>(4))
@@ -29,7 +36,8 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
        1)
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
-  , error_handler(param.mms_param)
+  , velocity_mask(fe.component_mask(velocity_extractor))
+  , pressure_mask(fe.component_mask(pressure_extractor))
 {
   // Create the initial condition functions for this problem, once the layout of
   // the variables is known (and in particular, the number of components).
@@ -51,8 +59,6 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
         this->param.physical_properties,
         this->param.mms);
 
-    error_handler.create_entry("n_elm");
-    error_handler.create_entry("n_dof");
     error_handler.create_entry("L2_u");
     error_handler.create_entry("L2_p");
     error_handler.create_entry("Li_u");
@@ -99,97 +105,97 @@ void IncompressibleNavierStokesSolver<dim>::MMSSourceTerm::vector_value(
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::reset()
 {
+  // FIXME: This is not very clean: the derived class has the full parameters,
+  // and the base class GenericSolver has a mesh and time param to be able to
+  // modify the mesh file and/or time step in a convergence loop.
+  this->param.mesh.filename       = this->mesh_param.filename;
+  this->param.time_integration.dt = this->time_param.dt;
+
   // Mesh
   triangulation.clear();
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
+  this->set_time();
 
   // Pressure DOF
   constrained_pressure_dof = numbers::invalid_dof_index;
 }
 
 template <int dim>
+void IncompressibleNavierStokesSolver<dim>::set_time()
+{
+  // Update time in all relevant structures:
+  // - relevant boundary conditions
+  // - source terms, if any
+  // - exact solution, if any
+  for (auto &bc : param.fluid_bc)
+    bc.set_time(time_handler.current_time);
+  source_terms->set_time(time_handler.current_time);
+  exact_solution->set_time(time_handler.current_time);
+}
+
+template <int dim>
 void IncompressibleNavierStokesSolver<dim>::run()
 {
-  /**
-   * Solve the problem within a convergence loop. If not testing against a
-   * manufactured solution, then a single convergence iteration is performed.
-   */
-  for (unsigned int i_conv = param.mms_param.first_mesh_index;
-       i_conv <= param.mms_param.n_convergence;
-       ++i_conv)
+  reset();
+  read_mesh(triangulation, param);
+  setup_dofs();
+  create_zero_constraints();
+  create_nonzero_constraints();
+  create_sparsity_pattern();
+  set_initial_conditions();
+  output_results();
+
+  while (!time_handler.is_finished())
   {
-    // If a manufactured solution test is run, bypass the given mesh file
-    // and run the i_conv-th prescribed mms mesh
-    if (param.mms_param.enable)
-    {
-      // Change the mesh file. Keep previous mesh file only if it is a time
-      // convergence study.
-      bool update_mesh =
-        param.mms_param.type == Parameters::MMS::Type::space ||
-        param.mms_param.type == Parameters::MMS::Type::spacetime ||
-        (param.mms_param.type == Parameters::MMS::Type::time && i_conv == 1);
+    time_handler.advance();
+    set_time();
 
-      if (update_mesh)
+    if (param.time_integration.verbosity == Parameters::Verbosity::verbose)
+      pcout << std::endl
+            << "Time step " << time_handler.current_time_iteration
+            << " - Advancing to t = " << time_handler.current_time << '.'
+            << std::endl;
+
+    update_boundary_conditions();
+    if (time_handler.current_time_iteration == 1 &&
+        param.time_integration.scheme ==
+          Parameters::TimeIntegration::Scheme::BDF2)
+    {
+      if (param.mms_param.enable)
       {
-        param.mms_param.override_mesh_filename(param.mesh, i_conv);
-        pcout << "Convergence test with manufactured solution:" << std::endl;
-        pcout << "Mesh file was changed to " << param.mesh.filename
-              << std::endl;
+        // Convergence study: start with exact solution at first time step
+        set_exact_solution();
       }
-    }
-
-    reset();
-    read_mesh(triangulation, param);
-    setup_dofs();
-    create_zero_constraints();
-    create_nonzero_constraints();
-    create_sparsity_pattern();
-    set_initial_conditions();
-    output_results();
-
-    while (!time_handler.is_finished())
-    {
-      time_handler.advance();
-
-      if (param.time_integration.verbosity == Parameters::Verbosity::verbose)
-        pcout << std::endl
-              << "Time step " << time_handler.current_time_iteration
-              << " - Advancing to t = " << time_handler.current_time << '.'
-              << std::endl;
-
-      update_boundary_conditions();
-      if (time_handler.current_time_iteration == 1 &&
-          param.time_integration.scheme ==
-            Parameters::TimeIntegration::Scheme::BDF2)
+      else
       {
         // FIXME: Start with BDF1
         set_initial_conditions();
       }
-      else
-      {
-        // Entering the Newton solver with a solution satisfying the nonzero
-        // constraints, which were applied in update_boundary_condition().
-        solve_nonlinear_problem(false);
-      }
+    }
+    else
+    {
+      // Entering the Newton solver with a solution satisfying the nonzero
+      // constraints, which were applied in update_boundary_condition().
+      // compare_analytical_matrix_with_fd();
+      solve_nonlinear_problem(false);
+    }
 
-      compute_errors();
-      output_results();
+    compute_errors();
+    output_results();
 
-      if (!time_handler.is_steady())
+    if (!time_handler.is_steady())
+    {
+      // Rotate solutions
+      for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
       {
-        // Rotate solutions
-        for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-          previous_solutions[j] = previous_solutions[j - 1];
-        previous_solutions[0] = present_solution;
+        std::cout << "In the loop" << std::endl;
+        previous_solutions[j] = previous_solutions[j - 1];
       }
+      previous_solutions[0] = present_solution;
     }
   }
-
-  error_handler.compute_rates();
-  if (mpi_rank == 0)
-    error_handler.write_rates();
 }
 
 template <int dim>
@@ -236,6 +242,15 @@ void IncompressibleNavierStokesSolver<dim>::setup_dofs()
     // previous_sol.clear();
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   }
+
+  // For unsteady simulation, add the number of elements, dofs and/or the time
+  // step to the error handler, once per convergence run.
+  if (!time_handler.is_steady() && param.mms_param.enable)
+  {
+    error_handler.add_reference_data("n_elm", triangulation.n_global_active_cells());
+    error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
+    error_handler.add_time_step(time_handler.initial_dt);
+  }
 }
 
 template <int dim>
@@ -250,9 +265,7 @@ void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
     // Here it's the origin (Point<dim> is initialized at 0)
     const Point<dim> reference_point;
 
-    const FEValuesExtractors::Scalar pressure(p_lower);
-    IndexSet                         pressure_dofs =
-      DoFTools::extract_dofs(dof_handler, fe.component_mask(pressure));
+    IndexSet pressure_dofs = DoFTools::extract_dofs(dof_handler, pressure_mask);
 
     // Get support points for locally relevant DoFs
     std::map<types::global_dof_index, Point<dim>> support_points;
@@ -309,11 +322,6 @@ void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
     }
     else
     {
-      // const double pAnalytic = solution_at_future_position_fun.value(
-      //   constrained_pressure_support_point, p_lower);
-      AssertThrow(exact_solution != nullptr,
-                  ExcMessage("Cannot constrain pressure DOF to exact pressure "
-                             "value because the exact solution is NULL"));
       const double pAnalytic =
         exact_solution->value(constrained_pressure_support_point, p_lower);
       constraints.set_inhomogeneity(constrained_pressure_dof, pAnalytic);
@@ -330,7 +338,6 @@ void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
   zero_constraints.clear();
   zero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
-  const FEValuesExtractors::Vector velocity(u_lower);
 
   //
   // Velocity homogeneous BC
@@ -340,7 +347,8 @@ void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
     for (const auto &bc : this->param.fluid_bc)
     {
       if (bc.type == BoundaryConditions::Type::no_slip ||
-          bc.type == BoundaryConditions::Type::input_function)
+          bc.type == BoundaryConditions::Type::input_function ||
+          bc.type == BoundaryConditions::Type::mms)
       {
         VectorTools::interpolate_boundary_values(*mapping,
                                                  dof_handler,
@@ -348,7 +356,7 @@ void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
                                                  Functions::ZeroFunction<dim>(
                                                    n_components),
                                                  zero_constraints,
-                                                 fe.component_mask(velocity));
+                                                 velocity_mask);
       }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);
@@ -374,7 +382,6 @@ void IncompressibleNavierStokesSolver<dim>::create_nonzero_constraints()
   nonzero_constraints.clear();
   nonzero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
-  const FEValuesExtractors::Vector velocity(u_lower);
 
   //
   // Velocity inhomogeneous BC
@@ -391,7 +398,7 @@ void IncompressibleNavierStokesSolver<dim>::create_nonzero_constraints()
                                                  Functions::ZeroFunction<dim>(
                                                    n_components),
                                                  nonzero_constraints,
-                                                 fe.component_mask(velocity));
+                                                 velocity_mask);
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
@@ -402,9 +409,17 @@ void IncompressibleNavierStokesSolver<dim>::create_nonzero_constraints()
           ComponentwiseFlowVelocity<dim>(
             u_lower, n_components, bc.u, bc.v, bc.w),
           nonzero_constraints,
-          fe.component_mask(velocity));
+          velocity_mask);
       }
-
+      if (bc.type == BoundaryConditions::Type::mms)
+      {
+        VectorTools::interpolate_boundary_values(*mapping,
+                                                 dof_handler,
+                                                 bc.id,
+                                                 *exact_solution,
+                                                 nonzero_constraints,
+                                                 velocity_mask);
+      }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);
     }
@@ -459,25 +474,80 @@ void IncompressibleNavierStokesSolver<dim>::create_sparsity_pattern()
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::set_initial_conditions()
 {
-  const FEValuesExtractors::Vector velocity(u_lower);
-
   VectorTools::interpolate(*mapping,
                            dof_handler,
                            *this->param.initial_conditions.initial_velocity,
-                           this->newton_update,
-                           fe.component_mask(velocity));
+                           newton_update,
+                           velocity_mask);
 
 #if defined(FORCE_DEAL_II_PARALLEL_VECTOR)
-  this->newton_update.update_ghost_values();
+  newton_update.update_ghost_values();
 #endif
 
-  // Apply non-homogeneous Dirichlet BC and set as current solution
-  nonzero_constraints.distribute(this->newton_update);
-  this->present_solution = this->newton_update;
+  // If a manufactured solution f(x,t) is provided, check that f(x,0)
+  // agrees with the prescribed initial velocity, otherwise convergence
+  // study is meaningless.
+  //
+  // For clarity, check this before applying the boundary conditions to the
+  // solution, so that the printed norm is more evocative.
+  if (param.mms_param.enable)
+  {
+    present_solution = newton_update;
+    const ComponentSelectFunction<dim> velocity_comp_select(
+      std::make_pair(u_lower, u_upper), n_components);
+    const unsigned int n_active_cells = triangulation.n_active_cells();
+    Vector<double>     cellwise_errors(n_active_cells);
+    VectorTools::integrate_difference(*mapping,
+                                      dof_handler,
+                                      present_solution,
+                                      *exact_solution,
+                                      cellwise_errors,
+                                      quadrature,
+                                      VectorTools::Linfty_norm,
+                                      &velocity_comp_select);
+    double norm = VectorTools::compute_global_error(triangulation,
+                                                    cellwise_errors,
+                                                    VectorTools::Linfty_norm);
+    // FIXME: this should be checked nodally
+    AssertThrow(
+      norm < 1e-2,
+      ExcMessage(
+        "The initial velocity condition does not match the prescribed "
+        "manufactured solution evaluated at time t = 0 (||f(x) - "
+        "mms(x,0)||_Linfty = " +
+        std::to_string(norm) +
+        "). Check that the prescribed initial conditions agree with the "
+        "manufactured solution to have a meaningful convergence study."));
+  }
 
-  // FIXME: Dirty copy of the initial condition for BDF2 for now (-:
-  for (auto &sol : previous_solutions)
-    sol = this->present_solution;
+  // Apply non-homogeneous Dirichlet BC and set as current solution
+  nonzero_constraints.distribute(newton_update);
+  present_solution = newton_update;
+
+  if (!time_handler.is_steady())
+  {
+    // Rotate solutions
+    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
+      previous_solutions[j] = previous_solutions[j - 1];
+    previous_solutions[0] = present_solution;
+  }
+}
+
+template <int dim>
+void IncompressibleNavierStokesSolver<dim>::set_exact_solution()
+{
+  VectorTools::interpolate(*mapping,
+                           dof_handler,
+                           *exact_solution,
+                           local_evaluation_point,
+                           velocity_mask);
+  VectorTools::interpolate(*mapping,
+                           dof_handler,
+                           *exact_solution,
+                           local_evaluation_point,
+                           pressure_mask);
+  evaluation_point = local_evaluation_point;
+  present_solution = local_evaluation_point;
 }
 
 template <int dim>
@@ -638,6 +708,37 @@ void IncompressibleNavierStokesSolver<dim>::copy_local_to_global_matrix(
 }
 
 template <int dim>
+void IncompressibleNavierStokesSolver<dim>::compare_analytical_matrix_with_fd()
+{
+  ScratchDataNS<dim> scratchData(fe,
+                                 quadrature,
+                                 *mapping,
+                                 face_quadrature,
+                                 fe.n_dofs_per_cell(),
+                                 time_handler.bdf_coefficients);
+  CopyData           copyData(fe.n_dofs_per_cell());
+
+  double max_error_over_all_elements;
+
+  Verification::compare_analytical_matrix_with_fd(
+    dof_handler,
+    fe.n_dofs_per_cell(),
+    *this,
+    &IncompressibleNavierStokesSolver::assemble_local_matrix,
+    &IncompressibleNavierStokesSolver::assemble_local_rhs,
+    scratchData,
+    copyData,
+    present_solution,
+    evaluation_point,
+    local_evaluation_point,
+    mpi_communicator,
+    max_error_over_all_elements);
+
+  pcout << "Max error analytical vs fd matrix is "
+        << max_error_over_all_elements << std::endl;
+}
+
+template <int dim>
 void IncompressibleNavierStokesSolver<dim>::assemble_rhs()
 {
   TimerOutput::Scope t(computing_timer, "Assemble RHS");
@@ -685,9 +786,6 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
 
   const std::vector<double> bdf_coefficients = time_handler.bdf_coefficients;
 
-  const unsigned int          nBDF = bdf_coefficients.size();
-  std::vector<Tensor<1, dim>> velocity(nBDF);
-
   for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
   {
     const double JxW = scratchData.JxW[q];
@@ -703,12 +801,9 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
 
-    // BDF
-    velocity[0] = present_velocity_values;
-    for (unsigned int i = 1; i < nBDF; ++i)
-    {
-      velocity[i] = scratchData.previous_velocity_values[i - 1][q];
-    }
+    const Tensor<1, dim> dudt =
+      time_handler.compute_time_derivative_at_quadrature_node(
+        q, present_velocity_values, scratchData.previous_velocity_values);
 
     const auto &phi_p      = scratchData.phi_p[q];
     const auto &phi_u      = scratchData.phi_u[q];
@@ -718,8 +813,11 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
     {
       double local_rhs_i = -(
+        // Transient
+        dudt * phi_u[i]
+
         // Convection
-        (present_velocity_gradients * present_velocity_values) * phi_u[i]
+        + (present_velocity_gradients * present_velocity_values) * phi_u[i]
 
         // Diffusion
         + kinematic_viscosity *
@@ -736,12 +834,6 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
 
         // Pressure source term
         + source_term_pressure * phi_p[i]);
-
-      // Transient terms:
-      for (unsigned int iBDF = 0; iBDF < nBDF; ++iBDF)
-      {
-        local_rhs_i -= bdf_coefficients[iBDF] * velocity[iBDF] * phi_u[i];
-      }
 
       local_rhs_i *= JxW;
       local_rhs(i) += local_rhs_i;
@@ -778,10 +870,10 @@ void IncompressibleNavierStokesSolver<dim>::compute_errors()
   const unsigned int n_active_cells = triangulation.n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);
 
-  const ComponentSelectFunction<dim> velocity_mask(std::make_pair(u_lower,
-                                                                  u_upper),
-                                                   n_components);
-  const ComponentSelectFunction<dim> pressure_mask(p_lower, n_components);
+  const ComponentSelectFunction<dim> velocity_comp_select(
+    std::make_pair(u_lower, u_upper), n_components);
+  const ComponentSelectFunction<dim> pressure_comp_select(p_lower,
+                                                          n_components);
 
   // Choose another quadrature rule for error computation
   const unsigned int                  n_points_1D = (dim == 2) ? 6 : 5;
@@ -797,7 +889,7 @@ void IncompressibleNavierStokesSolver<dim>::compute_errors()
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::L2_norm,
-                                               &velocity_mask);
+                                               &velocity_comp_select);
 
   // L2 - p
   const double l2_p =
@@ -809,7 +901,7 @@ void IncompressibleNavierStokesSolver<dim>::compute_errors()
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::L2_norm,
-                                               &pressure_mask);
+                                               &pressure_comp_select);
 
   // Linf - u
   const double li_u =
@@ -821,7 +913,7 @@ void IncompressibleNavierStokesSolver<dim>::compute_errors()
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::Linfty_norm,
-                                               &velocity_mask);
+                                               &velocity_comp_select);
 
   // Linf - p
   const double li_p =
@@ -833,30 +925,26 @@ void IncompressibleNavierStokesSolver<dim>::compute_errors()
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::Linfty_norm,
-                                               &pressure_mask);
+                                               &pressure_comp_select);
 
   if (time_handler.is_steady())
   {
     // Steady solver: simply add errors to convergence table
-    error_handler.add_value("n_elm", triangulation.n_active_cells());
-    error_handler.add_value("n_dof", dof_handler.n_dofs());
-    error_handler.add_value("L2_u", l2_u);
-    error_handler.add_value("L2_p", l2_p);
-    error_handler.add_value("Li_u", li_u);
-    error_handler.add_value("Li_p", li_p);
+    error_handler.add_reference_data("n_elm", triangulation.n_global_active_cells());
+    error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
+    error_handler.add_steady_error("L2_u", l2_u);
+    error_handler.add_steady_error("L2_p", l2_p);
+    error_handler.add_steady_error("Li_u", li_u);
+    error_handler.add_steady_error("Li_p", li_p);
   }
   else
   {
-    error_handler.add_value("n_elm", triangulation.n_active_cells());
-    error_handler.add_value("n_dof", dof_handler.n_dofs());
-    error_handler.add_value("L2_u", l2_u);
-    error_handler.add_value("L2_p", l2_p);
-    error_handler.add_value("Li_u", li_u);
-    error_handler.add_value("Li_p", li_p);
+    const double t = time_handler.current_time;
+    error_handler.add_unsteady_error("L2_u", t, l2_u);
+    error_handler.add_unsteady_error("L2_p", t, l2_p);
+    error_handler.add_unsteady_error("Li_u", t, li_u);
+    error_handler.add_unsteady_error("Li_p", t, li_p);
   }
-
-  //   l2_err_u += param.dt * u_l2_error;
-  //   l2_err_p += param.dt * p_l2_error;
 }
 
 template <int dim>

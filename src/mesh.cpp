@@ -118,7 +118,10 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
     AssertThrow(
       param.mesh.id2name.count(id) == 1,
       ExcMessage(
-        "Deal.ii read a boundary entity with id " + std::to_string(id) +
+        "In mesh file " + param.mesh.filename +
+        " :\n"
+        "Deal.ii read a boundary entity with id " +
+        std::to_string(id) +
         " in the mesh, but no named Physical Entity with this tag "
         "was read from the mesh file. This typically happens if there is a "
         "geometric entity (i.e., a boundary curve or surface) in the mesh that "
@@ -138,22 +141,28 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
       std::count_if(param.fluid_bc.begin(),
                     param.fluid_bc.end(),
                     [id](const auto &bc) { return bc.id == id; }) == 1,
-      ExcMessage("No fluid boundary condition was assigned to boundary " +
+      ExcMessage("In mesh file " + param.mesh.filename +
+                 " :\n"
+                 "No fluid boundary condition was assigned to boundary " +
                  std::to_string(id) + " (" + param.mesh.id2name.at(id) +
                  "). For now, all boundaries must be assigned a boundary "
                  "condition for all relevant fields."));
 
-    if(param.physical_properties.n_pseudosolids > 0)
+    if (param.physical_properties.n_pseudosolids > 0)
     {
-      // Check that each boundary id appears in the pseudosolid boundary conditions
+      // Check that each boundary id appears in the pseudosolid boundary
+      // conditions
       AssertThrow(
         std::count_if(param.pseudosolid_bc.begin(),
                       param.pseudosolid_bc.end(),
                       [id](const auto &bc) { return bc.id == id; }) == 1,
-        ExcMessage("No pseudosolid boundary condition was assigned to boundary " +
-                   std::to_string(id) + " (" + param.mesh.id2name.at(id) +
-                   "). For now, all boundaries must be assigned a boundary "
-                   "condition for all relevant fields."));
+        ExcMessage(
+          "In mesh file " + param.mesh.filename +
+          " :\n"
+          "No pseudosolid boundary condition was assigned to boundary " +
+          std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+          "). For now, all boundaries must be assigned a boundary "
+          "condition for all relevant fields."));
     }
   }
 }
@@ -166,7 +175,10 @@ void check_single_boundary_condition(
   // Check that boundary id given in parameter file exists in the mesh
   AssertThrow(param.mesh.id2name.count(bc.id) == 1,
               ExcMessage(
-                "A " + bc.physics_str +
+                "In mesh file " + param.mesh.filename +
+                " :\n"
+                "A " +
+                bc.physics_str +
                 " boundary condition is prescribed on a mesh "
                 "domain (Physical Entity) with id " +
                 std::to_string(bc.id) +
@@ -176,7 +188,10 @@ void check_single_boundary_condition(
   // Check that the boundary name exists
   AssertThrow(param.mesh.name2id.count(bc.gmsh_name) == 1,
               ExcMessage(
-                "A " + bc.physics_str +
+                "In mesh file " + param.mesh.filename +
+                " :\n"
+                "A " +
+                bc.physics_str +
                 " boundary condition is prescribed on a mesh domain (Physical "
                 "Entity) named \"" +
                 bc.gmsh_name +
@@ -186,7 +201,10 @@ void check_single_boundary_condition(
   // Check that the prescribed name and id match in the mesh
   AssertThrow(param.mesh.id2name.at(bc.id) == bc.gmsh_name,
               ExcMessage(
-                "A " + bc.physics_str +
+                "In mesh file " + param.mesh.filename +
+                " :\n"
+                "A " +
+                bc.physics_str +
                 " boundary condition is prescribed on entity \"" +
                 bc.gmsh_name + "\" with id " + std::to_string(bc.id) +
                 ", but this id does not match this entity in the "
@@ -211,11 +229,13 @@ void check_boundary_conditions_compatibility(const ParameterReader<dim> &param)
     check_single_boundary_condition(bc, param);
 }
 
-template <int dim>
-void print_mesh_info(Triangulation<dim>         &serial_triangulation,
-                     const ParameterReader<dim> &param)
+template <int dim, int spacedim>
+void print_mesh_info(
+  const Triangulation<dim> &serial_triangulation,
+  const parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
+  const ParameterReader<dim>                                  &param)
 {
-  MPI_Comm           comm = serial_triangulation.get_mpi_communicator();
+  MPI_Comm           comm = triangulation.get_mpi_communicator();
   const unsigned int rank = Utilities::MPI::this_mpi_process(comm);
 
   if (rank == 0 && param.mesh.verbosity == Parameters::Verbosity::verbose)
@@ -253,16 +273,11 @@ void read_mesh(
                            param.mesh.id2name,
                            param.mesh.name2id);
 
-  print_mesh_info(serial_triangulation, param);
+  print_mesh_info(serial_triangulation, triangulation, param);
 
   check_boundary_ids(serial_triangulation, param);
 
   check_boundary_conditions_compatibility(param);
-
-  // for (auto str : boundary_description.weak_velocity_boundary_names)
-  // {
-  //   weak_bc_boundary_id = mesh_domains_name2tag.at(str);
-  // }
 }
 
 template void

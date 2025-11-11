@@ -21,15 +21,6 @@ public:
   , local_dof_indices(n_dofs_per_cell)
   {}
 
-  void reinit_matrix()
-  {
-    local_matrix = 0;
-  }
-  void reinit_rhs()
-  {
-    local_rhs    = 0;
-  }
-
 public:
   FullMatrix<double> local_matrix;
   Vector<double>     local_rhs;

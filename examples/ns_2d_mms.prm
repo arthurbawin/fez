@@ -20,12 +20,12 @@ end
 subsection Time integration
   set dt        = 0.1
   set t_initial = 0
-  set t_end     = 0.1
+  set t_end     = 0.2
   set scheme    = stationary
 end
 
 subsection Nonlinear solver
-  set tolerance            = 1e-10
+  set tolerance            = 1e-12
   set divergence_tolerance = 1e+4
   set max_iterations       = 50
   set enable_line_search   = true
@@ -41,13 +41,13 @@ subsection Physical properties
   set number of fluids = 1
   subsection Fluid
     set density             = 1
-    set kinematic viscosity = 0.01
+    set kinematic viscosity = 1
   end
 end
 
 subsection Initial conditions
   subsection velocity
-    set Function expression = 0; 0
+    set Function expression = cos(x*y)^2; atan(x*y)
   end
 end
 
@@ -57,13 +57,14 @@ subsection Fluid boundary conditions
   subsection boundary 0
     set id   = 1
     set name = Boundary
-    set type = input_function
-    subsection u
-      set Function expression = x*x*x*y
-    end
-    subsection v
-      set Function expression = x*y*y*y
-    end
+    set type = mms
+    #set type = input_function
+    #subsection u
+    #  set Function expression = t
+    #end
+    #subsection v
+    #  set Function expression = t
+    #end
   end
 end
 
@@ -79,7 +80,7 @@ end
 subsection Manufactured solution
   set enable            = true
   set type              = space
-  set convergence steps = 2
+  set convergence steps = 4
 
   subsection Space convergence
     set mesh prefix = ../data/meshes/mms/square_mms
@@ -87,14 +88,15 @@ subsection Manufactured solution
   end
 
   subsection Time convergence
+    set norm                = Linfty
     set use spatial mesh    = true
     set time step reduction = 0.5
   end
 
   subsection exact velocity
-    set Function expression = x*x*x*y; x*y*y*y
+    set Function expression = cos(x*y)^2; atan(x*y)
   end
   subsection exact pressure
-    set Function expression = x*x*y*y
+    set Function expression = x + y
   end
 end

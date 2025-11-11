@@ -61,7 +61,7 @@ void TimeHandler::set_bdf_coefficients()
 
 bool TimeHandler::is_finished()
 {
-  if(scheme == STAT)
+  if (scheme == STAT)
   {
     // Stop after a single "time step"
     return current_time_iteration > 0;
@@ -72,8 +72,8 @@ bool TimeHandler::is_finished()
 void TimeHandler::advance()
 {
   current_time_iteration++;
-  
-  if(scheme != STAT)
+
+  if (scheme != STAT)
   {
     // Rotate the times and time steps
     for (unsigned int i = n_previous_solutions - 1; i >= 1; --i)

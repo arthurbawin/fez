@@ -352,16 +352,16 @@ void TimeIntegration::read_parameters(ParameterHandler &prm)
 
     // Set the number of (constant) time steps.
     // For now, we only consider an integer number of time steps.
-    const double n_timesteps_estimate = (t_end - t_initial) / dt;
-    n_constant_timesteps              = std::floor(n_timesteps_estimate);
-    AssertThrow(
-      std::abs(n_timesteps_estimate - n_constant_timesteps) < 1e-2,
-      ExcMessage(
-        "The prescribed (constant) time step does not yield an integer number "
-        "of steps for the given time interval. The given time step yields " +
-        std::to_string(n_timesteps_estimate) +
-        " time steps. For now, we only consider an integer number of constant "
-        "time steps."));
+    // const double n_timesteps_estimate = (t_end - t_initial) / dt;
+    // n_constant_timesteps              = std::floor(n_timesteps_estimate);
+    // AssertThrow(
+    //   std::abs(n_timesteps_estimate - n_constant_timesteps) < 1e-2,
+    //   ExcMessage(
+    //     "The prescribed (constant) time step does not yield an integer number "
+    //     "of steps for the given time interval. The given time step yields " +
+    //     std::to_string(n_timesteps_estimate) +
+    //     " time steps. For now, we only consider an integer number of constant "
+    //     "time steps."));
 
     const std::string parsed_scheme = prm.get("scheme");
     if (parsed_scheme == "stationary")
@@ -412,6 +412,10 @@ void MMS::declare_parameters(ParameterHandler &prm)
     prm.leave_subsection();
     prm.enter_subsection("Time convergence");
     {
+      prm.declare_entry("norm",
+                      "L1",
+                      Patterns::Selection("L1|L2|Linfty"),
+                      "Lp norm to use for the temporal error.");
       prm.declare_entry(
         "use spatial mesh",
         "false",
@@ -449,6 +453,13 @@ void MMS::read_parameters(ParameterHandler &prm)
     prm.leave_subsection();
     prm.enter_subsection("Time convergence");
     {
+      const std::string parsed_norm = prm.get("norm");
+      if (parsed_norm == "L1")
+        time_norm = TimeLpNorm::L1;
+      else if (parsed_norm == "L2")
+        time_norm = TimeLpNorm::L2;
+      else if (parsed_norm == "Linfty")
+        time_norm = TimeLpNorm::Linfty;
       use_space_convergence_mesh = prm.get_bool("use spatial mesh");
       time_step_reduction_factor = prm.get_double("time step reduction");
     }

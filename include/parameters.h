@@ -148,7 +148,7 @@ namespace Parameters
     double       dt;
     double       t_initial;
     double       t_end;
-    unsigned int n_constant_timesteps;
+    // unsigned int n_constant_timesteps; // To remove
     Verbosity    verbosity;
 
     enum class Scheme
@@ -172,6 +172,13 @@ namespace Parameters
       time,
       spacetime
     } type;
+
+    enum class TimeLpNorm
+    {
+      L1,
+      L2,
+      Linfty
+    } time_norm;
 
     unsigned int n_convergence;
 

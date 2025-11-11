@@ -12,7 +12,7 @@
 
 template <int dim>
 MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver, param.timer)
+  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver, param.timer, param.mesh, param.time_integration, param.mms_param)
   , param(param)
   , quadrature(QGaussSimplex<dim>(4))
   , face_quadrature(QGaussSimplex<dim - 1>(4))
@@ -1421,7 +1421,7 @@ void MonolithicFSISolver<dim>::add_algebraic_position_coupling_to_rhs()
 
 template <int dim>
 void MonolithicFSISolver<dim>::solve_linear_system(
-  const bool apply_inhomogeneous_constraints)
+  const bool /*apply_inhomogeneous_constraints*/)
 {
   solve_linear_system_direct(this, system_matrix, locally_owned_dofs, zero_constraints);
   // TimerOutput::Scope t(computing_timer, "Solve direct");

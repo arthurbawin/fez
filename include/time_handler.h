@@ -56,13 +56,13 @@ public:
   /**
    * Same as above but for the time derivative of a vector (Tensor<1, dim>),
    * given the current and previous vectors, at index-th quadrature node.
-   * 
+   *
    * This is tailored for a previous_solutions vector stored in a scratch data.
    */
   template <int dim>
   Tensor<1, dim> compute_time_derivative_at_quadrature_node(
-    const unsigned int index,
-    const Tensor<1, dim>              &present_solution,
+    const unsigned int                              index,
+    const Tensor<1, dim>                           &present_solution,
     const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const;
 
 public:
@@ -105,9 +105,9 @@ double TimeHandler::compute_time_derivative(
 
 template <int dim>
 Tensor<1, dim> TimeHandler::compute_time_derivative_at_quadrature_node(
-    const unsigned int index,
-    const Tensor<1, dim>              &present_solution,
-    const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const
+  const unsigned int                              index,
+  const Tensor<1, dim>                           &present_solution,
+  const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const
 {
   if (scheme == Parameters::TimeIntegration::Scheme::stationary)
     return Tensor<1, dim>();

@@ -21,6 +21,12 @@ namespace ManufacturedSolution
       , exact_pressure(std::make_shared<ScalarSDParsedFunction<dim>>())
     {}
 
+    void set_time(const double new_time)
+    {
+      exact_velocity->set_time(new_time);
+      exact_pressure->set_time(new_time);
+    }
+
   public:
     std::shared_ptr<VectorSDParsedFunction<dim>> exact_velocity;
     std::shared_ptr<ScalarSDParsedFunction<dim>> exact_pressure;

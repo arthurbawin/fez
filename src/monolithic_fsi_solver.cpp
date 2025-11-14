@@ -8,7 +8,7 @@
 #include <mesh.h>
 #include <monolithic_fsi_solver.h>
 #include <scratch_data.h>
-#include <linear_direct_solver.h>
+#include <linear_solver.h>
 
 template <int dim>
 MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
@@ -34,7 +34,7 @@ MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
   // It is allowed *not* to prescribe a weak no slip on any boundary, to verify
   // that the solver produces the expected flow in the decoupled case.
   unsigned int n_weak_bc = 0;
-  for (const auto &bc : param.fluid_bc)
+  for (const auto &[id, bc] : param.fluid_bc)
     if (bc.type == BoundaryConditions::Type::weak_no_slip)
     {
       weak_no_slip_boundary_id = bc.id;
@@ -423,7 +423,7 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
   //
   {
     std::set<types::boundary_id> no_flux_boundaries;
-    for (const auto &bc : this->param.pseudosolid_bc)
+    for (const auto &[id, bc] : this->param.pseudosolid_bc)
     {
       if (bc.type == BoundaryConditions::Type::fixed ||
           bc.type == BoundaryConditions::Type::input_function)
@@ -454,7 +454,7 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
   //
   {
     std::set<types::boundary_id> no_flux_boundaries;
-    for (const auto &bc : this->param.fluid_bc)
+    for (const auto &[id, bc] : this->param.fluid_bc)
     {
       if (bc.type == BoundaryConditions::Type::no_slip ||
           bc.type == BoundaryConditions::Type::input_function)
@@ -499,7 +499,7 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
   //
   {
     std::set<types::boundary_id> no_flux_boundaries;
-    for (const auto &bc : this->param.pseudosolid_bc)
+    for (const auto &[id, bc] : this->param.pseudosolid_bc)
     {
       if (bc.type == BoundaryConditions::Type::fixed)
       {
@@ -536,7 +536,7 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
   //
   {
     std::set<types::boundary_id> no_flux_boundaries;
-    for (const auto &bc : this->param.fluid_bc)
+    for (const auto &[id, bc] : this->param.fluid_bc)
     {
       if (bc.type == BoundaryConditions::Type::no_slip)
       {

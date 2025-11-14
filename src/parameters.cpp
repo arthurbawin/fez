@@ -320,6 +320,43 @@ void NonLinearSolver::read_parameters(ParameterHandler &prm)
   prm.leave_subsection();
 }
 
+void LinearSolver::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Linear solver");
+  {
+    prm.declare_entry("method",
+                      "direct_mumps",
+                      Patterns::Selection("direct_mumps|gmres"),
+                      "Method");
+    prm.declare_entry("tolerance",
+                      "1e-6",
+                      Patterns::Double(),
+                      "Tolerance for iterative solver");
+    prm.declare_entry("max iterations",
+                      "100",
+                      Patterns::Integer(),
+                      "Max number of outer iterations for iterative solver");
+    DECLARE_VERBOSITY_PARAM(prm)
+  }
+  prm.leave_subsection();
+}
+
+void LinearSolver::read_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Linear solver");
+  {
+    const std::string parsed_method = prm.get("method");
+    if (parsed_method == "direct_mumps")
+      method = Method::direct_mumps;
+    else if (parsed_method == "gmres")
+      method = Method::gmres;
+    tolerance = prm.get_double("tolerance");
+    max_iterations = prm.get_integer("max iterations");
+    READ_VERBOSITY_PARAM(prm);
+  }
+  prm.leave_subsection();
+}
+
 void TimeIntegration::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Time integration");
@@ -357,11 +394,10 @@ void TimeIntegration::read_parameters(ParameterHandler &prm)
     // AssertThrow(
     //   std::abs(n_timesteps_estimate - n_constant_timesteps) < 1e-2,
     //   ExcMessage(
-    //     "The prescribed (constant) time step does not yield an integer number "
-    //     "of steps for the given time interval. The given time step yields " +
-    //     std::to_string(n_timesteps_estimate) +
-    //     " time steps. For now, we only consider an integer number of constant "
-    //     "time steps."));
+    //     "The prescribed (constant) time step does not yield an integer number
+    //     " "of steps for the given time interval. The given time step yields "
+    //     + std::to_string(n_timesteps_estimate) + " time steps. For now, we
+    //     only consider an integer number of constant " "time steps."));
 
     const std::string parsed_scheme = prm.get("scheme");
     if (parsed_scheme == "stationary")
@@ -413,14 +449,15 @@ void MMS::declare_parameters(ParameterHandler &prm)
     prm.enter_subsection("Time convergence");
     {
       prm.declare_entry("norm",
-                      "L1",
-                      Patterns::Selection("L1|L2|Linfty"),
-                      "Lp norm to use for the temporal error.");
+                        "L1",
+                        Patterns::Selection("L1|L2|Linfty"),
+                        "Lp norm to use for the temporal error.");
       prm.declare_entry(
         "use spatial mesh",
         "false",
         Patterns::Bool(),
-        "If true, use the mesh provided for the spatial convergence study. If false, use the provided mesh in the Mesh subsection.");
+        "If true, use the mesh provided for the spatial convergence study. If "
+        "false, use the provided mesh in the Mesh subsection.");
       prm.declare_entry(
         "time step reduction",
         "0.5",
@@ -436,7 +473,7 @@ void MMS::read_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Manufactured solution");
   {
-    enable        = prm.get_bool("enable");
+    enable                        = prm.get_bool("enable");
     const std::string parsed_type = prm.get("type");
     if (parsed_type == "space")
       type = Type::space;

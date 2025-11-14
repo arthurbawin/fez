@@ -29,13 +29,18 @@ namespace BoundaryConditions
     // Common
     none,
     input_function,
-    mms, // Set boundary to prescribed manufactured solution
 
     // Flow
     outflow,      // Do nothing
     no_slip,      // Enforce given functions
     weak_no_slip, // Check that lagrange mult is defined, couple
     slip,         // Enforce no_flux
+
+    // These boundary conditions are for flow verification purposes:
+    velocity_mms,      // Set velocity to prescribed manufactured solution
+    velocity_flux_mms, // Set u dot n = u_mms dot n
+    // Set (-pI + nu*grad(u)) \cdot n = (-p_mmsI + nu*grad(u_mms)) \cdot n
+    open_mms,
 
     // Pseudo_solid
     fixed, // Enforce 0 displacement. Default when no BC is prescribed?
@@ -66,8 +71,7 @@ namespace BoundaryConditions
      * Declare the parameters common to all boundary conditions
      */
     virtual void declare_parameters(ParameterHandler &prm);
-    virtual void read_parameters(ParameterHandler  &prm,
-                                 const unsigned int boundary_id);
+    virtual void read_parameters(ParameterHandler &prm);
 
     /**
      * Update the time in the underlying functions, if applicable.
@@ -110,8 +114,7 @@ namespace BoundaryConditions
 
   public:
     virtual void declare_parameters(ParameterHandler &prm) override;
-    virtual void read_parameters(ParameterHandler  &prm,
-                         const unsigned int boundary_id) override;
+    virtual void read_parameters(ParameterHandler &prm) override;
   };
 
   /**
@@ -123,31 +126,34 @@ namespace BoundaryConditions
   {
   public:
     virtual void declare_parameters(ParameterHandler &prm) override;
-    virtual void read_parameters(ParameterHandler  &prm,
-                         const unsigned int boundary_id) override;
+    virtual void read_parameters(ParameterHandler &prm) override;
     virtual void set_time(const double) override {}
   };
 
   // FIXME: templatize the "declare" and "read" functions below,
   // so that one function handles all types of BC vectors.
   template <int dim>
-  void declare_fluid_boundary_conditions(ParameterHandler          &prm,
-                                         std::vector<FluidBC<dim>> &fluid_bc)
+  void declare_fluid_boundary_conditions(ParameterHandler  &prm,
+                                         const unsigned int n_fluid_bc)
   {
+    // These boundary conditions are used to declare the generic parameters
+    // (problem is that map keys are immutable after they are created, although
+    // we could alternatively move or swap the map entries).
+    std::vector<FluidBC<dim>> tmp_bc(n_fluid_bc);
+
     prm.enter_subsection("Fluid boundary conditions");
     {
       // The number was already parsed in a first dry run
-      prm.declare_entry(
-        "number",
-        "0",
-        Patterns::Integer(),
-        "Number of fluid boundary conditions");
+      prm.declare_entry("number",
+                        "0",
+                        Patterns::Integer(),
+                        "Number of fluid boundary conditions");
 
-      for (unsigned int i = 0; i < fluid_bc.size(); ++i)
+      for (unsigned int i = 0; i < n_fluid_bc; ++i)
       {
         prm.enter_subsection("boundary " + std::to_string(i));
         {
-          fluid_bc[i].declare_parameters(prm);
+          tmp_bc[i].declare_parameters(prm);
         }
         prm.leave_subsection();
       }
@@ -156,8 +162,10 @@ namespace BoundaryConditions
   }
 
   template <int dim>
-  void read_fluid_boundary_conditions(ParameterHandler          &prm,
-                                      std::vector<FluidBC<dim>> &fluid_bc)
+  void read_fluid_boundary_conditions(
+    ParameterHandler                           &prm,
+    const unsigned int                          n_fluid_bc,
+    std::map<types::boundary_id, FluidBC<dim>> &fluid_bc)
   {
     /**
      * FIXME: If the number of bc actually added in the parameter file is
@@ -169,11 +177,12 @@ namespace BoundaryConditions
      */
     prm.enter_subsection("Fluid boundary conditions");
     {
-      for (unsigned int i = 0; i < fluid_bc.size(); ++i)
+      for (unsigned int i = 0; i < n_fluid_bc; ++i)
       {
         prm.enter_subsection("boundary " + std::to_string(i));
         {
-          fluid_bc[i].read_parameters(prm, i);
+          unsigned int id = prm.get_integer("id");
+          fluid_bc[id].read_parameters(prm);
         }
         prm.leave_subsection();
       }
@@ -185,12 +194,12 @@ namespace BoundaryConditions
   void FluidBC<dim>::declare_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry(
-      "type",
-      "none",
-      Patterns::Selection(
-        "none|input_function|outflow|no_slip|weak_no_slip|slip|mms"),
-      "Type of fluid boundary condition");
+    prm.declare_entry("type",
+                      "none",
+                      Patterns::Selection(
+                        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
+                        "velocity_mms|velocity_flux_mms|open_mms"),
+                      "Type of fluid boundary condition");
 
     // Imposed functions, if any
     prm.enter_subsection("u");
@@ -207,10 +216,9 @@ namespace BoundaryConditions
   }
 
   template <int dim>
-  void FluidBC<dim>::read_parameters(ParameterHandler  &prm,
-                                     const unsigned int boundary_id)
+  void FluidBC<dim>::read_parameters(ParameterHandler &prm)
   {
-    BoundaryCondition::read_parameters(prm, boundary_id);
+    BoundaryCondition::read_parameters(prm);
     physics_type                  = PhysicsType::fluid;
     physics_str                   = "fluid";
     const std::string parsed_type = prm.get("type");
@@ -224,11 +232,15 @@ namespace BoundaryConditions
       type = Type::weak_no_slip;
     if (parsed_type == "slip")
       type = Type::slip;
-    if (parsed_type == "mms")
-      type = Type::mms;
+    if (parsed_type == "velocity_mms")
+      type = Type::velocity_mms;
+    if (parsed_type == "velocity_flux_mms")
+      type = Type::velocity_flux_mms;
+    if (parsed_type == "open_mms")
+      type = Type::open_mms;
     if (parsed_type == "none")
       throw std::runtime_error(
-        "Fluid boundary condition for boundary " + std::to_string(boundary_id) +
+        "Fluid boundary condition for boundary " + std::to_string(this->id) +
         " is set to \"none\".\n"
         "Either you specified this type by mistake, or the number of \n"
         "prescribed fluid boundary conditions is smaller than "
@@ -248,23 +260,24 @@ namespace BoundaryConditions
   }
 
   template <int dim>
-  void declare_pseudosolid_boundary_conditions(
-    ParameterHandler                &prm,
-    std::vector<PseudosolidBC<dim>> &pseudosolid_bc)
+  void
+  declare_pseudosolid_boundary_conditions(ParameterHandler  &prm,
+                                          const unsigned int n_pseudosolid_bc)
   {
+    std::vector<PseudosolidBC<dim>> tmp_bc(n_pseudosolid_bc);
+
     prm.enter_subsection("Pseudosolid boundary conditions");
     {
-      prm.declare_entry(
-        "number",
-        "0", // Utilities::int_to_string(number_of_boundary_conditions),
-        Patterns::Integer(),
-        "Number of pseudosolid boundary conditions");
+      prm.declare_entry("number",
+                        "0",
+                        Patterns::Integer(),
+                        "Number of pseudosolid boundary conditions");
 
-      for (unsigned int i = 0; i < pseudosolid_bc.size(); ++i)
+      for (unsigned int i = 0; i < n_pseudosolid_bc; ++i)
       {
         prm.enter_subsection("boundary " + std::to_string(i));
         {
-          pseudosolid_bc[i].declare_parameters(prm);
+          tmp_bc[i].declare_parameters(prm);
         }
         prm.leave_subsection();
       }
@@ -274,16 +287,18 @@ namespace BoundaryConditions
 
   template <int dim>
   void read_pseudosolid_boundary_conditions(
-    ParameterHandler                &prm,
-    std::vector<PseudosolidBC<dim>> &pseudosolid_bc)
+    ParameterHandler                                 &prm,
+    const unsigned int                                n_pseudosolid_bc,
+    std::map<types::boundary_id, PseudosolidBC<dim>> &pseudosolid_bc)
   {
     prm.enter_subsection("Pseudosolid boundary conditions");
     {
-      for (unsigned int i = 0; i < pseudosolid_bc.size(); ++i)
+      for (unsigned int i = 0; i < n_pseudosolid_bc; ++i)
       {
         prm.enter_subsection("boundary " + std::to_string(i));
         {
-          pseudosolid_bc[i].read_parameters(prm, i);
+          unsigned int id = prm.get_integer("id");
+          pseudosolid_bc[id].read_parameters(prm);
         }
         prm.leave_subsection();
       }
@@ -298,15 +313,14 @@ namespace BoundaryConditions
     prm.declare_entry("type",
                       "none",
                       Patterns::Selection(
-                        "none|fixed|coupled_to_fluid|no_flux|input_function|mms"),
+                        "none|fixed|coupled_to_fluid|no_flux|input_function"),
                       "Type of pseudosolid boundary condition");
   }
 
   template <int dim>
-  void PseudosolidBC<dim>::read_parameters(ParameterHandler  &prm,
-                                           const unsigned int boundary_id)
+  void PseudosolidBC<dim>::read_parameters(ParameterHandler &prm)
   {
-    BoundaryCondition::read_parameters(prm, boundary_id);
+    BoundaryCondition::read_parameters(prm);
     physics_type                  = PhysicsType::pseudosolid;
     physics_str                   = "pseudosolid";
     const std::string parsed_type = prm.get("type");
@@ -318,12 +332,10 @@ namespace BoundaryConditions
       type = Type::no_flux;
     if (parsed_type == "input_function")
       type = Type::input_function;
-    if (parsed_type == "mms")
-      type = Type::mms;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Pseudosolid boundary condition for boundary " +
-        std::to_string(boundary_id) +
+        std::to_string(this->id) +
         " is set to \"none\".\n"
         "Either you specified this type by mistake, or the number of \n"
         "prescribed pseudosolid boundary conditions is smaller than "
@@ -335,7 +347,7 @@ namespace BoundaryConditions
  * Flow velocity prescribed by individual ParsedFunctions u,v,w.
  * The parameter @p u_lower is the first velocity component in the
  * solution vector (zero-based).
- * 
+ *
  * Note that the time dependency (if any) is accounted for by
  * setting the time of the underlying ParsedFunctions through set_time(t),
  * and calling e.g. u->value(p), and not u->value(p,t).
@@ -344,17 +356,17 @@ template <int dim>
 class ComponentwiseFlowVelocity : public Function<dim>
 {
 public:
-  const unsigned int u_lower;
+  const unsigned int                              u_lower;
   std::shared_ptr<Functions::ParsedFunction<dim>> u;
   std::shared_ptr<Functions::ParsedFunction<dim>> v;
   std::shared_ptr<Functions::ParsedFunction<dim>> w;
 
 public:
   ComponentwiseFlowVelocity(const unsigned int u_lower,
-                    const unsigned int n_components,
-                    std::shared_ptr<Functions::ParsedFunction<dim>> u,
-                    std::shared_ptr<Functions::ParsedFunction<dim>> v,
-                    std::shared_ptr<Functions::ParsedFunction<dim>> w)
+                            const unsigned int n_components,
+                            std::shared_ptr<Functions::ParsedFunction<dim>> u,
+                            std::shared_ptr<Functions::ParsedFunction<dim>> v,
+                            std::shared_ptr<Functions::ParsedFunction<dim>> w)
     : Function<dim>(n_components)
     , u_lower(u_lower)
     , u(u)
@@ -363,13 +375,13 @@ public:
   {}
 
   virtual double value(const Point<dim> &p,
-                       unsigned int component) const override
+                       unsigned int      component) const override
   {
-    if(component == u_lower + 0)
+    if (component == u_lower + 0)
       return u->value(p);
-    if(component == u_lower + 1)
+    if (component == u_lower + 1)
       return v->value(p);
-    if(component == u_lower + 2)
+    if (component == u_lower + 2)
       return w->value(p);
     return 0.;
   }
@@ -379,11 +391,11 @@ public:
  * This function is meant to represent the spatial identity function,
  * and is used to enforce a no displacement boundary condition for a
  * pseudosolid mesh movement problem, that is, x(X) = X.
- * 
+ *
  * The only trick is that depending on the problem, the index of the
  * position variables in the solution vector may vary, so this needs
  * to be specified by the @p x_lower parameter.
- * 
+ *
  * Note that if we were solving for the displacement instead of the
  * position, this function would simply be the zero function.
  */
@@ -395,8 +407,7 @@ public:
   const unsigned int x_lower;
 
 public:
-  FixedMeshPosition(const unsigned int x_lower,
-                    const unsigned int n_components)
+  FixedMeshPosition(const unsigned int x_lower, const unsigned int n_components)
     : Function<dim>(n_components)
     , x_lower(x_lower)
   {}

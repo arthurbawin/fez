@@ -92,12 +92,12 @@ public:
   void compute_temporal_error()
   {
     //////////////////////
-    for(const auto &key : ordered_keys)
-    {
-      const auto &error_vec = unsteady_errors.at(key);
-      for(const auto &[t, e] : error_vec)
-        std::cout << t << " : " << e << std::endl;
-    }
+    // for(const auto &key : ordered_keys)
+    // {
+    //   const auto &error_vec = unsteady_errors.at(key);
+    //   for(const auto &[t, e] : error_vec)
+    //     std::cout << t << " : " << e << std::endl;
+    // }
     //////////////////////
     
     for(const auto &key : ordered_keys)

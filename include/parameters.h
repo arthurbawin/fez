@@ -141,7 +141,21 @@ namespace Parameters
   };
 
   struct LinearSolver
-  {};
+  {
+    Verbosity    verbosity;
+
+    enum class Method
+    {
+      direct_mumps,
+      gmres
+    } method;
+
+    double tolerance;
+    unsigned int max_iterations;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
 
   struct TimeIntegration
   {

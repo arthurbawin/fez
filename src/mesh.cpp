@@ -138,9 +138,10 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
   {
     // Check that each boundary id appears in the fluid boundary conditions
     AssertThrow(
-      std::count_if(param.fluid_bc.begin(),
-                    param.fluid_bc.end(),
-                    [id](const auto &bc) { return bc.id == id; }) == 1,
+      // std::count_if(param.fluid_bc.begin(),
+      //               param.fluid_bc.end(),
+      //               [id](const auto &bc) { return bc.id == id; }) == 1,
+      param.fluid_bc.find(id) != param.fluid_bc.end(),
       ExcMessage("In mesh file " + param.mesh.filename +
                  " :\n"
                  "No fluid boundary condition was assigned to boundary " +
@@ -153,9 +154,10 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
       // Check that each boundary id appears in the pseudosolid boundary
       // conditions
       AssertThrow(
-        std::count_if(param.pseudosolid_bc.begin(),
-                      param.pseudosolid_bc.end(),
-                      [id](const auto &bc) { return bc.id == id; }) == 1,
+        // std::count_if(param.pseudosolid_bc.begin(),
+        //               param.pseudosolid_bc.end(),
+        //               [id](const auto &bc) { return bc.id == id; }) == 1,
+        param.pseudosolid_bc.find(id) != param.pseudosolid_bc.end(),
         ExcMessage(
           "In mesh file " + param.mesh.filename +
           " :\n"
@@ -222,10 +224,10 @@ template <int dim>
 void check_boundary_conditions_compatibility(const ParameterReader<dim> &param)
 {
   // Check fluid conditions
-  for (const auto &bc : param.fluid_bc)
+  for (const auto &[id, bc] : param.fluid_bc)
     check_single_boundary_condition(bc, param);
   // Check pseudosolid conditions
-  for (const auto &bc : param.pseudosolid_bc)
+  for (const auto &[id, bc] : param.pseudosolid_bc)
     check_single_boundary_condition(bc, param);
 }
 

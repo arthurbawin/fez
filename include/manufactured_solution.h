@@ -48,16 +48,12 @@ namespace ManufacturedSolution
     {
       prm.enter_subsection("Manufactured solution");
       {
-        std::cout << "Reading velocity" << std::endl;
         prm.enter_subsection("exact velocity");
         exact_velocity->parse_parameters(prm);
         prm.leave_subsection();
-        std::cout << "Done velocity" << std::endl;
-        std::cout << "Reading pressure" << std::endl;
         prm.enter_subsection("exact pressure");
         exact_pressure->parse_parameters(prm);
         prm.leave_subsection();
-        std::cout << "Done pressure" << std::endl;
       }
       prm.leave_subsection();
     }

@@ -91,6 +91,9 @@ namespace Parameters
   public:
     std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity_callback;
     std::shared_ptr<InitialVelocity<dim>>           initial_velocity;
+
+    // If true, the initial condition is specified by a manufactured solution
+    bool set_to_mms;
   };
 
   template <int dim>
@@ -98,8 +101,13 @@ namespace Parameters
   {
     prm.enter_subsection("Initial conditions");
     {
+      prm.declare_entry(
+        "to mms",
+        "false",
+        Patterns::Bool(),
+        "If true, initial conditions are specified by the prescribed manufactured solution.");
       prm.enter_subsection("velocity");
-      initial_velocity_callback->declare_parameters(prm);
+      initial_velocity_callback->declare_parameters(prm, dim);
       prm.leave_subsection();
     }
     prm.leave_subsection();
@@ -110,6 +118,7 @@ namespace Parameters
   {
     prm.enter_subsection("Initial conditions");
     {
+      set_to_mms = prm.get_bool("to mms");
       prm.enter_subsection("velocity");
       initial_velocity_callback->parse_parameters(prm);
       prm.leave_subsection();

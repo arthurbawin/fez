@@ -103,6 +103,21 @@ namespace ManufacturedSolution
 
     double time_derivative(const Point<dim> &p) const { return dfdt.value(p); }
 
+    /**
+     * Overload of the deal.II gradient function
+     */
+    virtual Tensor<1, dim> gradient(const Point<dim>  &p,
+                         const unsigned int /*component*/ = 0) const override
+    {
+      Tensor<1, dim> grad;
+      for (unsigned int d = 0; d < dim; ++d)
+        grad[d] = grad_function_object.value(p, d);
+      return grad;
+    }
+
+    /**
+     * Custom gradient, filled in-place
+     */
     void gradient(const Point<dim> &p, Tensor<1, dim> &grad) const
     {
       for (unsigned int d = 0; d < dim; ++d)
@@ -135,14 +150,6 @@ namespace ManufacturedSolution
       for(unsigned int d = 0; d < dim; ++d)
         out << "\t" << expr[d] << std::endl;
     }
-
-    // void print_hessian(std::ostream &out) const
-    // {
-    //   out << "grad f = " << std::endl;
-    //   const auto expr = grad_function_object.get_expressions();
-    //   for(unsigned int d = 0; d < dim; ++d)
-    //     out << "\t" << expr[d] << std::endl;
-    // }
 
   private:
     virtual void
@@ -208,6 +215,18 @@ namespace ManufacturedSolution
     {
       for (unsigned int d = 0; d < dim; ++d)
         res[d] = dfdt.value(p, d);
+    }
+
+    /**
+     * Overload of the deal.II gradient function
+     */
+    virtual Tensor<1, dim> gradient(const Point<dim>  &p,
+                         const unsigned int component = 0) const override
+    {
+      Tensor<1, dim> grad;
+      for (unsigned int d = 0; d < dim; ++d)
+        grad[d] = grad_function_object[component]->value(p, d);
+      return grad;
     }
 
     /**

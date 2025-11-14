@@ -208,7 +208,6 @@ namespace ManufacturedSolution
     //
     const Tensor<1, dim, Expression> grad_f =
       differentiate(f, independent_variables);
-    std::cout << grad_f << std::endl;
 
     // Get the string expressions of the spatial derivatives
     std::vector<std::string> grad_expressions;
@@ -233,7 +232,6 @@ namespace ManufacturedSolution
       // Get symbolic gradient of gradient component
       const Tensor<1, dim, Expression> hess_i =
         differentiate(grad_f[di], independent_variables);
-      std::cout << hess_i << std::endl;
 
       for (unsigned int dj = 0; dj < dim; ++dj)
       {
@@ -287,7 +285,6 @@ namespace ManufacturedSolution
       //
       const Tensor<1, dim, Expression> grad_f =
         differentiate(f, independent_variables);
-      std::cout << grad_f << std::endl;
 
       // Get the string expressions of the spatial derivatives
       std::vector<std::string> grad_expressions;
@@ -301,14 +298,6 @@ namespace ManufacturedSolution
                                                grad_expressions,
                                                constants,
                                                time_dependent);
-
-      std::cout << "Converted gradient is : " << std::endl;
-      for(auto str : grad_expressions)
-        std::cout << str << std::endl;
-      const auto expr2 = this->grad_function_object[i_comp]->get_expressions();
-      for(unsigned int d = 0; d < dim; ++d)
-        std::cout << "\t" << expr2[d] << std::endl;
-
       //
       // Get symbolic hessian of component
       //
@@ -319,7 +308,6 @@ namespace ManufacturedSolution
         // Get symbolic gradient of gradient component
         const Tensor<1, dim, Expression> hess_i =
           differentiate(grad_f[di], independent_variables);
-        std::cout << hess_i << std::endl;
 
         for (unsigned int dj = 0; dj < dim; ++dj)
         {
@@ -343,8 +331,6 @@ namespace ManufacturedSolution
         time_derivatives += replace_all_exponents(sstream.str()) + ";";
       }
     }
-    std::cout << "Time derivatives initialized from " << time_derivatives
-              << std::endl;
     dfdt.initialize(variables, time_derivatives, constants, time_dependent);
   }
 

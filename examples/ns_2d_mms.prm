@@ -20,21 +20,27 @@ end
 subsection Time integration
   set dt        = 0.1
   set t_initial = 0
-  set t_end     = 0.2
+  set t_end     = 1.
   set scheme    = stationary
 end
 
 subsection Nonlinear solver
-  set tolerance            = 1e-12
+  set tolerance            = 1e-8
   set divergence_tolerance = 1e+4
   set max_iterations       = 50
   set enable_line_search   = true
   set analytic_jacobian    = true
 end
 
+subsection Linear solver
+  set method         = direct_mumps
+  set tolerance      = 1e-8
+  set max iterations = 30000 
+end
+
 subsection FiniteElements
-  set Velocity degree            = 2
-  set Pressure degree            = 1
+  set Velocity degree = 2
+  set Pressure degree = 1
 end
 
 subsection Physical properties
@@ -46,9 +52,7 @@ subsection Physical properties
 end
 
 subsection Initial conditions
-  subsection velocity
-    set Function expression = cos(x*y)^2; atan(x*y)
-  end
+  set to mms = true
 end
 
 subsection Fluid boundary conditions
@@ -57,34 +61,17 @@ subsection Fluid boundary conditions
   subsection boundary 0
     set id   = 1
     set name = Boundary
-    set type = mms
-    #set type = input_function
-    #subsection u
-    #  set Function expression = t
-    #end
-    #subsection v
-    #  set Function expression = t
-    #end
-  end
-end
-
-subsection Source terms
-  subsection fluid
-    set Function expression = 0; 0; 0
-  end
-  subsection pseudosolid
-    set Function expression = 0; 0
+    set type = velocity_mms
   end
 end
 
 subsection Manufactured solution
   set enable            = true
   set type              = space
-  set convergence steps = 4
+  set convergence steps = 3
 
   subsection Space convergence
     set mesh prefix = ../data/meshes/mms/square_mms
-    set first mesh  = 1
   end
 
   subsection Time convergence
@@ -94,9 +81,9 @@ subsection Manufactured solution
   end
 
   subsection exact velocity
-    set Function expression = cos(x*y)^2; atan(x*y)
+    set Function expression = x^3; y^3
   end
   subsection exact pressure
-    set Function expression = x + y
+    set Function expression = x*y
   end
 end

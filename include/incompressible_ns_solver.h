@@ -23,10 +23,35 @@ using namespace dealii;
 
 /**
  * Incompressible Navier-Stokes solver.
- * Solves the nonstabilized Navier-Stokes equations with div(u) = 0. Because
- * the system is not stabilized with e.g. PSPG terms, LBB stable mixed finite
- * elements should be used, the most straightforward being the P2-P1 Taylor-Hood
- * element.
+ * Solves the nonstabilized incompressible Navier-Stokes equations :
+ *
+ *                                                     div(u) = 0,
+ *
+ *          dudt + (u dot grad) u + grad(p) - nu * lap(u) + f = 0,
+ *
+ * where the fluid density rho is absorbed in the pressure, that is, we
+ * actually solve for p/rho instead of p.
+ *
+ * Note that since div(u) = 0, the grad(div(u)) term obtained by expanding
+ * div(sigma(u,p)) has been removed. This should be kept in mind when:
+ *
+ *    - Writing source terms for test verification with manufactured solutions.
+ *      In particular, the implemented source term is
+ *
+ *  f = -(du_mms/dt + (u_mms dot grad) u_mms + grad_p_mms - nu * lap_u_mms)
+ *
+ *    - Enforcing natural boundary conditions. The natural boundary condition
+ *      arising from the solved equations is the open boundary condition:
+ *
+ *                   (-pI + nu*grad(u)) \cdot n = g,
+ *
+ *      rather than the traction boundary condition:
+ *
+ *              (-pI + nu*(grad(u) + grad(u)^T)) \cdot n = g.
+ *
+ * Because the system is not stabilized with e.g. PSPG terms, LBB stable mixed
+ * finite elements should be used, the most straightforward being the P2-P1
+ * Taylor-Hood element.
  */
 template <int dim>
 class IncompressibleNavierStokesSolver : public GenericSolver<LA::ParVectorType>
@@ -157,7 +182,8 @@ public:
   void reset();
 
   /**
-   * Update time in all relevant structures (boundary conditions, source terms, exact solution).
+   * Update time in all relevant structures (boundary conditions, source terms,
+   * exact solution).
    */
   void set_time();
 
@@ -171,7 +197,7 @@ public:
     MMSSolution(const double                                           time,
                 const ManufacturedSolution::ManufacturedSolution<dim> &mms)
       : Function<dim>(n_components, time)
-    , mms(mms)
+      , mms(mms)
     {}
 
     // Update time in the mms functions
@@ -183,9 +209,7 @@ public:
     virtual double value(const Point<dim>  &p,
                          const unsigned int component = 0) const override
     {
-      Assert(component < dim + 1,
-             ExcMessage(
-               "Navier-Stokes MMS solution only has dim + 1 components."));
+      Assert(component < n_components, ExcMessage("Component mismatch"));
       if (component < dim)
         return mms.exact_velocity->value(p, component);
       else
@@ -195,12 +219,21 @@ public:
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override
     {
-      Assert(values.size() == dim + 1,
-             ExcMessage(
-               "Navier-Stokes MMS solution expects dim + 1 components."));
+      Assert(values.size() == n_components, ExcMessage("Component mismatch"));
       for (unsigned int d = 0; d < dim; ++d)
         values[u_lower + d] = mms.exact_velocity->value(p, d);
       values[p_lower] = mms.exact_pressure->value(p);
+    }
+
+    virtual Tensor<1, dim>
+    gradient(const Point<dim>  &p,
+             const unsigned int component = 0) const override
+    {
+      Assert(component < n_components, ExcMessage("Component mismatch"));
+      if (component < dim)
+        return mms.exact_velocity->gradient(p, component);
+      else
+        return mms.exact_pressure->gradient(p);
     }
 
   protected:

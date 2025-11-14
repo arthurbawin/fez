@@ -4,6 +4,7 @@
 #include <deal.II/base/quadrature.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
+#include <deal.II/fe/fe_update_flags.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping.h>
 #include <deal.II/lac/generic_linear_algebra.h>
@@ -22,11 +23,19 @@ constexpr bool is_supported_vector_v = std::is_same_v<T, LA::ParVectorType> ||
                                        std::is_same_v<T, std::vector<double>>;
 
 /**
- * Scratch data for the monolithic fluid-structure interaction solver.
+ * Scratch data for the incompressible Navier-Stokes solver.
  */
 template <int dim>
 class ScratchDataNS
 {
+private:
+  const UpdateFlags required_updates = update_values | update_gradients |
+                                       update_quadrature_points |
+                                       update_JxW_values | update_jacobians;
+  const UpdateFlags required_face_updates =
+    update_values | update_gradients | update_quadrature_points |
+    update_JxW_values | update_jacobians | update_normal_vectors;
+
 public:
   /**
    * Constructor
@@ -34,24 +43,15 @@ public:
    * FIXME: Incompressible NS does not requires all these FEValues updates (e.g.
    * inverse jacobians)
    */
-  ScratchDataNS(const FESystem<dim>       &fe,
-                const Quadrature<dim>     &cell_quadrature,
-                const Mapping<dim>        &mapping,
-                const Quadrature<dim - 1> &face_quadrature,
-                const unsigned int         dofs_per_cell,
-                const std::vector<double> &bdfCoeffs)
-    : fe_values(mapping,
-                fe,
-                cell_quadrature,
-                update_values | update_gradients | update_quadrature_points |
-                  update_JxW_values | update_jacobians |
-                  update_inverse_jacobians)
-    , fe_face_values(mapping,
-                     fe,
-                     face_quadrature,
-                     update_values | update_gradients |
-                       update_quadrature_points | update_JxW_values |
-                       update_jacobians | update_inverse_jacobians)
+  ScratchDataNS(const FESystem<dim>        &fe,
+                const Quadrature<dim>      &cell_quadrature,
+                const Mapping<dim>         &mapping,
+                const Quadrature<dim - 1>  &face_quadrature,
+                const unsigned int          dofs_per_cell,
+                const std::vector<double>  &bdfCoeffs,
+                const ParameterReader<dim> &param)
+    : fe_values(mapping, fe, cell_quadrature, required_updates)
+    , fe_face_values(mapping, fe, face_quadrature, required_face_updates)
     , n_q_points(cell_quadrature.size())
 
     // We assume simplicial meshes with all tris or tets
@@ -64,6 +64,17 @@ public:
     velocity.first_vector_component = u_lower;
     pressure.component              = p_lower;
     this->allocate();
+
+    // Check if weak forms are to be assembled on boundaries
+    has_boundary_forms = false;
+    for (const auto &[id, bc] : param.fluid_bc)
+    {
+      if (bc.type == BoundaryConditions::Type::open_mms)
+      {
+        has_boundary_forms = true;
+        break;
+      }
+    }
   }
 
   /**
@@ -72,18 +83,15 @@ public:
    * expensive copies.
    */
   ScratchDataNS(const ScratchDataNS &other)
-    : fe_values(other.fe_values.get_mapping(),
+    : has_boundary_forms(other.has_boundary_forms)
+    , fe_values(other.fe_values.get_mapping(),
                 other.fe_values.get_fe(),
                 other.fe_values.get_quadrature(),
-                update_values | update_gradients | update_quadrature_points |
-                  update_JxW_values | update_jacobians |
-                  update_inverse_jacobians)
+                required_updates)
     , fe_face_values(other.fe_face_values.get_mapping(),
                      other.fe_face_values.get_fe(),
                      other.fe_face_values.get_quadrature(),
-                     update_values | update_gradients |
-                       update_quadrature_points | update_JxW_values |
-                       update_jacobians | update_inverse_jacobians)
+                     required_face_updates)
     , n_q_points(other.n_q_points)
     , n_faces(other.n_faces)
     , n_faces_q_points(other.n_faces_q_points)
@@ -120,13 +128,37 @@ public:
     grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
     div_phi_u.resize(n_q_points, std::vector<double>(dofs_per_cell));
     phi_p.resize(n_q_points, std::vector<double>(dofs_per_cell));
+
+    // Faces
+    face_boundary_id.resize(n_faces);
+    face_JxW.resize(n_faces, std::vector<double>(n_faces_q_points));
+    face_normals.resize(n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+
+    // present_face_velocity_gradients.resize(
+    //   n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
+    // present_face_pressure_values.resize(n_faces,
+    //                                     std::vector<double>(n_faces_q_points));
+
+    exact_solution_full.resize(n_faces_q_points, Vector<double>(n_components));
+    grad_exact_solution_full.resize(n_faces_q_points,
+                                    std::vector<Tensor<1, dim>>(n_components));
+    exact_face_velocity_gradients.resize(
+      n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
+    exact_face_pressure_values.resize(n_faces,
+                                      std::vector<double>(n_faces_q_points));
+
+    phi_u_face.resize(n_faces,
+                      std::vector<std::vector<Tensor<1, dim>>>(
+                        n_faces_q_points,
+                        std::vector<Tensor<1, dim>>(dofs_per_cell)));
   }
 
   template <typename VectorType1, typename VectorType2>
   void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
-              const VectorType1              &current_solution,
-              const std::vector<VectorType2> &previous_solutions,
-              const std::shared_ptr<Function<dim>> &source_terms)
+              const VectorType1                    &current_solution,
+              const std::vector<VectorType2>       &previous_solutions,
+              const std::shared_ptr<Function<dim>> &source_terms,
+              const std::shared_ptr<Function<dim>> &exact_solution)
   {
     static_assert(is_supported_vector_v<VectorType1>,
                   "reinit expects the current_solution to be either a deal.II "
@@ -170,7 +202,8 @@ public:
     }
 
     // Source terms with layout u-v-(w-)p
-    source_terms->vector_value_list(fe_values.get_quadrature_points(), source_term_full);
+    source_terms->vector_value_list(fe_values.get_quadrature_points(),
+                                    source_term_full);
 
     // Get jacobian, shape functions and set source terms
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -189,6 +222,69 @@ public:
         phi_p[q][k]      = fe_values[pressure].value(k, q);
       }
     }
+
+    //
+    // Face-related quantities
+    //
+    if (has_boundary_forms && cell->at_boundary())
+      for (const auto i_face : cell->face_indices())
+      {
+        face_boundary_id.resize(n_faces);
+        face_JxW.resize(n_faces, std::vector<double>(n_faces_q_points));
+        face_normals.resize(n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+
+        exact_solution_full.resize(n_faces_q_points, Vector<double>(n_components));
+        grad_exact_solution_full.resize(n_faces_q_points,
+                                        std::vector<Tensor<1, dim>>(n_components));
+        exact_face_velocity_gradients.resize(
+          n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
+        exact_face_pressure_values.resize(n_faces,
+                                          std::vector<double>(n_faces_q_points));
+
+        phi_u_face.resize(n_faces,
+                          std::vector<std::vector<Tensor<1, dim>>>(
+                            n_faces_q_points,
+                            std::vector<Tensor<1, dim>>(dofs_per_cell)));
+
+
+        const auto &face = cell->face(i_face);
+        if (face->at_boundary())
+        {
+          face_boundary_id[i_face] = face->boundary_id();
+          fe_face_values.reinit(cell, face);
+
+          // fe_face_values[velocity].get_function_values(
+          //   current_solution, present_face_velocity_values[i_face]);
+          // fe_face_values[velocity].get_function_gradients(
+          //   current_solution, present_face_velocity_gradients[i_face]);
+          // fe_face_values[pressure].get_function_values(
+          //   current_solution, present_face_pressure_values[i_face]);
+
+          // Exact solution with layout u-v-(w-)p and its gradient
+          exact_solution->vector_value_list(
+            fe_face_values.get_quadrature_points(), exact_solution_full);
+          exact_solution->vector_gradient_list(
+            fe_face_values.get_quadrature_points(), grad_exact_solution_full);
+
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            face_JxW[i_face][q]     = fe_face_values.JxW(q);
+            face_normals[i_face][q] = fe_face_values.normal_vector(q);
+
+            for (int di = 0; di < dim; ++di)
+              for (int dj = 0; dj < dim; ++dj)
+                exact_face_velocity_gradients[i_face][q][di][dj] =
+                  grad_exact_solution_full[q][u_lower + di][dj];
+            exact_face_pressure_values[i_face][q] =
+              exact_solution_full[q](p_lower);
+
+            for (unsigned int k = 0; k < dofs_per_cell; ++k)
+            {
+              phi_u_face[i_face][q][k] = fe_face_values[velocity].value(k, q);
+            }
+          }
+        }
+      }
   }
 
 public:
@@ -200,6 +296,8 @@ public:
   FEValuesExtractors::Scalar pressure;
 
 public:
+  bool has_boundary_forms;
+
   FEValues<dim>     fe_values;
   FEFaceValues<dim> fe_face_values;
 
@@ -236,6 +334,26 @@ public:
   std::vector<std::vector<Tensor<2, dim>>> grad_phi_u;
   std::vector<std::vector<double>>         div_phi_u;
   std::vector<std::vector<double>>         phi_p;
+
+  //
+  // Faces
+  //
+  std::vector<unsigned int>                face_boundary_id;
+  std::vector<std::vector<double>>         face_JxW;
+  std::vector<std::vector<Tensor<1, dim>>> face_normals;
+
+  // Current and previous values on faces
+  // std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
+  // std::vector<std::vector<Tensor<2, dim>>> present_face_velocity_gradients;
+  // std::vector<std::vector<double>>         present_face_pressure_values;
+
+  std::vector<Vector<double>>              exact_solution_full;
+  std::vector<std::vector<Tensor<1, dim>>> grad_exact_solution_full;
+  std::vector<std::vector<Tensor<2, dim>>> exact_face_velocity_gradients;
+  std::vector<std::vector<double>>         exact_face_pressure_values;
+
+  // Shape functions on faces, for each each quad node and each dof
+  std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
 };
 
 /**

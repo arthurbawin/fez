@@ -66,10 +66,12 @@ public:
   /**
    *
    */
+  template <int dim>
   void run_convergence_loop()
   {
     for (unsigned int i_conv = 0; i_conv < mms_param.n_convergence; ++i_conv)
     {
+      mms_param.current_step = i_conv;
       error_handler.clear_error_history();
 
       // If a manufactured solution test is run, bypass the given mesh file
@@ -86,7 +88,15 @@ public:
       {
         // This change is accounted for in the reset() function of each
         // derived solver
-        mms_param.override_mesh_filename(mesh_param, i_conv + 1);
+        unsigned int mesh_suffix = i_conv + 1;
+
+        if(mms_param.run_only_step >= 0)
+        {
+          mesh_suffix = mms_param.run_only_step;
+          mms_param.current_step = mms_param.run_only_step;
+        }
+
+        mms_param.override_mesh_filename(mesh_param, mesh_suffix);
         pcout << "Convergence test with manufactured solution:" << std::endl;
         pcout << "Mesh file was changed to " << mesh_param.filename
               << std::endl;
@@ -109,9 +119,12 @@ public:
       // If unsteady, compute the Lp time norm for this convergence step
       if(time_param.scheme != Parameters::TimeIntegration::Scheme::stationary)
         error_handler.compute_temporal_error();
+
+      if(mms_param.run_only_step >= 0)
+        break;
     }
 
-    error_handler.compute_rates();
+    error_handler.compute_rates<dim>();
     if (mpi_rank == 0)
       error_handler.write_rates();
   }

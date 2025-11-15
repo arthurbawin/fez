@@ -7,6 +7,7 @@
 #include <deal.II/dofs/dof_handler.h>
 #include <types.h>
 #include <parameters.h>
+#include <mumps_solver.h>
 
 using namespace dealii;
 
@@ -20,6 +21,12 @@ void solve_linear_system_direct(GenericSolver<LA::ParVectorType> *solver,
                            LA::ParMatrixType                &system_matrix,
                            const IndexSet                   &locally_owned_dofs,
                            const AffineConstraints<double>  &zero_constraints);
+
+void solve_linear_system_direct(GenericSolver<LA::ParVectorType> *solver,
+                           LA::ParMatrixType                &system_matrix,
+                           const IndexSet                   &locally_owned_dofs,
+                           const AffineConstraints<double>  &zero_constraints,
+                           PETScWrappers::SparseDirectMUMPSReuse &direct_solver);
 
 void solve_linear_system_iterative(
   GenericSolver<LA::ParVectorType> *solver,

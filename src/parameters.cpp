@@ -336,6 +336,14 @@ void LinearSolver::declare_parameters(ParameterHandler &prm)
                       "100",
                       Patterns::Integer(),
                       "Max number of outer iterations for iterative solver");
+    prm.declare_entry("renumber",
+                      "false",
+                      Patterns::Bool(),
+                      "");
+    prm.declare_entry("reuse",
+                      "false",
+                      Patterns::Bool(),
+                      "");
     DECLARE_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
@@ -352,6 +360,8 @@ void LinearSolver::read_parameters(ParameterHandler &prm)
       method = Method::gmres;
     tolerance = prm.get_double("tolerance");
     max_iterations = prm.get_integer("max iterations");
+    renumber = prm.get_bool("renumber");
+    reuse = prm.get_bool("reuse");
     READ_VERBOSITY_PARAM(prm);
   }
   prm.leave_subsection();
@@ -428,10 +438,18 @@ void MMS::declare_parameters(ParameterHandler &prm)
                       "space",
                       Patterns::Selection("space|time|spacetime"),
                       "Choose between space and/or time convergence study.");
+    prm.declare_entry("force source term",
+                      "false",
+                      Patterns::Bool(),
+                      "Use the provided source term instead of the one computed with symbolic differentiation");
     prm.declare_entry("convergence steps",
                       "1",
                       Patterns::Integer(),
                       "Number of steps in the convergence study");
+    prm.declare_entry("run only step",
+                      "-1",
+                      Patterns::Integer(),
+                      "If specified, run only this convergence step (in [0, n_steps])");
     prm.enter_subsection("Space convergence");
     {
       prm.declare_entry("mesh prefix",
@@ -481,7 +499,9 @@ void MMS::read_parameters(ParameterHandler &prm)
       type = Type::time;
     else if (parsed_type == "spacetime")
       type = Type::spacetime;
+    force_source_term = prm.get_bool("force source term");
     n_convergence = prm.get_integer("convergence steps");
+    run_only_step = prm.get_integer("run only step");
     prm.enter_subsection("Space convergence");
     {
       mesh_prefix      = prm.get("mesh prefix");

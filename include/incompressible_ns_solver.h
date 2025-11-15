@@ -18,6 +18,7 @@
 #include <scratch_data.h>
 #include <time_handler.h>
 #include <types.h>
+#include <mumps_solver.h>
 
 using namespace dealii;
 
@@ -25,7 +26,7 @@ using namespace dealii;
  * Incompressible Navier-Stokes solver.
  * Solves the nonstabilized incompressible Navier-Stokes equations :
  *
- *                                                     div(u) = 0,
+ *                                                   - div(u) = 0,
  *
  *          dudt + (u dot grad) u + grad(p) - nu * lap(u) + f = 0,
  *
@@ -173,7 +174,7 @@ public:
   /**
    * Write the velocity and pressure to vtu file.
    */
-  void output_results() const;
+  void output_results();
 
   /**
    * Reset the resolution related structures (mesh, dof_handler, etc.) in
@@ -342,6 +343,9 @@ protected:
 
   TableHandler forces_table;
   TableHandler cylinder_position_table;
+
+  SolverControl                    solver_control;
+  std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 };
 
 #endif

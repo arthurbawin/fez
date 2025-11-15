@@ -153,6 +153,9 @@ namespace Parameters
     double tolerance;
     unsigned int max_iterations;
 
+    bool renumber;
+    bool reuse;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -194,7 +197,11 @@ namespace Parameters
       Linfty
     } time_norm;
 
+    bool force_source_term;
+
     unsigned int n_convergence;
+    unsigned int current_step = 0;
+    int run_only_step;
 
     std::string  mesh_prefix;
     unsigned int first_mesh_index;

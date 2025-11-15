@@ -143,12 +143,13 @@ public:
       error_vec.clear();
   }
 
+  template <int dim>
   void compute_rates()
   {
     for (const auto &key : ordered_keys)
     {
       error_table.evaluate_convergence_rates(
-        key, ConvergenceTable::reduction_rate_log2);
+        key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
       error_table.set_precision(key, 4);
       error_table.set_scientific(key, true);
     }

@@ -3,6 +3,7 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria_description.h>
@@ -11,28 +12,35 @@
 #include <parameters.h>
 
 /**
- * Read mesh from Gmsh file.
- * FIXME: the whole mesh is first read on all processes, then partitioned
- * and distributed. This won't work for really big meshes.
+ * Read sequential mesh from Gmsh file.
  */
-template <int dim, int spacedim>
-void read_gmsh_mesh(
-  Triangulation<dim>                                    &serial_triangulation,
-  parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
-  const std::string                                     &mesh_file)
+template <int dim>
+void read_gmsh_mesh(Triangulation<dim> &serial_triangulation,
+                    const std::string  &mesh_file)
 {
-  MPI_Comm comm = triangulation.get_mpi_communicator();
-
   GridIn<dim> grid_in;
   grid_in.attach_triangulation(serial_triangulation);
 
   std::ifstream input(mesh_file);
   AssertThrow(input, ExcMessage("Could not open mesh file: " + mesh_file));
   grid_in.read_msh(input);
+}
 
-  // Partition serial triangulation:
-  GridTools::partition_triangulation(Utilities::MPI::n_mpi_processes(comm),
-                                     serial_triangulation);
+/**
+ * FIXME: the whole mesh is first read on all processes, then partitioned
+ * and distributed. This won't work for really big meshes.
+ */
+template <int dim, int spacedim>
+void partition_and_create_parallel_mesh(
+  Triangulation<dim>                                    &serial_triangulation,
+  parallel::DistributedTriangulationBase<dim, spacedim> &triangulation)
+{
+  MPI_Comm comm =
+    triangulation.get_mpi_communicator();
+
+    // Partition serial triangulation:
+    GridTools::partition_triangulation(Utilities::MPI::n_mpi_processes(comm),
+                                       serial_triangulation);
 
   // Create building blocks:
   const TriangulationDescription::Description<dim> description =
@@ -95,6 +103,42 @@ void read_gmsh_physical_names(const std::string                   &meshFile,
       break;
     }
   }
+}
+
+template <int dim>
+void create_cube(Triangulation<dim> &tria,
+                 const unsigned int  refinements_per_direction,
+                 const bool          convert_to_tets = false)
+{
+  const double corner_min = -1.;
+  const double corner_max =  1.;
+
+  GridGenerator::subdivided_hyper_cube(
+    tria, refinements_per_direction, corner_min, corner_max, true);
+
+  for (auto &cell : tria.active_cell_iterators())
+    for (unsigned int f = 0; f < cell->n_faces(); ++f)
+      if (cell->face(f)->at_boundary())
+      {
+        const auto   c   = cell->face(f)->center();
+        const double tol = 1e-12;
+
+        if (std::fabs(c[0] - corner_min) < tol)
+          cell->face(f)->set_boundary_id(1); // x=0
+        else if (std::fabs(c[0] - corner_max) < tol)
+          cell->face(f)->set_boundary_id(2); // x=1
+        else if (std::fabs(c[1] - corner_min) < tol)
+          cell->face(f)->set_boundary_id(3); // y=0
+        else if (std::fabs(c[1] - corner_max) < tol)
+          cell->face(f)->set_boundary_id(4); // y=1
+        else if (std::fabs(c[2] - corner_min) < tol)
+          cell->face(f)->set_boundary_id(5); // z=0
+        else if (std::fabs(c[2] - corner_max) < tol)
+          cell->face(f)->set_boundary_id(6); // z=1
+      }
+
+  if (convert_to_tets)
+    GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria);
 }
 
 /**
@@ -198,7 +242,10 @@ void check_single_boundary_condition(
                 "Entity) named \"" +
                 bc.gmsh_name +
                 "\", but this entity either does not exist in the mesh or "
-                "appears more than one time, which is not supported."));
+                "appears more than one time, which is not supported."
+                " This entity appears exactly " +
+                std::to_string(param.mesh.name2id.count(bc.gmsh_name)) +
+                " times in the mesh."));
 
   // Check that the prescribed name and id match in the mesh
   AssertThrow(param.mesh.id2name.at(bc.id) == bc.gmsh_name,
@@ -211,7 +258,9 @@ void check_single_boundary_condition(
                 bc.gmsh_name + "\" with id " + std::to_string(bc.id) +
                 ", but this id does not match this entity in the "
                 "mesh. Instead, the entity exists in the mesh with id " +
-                std::to_string(param.mesh.name2id.at(bc.gmsh_name)) + "."));
+                std::to_string(param.mesh.name2id.at(bc.gmsh_name)) +
+                " and id " + std::to_string(bc.id) + " exists with name \"" +
+                param.mesh.id2name.at(bc.id) + "\"."));
 }
 
 /**
@@ -268,7 +317,22 @@ void read_mesh(
   ParameterReader<dim>                                  &param)
 {
   Triangulation<dim> serial_triangulation;
-  read_gmsh_mesh(serial_triangulation, triangulation, param.mesh.filename);
+  if constexpr (dim == 3)
+  {
+    if (param.mms_param.enable)
+    {
+      // There seems to be a bug in deal.II when reading a transfinite cube mesh
+      // file. Use deal.II's routines to create a subdivided cube mesh.
+      const unsigned int refinement_level = pow(2, param.mms_param.current_step);
+      const bool convert_to_tetrahedra = true;
+      create_cube(serial_triangulation, refinement_level, convert_to_tetrahedra);
+      partition_and_create_parallel_mesh(serial_triangulation, triangulation);
+      return;
+    }
+  }
+
+  read_gmsh_mesh(serial_triangulation, param.mesh.filename);
+  partition_and_create_parallel_mesh(serial_triangulation, triangulation);
 
   // Manually read the Gmsh entity names and store them
   read_gmsh_physical_names(param.mesh.filename,

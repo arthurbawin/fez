@@ -3,6 +3,7 @@
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <deal.II/dofs/dof_renumbering.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/trilinos_solver.h>
@@ -51,11 +52,21 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
       std::make_shared<IncompressibleNavierStokesSolver<dim>::MMSSolution>(
         time_handler.current_time, param.mms);
 
-    // Create the source term function for the given MMS and override source
-    // terms
-    source_terms =
-      std::make_shared<IncompressibleNavierStokesSolver<dim>::MMSSourceTerm>(
-        time_handler.current_time, param.physical_properties, param.mms);
+    if(mms_param.force_source_term)
+    {
+      // Use the provided source term instead of the source term computed from
+      // symbolic differentiation.
+      pcout << "Forcing source term" << std::endl;
+      source_terms = param.source_terms.fluid_source;
+    }
+    else
+    {
+      // Create the source term function for the given MMS and override source
+      // terms
+      source_terms =
+        std::make_shared<IncompressibleNavierStokesSolver<dim>::MMSSourceTerm>(
+          time_handler.current_time, param.physical_properties, param.mms);
+    }
 
     error_handler.create_entry("L2_u");
     error_handler.create_entry("L2_p");
@@ -77,9 +88,7 @@ void IncompressibleNavierStokesSolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
-  const double rho = physical_properties.fluids[0].density;
-  const double nu  = physical_properties.fluids[0].kinematic_viscosity;
-  const double mu  = rho * nu;
+  const double nu = physical_properties.fluids[0].kinematic_viscosity;
 
   Tensor<2, dim> grad_u;
   Tensor<1, dim> f, u, dudt_eulerian, uDotGradu, grad_p, lap_u;
@@ -100,7 +109,8 @@ void IncompressibleNavierStokesSolver<dim>::MMSSourceTerm::vector_value(
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
 
-  // Mass conservation (pressure) source term
+  // Mass conservation (pressure) source term,
+  // for - div(u) + f = 0 -> f = div(u_mms).
   values[p_lower] = mms.exact_velocity->divergence(p);
 }
 
@@ -110,11 +120,15 @@ void IncompressibleNavierStokesSolver<dim>::reset()
   // FIXME: This is not very clean: the derived class has the full parameters,
   // and the base class GenericSolver has a mesh and time param to be able to
   // modify the mesh file and/or time step in a convergence loop.
-  this->param.mesh.filename       = this->mesh_param.filename;
-  this->param.time_integration.dt = this->time_param.dt;
+  this->param.mms_param.current_step = this->mms_param.current_step;
+  this->param.mesh.filename          = this->mesh_param.filename;
+  this->param.time_integration.dt    = this->time_param.dt;
 
   // Mesh
   triangulation.clear();
+
+  // Direct solver
+  direct_solver_reuse = std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
@@ -208,6 +222,11 @@ void IncompressibleNavierStokesSolver<dim>::setup_dofs()
 
   // Initialize dof handler
   dof_handler.distribute_dofs(fe);
+
+  ////////////////////////////////////////////////////////
+  if(param.linear_solver.renumber)
+    DoFRenumbering::Cuthill_McKee(dof_handler, true);
+  ////////////////////////////////////////////////////////
 
   this->pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
               << std::endl;
@@ -319,7 +338,7 @@ void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
   {
     constraints.add_line(constrained_pressure_dof);
 
-    // The pressure DOF is set to 0 by default for the nonzero cosntraints,
+    // The pressure DOF is set to 0 by default for the nonzero constraints,
     // unless there is a prescribed manufactured solution, in which case it is
     // prescribed to p_mms.
     if (set_to_zero || !param.mms_param.enable)
@@ -343,7 +362,6 @@ void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
 {
   zero_constraints.clear();
   zero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
-
 
   //
   // Velocity homogeneous BC
@@ -401,6 +419,8 @@ void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::create_nonzero_constraints()
 {
+  TimerOutput::Scope t(this->computing_timer, "Create constraints");
+
   nonzero_constraints.clear();
   nonzero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
@@ -484,11 +504,26 @@ void IncompressibleNavierStokesSolver<dim>::create_sparsity_pattern()
   // defined
   //
 #if defined(FEZ_WITH_PETSC)
+
   DynamicSparsityPattern dsp(locally_relevant_dofs);
   DoFTools::make_sparsity_pattern(dof_handler,
                                   dsp,
                                   nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
+
+  ////////////////////////////////////////////////////////////////
+  // Table<2, DoFTools::Coupling> coupling(dim + 1, dim + 1);
+  // for (unsigned int c = 0; c < dim + 1; ++c)
+  //   for (unsigned int d = 0; d < dim + 1; ++d)
+  //     if (!((c == dim) && (d == dim)))
+  //       coupling[c][d] = DoFTools::always;
+  //     else
+  //       // Pressure-pressure dofs do not couple if nonstabilized
+  //       coupling[c][d] = DoFTools::none;
+  // DynamicSparsityPattern dsp2(locally_relevant_dofs);
+  // DoFTools::make_sparsity_pattern(
+  //   dof_handler, coupling, dsp2, nonzero_constraints, false);
+  ////////////////////////////////////////////////////////////////
 
   SparsityTools::distribute_sparsity_pattern(dsp,
                                              locally_owned_dofs,
@@ -612,7 +647,8 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(cell, evaluation_point, previous_solutions, source_terms, exact_solution);
+  scratchData.reinit(
+    cell, evaluation_point, previous_solutions, source_terms, exact_solution);
 
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
@@ -783,12 +819,13 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(cell, evaluation_point, previous_solutions, source_terms, exact_solution);
+  scratchData.reinit(
+    cell, evaluation_point, previous_solutions, source_terms, exact_solution);
 
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;
 
-  const double nu  = param.physical_properties.fluids[0].kinematic_viscosity;
+  const double nu = param.physical_properties.fluids[0].kinematic_viscosity;
 
   //
   // Volume contributions
@@ -862,19 +899,22 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
             const double face_JxW = scratchData.face_JxW[i_face][q];
-            const auto &n = scratchData.face_normals[i_face][q];
+            const auto  &n        = scratchData.face_normals[i_face][q];
 
-            const auto &grad_u_exact = scratchData.exact_face_velocity_gradients[i_face][q];
-            const auto grad_u_exact_sym = grad_u_exact + transpose(grad_u_exact);
-            const double p_exact = scratchData.exact_face_pressure_values[i_face][q];
-            // const auto sigma_dot_n = -p_exact * n + nu * grad_u_exact_sym * n;
+            const auto &grad_u_exact =
+              scratchData.exact_face_velocity_gradients[i_face][q];
+            const double p_exact =
+              scratchData.exact_face_pressure_values[i_face][q];
+
+            // This is an open boundary condition, not a traction,
+            // involving only grad_u_exact and not the symmetric gradient.
             const auto sigma_dot_n = -p_exact * n + nu * grad_u_exact * n;
 
             const auto &phi_u_face = scratchData.phi_u_face[i_face][q];
 
             for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-            { 
-              local_rhs(i) -= - phi_u_face[i] * sigma_dot_n * face_JxW;
+            {
+              local_rhs(i) -= -phi_u_face[i] * sigma_dot_n * face_JxW;
             }
           }
         }
@@ -903,10 +943,19 @@ void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
   if (param.linear_solver.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    solve_linear_system_direct(this,
-                               system_matrix,
-                               locally_owned_dofs,
-                               zero_constraints);
+    if(param.linear_solver.reuse)
+    {
+      solve_linear_system_direct(this,
+                                 system_matrix,
+                                 locally_owned_dofs,
+                                 zero_constraints,
+                                 *direct_solver_reuse);
+    }
+    else
+      solve_linear_system_direct(this,
+                                 system_matrix,
+                                 locally_owned_dofs,
+                                 zero_constraints);
   }
   else if (param.linear_solver.method ==
            Parameters::LinearSolver::Method::gmres)
@@ -926,6 +975,8 @@ void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::compute_errors()
 {
+  TimerOutput::Scope t(this->computing_timer, "Compute errors");
+
   const unsigned int n_active_cells = triangulation.n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);
 
@@ -1031,8 +1082,10 @@ void IncompressibleNavierStokesSolver<dim>::compute_errors()
 }
 
 template <int dim>
-void IncompressibleNavierStokesSolver<dim>::output_results() const
+void IncompressibleNavierStokesSolver<dim>::output_results()
 {
+  TimerOutput::Scope t(this->computing_timer, "Write outputs");
+
   if (param.output.write_results)
   {
     //

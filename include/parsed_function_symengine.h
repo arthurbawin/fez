@@ -106,8 +106,9 @@ namespace ManufacturedSolution
     /**
      * Overload of the deal.II gradient function
      */
-    virtual Tensor<1, dim> gradient(const Point<dim>  &p,
-                         const unsigned int /*component*/ = 0) const override
+    virtual Tensor<1, dim>
+    gradient(const Point<dim> &p,
+             const unsigned int /*component*/ = 0) const override
     {
       Tensor<1, dim> grad;
       for (unsigned int d = 0; d < dim; ++d)
@@ -126,10 +127,14 @@ namespace ManufacturedSolution
 
     double laplacian(const Point<dim> &p) const
     {
-      double res =
-        hess_function_object.value(p, 0) + hess_function_object.value(p, 3);
-      if constexpr (dim == 3)
-        res += hess_function_object.value(p, 8);
+      double res;
+      if constexpr (dim == 2)
+        res =
+          hess_function_object.value(p, 0) + hess_function_object.value(p, 3);
+      else
+        res = hess_function_object.value(p, 0) +
+              hess_function_object.value(p, 4) +
+              hess_function_object.value(p, 8);
       return res;
     }
 
@@ -147,7 +152,7 @@ namespace ManufacturedSolution
     {
       out << "grad f = " << std::endl;
       const auto expr = grad_function_object.get_expressions();
-      for(unsigned int d = 0; d < dim; ++d)
+      for (unsigned int d = 0; d < dim; ++d)
         out << "\t" << expr[d] << std::endl;
     }
 
@@ -180,10 +185,11 @@ namespace ManufacturedSolution
       , grad_function_object(dim)
       , hess_function_object(dim)
     {
-      for(unsigned int d = 0; d < dim; ++d)
+      for (unsigned int d = 0; d < dim; ++d)
       {
         grad_function_object[d] = std::make_shared<FunctionParser<dim>>(dim);
-        hess_function_object[d] = std::make_shared<FunctionParser<dim>>(dim * dim);
+        hess_function_object[d] =
+          std::make_shared<FunctionParser<dim>>(dim * dim);
       }
     }
 
@@ -198,7 +204,8 @@ namespace ManufacturedSolution
       }
     }
 
-    // The value function below has different arguments but hides the function from the base class
+    // The value function below has different arguments but hides the function
+    // from the base class
     using ParsedFunctionSDBase<dim>::value;
 
     /**
@@ -220,8 +227,9 @@ namespace ManufacturedSolution
     /**
      * Overload of the deal.II gradient function
      */
-    virtual Tensor<1, dim> gradient(const Point<dim>  &p,
-                         const unsigned int component = 0) const override
+    virtual Tensor<1, dim>
+    gradient(const Point<dim>  &p,
+             const unsigned int component = 0) const override
     {
       Tensor<1, dim> grad;
       for (unsigned int d = 0; d < dim; ++d)
@@ -263,10 +271,13 @@ namespace ManufacturedSolution
     {
       for (unsigned int d = 0; d < dim; ++d)
       {
-        res[d] = hess_function_object[d]->value(p, 0) +
-                 hess_function_object[d]->value(p, 3);
-        if constexpr (dim == 3)
-          res[d] += hess_function_object[d]->value(p, 8);
+        if constexpr (dim == 2)
+          res[d] = hess_function_object[d]->value(p, 0) +
+                   hess_function_object[d]->value(p, 3);
+        else
+          res[d] = hess_function_object[d]->value(p, 0) +
+                   hess_function_object[d]->value(p, 4) +
+                   hess_function_object[d]->value(p, 8);
       }
     }
 
@@ -274,7 +285,7 @@ namespace ManufacturedSolution
     {
       out << "f = " << std::endl;
       const auto expr = this->function_object.get_expressions();
-      for(unsigned int d = 0; d < dim; ++d)
+      for (unsigned int d = 0; d < dim; ++d)
         out << "\t" << expr[d] << std::endl;
     }
 
@@ -282,28 +293,28 @@ namespace ManufacturedSolution
     {
       out << "dfdt = " << std::endl;
       const auto expr = dfdt.get_expressions();
-      for(unsigned int d = 0; d < dim; ++d)
+      for (unsigned int d = 0; d < dim; ++d)
         out << "\t" << expr[d] << std::endl;
     }
 
     void print_gradient(std::ostream &out) const
     {
       out << "grad f = " << std::endl;
-      for(unsigned int di = 0; di < dim; ++di)
+      for (unsigned int di = 0; di < dim; ++di)
       {
         out << "dv_" << di << "/dx_j = ";
         const auto expr = grad_function_object[di]->get_expressions();
-        for(unsigned int dj = 0; dj < dim; ++dj)
+        for (unsigned int dj = 0; dj < dim; ++dj)
           out << "\t" << expr[dj];
         out << std::endl;
       }
 
       out << "grad f check = " << std::endl;
-      for(const auto &grad_comp : grad_function_object)
+      for (const auto &grad_comp : grad_function_object)
       {
         out << "dv_comp/dx_j = ";
         const auto expr = grad_comp->get_expressions();
-        for(auto str : expr)
+        for (auto str : expr)
           out << "\t" << str;
         out << std::endl;
       }

@@ -1,0 +1,99 @@
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write results    = true
+  set output directory = ../data/mms/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  set mesh file = ../tests/incompressible_ns/cylinder_2d.msh
+end
+
+subsection Time integration
+  set dt        = 0.05
+  set t_initial = 0
+  set t_end     = 1.
+  set scheme    = BDF1
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-11
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 50
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  set method         = direct_mumps
+  set renumber       = false
+  set reuse          = true
+end
+
+subsection FiniteElements
+  set Velocity degree      = 2
+  set Pressure degree      = 1
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid
+    set density             = 1.234
+    set kinematic viscosity = 0.234
+  end
+end
+
+subsection Initial conditions
+  set to mms = true
+  subsection velocity
+    set Function expression = 0; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 2
+  set fix pressure constant = false
+  subsection boundary 0
+    set id   = 1
+    set name = Boundary
+    set type = velocity_mms
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = PrescribedFlux
+    set type = open_mms
+  end
+end
+
+subsection Manufactured solution
+  set enable            = true
+  set type              = spacetime
+  #set convergence steps = 3
+  set run only step     = 6
+
+  subsection Space convergence
+    set mesh prefix = ../data/meshes/mms/square_flux_mms
+  end
+
+  subsection Time convergence
+    set norm                = Linfty
+    set use spatial mesh    = true
+    set time step reduction = 0.5
+  end
+
+  subsection exact velocity
+    #set Function expression = sin(0.123 + x*y); cos(0.123 + x^2*y)
+    set Function expression = sin(t)*sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y); t^3*cos(pi*x)*sin(pi*x)*sin(pi*y)*sin(pi*y)
+  end
+  subsection exact pressure
+    set Function expression = (sin(0.123 + x*y))^2
+  end
+end

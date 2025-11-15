@@ -13,7 +13,7 @@ int main(int argc, char *argv[])
     ConditionalOStream               pcout(
       std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
 
-    if (argc != 2)
+    if (argc < 2)
     {
       std::cerr << "Usage: " << argv[0] << " <parameter_file>" << std::endl;
       return 1;
@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
 
       IncompressibleNavierStokesSolver<2> problem(param);
       if(param.mms_param.enable)
-        problem.run_convergence_loop();
+        problem.run_convergence_loop<2>();
       else
         problem.run();
     }
@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
 
       IncompressibleNavierStokesSolver<3> problem(param);
       if(param.mms_param.enable)
-        problem.run_convergence_loop();
+        problem.run_convergence_loop<3>();
       else
         problem.run();
     }

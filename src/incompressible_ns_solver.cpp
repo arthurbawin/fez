@@ -52,6 +52,16 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
       std::make_shared<IncompressibleNavierStokesSolver<dim>::MMSSolution>(
         time_handler.current_time, param.mms);
 
+    auto &stream = pcout.get_stream();
+    pcout << "Pression" << std::endl;
+    param.mms.exact_pressure->print_function(stream);
+    param.mms.exact_pressure->print_time_derivative(stream);
+    param.mms.exact_pressure->print_gradient(stream);
+    pcout << "Vitesse" << std::endl;
+    param.mms.exact_velocity->print_function(stream);
+    param.mms.exact_velocity->print_time_derivative(stream);
+    param.mms.exact_velocity->print_gradient(stream);
+
     if(mms_param.force_source_term)
     {
       // Use the provided source term instead of the source term computed from
@@ -104,7 +114,8 @@ void IncompressibleNavierStokesSolver<dim>::MMSSourceTerm::vector_value(
   uDotGradu = u * grad_u;
 
   // Navier-Stokes momentum (velocity) source term
-  f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
+  // f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
+  f = -(grad_p - nu * lap_u);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
@@ -368,8 +379,10 @@ void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
   //
   {
     std::set<types::boundary_id> no_flux_boundaries;
-    std::set<types::boundary_id> velocity_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_fluxes;
+    std::set<types::boundary_id> velocity_normal_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *> velocity_normal_flux_functions;
+    std::set<types::boundary_id> velocity_tangential_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *> velocity_tangential_flux_functions;
     for (const auto &[id, bc] : param.fluid_bc)
     {
       if (bc.type == BoundaryConditions::Type::no_slip ||
@@ -388,21 +401,30 @@ void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
         no_flux_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
-        velocity_flux_boundaries.insert(bc.id);
-        velocity_fluxes[bc.id] = param.mms.exact_velocity.get();
+        velocity_normal_flux_boundaries.insert(bc.id);
+        velocity_normal_flux_functions[bc.id] = param.mms.exact_velocity.get();
+        velocity_tangential_flux_boundaries.insert(bc.id);
+        velocity_tangential_flux_functions[bc.id] = param.mms.exact_velocity.get();
       }
     }
 
     // Add no velocity flux constraints
     VectorTools::compute_no_normal_flux_constraints(
       dof_handler, u_lower, no_flux_boundaries, zero_constraints, *mapping);
-
-    // Add nonzero flux velocity constraints
+    // Add nonzero normal flux velocity constraints
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,
       u_lower,
-      velocity_flux_boundaries,
-      velocity_fluxes,
+      velocity_normal_flux_boundaries,
+      velocity_normal_flux_functions,
+      zero_constraints,
+      *mapping);
+    // Add nonzero tangential flux velocity constraints
+    VectorTools::compute_nonzero_tangential_flux_constraints(
+      dof_handler,
+      u_lower,
+      velocity_tangential_flux_boundaries,
+      velocity_tangential_flux_functions,
       zero_constraints,
       *mapping);
   }
@@ -424,14 +446,15 @@ void IncompressibleNavierStokesSolver<dim>::create_nonzero_constraints()
   nonzero_constraints.clear();
   nonzero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
-
   //
   // Velocity inhomogeneous BC
   //
   {
     std::set<types::boundary_id> no_flux_boundaries;
-    std::set<types::boundary_id> velocity_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_fluxes;
+    std::set<types::boundary_id> velocity_normal_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *> velocity_normal_flux_functions;
+    std::set<types::boundary_id> velocity_tangential_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *> velocity_tangential_flux_functions;
     for (const auto &[id, bc] : param.fluid_bc)
     {
       if (bc.type == BoundaryConditions::Type::no_slip)
@@ -468,21 +491,31 @@ void IncompressibleNavierStokesSolver<dim>::create_nonzero_constraints()
         no_flux_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
-        velocity_flux_boundaries.insert(bc.id);
-        velocity_fluxes[bc.id] = param.mms.exact_velocity.get();
+        // Enforce both the normal and tangential flux to be well-posed
+        velocity_normal_flux_boundaries.insert(bc.id);
+        velocity_normal_flux_functions[bc.id] = param.mms.exact_velocity.get();
+        velocity_tangential_flux_boundaries.insert(bc.id);
+        velocity_tangential_flux_functions[bc.id] = param.mms.exact_velocity.get();
       }
     }
 
     // Add no velocity flux constraints
     VectorTools::compute_no_normal_flux_constraints(
       dof_handler, u_lower, no_flux_boundaries, nonzero_constraints, *mapping);
-
-    // Add nonzero flux velocity constraints
+    // Add nonzero normal flux velocity constraints
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,
       u_lower,
-      velocity_flux_boundaries,
-      velocity_fluxes,
+      velocity_normal_flux_boundaries,
+      velocity_normal_flux_functions,
+      nonzero_constraints,
+      *mapping);
+    // Add nonzero tangential flux velocity constraints
+    VectorTools::compute_nonzero_tangential_flux_constraints(
+      dof_handler,
+      u_lower,
+      velocity_tangential_flux_boundaries,
+      velocity_tangential_flux_functions,
       nonzero_constraints,
       *mapping);
   }
@@ -697,12 +730,12 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix(
           assemble = true;
 
           // Time-dependent
-          local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
+          // local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
 
           // Convection
-          local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
-                              present_velocity_gradients * phi_u[j]) *
-                             phi_u[i];
+          // local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
+          //                     present_velocity_gradients * phi_u[j]) *
+          //                    phi_u[i];
 
           // Diffusion
           local_matrix_ij +=
@@ -858,10 +891,11 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
     {
       double local_rhs_i = -(
         // Transient
-        dudt * phi_u[i]
+        // dudt * phi_u[i]
+        0.
 
         // Convection
-        + (present_velocity_gradients * present_velocity_values) * phi_u[i]
+        // + (present_velocity_gradients * present_velocity_values) * phi_u[i]
 
         // Diffusion
         + nu * scalar_product(present_velocity_gradients, grad_phi_u[i])

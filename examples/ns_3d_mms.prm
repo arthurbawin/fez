@@ -97,7 +97,7 @@ subsection Manufactured solution
   set enable            = true
   set type              = space
   set force source term = false
-  set convergence steps = 4
+  set convergence steps = 3
   #set run only step     = 3
 
   subsection Space convergence
@@ -112,16 +112,19 @@ subsection Manufactured solution
 
   subsection exact velocity
     #set Function expression = cos(pi*x)*cos(pi*y); cos(pi*x)*cos(pi*y); 0
-    #set Function expression = cos(x*y*z); y*z*x; z*x*y
+    #set Function expression = cos(x*y*z); cos(y*z*x); cos(z*x*y)
     #set Function expression = cos(x*y*z); sin(x*y*z); sin(z*y)*cos(x)
     #set Function expression = cos(z*x) - cos(x*y)*y; cos(x*y)*x - cos(y*z)*z; cos(y*z)*y^2 - cos(z*x)*x
     #set Function expression = atan(x*y + z); z^2*x*y^2; cos(z^3)
-    set Function expression = sin(pi*x)*cos(pi*y)*cos(pi*z);cos(pi*x)*sin(pi*y)*cos(pi*z);-2.*cos(pi*x)*cos(pi*y)*sin(pi*z)
+    #set Function expression = sin(pi*x)*cos(pi*y)*cos(pi*z);cos(pi*x)*sin(pi*y)*cos(pi*z);-2.*cos(pi*x)*cos(pi*y)*sin(pi*z)
+    #set Function expression = cos(x^4); y^4; z^4
+    #set Function expression = x^4*(y+z); -4*x^3*(y^2/2 + y*z); 0
+    set Function expression = sin(x); sin(y); sin(x*y*z)
   end
 
   subsection exact pressure
-    set Function expression = 0
-    #set Function expression = x+y+z
+    #set Function expression = 0
+    set Function expression = x+y+z
     #set Function expression = 1 #123 + exp(x*y*z) * sin(pi*x) * sin(pi*y) * sin(pi*z)
     #set Function expression = 0.5 * (1 + sin(pi*x)*sin(pi*y))
   end

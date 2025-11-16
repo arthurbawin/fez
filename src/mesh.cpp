@@ -110,7 +110,7 @@ void create_cube(Triangulation<dim> &tria,
                  const unsigned int  refinements_per_direction,
                  const bool          convert_to_tets = false)
 {
-  const double corner_min = -1.;
+  const double corner_min =  0.;
   const double corner_max =  1.;
 
   GridGenerator::subdivided_hyper_cube(

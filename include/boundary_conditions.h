@@ -37,8 +37,10 @@ namespace BoundaryConditions
     slip,         // Enforce no_flux
 
     // These boundary conditions are for flow verification purposes:
-    velocity_mms,      // Set velocity to prescribed manufactured solution
-    velocity_flux_mms, // Set u dot n = u_mms dot n
+    // Set velocity to prescribed manufactured solution
+    velocity_mms,
+    // Set both the normal and tangential flux to u dot n/t = u_mms dot n/t
+    velocity_flux_mms,
     // Set (-pI + nu*grad(u)) \cdot n = (-p_mmsI + nu*grad(u_mms)) \cdot n
     open_mms,
 

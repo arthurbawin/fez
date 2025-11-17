@@ -1423,7 +1423,7 @@ template <int dim>
 void MonolithicFSISolver<dim>::solve_linear_system(
   const bool /*apply_inhomogeneous_constraints*/)
 {
-  solve_linear_system_direct(this, system_matrix, locally_owned_dofs, zero_constraints);
+  solve_linear_system_direct(this, param.linear_solver, system_matrix, locally_owned_dofs, zero_constraints);
   // TimerOutput::Scope t(computing_timer, "Solve direct");
 
   // LA::ParVectorType completely_distributed_solution(locally_owned_dofs,

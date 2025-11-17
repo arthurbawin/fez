@@ -35,12 +35,11 @@ void partition_and_create_parallel_mesh(
   Triangulation<dim>                                    &serial_triangulation,
   parallel::DistributedTriangulationBase<dim, spacedim> &triangulation)
 {
-  MPI_Comm comm =
-    triangulation.get_mpi_communicator();
+  MPI_Comm comm = triangulation.get_mpi_communicator();
 
-    // Partition serial triangulation:
-    GridTools::partition_triangulation(Utilities::MPI::n_mpi_processes(comm),
-                                       serial_triangulation);
+  // Partition serial triangulation:
+  GridTools::partition_triangulation(Utilities::MPI::n_mpi_processes(comm),
+                                     serial_triangulation);
 
   // Create building blocks:
   const TriangulationDescription::Description<dim> description =
@@ -107,14 +106,14 @@ void read_gmsh_physical_names(const std::string                   &meshFile,
 
 template <int dim>
 void create_cube(Triangulation<dim> &tria,
+                 Parameters::Mesh   &mesh_param,
+                 const double        min_corner,
+                 const double        max_corner,
                  const unsigned int  refinements_per_direction,
                  const bool          convert_to_tets = false)
 {
-  const double corner_min =  0.;
-  const double corner_max =  1.;
-
   GridGenerator::subdivided_hyper_cube(
-    tria, refinements_per_direction, corner_min, corner_max, true);
+    tria, refinements_per_direction, min_corner, max_corner, true);
 
   for (auto &cell : tria.active_cell_iterators())
     for (unsigned int f = 0; f < cell->n_faces(); ++f)
@@ -123,22 +122,45 @@ void create_cube(Triangulation<dim> &tria,
         const auto   c   = cell->face(f)->center();
         const double tol = 1e-12;
 
-        if (std::fabs(c[0] - corner_min) < tol)
+        if (std::fabs(c[0] - min_corner) < tol)
           cell->face(f)->set_boundary_id(1); // x=0
-        else if (std::fabs(c[0] - corner_max) < tol)
+        else if (std::fabs(c[0] - max_corner) < tol)
           cell->face(f)->set_boundary_id(2); // x=1
-        else if (std::fabs(c[1] - corner_min) < tol)
+        else if (std::fabs(c[1] - min_corner) < tol)
           cell->face(f)->set_boundary_id(3); // y=0
-        else if (std::fabs(c[1] - corner_max) < tol)
+        else if (std::fabs(c[1] - max_corner) < tol)
           cell->face(f)->set_boundary_id(4); // y=1
-        else if (std::fabs(c[2] - corner_min) < tol)
-          cell->face(f)->set_boundary_id(5); // z=0
-        else if (std::fabs(c[2] - corner_max) < tol)
-          cell->face(f)->set_boundary_id(6); // z=1
+
+        if constexpr (dim == 3)
+        {
+          if (std::fabs(c[2] - min_corner) < tol)
+            cell->face(f)->set_boundary_id(5); // z=0
+          if (std::fabs(c[2] - max_corner) < tol)
+            cell->face(f)->set_boundary_id(6); // z=1
+        }
       }
 
+  mesh_param.id2name.insert({1, "x_min"});
+  mesh_param.id2name.insert({2, "x_max"});
+  mesh_param.id2name.insert({3, "y_min"});
+  mesh_param.id2name.insert({4, "y_max"});
+  mesh_param.name2id.insert({"x_min", 1});
+  mesh_param.name2id.insert({"x_max", 2});
+  mesh_param.name2id.insert({"y_min", 3});
+  mesh_param.name2id.insert({"y_max", 4});
+  if constexpr (dim == 3)
+  {
+    mesh_param.id2name.insert({5, "z_min"});
+    mesh_param.id2name.insert({6, "z_max"});
+    mesh_param.name2id.insert({"z_min", 5});
+    mesh_param.name2id.insert({"z_max", 6});
+  }
+
   if (convert_to_tets)
-    GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria);
+  {
+    const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
+    GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+  }
 }
 
 /**
@@ -317,27 +339,48 @@ void read_mesh(
   ParameterReader<dim>                                  &param)
 {
   Triangulation<dim> serial_triangulation;
-  if constexpr (dim == 3)
+
+  // In 2D; If no mesh prefix was provided for a convergence study, use
+  // deal.II's functions to mesh a square [-1,1]^2. In 3D, there seems to be a
+  // bug in deal.II when reading a transfinite cube mesh file. Always use
+  // deal.II's routines to create a subdivided cube mesh.
+  if (param.mms_param.enable)
   {
-    if (param.mms_param.enable)
+    if constexpr (dim == 3)
+      AssertThrow(param.mms_param.use_deal_ii_cube_mesh,
+                  ExcMessage(
+                    "There seems to be a bug when deal.II's function parses a "
+                    "transfinite cube mesh from Gmsh. Until this is figured "
+                    "out, 3D convergence studies should be run with \"use "
+                    "dealii cube mesh = true\"."));
+
+    if (param.mms_param.use_deal_ii_cube_mesh)
     {
-      // There seems to be a bug in deal.II when reading a transfinite cube mesh
-      // file. Use deal.II's routines to create a subdivided cube mesh.
-      const unsigned int refinement_level = pow(2, param.mms_param.current_step);
-      const bool convert_to_tetrahedra = true;
-      create_cube(serial_triangulation, refinement_level, convert_to_tetrahedra);
-      partition_and_create_parallel_mesh(serial_triangulation, triangulation);
-      return;
+      const double       min_corner = (dim == 2) ? 0. : 0.;
+      const double       max_corner = 1.;
+      const unsigned int refinement_level =
+        pow(2, param.mms_param.mesh_suffix + 1);
+      const bool convert_to_simplices = true;
+      create_cube(serial_triangulation,
+                  param.mesh,
+                  min_corner,
+                  max_corner,
+                  refinement_level,
+                  convert_to_simplices);
     }
   }
+  else
+  {
+    // Read Gmsh .msh4 mesh file
+    read_gmsh_mesh(serial_triangulation, param.mesh.filename);
 
-  read_gmsh_mesh(serial_triangulation, param.mesh.filename);
+    // Manually read the Gmsh entity names and store them
+    read_gmsh_physical_names(param.mesh.filename,
+                             param.mesh.id2name,
+                             param.mesh.name2id);
+  }
+
   partition_and_create_parallel_mesh(serial_triangulation, triangulation);
-
-  // Manually read the Gmsh entity names and store them
-  read_gmsh_physical_names(param.mesh.filename,
-                           param.mesh.id2name,
-                           param.mesh.name2id);
 
   print_mesh_info(serial_triangulation, triangulation, param);
 

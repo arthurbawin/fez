@@ -203,10 +203,13 @@ namespace Parameters
     unsigned int current_step = 0;
     int run_only_step;
 
+    bool use_deal_ii_cube_mesh;
     std::string  mesh_prefix;
     unsigned int first_mesh_index;
+    unsigned int mesh_suffix;
 
     bool use_space_convergence_mesh;
+    unsigned int spatial_mesh_index;
     double time_step_reduction_factor;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)

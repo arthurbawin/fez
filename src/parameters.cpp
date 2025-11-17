@@ -336,14 +336,8 @@ void LinearSolver::declare_parameters(ParameterHandler &prm)
                       "100",
                       Patterns::Integer(),
                       "Max number of outer iterations for iterative solver");
-    prm.declare_entry("renumber",
-                      "false",
-                      Patterns::Bool(),
-                      "");
-    prm.declare_entry("reuse",
-                      "false",
-                      Patterns::Bool(),
-                      "");
+    prm.declare_entry("renumber", "false", Patterns::Bool(), "");
+    prm.declare_entry("reuse", "false", Patterns::Bool(), "");
     DECLARE_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
@@ -358,10 +352,10 @@ void LinearSolver::read_parameters(ParameterHandler &prm)
       method = Method::direct_mumps;
     else if (parsed_method == "gmres")
       method = Method::gmres;
-    tolerance = prm.get_double("tolerance");
+    tolerance      = prm.get_double("tolerance");
     max_iterations = prm.get_integer("max iterations");
-    renumber = prm.get_bool("renumber");
-    reuse = prm.get_bool("reuse");
+    renumber       = prm.get_bool("renumber");
+    reuse          = prm.get_bool("reuse");
     READ_VERBOSITY_PARAM(prm);
   }
   prm.leave_subsection();
@@ -441,17 +435,23 @@ void MMS::declare_parameters(ParameterHandler &prm)
     prm.declare_entry("force source term",
                       "false",
                       Patterns::Bool(),
-                      "Use the provided source term instead of the one computed with symbolic differentiation");
+                      "Use the provided source term instead of the one "
+                      "computed with symbolic differentiation");
     prm.declare_entry("convergence steps",
                       "1",
                       Patterns::Integer(),
                       "Number of steps in the convergence study");
-    prm.declare_entry("run only step",
-                      "-1",
-                      Patterns::Integer(),
-                      "If specified, run only this convergence step (in [0, n_steps])");
+    prm.declare_entry(
+      "run only step",
+      "-1",
+      Patterns::Integer(),
+      "If specified, run only this convergence step (in [0, n_steps])");
     prm.enter_subsection("Space convergence");
     {
+      prm.declare_entry("use dealii cube mesh",
+                        "false",
+                        Patterns::Bool(),
+                        "Use cube mesh from deal.II's routines");
       prm.declare_entry("mesh prefix",
                         "",
                         Patterns::Anything(),
@@ -477,6 +477,11 @@ void MMS::declare_parameters(ParameterHandler &prm)
         "If true, use the mesh provided for the spatial convergence study. If "
         "false, use the provided mesh in the Mesh subsection.");
       prm.declare_entry(
+        "spatial mesh index",
+        "0",
+        Patterns::Integer(),
+        "If use spatial mesh is true, set the index (refinement level) of the used mesh.");
+      prm.declare_entry(
         "time step reduction",
         "0.5",
         Patterns::Double(),
@@ -500,12 +505,13 @@ void MMS::read_parameters(ParameterHandler &prm)
     else if (parsed_type == "spacetime")
       type = Type::spacetime;
     force_source_term = prm.get_bool("force source term");
-    n_convergence = prm.get_integer("convergence steps");
-    run_only_step = prm.get_integer("run only step");
+    n_convergence     = prm.get_integer("convergence steps");
+    run_only_step     = prm.get_integer("run only step");
     prm.enter_subsection("Space convergence");
     {
-      mesh_prefix      = prm.get("mesh prefix");
-      first_mesh_index = prm.get_integer("first mesh");
+      use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
+      mesh_prefix             = prm.get("mesh prefix");
+      first_mesh_index        = prm.get_integer("first mesh");
     }
     prm.leave_subsection();
     prm.enter_subsection("Time convergence");
@@ -518,6 +524,7 @@ void MMS::read_parameters(ParameterHandler &prm)
       else if (parsed_norm == "Linfty")
         time_norm = TimeLpNorm::Linfty;
       use_space_convergence_mesh = prm.get_bool("use spatial mesh");
+      spatial_mesh_index = prm.get_integer("spatial mesh index");
       time_step_reduction_factor = prm.get_double("time step reduction");
     }
     prm.leave_subsection();

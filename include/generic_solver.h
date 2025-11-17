@@ -88,18 +88,33 @@ public:
       {
         // This change is accounted for in the reset() function of each
         // derived solver
-        unsigned int mesh_suffix = i_conv + 1;
+        mms_param.mesh_suffix = i_conv;
+
+        // If this is a time convergence study using an indexed mesh used
+        // for space convergence studies, override the mesh_suffix with 
+        // the specified mesh index
+        if(mms_param.type == Parameters::MMS::Type::time &&
+           mms_param.use_space_convergence_mesh)
+          mms_param.mesh_suffix = mms_param.spatial_mesh_index;
 
         if(mms_param.run_only_step >= 0)
         {
-          mesh_suffix = mms_param.run_only_step;
           mms_param.current_step = mms_param.run_only_step;
+
+          // Set the mesh suffix to the only run step for space studies
+          // For time studies, the "run only" only affects the time step.
+          if( mms_param.type == Parameters::MMS::Type::space ||
+              mms_param.type == Parameters::MMS::Type::spacetime)
+            mms_param.mesh_suffix = mms_param.run_only_step;
         }
 
-        mms_param.override_mesh_filename(mesh_param, mesh_suffix);
-        pcout << "Convergence test with manufactured solution:" << std::endl;
-        pcout << "Mesh file was changed to " << mesh_param.filename
-              << std::endl;
+        if(!mms_param.use_deal_ii_cube_mesh)
+        {
+          mms_param.override_mesh_filename(mesh_param, mms_param.mesh_suffix);
+          pcout << "Convergence test with manufactured solution:" << std::endl;
+          pcout << "Mesh file was changed to " << mesh_param.filename
+                << std::endl;
+        }
       }
 
       // Update time step starting at second iteration

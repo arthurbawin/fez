@@ -26,8 +26,8 @@ public:
     domain_errors.insert({error_name, std::make_unique<double>()});
 
     // TODO: Reserve vectors with an estimate on the number of time steps?
-    // This is easy if only constant time steps are expected for convergence studies,
-    // because then the number of time steps is known.
+    // This is easy if only constant time steps are expected for convergence
+    // studies, because then the number of time steps is known.
     unsteady_errors[error_name].clear();
   }
 
@@ -35,7 +35,7 @@ public:
    * Add an integer reference value (number of mesh elements or dof).
    * These values won't be printed in scientific notation.
    */
-  template<typename T>
+  template <typename T>
   void add_reference_data(const std::string &name, const T &value)
   {
     constexpr bool supported = std::is_same_v<T, unsigned int>;
@@ -91,42 +91,34 @@ public:
   // Compute the temporal or spacetime error if needed
   void compute_temporal_error()
   {
-    //////////////////////
-    // for(const auto &key : ordered_keys)
-    // {
-    //   const auto &error_vec = unsteady_errors.at(key);
-    //   for(const auto &[t, e] : error_vec)
-    //     std::cout << t << " : " << e << std::endl;
-    // }
-    //////////////////////
-    
-    for(const auto &key : ordered_keys)
+    for (const auto &key : ordered_keys)
     {
       auto &error_vec = unsteady_errors.at(key);
 
       double error = 0.;
-      switch(mms_param.time_norm)
+      switch (mms_param.time_norm)
       {
         case Parameters::MMS::TimeLpNorm::L1:
         {
           // for(const auto &[time, err] : error_vec)
           // {
-          //   double dt = 
-          //   error += 
+          //   double dt =
+          //   error +=
           // }
+          DEAL_II_NOT_IMPLEMENTED();
           break;
         }
         case Parameters::MMS::TimeLpNorm::L2:
         {
+          DEAL_II_NOT_IMPLEMENTED();
           break;
         }
         case Parameters::MMS::TimeLpNorm::Linfty:
         {
-          for(const auto &[time, err] : error_vec)
+          for (const auto &[time, err] : error_vec)
             error = std::max(error, err);
           break;
         }
-
       }
 
       // Add time Lp norm to error table
@@ -139,7 +131,7 @@ public:
    */
   void clear_error_history()
   {
-    for(auto &[key, error_vec] : unsteady_errors)
+    for (auto &[key, error_vec] : unsteady_errors)
       error_vec.clear();
   }
 
@@ -148,8 +140,13 @@ public:
   {
     for (const auto &key : ordered_keys)
     {
-      error_table.evaluate_convergence_rates(
-        key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
+      if (mms_param.type == Parameters::MMS::Type::space ||
+          mms_param.type == Parameters::MMS::Type::spacetime)
+        error_table.evaluate_convergence_rates(
+          key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
+      if (mms_param.type == Parameters::MMS::Type::time)
+        error_table.evaluate_convergence_rates(
+          key, "dt", ConvergenceTable::reduction_rate_log2, 1);
       error_table.set_precision(key, 4);
       error_table.set_scientific(key, true);
     }
@@ -158,10 +155,11 @@ public:
   void write_rates() { error_table.write_text(std::cout); }
 
 public:
-  const Parameters::MMS &mms_param;
+  const Parameters::MMS             &mms_param;
   const Parameters::TimeIntegration &time_param;
 
   // For unsteady problems: keep the spatial errors at all time steps
+  // For each field, a vector of (t, error(t)) pairs.
   std::map<std::string, std::vector<std::pair<double, double>>> unsteady_errors;
 
   ConvergenceTable error_table;

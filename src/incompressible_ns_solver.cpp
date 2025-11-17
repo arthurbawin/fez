@@ -52,16 +52,16 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
       std::make_shared<IncompressibleNavierStokesSolver<dim>::MMSSolution>(
         time_handler.current_time, param.mms);
 
-    auto &stream = pcout.get_stream();
-    pcout << "Pression" << std::endl;
-    param.mms.exact_pressure->print_function(stream);
-    param.mms.exact_pressure->print_time_derivative(stream);
-    param.mms.exact_pressure->print_gradient(stream);
-    pcout << "Vitesse" << std::endl;
-    param.mms.exact_velocity->print_function(stream);
-    param.mms.exact_velocity->print_time_derivative(stream);
-    param.mms.exact_velocity->print_gradient(stream);
-    param.mms.exact_velocity->print_hessian(stream);
+    // auto &stream = pcout.get_stream();
+    // pcout << "Pression" << std::endl;
+    // param.mms.exact_pressure->print_function(stream);
+    // param.mms.exact_pressure->print_time_derivative(stream);
+    // param.mms.exact_pressure->print_gradient(stream);
+    // pcout << "Vitesse" << std::endl;
+    // param.mms.exact_velocity->print_function(stream);
+    // param.mms.exact_velocity->print_time_derivative(stream);
+    // param.mms.exact_velocity->print_gradient(stream);
+    // param.mms.exact_velocity->print_hessian(stream);
 
     if(mms_param.force_source_term)
     {
@@ -132,6 +132,7 @@ void IncompressibleNavierStokesSolver<dim>::reset()
   // and the base class GenericSolver has a mesh and time param to be able to
   // modify the mesh file and/or time step in a convergence loop.
   this->param.mms_param.current_step = this->mms_param.current_step;
+  this->param.mms_param.mesh_suffix  = this->mms_param.mesh_suffix;
   this->param.mesh.filename          = this->mesh_param.filename;
   this->param.time_integration.dt    = this->time_param.dt;
 
@@ -976,6 +977,7 @@ void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
     if(param.linear_solver.reuse)
     {
       solve_linear_system_direct(this,
+                                 param.linear_solver,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints,
@@ -983,6 +985,7 @@ void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
     }
     else
       solve_linear_system_direct(this,
+                                 param.linear_solver,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints);

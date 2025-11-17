@@ -32,6 +32,12 @@ subsection Nonlinear solver
   set analytic_jacobian    = true
 end
 
+subsection Linear solver
+  set verbosity      = quiet
+  set method         = direct_mumps
+  set reuse          = false
+end
+
 subsection FiniteElements
   set Velocity degree            = 2
   set Pressure degree            = 1

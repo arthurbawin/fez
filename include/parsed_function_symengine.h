@@ -320,6 +320,23 @@ namespace ManufacturedSolution
       }
     }
 
+    void print_hessian(std::ostream &out) const
+    {
+      out << "hess f = " << std::endl;
+      for (unsigned int comp = 0; comp < dim; ++comp)
+      {
+        out << "hess of comp " << comp << std::endl;
+        const auto expr = hess_function_object[comp]->get_expressions();
+        for (unsigned int di = 0; di < dim; ++di)
+        {
+          for (unsigned int dj = 0; dj < dim; ++dj)
+            out << "\t" << expr[dim * di + dj];
+          out << std::endl;
+        }
+        out << std::endl;
+      }
+    }
+
   private:
     virtual void
     create_symbolic_derivatives(const std::string                   variables,

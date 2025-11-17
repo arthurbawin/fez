@@ -60,7 +60,7 @@ end
 
 subsection Fluid boundary conditions
   set number = 6
-  set fix pressure constant = true
+  set fix pressure constant = false
   subsection boundary 0
     set id   = 1
     set name = x0
@@ -89,7 +89,7 @@ subsection Fluid boundary conditions
   subsection boundary 5
     set id   = 6
     set name = z1
-    set type = velocity_mms
+    set type = open_mms
   end
 end
 
@@ -97,8 +97,8 @@ subsection Manufactured solution
   set enable            = true
   set type              = space
   set force source term = false
-  set convergence steps = 3
-  #set run only step     = 3
+  set convergence steps = 4
+  #set run only step     = 1
 
   subsection Space convergence
     set mesh prefix = ../data/meshes/mms/cube_transfinite
@@ -119,12 +119,14 @@ subsection Manufactured solution
     #set Function expression = sin(pi*x)*cos(pi*y)*cos(pi*z);cos(pi*x)*sin(pi*y)*cos(pi*z);-2.*cos(pi*x)*cos(pi*y)*sin(pi*z)
     #set Function expression = cos(x^4); y^4; z^4
     #set Function expression = x^4*(y+z); -4*x^3*(y^2/2 + y*z); 0
-    set Function expression = sin(x); sin(y); sin(x*y*z)
+    #set Function expression = sin(x); sin(y); sin(x*y*z)
+    set Function expression = 0; 0; sin(x*y)*z
   end
 
   subsection exact pressure
     #set Function expression = 0
-    set Function expression = x+y+z
+    #set Function expression = 1.23 + (x+y+z)^2
+    set Function expression = cos(pi*x)*sin(pi*y)*cos(pi*z)
     #set Function expression = 1 #123 + exp(x*y*z) * sin(pi*x) * sin(pi*y) * sin(pi*z)
     #set Function expression = 0.5 * (1 + sin(pi*x)*sin(pi*y))
   end

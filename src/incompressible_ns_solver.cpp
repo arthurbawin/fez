@@ -61,6 +61,7 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
     param.mms.exact_velocity->print_function(stream);
     param.mms.exact_velocity->print_time_derivative(stream);
     param.mms.exact_velocity->print_gradient(stream);
+    param.mms.exact_velocity->print_hessian(stream);
 
     if(mms_param.force_source_term)
     {
@@ -114,8 +115,7 @@ void IncompressibleNavierStokesSolver<dim>::MMSSourceTerm::vector_value(
   uDotGradu = u * grad_u;
 
   // Navier-Stokes momentum (velocity) source term
-  // f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
-  f = -(grad_p - nu * lap_u);
+  f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
@@ -308,7 +308,7 @@ void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
 
     for (auto idx : pressure_dofs)
     {
-      if (!locally_owned_dofs.is_element(idx))
+      if (!locally_relevant_dofs.is_element(idx))
         continue;
 
       const double dist = support_points[idx].distance(reference_point);
@@ -337,7 +337,7 @@ void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
     constrained_pressure_dof = global_pair.dof;
 
     // Set support point for MMS evaluation
-    if (locally_owned_dofs.is_element(constrained_pressure_dof))
+    if (locally_relevant_dofs.is_element(constrained_pressure_dof))
     {
       constrained_pressure_support_point =
         support_points[constrained_pressure_dof];
@@ -345,7 +345,7 @@ void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
   }
 
   // Constrain that DoF globally
-  if (locally_owned_dofs.is_element(constrained_pressure_dof))
+  if (locally_relevant_dofs.is_element(constrained_pressure_dof))
   {
     constraints.add_line(constrained_pressure_dof);
 
@@ -363,9 +363,6 @@ void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
       constraints.set_inhomogeneity(constrained_pressure_dof, pAnalytic);
     }
   }
-  constraints.make_consistent_in_parallel(locally_owned_dofs,
-                                          constraints.get_local_lines(),
-                                          mpi_communicator);
 }
 
 template <int dim>
@@ -730,12 +727,12 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix(
           assemble = true;
 
           // Time-dependent
-          // local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
+          local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
 
           // Convection
-          // local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
-          //                     present_velocity_gradients * phi_u[j]) *
-          //                    phi_u[i];
+          local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
+                              present_velocity_gradients * phi_u[j]) *
+                             phi_u[i];
 
           // Diffusion
           local_matrix_ij +=
@@ -891,11 +888,10 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_rhs(
     {
       double local_rhs_i = -(
         // Transient
-        // dudt * phi_u[i]
-        0.
+        dudt * phi_u[i]
 
         // Convection
-        // + (present_velocity_gradients * present_velocity_values) * phi_u[i]
+        + (present_velocity_gradients * present_velocity_values) * phi_u[i]
 
         // Diffusion
         + nu * scalar_product(present_velocity_gradients, grad_phi_u[i])

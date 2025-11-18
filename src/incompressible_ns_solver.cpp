@@ -228,9 +228,9 @@ void IncompressibleNavierStokesSolver<dim>::run()
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::setup_dofs()
 {
-  TimerOutput::Scope t(this->computing_timer, "Setup");
+  TimerOutput::Scope t(computing_timer, "Setup");
 
-  auto &comm = this->mpi_communicator;
+  auto &comm = mpi_communicator;
 
   // Initialize dof handler
   dof_handler.distribute_dofs(fe);
@@ -240,30 +240,30 @@ void IncompressibleNavierStokesSolver<dim>::setup_dofs()
     DoFRenumbering::Cuthill_McKee(dof_handler, true);
   ////////////////////////////////////////////////////////
 
-  this->pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
+  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
               << std::endl;
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
 
   // Initialize parallel vectors
-  this->present_solution.reinit(locally_owned_dofs,
+  present_solution.reinit(locally_owned_dofs,
                                 locally_relevant_dofs,
                                 comm);
-  this->evaluation_point.reinit(locally_owned_dofs,
+  evaluation_point.reinit(locally_owned_dofs,
                                 locally_relevant_dofs,
                                 comm);
 
 #if !defined(FEZ_WITH_TRILINOS) && !defined(FEZ_WITH_PETSC)
-  this->local_evaluation_point.reinit(locally_owned_dofs,
+  local_evaluation_point.reinit(locally_owned_dofs,
                                       locally_relevant_dofs,
                                       comm);
-  this->newton_update.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
-  this->system_rhs.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+  newton_update.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+  system_rhs.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 #else
-  this->local_evaluation_point.reinit(locally_owned_dofs, comm);
-  this->newton_update.reinit(locally_owned_dofs, comm);
-  this->system_rhs.reinit(locally_owned_dofs, comm);
+  local_evaluation_point.reinit(locally_owned_dofs, comm);
+  newton_update.reinit(locally_owned_dofs, comm);
+  system_rhs.reinit(locally_owned_dofs, comm);
 #endif
 
   // Allocate for previous BDF solutions
@@ -271,7 +271,6 @@ void IncompressibleNavierStokesSolver<dim>::setup_dofs()
   previous_solutions.resize(time_handler.n_previous_solutions);
   for (auto &previous_sol : previous_solutions)
   {
-    // previous_sol.clear();
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   }
 

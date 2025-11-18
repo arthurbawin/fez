@@ -4,25 +4,23 @@ subsection Dimension
 end
 
 subsection Timer
-  set enable timer = true
+  set enable timer = false
 end
 
 subsection Output
-  set write results    = true
+  set write results    = false
   set output directory = ../data/test/
   set output prefix    = solution
 end
 
 subsection Mesh
-  #set mesh file = ../data/meshes/cyl_not_confined_uber_coarse.msh
-  set mesh file = ../data/meshes/cyl_not_confined1.msh
-  #set mesh file = ../data/meshes/cylinderCoarse3D.msh
+  set mesh file = ../../cylinder_2d.msh
 end
 
 subsection Time integration
   set dt        = 0.1
   set t_initial = 0
-  set t_end     = 4.
+  set t_end     = 0.5
   set scheme    = BDF2
 end
 

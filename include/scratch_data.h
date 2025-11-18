@@ -39,9 +39,6 @@ private:
 public:
   /**
    * Constructor
-   *
-   * FIXME: Incompressible NS does not requires all these FEValues updates (e.g.
-   * inverse jacobians)
    */
   ScratchDataNS(const FESystem<dim>        &fe,
                 const Quadrature<dim>      &cell_quadrature,
@@ -362,6 +359,14 @@ public:
 template <int dim>
 class ScratchDataMonolithicFSI
 {
+private:
+  const UpdateFlags required_updates = update_values | update_gradients |
+                                       update_quadrature_points |
+                                       update_JxW_values | update_jacobians;
+  const UpdateFlags required_face_updates =
+    update_values | update_gradients | update_quadrature_points |
+    update_JxW_values | update_jacobians | update_normal_vectors;
+
 public:
   ScratchDataMonolithicFSI(const FESystem<dim>       &fe,
                            const Quadrature<dim>     &cell_quadrature,
@@ -374,27 +379,31 @@ public:
     : fe_values(mapping,
                 fe,
                 cell_quadrature,
-                update_values | update_gradients | update_quadrature_points |
-                  update_JxW_values | update_jacobians |
-                  update_inverse_jacobians)
+                required_updates)
+                // update_values | update_gradients | update_quadrature_points |
+                //   update_JxW_values | update_jacobians |
+                //   update_inverse_jacobians)
     , fe_values_fixed(fixed_mapping,
                       fe,
                       cell_quadrature,
-                      update_values | update_gradients |
-                        update_quadrature_points | update_JxW_values |
-                        update_jacobians | update_inverse_jacobians)
+                      required_updates)
+                      // update_values | update_gradients |
+                      //   update_quadrature_points | update_JxW_values |
+                      //   update_jacobians | update_inverse_jacobians)
     , fe_face_values(mapping,
                      fe,
                      face_quadrature,
-                     update_values | update_gradients |
-                       update_quadrature_points | update_JxW_values |
-                       update_jacobians | update_inverse_jacobians)
+                     required_face_updates)
+                     // update_values | update_gradients |
+                     //   update_quadrature_points | update_JxW_values |
+                     //   update_jacobians | update_inverse_jacobians)
     , fe_face_values_fixed(fixed_mapping,
                            fe,
                            face_quadrature,
-                           update_values | update_gradients |
-                             update_quadrature_points | update_JxW_values |
-                             update_jacobians | update_inverse_jacobians)
+                           required_face_updates)
+                           // update_values | update_gradients |
+                           //   update_quadrature_points | update_JxW_values |
+                           //   update_jacobians | update_inverse_jacobians)
     , n_q_points(cell_quadrature.size())
 
     // We assume that simplicial meshes with all tris or tets
@@ -408,6 +417,35 @@ public:
     this->allocate();
   }
 
+  /**
+   * Copy constructor. Needed to use WorkStreams.
+   */
+  ScratchDataMonolithicFSI(const ScratchDataMonolithicFSI &other)
+    : fe_values(other.fe_values.get_mapping(),
+                other.fe_values.get_fe(),
+                other.fe_values.get_quadrature(),
+                required_updates)
+    , fe_values_fixed(other.fe_values_fixed.get_mapping(),
+                other.fe_values_fixed.get_fe(),
+                other.fe_values_fixed.get_quadrature(),
+                required_updates)
+    , fe_face_values(other.fe_face_values.get_mapping(),
+                     other.fe_face_values.get_fe(),
+                     other.fe_face_values.get_quadrature(),
+                     required_face_updates)
+    , fe_face_values_fixed(other.fe_face_values_fixed.get_mapping(),
+                     other.fe_face_values_fixed.get_fe(),
+                     other.fe_face_values_fixed.get_quadrature(),
+                     required_face_updates)
+    , n_q_points(other.n_q_points)
+    , n_faces(other.n_faces)
+    , n_faces_q_points(other.n_faces_q_points)
+    , dofs_per_cell(other.dofs_per_cell)
+    , boundary_id(other.boundary_id)
+    , bdfCoeffs(other.bdfCoeffs)
+  {
+    this->allocate();
+  }
 
   void allocate()
   {
@@ -493,8 +531,10 @@ public:
 
   template <typename VectorType1, typename VectorType2>
   void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
-              const VectorType1              &current_solution,
-              const std::vector<VectorType2> &previous_solutions)
+              const VectorType1                    &current_solution,
+              const std::vector<VectorType2>       &previous_solutions,
+              const std::shared_ptr<Function<dim>> &/*source_terms*/,
+              const std::shared_ptr<Function<dim>> &/*exact_solution*/)
   {
     static_assert(is_supported_vector_v<VectorType1>,
                   "reinit expects the current_solution to be either a deal.II "

@@ -1,6 +1,7 @@
 #ifndef MONOLITHIC_FSI_SOLVER_H
 #define MONOLITHIC_FSI_SOLVER_H
 
+#include <copy_data.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/table_handler.h>
@@ -14,15 +15,15 @@
 #include <deal.II/lac/affine_constraints.h>
 #include <generic_solver.h>
 #include <parameter_reader.h>
+#include <scratch_data.h>
 #include <time_handler.h>
 #include <types.h>
-#include <scratch_data.h>
 
 using namespace dealii;
 
 /**
  * Derived class for the monolithic fluid-structure interaction solver.
- * It is a somewhat niche class, which treats a single obstacle for now.
+ * It is a somewhat "niche" class, which treats a single obstacle for now.
  */
 template <int dim>
 class MonolithicFSISolver : public GenericSolver<LA::ParVectorType>
@@ -55,9 +56,9 @@ public:
   void create_nonzero_constraints();
 
   /**
-   * 
+   *
    */
-  virtual AffineConstraints<double>& get_nonzero_constraints() override
+  virtual AffineConstraints<double> &get_nonzero_constraints() override
   {
     return nonzero_constraints;
   }
@@ -105,12 +106,19 @@ public:
   void assemble_local_matrix(
     bool                                                  first_step,
     const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchDataMonolithicFSI<dim>                                     &scratchData,
-    LA::ParVectorType                                      &current_solution,
-    std::vector<LA::ParVectorType>                         &previous_solutions,
+    ScratchDataMonolithicFSI<dim>                        &scratchData,
+    LA::ParVectorType                                    &current_solution,
+    std::vector<LA::ParVectorType>                       &previous_solutions,
     std::vector<types::global_dof_index>                 &local_dof_indices,
     FullMatrix<double>                                   &local_matrix,
     bool                                                  distribute);
+
+  void assemble_local_matrix(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    ScratchDataMonolithicFSI<dim>                        &scratchData,
+    CopyData                                             &copy_data);
+
+  void copy_local_to_global_matrix(const CopyData &copy_data);
 
   /**
    *
@@ -123,9 +131,9 @@ public:
   void
   assemble_local_rhs(bool first_step,
                      const typename DoFHandler<dim>::active_cell_iterator &cell,
-                     ScratchDataMonolithicFSI<dim>                     &scratchData,
-                     LA::ParVectorType                      &current_solution,
-                     std::vector<LA::ParVectorType>         &previous_solutions,
+                     ScratchDataMonolithicFSI<dim>        &scratchData,
+                     LA::ParVectorType                    &current_solution,
+                     std::vector<LA::ParVectorType>       &previous_solutions,
                      std::vector<types::global_dof_index> &local_dof_indices,
                      Vector<double>                       &local_rhs,
                      std::vector<double>                  &cell_dof_values,
@@ -135,12 +143,26 @@ public:
   /**
    *
    */
+  void
+  assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
+                     ScratchDataMonolithicFSI<dim> &scratchData,
+                     CopyData                      &copy_data);
+
+  /**
+   * See copy_local_to_global_matrix.
+   */
+  void copy_local_to_global_rhs(const CopyData &copy_data);
+
+  /**
+   *
+   */
   virtual void assemble_rhs() override;
 
   /**
    *
    */
-  virtual void solve_linear_system(const bool apply_inhomogeneous_constraints) override;
+  virtual void
+  solve_linear_system(const bool apply_inhomogeneous_constraints) override;
 
   /**
    *
@@ -148,12 +170,12 @@ public:
   void output_results() const;
 
   /**
-   * 
+   *
    */
   void compare_forces_and_position_on_obstacle() const;
 
   /**
-   * 
+   *
    */
   void check_velocity_boundary() const;
 
@@ -164,7 +186,7 @@ public:
   void compute_forces(const bool export_table);
 
   /**
-   * 
+   *
    */
   void write_cylinder_position(const bool export_table);
 
@@ -182,6 +204,11 @@ protected:
   const unsigned int x_upper      = 2 * dim + 1;
   const unsigned int l_lower      = 2 * dim + 1;
   const unsigned int l_upper      = 3 * dim + 1;
+
+  const FEValuesExtractors::Vector velocity_extractor;
+  const FEValuesExtractors::Scalar pressure_extractor;
+  const FEValuesExtractors::Vector position_extractor;
+  const FEValuesExtractors::Vector lambda_extractor;
 
   /**
    * Quality-of-life functions to check which field a given component is
@@ -213,10 +240,13 @@ protected:
   std::shared_ptr<Mapping<dim>>                  fixed_mapping;
   std::shared_ptr<Mapping<dim>>                  mapping;
   FESystem<dim>                                  fe;
+  DoFHandler<dim>                                dof_handler;
+  TimeHandler                                    time_handler;
 
-  DoFHandler<dim> dof_handler;
-
-  TimeHandler time_handler;
+  const ComponentMask velocity_mask;
+  const ComponentMask pressure_mask;
+  const ComponentMask position_mask;
+  const ComponentMask lambda_mask;
 
   /**
    * The id of the mesh boundary on which the weak no-slip condition
@@ -238,10 +268,11 @@ protected:
   std::map<types::global_dof_index, Point<dim>>   initial_positions;
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
 
-  // dealii::LinearAlgebraPETSc::MPI::SparseMatrix system_matrix;
-  LA::ParMatrixType system_matrix;
-  std::vector<LA::ParVectorType>                    previous_solutions;
+  LA::ParMatrixType              system_matrix;
+  std::vector<LA::ParVectorType> previous_solutions;
 
+  std::shared_ptr<Function<dim>> source_terms;
+  std::shared_ptr<Function<dim>> exact_solution;
 
   TableHandler forces_table;
   TableHandler cylinder_position_table;

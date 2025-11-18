@@ -1,22 +1,33 @@
 
+#include <compare_matrix.h>
+#include <copy_data.h>
+#include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <linear_solver.h>
 #include <mesh.h>
 #include <monolithic_fsi_solver.h>
 #include <scratch_data.h>
-#include <linear_solver.h>
 
 template <int dim>
 MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver, param.timer, param.mesh, param.time_integration, param.mms_param)
+  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
+                                     param.timer,
+                                     param.mesh,
+                                     param.time_integration,
+                                     param.mms_param)
+  , velocity_extractor(u_lower)
+  , pressure_extractor(p_lower)
+  , position_extractor(x_lower)
+  , lambda_extractor(l_lower)
   , param(param)
   , quadrature(QGaussSimplex<dim>(4))
   , face_quadrature(QGaussSimplex<dim - 1>(4))
-  , triangulation(this->mpi_communicator)
+  , triangulation(mpi_communicator)
   , fixed_mapping(new MappingFE<dim>(FE_SimplexP<dim>(1)))
   , fe(FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
        dim,
@@ -29,6 +40,10 @@ MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
        dim)
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
+  , velocity_mask(fe.component_mask(velocity_extractor))
+  , pressure_mask(fe.component_mask(pressure_extractor))
+  , position_mask(fe.component_mask(position_extractor))
+  , lambda_mask(fe.component_mask(lambda_extractor))
 {
   // Set the boundary id on which a weak no slip boundary condition is applied.
   // It is allowed *not* to prescribe a weak no slip on any boundary, to verify
@@ -48,17 +63,16 @@ MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
   // Create the initial condition functions for this problem, once the layout of
   // the variables is known (and in particular, the number of components).
   // FIXME: Is there a better way to create the functions?
-  this->param.initial_conditions.initial_velocity =
-    std::make_shared<Parameters::InitialVelocity<dim>>(
-      u_lower,
-      n_components,
-      this->param.initial_conditions.initial_velocity_callback);
+  this->param.initial_conditions.create_initial_velocity(u_lower, n_components);
+
+  source_terms   = param.source_terms.fluid_source;
+  exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(n_components);
 }
 
 template <int dim>
 void MonolithicFSISolver<dim>::run()
 {
-  read_mesh(triangulation, this->param);
+  read_mesh(triangulation, param);
   setup_dofs();
   create_lagrange_multiplier_constraints();
   create_position_lagrange_mult_coupling_data();
@@ -90,6 +104,7 @@ void MonolithicFSISolver<dim>::run()
     {
       // Entering the Newton solver with a solution satisfying the nonzero
       // constraints, which were applied in update_boundary_condition().
+      // compare_analytical_matrix_with_fd();
       solve_nonlinear_problem(false);
     }
 
@@ -119,37 +134,32 @@ void MonolithicFSISolver<dim>::run()
 template <int dim>
 void MonolithicFSISolver<dim>::setup_dofs()
 {
-  TimerOutput::Scope t(this->computing_timer, "Setup");
+  TimerOutput::Scope t(computing_timer, "Setup");
 
-  auto &comm = this->mpi_communicator;
+  auto &comm = mpi_communicator;
 
   // Initialize dof handler
   dof_handler.distribute_dofs(fe);
 
-  this->pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
-              << std::endl;
+  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
+        << std::endl;
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
 
   // Initialize parallel vectors
-  this->present_solution.reinit(locally_owned_dofs,
-                                locally_relevant_dofs,
-                                comm);
-  this->evaluation_point.reinit(locally_owned_dofs,
-                                locally_relevant_dofs,
-                                comm);
+  present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+  evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
-  this->local_evaluation_point.reinit(locally_owned_dofs, comm);
-  this->newton_update.reinit(locally_owned_dofs, comm);
-  this->system_rhs.reinit(locally_owned_dofs, comm);
+  local_evaluation_point.reinit(locally_owned_dofs, comm);
+  newton_update.reinit(locally_owned_dofs, comm);
+  system_rhs.reinit(locally_owned_dofs, comm);
 
   // Allocate for previous BDF solutions
   previous_solutions.clear();
   previous_solutions.resize(time_handler.n_previous_solutions);
   for (auto &previous_sol : previous_solutions)
   {
-    // previous_sol.clear();
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   }
 
@@ -159,20 +169,20 @@ void MonolithicFSISolver<dim>::setup_dofs()
   const FEValuesExtractors::Vector position(x_lower);
   VectorTools::get_position_vector(*fixed_mapping,
                                    dof_handler,
-                                   this->local_evaluation_point,
-                                   fe.component_mask(position));
-  this->local_evaluation_point.compress(VectorOperation::insert);
-  this->evaluation_point = this->local_evaluation_point;
+                                   local_evaluation_point,
+                                   position_mask);
+  local_evaluation_point.compress(VectorOperation::insert);
+  evaluation_point = local_evaluation_point;
 
   // Also store them in initial_positions, for postprocessing:
   DoFTools::map_dofs_to_support_points(*fixed_mapping,
                                        dof_handler,
-                                       this->initial_positions,
-                                       fe.component_mask(position));
+                                       initial_positions,
+                                       position_mask);
 
   // Create the solution-dependent mapping
   mapping = std::make_unique<MappingFEField<dim, dim, LA::ParVectorType>>(
-    dof_handler, this->evaluation_point, fe.component_mask(position));
+    dof_handler, evaluation_point, position_mask);
 }
 
 template <int dim>
@@ -186,7 +196,7 @@ void MonolithicFSISolver<dim>::create_lagrange_multiplier_constraints()
   // The lambda dofs which are not set to zero
   std::set<types::global_dof_index> unconstrained_lambda_dofs;
 
-  // Flag the uncsontrained lambda dofs, lying on the boundary associated with a
+  // Flag the unconstrained lambda dofs, lying on the boundary associated with a
   // weakly enforced no-slip BC. If there is no such boundary, constrain all
   // lambdas. This allows to keep the problem structure as is, to test with only
   // strong BC.
@@ -216,8 +226,7 @@ void MonolithicFSISolver<dim>::create_lagrange_multiplier_constraints()
   }
 
   // Add zero constraints to all lambda DOFs *not* in the boundary set
-  IndexSet lambda_dofs =
-    DoFTools::extract_dofs(dof_handler, fe.component_mask(lambda));
+  IndexSet     lambda_dofs = DoFTools::extract_dofs(dof_handler, lambda_mask);
   unsigned int n_constrained_local = 0;
   for (const auto dof : lambda_dofs)
   {
@@ -232,10 +241,9 @@ void MonolithicFSISolver<dim>::create_lagrange_multiplier_constraints()
   lambda_constraints.close();
 
   const unsigned int n_unconstrained =
-    Utilities::MPI::sum(unconstrained_lambda_dofs.size(),
-                        this->mpi_communicator);
+    Utilities::MPI::sum(unconstrained_lambda_dofs.size(), mpi_communicator);
   const unsigned int n_constrained =
-    Utilities::MPI::sum(n_constrained_local, this->mpi_communicator);
+    Utilities::MPI::sum(n_constrained_local, mpi_communicator);
 
   this->pcout << n_unconstrained << " lambda DOFs are unconstrained"
               << std::endl;
@@ -279,13 +287,9 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
   boundary_ids.insert(weak_no_slip_boundary_id);
 
   IndexSet local_lambda_dofs =
-    DoFTools::extract_boundary_dofs(dof_handler,
-                                    fe.component_mask(lambda),
-                                    boundary_ids);
+    DoFTools::extract_boundary_dofs(dof_handler, lambda_mask, boundary_ids);
   IndexSet local_position_dofs =
-    DoFTools::extract_boundary_dofs(dof_handler,
-                                    fe.component_mask(position),
-                                    boundary_ids);
+    DoFTools::extract_boundary_dofs(dof_handler, position_mask, boundary_ids);
 
   const unsigned int n_local_lambda_dofs = local_lambda_dofs.n_elements();
 
@@ -294,7 +298,7 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
   // Gather all lists to all processes
   std::vector<std::vector<types::global_dof_index>> gathered_dofs =
-    Utilities::MPI::all_gather(this->mpi_communicator,
+    Utilities::MPI::all_gather(mpi_communicator,
                                local_lambda_dofs.get_index_vector());
 
   std::vector<types::global_dof_index> gathered_dofs_flattened;
@@ -395,7 +399,7 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
     std::vector<std::pair<unsigned int, double>> coeffs_vector(
       coeffs[d].begin(), coeffs[d].end());
     std::vector<std::vector<std::pair<unsigned int, double>>> gathered =
-      Utilities::MPI::all_gather(this->mpi_communicator, coeffs_vector);
+      Utilities::MPI::all_gather(mpi_communicator, coeffs_vector);
 
     // Put back into map and sum contributions to same DoF from different
     // processes
@@ -415,14 +419,12 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
   zero_constraints.clear();
   zero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
-  const FEValuesExtractors::Vector velocity(u_lower);
-  const FEValuesExtractors::Vector position(x_lower);
-
   //
   // Mesh position homogeneous BC
   //
   {
-    std::set<types::boundary_id> no_flux_boundaries;
+    std::set<types::boundary_id>                        normal_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *> position_flux_functions;
     for (const auto &[id, bc] : this->param.pseudosolid_bc)
     {
       if (bc.type == BoundaryConditions::Type::fixed ||
@@ -434,19 +436,21 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
                                                  Functions::ZeroFunction<dim>(
                                                    n_components),
                                                  zero_constraints,
-                                                 fe.component_mask(position));
+                                                 position_mask);
       }
 
       if (bc.type == BoundaryConditions::Type::no_flux)
-        no_flux_boundaries.insert(bc.id);
+        normal_flux_boundaries.insert(bc.id);
     }
 
-    // Add no position flux constraints (tangential movement)
-    VectorTools::compute_no_normal_flux_constraints(dof_handler,
-                                                    x_lower,
-                                                    no_flux_boundaries,
-                                                    zero_constraints,
-                                                    *fixed_mapping);
+    // Add position nonzero flux constraints (tangential movement)
+    VectorTools::compute_nonzero_normal_flux_constraints(
+      dof_handler,
+      x_lower,
+      normal_flux_boundaries,
+      position_flux_functions,
+      zero_constraints,
+      *fixed_mapping);
   }
 
   //
@@ -465,7 +469,7 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
                                                  Functions::ZeroFunction<dim>(
                                                    n_components),
                                                  zero_constraints,
-                                                 fe.component_mask(velocity));
+                                                 velocity_mask);
       }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);
@@ -491,15 +495,13 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
   nonzero_constraints.clear();
   nonzero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
-  const FEValuesExtractors::Vector velocity(u_lower);
-  const FEValuesExtractors::Vector position(x_lower);
-
   //
   // Mesh position inhomogeneous BC
   //
   {
-    std::set<types::boundary_id> no_flux_boundaries;
-    for (const auto &[id, bc] : this->param.pseudosolid_bc)
+    std::set<types::boundary_id>                        normal_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *> position_flux_functions;
+    for (const auto &[id, bc] : param.pseudosolid_bc)
     {
       if (bc.type == BoundaryConditions::Type::fixed)
       {
@@ -509,7 +511,7 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
           bc.id,
           FixedMeshPosition<dim>(x_lower, n_components),
           nonzero_constraints,
-          fe.component_mask(position));
+          position_mask);
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
@@ -520,15 +522,17 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
             "Input function for pseudosolid problem are not yet handled."));
       }
       if (bc.type == BoundaryConditions::Type::no_flux)
-        no_flux_boundaries.insert(bc.id);
+        normal_flux_boundaries.insert(bc.id);
     }
 
-    // Add no position flux constraints (tangential movement)
-    VectorTools::compute_no_normal_flux_constraints(dof_handler,
-                                                    x_lower,
-                                                    no_flux_boundaries,
-                                                    nonzero_constraints,
-                                                    *fixed_mapping);
+    // Add position nonzero flux constraints (tangential movement)
+    VectorTools::compute_nonzero_normal_flux_constraints(
+      dof_handler,
+      x_lower,
+      normal_flux_boundaries,
+      position_flux_functions,
+      nonzero_constraints,
+      *fixed_mapping);
   }
 
   //
@@ -536,7 +540,7 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
   //
   {
     std::set<types::boundary_id> no_flux_boundaries;
-    for (const auto &[id, bc] : this->param.fluid_bc)
+    for (const auto &[id, bc] : param.fluid_bc)
     {
       if (bc.type == BoundaryConditions::Type::no_slip)
       {
@@ -546,7 +550,7 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
                                                  Functions::ZeroFunction<dim>(
                                                    n_components),
                                                  nonzero_constraints,
-                                                 fe.component_mask(velocity));
+                                                 velocity_mask);
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
@@ -557,7 +561,7 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
           ComponentwiseFlowVelocity<dim>(
             u_lower, n_components, bc.u, bc.v, bc.w),
           nonzero_constraints,
-          fe.component_mask(velocity));
+          velocity_mask);
       }
 
       if (bc.type == BoundaryConditions::Type::slip)
@@ -586,7 +590,34 @@ void MonolithicFSISolver<dim>::create_sparsity_pattern()
   // defined
   //
   DynamicSparsityPattern dsp(locally_relevant_dofs);
+
+  Table<2, DoFTools::Coupling> coupling(n_components, n_components);
+
+  for (unsigned int c = 0; c < n_components; ++c)
+    for (unsigned int d = 0; d < n_components; ++d)
+    {
+      coupling[c][d] = DoFTools::none;
+
+      // u couples to all variables
+      if (is_velocity(c))
+        coupling[c][d] = DoFTools::always;
+
+      // p couples to u and x
+      if (is_pressure(c))
+        if (is_velocity(d) || is_position(d))
+          coupling[c][d] = DoFTools::always;
+
+      // x couples to itself
+      if (is_position(c) && is_position(d))
+        coupling[c][d] = DoFTools::always;
+
+      if (is_lambda(c))
+        if (is_velocity(d) || is_position(d))
+          coupling[c][d] = DoFTools::always;
+    }
+
   DoFTools::make_sparsity_pattern(dof_handler,
+                                  coupling,
                                   dsp,
                                   nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
@@ -600,57 +631,53 @@ void MonolithicFSISolver<dim>::create_sparsity_pattern()
 
   SparsityTools::distribute_sparsity_pattern(dsp,
                                              locally_owned_dofs,
-                                             this->mpi_communicator,
+                                             mpi_communicator,
                                              locally_relevant_dofs);
 
   system_matrix.reinit(locally_owned_dofs,
                        locally_owned_dofs,
                        dsp,
-                       this->mpi_communicator);
+                       mpi_communicator);
 }
 
 template <int dim>
 void MonolithicFSISolver<dim>::set_initial_conditions()
 {
-  const FEValuesExtractors::Vector velocity(u_lower);
-  const FEValuesExtractors::Vector position(x_lower);
-
-  // Update mesh position *BEFORE* evaluating scalar field
-  // with moving mapping (-:
-  // This does not matter here, as the initial mesh position
-  // is the fixed_mapping.
+  // Update mesh position *BEFORE* evaluating scalar field with moving mapping.
+  // This does not matter here though, as the initial mesh position is the
+  // fixed_mapping.
 
   // Set mesh position with fixed mapping
   VectorTools::interpolate(*fixed_mapping,
                            dof_handler,
                            FixedMeshPosition<dim>(x_lower, n_components),
-                           this->newton_update,
-                           fe.component_mask(position));
+                           newton_update,
+                           position_mask);
 
   // Set velocity with moving mapping (irrelevant for initial position)
   VectorTools::interpolate(*mapping,
                            dof_handler,
-                           *this->param.initial_conditions.initial_velocity,
-                           this->newton_update,
-                           fe.component_mask(velocity));
+                           *param.initial_conditions.initial_velocity,
+                           newton_update,
+                           velocity_mask);
 
   // Apply non-homogeneous Dirichlet BC and set as current solution
-  nonzero_constraints.distribute(this->newton_update);
-  this->present_solution = this->newton_update;
+  nonzero_constraints.distribute(newton_update);
+  present_solution = newton_update;
 
   // FIXME: Dirty copy of the initial condition for BDF2 for now (-:
   for (auto &sol : previous_solutions)
-    sol = this->present_solution;
+    sol = present_solution;
 }
 
 template <int dim>
 void MonolithicFSISolver<dim>::update_boundary_conditions()
 {
   // Re-create and distribute nonzero constraints:
-  this->local_evaluation_point = this->present_solution;
-  this->create_nonzero_constraints();
-  nonzero_constraints.distribute(this->local_evaluation_point);
-  this->present_solution = this->local_evaluation_point;
+  local_evaluation_point = present_solution;
+  create_nonzero_constraints();
+  nonzero_constraints.distribute(local_evaluation_point);
+  present_solution = local_evaluation_point;
 }
 
 template <int dim>
@@ -658,154 +685,57 @@ void MonolithicFSISolver<dim>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
 
-  const bool first_step = false;
-
   system_matrix = 0;
 
-  const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+  ScratchDataMonolithicFSI<dim> scratch_data(fe,
+                                             quadrature,
+                                             *fixed_mapping,
+                                             *mapping,
+                                             face_quadrature,
+                                             fe.n_dofs_per_cell(),
+                                             weak_no_slip_boundary_id,
+                                             time_handler.bdf_coefficients);
+  CopyData                      copy_data(fe.n_dofs_per_cell());
 
-  std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-  FullMatrix<double> local_matrix(dofs_per_cell, dofs_per_cell);
+#if defined(FEZ_WITH_PETSC)
+  AssertThrow(
+    MultithreadInfo::n_threads() == 1,
+    ExcMessage(
+      "Assembly is running with more than 1 thread, but uses PETSc wrappers "
+      "for parallel matrix and vectors, which are not thread safe."));
+#endif
 
-  // Data to compute matrix with finite differences
-  // This is a particular case where automatic differentiation
-  // cannot be used, since the mesh position is an unknown.
-  // The local dofs values, which will be perturbed:
-  std::vector<double> cell_dof_values(dofs_per_cell);
-  Vector<double>      ref_local_rhs(dofs_per_cell);
-  Vector<double>      perturbed_local_rhs(dofs_per_cell);
-
-  ScratchDataMonolithicFSI<dim> scratchData(fe,
-                                            quadrature,
-                                            *fixed_mapping,
-                                            *mapping,
-                                            face_quadrature,
-                                            dofs_per_cell,
-                                            weak_no_slip_boundary_id,
-                                            time_handler.bdf_coefficients);
-
-  for (const auto &cell : dof_handler.active_cell_iterators() |
-                            IteratorFilters::LocallyOwnedCell())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    cell->get_dof_indices(local_dof_indices);
-
-    if (this->param.nonlinear_solver.analytic_jacobian)
-    {
-      //
-      // Analytic jacobian matrix
-      //
-      const bool distribute = true;
-      this->assemble_local_matrix(first_step,
-                                  cell,
-                                  scratchData,
-                                  this->evaluation_point,
-                                  previous_solutions,
-                                  local_dof_indices,
-                                  local_matrix,
-                                  distribute);
-    }
-    else
-    {
-      //
-      // Finite differences
-      //
-      const double h      = 1.e-8;
-      local_matrix        = 0.;
-      ref_local_rhs       = 0.;
-      perturbed_local_rhs = 0.;
-
-      // Get the local dofs values
-      for (unsigned int j = 0; j < dofs_per_cell; ++j)
-        cell_dof_values[j] = this->evaluation_point[local_dof_indices[j]];
-
-      const bool distribute_rhs    = false;
-      const bool use_full_solution = false;
-
-      // Compute non-perturbed RHS
-      this->assemble_local_rhs(first_step,
-                               cell,
-                               scratchData,
-                               this->evaluation_point,
-                               previous_solutions,
-                               local_dof_indices,
-                               ref_local_rhs,
-                               cell_dof_values,
-                               distribute_rhs,
-                               use_full_solution);
-
-      for (unsigned int j = 0; j < dofs_per_cell; ++j)
-      {
-        const unsigned int comp     = fe.system_to_component_index(j).first;
-        const double       og_value = cell_dof_values[j];
-        cell_dof_values[j] += h;
-
-        if (is_position(comp))
-        {
-          // Also modify mapping_fe_field
-          this->local_evaluation_point[local_dof_indices[j]] =
-            cell_dof_values[j];
-          this->local_evaluation_point.compress(VectorOperation::insert);
-          this->evaluation_point = this->local_evaluation_point;
-        }
-
-        // Compute perturbed RHS
-        // Reinit is called in the local rhs function
-        this->assemble_local_rhs(first_step,
-                                 cell,
-                                 scratchData,
-                                 this->evaluation_point,
-                                 previous_solutions,
-                                 local_dof_indices,
-                                 perturbed_local_rhs,
-                                 cell_dof_values,
-                                 distribute_rhs,
-                                 use_full_solution);
-
-        // Finite differences (with sign change as residual is -NL(u))
-        for (unsigned int i = 0; i < dofs_per_cell; ++i)
-        {
-          local_matrix(i, j) = -(perturbed_local_rhs(i) - ref_local_rhs(i)) / h;
-        }
-
-        // Restore solution
-        cell_dof_values[j] = og_value;
-        if (is_position(comp))
-        {
-          // Also modify mapping_fe_field
-          this->local_evaluation_point[local_dof_indices[j]] = og_value;
-          this->local_evaluation_point.compress(VectorOperation::insert);
-          this->evaluation_point = this->local_evaluation_point;
-        }
-      }
-    }
-  }
+  // Assemble matrix (multithreaded if supported)
+  WorkStream::run(dof_handler.begin_active(),
+                  dof_handler.end(),
+                  *this,
+                  &MonolithicFSISolver::assemble_local_matrix,
+                  &MonolithicFSISolver::copy_local_to_global_matrix,
+                  scratch_data,
+                  copy_data);
 
   system_matrix.compress(VectorOperation::add);
 
-  if (this->param.fsi.enable_coupling)
-    this->add_algebraic_position_coupling_to_matrix();
+  if (param.fsi.enable_coupling)
+    add_algebraic_position_coupling_to_matrix();
 }
 
 template <int dim>
 void MonolithicFSISolver<dim>::assemble_local_matrix(
-  bool                                                  first_step,
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchDataMonolithicFSI<dim>                        &scratchData,
-  LA::ParVectorType                                        &current_solution,
-  std::vector<LA::ParVectorType>                           &previous_solutions,
-  std::vector<types::global_dof_index>                 &local_dof_indices,
-  FullMatrix<double>                                   &local_matrix,
-  bool                                                  distribute)
+  CopyData                                             &copy_data)
 {
+  copy_data.cell_is_locally_owned = cell->is_locally_owned();
+
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(cell, current_solution, previous_solutions);
+  scratchData.reinit(
+    cell, evaluation_point, previous_solutions, source_terms, exact_solution);
 
-  local_matrix = 0;
+  auto &local_matrix = copy_data.local_matrix;
+  local_matrix       = 0;
 
   const double kinematic_viscosity =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
@@ -1081,100 +1011,69 @@ void MonolithicFSISolver<dim>::assemble_local_matrix(
       }
     }
   }
+  cell->get_dof_indices(copy_data.local_dof_indices);
+}
 
-  if (distribute)
-  {
-    cell->get_dof_indices(local_dof_indices);
-    if (first_step)
-    {
-      throw std::runtime_error("First step");
-      nonzero_constraints.distribute_local_to_global(local_matrix,
-                                                     local_dof_indices,
-                                                     system_matrix);
-    }
-    else
-    {
-      zero_constraints.distribute_local_to_global(local_matrix,
-                                                  local_dof_indices,
-                                                  system_matrix);
-      // for (unsigned int ii = 0; ii < scratchData.dofs_per_cell; ++ii)
-      //   for (unsigned int jj = 0; jj < scratchData.dofs_per_cell; ++jj)
-      //     system_matrix.add(local_dof_indices[ii],
-      //                       local_dof_indices[jj],
-      //                       local_matrix(ii, jj));
-    }
-  }
+template <int dim>
+void MonolithicFSISolver<dim>::copy_local_to_global_matrix(
+  const CopyData &copy_data)
+{
+  if (!copy_data.cell_is_locally_owned)
+    return;
+
+  zero_constraints.distribute_local_to_global(copy_data.local_matrix,
+                                              copy_data.local_dof_indices,
+                                              system_matrix);
 }
 
 template <int dim>
 void MonolithicFSISolver<dim>::assemble_rhs()
 {
-  TimerOutput::Scope t(this->computing_timer, "Assemble RHS");
+  TimerOutput::Scope t(computing_timer, "Assemble RHS");
 
-  const bool first_step = false;
+  system_rhs = 0;
 
-  this->system_rhs = 0;
+  ScratchDataMonolithicFSI<dim> scratch_data(fe,
+                                             quadrature,
+                                             *fixed_mapping,
+                                             *mapping,
+                                             face_quadrature,
+                                             fe.n_dofs_per_cell(),
+                                             weak_no_slip_boundary_id,
+                                             time_handler.bdf_coefficients);
+  CopyData                      copy_data(fe.n_dofs_per_cell());
 
-  const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+  // Assemble RHS (multithreaded if supported)
+  WorkStream::run(dof_handler.begin_active(),
+                  dof_handler.end(),
+                  *this,
+                  &MonolithicFSISolver::assemble_local_rhs,
+                  &MonolithicFSISolver::copy_local_to_global_rhs,
+                  scratch_data,
+                  copy_data);
 
-  Vector<double>                       local_rhs(dofs_per_cell);
-  std::vector<double>                  cell_dof_values(dofs_per_cell);
-  std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+  system_rhs.compress(VectorOperation::add);
 
-  ScratchDataMonolithicFSI<dim> scratchData(fe,
-                                            quadrature,
-                                            *fixed_mapping,
-                                            *mapping,
-                                            face_quadrature,
-                                            dofs_per_cell,
-                                            weak_no_slip_boundary_id,
-                                            time_handler.bdf_coefficients);
-
-  for (const auto &cell : dof_handler.active_cell_iterators() |
-                            IteratorFilters::LocallyOwnedCell())
-  {
-    local_rhs              = 0;
-    bool distribute        = true;
-    bool use_full_solution = true;
-    this->assemble_local_rhs(first_step,
-                             cell,
-                             scratchData,
-                             this->evaluation_point,
-                             previous_solutions,
-                             local_dof_indices,
-                             local_rhs,
-                             cell_dof_values,
-                             distribute,
-                             use_full_solution);
-  }
-
-  this->system_rhs.compress(VectorOperation::add);
-
-  if (this->param.fsi.enable_coupling)
-    this->add_algebraic_position_coupling_to_rhs();
+  if (param.fsi.enable_coupling)
+    add_algebraic_position_coupling_to_rhs();
 }
 
 template <int dim>
 void MonolithicFSISolver<dim>::assemble_local_rhs(
-  bool                                                  first_step,
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchDataMonolithicFSI<dim>                        &scratchData,
-  LA::ParVectorType                                        &current_solution,
-  std::vector<LA::ParVectorType>                           &previous_solutions,
-  std::vector<types::global_dof_index>                 &local_dof_indices,
-  Vector<double>                                       &local_rhs,
-  std::vector<double>                                  &cell_dof_values,
-  bool                                                  distribute,
-  bool                                                  use_full_solution)
+  CopyData                                             &copy_data)
 {
-  if (use_full_solution)
-  {
-    scratchData.reinit(cell, current_solution, previous_solutions);
-  }
-  else
-    scratchData.reinit(cell, cell_dof_values, previous_solutions);
+  copy_data.cell_is_locally_owned = cell->is_locally_owned();
 
-  local_rhs = 0;
+  if (!cell->is_locally_owned())
+    return;
+
+  scratchData.reinit(
+    cell, evaluation_point, previous_solutions, source_terms, exact_solution);
+
+  auto &local_rhs = copy_data.local_rhs;
+  local_rhs       = 0;
 
   const double kinematic_viscosity =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
@@ -1329,14 +1228,10 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
             const bool         i_is_l      = is_lambda(component_i);
 
             if (i_is_u)
-            {
               local_rhs_i -= -(phi_u[i] * present_l);
-            }
 
             if (i_is_l)
-            {
               local_rhs_i -= -(present_u - present_w) * phi_l[i];
-            }
 
             local_rhs_i *= face_JxW_moving;
             local_rhs(i) += local_rhs_i;
@@ -1345,22 +1240,19 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
       }
     }
   }
+  cell->get_dof_indices(copy_data.local_dof_indices);
+}
 
-  if (distribute)
-  {
-    cell->get_dof_indices(local_dof_indices);
-    if (first_step)
-    {
-      throw std::runtime_error("First step");
-      nonzero_constraints.distribute_local_to_global(local_rhs,
-                                                     local_dof_indices,
-                                                     this->system_rhs);
-    }
-    else
-      zero_constraints.distribute_local_to_global(local_rhs,
-                                                  local_dof_indices,
-                                                  this->system_rhs);
-  }
+template <int dim>
+void MonolithicFSISolver<dim>::copy_local_to_global_rhs(
+  const CopyData &copy_data)
+{
+  if (!copy_data.cell_is_locally_owned)
+    return;
+
+  zero_constraints.distribute_local_to_global(copy_data.local_rhs,
+                                              copy_data.local_dof_indices,
+                                              this->system_rhs);
 }
 
 template <int dim>
@@ -1369,8 +1261,7 @@ void MonolithicFSISolver<dim>::add_algebraic_position_coupling_to_matrix()
   //
   // Add algebraic constraints position-lambda
   //
-  std::map<types::global_dof_index,
-           std::vector<LA::ConstMatrixIterator>>
+  std::map<types::global_dof_index, std::vector<LA::ConstMatrixIterator>>
     position_row_entries;
   // Get row entries for each pos_dof
   for (const auto &[pos_dof, d] : coupled_position_dofs)
@@ -1423,28 +1314,11 @@ template <int dim>
 void MonolithicFSISolver<dim>::solve_linear_system(
   const bool /*apply_inhomogeneous_constraints*/)
 {
-  solve_linear_system_direct(this, param.linear_solver, system_matrix, locally_owned_dofs, zero_constraints);
-  // TimerOutput::Scope t(computing_timer, "Solve direct");
-
-  // LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
-  //                                               this->mpi_communicator);
-
-  // // Solve with MUMPS
-  // SolverControl                    solver_control;
-  // PETScWrappers::SparseDirectMUMPS solver(solver_control);
-  // solver.solve(system_matrix,
-  //              completely_distributed_solution,
-  //              this->system_rhs);
-
-  // this->newton_update = completely_distributed_solution;
-
-  // if (apply_inhomogeneous_constraints)
-  // {
-  //   throw std::runtime_error("First step");
-  //   nonzero_constraints.distribute(this->newton_update);
-  // }
-  // else
-  //   zero_constraints.distribute(this->newton_update);
+  solve_linear_system_direct(this,
+                             param.linear_solver,
+                             system_matrix,
+                             locally_owned_dofs,
+                             zero_constraints);
 }
 
 /**
@@ -1749,79 +1623,81 @@ void MonolithicFSISolver<dim>::check_velocity_boundary() const
 template <int dim>
 void MonolithicFSISolver<dim>::output_results() const
 {
-  //
-  // Plot FE solution
-  //
-  std::vector<std::string> solution_names(dim, "velocity");
-  solution_names.push_back("pressure");
-  for (unsigned int d = 0; d < dim; ++d)
-    solution_names.push_back("mesh_position");
-  for (unsigned int d = 0; d < dim; ++d)
-    solution_names.push_back("lambda");
+  if (param.output.write_results)
+  {
+    //
+    // Plot FE solution
+    //
+    std::vector<std::string> solution_names(dim, "velocity");
+    solution_names.push_back("pressure");
+    for (unsigned int d = 0; d < dim; ++d)
+      solution_names.push_back("mesh_position");
+    for (unsigned int d = 0; d < dim; ++d)
+      solution_names.push_back("lambda");
 
-  std::vector<DataComponentInterpretation::DataComponentInterpretation>
-    data_component_interpretation(
-      dim, DataComponentInterpretation::component_is_part_of_vector);
-  data_component_interpretation.push_back(
-    DataComponentInterpretation::component_is_scalar);
-  for (unsigned int d = 0; d < 2 * dim; ++d)
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      data_component_interpretation(
+        dim, DataComponentInterpretation::component_is_part_of_vector);
     data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_part_of_vector);
+      DataComponentInterpretation::component_is_scalar);
+    for (unsigned int d = 0; d < 2 * dim; ++d)
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_part_of_vector);
 
-  DataOut<dim> data_out;
-  data_out.attach_dof_handler(dof_handler);
-  data_out.add_data_vector(this->present_solution,
-                           solution_names,
-                           DataOut<dim>::type_dof_data,
-                           data_component_interpretation);
+    DataOut<dim> data_out;
+    data_out.attach_dof_handler(dof_handler);
+    data_out.add_data_vector(this->present_solution,
+                             solution_names,
+                             DataOut<dim>::type_dof_data,
+                             data_component_interpretation);
 
-  //
-  // Compute mesh velocity in post-processing
-  // This is not ideal, this is done by modifying the displacement and
-  // reexporting.
-  //
-  LA::ParVectorType mesh_velocity;
-  mesh_velocity.reinit(locally_owned_dofs, this->mpi_communicator);
-  const FEValuesExtractors::Vector position(x_lower);
-  IndexSet                         disp_dofs =
-    DoFTools::extract_dofs(dof_handler, fe.component_mask(position));
+    //
+    // Compute mesh velocity in post-processing
+    // This is not ideal, this is done by modifying the displacement and
+    // reexporting.
+    //
+    LA::ParVectorType mesh_velocity;
+    mesh_velocity.reinit(locally_owned_dofs, mpi_communicator);
+    const FEValuesExtractors::Vector position(x_lower);
+    IndexSet disp_dofs = DoFTools::extract_dofs(dof_handler, position_mask);
 
-  for (const auto &i : disp_dofs)
-    if (locally_owned_dofs.is_element(i))
-      mesh_velocity[i] =
-        time_handler.compute_time_derivative(i,
-                                             this->present_solution,
-                                             previous_solutions);
-  mesh_velocity.compress(VectorOperation::insert);
+    for (const auto &i : disp_dofs)
+      if (locally_owned_dofs.is_element(i))
+        mesh_velocity[i] =
+          time_handler.compute_time_derivative(i,
+                                               this->present_solution,
+                                               previous_solutions);
+    mesh_velocity.compress(VectorOperation::insert);
 
-  std::vector<std::string> mesh_velocity_name(dim, "ph_velocity");
-  mesh_velocity_name.emplace_back("ph_pressure");
-  for (unsigned int i = 0; i < dim; ++i)
-    mesh_velocity_name.push_back("mesh_velocity");
-  for (unsigned int i = 0; i < dim; ++i)
-    mesh_velocity_name.push_back("ph_lambda");
+    std::vector<std::string> mesh_velocity_name(dim, "ph_velocity");
+    mesh_velocity_name.emplace_back("ph_pressure");
+    for (unsigned int i = 0; i < dim; ++i)
+      mesh_velocity_name.push_back("mesh_velocity");
+    for (unsigned int i = 0; i < dim; ++i)
+      mesh_velocity_name.push_back("ph_lambda");
 
-  data_out.add_data_vector(mesh_velocity,
-                           mesh_velocity_name,
-                           DataOut<dim>::type_dof_data,
-                           data_component_interpretation);
+    data_out.add_data_vector(mesh_velocity,
+                             mesh_velocity_name,
+                             DataOut<dim>::type_dof_data,
+                             data_component_interpretation);
 
-  //
-  // Partition
-  //
-  Vector<float> subdomain(triangulation.n_active_cells());
-  for (unsigned int i = 0; i < subdomain.size(); ++i)
-    subdomain(i) = triangulation.locally_owned_subdomain();
-  data_out.add_data_vector(subdomain, "subdomain");
+    //
+    // Partition
+    //
+    Vector<float> subdomain(triangulation.n_active_cells());
+    for (unsigned int i = 0; i < subdomain.size(); ++i)
+      subdomain(i) = triangulation.locally_owned_subdomain();
+    data_out.add_data_vector(subdomain, "subdomain");
 
-  data_out.build_patches(*mapping, 2);
+    data_out.build_patches(*mapping, 2);
 
-  // Export regular time step
-  data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
-                                      this->param.output.output_prefix,
-                                      time_handler.current_time_iteration,
-                                      this->mpi_communicator,
-                                      2);
+    // Export regular time step
+    data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
+                                        this->param.output.output_prefix,
+                                        time_handler.current_time_iteration,
+                                        mpi_communicator,
+                                        2);
+  }
 }
 
 template <int dim>
@@ -1885,7 +1761,7 @@ void MonolithicFSISolver<dim>::compute_forces(const bool export_table)
     forces_table.add_value("CFz", -lambda_integral[2]);
   }
 
-  if (export_table && mpi_rank == 0)
+  if (export_table && param.output.write_results && mpi_rank == 0)
   {
     std::ofstream outfile(param.output.output_dir + "forces.txt");
     forces_table.write_text(outfile);
@@ -1952,7 +1828,7 @@ void MonolithicFSISolver<dim>::write_cylinder_position(const bool export_table)
   if constexpr (dim == 3)
     cylinder_position_table.add_value("zc", average_position[2]);
 
-  if (export_table && mpi_rank == 0)
+  if (export_table && param.output.write_results && mpi_rank == 0)
   {
     std::ofstream outfile(param.output.output_dir + "cylinder_center.txt");
     cylinder_position_table.write_text(outfile);

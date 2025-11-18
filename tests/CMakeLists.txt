@@ -1,1 +1,2 @@
 add_subdirectory(incompressible_ns)
+add_subdirectory(monolithic_fsi)

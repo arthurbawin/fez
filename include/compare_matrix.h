@@ -7,6 +7,15 @@ namespace Verification
 {
   using namespace dealii;
   
+  /**
+   * Compute the analytic Jacobian matrix on each mesh element
+   * and compare it to its finite differences approximation by
+   * perturing the Newton residual.
+   * 
+   * The FSI solver has the mesh position as unknown, so it is
+   * my understanding that we cannot use automatic differentiation (AD)
+   * in that case, although this would be the preferred way.
+   */
   template <int dim,
             typename MainClass,
             typename Iterator,

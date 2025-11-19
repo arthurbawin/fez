@@ -4,6 +4,7 @@
 template <int dim>
 void ParameterReader<dim>::check_parameters() const
 {
+  // Initial conditions
   if (initial_conditions.set_to_mms && !mms_param.enable)
   {
     throw std::runtime_error(
@@ -21,6 +22,42 @@ void ParameterReader<dim>::check_parameters() const
       "not set to be prescribed by this solution. Set \"set to mms = true\" "
       "for the initial conditions.");
   }
+
+  // FSI
+  if (!fsi.enable_coupling)
+  {
+    for (const auto &[id, bc] : pseudosolid_bc)
+      AssertThrow(
+        bc.type != BoundaryConditions::Type::coupled_to_fluid,
+        ExcMessage(
+          "A pseudosolid boundary condition is set to \"coupled_to_fluid\", "
+          "but the fluid-structure interaction coupling was not enabled."));
+  }
+  if (fsi.enable_coupling)
+  {
+    bool at_least_one_coupled_boundary = false;
+    for (const auto &[id, bc] : pseudosolid_bc)
+      if (bc.type == BoundaryConditions::Type::coupled_to_fluid)
+      {
+        at_least_one_coupled_boundary = true;
+        break;
+      }
+    AssertThrow(
+      at_least_one_coupled_boundary,
+      ExcMessage(
+        "Fluid-structure interaction coupling is enabled, but no pseudosolid "
+        "boundary condition is set to \"coupled_to_fluid\"."));
+  }
+
+  // MMS
+  if constexpr (dim == 3)
+    if (mms_param.enable)
+      AssertThrow(mms_param.use_deal_ii_cube_mesh,
+                  ExcMessage(
+                    "There seems to be a bug when deal.II's function parses a "
+                    "transfinite cube mesh from Gmsh. Until this is figured "
+                    "out, 3D convergence studies should be run with \"use "
+                    "dealii cube mesh = true\"."));
 }
 
 template class ParameterReader<2>;

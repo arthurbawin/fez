@@ -344,30 +344,22 @@ void read_mesh(
   // deal.II's functions to mesh a square [-1,1]^2. In 3D, there seems to be a
   // bug in deal.II when reading a transfinite cube mesh file. Always use
   // deal.II's routines to create a subdivided cube mesh.
-  if (param.mms_param.enable)
-  {
-    if constexpr (dim == 3)
-      AssertThrow(param.mms_param.use_deal_ii_cube_mesh,
-                  ExcMessage(
-                    "There seems to be a bug when deal.II's function parses a "
-                    "transfinite cube mesh from Gmsh. Until this is figured "
-                    "out, 3D convergence studies should be run with \"use "
-                    "dealii cube mesh = true\"."));
+  bool use_deal_ii_mesh = param.mesh.use_deal_ii_cube_mesh ||
+  (param.mms_param.enable && param.mms_param.use_deal_ii_cube_mesh);
 
-    if (param.mms_param.use_deal_ii_cube_mesh)
-    {
-      const double       min_corner = (dim == 2) ? 0. : 0.;
-      const double       max_corner = 1.;
-      const unsigned int refinement_level =
-        pow(2, param.mms_param.mesh_suffix + 1);
-      const bool convert_to_simplices = true;
-      create_cube(serial_triangulation,
-                  param.mesh,
-                  min_corner,
-                  max_corner,
-                  refinement_level,
-                  convert_to_simplices);
-    }
+  if (use_deal_ii_mesh)
+  {
+    const double       min_corner = (dim == 2) ? 0. : 0.;
+    const double       max_corner = 1.;
+    const unsigned int refinement_level = param.mms_param.enable ?
+      pow(2, param.mms_param.mesh_suffix + 1) : param.mesh.refinement_level;
+    const bool convert_to_simplices = true;
+    create_cube(serial_triangulation,
+                param.mesh,
+                min_corner,
+                max_corner,
+                refinement_level,
+                convert_to_simplices);
   }
   else
   {

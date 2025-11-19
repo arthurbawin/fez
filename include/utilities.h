@@ -68,6 +68,15 @@ void read_number_of_boundary_conditions(
   }
   prm.leave_subsection();
 
+  prm.enter_subsection("CahnHilliard boundary conditions");
+  {
+    prm.declare_entry("number",
+                      "0",
+                      Patterns::Integer(),
+                      "Number of boundary conditions for two-phase flows with the Cahn-Hilliard Navier-Stokes model");
+  }
+  prm.leave_subsection();
+
   // Read only these structures from the file
   prm.parse_input(parameter_file, /*last_line=*/"", /*skip_undefined=*/true);
 
@@ -78,6 +87,10 @@ void read_number_of_boundary_conditions(
 
   prm.enter_subsection("Pseudosolid boundary conditions");
   bc_data.n_pseudosolid_bc = prm.get_integer("number");
+  prm.leave_subsection();
+
+  prm.enter_subsection("CahnHilliard boundary conditions");
+  bc_data.n_cahn_hilliard_bc = prm.get_integer("number");
   prm.leave_subsection();
 }
 

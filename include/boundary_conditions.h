@@ -18,7 +18,8 @@ namespace BoundaryConditions
   enum class PhysicsType
   {
     fluid,
-    pseudosolid
+    pseudosolid,
+    cahn_hilliard
   };
 
   /**
@@ -48,6 +49,9 @@ namespace BoundaryConditions
     fixed, // Enforce 0 displacement. Default when no BC is prescribed?
     coupled_to_fluid, // Couple to lagrange mult
     no_flux           // Slip. Have to check what happens at corners, etc.
+
+    // Cahn-Hilliard
+    // no_flux
   };
 
   /**
@@ -132,217 +136,35 @@ namespace BoundaryConditions
     virtual void set_time(const double) override {}
   };
 
-  // FIXME: templatize the "declare" and "read" functions below,
-  // so that one function handles all types of BC vectors.
+  /**
+   * A boundary condition for the Cahn-Hilliard tracer and potential.
+   */
   template <int dim>
-  void declare_fluid_boundary_conditions(ParameterHandler  &prm,
-                                         const unsigned int n_fluid_bc)
+  class CahnHilliardBC : public BoundaryCondition
   {
-    // These boundary conditions are used to declare the generic parameters
-    // (problem is that map keys are immutable after they are created, although
-    // we could alternatively move or swap the map entries).
-    std::vector<FluidBC<dim>> tmp_bc(n_fluid_bc);
+  public:
+    virtual void declare_parameters(ParameterHandler &prm) override;
+    virtual void read_parameters(ParameterHandler &prm) override;
+    virtual void set_time(const double) override {}
+  };
 
-    prm.enter_subsection("Fluid boundary conditions");
-    {
-      // The number was already parsed in a first dry run
-      prm.declare_entry("number",
-                        "0",
-                        Patterns::Integer(),
-                        "Number of fluid boundary conditions");
+  /**
+   * Declare a family of boundary conditions (fluid, pseudosolid, ...)
+   */
+  template <typename BCType>
+  void declare_boundary_conditions(ParameterHandler  &prm,
+                                   const unsigned int n_bc,
+                                   const std::string &bc_type_name);
+  /**
+   * Parse a family of boundary conditions from the parameter file
+   */
+  template <typename BCType>
+  void read_boundary_conditions(
+    ParameterHandler                     &prm,
+    const unsigned int                    n_bc,
+    const std::string                    &bc_type_name,
+    std::map<types::boundary_id, BCType> &boundary_conditions);
 
-      for (unsigned int i = 0; i < n_fluid_bc; ++i)
-      {
-        prm.enter_subsection("boundary " + std::to_string(i));
-        {
-          tmp_bc[i].declare_parameters(prm);
-        }
-        prm.leave_subsection();
-      }
-    }
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void read_fluid_boundary_conditions(
-    ParameterHandler                           &prm,
-    const unsigned int                          n_fluid_bc,
-    std::map<types::boundary_id, FluidBC<dim>> &fluid_bc)
-  {
-    /**
-     * FIXME: If the number of bc actually added in the parameter file is
-     * greater than the specified number, deal.ii throws a parse error.
-     Ideally,
-     * we should be able to return an error here if the user specified too
-     few
-     * boundary conditions.
-     */
-    prm.enter_subsection("Fluid boundary conditions");
-    {
-      for (unsigned int i = 0; i < n_fluid_bc; ++i)
-      {
-        prm.enter_subsection("boundary " + std::to_string(i));
-        {
-          unsigned int id = prm.get_integer("id");
-          fluid_bc[id].read_parameters(prm);
-        }
-        prm.leave_subsection();
-      }
-    }
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void FluidBC<dim>::declare_parameters(ParameterHandler &prm)
-  {
-    BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry("type",
-                      "none",
-                      Patterns::Selection(
-                        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
-                        "velocity_mms|velocity_flux_mms|open_mms"),
-                      "Type of fluid boundary condition");
-
-    // Imposed functions, if any
-    prm.enter_subsection("u");
-    u->declare_parameters(prm);
-    prm.leave_subsection();
-
-    prm.enter_subsection("v");
-    v->declare_parameters(prm);
-    prm.leave_subsection();
-
-    prm.enter_subsection("w");
-    w->declare_parameters(prm);
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void FluidBC<dim>::read_parameters(ParameterHandler &prm)
-  {
-    BoundaryCondition::read_parameters(prm);
-    physics_type                  = PhysicsType::fluid;
-    physics_str                   = "fluid";
-    const std::string parsed_type = prm.get("type");
-    if (parsed_type == "input_function")
-      type = Type::input_function;
-    if (parsed_type == "outflow")
-      type = Type::outflow;
-    if (parsed_type == "no_slip")
-      type = Type::no_slip;
-    if (parsed_type == "weak_no_slip")
-      type = Type::weak_no_slip;
-    if (parsed_type == "slip")
-      type = Type::slip;
-    if (parsed_type == "velocity_mms")
-      type = Type::velocity_mms;
-    if (parsed_type == "velocity_flux_mms")
-      type = Type::velocity_flux_mms;
-    if (parsed_type == "open_mms")
-      type = Type::open_mms;
-    if (parsed_type == "none")
-      throw std::runtime_error(
-        "Fluid boundary condition for boundary " + std::to_string(this->id) +
-        " is set to \"none\".\n"
-        "Either you specified this type by mistake, or the number of \n"
-        "prescribed fluid boundary conditions is smaller than "
-        "the specified \"number\" field.");
-
-    prm.enter_subsection("u");
-    u->parse_parameters(prm);
-    prm.leave_subsection();
-
-    prm.enter_subsection("v");
-    v->parse_parameters(prm);
-    prm.leave_subsection();
-
-    prm.enter_subsection("w");
-    w->parse_parameters(prm);
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void
-  declare_pseudosolid_boundary_conditions(ParameterHandler  &prm,
-                                          const unsigned int n_pseudosolid_bc)
-  {
-    std::vector<PseudosolidBC<dim>> tmp_bc(n_pseudosolid_bc);
-
-    prm.enter_subsection("Pseudosolid boundary conditions");
-    {
-      prm.declare_entry("number",
-                        "0",
-                        Patterns::Integer(),
-                        "Number of pseudosolid boundary conditions");
-
-      for (unsigned int i = 0; i < n_pseudosolid_bc; ++i)
-      {
-        prm.enter_subsection("boundary " + std::to_string(i));
-        {
-          tmp_bc[i].declare_parameters(prm);
-        }
-        prm.leave_subsection();
-      }
-    }
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void read_pseudosolid_boundary_conditions(
-    ParameterHandler                                 &prm,
-    const unsigned int                                n_pseudosolid_bc,
-    std::map<types::boundary_id, PseudosolidBC<dim>> &pseudosolid_bc)
-  {
-    prm.enter_subsection("Pseudosolid boundary conditions");
-    {
-      for (unsigned int i = 0; i < n_pseudosolid_bc; ++i)
-      {
-        prm.enter_subsection("boundary " + std::to_string(i));
-        {
-          unsigned int id = prm.get_integer("id");
-          pseudosolid_bc[id].read_parameters(prm);
-        }
-        prm.leave_subsection();
-      }
-    }
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void PseudosolidBC<dim>::declare_parameters(ParameterHandler &prm)
-  {
-    BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry("type",
-                      "none",
-                      Patterns::Selection(
-                        "none|fixed|coupled_to_fluid|no_flux|input_function"),
-                      "Type of pseudosolid boundary condition");
-  }
-
-  template <int dim>
-  void PseudosolidBC<dim>::read_parameters(ParameterHandler &prm)
-  {
-    BoundaryCondition::read_parameters(prm);
-    physics_type                  = PhysicsType::pseudosolid;
-    physics_str                   = "pseudosolid";
-    const std::string parsed_type = prm.get("type");
-    if (parsed_type == "fixed")
-      type = Type::fixed;
-    if (parsed_type == "coupled_to_fluid")
-      type = Type::coupled_to_fluid;
-    if (parsed_type == "no_flux")
-      type = Type::no_flux;
-    if (parsed_type == "input_function")
-      type = Type::input_function;
-    if (parsed_type == "none")
-      throw std::runtime_error(
-        "Pseudosolid boundary condition for boundary " +
-        std::to_string(this->id) +
-        " is set to \"none\".\n"
-        "Either you specified this type by mistake, or the number of \n"
-        "prescribed pseudosolid boundary conditions is smaller than "
-        "the specified \"number\" field.");
-  }
 } // namespace BoundaryConditions
 
 /**
@@ -421,5 +243,65 @@ public:
       values[x_lower + d] = p[d];
   }
 };
+
+/* ---------------- template and inline functions ----------------- */
+
+template <typename BCType>
+void BoundaryConditions::declare_boundary_conditions(ParameterHandler  &prm,
+                                 const unsigned int n_bc,
+                                 const std::string &bc_type_name)
+{
+  // These boundary conditions are used to declare the generic parameters
+  // (problem is that map keys are immutable after they are created, although
+  // we could alternatively move or swap the map entries).
+  std::vector<BCType> tmp_bc(n_bc);
+
+  prm.enter_subsection(bc_type_name + " boundary conditions");
+  {
+    // The number was already parsed in a first dry run
+    prm.declare_entry("number",
+                      "0",
+                      Patterns::Integer(),
+                      "Number of " + bc_type_name + " boundary conditions");
+
+    for (unsigned int i = 0; i < n_bc; ++i)
+    {
+      prm.enter_subsection("boundary " + std::to_string(i));
+      {
+        tmp_bc[i].declare_parameters(prm);
+      }
+      prm.leave_subsection();
+    }
+  }
+  prm.leave_subsection();
+}
+
+template <typename BCType>
+void BoundaryConditions::read_boundary_conditions(
+  ParameterHandler                     &prm,
+  const unsigned int                    n_bc,
+  const std::string                    &bc_type_name,
+  std::map<types::boundary_id, BCType> &boundary_conditions)
+{
+  /**
+   * FIXME: If the number of bc actually added in the parameter file is
+   * greater than the specified number, deal.ii throws a parse error.
+   * Ideally, we should be able to return an error here if the user specified
+   * too few boundary conditions.
+   */
+  prm.enter_subsection(bc_type_name + " boundary conditions");
+  {
+    for (unsigned int i = 0; i < n_bc; ++i)
+    {
+      prm.enter_subsection("boundary " + std::to_string(i));
+      {
+        unsigned int id = prm.get_integer("id");
+        boundary_conditions[id].read_parameters(prm);
+      }
+      prm.leave_subsection();
+    }
+  }
+  prm.leave_subsection();
+}
 
 #endif

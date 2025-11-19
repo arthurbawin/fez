@@ -39,6 +39,9 @@ public:
   std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>> fluid_bc;
   std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<dim>>
     pseudosolid_bc;
+  std::map<types::boundary_id, BoundaryConditions::CahnHilliardBC<dim>>
+    cahn_hilliard_bc;
+
 
   //
   // Source terms
@@ -75,10 +78,16 @@ public:
     nonlinear_solver.declare_parameters(prm);
     initial_conditions.declare_parameters(prm);
     bc_data.declare_parameters(prm);
-    BoundaryConditions::declare_fluid_boundary_conditions<dim>(
-      prm, bc_data.n_fluid_bc);
-    BoundaryConditions::declare_pseudosolid_boundary_conditions<dim>(
-      prm, bc_data.n_pseudosolid_bc);
+    BoundaryConditions::declare_boundary_conditions<
+      BoundaryConditions::FluidBC<dim>>(prm, bc_data.n_fluid_bc, "Fluid");
+    BoundaryConditions::declare_boundary_conditions<
+      BoundaryConditions::PseudosolidBC<dim>>(prm,
+                                              bc_data.n_pseudosolid_bc,
+                                              "Pseudosolid");
+    BoundaryConditions::declare_boundary_conditions<
+      BoundaryConditions::CahnHilliardBC<dim>>(prm,
+                                               bc_data.n_cahn_hilliard_bc,
+                                               "CahnHilliard");
     source_terms.declare_parameters(prm);
     mms_param.declare_parameters(prm);
     mms.declare_parameters(prm);
@@ -98,11 +107,19 @@ public:
     nonlinear_solver.read_parameters(prm);
     initial_conditions.read_parameters(prm);
     bc_data.read_parameters(prm);
-    BoundaryConditions::read_fluid_boundary_conditions(prm,
-                                                       bc_data.n_fluid_bc,
-                                                       fluid_bc);
-    BoundaryConditions::read_pseudosolid_boundary_conditions(
-      prm, bc_data.n_pseudosolid_bc, pseudosolid_bc);
+    BoundaryConditions::read_boundary_conditions<
+      BoundaryConditions::FluidBC<dim>>(prm,
+                                        bc_data.n_fluid_bc,
+                                        "Fluid",
+                                        fluid_bc);
+    BoundaryConditions::read_boundary_conditions(prm,
+                                                 bc_data.n_pseudosolid_bc,
+                                                 "Pseudosolid",
+                                                 pseudosolid_bc);
+    BoundaryConditions::read_boundary_conditions(prm,
+                                                 bc_data.n_cahn_hilliard_bc,
+                                                 "CahnHilliard",
+                                                 cahn_hilliard_bc);
     source_terms.read_parameters(prm);
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);

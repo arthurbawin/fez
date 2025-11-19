@@ -43,6 +43,7 @@ namespace Parameters
   {
     unsigned int n_fluid_bc;
     unsigned int n_pseudosolid_bc;
+    unsigned int n_cahn_hilliard_bc;
 
     bool fix_pressure_constant;
 
@@ -52,7 +53,11 @@ namespace Parameters
 
   struct Mesh
   {
+    // Gmsh mesh file
     std::string filename;
+
+    bool use_deal_ii_cube_mesh;
+    unsigned int refinement_level;
 
     // Name of each mesh physical entities
     std::map<types::boundary_id, std::string> id2name;
@@ -88,6 +93,11 @@ namespace Parameters
     // Degree of the Lagrange multipliers interpolation
     // when enforcing weak no-slip constraints
     unsigned int no_slip_lagrange_mult_degree;
+
+    // Degree of the tracer and potential interpolation for two-phase
+    // flows with a Cahn-Hilliard Navier-Stokes model
+    unsigned int tracer_degree;
+    unsigned int potential_degree;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -152,6 +162,7 @@ namespace Parameters
 
     double tolerance;
     unsigned int max_iterations;
+    unsigned int ilu_fill_level;
 
     bool renumber;
     bool reuse;

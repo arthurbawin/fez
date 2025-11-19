@@ -90,6 +90,14 @@ void Mesh::declare_parameters(ParameterHandler &prm)
                       "",
                       Patterns::FileName(),
                       "Mesh file in .msh format (Gmsh msh4)");
+    prm.declare_entry("use dealii cube mesh",
+                      "false",
+                      Patterns::Bool(),
+                      "Use cube mesh from deal.II's routines");
+    prm.declare_entry("refinement level",
+                      "1",
+                      Patterns::Integer(),
+                      "Level of uniform refinement is using deal.II cube mesh");
     DECLARE_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
@@ -99,7 +107,9 @@ void Mesh::read_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Mesh");
   {
-    filename = prm.get("mesh file");
+    filename              = prm.get("mesh file");
+    use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
+    refinement_level      = prm.get_integer("refinement level");
     READ_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
@@ -157,6 +167,15 @@ void FiniteElements::declare_parameters(ParameterHandler &prm)
       "2",
       Patterns::Integer(),
       "Polynomial degree of the no-slip Lagrange multiplier interpolant");
+    prm.declare_entry("Tracer degree",
+                      "1",
+                      Patterns::Integer(),
+                      "Polynomial degree of the CHNS tracer interpolant");
+    prm.declare_entry(
+      "Potential degree",
+      "1",
+      Patterns::Integer(),
+      "Polynomial degree of the CHNS chemical potential interpolant");
   }
   prm.leave_subsection();
 }
@@ -170,6 +189,8 @@ void FiniteElements::read_parameters(ParameterHandler &prm)
     mesh_position_degree = prm.get_integer("Mesh position degree");
     no_slip_lagrange_mult_degree =
       prm.get_integer("Lagrange multiplier degree");
+    tracer_degree    = prm.get_integer("Tracer degree");
+    potential_degree = prm.get_integer("Potential degree");
   }
   prm.leave_subsection();
 }
@@ -336,6 +357,10 @@ void LinearSolver::declare_parameters(ParameterHandler &prm)
                       "100",
                       Patterns::Integer(),
                       "Max number of outer iterations for iterative solver");
+    prm.declare_entry("ilu fill level",
+                      "0",
+                      Patterns::Integer(),
+                      "Max lelve of fill-in for ILU preconditioner");
     prm.declare_entry("renumber", "false", Patterns::Bool(), "");
     prm.declare_entry("reuse", "false", Patterns::Bool(), "");
     DECLARE_VERBOSITY_PARAM(prm)
@@ -354,6 +379,7 @@ void LinearSolver::read_parameters(ParameterHandler &prm)
       method = Method::gmres;
     tolerance      = prm.get_double("tolerance");
     max_iterations = prm.get_integer("max iterations");
+    ilu_fill_level = prm.get_integer("ilu fill level");
     renumber       = prm.get_bool("renumber");
     reuse          = prm.get_bool("reuse");
     READ_VERBOSITY_PARAM(prm);
@@ -476,11 +502,11 @@ void MMS::declare_parameters(ParameterHandler &prm)
         Patterns::Bool(),
         "If true, use the mesh provided for the spatial convergence study. If "
         "false, use the provided mesh in the Mesh subsection.");
-      prm.declare_entry(
-        "spatial mesh index",
-        "0",
-        Patterns::Integer(),
-        "If use spatial mesh is true, set the index (refinement level) of the used mesh.");
+      prm.declare_entry("spatial mesh index",
+                        "0",
+                        Patterns::Integer(),
+                        "If use spatial mesh is true, set the index "
+                        "(refinement level) of the used mesh.");
       prm.declare_entry(
         "time step reduction",
         "0.5",
@@ -510,8 +536,8 @@ void MMS::read_parameters(ParameterHandler &prm)
     prm.enter_subsection("Space convergence");
     {
       use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
-      mesh_prefix             = prm.get("mesh prefix");
-      first_mesh_index        = prm.get_integer("first mesh");
+      mesh_prefix           = prm.get("mesh prefix");
+      first_mesh_index      = prm.get_integer("first mesh");
     }
     prm.leave_subsection();
     prm.enter_subsection("Time convergence");
@@ -524,7 +550,7 @@ void MMS::read_parameters(ParameterHandler &prm)
       else if (parsed_norm == "Linfty")
         time_norm = TimeLpNorm::Linfty;
       use_space_convergence_mesh = prm.get_bool("use spatial mesh");
-      spatial_mesh_index = prm.get_integer("spatial mesh index");
+      spatial_mesh_index         = prm.get_integer("spatial mesh index");
       time_step_reduction_factor = prm.get_double("time step reduction");
     }
     prm.leave_subsection();

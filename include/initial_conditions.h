@@ -6,33 +6,89 @@
 
 using namespace dealii;
 
-/**
- * Initial conditions, which are required for problems with a
- * time evolution equation. In particular, an initial pressure
- * is not required for incompressible flow problems.
- *
- * The initial condition for the mesh position variable is
- * always the initial mesh, so this condition does not need to
- * be specified.
- */
 namespace Parameters
 {
-  // All initial conditions are nodal for now (suitable for continuous Galerkin,
-  // but not for DG)
+  template <int dim>
+  class InitialVelocity;
+  template <int dim>
+  class InitialCHNSTracer;
 
   /**
-   * Initial velocity condition.
+   * Structure storing the initial conditions. This is essentially a collection
+   * of pointers to functions defined hereafter.
    *
-   * Because most applications (FSI, Cahn-Hilliard, etc.) will be tackled in a
-   * monolithic fashion, the number of components for the solution vector varies
-   * from one problem to another, and we need to specify the u_lower bound and
-   * the number of components at creation.
+   * Initial conditions are required for fields with a time evolution equation.
+   * In particular, an initial pressure is not required for incompressible flow
+   * problems. Although this is not a time evolution per se, the "initial
+   * condition" for the mesh position in pseudosolid problems is the initial
+   * mesh, so this condition does not need to be specified either.
    *
-   * As a result, the actual initial_velocity (and other fields) can only be
-   * created once the number of vector components is known, that is, when the
-   * type of problem is selected (flow only, FSI, Cahn-Hilliard, etc.)
+   * All initial conditions are nodal for now (suitable for continuous Galerkin,
+   * but not for DG).
+   *
+   * Note: Most applications (FSI, Cahn-Hilliard, etc.) are tackled in a
+   * monolithic fashion, so the number of components for the solution vector
+   * varies from one solver to another, and we need to specify for each field
+   * its lower bound and the number of components at creation. This is done by
+   * initializing the initial conditions for all relevant fields, by calling,
+   * e.g., create_initial_velocity() with the appropriate lower bound and number
+   * of component.
    *
    * FIXME: Think of a better way of creating these functions...
+   */
+  template <int dim>
+  class InitialConditions
+  {
+  public:
+    InitialConditions()
+      : initial_velocity_callback(
+          std::make_shared<Functions::ParsedFunction<dim>>(dim))
+      , initial_chns_tracer_callback(
+          std::make_shared<Functions::ParsedFunction<dim>>(1))
+    {}
+
+    /**
+     * Create the actual initial velocity.
+     * This must be called by the various derived solver, for which
+     * the number of variables (components) and layout is known.
+     */
+    void create_initial_velocity(const unsigned int u_lower,
+                                 const unsigned int n_components)
+    {
+      initial_velocity = std::make_shared<Parameters::InitialVelocity<dim>>(
+        u_lower, n_components, initial_velocity_callback);
+    }
+
+    /**
+     * Create the actual CHNS tracer, once the components and layout are known.
+     */
+    void create_initial_chns_tracer(const unsigned int phi_lower,
+                                    const unsigned int n_components)
+    {
+      initial_chns_tracer =
+        std::make_shared<Parameters::InitialCHNSTracer<dim>>(
+          phi_lower, n_components, initial_chns_tracer_callback);
+    }
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+
+  public:
+    // Flow velocity data
+    std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity_callback;
+    std::shared_ptr<InitialVelocity<dim>>           initial_velocity;
+
+    // CHNS tracer data
+    std::shared_ptr<Functions::ParsedFunction<dim>>
+                                            initial_chns_tracer_callback;
+    std::shared_ptr<InitialCHNSTracer<dim>> initial_chns_tracer;
+
+    // If true, the initial condition is specified by a manufactured solution
+    bool set_to_mms;
+  };
+
+  /**
+   * Initial condition for the flow velocity.
    */
   template <int dim>
   class InitialVelocity : public Function<dim>
@@ -62,38 +118,35 @@ namespace Parameters
   };
 
   /**
-   *
+   * Initial condition for the scalar tracer phi in CHNS models.
+   * This is a function with @p n_components components, which only fills
+   * the phi_lower-th component.
    */
   template <int dim>
-  class InitialConditions
+  class InitialCHNSTracer : public Function<dim>
   {
   public:
-    InitialConditions()
-      : initial_velocity_callback(
-          std::make_shared<Functions::ParsedFunction<dim>>(dim))
-    {}
-
-    /**
-     * Create the actual initial velocity.
-     * This must be called by the various derived solver, for which
-     * the number of variables (components) and layout is known.
-     */
-    void create_initial_velocity(const unsigned int u_lower,
-                                 const unsigned int n_components)
-    {
-      initial_velocity = std::make_shared<Parameters::InitialVelocity<dim>>(
-        u_lower, n_components, initial_velocity_callback);
-    }
-
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
+    const unsigned int phi_lower;
+    std::shared_ptr<Functions::ParsedFunction<dim>>
+      initial_chns_tracer_callback;
 
   public:
-    std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity_callback;
-    std::shared_ptr<InitialVelocity<dim>>           initial_velocity;
+    InitialCHNSTracer(const unsigned int phi_lower,
+                      const unsigned int n_components,
+                      std::shared_ptr<Functions::ParsedFunction<dim>>
+                        initial_chns_tracer_callback)
+      : Function<dim>(n_components)
+      , phi_lower(phi_lower)
+      , initial_chns_tracer_callback(initial_chns_tracer_callback)
+    {}
 
-    // If true, the initial condition is specified by a manufactured solution
-    bool set_to_mms;
+    virtual double value(const Point<dim> &p,
+                         unsigned int      component) const override
+    {
+      if (component == phi_lower)
+        return initial_chns_tracer_callback->value(p);
+      return 0.;
+    }
   };
 
   template <int dim>
@@ -101,13 +154,16 @@ namespace Parameters
   {
     prm.enter_subsection("Initial conditions");
     {
-      prm.declare_entry(
-        "to mms",
-        "false",
-        Patterns::Bool(),
-        "If true, initial conditions are specified by the prescribed manufactured solution.");
+      prm.declare_entry("to mms",
+                        "false",
+                        Patterns::Bool(),
+                        "If true, initial conditions are specified by the "
+                        "prescribed manufactured solution.");
       prm.enter_subsection("velocity");
       initial_velocity_callback->declare_parameters(prm, dim);
+      prm.leave_subsection();
+      prm.enter_subsection("chns tracer");
+      initial_chns_tracer_callback->declare_parameters(prm);
       prm.leave_subsection();
     }
     prm.leave_subsection();
@@ -121,6 +177,9 @@ namespace Parameters
       set_to_mms = prm.get_bool("to mms");
       prm.enter_subsection("velocity");
       initial_velocity_callback->parse_parameters(prm);
+      prm.leave_subsection();
+      prm.enter_subsection("chns tracer");
+      initial_chns_tracer_callback->parse_parameters(prm);
       prm.leave_subsection();
     }
     prm.leave_subsection();

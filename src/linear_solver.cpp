@@ -102,8 +102,15 @@ void solve_linear_system_iterative(
   LA::SolverGMRES linear_solver(solver_control);
 
   #if defined(FEZ_WITH_PETSC)
-    LA::MPI::PreconditionAMG::AdditionalData data;
-    AssertThrow(false, ExcMessage("Configure PETSc with Hypre to use BoomerAMG"));
+    // LA::MPI::PreconditionAMG::AdditionalData data;
+    // AssertThrow(false, ExcMessage("Configure PETSc with Hypre to use BoomerAMG"));
+
+    LA::MPI::PreconditionILU::AdditionalData data(linear_solver_param.ilu_fill_level);
+    LA::MPI::PreconditionILU preconditioner(system_matrix, data);
+
+    // PETScWrappers::PreconditionBlockJacobi::AdditionalData data;
+    // PETScWrappers::PreconditionBlockJacobi preconditioner(system_matrix, data);
+
   #else
       const bool elliptic = false;
       const bool higher_order_elements = true;
@@ -117,9 +124,10 @@ void solve_linear_system_iterative(
         n_cycles,
         w_cycle,
         aggregation_threshold);
+
+      LA::MPI::PreconditionAMG preconditioner;
+      preconditioner.initialize(system_matrix, data);
   #endif
-  LA::MPI::PreconditionAMG preconditioner;
-  preconditioner.initialize(system_matrix, data);
 
   linear_solver.solve(system_matrix,
                       completely_distributed_solution,

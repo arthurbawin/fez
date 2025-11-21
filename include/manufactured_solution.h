@@ -19,17 +19,23 @@ namespace ManufacturedSolution
     ManufacturedSolution()
       : exact_velocity(std::make_shared<VectorSDParsedFunction<dim>>())
       , exact_pressure(std::make_shared<ScalarSDParsedFunction<dim>>())
+      , exact_mesh_displacement(std::make_shared<VectorSDParsedFunction<dim>>())
+      , exact_vector_lagrange_mult(std::make_shared<VectorSDParsedFunction<dim>>())
     {}
 
     void set_time(const double new_time)
     {
       exact_velocity->set_time(new_time);
       exact_pressure->set_time(new_time);
+      exact_mesh_displacement->set_time(new_time);
+      exact_vector_lagrange_mult->set_time(new_time);
     }
 
   public:
     std::shared_ptr<VectorSDParsedFunction<dim>> exact_velocity;
     std::shared_ptr<ScalarSDParsedFunction<dim>> exact_pressure;
+    std::shared_ptr<VectorSDParsedFunction<dim>> exact_mesh_displacement;
+    std::shared_ptr<VectorSDParsedFunction<dim>> exact_vector_lagrange_mult;
 
     void declare_parameters(ParameterHandler &prm)
     {
@@ -40,6 +46,12 @@ namespace ManufacturedSolution
         prm.leave_subsection();
         prm.enter_subsection("exact pressure");
         exact_pressure->declare_parameters(prm, 1);
+        prm.leave_subsection();
+        prm.enter_subsection("exact mesh displacement");
+        exact_mesh_displacement->declare_parameters(prm, dim);
+        prm.leave_subsection();
+        prm.enter_subsection("exact vector lagrange multiplier");
+        exact_vector_lagrange_mult->declare_parameters(prm, dim);
         prm.leave_subsection();
       }
       prm.leave_subsection();
@@ -53,6 +65,12 @@ namespace ManufacturedSolution
         prm.leave_subsection();
         prm.enter_subsection("exact pressure");
         exact_pressure->parse_parameters(prm);
+        prm.leave_subsection();
+        prm.enter_subsection("exact mesh displacement");
+        exact_mesh_displacement->parse_parameters(prm);
+        prm.leave_subsection();
+        prm.enter_subsection("exact vector lagrange multiplier");
+        exact_vector_lagrange_mult->parse_parameters(prm);
         prm.leave_subsection();
       }
       prm.leave_subsection();

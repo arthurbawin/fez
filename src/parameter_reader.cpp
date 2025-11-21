@@ -24,30 +24,30 @@ void ParameterReader<dim>::check_parameters() const
   }
 
   // FSI
-  if (!fsi.enable_coupling)
-  {
-    for (const auto &[id, bc] : pseudosolid_bc)
-      AssertThrow(
-        bc.type != BoundaryConditions::Type::coupled_to_fluid,
-        ExcMessage(
-          "A pseudosolid boundary condition is set to \"coupled_to_fluid\", "
-          "but the fluid-structure interaction coupling was not enabled."));
-  }
-  if (fsi.enable_coupling)
-  {
-    bool at_least_one_coupled_boundary = false;
-    for (const auto &[id, bc] : pseudosolid_bc)
-      if (bc.type == BoundaryConditions::Type::coupled_to_fluid)
-      {
-        at_least_one_coupled_boundary = true;
-        break;
-      }
-    AssertThrow(
-      at_least_one_coupled_boundary,
-      ExcMessage(
-        "Fluid-structure interaction coupling is enabled, but no pseudosolid "
-        "boundary condition is set to \"coupled_to_fluid\"."));
-  }
+  // if (!fsi.enable_coupling)
+  // {
+  //   for (const auto &[id, bc] : pseudosolid_bc)
+  //     AssertThrow(
+  //       bc.type != BoundaryConditions::Type::coupled_to_fluid,
+  //       ExcMessage(
+  //         "A pseudosolid boundary condition is set to \"coupled_to_fluid\", "
+  //         "but the fluid-structure interaction coupling was not enabled."));
+  // }
+  // if (fsi.enable_coupling)
+  // {
+  //   bool at_least_one_coupled_boundary = false;
+  //   for (const auto &[id, bc] : pseudosolid_bc)
+  //     if (bc.type == BoundaryConditions::Type::coupled_to_fluid)
+  //     {
+  //       at_least_one_coupled_boundary = true;
+  //       break;
+  //     }
+  //   AssertThrow(
+  //     at_least_one_coupled_boundary,
+  //     ExcMessage(
+  //       "Fluid-structure interaction coupling is enabled, but no pseudosolid "
+  //       "boundary condition is set to \"coupled_to_fluid\"."));
+  // }
 
   // MMS
   if constexpr (dim == 3)

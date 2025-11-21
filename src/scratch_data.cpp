@@ -195,6 +195,7 @@ void ScratchDataMonolithicFSI<dim>::allocate()
     n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
 
   source_term_full.resize(n_q_points, Vector<double>(n_components));
+  source_term_full_fixed.resize(n_q_points, Vector<double>(n_components));
   source_term_velocity.resize(n_q_points);
   source_term_pressure.resize(n_q_points);
   source_term_position.resize(n_q_points);

@@ -188,7 +188,70 @@ public:
    */
   void set_time();
 
+protected:
+  // Ordering of the FE system for the incompressible NS solver.
+  // Each field is in the half-open [lower, upper)
+  // Check for matching component by doing e.g.:
+  // if(u_lower <= comp && comp < u_upper)
+  static constexpr unsigned int n_components = dim + 1;
+  static constexpr unsigned int u_lower      = 0;
+  static constexpr unsigned int u_upper      = dim;
+  static constexpr unsigned int p_lower      = dim;
+  static constexpr unsigned int p_upper      = dim + 1;
+
+  const FEValuesExtractors::Vector velocity_extractor;
+  const FEValuesExtractors::Scalar pressure_extractor;
+
   /**
+   * Quality-of-life functions to check which field a given component is
+   */
+  inline bool is_velocity(const unsigned int component) const
+  {
+    return u_lower <= component && component < u_upper;
+  }
+  inline bool is_pressure(const unsigned int component) const
+  {
+    return p_lower <= component && component < p_upper;
+  }
+
+protected:
+  ParameterReader<dim> param;
+
+  QSimplex<dim>     quadrature;
+  QSimplex<dim - 1> face_quadrature;
+
+  parallel::fullydistributed::Triangulation<dim> triangulation;
+  std::shared_ptr<Mapping<dim>>                  mapping;
+  FESystem<dim>                                  fe;
+  DoFHandler<dim>                                dof_handler;
+  TimeHandler                                    time_handler;
+
+  const ComponentMask velocity_mask;
+  const ComponentMask pressure_mask;
+
+  IndexSet locally_owned_dofs;
+  IndexSet locally_relevant_dofs;
+
+  AffineConstraints<double> zero_constraints;
+  AffineConstraints<double> nonzero_constraints;
+
+  types::global_dof_index constrained_pressure_dof = numbers::invalid_dof_index;
+  Point<dim>              constrained_pressure_support_point;
+
+  LA::ParMatrixType              system_matrix;
+  std::vector<LA::ParVectorType> previous_solutions;
+
+  std::shared_ptr<Function<dim>> source_terms;
+  std::shared_ptr<Function<dim>> exact_solution;
+
+  TableHandler forces_table;
+  TableHandler cylinder_position_table;
+
+  SolverControl                    solver_control;
+  std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
+
+protected:
+    /**
    * Exact solution when performing a convergence study with a manufactured
    * solution.
    */
@@ -284,68 +347,6 @@ public:
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolution::ManufacturedSolution<dim> mms;
   };
-
-protected:
-  // Ordering of the FE system for the incompressible NS solver.
-  // Each field is in the half-open [lower, upper)
-  // Check for matching component by doing e.g.:
-  // if(u_lower <= comp && comp < u_upper)
-  static constexpr unsigned int n_components = dim + 1;
-  static constexpr unsigned int u_lower      = 0;
-  static constexpr unsigned int u_upper      = dim;
-  static constexpr unsigned int p_lower      = dim;
-  static constexpr unsigned int p_upper      = dim + 1;
-
-  const FEValuesExtractors::Vector velocity_extractor;
-  const FEValuesExtractors::Scalar pressure_extractor;
-
-  /**
-   * Quality-of-life functions to check which field a given component is
-   */
-  inline bool is_velocity(const unsigned int component) const
-  {
-    return u_lower <= component && component < u_upper;
-  }
-  inline bool is_pressure(const unsigned int component) const
-  {
-    return p_lower <= component && component < p_upper;
-  }
-
-protected:
-  ParameterReader<dim> param;
-
-  QSimplex<dim>     quadrature;
-  QSimplex<dim - 1> face_quadrature;
-
-  parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::shared_ptr<Mapping<dim>>                  mapping;
-  FESystem<dim>                                  fe;
-  DoFHandler<dim>                                dof_handler;
-  TimeHandler                                    time_handler;
-
-  const ComponentMask velocity_mask;
-  const ComponentMask pressure_mask;
-
-  IndexSet locally_owned_dofs;
-  IndexSet locally_relevant_dofs;
-
-  AffineConstraints<double> zero_constraints;
-  AffineConstraints<double> nonzero_constraints;
-
-  types::global_dof_index constrained_pressure_dof = numbers::invalid_dof_index;
-  Point<dim>              constrained_pressure_support_point;
-
-  LA::ParMatrixType              system_matrix;
-  std::vector<LA::ParVectorType> previous_solutions;
-
-  std::shared_ptr<Function<dim>> source_terms;
-  std::shared_ptr<Function<dim>> exact_solution;
-
-  TableHandler forces_table;
-  TableHandler cylinder_position_table;
-
-  SolverControl                    solver_control;
-  std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 };
 
 #endif

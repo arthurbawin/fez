@@ -2,8 +2,8 @@
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
-#include <deal.II/dofs/dof_tools.h>
 #include <deal.II/dofs/dof_renumbering.h>
+#include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/trilinos_solver.h>
@@ -63,7 +63,7 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
     // param.mms.exact_velocity->print_gradient(stream);
     // param.mms.exact_velocity->print_hessian(stream);
 
-    if(mms_param.force_source_term)
+    if (mms_param.force_source_term)
     {
       // Use the provided source term instead of the source term computed from
       // symbolic differentiation.
@@ -140,7 +140,8 @@ void IncompressibleNavierStokesSolver<dim>::reset()
   triangulation.clear();
 
   // Direct solver
-  direct_solver_reuse = std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+  direct_solver_reuse =
+    std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
@@ -236,28 +237,24 @@ void IncompressibleNavierStokesSolver<dim>::setup_dofs()
   dof_handler.distribute_dofs(fe);
 
   ////////////////////////////////////////////////////////
-  if(param.linear_solver.renumber)
+  if (param.linear_solver.renumber)
     DoFRenumbering::Cuthill_McKee(dof_handler, true);
   ////////////////////////////////////////////////////////
 
   pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
-              << std::endl;
+        << std::endl;
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
 
   // Initialize parallel vectors
-  present_solution.reinit(locally_owned_dofs,
-                                locally_relevant_dofs,
-                                comm);
-  evaluation_point.reinit(locally_owned_dofs,
-                                locally_relevant_dofs,
-                                comm);
+  present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+  evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
 #if !defined(FEZ_WITH_TRILINOS) && !defined(FEZ_WITH_PETSC)
   local_evaluation_point.reinit(locally_owned_dofs,
-                                      locally_relevant_dofs,
-                                      comm);
+                                locally_relevant_dofs,
+                                comm);
   newton_update.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   system_rhs.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 #else
@@ -368,63 +365,19 @@ void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
 template <int dim>
 void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
 {
+  TimerOutput::Scope t(this->computing_timer, "Create constraints");
   zero_constraints.clear();
   zero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
-  //
-  // Velocity homogeneous BC
-  //
-  {
-    std::set<types::boundary_id> no_flux_boundaries;
-    std::set<types::boundary_id> velocity_normal_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_normal_flux_functions;
-    std::set<types::boundary_id> velocity_tangential_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_tangential_flux_functions;
-    for (const auto &[id, bc] : param.fluid_bc)
-    {
-      if (bc.type == BoundaryConditions::Type::no_slip ||
-          bc.type == BoundaryConditions::Type::input_function ||
-          bc.type == BoundaryConditions::Type::velocity_mms)
-      {
-        VectorTools::interpolate_boundary_values(*mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 zero_constraints,
-                                                 velocity_mask);
-      }
-      if (bc.type == BoundaryConditions::Type::slip)
-        no_flux_boundaries.insert(bc.id);
-      if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
-      {
-        velocity_normal_flux_boundaries.insert(bc.id);
-        velocity_normal_flux_functions[bc.id] = param.mms.exact_velocity.get();
-        velocity_tangential_flux_boundaries.insert(bc.id);
-        velocity_tangential_flux_functions[bc.id] = param.mms.exact_velocity.get();
-      }
-    }
-
-    // Add no velocity flux constraints
-    VectorTools::compute_no_normal_flux_constraints(
-      dof_handler, u_lower, no_flux_boundaries, zero_constraints, *mapping);
-    // Add nonzero normal flux velocity constraints
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_normal_flux_boundaries,
-      velocity_normal_flux_functions,
-      zero_constraints,
-      *mapping);
-    // Add nonzero tangential flux velocity constraints
-    VectorTools::compute_nonzero_tangential_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_tangential_flux_boundaries,
-      velocity_tangential_flux_functions,
-      zero_constraints,
-      *mapping);
-  }
+  apply_velocity_boundary_conditions(true,
+                                     u_lower,
+                                     n_components,
+                                     dof_handler,
+                                     *mapping,
+                                     param.fluid_bc,
+                                     *exact_solution,
+                                     *param.mms.exact_velocity,
+                                     zero_constraints);
 
   if (param.bc_data.fix_pressure_constant)
   {
@@ -439,83 +392,18 @@ template <int dim>
 void IncompressibleNavierStokesSolver<dim>::create_nonzero_constraints()
 {
   TimerOutput::Scope t(this->computing_timer, "Create constraints");
-
   nonzero_constraints.clear();
   nonzero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
-  //
-  // Velocity inhomogeneous BC
-  //
-  {
-    std::set<types::boundary_id> no_flux_boundaries;
-    std::set<types::boundary_id> velocity_normal_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_normal_flux_functions;
-    std::set<types::boundary_id> velocity_tangential_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_tangential_flux_functions;
-    for (const auto &[id, bc] : param.fluid_bc)
-    {
-      if (bc.type == BoundaryConditions::Type::no_slip)
-      {
-        VectorTools::interpolate_boundary_values(*mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 nonzero_constraints,
-                                                 velocity_mask);
-      }
-      if (bc.type == BoundaryConditions::Type::input_function)
-      {
-        VectorTools::interpolate_boundary_values(
-          *mapping,
-          dof_handler,
-          bc.id,
-          ComponentwiseFlowVelocity<dim>(
-            u_lower, n_components, bc.u, bc.v, bc.w),
-          nonzero_constraints,
-          velocity_mask);
-      }
-      if (bc.type == BoundaryConditions::Type::velocity_mms)
-      {
-        VectorTools::interpolate_boundary_values(*mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 *exact_solution,
-                                                 nonzero_constraints,
-                                                 velocity_mask);
-      }
-      if (bc.type == BoundaryConditions::Type::slip)
-        no_flux_boundaries.insert(bc.id);
-      if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
-      {
-        // Enforce both the normal and tangential flux to be well-posed
-        velocity_normal_flux_boundaries.insert(bc.id);
-        velocity_normal_flux_functions[bc.id] = param.mms.exact_velocity.get();
-        velocity_tangential_flux_boundaries.insert(bc.id);
-        velocity_tangential_flux_functions[bc.id] = param.mms.exact_velocity.get();
-      }
-    }
-
-    // Add no velocity flux constraints
-    VectorTools::compute_no_normal_flux_constraints(
-      dof_handler, u_lower, no_flux_boundaries, nonzero_constraints, *mapping);
-    // Add nonzero normal flux velocity constraints
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_normal_flux_boundaries,
-      velocity_normal_flux_functions,
-      nonzero_constraints,
-      *mapping);
-    // Add nonzero tangential flux velocity constraints
-    VectorTools::compute_nonzero_tangential_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_tangential_flux_boundaries,
-      velocity_tangential_flux_functions,
-      nonzero_constraints,
-      *mapping);
-  }
+  apply_velocity_boundary_conditions(false,
+                                     u_lower,
+                                     n_components,
+                                     dof_handler,
+                                     *mapping,
+                                     param.fluid_bc,
+                                     *exact_solution,
+                                     *param.mms.exact_velocity,
+                                     nonzero_constraints);
 
   if (param.bc_data.fix_pressure_constant)
   {
@@ -973,7 +861,7 @@ void IncompressibleNavierStokesSolver<dim>::solve_linear_system(
   if (param.linear_solver.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    if(param.linear_solver.reuse)
+    if (param.linear_solver.reuse)
     {
       solve_linear_system_direct(this,
                                  param.linear_solver,

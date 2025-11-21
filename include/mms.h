@@ -1,3 +1,5 @@
+#ifndef MMS_H
+#define MMS_H
 
 #include <deal.II/base/point.h>
 
@@ -13,17 +15,17 @@ namespace ManufacturedSolution
    * Functions used to define the rigid displacement MMS
    *
    */
-  double S_quintic(const double x)
+  static double S_quintic(const double x)
   {
     return 6. * pow(x, 5) - 15. * pow(x, 4) + 10 * pow(x, 3);
   }
 
-  double dS_quintic(const double x)
+  static double dS_quintic(const double x)
   {
     return 30. * (x - 1.) * (x - 1.) * x * x;
   }
 
-  double d2S_quintic(const double x)
+  static double d2S_quintic(const double x)
   {
     return 60. * x * (2. * x * x - 3. * x + 1.);
   }
@@ -1913,7 +1915,7 @@ namespace ManufacturedSolution
 
         div_sigma[0] += (mu + lambda) * (xXX_fun(p) + yXY_fun(p) + zXZ_fun(p));
         div_sigma[1] += (mu + lambda) * (xXY_fun(p) + yYY_fun(p) + zYZ_fun(p));
-        div_sigma[2] += (mu + lambda) * (xXZ_fun(p) + yZY_fun(p) + zZZ_fun(p));
+        div_sigma[2] += (mu + lambda) * (xXZ_fun(p) + yYZ_fun(p) + zZZ_fun(p));
 
         div_sigma[0] *= ft;
         div_sigma[1] *= ft;
@@ -2370,3 +2372,5 @@ namespace ManufacturedSolution
     }
   }
 } // namespace ManufacturedSolution
+
+#endif

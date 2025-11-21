@@ -99,7 +99,7 @@ namespace BoundaryConditions
     prm.declare_entry("type",
                       "none",
                       Patterns::Selection(
-                        "none|fixed|coupled_to_fluid|no_flux|input_function"),
+                        "none|fixed|coupled_to_fluid|no_flux|input_function|position_mms"),
                       "Type of pseudosolid boundary condition");
   }
 
@@ -118,6 +118,8 @@ namespace BoundaryConditions
       type = Type::no_flux;
     if (parsed_type == "input_function")
       type = Type::input_function;
+    if (parsed_type == "position_mms")
+      type = Type::position_mms;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Pseudosolid boundary condition for boundary " +

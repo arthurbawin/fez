@@ -281,6 +281,37 @@ namespace ManufacturedSolution
       }
     }
 
+    void grad_div(const Point<dim> &p, Tensor<1, dim> &res) const
+    {
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        if constexpr (dim == 2)
+        {
+          const double uxx = hess_function_object[0]->value(p, 0);
+          const double vyx = hess_function_object[1]->value(p, 1);
+          const double uxy = hess_function_object[0]->value(p, 2);
+          const double vyy = hess_function_object[1]->value(p, 3);
+          res[0] = uxx + vyx;
+          res[1] = uxy + vyy;
+        }
+        else
+        {
+          const double uxx = hess_function_object[0]->value(p, 0);
+          const double vyx = hess_function_object[1]->value(p, 3);
+          const double wzx = hess_function_object[2]->value(p, 6);
+          const double uxy = hess_function_object[0]->value(p, 1);
+          const double vyy = hess_function_object[1]->value(p, 4);
+          const double wzy = hess_function_object[2]->value(p, 7);
+          const double uxz = hess_function_object[0]->value(p, 2);
+          const double vyz = hess_function_object[1]->value(p, 5);
+          const double wzz = hess_function_object[2]->value(p, 8);
+          res[0] = uxx + vyx + wzx;
+          res[1] = uxy + vyy + wzy;
+          res[2] = uxz + vyz + wzz;
+        }
+      }
+    }
+
     void print_function(std::ostream &out) const
     {
       out << "f = " << std::endl;

@@ -3,6 +3,10 @@
 #include <generic_solver.h>
 #include <linear_solver.h>
 
+#if defined(FEZ_WITH_PETSC)
+#include <petscmat.h>
+#endif
+
 void solve_linear_system_direct(
   GenericSolver<LA::ParVectorType> *solver,
   const Parameters::LinearSolver   &linear_solver_param,
@@ -54,7 +58,12 @@ void solve_linear_system_direct(
   PETScWrappers::SparseDirectMUMPSReuse &direct_solver)
 {
   TimerOutput::Scope t(solver->computing_timer, "Solve direct");
-  solver->pcout << "Entering direct solver" << std::endl;
+  
+  const bool verbose =
+      linear_solver_param.verbosity == Parameters::Verbosity::verbose;
+
+  if(verbose)
+    solver->pcout << "Entering direct solver" << std::endl;
 
   LA::ParVectorType &newton_update = solver->get_newton_update();
   LA::ParVectorType &system_rhs    = solver->get_system_rhs();
@@ -78,7 +87,9 @@ void solve_linear_system_direct(
 
   newton_update = completely_distributed_solution;
   zero_constraints.distribute(newton_update);
-  solver->pcout << "Leaving  direct solver" << std::endl;
+  
+  if(verbose)
+    solver->pcout << "Leaving  direct solver" << std::endl;
 }
 
 void solve_linear_system_iterative(

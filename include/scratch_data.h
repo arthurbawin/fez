@@ -279,8 +279,8 @@ public:
   void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
               const VectorType              &current_solution,
               const std::vector<VectorType> &previous_solutions,
-              const std::shared_ptr<Function<dim>> & /*source_terms*/,
-              const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+              const std::shared_ptr<Function<dim>> &source_terms,
+              const std::shared_ptr<Function<dim>> &/*exact_solution*/)
   {
     fe_values.reinit(cell);
     fe_values_fixed.reinit(cell);
@@ -323,6 +323,13 @@ public:
         previous_solutions[i], previous_position_values[i]);
     }
 
+    // Source terms on moving mapping for u-p-lambda
+    source_terms->vector_value_list(fe_values.get_quadrature_points(),
+                                    source_term_full);
+    // Source terms on fixed mapping for x
+    source_terms->vector_value_list(fe_values_fixed.get_quadrature_points(),
+                                    source_term_full_fixed);
+
     // Current mesh velocity from displacement
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
@@ -339,6 +346,12 @@ public:
     {
       JxW_moving[q] = fe_values.JxW(q);
       JxW_fixed[q]  = fe_values_fixed.JxW(q);
+
+      for (int d = 0; d < dim; ++d)
+        source_term_velocity[q][d] = source_term_full[q](u_lower + d);
+      source_term_pressure[q] = source_term_full[q](p_lower);
+      for (int d = 0; d < dim; ++d)
+        source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -576,8 +589,8 @@ public:
     previous_face_position_values;
 
   // Source term on cell
-  std::vector<Vector<double>>
-    source_term_full; // The source term with n_components
+  std::vector<Vector<double>> source_term_full;
+  std::vector<Vector<double>> source_term_full_fixed;
   std::vector<Tensor<1, dim>> source_term_velocity;
   std::vector<double>         source_term_pressure;
   std::vector<Tensor<1, dim>> source_term_position;

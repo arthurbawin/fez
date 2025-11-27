@@ -1,19 +1,9 @@
 Number of MPI processes: 1
 Number of degrees of freedom: 59
-
-Time step 1 - Advancing to t = 1.
 Number of degrees of freedom: 187
-
-Time step 1 - Advancing to t = 1.
 Number of degrees of freedom: 659
-
-Time step 1 - Advancing to t = 1.
 Number of degrees of freedom: 2467
-
-Time step 1 - Advancing to t = 1.
 Number of degrees of freedom: 9539
-
-Time step 1 - Advancing to t = 1.
 n_elm n_dof      L2_u             L2_p            Li_u            Li_p            H1_u            H1_p       
     8    59 7.9457e-02    - 9.5850e+00     - 1.3168e-01    - 2.6657e+01    - 1.1006e+00    - 3.4784e+01    - 
    32   187 1.0696e-02 2.89 1.2699e+01 -0.41 2.6752e-02 2.30 2.1837e+01 0.29 3.7011e-01 1.57 2.8906e+01 0.27 

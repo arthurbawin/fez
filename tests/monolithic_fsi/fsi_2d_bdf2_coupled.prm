@@ -1,0 +1,141 @@
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write results    = false
+  set output directory = ../data/mms/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  #
+end
+
+subsection Time integration
+  set verbosity        = quiet
+  set dt               = 0.1
+  set t_initial        = 0
+  set t_end            = 0.5
+  set scheme           = BDF2
+  set bdf start method = BDF1
+end
+
+subsection Nonlinear solver
+  set verbosity            = quiet
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  set verbosity      = quiet
+  set method         = direct_mumps
+  set reuse          = true
+end
+
+subsection FiniteElements
+  set Velocity degree            = 2
+  set Pressure degree            = 1
+  set Mesh position degree       = 1
+  set Lagrange multiplier degree = 2
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid
+    set density             = 1
+    set kinematic viscosity = 1
+  end
+
+  set number of pseudosolids = 1
+  subsection Pseudosolid
+    set lame lambda = 1e-14
+    set lame mu     = 1e-14
+  end
+end
+
+subsection FSI
+  set enable coupling = true
+  set spring constant = 1
+end
+
+subsection Initial conditions
+  set to mms = true
+end
+
+subsection Fluid boundary conditions
+  set number = 2
+  set fix pressure constant = true
+  subsection boundary 0
+    set id   = 2
+    set name = OuterBoundary
+    set type = velocity_mms
+  end
+  subsection boundary 1
+    set id   = 3
+    set name = InnerBoundary
+    set type = weak_no_slip
+  end
+end
+
+subsection Pseudosolid boundary conditions
+  set number = 2
+  subsection boundary 0
+    set id   = 2
+    set name = OuterBoundary
+    set type = position_mms
+  end
+  subsection boundary 1
+    set id   = 3
+    set name = InnerBoundary
+    set type = coupled_to_fluid
+  end
+end
+
+subsection Manufactured solution
+  set enable            = true
+  set type              = spacetime
+  set convergence steps = 2
+
+  subsection Space convergence
+    set use dealii cube mesh        = false
+    set use dealii holed plate mesh = false
+    set mesh prefix          = ../../mms_meshes/holed
+  end
+
+  subsection Time convergence
+    set norm                 = Linfty
+    set use spatial mesh     = true
+    set spatial mesh index   = 2
+    set time step reduction  = 0.5
+  end
+
+  subsection exact velocity
+    # Preset MMS set with preset_fsi_mms_moving_coupled
+  end
+  subsection exact pressure
+    # Preset MMS set with preset_fsi_mms_moving_coupled
+  end
+end
+
+subsection Debug
+  set apply exact solution                   = false
+  set compare jacobian matrix with fd        = false
+  set analytical_jacobian_absolute_tolerance = 1e-6
+  set analytical_jacobian_relative_tolerance = 1e-4
+
+  set preset_fsi_mms_constant                = false
+  set preset_fsi_mms_moving                  = false
+  set preset_fsi_mms_moving_coupled          = true
+
+  set fsi_apply_erroneous_coupling           = false
+  set fsi_check_mms_on_boundary              = false
+end

@@ -2,6 +2,13 @@
 #define UTILITIES_H
 
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/base/utilities.h>
+#include <parameters.h>
+
+#include <cmath>
+#include <limits>
+#include <type_traits>
+#include <utility>
 
 using namespace dealii;
 
@@ -9,7 +16,7 @@ using namespace dealii;
  * Perform a dry run to read the run-time problem dimension set in the
  * "Dimension" block of the given parameter file.
  */
-unsigned int read_problem_dimension(const std::string &parameter_file)
+inline unsigned int read_problem_dimension(const std::string &parameter_file)
 {
   ParameterHandler prm;
 
@@ -40,9 +47,9 @@ unsigned int read_problem_dimension(const std::string &parameter_file)
 /**
  * Perform a dry run to read the number of boundary conditions of each type.
  */
-void read_number_of_boundary_conditions(
-  const std::string                   &parameter_file,
-  Parameters::BoundaryConditionsData &bc_data)
+inline void
+read_number_of_boundary_conditions(const std::string &parameter_file,
+                                   Parameters::BoundaryConditionsData &bc_data)
 {
   ParameterHandler prm;
 
@@ -73,7 +80,8 @@ void read_number_of_boundary_conditions(
     prm.declare_entry("number",
                       "0",
                       Patterns::Integer(),
-                      "Number of boundary conditions for two-phase flows with the Cahn-Hilliard Navier-Stokes model");
+                      "Number of boundary conditions for two-phase flows with "
+                      "the Cahn-Hilliard Navier-Stokes model");
   }
   prm.leave_subsection();
 
@@ -92,6 +100,42 @@ void read_number_of_boundary_conditions(
   prm.enter_subsection("CahnHilliard boundary conditions");
   bc_data.n_cahn_hilliard_bc = prm.get_integer("number");
   prm.leave_subsection();
+}
+
+template <int dim>
+inline Tensor<1, dim> parse_rank_1_tensor(const std::string &values,
+                                          const std::string &delimiter = ",")
+{
+  const std::vector<double> parsed = Utilities::string_to_double(
+    Utilities::split_string_list(values, delimiter));
+
+  AssertThrow(parsed.size() == dim,
+              ExcMessage("Could not read rank-1 tensor from input " + values));
+
+  Tensor<1, dim> res;
+  for (unsigned int d = 0; d < dim; ++d)
+    res[d] = parsed[d];
+  return res;
+}
+
+inline std::pair<double, double>
+compute_relative_error(const double A,
+                       const double B,
+                       const double tol_to_ignore = 1e-14)
+{
+  AssertThrow(
+    std::isfinite(A) && std::isfinite(B),
+    ExcMessage(
+      "Taking relative error of values which are not finite or numbers."));
+
+  const double abs_err = std::abs(B - A);
+
+  // If both values are small enough, return 0 as relative error
+  if (std::abs(A) < tol_to_ignore && std::abs(B) < tol_to_ignore)
+    return std::make_pair(abs_err, 0.);
+
+  const double rel_err = abs_err / std::max({std::abs(A), DBL_EPSILON});
+  return std::make_pair(abs_err, rel_err);
 }
 
 #endif

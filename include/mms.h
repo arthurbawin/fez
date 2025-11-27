@@ -2,12 +2,14 @@
 #define MMS_H
 
 #include <deal.II/base/point.h>
+#include <deal.II/base/symmetric_tensor.h>
+#include <deal.II/base/tensor.h>
 
 #include <cmath>
 #include <iomanip>
 #include <vector>
 
-namespace ManufacturedSolution
+namespace ManufacturedSolutions
 {
   using namespace dealii;
 
@@ -691,7 +693,8 @@ namespace ManufacturedSolution
       auto check_order_1 =
         [&](double exact, double numerical, const std::string &name) {
           const double err = std::abs(exact - numerical);
-          if(err < tol_order_1) return;
+          if (err < tol_order_1)
+            return;
           const double relative_err = err / std::abs(numerical);
           AssertThrow(relative_err < tol_order_1,
                       ExcMessage("Derivative check failed for " + name +
@@ -703,7 +706,8 @@ namespace ManufacturedSolution
       auto check_order_2 =
         [&](double exact, double numerical, const std::string &name) {
           const double err = std::abs(exact - numerical);
-          if(err < tol_order_2) return;
+          if (err < tol_order_2)
+            return;
           const double relative_err = err / std::abs(numerical);
           AssertThrow(relative_err < tol_order_2,
                       ExcMessage("Derivative check failed for " + name +
@@ -1158,8 +1162,8 @@ namespace ManufacturedSolution
      *
      * If this is false, then the pressure is arbitrary (e.g., linear).
      */
-    const bool           coupled_pressure;
-    const double         spring_constant;
+    const bool   coupled_pressure;
+    const double spring_constant;
 
     const TimeDependenceBase &flow_time_function;
     // Need to know where the object is
@@ -1334,14 +1338,14 @@ namespace ManufacturedSolution
     // pressure
     double p_fun(const Point<dim> &p, const double t) const override
     {
-      if(coupled_pressure)
+      if (coupled_pressure)
       {
-        const double R0_p = 1.;
-        const double     f = mesh_time_function.value(t);
-        const Tensor<1, dim> A = translation * f;
-        const Point<dim> current_center = center + translation * t;
-        const Tensor<1, dim> x_rel = p - current_center;
-        const double r = x_rel.norm();
+        const double         R0_p           = 1.;
+        const double         f              = mesh_time_function.value(t);
+        const Tensor<1, dim> A              = translation * f;
+        const Point<dim>     current_center = center + translation * t;
+        const Tensor<1, dim> x_rel          = p - current_center;
+        const double         r              = x_rel.norm();
         if (r < 1e-14)
           return 0.;
 
@@ -1355,33 +1359,37 @@ namespace ManufacturedSolution
         return p[0] + p[1];
       }
     }
-    double coupled_grad_p_fun(const Point<dim> &p, const double t, const unsigned int component) const
+    double coupled_grad_p_fun(const Point<dim>  &p,
+                              const double       t,
+                              const unsigned int component) const
     {
-      const double R0_p = 1.;
-      const double     f = mesh_time_function.value(t);
-      const Tensor<1, dim> A = translation * f;
-      const Point<dim> current_center = center + translation * f;
-      const Tensor<1, dim> x_rel = p - current_center;
-      const double r = x_rel.norm();
+      const double         R0_p           = 1.;
+      const double         f              = mesh_time_function.value(t);
+      const Tensor<1, dim> A              = translation * f;
+      const Point<dim>     current_center = center + translation * f;
+      const Tensor<1, dim> x_rel          = p - current_center;
+      const double         r              = x_rel.norm();
       if (r < 1e-14)
-          return 0.;
+        return 0.;
 
       // Can be a different kernel from u_MMS and/or x_MMS
       const double phi    = kernel_fun(p, current_center, R0_p, R1);
       const double dphidr = dr_kernel(p, current_center, R0_p, R1);
 
-      return (phi/r * A[component] + (dphidr/(r*r) - phi/(r*r*r)) * (A * x_rel) * x_rel[component]) / (M_PI * R0);
+      return (phi / r * A[component] + (dphidr / (r * r) - phi / (r * r * r)) *
+                                         (A * x_rel) * x_rel[component]) /
+             (M_PI * R0);
     }
     double px_fun(const Point<dim> &p, const double t) const override
     {
-      if(coupled_pressure)
+      if (coupled_pressure)
         return coupled_grad_p_fun(p, t, 0);
       else
         return 1.;
     }
     double py_fun(const Point<dim> &p, const double t) const override
     {
-      if(coupled_pressure)
+      if (coupled_pressure)
         return coupled_grad_p_fun(p, t, 1);
       else
         return 1.;
@@ -1403,12 +1411,12 @@ namespace ManufacturedSolution
 
   public:
     ConstantFlowCoupledPressure(const TimeDependenceBase &flow_time_function,
-              const TimeDependenceBase &mesh_time_function,
-              const Point<dim>         &center,
-              const double              R0,
-              const double              R1,
-              const Tensor<1, dim>     &translation,
-              const double              spring_constant)
+                                const TimeDependenceBase &mesh_time_function,
+                                const Point<dim>         &center,
+                                const double              R0,
+                                const double              R1,
+                                const Tensor<1, dim>     &translation,
+                                const double              spring_constant)
       : NonSeparableFlowMMS<dim>()
       , center(center)
       , R0(R0)
@@ -1426,24 +1434,24 @@ namespace ManufacturedSolution
     // u
     double u_fun(const Point<dim> &p, const double t) const override
     {
-      const double     fdot = mesh_time_function.value_dot(t);
+      const double fdot = mesh_time_function.value_dot(t);
       return translation[0] * fdot;
     };
     double ut_fun(const Point<dim> &p, const double t) const override
     {
-      const double fddot  = mesh_time_function.value_ddot(t);
+      const double fddot = mesh_time_function.value_ddot(t);
       return translation[0] * fddot;
     };
 
     // y
     double v_fun(const Point<dim> &p, const double t) const override
     {
-      const double     fdot = mesh_time_function.value_dot(t);
+      const double fdot = mesh_time_function.value_dot(t);
       return translation[1] * fdot;
     };
     double vt_fun(const Point<dim> &p, const double t) const override
     {
-      const double fddot  = mesh_time_function.value_ddot(t);
+      const double fddot = mesh_time_function.value_ddot(t);
       return translation[1] * fddot;
     };
 
@@ -1474,12 +1482,12 @@ namespace ManufacturedSolution
     // pressure
     double p_fun(const Point<dim> &p, const double t) const override
     {
-      const double R0_p = 1.;
-      const double     f = mesh_time_function.value(t);
-      const Tensor<1, dim> A = - translation * f;
-      const Point<dim> current_center = center + translation * f;
-      const Tensor<1, dim> x_rel = p - current_center;
-      const double r = x_rel.norm();
+      const double         R0_p           = 1.;
+      const double         f              = mesh_time_function.value(t);
+      const Tensor<1, dim> A              = -translation * f;
+      const Point<dim>     current_center = center + translation * f;
+      const Tensor<1, dim> x_rel          = p - current_center;
+      const double         r              = x_rel.norm();
       if (r < 1e-14)
         return 0.;
 
@@ -1500,22 +1508,256 @@ namespace ManufacturedSolution
 
       return spring_constant * A * x_rel / (M_PI * R0 * r) * phi_p;
     }
-    double coupled_grad_p_fun(const Point<dim> &p, const double t, const unsigned int component) const
+    double coupled_grad_p_fun(const Point<dim>  &p,
+                              const double       t,
+                              const unsigned int component) const
     {
-      const double R0_p = 1.;
-      const double     f = mesh_time_function.value(t);
-      const Tensor<1, dim> A = - translation * f;
-      const Point<dim> current_center = center + translation * f;
-      const Tensor<1, dim> x_rel = p - current_center;
-      const double r = x_rel.norm();
+      const double         R0_p           = 1.;
+      const double         f              = mesh_time_function.value(t);
+      const Tensor<1, dim> A              = -translation * f;
+      const Point<dim>     current_center = center + translation * f;
+      const Tensor<1, dim> x_rel          = p - current_center;
+      const double         r              = x_rel.norm();
       if (r < 1e-14)
-          return 0.;
+        return 0.;
 
       // Can be a different kernel from u_MMS and/or x_MMS
       const double phi    = kernel_fun(p, current_center, R0_p, R1);
       const double dphidr = dr_kernel(p, current_center, R0_p, R1);
 
-      return spring_constant * (phi/r * A[component] + (dphidr/(r*r) - phi/(r*r*r)) * (A * x_rel) * x_rel[component]) / (M_PI * R0);
+      return spring_constant *
+             (phi / r * A[component] + (dphidr / (r * r) - phi / (r * r * r)) *
+                                         (A * x_rel) * x_rel[component]) /
+             (M_PI * R0);
+    }
+    double px_fun(const Point<dim> &p, const double t) const override
+    {
+      return coupled_grad_p_fun(p, t, 0);
+    }
+    double py_fun(const Point<dim> &p, const double t) const override
+    {
+      return coupled_grad_p_fun(p, t, 1);
+    }
+  };
+
+  /**
+   *
+   */
+  template <int dim>
+  class FlowCoupledPressure : public NonSeparableFlowMMS<dim>
+  {
+  public:
+    const Point<dim>     center;
+    const double         R0;
+    const double         R1;
+    const double         R1_u;
+    const Tensor<1, dim> translation;
+    const double         spring_constant;
+
+    const TimeDependenceBase &flow_time_function;
+    const TimeDependenceBase &mesh_time_function;
+
+  public:
+    FlowCoupledPressure(const TimeDependenceBase &flow_time_function,
+                        const TimeDependenceBase &mesh_time_function,
+                        const Point<dim>         &center,
+                        const double              R0,
+                        const double              R1,
+                        const Tensor<1, dim>     &translation,
+                        const double              spring_constant)
+      : NonSeparableFlowMMS<dim>()
+      , center(center)
+      , R0(R0)
+      , R1(R1)
+      , R1_u(1.5 * R1)
+      // , R1_u(R1)
+      , translation(translation)
+      , spring_constant(spring_constant)
+      , flow_time_function(flow_time_function)
+      , mesh_time_function(mesh_time_function)
+    {
+      this->check_time_derivatives();
+      this->check_spatial_derivatives();
+    }
+
+  private:
+    double velocity(const Point<dim>  &p,
+                    const double       t,
+                    const unsigned int component) const
+    {
+      const double     f              = mesh_time_function.value(t);
+      const double     fdot           = mesh_time_function.value_dot(t);
+      const Point<dim> current_center = center + translation * f;
+
+      // Can be a different kernel from x_MMS and/or p_MMS
+      // Here we just changed the outer radius
+      const double phi_u = kernel_fun(p, current_center, R0, R1_u);
+      return translation[component] * fdot * phi_u;
+    }
+
+    double velocity_dot(const Point<dim>  &p,
+                        const double       t,
+                        const unsigned int component) const
+    {
+      const double     f              = mesh_time_function.value(t);
+      const double     fdot           = mesh_time_function.value_dot(t);
+      const double     fddot          = mesh_time_function.value_ddot(t);
+      const Point<dim> current_center = center + translation * f;
+      const double     phi_u          = kernel_fun(p, current_center, R0, R1_u);
+
+      const double dphidr = dr_kernel(p, current_center, R0, R1_u);
+      const double r      = (p - current_center).norm();
+      if (r < 1e-14)
+        return 0.;
+      const Tensor<1, dim> drdx      = (p - current_center) / r;
+      const Tensor<1, dim> dxdt      = -translation * fdot;
+      const double         phi_u_dot = dphidr * drdx * dxdt;
+      return translation[component] * (fddot * phi_u + fdot * phi_u_dot);
+    }
+
+    double grad_velocity(const Point<dim>  &p,
+                         const double       t,
+                         const unsigned int velocity_component,
+                         const unsigned int gradient_component) const
+    {
+      const double     f              = mesh_time_function.value(t);
+      const double     fdot           = mesh_time_function.value_dot(t);
+      const Point<dim> current_center = center + translation * f;
+      const double     r              = (p - current_center).norm();
+      if (r < 1e-14)
+        return 0.;
+      const double         dphi_u_dr = dr_kernel(p, current_center, R0, R1_u);
+      const Tensor<1, dim> drdx      = (p - current_center) / r;
+
+      return translation[velocity_component] * fdot * dphi_u_dr *
+             drdx[gradient_component];
+    }
+
+    double hess_velocity(const Point<dim>  &p,
+                         const double       t,
+                         const unsigned int velocity_component,
+                         const unsigned int comp_i,
+                         const unsigned int comp_j) const
+    {
+      const double     f              = mesh_time_function.value(t);
+      const double     fdot           = mesh_time_function.value_dot(t);
+      const Point<dim> current_center = center + translation * f;
+      const double     r              = (p - current_center).norm();
+      if (r < 1e-14)
+        return 0.;
+      const double         dphidr  = dr_kernel(p, current_center, R0, R1_u);
+      const double         dphidrr = d2r_kernel(p, current_center, R0, R1_u);
+      const Tensor<1, dim> xrel    = p - current_center;
+      const Tensor<1, dim> drdx    = xrel / r;
+
+      // Hess(r) = 1/r * (I - x^T*x/r^2)
+      const Tensor<2, dim> drdxx =
+        (unit_symmetric_tensor<dim>() - outer_product(xrel, xrel) / (r * r)) /
+        r;
+
+      return translation[velocity_component] * fdot *
+             (dphidrr * drdx[comp_i] * drdx[comp_j] +
+              dphidr * drdxx[comp_i][comp_j]);
+    }
+
+    // u
+    double u_fun(const Point<dim> &p, const double t) const override
+    {
+      return velocity(p, t, 0);
+    };
+    double ut_fun(const Point<dim> &p, const double t) const override
+    {
+      return velocity_dot(p, t, 0);
+    };
+    double ux_fun(const Point<dim> &p, const double t) const override
+    {
+      return grad_velocity(p, t, 0, 0);
+    };
+    double uy_fun(const Point<dim> &p, const double t) const override
+    {
+      return grad_velocity(p, t, 0, 1);
+    };
+    double uxx_fun(const Point<dim> &p, const double t) const override
+    {
+      return hess_velocity(p, t, 0, 0, 0);
+    };
+    // double uxy_fun(const Point<dim> &p, const double t) const override
+    // {
+    //   return hess_velocity(p, t, 0, 0, 1);
+    // };
+    double uyy_fun(const Point<dim> &p, const double t) const override
+    {
+      return hess_velocity(p, t, 0, 1, 1);
+    };
+
+    // y
+    double v_fun(const Point<dim> &p, const double t) const override
+    {
+      return velocity(p, t, 1);
+    };
+    double vt_fun(const Point<dim> &p, const double t) const override
+    {
+      return velocity_dot(p, t, 1);
+    };
+    double vx_fun(const Point<dim> &p, const double t) const override
+    {
+      return grad_velocity(p, t, 1, 0);
+    };
+    double vy_fun(const Point<dim> &p, const double t) const override
+    {
+      return grad_velocity(p, t, 1, 1);
+    };
+    double vxx_fun(const Point<dim> &p, const double t) const override
+    {
+      return hess_velocity(p, t, 1, 0, 0);
+    };
+    // double vxy_fun(const Point<dim> &p, const double t) const override
+    // {
+    //   return hess_velocity(p, t, 1, 0, 1);
+    // };
+    double vyy_fun(const Point<dim> &p, const double t) const override
+    {
+      return hess_velocity(p, t, 1, 1, 1);
+    };
+
+    // pressure
+    double p_fun(const Point<dim> &p, const double t) const override
+    {
+      const double         R0_p           = 1.;
+      const double         f              = mesh_time_function.value(t);
+      const Tensor<1, dim> A              = -translation * f;
+      const Point<dim>     current_center = center + translation * f;
+      const Tensor<1, dim> x_rel          = p - current_center;
+      const double         r              = x_rel.norm();
+      if (r < 1e-14)
+        return 0.;
+
+      // Can be a different kernel from u_MMS and/or x_MMS
+      const double phi_p = kernel_fun(p, current_center, R0_p, R1);
+
+      return spring_constant * A * x_rel / (M_PI * R0 * r) * phi_p;
+    }
+    double coupled_grad_p_fun(const Point<dim>  &p,
+                              const double       t,
+                              const unsigned int component) const
+    {
+      const double         R0_p           = 1.;
+      const double         f              = mesh_time_function.value(t);
+      const Tensor<1, dim> A              = -translation * f;
+      const Point<dim>     current_center = center + translation * f;
+      const Tensor<1, dim> x_rel          = p - current_center;
+      const double         r              = x_rel.norm();
+      if (r < 1e-14)
+        return 0.;
+
+      // Can be a different kernel from u_MMS and/or x_MMS
+      const double phi    = kernel_fun(p, current_center, R0_p, R1);
+      const double dphidr = dr_kernel(p, current_center, R0_p, R1);
+
+      return spring_constant *
+             (phi / r * A[component] + (dphidr / (r * r) - phi / (r * r * r)) *
+                                         (A * x_rel) * x_rel[component]) /
+             (M_PI * R0);
     }
     double px_fun(const Point<dim> &p, const double t) const override
     {
@@ -1645,109 +1887,6 @@ namespace ManufacturedSolution
   };
 
   /**
-   * u = y (y-1) + x
-   * v = x (x-1) - y
-   * p = x + y
-   */
-  // template <int dim>
-  // class FlowB : public SeparableFlowMMS<dim>
-  // {
-  // public:
-  //   FlowB(const TimeDependenceBase &time_function)
-  //     : SeparableFlowMMS<dim>(time_function)
-  //   {
-  //     this->check_spatial_derivatives();
-  //   }
-
-  // private:
-  //   // u = y(y-1) + x
-  //   double u_fun(const Point<dim> &p) const override
-  //   {
-  //     return p[1] * (p[1] - 1.0) + p[0];
-  //   }
-  //   double ux_fun(const Point<dim> &) const override { return 1.0; }
-  //   double uy_fun(const Point<dim> &p) const override
-  //   {
-  //     return 2.0 * p[1] - 1.0;
-  //   }
-  //   double uyy_fun(const Point<dim> &) const override { return 2.0; }
-
-  //   // v = x(x-1) - y
-  //   double v_fun(const Point<dim> &p) const override
-  //   {
-  //     return p[0] * (p[0] - 1.0) - p[1];
-  //   }
-  //   double vx_fun(const Point<dim> &p) const override
-  //   {
-  //     return 2.0 * p[0] - 1.0;
-  //   }
-  //   double vy_fun(const Point<dim> &) const override { return -1.0; }
-  //   double vxx_fun(const Point<dim> &) const override { return 2.0; }
-
-  //   // w = 0 in 2D
-
-  //   // p = x + y
-  //   double p_fun(const Point<dim> &p) const override { return p[0] + p[1]; }
-  //   double px_fun(const Point<dim> &) const override { return 1.0; }
-  //   double py_fun(const Point<dim> &) const override { return 1.0; }
-  // };
-
-  // /**
-  //  * Constant or linear
-  //  * u =
-  //  * v =
-  //  * p =
-  //  */
-  // template <int dim>
-  // class FlowC : public SeparableFlowMMS<dim>
-  // {
-  // public:
-  //   FlowC(const TimeDependenceBase &time_function)
-  //     : SeparableFlowMMS<dim>(time_function)
-  //   {
-  //     this->check_spatial_derivatives();
-  //   }
-
-  // private:
-  //   // u-component = y
-  //   double u_fun(const Point<dim> &p) const override { return 0; }
-  //   double uy_fun(const Point<dim> &) const override { return 0; }
-  //   // v-component = 0
-  //   double v_fun(const Point<dim> &p) const override { return 2 * p[0]; }
-  //   double vx_fun(const Point<dim> &) const override { return 2; }
-  //   // w-component = 0
-  //   // pressure = x
-  //   double p_fun(const Point<dim> &p) const override { return p[0] + p[1]; }
-  //   double px_fun(const Point<dim> &) const override { return 1; }
-  //   double py_fun(const Point<dim> &) const override { return 1; }
-  // };
-
-  // /**
-  //  * u = C.
-  //  * v = C.
-  //  * p = C.
-  //  */
-  // template <int dim>
-  // class FlowD : public SeparableFlowMMS<dim>
-  // {
-  // public:
-  //   FlowD(const TimeDependenceBase &time_function)
-  //     : SeparableFlowMMS<dim>(time_function)
-  //   {
-  //     this->check_spatial_derivatives();
-  //   }
-
-  // private:
-  //   double u_fun(const Point<dim> &) const override { return 1.; }
-  //   double v_fun(const Point<dim> &) const override { return 1.; }
-  //   double w_fun(const Point<dim> &) const override
-  //   {
-  //     return (dim == 3) ? 1. : 0.;
-  //   }
-  //   double p_fun(const Point<dim> &) const override { return 1.; }
-  // };
-
-  /**
    * Base class for the spatial part of a manufactured mesh position field:
    *
    *                    x(X,Y,Z) = (x(X,Y,Z), y(X,Y,Z), z(X,Y,Z)).
@@ -1764,6 +1903,8 @@ namespace ManufacturedSolution
    *
    * The callbacks implemented in the derived classes can be
    * checked by calling check_spatial_derivatives() at construct time.
+   *
+   * !!!! Note that the derived functions actually compute the displacement!
    */
   template <int dim>
   class MeshPositionMMSBase : public ManufacturedSolutionBase<dim>
@@ -1963,6 +2104,23 @@ namespace ManufacturedSolution
   };
 
   /**
+   * Note that this function actually computes the displacement!
+   * x = X
+   * y = Y
+   */
+  template <int dim>
+  class ZeroDisplacement : public MeshPositionMMSBase<dim>
+  {
+  public:
+    ZeroDisplacement(const TimeDependenceBase &time_function)
+      : MeshPositionMMSBase<dim>(time_function)
+    {
+      this->check_spatial_derivatives();
+    }
+  };
+
+  /**
+   * Note that this function actually computes the displacement!
    * x = X * (X - 1.)
    * y = Y * (Y - 1.)
    */
@@ -2012,7 +2170,7 @@ namespace ManufacturedSolution
     const double         R0;
     const double         R1;
     const Tensor<1, dim> translation;
-    const double spring_constant;
+    const double         spring_constant;
 
   public:
     RigidMeshPosition(const TimeDependenceBase &time_function,
@@ -2248,7 +2406,8 @@ namespace ManufacturedSolution
     auto check_order_1 =
       [&](double exact, double numerical, const std::string &name) {
         const double err = std::abs(exact - numerical);
-        if(err < tol_order_1) return;
+        if (err < tol_order_1)
+          return;
         const double relative_err = err / std::abs(numerical);
         AssertThrow(relative_err < tol_order_1,
                     ExcMessage("Derivative check failed for " + name +
@@ -2260,7 +2419,8 @@ namespace ManufacturedSolution
     auto check_order_2 =
       [&](double exact, double numerical, const std::string &name) {
         const double err = std::abs(exact - numerical);
-        if(err < tol_order_2) return;
+        if (err < tol_order_2)
+          return;
         const double relative_err = err / std::abs(numerical);
         AssertThrow(relative_err < tol_order_2,
                     ExcMessage("Derivative check failed for " + name +
@@ -2371,6 +2531,6 @@ namespace ManufacturedSolution
       }
     }
   }
-} // namespace ManufacturedSolution
+} // namespace ManufacturedSolutions
 
 #endif

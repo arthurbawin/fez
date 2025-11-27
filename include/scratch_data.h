@@ -330,6 +330,10 @@ public:
     source_terms->vector_value_list(fe_values_fixed.get_quadrature_points(),
                                     source_term_full_fixed);
 
+    // Gradient of source term (for u-p only)
+    source_terms->vector_gradient_list(fe_values.get_quadrature_points(),
+                                    grad_source_term_full);
+
     // Current mesh velocity from displacement
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
@@ -342,16 +346,42 @@ public:
       }
     }
 
+    // Point<dim> ref0(0., 0.);
+    // Point<dim> ref1(1., 0.);
+    // Point<dim> ref2(0., 1.);
+    // std::vector<Point<dim>> refs = {ref0, ref1, ref2};
+    // for(unsigned int iv = 0; iv < cell->n_vertices(); ++iv)
+    // {
+    //   std::cout << "Cell vertex " << cell->vertex(iv) << std::endl;
+    //   std::cout << "Moved to    " << fe_values.get_mapping().transform_unit_to_real_cell(cell, refs[iv]) << std::endl;
+    // }
+
+    // double area_fixed = 0., area_moving = 0.;
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
+      // for(unsigned int icomp = 0; icomp < n_components; ++icomp)
+        // std::cout << "grad comp " << icomp << " = " << grad_source_term_full[q][icomp] << std::endl;
+
       JxW_moving[q] = fe_values.JxW(q);
       JxW_fixed[q]  = fe_values_fixed.JxW(q);
+
+      // area_moving += JxW_moving[q];
+      // area_fixed += JxW_fixed[q];
 
       for (int d = 0; d < dim; ++d)
         source_term_velocity[q][d] = source_term_full[q](u_lower + d);
       source_term_pressure[q] = source_term_full[q](p_lower);
       for (int d = 0; d < dim; ++d)
         source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
+
+      // Layout: grad_source_velocity[q] = df_i/dx_j
+      for (int di = 0; di < dim; ++di)
+      {
+        grad_source_pressure[q][di] = grad_source_term_full[q][p_lower][di];
+        for (int dj = 0; dj < dim; ++dj)
+          grad_source_velocity[q][di][dj] =
+            grad_source_term_full[q][u_lower + di][dj];
+      }
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -365,6 +395,9 @@ public:
         div_phi_x[q][k]  = fe_values_fixed[position].divergence(k, q);
       }
     }
+
+    // std::cout << "moving = " << std::setprecision(16) << area_moving << std::endl;
+    // std::cout << "fixed  = " << std::setprecision(16) << area_fixed << std::endl;
 
     //
     // Face-related values and shape functions,

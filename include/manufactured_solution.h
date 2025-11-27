@@ -4,10 +4,17 @@
 #include <deal.II/base/function.h>
 #include <deal.II/base/parameter_handler.h>
 #include <parsed_function_symengine.h>
+#include <preset_mms.h>
 
-namespace ManufacturedSolution
+namespace ManufacturedSolutions
 {
   using namespace dealii;
+
+  enum class PresetMeshDisplacement
+  {
+    none,
+    rigid_motion_kernel
+  };
 
   /**
    *
@@ -21,6 +28,7 @@ namespace ManufacturedSolution
       , exact_pressure(std::make_shared<ScalarSDParsedFunction<dim>>())
       , exact_mesh_displacement(std::make_shared<VectorSDParsedFunction<dim>>())
       , exact_vector_lagrange_mult(std::make_shared<VectorSDParsedFunction<dim>>())
+      , mesh_displacement_time_function(std::make_shared<ScalarSDParsedFunction<dim>>())
     {}
 
     void set_time(const double new_time)
@@ -29,6 +37,7 @@ namespace ManufacturedSolution
       exact_pressure->set_time(new_time);
       exact_mesh_displacement->set_time(new_time);
       exact_vector_lagrange_mult->set_time(new_time);
+      mesh_displacement_time_function->set_time(new_time);
     }
 
   public:
@@ -37,44 +46,12 @@ namespace ManufacturedSolution
     std::shared_ptr<VectorSDParsedFunction<dim>> exact_mesh_displacement;
     std::shared_ptr<VectorSDParsedFunction<dim>> exact_vector_lagrange_mult;
 
-    void declare_parameters(ParameterHandler &prm)
-    {
-      prm.enter_subsection("Manufactured solution");
-      {
-        prm.enter_subsection("exact velocity");
-        exact_velocity->declare_parameters(prm, dim);
-        prm.leave_subsection();
-        prm.enter_subsection("exact pressure");
-        exact_pressure->declare_parameters(prm, 1);
-        prm.leave_subsection();
-        prm.enter_subsection("exact mesh displacement");
-        exact_mesh_displacement->declare_parameters(prm, dim);
-        prm.leave_subsection();
-        prm.enter_subsection("exact vector lagrange multiplier");
-        exact_vector_lagrange_mult->declare_parameters(prm, dim);
-        prm.leave_subsection();
-      }
-      prm.leave_subsection();
-    }
-    void read_parameters(ParameterHandler &prm)
-    {
-      prm.enter_subsection("Manufactured solution");
-      {
-        prm.enter_subsection("exact velocity");
-        exact_velocity->parse_parameters(prm);
-        prm.leave_subsection();
-        prm.enter_subsection("exact pressure");
-        exact_pressure->parse_parameters(prm);
-        prm.leave_subsection();
-        prm.enter_subsection("exact mesh displacement");
-        exact_mesh_displacement->parse_parameters(prm);
-        prm.leave_subsection();
-        prm.enter_subsection("exact vector lagrange multiplier");
-        exact_vector_lagrange_mult->parse_parameters(prm);
-        prm.leave_subsection();
-      }
-      prm.leave_subsection();
-    }
+    std::shared_ptr<MMSFunction<dim>> exact_preset_mesh_displacement;
+    PresetMeshDisplacement preset_mesh_space_function;
+    std::shared_ptr<ScalarSDParsedFunction<dim>> mesh_displacement_time_function;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
   };
 } // namespace ManufacturedSolution
 

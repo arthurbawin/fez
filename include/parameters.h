@@ -186,6 +186,12 @@ namespace Parameters
       BDF2
     } scheme;
 
+    enum class BDFStart
+    {
+      BDF1,
+      initial_condition
+    } bdfstart;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -215,6 +221,7 @@ namespace Parameters
     int run_only_step;
 
     bool use_deal_ii_cube_mesh;
+    bool use_deal_ii_holed_plate_mesh;
     std::string  mesh_prefix;
     unsigned int first_mesh_index;
     unsigned int mesh_suffix;
@@ -241,6 +248,25 @@ namespace Parameters
     double spring_constant;
     double damping;
     double mass;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  /**
+   * Options for debugging
+   */
+  struct Debug
+  {
+    bool apply_exact_solution;
+    bool compare_analytical_jacobian_with_fd;
+    double analytical_jacobian_absolute_tolerance;
+    double analytical_jacobian_relative_tolerance;
+    bool preset_fsi_mms_constant;
+    bool preset_fsi_mms_moving;
+    bool preset_fsi_mms_moving_coupled;
+    bool fsi_apply_erroneous_coupling;
+    bool fsi_check_mms_on_boundary;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

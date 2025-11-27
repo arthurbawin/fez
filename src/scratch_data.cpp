@@ -145,19 +145,19 @@ ScratchDataMonolithicFSI<dim>::ScratchDataMonolithicFSI(
   : fe_values(other.fe_values.get_mapping(),
               other.fe_values.get_fe(),
               other.fe_values.get_quadrature(),
-              required_updates)
+              other.fe_values.get_update_flags())
   , fe_values_fixed(other.fe_values_fixed.get_mapping(),
                     other.fe_values_fixed.get_fe(),
                     other.fe_values_fixed.get_quadrature(),
-                    required_updates)
+                    other.fe_values_fixed.get_update_flags())
   , fe_face_values(other.fe_face_values.get_mapping(),
                    other.fe_face_values.get_fe(),
                    other.fe_face_values.get_quadrature(),
-                   required_face_updates)
+                   other.fe_face_values.get_update_flags())
   , fe_face_values_fixed(other.fe_face_values_fixed.get_mapping(),
                          other.fe_face_values_fixed.get_fe(),
                          other.fe_face_values_fixed.get_quadrature(),
-                         required_face_updates)
+                         other.fe_face_values_fixed.get_update_flags())
   , n_q_points(other.n_q_points)
   , n_faces(other.n_faces)
   , n_faces_q_points(other.n_faces_q_points)

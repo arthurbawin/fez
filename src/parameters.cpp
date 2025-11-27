@@ -404,6 +404,10 @@ void TimeIntegration::declare_parameters(ParameterHandler &prm)
                       "stationary",
                       Patterns::Selection("stationary|BDF1|BDF2"),
                       "Time stepping scheme (default is stationary)");
+    prm.declare_entry("bdf start method",
+                      "initial condition",
+                      Patterns::Selection("initial condition|BDF1"),
+                      "Starting method for BDF schemes of order > 1.");
     DECLARE_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
@@ -439,6 +443,14 @@ void TimeIntegration::read_parameters(ParameterHandler &prm)
     else
       throw std::runtime_error("Unknown time intergation scheme : " +
                                parsed_scheme);
+    const std::string parsed_startup = prm.get("bdf start method");
+    if (parsed_startup == "initial condition")
+      bdfstart = BDFStart::initial_condition;
+    else if (parsed_startup == "BDF1")
+      bdfstart = BDFStart::BDF1;
+    else
+      throw std::runtime_error("Unknown BDF starting method : " +
+                               parsed_startup);
     READ_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
@@ -478,6 +490,10 @@ void MMS::declare_parameters(ParameterHandler &prm)
                         "false",
                         Patterns::Bool(),
                         "Use cube mesh from deal.II's routines");
+      prm.declare_entry("use dealii holed plate mesh",
+                        "false",
+                        Patterns::Bool(),
+                        "Use plate with hole mesh from deal.II's routines");
       prm.declare_entry("mesh prefix",
                         "",
                         Patterns::Anything(),
@@ -536,8 +552,10 @@ void MMS::read_parameters(ParameterHandler &prm)
     prm.enter_subsection("Space convergence");
     {
       use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
-      mesh_prefix           = prm.get("mesh prefix");
-      first_mesh_index      = prm.get_integer("first mesh");
+      use_deal_ii_holed_plate_mesh =
+        prm.get_bool("use dealii holed plate mesh");
+      mesh_prefix      = prm.get("mesh prefix");
+      first_mesh_index = prm.get_integer("first mesh");
     }
     prm.leave_subsection();
     prm.enter_subsection("Time convergence");
@@ -590,6 +608,62 @@ void FSI::read_parameters(ParameterHandler &prm)
     spring_constant = prm.get_double("spring constant");
     damping         = prm.get_double("damping");
     mass            = prm.get_double("mass");
+  }
+  prm.leave_subsection();
+}
+
+void Debug::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Debug");
+  {
+    prm.declare_entry("apply exact solution", "false", Patterns::Bool(), "");
+    prm.declare_entry("compare jacobian matrix with fd",
+                      "false",
+                      Patterns::Bool(),
+                      "");
+    prm.declare_entry("analytical_jacobian_absolute_tolerance",
+                      "1e-3",
+                      Patterns::Double(),
+                      "");
+    prm.declare_entry("analytical_jacobian_relative_tolerance",
+                      "1e-3",
+                      Patterns::Double(),
+                      "");
+    prm.declare_entry("preset_fsi_mms_constant", "false", Patterns::Bool(), "");
+    prm.declare_entry("preset_fsi_mms_moving", "false", Patterns::Bool(), "");
+    prm.declare_entry("preset_fsi_mms_moving_coupled",
+                      "false",
+                      Patterns::Bool(),
+                      "");
+    prm.declare_entry("fsi_apply_erroneous_coupling",
+                      "false",
+                      Patterns::Bool(),
+                      "");
+    prm.declare_entry("fsi_check_mms_on_boundary",
+                      "false",
+                      Patterns::Bool(),
+                      "");
+  }
+  prm.leave_subsection();
+}
+
+void Debug::read_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Debug");
+  {
+    apply_exact_solution = prm.get_bool("apply exact solution");
+    compare_analytical_jacobian_with_fd =
+      prm.get_bool("compare jacobian matrix with fd");
+    analytical_jacobian_absolute_tolerance =
+      prm.get_double("analytical_jacobian_absolute_tolerance");
+    analytical_jacobian_relative_tolerance =
+      prm.get_double("analytical_jacobian_relative_tolerance");
+    preset_fsi_mms_constant = prm.get_bool("preset_fsi_mms_constant");
+    preset_fsi_mms_moving   = prm.get_bool("preset_fsi_mms_moving");
+    preset_fsi_mms_moving_coupled =
+      prm.get_bool("preset_fsi_mms_moving_coupled");
+    fsi_apply_erroneous_coupling = prm.get_bool("fsi_apply_erroneous_coupling");
+    fsi_check_mms_on_boundary = prm.get_bool("fsi_check_mms_on_boundary");
   }
   prm.leave_subsection();
 }

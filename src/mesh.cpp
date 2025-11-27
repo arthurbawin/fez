@@ -5,6 +5,7 @@
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
+#include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria_description.h>
 #include <mesh.h>
@@ -163,6 +164,48 @@ void create_cube(Triangulation<dim> &tria,
   }
 }
 
+template <int dim>
+void create_holed_plate(Triangulation<dim> &tria,
+                 Parameters::Mesh   &mesh_param,
+                 const unsigned int  refinement_level,
+                 const bool          convert_to_tets = false)
+{
+  GridGenerator::plate_with_a_hole(tria,
+                    0.15,
+                    0.25,
+                    0.25,
+                    0.25,
+                    0.25,
+                    0.25,
+                    Point<dim>(0.5, 0.5),
+                    0,
+                    1,
+                    1.,
+                    2,
+                    false);
+
+  tria.refine_global(refinement_level);
+
+  mesh_param.id2name.insert({0, "OuterBoundary"});
+  mesh_param.id2name.insert({1, "InnerBoundary"});
+  mesh_param.name2id.insert({"OuterBoundary", 0});
+  mesh_param.name2id.insert({"InnerBoundary", 1});
+  if constexpr (dim == 3)
+  {
+
+  }
+
+  if (convert_to_tets)
+  {
+    const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
+    GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+  }
+
+  GridOut grid_out;
+  grid_out.write_msh(tria, "tria.msh");
+}
+
+
 /**
  * Perform checks on the mesh boundary ids and entities.
  */
@@ -204,9 +247,6 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
   {
     // Check that each boundary id appears in the fluid boundary conditions
     AssertThrow(
-      // std::count_if(param.fluid_bc.begin(),
-      //               param.fluid_bc.end(),
-      //               [id](const auto &bc) { return bc.id == id; }) == 1,
       param.fluid_bc.find(id) != param.fluid_bc.end(),
       ExcMessage("In mesh file " + param.mesh.filename +
                  " :\n"
@@ -220,9 +260,6 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
       // Check that each boundary id appears in the pseudosolid boundary
       // conditions
       AssertThrow(
-        // std::count_if(param.pseudosolid_bc.begin(),
-        //               param.pseudosolid_bc.end(),
-        //               [id](const auto &bc) { return bc.id == id; }) == 1,
         param.pseudosolid_bc.find(id) != param.pseudosolid_bc.end(),
         ExcMessage(
           "In mesh file " + param.mesh.filename +
@@ -345,21 +382,35 @@ void read_mesh(
   // bug in deal.II when reading a transfinite cube mesh file. Always use
   // deal.II's routines to create a subdivided cube mesh.
   bool use_deal_ii_mesh = param.mesh.use_deal_ii_cube_mesh ||
-  (param.mms_param.enable && param.mms_param.use_deal_ii_cube_mesh);
+  (param.mms_param.enable && param.mms_param.use_deal_ii_cube_mesh) ||
+  (param.mms_param.enable && param.mms_param.use_deal_ii_holed_plate_mesh);
 
   if (use_deal_ii_mesh)
   {
-    const double       min_corner = (dim == 2) ? 0. : 0.;
-    const double       max_corner = 1.;
-    const unsigned int refinement_level = param.mms_param.enable ?
-      pow(2, param.mms_param.mesh_suffix + 1) : param.mesh.refinement_level;
     const bool convert_to_simplices = true;
-    create_cube(serial_triangulation,
-                param.mesh,
-                min_corner,
-                max_corner,
-                refinement_level,
-                convert_to_simplices);
+
+    if(param.mesh.use_deal_ii_cube_mesh || param.mms_param.use_deal_ii_cube_mesh)
+    {
+      const double       min_corner = (dim == 2) ? 0. : 0.;
+      const double       max_corner = 1.;
+      const unsigned int refinement_level = param.mms_param.enable ?
+        pow(2, param.mms_param.mesh_suffix + 1) : param.mesh.refinement_level;
+      create_cube(serial_triangulation,
+                  param.mesh,
+                  min_corner,
+                  max_corner,
+                  refinement_level,
+                  convert_to_simplices);
+    }
+    if(param.mms_param.use_deal_ii_holed_plate_mesh)
+    {
+      const unsigned int refinement_level = param.mms_param.enable ?
+        param.mms_param.mesh_suffix : param.mesh.refinement_level;
+      create_holed_plate(serial_triangulation,
+                         param.mesh,
+                         refinement_level,
+                         convert_to_simplices);
+    }
   }
   else
   {

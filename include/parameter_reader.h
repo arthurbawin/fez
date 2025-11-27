@@ -30,6 +30,7 @@ public:
   Parameters::LinearSolver       linear_solver;
   Parameters::NonLinearSolver    nonlinear_solver;
   Parameters::MMS                mms_param;
+  Parameters::Debug              debug;
 
   //
   // Initial and boundary conditions
@@ -51,7 +52,7 @@ public:
   //
   // Manufactured solution
   //
-  ManufacturedSolution::ManufacturedSolution<dim> mms;
+  ManufacturedSolutions::ManufacturedSolution<dim> mms;
 
 public:
   /**
@@ -91,6 +92,7 @@ public:
     source_terms.declare_parameters(prm);
     mms_param.declare_parameters(prm);
     mms.declare_parameters(prm);
+    debug.declare_parameters(prm);
   }
 
   void read(ParameterHandler &prm)
@@ -123,6 +125,7 @@ public:
     source_terms.read_parameters(prm);
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);
+    debug.read_parameters(prm);
 
     check_parameters();
   }

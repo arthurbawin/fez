@@ -5,12 +5,15 @@
 #include <deal.II/differentiation/sd/symengine_tensor_operations.h>
 #include <parsed_function_symengine.h>
 
-namespace ManufacturedSolution
+namespace ManufacturedSolutions
 {
+  using namespace Differentiation::SD;
+
   template <int dim>
   ParsedFunctionSDBase<dim>::ParsedFunctionSDBase(
     const unsigned int n_components)
-    : n_components(n_components)
+    : MMSFunction<dim>(n_components, 0.)
+    , n_components(n_components)
     , function_object(n_components)
   {}
 

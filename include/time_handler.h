@@ -2,6 +2,7 @@
 #define TIME_HANDLER_H
 
 #include <deal.II/base/types.h>
+#include <deal.II/base/conditional_ostream.h>
 #include <parameters.h>
 
 /**
@@ -19,14 +20,26 @@ public:
    * Update the BDF coefficients given the current and previous
    * time steps.
    */
-  void set_bdf_coefficients();
+  void
+  set_bdf_coefficients(const bool force_scheme = false,
+                       const Parameters::TimeIntegration::Scheme forced_scheme =
+                         Parameters::TimeIntegration::Scheme::BDF1);
 
   /**
    * Returns true if the time integration scheme is "stationary"
    */
-  bool is_steady()
+  bool is_steady() const
   {
     return scheme == Parameters::TimeIntegration::Scheme::stationary;
+  }
+
+  /**
+   * For BDF methods, return true if the current time step is a
+   * "starting step" (none for BDF1, first for BDF2).
+   */
+  bool is_starting_step() const
+  {
+    return current_time_iteration < n_previous_solutions;
   }
 
   /**
@@ -34,12 +47,12 @@ public:
    * - always true if simulation is steady
    * - if t >= t_end if unsteady
    */
-  bool is_finished();
+  bool is_finished() const;
 
   /**
    * Rotate the computed time step i+1 to position i.
    */
-  void advance();
+  void advance(const ConditionalOStream &pcout);
 
   /**
    * Compute the approximation of the time derivative of the field associated to
@@ -66,6 +79,8 @@ public:
     const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const;
 
 public:
+  Parameters::TimeIntegration time_parameters;
+
   double              current_time;
   unsigned int        current_time_iteration;
   double              initial_time;

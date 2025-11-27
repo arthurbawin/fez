@@ -100,12 +100,11 @@ public:
       {
         case Parameters::MMS::TimeLpNorm::L1:
         {
-          // for(const auto &[time, err] : error_vec)
-          // {
-          //   double dt =
-          //   error +=
-          // }
-          DEAL_II_NOT_IMPLEMENTED();
+          const double dt = std::abs(error_vec[1].first - error_vec[0].first);
+          for(const auto &[time, err] : error_vec)
+          {
+            error += dt * err;
+          }
           break;
         }
         case Parameters::MMS::TimeLpNorm::L2:
@@ -152,7 +151,16 @@ public:
     }
   }
 
-  void write_rates() { error_table.write_text(std::cout); }
+  void write_rates()
+  {
+    // for(const auto &[field, errors]: unsteady_errors)
+    // {
+    //   std::cout << "Errors for " << field << std::endl;
+    //   for(const auto &[t,e] : errors)
+    //     std::cout << t << " : " << e << std::endl;
+    // }
+    error_table.write_text(std::cout);
+  }
 
 public:
   const Parameters::MMS             &mms_param;

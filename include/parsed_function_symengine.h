@@ -6,10 +6,57 @@
 #include <deal.II/base/parsed_function.h>
 #include <deal.II/differentiation/sd/symengine_number_types.h>
 
-namespace ManufacturedSolution
+namespace ManufacturedSolutions
 {
   using namespace dealii;
-  using namespace Differentiation::SD;
+
+  /**
+   * A Function<dim> which offers some additional quality-of-life functions
+   * which are useful when evaluating source terms for MMS, such as:
+   * - time_derivative()
+   * - divergence, only defined for vector-valued functions
+   * - grad_div
+   * 
+   * An MMS function is meant to represent scalar- or vector-valued functions,
+   * so it is only possible to create such a function with n_components = 1 or dim.
+   * 
+   * To make sure that the derived functions from Function<dim> are implemented,
+   * tests should be run in debug at least once, since deal.II functions throw
+   * if the "pure" functions are called (they are default implemented to return 0).
+   * In particular, these functions are *not* re-declared here as pure virtual
+   * to avoid cluttering.
+   *
+   */
+  template <int dim>
+  class MMSFunction : public Function<dim>
+  {
+  public:
+    MMSFunction(const unsigned int n_components,
+                const double       initial_time = 0.)
+      : Function<dim>(n_components, initial_time)
+    {
+      AssertThrow(
+        n_components == 1 || n_components == dim,
+        ExcMessage(
+          "You are trying to create an MMSFunction with " +
+          std::to_string(n_components) +
+          ", but this kind of function represents a scalar-valued "
+          "(with 1 component) or a vector-valued (with dim components) field."));
+    }
+
+  public:
+    /**
+     * Time derivative of component "component".
+     */
+    virtual double time_derivative(const Point<dim>  &p,
+                                   const unsigned int component = 0) const = 0;
+
+    /**
+     * Divergence. Only defined for vector-valued field (with dim components).
+     * Throws an error if called from a scalar-valued function.
+     */
+    virtual double divergence(const Point<dim> &p) const = 0;
+  };
 
   /**
    * This class is an alternative to deal.II's ParsedFunction, where
@@ -25,7 +72,7 @@ namespace ManufacturedSolution
    * arbitrary number of components.
    */
   template <int dim>
-  class ParsedFunctionSDBase : public Function<dim>
+  class ParsedFunctionSDBase : public MMSFunction<dim>
   {
   public:
     /**
@@ -101,11 +148,15 @@ namespace ManufacturedSolution
       hess_function_object.set_time(newtime);
     }
 
-    double time_derivative(const Point<dim> &p) const { return dfdt.value(p); }
-
     /**
-     * Overload of the deal.II gradient function
+     * Overload of the deal.II and MMSFunction functions
      */
+    virtual double time_derivative(const Point<dim>  &p,
+                                   const unsigned int /*component*/ = 0) const override
+    {
+      return dfdt.value(p);
+    }
+
     virtual Tensor<1, dim>
     gradient(const Point<dim> &p,
              const unsigned int /*component*/ = 0) const override
@@ -116,16 +167,7 @@ namespace ManufacturedSolution
       return grad;
     }
 
-    /**
-     * Custom gradient, filled in-place
-     */
-    void gradient(const Point<dim> &p, Tensor<1, dim> &grad) const
-    {
-      for (unsigned int d = 0; d < dim; ++d)
-        grad[d] = grad_function_object.value(p, d);
-    }
-
-    double laplacian(const Point<dim> &p) const
+    virtual double laplacian(const Point<dim> &p, const unsigned int /*component*/ = 0) const override
     {
       double res;
       if constexpr (dim == 2)
@@ -137,6 +179,37 @@ namespace ManufacturedSolution
               hess_function_object.value(p, 8);
       return res;
     }
+
+    virtual double divergence(const Point<dim>  &p) const override
+    {
+      AssertThrow(false, ExcMessage("divergence() is not defined for scalar parsed functions"));
+    }
+
+    /////////////////////////////////////////////////////////////////////////
+
+    // double time_derivative(const Point<dim> &p) const { return dfdt.value(p); }
+
+    /**
+     * Custom gradient, filled in-place
+     */
+    void gradient(const Point<dim> &p, Tensor<1, dim> &grad) const
+    {
+      for (unsigned int d = 0; d < dim; ++d)
+        grad[d] = grad_function_object.value(p, d);
+    }
+
+    // double laplacian(const Point<dim> &p) const
+    // {
+    //   double res;
+    //   if constexpr (dim == 2)
+    //     res =
+    //       hess_function_object.value(p, 0) + hess_function_object.value(p, 3);
+    //   else
+    //     res = hess_function_object.value(p, 0) +
+    //           hess_function_object.value(p, 4) +
+    //           hess_function_object.value(p, 8);
+    //   return res;
+    // }
 
     void print_function(std::ostream &out) const
     {
@@ -166,6 +239,22 @@ namespace ManufacturedSolution
     FunctionParser<dim> dfdt;
     FunctionParser<dim> grad_function_object;
     FunctionParser<dim> hess_function_object;
+  };
+
+  /**
+   * A particular case of ScalarSDParsedFunction, where the function is 
+   * a function of time only. This allows to parse a time component and
+   * compute its symbolic time derivative.
+   */
+  template <int dim>
+  class TimeSDParsedFunction : public ScalarSDParsedFunction<dim>
+  {
+  public:
+    TimeSDParsedFunction()
+      : ScalarSDParsedFunction<dim>()
+    {
+
+    }
   };
 
   /**
@@ -204,6 +293,47 @@ namespace ManufacturedSolution
       }
     }
 
+    /**
+     * Overload of the deal.II and MMSFunction functions
+     */
+    virtual double time_derivative(const Point<dim> &p,
+      const unsigned int component = 0) const override
+    {
+      return dfdt.value(p, component);
+    }
+
+    virtual Tensor<1, dim>
+    gradient(const Point<dim>  &p,
+             const unsigned int component = 0) const override
+    {
+      Tensor<1, dim> grad;
+      for (unsigned int d = 0; d < dim; ++d)
+        grad[d] = grad_function_object[component]->value(p, d);
+      return grad;
+    }
+
+    virtual double laplacian(const Point<dim> &p,
+       const unsigned int component = 0) const override
+    {
+      if constexpr (dim == 2)
+        return hess_function_object[component]->value(p, 0) +
+                 hess_function_object[component]->value(p, 3);
+      else
+        return hess_function_object[component]->value(p, 0) +
+                 hess_function_object[component]->value(p, 4) +
+                 hess_function_object[component]->value(p, 8);
+    }
+
+    virtual double divergence(const Point<dim>  &p) const override
+    {
+      double res = 0.;
+      for (unsigned int d = 0; d < dim; ++d)
+        res += grad_function_object[d]->value(p, d); // partial v_d/partial x_d
+      return res;
+    }
+
+    ////////////////////////////////////////////////////////////////
+
     // The value function below has different arguments but hides the function
     // from the base class
     using ParsedFunctionSDBase<dim>::value;
@@ -222,19 +352,6 @@ namespace ManufacturedSolution
     {
       for (unsigned int d = 0; d < dim; ++d)
         res[d] = dfdt.value(p, d);
-    }
-
-    /**
-     * Overload of the deal.II gradient function
-     */
-    virtual Tensor<1, dim>
-    gradient(const Point<dim>  &p,
-             const unsigned int component = 0) const override
-    {
-      Tensor<1, dim> grad;
-      for (unsigned int d = 0; d < dim; ++d)
-        grad[d] = grad_function_object[component]->value(p, d);
-      return grad;
     }
 
     /**
@@ -259,13 +376,13 @@ namespace ManufacturedSolution
           grad[di][dj] = grad_function_object[dj]->value(p, di);
     }
 
-    double divergence(const Point<dim> &p) const
-    {
-      double res = 0.;
-      for (unsigned int d = 0; d < dim; ++d)
-        res += grad_function_object[d]->value(p, d); // partial v_d/partial x_d
-      return res;
-    }
+    // double divergence(const Point<dim> &p) const
+    // {
+    //   double res = 0.;
+    //   for (unsigned int d = 0; d < dim; ++d)
+    //     res += grad_function_object[d]->value(p, d); // partial v_d/partial x_d
+    //   return res;
+    // }
 
     void laplacian(const Point<dim> &p, Tensor<1, dim> &res) const
     {

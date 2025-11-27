@@ -9,8 +9,6 @@ ID 3 -> NoFlux
 ID 4 -> InnerBoundary
 ID 5 -> Domain
 Number of degrees of freedom: 12938
-160 lambda DOFs are unconstrained
-5256 lambda DOFs are constrained
 
 Time step 1 - Advancing to t = 0.1.
 

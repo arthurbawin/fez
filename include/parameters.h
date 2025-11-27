@@ -262,9 +262,6 @@ namespace Parameters
     bool compare_analytical_jacobian_with_fd;
     double analytical_jacobian_absolute_tolerance;
     double analytical_jacobian_relative_tolerance;
-    bool preset_fsi_mms_constant;
-    bool preset_fsi_mms_moving;
-    bool preset_fsi_mms_moving_coupled;
     bool fsi_apply_erroneous_coupling;
     bool fsi_check_mms_on_boundary;
 

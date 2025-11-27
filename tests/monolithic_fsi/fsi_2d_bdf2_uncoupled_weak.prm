@@ -134,13 +134,25 @@ subsection Manufactured solution
   subsection exact pressure
     set Function expression = sin(x+y) * cos(t)
   end
+
+  subsection exact mesh displacement
+    subsection space component
+      set preset = rigid_motion_kernel
+      subsection rigid_motion_kernel
+        set translation = 0.1, 0.05
+        set r0          = 0.15
+        set r1          = 0.45
+        set center      = 0.5, 0.5
+      end
+    end
+    subsection time component
+      set Function expression = 0.5 * sin(2.*pi*t)
+    end
+  end
 end
 
 subsection Debug
   set compare jacobian matrix with fd        = false
   set analytical_jacobian_absolute_tolerance = 1e-6
   set analytical_jacobian_relative_tolerance = 1e-4
-  set preset_fsi_mms_constant                = false
-  set preset_fsi_mms_moving                  = true
-  set preset_fsi_mms_moving_coupled          = false
 end

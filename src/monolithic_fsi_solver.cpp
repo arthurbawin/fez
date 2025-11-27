@@ -11,7 +11,7 @@
 #include <errors.h>
 #include <linear_solver.h>
 #include <mesh.h>
-#include <mms.h>
+// #include <mms.h>
 #include <monolithic_fsi_solver.h>
 #include <scratch_data.h>
 
@@ -86,96 +86,14 @@ MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
 
   if (param.mms_param.enable)
   {
-    /**
-     * Use preset manufactured solution
-     */
-
-    const double   x0 = 0., y0 = 0.;
-    Point<dim>     center(x0 + 0.5, y0 + 0.5);
-    double         R0 = 0.15;
-    double         R1 = 0.45;
-    Tensor<1, dim> translation;
-    translation[0] = 0.1;
-    translation[1] = 0.05;
-
-    if (param.debug.preset_fsi_mms_constant)
-    {
-      pcout << "With CONSTANT fsi mms" << std::endl;
-      // Constant mesh position
-      mesh_time_function =
-        std::make_shared<ManufacturedSolutions::ConstantTimeDep>(1.);
-      position_mms =
-        std::make_shared<ManufacturedSolutions::ZeroDisplacement<dim>>(
-          *mesh_time_function);
-
-      // Velocity and pressure MMS from parameter file
-    }
-    else if (param.debug.preset_fsi_mms_moving)
-    {
-      pcout << "With MOVING fsi mms" << std::endl;
-      mesh_time_function =
-        std::make_shared<ManufacturedSolutions::SineTimeDep>(0.5);
-      // std::make_shared<ManufacturedSolutions::PowerTimeDep>(1., 1.);
-      position_mms =
-        std::make_shared<ManufacturedSolutions::RigidMeshPosition<dim>>(
-          *mesh_time_function,
-          center,
-          R0,
-          R1,
-          translation,
-          param.fsi.spring_constant);
-
-      // Velocity and pressure MMS from parameter file
-    }
-    else if (param.debug.preset_fsi_mms_moving_coupled)
-    {
-      pcout << "With MOVING/Coupled fsi mms" << std::endl;
-      mesh_time_function =
-        std::make_shared<ManufacturedSolutions::SineTimeDep>(0.5);
-      position_mms =
-        std::make_shared<ManufacturedSolutions::RigidMeshPosition<dim>>(
-          *mesh_time_function,
-          center,
-          R0,
-          R1,
-          translation,
-          param.fsi.spring_constant);
-
-      // Velocity and pressure
-      flow_time_function =
-        std::make_shared<ManufacturedSolutions::CosineTimeDep>(0.5 * 2. * M_PI);
-      mesh_time_function->check_dependency(*flow_time_function);
-      flow_mms = std::make_shared<
-        ManufacturedSolutions::ConstantFlowCoupledPressure<dim>>(
-        // ManufacturedSolutions::FlowCoupledPressure<dim>>(
-        *flow_time_function,
-        *mesh_time_function,
-        center,
-        R0,
-        R1,
-        translation,
-        param.fsi.spring_constant);
-    }
-    else
-    {
-      pcout << "With PRM fsi mms" << std::endl;
-      AssertThrow(false,
-                  ExcMessage("Mesh position MMS if null if not provided by "
-                             "preset function for now."));
-    }
-
     // Assign the manufactured solution
     exact_solution = std::make_shared<MonolithicFSISolver<dim>::MMSSolution>(
-      time_handler.current_time, param.mms, flow_mms, position_mms);
+      time_handler.current_time, param.mms);
 
     // Create the source term function for the given MMS and override source
     // terms
     source_terms = std::make_shared<MonolithicFSISolver<dim>::MMSSourceTerm>(
-      time_handler.current_time,
-      param.physical_properties,
-      param.mms,
-      flow_mms,
-      position_mms);
+      time_handler.current_time, param.physical_properties, param.mms);
 
     error_handler.create_entry("L2_u");
     error_handler.create_entry("L2_p");
@@ -203,63 +121,42 @@ void MonolithicFSISolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
-  const double t = this->get_time();
-
-  // std::cout << "Time is " << t << std::endl;
-
   const double nu          = physical_properties.fluids[0].kinematic_viscosity;
   const double lame_mu     = physical_properties.pseudosolids[0].lame_mu;
   const double lame_lambda = physical_properties.pseudosolids[0].lame_lambda;
 
-  Tensor<2, dim> grad_u;
-  Tensor<1, dim> f, u, dudt_eulerian, uDotGradu, grad_p, lap_u;
-
-  if (flow_mms)
+  Tensor<1, dim> u, dudt_eulerian;
+  for (unsigned int d = 0; d < dim; ++d)
   {
-    flow_mms->velocity_time_derivative(t, p, dudt_eulerian);
-    flow_mms->velocity(t, p, u);
-    // flow_mms->grad_velocity_ui_xj(t, p, grad_u);
-    flow_mms->grad_velocity_uj_xi(t, p, grad_u);
-    flow_mms->grad_pressure(t, p, grad_p);
-    flow_mms->laplacian_velocity(t, p, lap_u);
-  }
-  else
-  {
-    mms.exact_velocity->time_derivative(p, dudt_eulerian);
-    mms.exact_velocity->value(p, u);
-    // mms.exact_velocity->gradient_vi_xj(p, grad_u);
-    mms.exact_velocity->gradient_vj_xi(p, grad_u);
-    mms.exact_velocity->laplacian(p, lap_u);
-    mms.exact_pressure->gradient(p, grad_p);
+    dudt_eulerian[d] = mms.exact_velocity->time_derivative(p, d);
+    u[d]             = mms.exact_velocity->value(p, d);
   }
 
-  uDotGradu = u * grad_u;
+  // Use convention (grad_u)_ij := dvj/dxi
+  Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
+  Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> uDotGradu = u * grad_u;
 
   // Velocity source term
-  f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
+  Tensor<1, dim> f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
 
   // Mass conservation (pressure) source term
-  if (flow_mms)
-    values[p_lower] = flow_mms->velocity_divergence(t, p);
-  else
-    values[p_lower] = mms.exact_velocity->divergence(p);
+  values[p_lower] = mms.exact_velocity->divergence(p);
 
   // Pseudosolid (mesh position) source term
   // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
-  // Tensor<1, dim> lap_x, grad_div_x, f_PS;
-  // mms.exact_mesh_displacement->laplacian(p, lap_x);
-  // mms.exact_mesh_displacement->grad_div(p, grad_div_x);
-  // f_PS = lame_mu * lap_x + (lame_lambda + lame_mu) * grad_div_x;
-
-  Tensor<1, dim> f_PS;
-  mesh_mms->divergence_stress_tensor(t, p, lame_mu, lame_lambda, f_PS);
+  Tensor<1, dim> f_PS =
+    mms.exact_mesh_displacement->divergence_linear_elastic_stress(p,
+                                                                  lame_mu,
+                                                                  lame_lambda);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[x_lower + d] = f_PS[d];
 
-  // Lagrange multiplier source term
+  // Lagrange multiplier source term (none)
   for (unsigned int d = 0; d < dim; ++d)
     values[l_lower + d] = 0.;
 }
@@ -291,7 +188,8 @@ void MonolithicFSISolver<dim>::run()
     {
       if (param.mms_param.enable)
       {
-        if(param.time_integration.bdfstart == Parameters::TimeIntegration::BDFStart::initial_condition)
+        if (param.time_integration.bdfstart ==
+            Parameters::TimeIntegration::BDFStart::initial_condition)
         {
           // Convergence study: start with exact solution at first time step
           set_exact_solution();
@@ -301,7 +199,8 @@ void MonolithicFSISolver<dim>::run()
           //////////////////////////////////////////////////////////
           // Start with BDF1
           solve_nonlinear_problem(false);
-          if(param.debug.fsi_check_mms_on_boundary)
+          output_results();
+          if (param.debug.fsi_check_mms_on_boundary)
             check_manufactured_solution_boundary();
           if (!time_handler.is_steady())
           {
@@ -310,7 +209,7 @@ void MonolithicFSISolver<dim>::run()
               previous_solutions[j] = previous_solutions[j - 1];
             previous_solutions[0] = present_solution;
           }
-          continue;          
+          continue;
           //////////////////////////////////////////////////////////
         }
       }
@@ -354,10 +253,10 @@ void MonolithicFSISolver<dim>::run()
     }
     else
     {
-      if(param.debug.fsi_check_mms_on_boundary)
+      if (param.debug.fsi_check_mms_on_boundary)
       {
         check_manufactured_solution_boundary();
-        
+
         /**
          * When applying the exact solution, the fluid velocity will be exact,
          * but the mesh velocity is only precise up to time integration order.
@@ -601,8 +500,8 @@ void MonolithicFSISolver<dim>::create_lagrange_multiplier_constraints()
     if (!lambda_constraints.is_constrained(dof))
       unconstrained_owned_dofs++;
 
-  const unsigned int total_unconstrained_owned_dofs =
-    Utilities::MPI::sum(unconstrained_owned_dofs, mpi_communicator);
+  // const unsigned int total_unconstrained_owned_dofs =
+  //   Utilities::MPI::sum(unconstrained_owned_dofs, mpi_communicator);
 
   // std::cout << total_unconstrained_owned_dofs
   //           << " unconstrained owned lambda dofs" << std::endl;
@@ -752,37 +651,40 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
     }
   }
 
-  ////////////////////////////////////////////////////////////////////////
-  // // Expected sum is -1/k * |Cylinder| (surface)
-  double       expected_weights_sum;
-  const double radius = 0.5;
-  if constexpr (dim == 2)
-    expected_weights_sum = -1. / param.fsi.spring_constant * 2. * M_PI * radius;
-  else
-  {
-    const double width = 8.;
-    expected_weights_sum =
-      -1. / param.fsi.spring_constant * 2. * M_PI * radius * width;
-  }
+  // ////////////////////////////////////////////////////////////////////////
+  // // // Expected sum is -1/k * |Cylinder| (surface)
+  // double       expected_weights_sum;
+  // const double radius = 0.5;
+  // if constexpr (dim == 2)
+  //   expected_weights_sum = -1. / param.fsi.spring_constant * 2. * M_PI *
+  //   radius;
+  // else
+  // {
+  //   const double width = 8.;
+  //   expected_weights_sum =
+  //     -1. / param.fsi.spring_constant * 2. * M_PI * radius * width;
+  // }
 
-  for (unsigned int d = 0; d < dim; ++d)
-  {
-    double local_weights_sum = 0.;
-    // std::cout << "Weights for dim = " << d << std::endl;
-    for (const auto &[lambda_dof, weight] : coeffs[d])
-    {
-      // std::cout << "Lambda dof: " << lambda_dof << " - weight: " << weight <<
-      // std::endl;
-      local_weights_sum += weight;
-    }
-    // std::cout << "Sum is = " << local_weights_sum << " - Expected : " <<
-    // expected_weights_sum << std::endl;
+  // for (unsigned int d = 0; d < dim; ++d)
+  // {
+  //   double local_weights_sum = 0.;
+  //   // std::cout << "Weights for dim = " << d << std::endl;
+  //   for (const auto &[lambda_dof, weight] : coeffs[d])
+  //   {
+  //     // std::cout << "Lambda dof: " << lambda_dof << " - weight: " << weight
+  //     <<
+  //     // std::endl;
+  //     local_weights_sum += weight;
+  //   }
+  //   // std::cout << "Sum is = " << local_weights_sum << " - Expected : " <<
+  //   // expected_weights_sum << std::endl;
 
-    const double weights_sum =
-      Utilities::MPI::sum(local_weights_sum, mpi_communicator);
-    // std::cout << "Sum of lambda weights for dim " << d << " = " << weights_sum
-    //           << " - Expected : " << expected_weights_sum << std::endl;
-  }
+  //   const double weights_sum =
+  //     Utilities::MPI::sum(local_weights_sum, mpi_communicator);
+  //   // std::cout << "Sum of lambda weights for dim " << d << " = " <<
+  //   weights_sum
+  //   //           << " - Expected : " << expected_weights_sum << std::endl;
+  // }
   ////////////////////////////////////////////////////////////////////////
 
   //
@@ -2359,7 +2261,8 @@ void MonolithicFSISolver<dim>::check_velocity_boundary() const
   pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
   pcout << "||uh - wh||_Li = " << li_error << std::endl;
 
-  if (!time_handler.is_starting_step() && !param.debug.fsi_apply_erroneous_coupling)
+  if (!time_handler.is_starting_step() &&
+      !param.debug.fsi_apply_erroneous_coupling)
   {
     AssertThrow(l2_error < 1e-12,
                 ExcMessage("L2 norm of uh - wh is too large."));
@@ -2454,16 +2357,17 @@ void MonolithicFSISolver<dim>::check_manufactured_solution_boundary()
   }
   pns_integral = Utilities::MPI::sum(pns_integral_local, mpi_communicator);
 
-  // Reference solution for int_Gamma p*n_solid dx is - k * d * f(t).
-  Tensor<1, dim> translation;
-  translation[0] = 0.1;
-  translation[1] = 0.05;
-  const Tensor<1, dim> ref_pns =
-    -param.fsi.spring_constant * translation *
-    std::static_pointer_cast<MonolithicFSISolver<dim>::MMSSolution>(
-      exact_solution)
-      ->mesh_mms->time_function.value(time_handler.current_time);
-  const double err_pns = (ref_pns - pns_integral).norm();
+  // // Reference solution for int_Gamma p*n_solid dx is - k * d * f(t).
+  // Tensor<1, dim> translation;
+  // translation[0] = 0.1;
+  // translation[1] = 0.05;
+  const Tensor<1, dim> ref_pns;
+  // const Tensor<1, dim> ref_pns =
+  //   -param.fsi.spring_constant * translation *
+  //   std::static_pointer_cast<MonolithicFSISolver<dim>::MMSSolution>(
+  //     exact_solution)->mms.exact_mesh_displacement->time_function->value(time_handler.current_time);
+  // const double err_pns = (ref_pns - pns_integral).norm();
+  const double err_pns = -1.;
 
   //
   // Check x_MMS
@@ -2799,9 +2703,9 @@ void MonolithicFSISolver<dim>::compute_errors()
   Tensor<1, dim> error_on_integral;
   // if (!time_handler.is_starting_step())
   // {
-    this->compute_lambda_error_on_boundary(l2_l, li_l, error_on_integral);
-    // linf_error_Fx = std::max(linf_error_Fx, error_on_integral[0]);
-    // linf_error_Fy = std::max(linf_error_Fy, error_on_integral[1]);
+  this->compute_lambda_error_on_boundary(l2_l, li_l, error_on_integral);
+  // linf_error_Fx = std::max(linf_error_Fx, error_on_integral[0]);
+  // linf_error_Fy = std::max(linf_error_Fy, error_on_integral[1]);
   // }
 
   if (time_handler.is_steady())

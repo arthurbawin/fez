@@ -1,5 +1,4 @@
 Number of MPI processes: 6
-With MOVING/Coupled fsi mms
 Convergence test with manufactured solution:
 Mesh file was changed to ../../mms_meshes/holed0.msh
 Mesh info:

@@ -1,25 +1,4 @@
 
-# This test assesses the convergence of the monolithic FSI solver
-# for the following configuration:
-#
-# - Prescribed mesh movement with a pre-set manufactured field 
-#   (RigidMeshMovement), controlled with preset_fsi_mms_moving = true.
-#   This mesh position MMS is for now controlled within the solver.
-#
-# - Manufactured velocity and pressure prescribed below.
-#   The prescribed fields vary in space and time and are not captured 
-#   exactly by P2-P1 elements or BDF2 integrator.
-# 
-# An L2/inf spatial norm and an Linf time norm are considered.
-# At least 2nd order is obtained for space-time convergence for all
-# fields, showing that the time-dependent boundary conditions should be 
-# correctly implemented.
-#
-# In this test, weakly enforced boundary conditions are not tested.
-# The mesh movement is uncoupled from the flow, and mesh position and
-# velocity boundary conditions are each enforced strongly to the
-# manufactured solution.
-
 subsection Dimension
   set dimension = 2
 end
@@ -35,15 +14,16 @@ subsection Output
 end
 
 subsection Mesh
-  # Mesh is prescribed in MMS section
+  #
 end
 
 subsection Time integration
-  set verbosity = quiet
-  set dt        = 0.1
-  set t_initial = 0
-  set t_end     = 0.5
-  set scheme    = BDF2
+  set verbosity        = quiet
+  set dt               = 0.1
+  set t_initial        = 0
+  set t_end            = 0.5
+  set scheme           = BDF2
+  set bdf start method = BDF1
 end
 
 subsection Nonlinear solver
@@ -51,7 +31,7 @@ subsection Nonlinear solver
   set tolerance            = 1e-10
   set divergence_tolerance = 1e+4
   set max_iterations       = 20
-  set enable_line_search   = true
+  set enable_line_search   = false
   set analytic_jacobian    = true
 end
 
@@ -83,7 +63,7 @@ subsection Physical properties
 end
 
 subsection FSI
-  set enable coupling = false
+  set enable coupling = true
   set spring constant = 1
 end
 
@@ -102,7 +82,7 @@ subsection Fluid boundary conditions
   subsection boundary 1
     set id   = 3
     set name = InnerBoundary
-    set type = velocity_mms # Not testing "weak_no_slip"
+    set type = weak_no_slip
   end
 end
 
@@ -116,7 +96,7 @@ subsection Pseudosolid boundary conditions
   subsection boundary 1
     set id   = 3
     set name = InnerBoundary
-    set type = position_mms # Not testing "coupled_to_fluid"
+    set type = coupled_to_fluid
   end
 end
 
@@ -127,8 +107,8 @@ subsection Manufactured solution
 
   subsection Space convergence
     set use dealii cube mesh        = false
-    set use dealii holed plate mesh = false # Could also be used
-    set mesh prefix                 = ../../mms_meshes/holed
+    set use dealii holed plate mesh = false
+    set mesh prefix          = ../../mms_meshes/holed
   end
 
   subsection Time convergence
@@ -138,11 +118,40 @@ subsection Manufactured solution
     set time step reduction  = 0.5
   end
 
+  #subsection exact velocity
+  #  set Function constants  = translation_x=0.1, translation_y=0.05
+  #  set Function expression = translation_x * pi * cos(2.*pi*t); translation_y * pi * cos(2.*pi*t)
+  #end
+
   subsection exact velocity
-    set Function expression = cos(t) * (x^3 + y^3); cos(x*y) * t^3
+    subsection space component
+      set preset = moving radial kernel
+      subsection moving radial kernel
+        set translation = 0.1, 0.05
+        set r0          = 0.15
+        set r1          = 0.45
+        set center      = 0.5, 0.5
+      end
+    end
+    subsection time component
+      set Function expression = 0.5 * sin(2.*pi*t)
+    end
   end
+
   subsection exact pressure
-    set Function expression = sin(x+y) * cos(t)
+    subsection space component
+      set preset = normal_radial_kernel
+      subsection normal_radial_kernel
+        set translation = 0.1, 0.05
+        set r0          = 0.15
+        set r1          = 1.
+        set a           = 2.122065908 # = spring_constant / (Pi * R0)
+        set center      = 0.5, 0.5
+      end
+    end
+    subsection time component
+      set Function expression = 0.5 * sin(2.*pi*t)
+    end
   end
 
   subsection exact mesh displacement
@@ -162,7 +171,10 @@ subsection Manufactured solution
 end
 
 subsection Debug
+  set apply exact solution                   = false
   set compare jacobian matrix with fd        = false
   set analytical_jacobian_absolute_tolerance = 1e-6
   set analytical_jacobian_relative_tolerance = 1e-4
+  set fsi_apply_erroneous_coupling           = false
+  set fsi_check_mms_on_boundary              = false
 end

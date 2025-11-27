@@ -629,12 +629,6 @@ void Debug::declare_parameters(ParameterHandler &prm)
                       "1e-3",
                       Patterns::Double(),
                       "");
-    prm.declare_entry("preset_fsi_mms_constant", "false", Patterns::Bool(), "");
-    prm.declare_entry("preset_fsi_mms_moving", "false", Patterns::Bool(), "");
-    prm.declare_entry("preset_fsi_mms_moving_coupled",
-                      "false",
-                      Patterns::Bool(),
-                      "");
     prm.declare_entry("fsi_apply_erroneous_coupling",
                       "false",
                       Patterns::Bool(),
@@ -658,10 +652,6 @@ void Debug::read_parameters(ParameterHandler &prm)
       prm.get_double("analytical_jacobian_absolute_tolerance");
     analytical_jacobian_relative_tolerance =
       prm.get_double("analytical_jacobian_relative_tolerance");
-    preset_fsi_mms_constant = prm.get_bool("preset_fsi_mms_constant");
-    preset_fsi_mms_moving   = prm.get_bool("preset_fsi_mms_moving");
-    preset_fsi_mms_moving_coupled =
-      prm.get_bool("preset_fsi_mms_moving_coupled");
     fsi_apply_erroneous_coupling = prm.get_bool("fsi_apply_erroneous_coupling");
     fsi_check_mms_on_boundary = prm.get_bool("fsi_check_mms_on_boundary");
   }

@@ -101,25 +101,21 @@ void IncompressibleNavierStokesSolver<dim>::MMSSourceTerm::vector_value(
 {
   const double nu = physical_properties.fluids[0].kinematic_viscosity;
 
-  Tensor<2, dim> grad_u;
-  Tensor<1, dim> u, dudt_eulerian, lap_u;
-
-  Tensor<1, dim> grad_p = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
   {
     dudt_eulerian[d] = mms.exact_velocity->time_derivative(p, d);
     u[d]             = mms.exact_velocity->value(p, d);
-    grad_u[d]        = mms.exact_velocity->gradient(p, d);
-    lap_u[d]         = mms.exact_velocity->laplacian(p, d);
   }
 
   // Use convention (grad_u)_ij := dvj/dxi
-  grad_u                   = transpose(grad_u);
+  Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
+  Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
   Tensor<1, dim> uDotGradu = u * grad_u;
 
   // Navier-Stokes momentum (velocity) source term
   Tensor<1, dim> f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
-
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
 

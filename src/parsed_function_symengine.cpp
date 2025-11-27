@@ -12,19 +12,31 @@ namespace ManufacturedSolutions
   template <int dim>
   ParsedFunctionSDBase<dim>::ParsedFunctionSDBase(
     const unsigned int n_components)
-    : MMSFunction<dim>(n_components, 0.)
+    : MMSFunction<dim>(n_components)
     , n_components(n_components)
     , function_object(n_components)
-  {}
+    , dfdt(n_components)
+    , d2fdt2(n_components)
+    , grad_function_object(n_components)
+    , hess_function_object(n_components)
+    , function_of_time_only(n_components)
+  {
+    for (unsigned int i_comp = 0; i_comp < n_components; ++i_comp)
+    {
+      grad_function_object[i_comp] = std::make_shared<FunctionParser<dim>>(dim);
+      hess_function_object[i_comp] =
+        std::make_shared<FunctionParser<dim>>(dim * dim);
+    }
+  }
 
   /**
    * This is exactly the deal.II function (parsed_function.cc)
    */
   template <int dim>
-  void ParsedFunctionSDBase<dim>::declare_parameters(
-    ParameterHandler  &prm,
-    const unsigned int n_components,
-    const std::string &input_expr)
+  void
+  ParsedFunctionSDBase<dim>::declare_parameters(ParameterHandler  &prm,
+                                                const unsigned int n_components,
+                                                const std::string &input_expr)
   {
     Assert(n_components > 0, ExcZero());
 
@@ -170,105 +182,35 @@ namespace ManufacturedSolutions
     this->create_symbolic_derivatives(vnames, constants, time_dependent);
   }
 
-  namespace {
+  namespace
+  {
 
     // SymEngine parses exponents as "**", whereas muParser expects "^".
     // This function replaces the all **'s in a string by ^'s.
     std::string replace_all_exponents(std::string s)
     {
-      size_t pos = 0;
+      size_t            pos  = 0;
       const std::string from = "**";
       const std::string to   = "^";
-      while ((pos = s.find(from, pos)) != std::string::npos) {
+      while ((pos = s.find(from, pos)) != std::string::npos)
+      {
         s.replace(pos, from.length(), to);
         pos += to.length();
       }
       return s;
     }
-  }
+  } // namespace
 
   template <int dim>
-  void ScalarSDParsedFunction<dim>::create_symbolic_derivatives(
-    const std::string                   variables,
-    const std::map<std::string, double> constants,
-    const bool                          time_dependent)
-  {
-    // Get the parsed expression
-    const std::string expr = this->function_object.get_expressions()[0];
-
-    Tensor<1, dim, Expression> independent_variables;
-    independent_variables[0] = Expression("x");
-    independent_variables[1] = Expression("y");
-    if constexpr (dim == 3)
-      independent_variables[2] = Expression("z");
-    const Expression time("t");
-
-    // Set the function itself as a symbolic expression
-    const Expression f(expr, true);
-
-    //
-    // Get symbolic gradient
-    //
-    const Tensor<1, dim, Expression> grad_f =
-      differentiate(f, independent_variables);
-
-    // Get the string expressions of the spatial derivatives
-    std::vector<std::string> grad_expressions;
-    for (unsigned int d = 0; d < dim; ++d)
-    {
-      std::stringstream sstream;
-      sstream << grad_f[d];
-      grad_expressions.push_back(replace_all_exponents(sstream.str()));
-    }
-    grad_function_object.initialize(variables,
-                                    grad_expressions,
-                                    constants,
-                                    time_dependent);
-
-    //
-    // Get symbolic hessian
-    //
-    // Get the string expression of the 2nd spatial derivatives
-    std::vector<std::string> hess_expressions;
-    for (unsigned int di = 0; di < dim; ++di)
-    {
-      // Get symbolic gradient of gradient component
-      const Tensor<1, dim, Expression> hess_i =
-        differentiate(grad_f[di], independent_variables);
-
-      for (unsigned int dj = 0; dj < dim; ++dj)
-      {
-        std::stringstream sstream;
-        sstream << hess_i[dj];
-        hess_expressions.push_back(replace_all_exponents(sstream.str()));
-      }
-    }
-    hess_function_object.initialize(variables,
-                                    hess_expressions,
-                                    constants,
-                                    time_dependent);
-
-    //
-    // Get time derivative
-    //
-    const Expression fdot = f.differentiate(time);
-    {
-      std::stringstream sstream;
-      sstream << fdot;
-      dfdt.initialize(variables, replace_all_exponents(sstream.str()), constants, time_dependent);
-    }
-  }
-
-  template <int dim>
-  void VectorSDParsedFunction<dim>::create_symbolic_derivatives(
+  void ParsedFunctionSDBase<dim>::create_symbolic_derivatives(
     const std::string                   variables,
     const std::map<std::string, double> constants,
     const bool                          time_dependent)
   {
     // Semicolon separated list of time derivatives (one per vector component)
-    std::string time_derivatives;
+    std::string time_derivatives, time_second_derivatives;
 
-    for (unsigned int i_comp = 0; i_comp < dim; ++i_comp)
+    for (unsigned int i_comp = 0; i_comp < n_components; ++i_comp)
     {
       // Get the parsed expression
       const std::string expr = this->function_object.get_expressions()[i_comp];
@@ -288,6 +230,12 @@ namespace ManufacturedSolutions
       //
       const Tensor<1, dim, Expression> grad_f =
         differentiate(f, independent_variables);
+
+      // Check if function depends only on time
+      function_of_time_only[i_comp] = true;
+      for (unsigned int d = 0; d < dim; ++d)
+        if(!numbers::value_is_zero(grad_f[d]))
+          function_of_time_only[i_comp] = false;
 
       // Get the string expressions of the spatial derivatives
       std::vector<std::string> grad_expressions;
@@ -325,23 +273,26 @@ namespace ManufacturedSolutions
                                                time_dependent);
 
       //
-      // Get time derivative
+      // Get time derivatives
       //
       const Expression fdot = f.differentiate(time);
+      const Expression fddot = fdot.differentiate(time);
       {
         std::stringstream sstream;
         sstream << fdot;
         time_derivatives += replace_all_exponents(sstream.str()) + ";";
       }
+      {
+        std::stringstream sstream;
+        sstream << fddot;
+        time_second_derivatives += replace_all_exponents(sstream.str()) + ";";
+      }
     }
     dfdt.initialize(variables, time_derivatives, constants, time_dependent);
+    d2fdt2.initialize(variables, time_second_derivatives, constants, time_dependent);
   }
 
   // Explicit instantiations
   template class ParsedFunctionSDBase<2>;
   template class ParsedFunctionSDBase<3>;
-  template class ScalarSDParsedFunction<2>;
-  template class ScalarSDParsedFunction<3>;
-  template class VectorSDParsedFunction<2>;
-  template class VectorSDParsedFunction<3>;
-} // namespace ManufacturedSolution
+} // namespace ManufacturedSolutions

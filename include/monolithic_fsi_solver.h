@@ -14,7 +14,7 @@
 #include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <generic_solver.h>
-#include <mms.h>
+// #include <mms.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <scratch_data.h>
@@ -333,13 +333,6 @@ protected:
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  // Preset manufactured solutions for u-p-x
-  std::shared_ptr<ManufacturedSolutions::TimeDependenceBase> flow_time_function;
-  std::shared_ptr<ManufacturedSolutions::FlowManufacturedSolutionBase<dim>>
-                                                             flow_mms;
-  std::shared_ptr<ManufacturedSolutions::TimeDependenceBase> mesh_time_function;
-  std::shared_ptr<ManufacturedSolutions::MeshPositionMMSBase<dim>> position_mms;
-
 protected:
   /**
    * Exact solution when performing a convergence study with a manufactured
@@ -348,25 +341,11 @@ protected:
   class MMSSolution : public Function<dim>
   {
   public:
-    MMSSolution(
-      const double                                            time,
-      const ManufacturedSolutions::ManufacturedSolution<dim> &mms,
-      std::shared_ptr<ManufacturedSolutions::FlowManufacturedSolutionBase<dim>>
-                                                                       flow_mms,
-      std::shared_ptr<ManufacturedSolutions::MeshPositionMMSBase<dim>> mesh_mms)
-      // const DoFHandler<dim>     &dof_handler,
-      // const DoFHandler<dim>     &dof_handler,
-      // const Mapping<dim>        &moving_mapping,
-      // const FESystem<dim>       &fe,
-      // const Quadrature<dim - 1> &face_quadrature,
-      // const unsigned int weak_no_slip_boundary_id);
+    MMSSolution(const double                                            time,
+                const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
       : Function<dim>(n_components, time)
       , mms(mms)
-      , flow_mms(flow_mms)
-      , mesh_mms(mesh_mms)
     {}
-
-    // void update_normal_vectors();
 
     virtual void set_time(const double new_time) override
     {
@@ -377,50 +356,19 @@ protected:
     virtual double value(const Point<dim>  &p,
                          const unsigned int component = 0) const override
     {
-      const double t = this->get_time();
-
-      if (flow_mms)
-      {
-        if (is_velocity(component))
-          return flow_mms->velocity(t, p, component - u_lower);
-        else if (is_pressure(component))
-          return flow_mms->pressure(t, p);
-        else if (is_position(component))
-          return mesh_mms->position(t, p, component - x_lower);
-        else if (is_lambda(component))
-          return mms.exact_vector_lagrange_mult->value(p, component - l_lower);
-        else
-          DEAL_II_ASSERT_UNREACHABLE();
-      }
+      if (is_velocity(component))
+        return mms.exact_velocity->value(p, component - u_lower);
+      else if (is_pressure(component))
+        return mms.exact_pressure->value(p);
+      else if (is_position(component))
+        return mms.exact_mesh_displacement->value(p, component - x_lower);
+      else if (is_lambda(component))
+        // For the exact Lagrange multiplier, call the function below.
+        // It can only be called at quadrature nodes on faces, where
+        // the normal is well-defined.
+        return 0.;
       else
-      {
-        if (is_velocity(component))
-          return mms.exact_velocity->value(p, component - u_lower);
-        else if (is_pressure(component))
-          return mms.exact_pressure->value(p);
-        else if (is_position(component))
-          return mesh_mms->position(t, p, component - x_lower);
-        else if (is_lambda(component))
-          return mms.exact_vector_lagrange_mult->value(p, component - l_lower);
-        else
-          DEAL_II_ASSERT_UNREACHABLE();
-      }
-
-      /**
-       * With parsed functions and symbolic derivatives:
-       */
-      // if (is_velocity(component))
-      //   return mms.exact_velocity->value(p, component - u_lower);
-      // else if (is_pressure(component))
-      //   return mms.exact_pressure->value(p);
-      // else if (is_position(component))
-      //   // Add exact displacement to position of calling point
-      //   return p[component] + mms.exact_mesh_displacement->value(p,
-      //   component);
-      // else if (is_lambda(component))
-      //   return mms.exact_vector_lagrange_mult->value(p, component - l_lower);
-      // else
-      //   DEAL_II_ASSERT_UNREACHABLE();
+        DEAL_II_ASSERT_UNREACHABLE();
     }
 
     /**
@@ -432,19 +380,14 @@ protected:
                              Tensor<1, dim>       &lambda) const
     {
       Tensor<2, dim> sigma;
-      if (flow_mms)
-        flow_mms->newtonian_stress(this->get_time(), p, mu_viscosity, sigma);
-      else
-      {
-        sigma                 = 0;
-        const double pressure = mms.exact_pressure->value(p);
-        for (unsigned int d = 0; d < dim; ++d)
-          sigma[d][d] = -pressure;
-        Tensor<2, dim> grad_u;
-        mms.exact_velocity->gradient_vj_xi(p, grad_u);
-        sigma += mu_viscosity * (grad_u + transpose(grad_u));
-      }
-
+      sigma                 = 0;
+      const double pressure = mms.exact_pressure->value(p);
+      for (unsigned int d = 0; d < dim; ++d)
+        sigma[d][d] = -pressure;
+      // Tensor<2, dim> grad_u;
+      // mms.exact_velocity->gradient_vj_xi(p, grad_u);
+      Tensor<2, dim> grad_u = mms.exact_velocity->gradient_vj_xi(p);
+      sigma += mu_viscosity * (grad_u + transpose(grad_u));
       lambda = -sigma * normal_to_solid;
     }
 
@@ -452,57 +395,21 @@ protected:
     gradient(const Point<dim>  &p,
              const unsigned int component = 0) const override
     {
-      if (flow_mms)
-      {
-        const double t = this->get_time();
-
-        if (is_velocity(component))
-          // FIXME: mms.h functions do not have a gradient
-          return mms.exact_velocity->gradient(p, component - u_lower);
-        else if (is_pressure(component))
-        {
-          Tensor<1, dim> gradp;
-          flow_mms->grad_pressure(t, p, gradp);
-          return gradp;
-        }
-        else if (is_position(component))
-          // FIXME: mms.h functions do not have a gradient
-          return mms.exact_mesh_displacement->gradient(p, component - x_lower);
-        else if (is_lambda(component))
-          return mms.exact_vector_lagrange_mult->gradient(p,
-                                                          component - l_lower);
-        else
-          DEAL_II_ASSERT_UNREACHABLE();
-      }
+      if (is_velocity(component))
+        return mms.exact_velocity->gradient(p, component - u_lower);
+      else if (is_pressure(component))
+        return mms.exact_pressure->gradient(p);
+      else if (is_position(component))
+        return mms.exact_mesh_displacement->gradient(p, component - x_lower);
+      else if (is_lambda(component))
+        return Tensor<1, dim>();
       else
-      {
-        if (is_velocity(component))
-          return mms.exact_velocity->gradient(p, component - u_lower);
-        else if (is_pressure(component))
-          return mms.exact_pressure->gradient(p);
-        else if (is_position(component))
-          return mms.exact_mesh_displacement->gradient(p, component - x_lower);
-        else if (is_lambda(component))
-          return mms.exact_vector_lagrange_mult->gradient(p,
-                                                          component - l_lower);
-        else
-          DEAL_II_ASSERT_UNREACHABLE();
-      }
+        DEAL_II_ASSERT_UNREACHABLE();
     }
 
   public:
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
-    std::shared_ptr<ManufacturedSolutions::FlowManufacturedSolutionBase<dim>>
-                                                                     flow_mms;
-    std::shared_ptr<ManufacturedSolutions::MeshPositionMMSBase<dim>> mesh_mms;
-
-    // const DoFHandler<dim> &dof_handler;
-    // FEFaceValues<dim>      fe_face_values;
-
-    // std::map<typename DoFHandler<dim>::face_iterator,
-    //          std::vector<Tensor<1, dim>>>
-    //   normal_to_quad_nodes;
   };
 
   /**
@@ -511,18 +418,12 @@ protected:
   class MMSSourceTerm : public Function<dim>
   {
   public:
-    MMSSourceTerm(
-      const double                          time,
-      const Parameters::PhysicalProperties &physical_properties,
-      const ManufacturedSolutions::ManufacturedSolution<dim> &mms,
-      std::shared_ptr<ManufacturedSolutions::FlowManufacturedSolutionBase<dim>>
-                                                                       flow_mms,
-      std::shared_ptr<ManufacturedSolutions::MeshPositionMMSBase<dim>> mesh_mms)
+    MMSSourceTerm(const double                          time,
+                  const Parameters::PhysicalProperties &physical_properties,
+                  const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
       : Function<dim>(n_components, time)
       , physical_properties(physical_properties)
       , mms(mms)
-      , flow_mms(flow_mms)
-      , mesh_mms(mesh_mms)
     {}
 
     virtual void set_time(const double new_time) override
@@ -568,9 +469,6 @@ protected:
 
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
-    std::shared_ptr<ManufacturedSolutions::FlowManufacturedSolutionBase<dim>>
-                                                                     flow_mms;
-    std::shared_ptr<ManufacturedSolutions::MeshPositionMMSBase<dim>> mesh_mms;
   };
 };
 

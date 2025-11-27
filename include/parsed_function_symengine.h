@@ -1,75 +1,32 @@
 #ifndef PARSED_FUNCTION_SYMENGINE_H
 #define PARSED_FUNCTION_SYMENGINE_H
 
+#include <deal.II/base/exception_macros.h>
 #include <deal.II/base/function_parser.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/parsed_function.h>
 #include <deal.II/differentiation/sd/symengine_number_types.h>
+#include <manufactured_solution.h>
 
 namespace ManufacturedSolutions
 {
   using namespace dealii;
 
   /**
-   * A Function<dim> which offers some additional quality-of-life functions
-   * which are useful when evaluating source terms for MMS, such as:
-   * - time_derivative()
-   * - divergence, only defined for vector-valued functions
-   * - grad_div
-   * 
-   * An MMS function is meant to represent scalar- or vector-valued functions,
-   * so it is only possible to create such a function with n_components = 1 or dim.
-   * 
-   * To make sure that the derived functions from Function<dim> are implemented,
-   * tests should be run in debug at least once, since deal.II functions throw
-   * if the "pure" functions are called (they are default implemented to return 0).
-   * In particular, these functions are *not* re-declared here as pure virtual
-   * to avoid cluttering.
+   * This class is an alternative to deal.II's ParsedFunction, where the
+   * function is parsed from the parameter file, then its derivatives are
+   * computed using SymEngine through deal.II. The symbolic derivatives are then
+   * re-converted to a MuParser function to (hopefully?) limit overhead from
+   * symbolic substitutions.  This class overrides deal.II's value, gradient and
+   * hessian functions using the derivatives computed with SymEngine.
    *
-   */
-  template <int dim>
-  class MMSFunction : public Function<dim>
-  {
-  public:
-    MMSFunction(const unsigned int n_components,
-                const double       initial_time = 0.)
-      : Function<dim>(n_components, initial_time)
-    {
-      AssertThrow(
-        n_components == 1 || n_components == dim,
-        ExcMessage(
-          "You are trying to create an MMSFunction with " +
-          std::to_string(n_components) +
-          ", but this kind of function represents a scalar-valued "
-          "(with 1 component) or a vector-valued (with dim components) field."));
-    }
-
-  public:
-    /**
-     * Time derivative of component "component".
-     */
-    virtual double time_derivative(const Point<dim>  &p,
-                                   const unsigned int component = 0) const = 0;
-
-    /**
-     * Divergence. Only defined for vector-valued field (with dim components).
-     * Throws an error if called from a scalar-valued function.
-     */
-    virtual double divergence(const Point<dim> &p) const = 0;
-  };
-
-  /**
-   * This class is an alternative to deal.II's ParsedFunction, where
-   * the function is parsed from the parameter file, then its derivatives
-   * are computed using SymEngine through deal.II.
+   * It is also an MMSFunction, allowing to use it to easily construct source
+   * terms for convergence studies with manufactured solutions. As an MMS
+   * function, it is limited to scalar- or vector-valued functions, so it is
+   * only possible to create such a function with n_components = 1 or dim.
    *
-   * It has the same interface, with additional functions to compute
-   * derivatives.
-   *
-   * FIXME: The class functions for value, gradients, etc, are a bit
-   * different from deal.II's Function interface because here we expect purely
-   * scalar or vector-valued functions with 1 or dim components, instead of an
-   * arbitrary number of components.
+   * Because it is easily available, this function also provides second
+   * time derivatives for each component (unlike MMSFunctions).
    */
   template <int dim>
   class ParsedFunctionSDBase : public MMSFunction<dim>
@@ -78,13 +35,25 @@ namespace ManufacturedSolutions
     /**
      * Constructor
      */
-    ParsedFunctionSDBase(const unsigned int n_components = 1);
+    ParsedFunctionSDBase(const unsigned int n_components);
 
     static void declare_parameters(ParameterHandler  &prm,
                                    const unsigned int n_components = 1,
                                    const std::string &input_expr   = "");
 
     void parse_parameters(ParameterHandler &prm);
+
+    /**
+     * Return true if all components of this functions are functions of
+     * time only (not of x, y or z).
+     */
+    inline bool is_function_of_time_only() const
+    {
+      bool res = true;
+      for (unsigned int i = 0; i < n_components; ++i)
+        res &= function_of_time_only[i];
+      return res;
+    }
 
     /**
      * Identical to ParsedFunction's value.
@@ -106,200 +75,32 @@ namespace ManufacturedSolutions
       function_object.vector_value(p, values);
     }
 
-    virtual void set_time(const double newtime) override = 0;
-
-  private:
-    /**
-     * Create the callbacks for the spatial and time derivatives.
-     */
-    virtual void
-    create_symbolic_derivatives(const std::string                   variables,
-                                const std::map<std::string, double> constants,
-                                const bool time_dependent) = 0;
-
-  protected:
-    const unsigned int  n_components;
-    FunctionParser<dim> function_object;
-  };
-
-  /**
-   * A scalar parsed function with symbolic differentiation.
-   * For instance, the gradient is a Tensor<1, dim, Expression>.
-   */
-  template <int dim>
-  class ScalarSDParsedFunction : public ParsedFunctionSDBase<dim>
-  {
-  public:
-    /**
-     * Constructor
-     */
-    ScalarSDParsedFunction()
-      : ParsedFunctionSDBase<dim>(1)
-      , dfdt(1)
-      , grad_function_object(dim)
-      , hess_function_object(dim * dim)
-    {}
-
     virtual void set_time(const double newtime) override
     {
       this->function_object.set_time(newtime);
       dfdt.set_time(newtime);
-      grad_function_object.set_time(newtime);
-      hess_function_object.set_time(newtime);
-    }
-
-    /**
-     * Overload of the deal.II and MMSFunction functions
-     */
-    virtual double time_derivative(const Point<dim>  &p,
-                                   const unsigned int /*component*/ = 0) const override
-    {
-      return dfdt.value(p);
-    }
-
-    virtual Tensor<1, dim>
-    gradient(const Point<dim> &p,
-             const unsigned int /*component*/ = 0) const override
-    {
-      Tensor<1, dim> grad;
-      for (unsigned int d = 0; d < dim; ++d)
-        grad[d] = grad_function_object.value(p, d);
-      return grad;
-    }
-
-    virtual double laplacian(const Point<dim> &p, const unsigned int /*component*/ = 0) const override
-    {
-      double res;
-      if constexpr (dim == 2)
-        res =
-          hess_function_object.value(p, 0) + hess_function_object.value(p, 3);
-      else
-        res = hess_function_object.value(p, 0) +
-              hess_function_object.value(p, 4) +
-              hess_function_object.value(p, 8);
-      return res;
-    }
-
-    virtual double divergence(const Point<dim>  &p) const override
-    {
-      AssertThrow(false, ExcMessage("divergence() is not defined for scalar parsed functions"));
-    }
-
-    /////////////////////////////////////////////////////////////////////////
-
-    // double time_derivative(const Point<dim> &p) const { return dfdt.value(p); }
-
-    /**
-     * Custom gradient, filled in-place
-     */
-    void gradient(const Point<dim> &p, Tensor<1, dim> &grad) const
-    {
-      for (unsigned int d = 0; d < dim; ++d)
-        grad[d] = grad_function_object.value(p, d);
-    }
-
-    // double laplacian(const Point<dim> &p) const
-    // {
-    //   double res;
-    //   if constexpr (dim == 2)
-    //     res =
-    //       hess_function_object.value(p, 0) + hess_function_object.value(p, 3);
-    //   else
-    //     res = hess_function_object.value(p, 0) +
-    //           hess_function_object.value(p, 4) +
-    //           hess_function_object.value(p, 8);
-    //   return res;
-    // }
-
-    void print_function(std::ostream &out) const
-    {
-      out << "f = " << this->function_object.get_expressions()[0] << std::endl;
-    }
-
-    void print_time_derivative(std::ostream &out) const
-    {
-      out << "dfdt = " << dfdt.get_expressions()[0] << std::endl;
-    }
-
-    void print_gradient(std::ostream &out) const
-    {
-      out << "grad f = " << std::endl;
-      const auto expr = grad_function_object.get_expressions();
-      for (unsigned int d = 0; d < dim; ++d)
-        out << "\t" << expr[d] << std::endl;
-    }
-
-  private:
-    virtual void
-    create_symbolic_derivatives(const std::string                   variables,
-                                const std::map<std::string, double> constants,
-                                const bool time_dependent) override;
-
-  private:
-    FunctionParser<dim> dfdt;
-    FunctionParser<dim> grad_function_object;
-    FunctionParser<dim> hess_function_object;
-  };
-
-  /**
-   * A particular case of ScalarSDParsedFunction, where the function is 
-   * a function of time only. This allows to parse a time component and
-   * compute its symbolic time derivative.
-   */
-  template <int dim>
-  class TimeSDParsedFunction : public ScalarSDParsedFunction<dim>
-  {
-  public:
-    TimeSDParsedFunction()
-      : ScalarSDParsedFunction<dim>()
-    {
-
-    }
-  };
-
-  /**
-   * A vector parsed function with symbolic differentiation.
-   * For instance, the gradient is a Tensor<2, dim, Expression>.
-   */
-  template <int dim>
-  class VectorSDParsedFunction : public ParsedFunctionSDBase<dim>
-  {
-  public:
-    /**
-     * Constructor
-     */
-    VectorSDParsedFunction()
-      : ParsedFunctionSDBase<dim>(dim)
-      , dfdt(dim)
-      , grad_function_object(dim)
-      , hess_function_object(dim)
-    {
-      for (unsigned int d = 0; d < dim; ++d)
+      d2fdt2.set_time(newtime);
+      for (unsigned int i_comp = 0; i_comp < n_components; ++i_comp)
       {
-        grad_function_object[d] = std::make_shared<FunctionParser<dim>>(dim);
-        hess_function_object[d] =
-          std::make_shared<FunctionParser<dim>>(dim * dim);
-      }
-    }
-
-    virtual void set_time(const double newtime) override
-    {
-      this->function_object.set_time(newtime);
-      dfdt.set_time(newtime);
-      for (unsigned int d = 0; d < dim; ++d)
-      {
-        grad_function_object[d]->set_time(newtime);
-        hess_function_object[d]->set_time(newtime);
+        grad_function_object[i_comp]->set_time(newtime);
+        hess_function_object[i_comp]->set_time(newtime);
       }
     }
 
     /**
      * Overload of the deal.II and MMSFunction functions
      */
-    virtual double time_derivative(const Point<dim> &p,
-      const unsigned int component = 0) const override
+    virtual double
+    time_derivative(const Point<dim>  &p,
+                    const unsigned int component = 0) const override
     {
       return dfdt.value(p, component);
+    }
+
+    double time_second_derivative(const Point<dim>  &p,
+                                  const unsigned int component = 0) const
+    {
+      return d2fdt2.value(p, component);
     }
 
     virtual Tensor<1, dim>
@@ -312,192 +113,43 @@ namespace ManufacturedSolutions
       return grad;
     }
 
-    virtual double laplacian(const Point<dim> &p,
-       const unsigned int component = 0) const override
+    virtual SymmetricTensor<2, dim>
+    hessian(const Point<dim>  &p,
+            const unsigned int component = 0) const override
     {
-      if constexpr (dim == 2)
-        return hess_function_object[component]->value(p, 0) +
-                 hess_function_object[component]->value(p, 3);
-      else
-        return hess_function_object[component]->value(p, 0) +
-                 hess_function_object[component]->value(p, 4) +
-                 hess_function_object[component]->value(p, 8);
-    }
-
-    virtual double divergence(const Point<dim>  &p) const override
-    {
-      double res = 0.;
-      for (unsigned int d = 0; d < dim; ++d)
-        res += grad_function_object[d]->value(p, d); // partial v_d/partial x_d
-      return res;
-    }
-
-    ////////////////////////////////////////////////////////////////
-
-    // The value function below has different arguments but hides the function
-    // from the base class
-    using ParsedFunctionSDBase<dim>::value;
-
-    /**
-     * Fills the vector res with the dim components of this vector-valued
-     * function.
-     */
-    void value(const Point<dim> &p, Tensor<1, dim> &res) const
-    {
-      for (unsigned int d = 0; d < dim; ++d)
-        res[d] = this->function_object.value(p, d);
-    }
-
-    void time_derivative(const Point<dim> &p, Tensor<1, dim> &res) const
-    {
-      for (unsigned int d = 0; d < dim; ++d)
-        res[d] = dfdt.value(p, d);
-    }
-
-    /**
-     * Convention : grad_ij = \partial v_i/\partial x_j
-     */
-    void gradient_vi_xj(const Point<dim> &p, Tensor<2, dim> &grad) const
-    {
+      SymmetricTensor<2, dim> hess;
       for (unsigned int di = 0; di < dim; ++di)
-        for (unsigned int dj = 0; dj < dim; ++dj)
-          grad[di][dj] = grad_function_object[di]->value(p, dj);
+        for (unsigned int dj = di; dj < dim; ++dj)
+          hess[di][dj] =
+            hess_function_object[component]->value(p, di * dim + dj);
+      return hess;
     }
 
-    /**
-     * Opposite convention
-     * Note: tranpose(grad) creates a new tensor, so this is done in place
-     * instead
-     */
-    void gradient_vj_xi(const Point<dim> &p, Tensor<2, dim> &grad) const
+    std::string get_function_expression(const unsigned int component = 0) const
     {
-      for (unsigned int di = 0; di < dim; ++di)
-        for (unsigned int dj = 0; dj < dim; ++dj)
-          grad[di][dj] = grad_function_object[dj]->value(p, di);
-    }
-
-    // double divergence(const Point<dim> &p) const
-    // {
-    //   double res = 0.;
-    //   for (unsigned int d = 0; d < dim; ++d)
-    //     res += grad_function_object[d]->value(p, d); // partial v_d/partial x_d
-    //   return res;
-    // }
-
-    void laplacian(const Point<dim> &p, Tensor<1, dim> &res) const
-    {
-      for (unsigned int d = 0; d < dim; ++d)
-      {
-        if constexpr (dim == 2)
-          res[d] = hess_function_object[d]->value(p, 0) +
-                   hess_function_object[d]->value(p, 3);
-        else
-          res[d] = hess_function_object[d]->value(p, 0) +
-                   hess_function_object[d]->value(p, 4) +
-                   hess_function_object[d]->value(p, 8);
-      }
-    }
-
-    void grad_div(const Point<dim> &p, Tensor<1, dim> &res) const
-    {
-      for (unsigned int d = 0; d < dim; ++d)
-      {
-        if constexpr (dim == 2)
-        {
-          const double uxx = hess_function_object[0]->value(p, 0);
-          const double vyx = hess_function_object[1]->value(p, 1);
-          const double uxy = hess_function_object[0]->value(p, 2);
-          const double vyy = hess_function_object[1]->value(p, 3);
-          res[0] = uxx + vyx;
-          res[1] = uxy + vyy;
-        }
-        else
-        {
-          const double uxx = hess_function_object[0]->value(p, 0);
-          const double vyx = hess_function_object[1]->value(p, 3);
-          const double wzx = hess_function_object[2]->value(p, 6);
-          const double uxy = hess_function_object[0]->value(p, 1);
-          const double vyy = hess_function_object[1]->value(p, 4);
-          const double wzy = hess_function_object[2]->value(p, 7);
-          const double uxz = hess_function_object[0]->value(p, 2);
-          const double vyz = hess_function_object[1]->value(p, 5);
-          const double wzz = hess_function_object[2]->value(p, 8);
-          res[0] = uxx + vyx + wzx;
-          res[1] = uxy + vyy + wzy;
-          res[2] = uxz + vyz + wzz;
-        }
-      }
-    }
-
-    void print_function(std::ostream &out) const
-    {
-      out << "f = " << std::endl;
-      const auto expr = this->function_object.get_expressions();
-      for (unsigned int d = 0; d < dim; ++d)
-        out << "\t" << expr[d] << std::endl;
-    }
-
-    void print_time_derivative(std::ostream &out) const
-    {
-      out << "dfdt = " << std::endl;
-      const auto expr = dfdt.get_expressions();
-      for (unsigned int d = 0; d < dim; ++d)
-        out << "\t" << expr[d] << std::endl;
-    }
-
-    void print_gradient(std::ostream &out) const
-    {
-      out << "grad f = " << std::endl;
-      for (unsigned int di = 0; di < dim; ++di)
-      {
-        out << "dv_" << di << "/dx_j = ";
-        const auto expr = grad_function_object[di]->get_expressions();
-        for (unsigned int dj = 0; dj < dim; ++dj)
-          out << "\t" << expr[dj];
-        out << std::endl;
-      }
-
-      out << "grad f check = " << std::endl;
-      for (const auto &grad_comp : grad_function_object)
-      {
-        out << "dv_comp/dx_j = ";
-        const auto expr = grad_comp->get_expressions();
-        for (auto str : expr)
-          out << "\t" << str;
-        out << std::endl;
-      }
-    }
-
-    void print_hessian(std::ostream &out) const
-    {
-      out << "hess f = " << std::endl;
-      for (unsigned int comp = 0; comp < dim; ++comp)
-      {
-        out << "hess of comp " << comp << std::endl;
-        const auto expr = hess_function_object[comp]->get_expressions();
-        for (unsigned int di = 0; di < dim; ++di)
-        {
-          for (unsigned int dj = 0; dj < dim; ++dj)
-            out << "\t" << expr[dim * di + dj];
-          out << std::endl;
-        }
-        out << std::endl;
-      }
+      return function_object.get_expressions()[component];
     }
 
   private:
+    /**
+     * Create the callbacks for the spatial and time derivatives.
+     */
     virtual void
     create_symbolic_derivatives(const std::string                   variables,
                                 const std::map<std::string, double> constants,
-                                const bool time_dependent) override;
+                                const bool time_dependent);
 
-  private:
+  protected:
+    const unsigned int  n_components;
+    FunctionParser<dim> function_object;
     FunctionParser<dim> dfdt;
+    FunctionParser<dim> d2fdt2;
     // FunctionParser<dim> are not copyable : using smart pointers instead
     std::vector<std::shared_ptr<FunctionParser<dim>>> grad_function_object;
     std::vector<std::shared_ptr<FunctionParser<dim>>> hess_function_object;
+    std::vector<bool>                                 function_of_time_only;
   };
 
-} // namespace ManufacturedSolution
+} // namespace ManufacturedSolutions
 
 #endif

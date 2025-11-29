@@ -361,7 +361,7 @@ protected:
       else if (is_pressure(component))
         return mms.exact_pressure->value(p);
       else if (is_position(component))
-        return mms.exact_mesh_displacement->value(p, component - x_lower);
+        return mms.exact_mesh_position->value(p, component - x_lower);
       else if (is_lambda(component))
         // For the exact Lagrange multiplier, call the function below.
         // It can only be called at quadrature nodes on faces, where
@@ -400,7 +400,7 @@ protected:
       else if (is_pressure(component))
         return mms.exact_pressure->gradient(p);
       else if (is_position(component))
-        return mms.exact_mesh_displacement->gradient(p, component - x_lower);
+        return mms.exact_mesh_position->gradient(p, component - x_lower);
       else if (is_lambda(component))
         return Tensor<1, dim>();
       else

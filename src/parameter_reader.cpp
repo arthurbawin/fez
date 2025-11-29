@@ -4,6 +4,12 @@
 template <int dim>
 void ParameterReader<dim>::check_parameters() const
 {
+  // Pressure nullspace
+  AssertThrow(
+    !(bc_data.fix_pressure_constant && bc_data.enforce_zero_mean_pressure),
+    ExcMessage("Both fixing a pressure DoF *and* enforcing zero-mean pressure "
+               "may be ill-posed. Please choose one or the other."));
+
   // Initial conditions
   if (initial_conditions.set_to_mms && !mms_param.enable)
   {
@@ -24,40 +30,41 @@ void ParameterReader<dim>::check_parameters() const
   }
 
   // FSI
-  // if (!fsi.enable_coupling)
-  // {
-  //   for (const auto &[id, bc] : pseudosolid_bc)
-  //     AssertThrow(
-  //       bc.type != BoundaryConditions::Type::coupled_to_fluid,
-  //       ExcMessage(
-  //         "A pseudosolid boundary condition is set to \"coupled_to_fluid\", "
-  //         "but the fluid-structure interaction coupling was not enabled."));
-  // }
-  // if (fsi.enable_coupling)
-  // {
-  //   bool at_least_one_coupled_boundary = false;
-  //   for (const auto &[id, bc] : pseudosolid_bc)
-  //     if (bc.type == BoundaryConditions::Type::coupled_to_fluid)
-  //     {
-  //       at_least_one_coupled_boundary = true;
-  //       break;
-  //     }
-  //   AssertThrow(
-  //     at_least_one_coupled_boundary,
-  //     ExcMessage(
-  //       "Fluid-structure interaction coupling is enabled, but no pseudosolid "
-  //       "boundary condition is set to \"coupled_to_fluid\"."));
-  // }
+  if (!fsi.enable_coupling)
+  {
+    for (const auto &[id, bc] : pseudosolid_bc)
+      AssertThrow(
+        bc.type != BoundaryConditions::Type::coupled_to_fluid,
+        ExcMessage(
+          "A pseudosolid boundary condition is set to \"coupled_to_fluid\", "
+          "but the fluid-structure interaction coupling was not enabled."));
+  }
+  if (fsi.enable_coupling)
+  {
+    bool at_least_one_coupled_boundary = false;
+    for (const auto &[id, bc] : pseudosolid_bc)
+      if (bc.type == BoundaryConditions::Type::coupled_to_fluid)
+      {
+        at_least_one_coupled_boundary = true;
+        break;
+      }
+    AssertThrow(
+      at_least_one_coupled_boundary,
+      ExcMessage(
+        "Fluid-structure interaction coupling is enabled, but no pseudosolid "
+        "boundary condition is set to \"coupled_to_fluid\"."));
+  }
 
   // MMS
-  if constexpr (dim == 3)
-    if (mms_param.enable)
-      AssertThrow(mms_param.use_deal_ii_cube_mesh,
-                  ExcMessage(
-                    "There seems to be a bug when deal.II's function parses a "
-                    "transfinite cube mesh from Gmsh. Until this is figured "
-                    "out, 3D convergence studies should be run with \"use "
-                    "dealii cube mesh = true\"."));
+  // if constexpr (dim == 3)
+  //   if (mms_param.enable)
+  //     AssertThrow(mms_param.use_deal_ii_cube_mesh ||
+  //                   mms_param.use_deal_ii_holed_plate_mesh,
+  //                 ExcMessage(
+  //                   "There seems to be a bug when deal.II's function parses a
+  //                   " "transfinite cube mesh from Gmsh. Until this is figured
+  //                   " "out, 3D convergence studies should be run with \"use "
+  //                   "dealii cube mesh = true\"."));
 }
 
 template class ParameterReader<2>;

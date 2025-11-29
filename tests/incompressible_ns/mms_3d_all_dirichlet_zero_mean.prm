@@ -55,8 +55,8 @@ end
 
 subsection Fluid boundary conditions
   set number = 6
-  set fix pressure constant      = true
-  set enforce zero mean pressure = false
+  set fix pressure constant      = false
+  set enforce zero mean pressure = true
   subsection boundary 0
     set id   = 1
     set name = x_min

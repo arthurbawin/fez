@@ -15,6 +15,7 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <scratch_data.h>
+#include <utilities.h>
 
 template <int dim>
 IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
@@ -169,6 +170,8 @@ void IncompressibleNavierStokesSolver<dim>::run()
   reset();
   read_mesh(triangulation, param);
   setup_dofs();
+  if (param.bc_data.enforce_zero_mean_pressure)
+    this->create_zero_mean_pressure_constraints_data();
   create_zero_constraints();
   create_nonzero_constraints();
   create_sparsity_pattern();
@@ -273,82 +276,143 @@ void IncompressibleNavierStokesSolver<dim>::setup_dofs()
 }
 
 template <int dim>
-void IncompressibleNavierStokesSolver<dim>::constrain_pressure_point(
-  AffineConstraints<double> &constraints,
-  const bool                 set_to_zero)
+void IncompressibleNavierStokesSolver<
+  dim>::create_zero_mean_pressure_constraints_data()
 {
-  // Determine the pressure dof the first time
-  if (constrained_pressure_dof == numbers::invalid_dof_index)
-  {
-    // Choose a fixed physical reference location
-    // Here it's the origin (Point<dim> is initialized at 0)
-    const Point<dim> reference_point;
+  BoundaryConditions::create_zero_mean_pressure_constraints_data(
+    triangulation,
+    dof_handler,
+    locally_relevant_dofs,
+    *mapping,
+    quadrature,
+    p_lower,
+    constrained_pressure_dof,
+    zero_mean_pressure_weights);
+}
 
-    IndexSet pressure_dofs = DoFTools::extract_dofs(dof_handler, pressure_mask);
+// template <int dim>
+// void IncompressibleNavierStokesSolver<
+//   dim>::create_zero_mean_pressure_constraints_data()
+// {
+//   IndexSet local_pressure_dofs =
+//     DoFTools::extract_dofs(dof_handler, pressure_mask);
 
-    // Get support points for locally relevant DoFs
-    std::map<types::global_dof_index, Point<dim>> support_points;
-    DoFTools::map_dofs_to_support_points(*mapping, dof_handler, support_points);
+//   const unsigned int n_local_pressure_dofs =
+//   local_pressure_dofs.n_elements();
 
-    double                  local_min_dist = std::numeric_limits<double>::max();
-    types::global_dof_index local_dof      = numbers::invalid_dof_index;
+//   // Gather all lists to all processes
+//   std::vector<std::vector<types::global_dof_index>> gathered_dofs =
+//     Utilities::MPI::all_gather(mpi_communicator,
+//                                local_pressure_dofs.get_index_vector());
 
-    for (auto idx : pressure_dofs)
-    {
-      if (!locally_relevant_dofs.is_element(idx))
-        continue;
+//   std::vector<types::global_dof_index> gathered_dofs_flattened;
+//   for (const auto &vec : gathered_dofs)
+//     gathered_dofs_flattened.insert(gathered_dofs_flattened.end(),
+//                                    vec.begin(),
+//                                    vec.end());
 
-      const double dist = support_points[idx].distance(reference_point);
-      if (dist < local_min_dist)
-      {
-        local_min_dist = dist;
-        local_dof      = idx;
-      }
-    }
+//   std::sort(gathered_dofs_flattened.begin(), gathered_dofs_flattened.end());
 
-    // Prepare for MPI_MINLOC reduction
-    struct MinLoc
-    {
-      double                  dist;
-      types::global_dof_index dof;
-    } local_pair{local_min_dist, local_dof}, global_pair;
+//   // Add the lambda DoFs to the list of locally relevant
+//   // DoFs: Do this only if partition contains a chunk of the cylinder
+//   // if (n_local_lambda_dofs > 0)
+//   // {
+//   locally_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
+//                                     gathered_dofs_flattened.end());
+//   locally_relevant_dofs.compress();
+//   // }
 
-    // MPI reduction to find the global closest DoF
-    MPI_Allreduce(&local_pair,
-                  &global_pair,
-                  1,
-                  MPI_DOUBLE_INT,
-                  MPI_MINLOC,
-                  mpi_communicator);
+//   // Compute integral of p over partition
+//   std::map<types::global_dof_index, double> coeffs;
 
-    constrained_pressure_dof = global_pair.dof;
+//   FEValues<dim> fe_values(*mapping,
+//                           fe,
+//                           quadrature,
+//                           update_values | update_JxW_values);
 
-    // Set support point for MMS evaluation
-    if (locally_relevant_dofs.is_element(constrained_pressure_dof))
-    {
-      constrained_pressure_support_point =
-        support_points[constrained_pressure_dof];
-    }
-  }
+//   const unsigned int                   n_dofs_per_cell =
+//   fe.n_dofs_per_cell(); std::vector<types::global_dof_index>
+//   local_dofs(n_dofs_per_cell); for (const auto &cell :
+//   dof_handler.active_cell_iterators())
+//   {
+//     if (cell->is_locally_owned())
+//     {
+//       fe_values.reinit(cell);
+//       cell->get_dof_indices(local_dofs);
 
-  // Constrain that DoF globally
+//       for (unsigned int q = 0; q < quadrature.size(); ++q)
+//       {
+//         const double JxW = fe_values.JxW(q);
+
+//         for (unsigned int i_dof = 0; i_dof < n_dofs_per_cell; ++i_dof)
+//         {
+//           const unsigned int comp =
+//           fe.system_to_component_index(i_dof).first;
+
+//           // Here we need to account for ghost DoF (not only owned), which
+//           // contribute to the integral on this element
+//           if (!locally_relevant_dofs.is_element(local_dofs[i_dof]))
+//             continue;
+
+//           if (is_pressure(comp))
+//           {
+//             const types::global_dof_index pressure_dof = local_dofs[i_dof];
+
+//             const double phi_i = fe_values.shape_value(i_dof, q);
+//             coeffs[pressure_dof] += phi_i * JxW;
+//           }
+//         }
+//       }
+//     }
+//   }
+
+//   //
+//   // Gather the constraint weights
+//   //
+//   {
+//     std::vector<std::pair<types::global_dof_index, double>> coeffs_vec(
+//       coeffs.begin(), coeffs.end());
+//     std::vector<std::vector<std::pair<unsigned int, double>>> gathered =
+//       Utilities::MPI::all_gather(mpi_communicator, coeffs_vec);
+
+//     // Sum contributions to same DoF from different processes
+//     coeffs.clear();
+//     for (const auto &vec : gathered)
+//       for (const auto &[p_dof, partial_weight] : vec)
+//         coeffs[p_dof] += partial_weight;
+//   }
+
+//   // Check : sum of coefficients should be measure of domain
+//   double sum = 0.;
+//   for (const auto &[p_dof, val] : coeffs)
+//     sum += val;
+//   std::cout << "sum = " << sum << std::endl;
+
+//   // Determine first pressure dof, which will be constrained
+//   // This dof should be constrained on the procs for which it is owned or
+//   // ghosted
+//   std::vector<std::pair<types::global_dof_index, double>> coeffs_vec(
+//     coeffs.begin(), coeffs.end());
+//   this->constrained_pressure_dof = coeffs_vec[0].first;
+//   const double a_0               = coeffs_vec[0].second;
+
+//   coeffs_vec.erase(coeffs_vec.begin());
+
+//   for (auto &[p_dof, val] : coeffs_vec)
+//     val /= -a_0;
+
+//   zero_mean_pressure_weights = coeffs_vec;
+// }
+
+template <int dim>
+void IncompressibleNavierStokesSolver<dim>::add_zero_pressure_mean_constraints(
+  AffineConstraints<double> &constraints)
+{
   if (locally_relevant_dofs.is_element(constrained_pressure_dof))
   {
     constraints.add_line(constrained_pressure_dof);
-
-    // The pressure DOF is set to 0 by default for the nonzero constraints,
-    // unless there is a prescribed manufactured solution, in which case it is
-    // prescribed to p_mms.
-    if (set_to_zero || !param.mms_param.enable)
-    {
-      constraints.constrain_dof_to_zero(constrained_pressure_dof);
-    }
-    else
-    {
-      const double pAnalytic =
-        exact_solution->value(constrained_pressure_support_point, p_lower);
-      constraints.set_inhomogeneity(constrained_pressure_dof, pAnalytic);
-    }
+    constraints.add_entries(constrained_pressure_dof,
+                            zero_mean_pressure_weights);
   }
 }
 
@@ -359,21 +423,34 @@ void IncompressibleNavierStokesSolver<dim>::create_zero_constraints()
   zero_constraints.clear();
   zero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
-  apply_velocity_boundary_conditions(true,
-                                     u_lower,
-                                     n_components,
-                                     dof_handler,
-                                     *mapping,
-                                     param.fluid_bc,
-                                     *exact_solution,
-                                     *param.mms.exact_velocity,
-                                     zero_constraints);
+  BoundaryConditions::apply_velocity_boundary_conditions(
+    true,
+    u_lower,
+    n_components,
+    dof_handler,
+    *mapping,
+    param.fluid_bc,
+    *exact_solution,
+    *param.mms.exact_velocity,
+    zero_constraints);
 
   if (param.bc_data.fix_pressure_constant)
   {
     bool set_to_zero = true;
-    constrain_pressure_point(zero_constraints, set_to_zero);
+    BoundaryConditions::constrain_pressure_point(
+      dof_handler,
+      locally_relevant_dofs,
+      *mapping,
+      *exact_solution,
+      p_lower,
+      set_to_zero,
+      zero_constraints,
+      constrained_pressure_dof,
+      constrained_pressure_support_point);
   }
+
+  if (param.bc_data.enforce_zero_mean_pressure)
+    add_zero_pressure_mean_constraints(zero_constraints);
 
   zero_constraints.close();
 }
@@ -385,21 +462,38 @@ void IncompressibleNavierStokesSolver<dim>::create_nonzero_constraints()
   nonzero_constraints.clear();
   nonzero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
-  apply_velocity_boundary_conditions(false,
-                                     u_lower,
-                                     n_components,
-                                     dof_handler,
-                                     *mapping,
-                                     param.fluid_bc,
-                                     *exact_solution,
-                                     *param.mms.exact_velocity,
-                                     nonzero_constraints);
+  BoundaryConditions::apply_velocity_boundary_conditions(
+    false,
+    u_lower,
+    n_components,
+    dof_handler,
+    *mapping,
+    param.fluid_bc,
+    *exact_solution,
+    *param.mms.exact_velocity,
+    nonzero_constraints);
 
   if (param.bc_data.fix_pressure_constant)
   {
-    bool set_to_zero = false;
-    constrain_pressure_point(nonzero_constraints, set_to_zero);
+    // The pressure DOF is set to 0 by default for the nonzero constraints,
+    // unless there is a prescribed manufactured solution, in which case it is
+    // prescribed to p_mms.
+    bool set_to_zero = !param.mms_param.enable;
+    // constrain_pressure_point(nonzero_constraints, set_to_zero);
+    BoundaryConditions::constrain_pressure_point(
+      dof_handler,
+      locally_relevant_dofs,
+      *mapping,
+      *exact_solution,
+      p_lower,
+      set_to_zero,
+      zero_constraints,
+      constrained_pressure_dof,
+      constrained_pressure_support_point);
   }
+
+  if (param.bc_data.enforce_zero_mean_pressure)
+    add_zero_pressure_mean_constraints(nonzero_constraints);
 
   nonzero_constraints.close();
 }
@@ -893,6 +987,25 @@ void IncompressibleNavierStokesSolver<dim>::compute_errors()
   // Choose another quadrature rule for error computation
   const unsigned int                  n_points_1D = (dim == 2) ? 6 : 5;
   const QWitherdenVincentSimplex<dim> err_quadrature(n_points_1D);
+
+  // // Mean pressure value
+  // const double p_avg = VectorTools::compute_mean_value(
+  //   *mapping, dof_handler, quadrature, present_solution, p_lower);
+
+  // Check that MMS is also zero-mean if applicable
+  if (param.mms_param.enable && param.bc_data.enforce_zero_mean_pressure)
+  {
+    const double p_mms_mean = compute_global_mean_value(*exact_solution,
+                                                        p_lower,
+                                                        dof_handler,
+                                                        *mapping);
+    AssertThrow(
+      std::abs(p_mms_mean) < 1e-6,
+      ExcMessage(
+        "You are comparing a discrete zero-mean pressure with a manufactured "
+        "pressure which is not zero mean. The mean exact pressure is " +
+        std::to_string(p_mms_mean)));
+  }
 
   // L2 - u
   const double l2_u =

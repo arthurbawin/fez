@@ -172,6 +172,80 @@ namespace BoundaryConditions
     const std::string                    &bc_type_name,
     std::map<types::boundary_id, BCType> &boundary_conditions);
 
+  /**
+   *
+   *
+   */
+  template <int dim>
+  void apply_velocity_boundary_conditions(
+    const bool             homogeneous,
+    const unsigned int     u_lower,
+    const unsigned int     n_components,
+    const DoFHandler<dim> &dof_handler,
+    const Mapping<dim>    &mapping,
+    const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>>
+                              &fluid_bc,
+    const Function<dim>       &exact_solution,
+    const Function<dim>       &exact_velocity,
+    AffineConstraints<double> &constraints);
+
+  /**
+   *
+   */
+  template <int dim>
+  void
+  constrain_pressure_point(const DoFHandler<dim>     &dof_handler,
+                           const IndexSet            &locally_relevant_dofs,
+                           const Mapping<dim>        &mapping,
+                           const Function<dim>       &exact_solution,
+                           const unsigned int         p_lower,
+                           const bool                 set_to_zero,
+                           AffineConstraints<double> &constraints,
+                           types::global_dof_index   &constrained_pressure_dof,
+                           Point<dim>       &constrained_pressure_support_point,
+                           const Point<dim> &reference_point = Point<dim>());
+
+  /**
+   * Computes the weights to apply a zero-mean linear constraints
+   * on the pressure dofs and sets the pressure dof to constrain
+   * "constrained_pressure_dof".
+   *
+   * Important: since this is a global constraint, this pressure dof will be
+   * coupled to *all* other pressure dofs (on MPI processes which have this dof
+   * as owned or ghost). This fills the sparsity pattern and is thus highly
+   * inefficient. Enforcing zero-mean this way is only meant for verification on
+   * corner-case (pun intended, see further) convergence studies, in particular
+   * for 3D tests with some specific non-divergence-free velocity fields, which
+   * show either reduced convergence order for the pressure or even no
+   * convergence at all when setting a corner pressure DoF to zero.
+   */
+  template <int dim>
+  void create_zero_mean_pressure_constraints_data(
+    const Triangulation<dim> &tria,
+    const DoFHandler<dim>    &dof_handler,
+    IndexSet                 &locally_relevant_dofs,
+    const Mapping<dim>       &mapping,
+    const Quadrature<dim>    &quadrature,
+    const unsigned int        p_lower,
+    types::global_dof_index  &constrained_pressure_dof,
+    std::vector<std::pair<types::global_dof_index, double>>
+      &constraint_weights);
+
+  /**
+   * Given the weights and dof computed with the function above,
+   * add the single zero-mean constraint on the specified pressure dof to
+   * the passed constraints.
+   *
+   * Important: this yields a very inefficient sparsity pattern and should only
+   * be used for specific verification tests, see above.
+   */
+  void add_zero_pressure_mean_constraints(
+    AffineConstraints<double>     &constraints,
+    const IndexSet                &locally_relevant_dofs,
+    const types::global_dof_index &constrained_pressure_dof,
+    const std::vector<std::pair<types::global_dof_index, double>>
+      &constraint_weights);
+
 } // namespace BoundaryConditions
 
 /**
@@ -250,118 +324,6 @@ public:
       values[x_lower + d] = p[d];
   }
 };
-
-/**
- *
- *
- */
-template <int dim>
-void apply_velocity_boundary_conditions(
-  const bool             homogeneous,
-  const unsigned int     u_lower,
-  const unsigned int     n_components,
-  const DoFHandler<dim> &dof_handler,
-  const Mapping<dim>    &mapping,
-  const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>>
-                            &fluid_bc,
-  const Function<dim>       &exact_solution,
-  const Function<dim>       &exact_velocity,
-  AffineConstraints<double> &constraints)
-{
-  const FEValuesExtractors::Vector velocity(u_lower);
-  const ComponentMask              velocity_mask =
-    dof_handler.get_fe().component_mask(velocity);
-
-  std::set<types::boundary_id> no_flux_boundaries;
-  std::set<types::boundary_id> velocity_normal_flux_boundaries;
-  std::map<types::boundary_id, const Function<dim> *>
-                               velocity_normal_flux_functions;
-  std::set<types::boundary_id> velocity_tangential_flux_boundaries;
-  std::map<types::boundary_id, const Function<dim> *>
-    velocity_tangential_flux_functions;
-
-  for (const auto &[id, bc] : fluid_bc)
-  {
-    if (bc.type == BoundaryConditions::Type::no_slip)
-    {
-      VectorTools::interpolate_boundary_values(mapping,
-                                               dof_handler,
-                                               bc.id,
-                                               Functions::ZeroFunction<dim>(
-                                                 n_components),
-                                               constraints,
-                                               velocity_mask);
-    }
-    if (bc.type == BoundaryConditions::Type::input_function)
-    {
-      if (homogeneous)
-        VectorTools::interpolate_boundary_values(mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 constraints,
-                                                 velocity_mask);
-      else
-        VectorTools::interpolate_boundary_values(
-          mapping,
-          dof_handler,
-          bc.id,
-          ComponentwiseFlowVelocity<dim>(
-            u_lower, n_components, bc.u, bc.v, bc.w),
-          constraints,
-          velocity_mask);
-    }
-    if (bc.type == BoundaryConditions::Type::velocity_mms)
-    {
-      if (homogeneous)
-        VectorTools::interpolate_boundary_values(mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 constraints,
-                                                 velocity_mask);
-      else
-        VectorTools::interpolate_boundary_values(mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 exact_solution,
-                                                 constraints,
-                                                 velocity_mask);
-    }
-    if (bc.type == BoundaryConditions::Type::slip)
-      no_flux_boundaries.insert(bc.id);
-    if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
-    {
-      // Enforce both the normal and tangential flux to be well-posed
-      velocity_normal_flux_boundaries.insert(bc.id);
-      velocity_normal_flux_functions[bc.id] = &exact_velocity;
-      velocity_tangential_flux_boundaries.insert(bc.id);
-      velocity_tangential_flux_functions[bc.id] = &exact_velocity;
-    }
-  }
-
-  // Add no velocity flux constraints
-  VectorTools::compute_no_normal_flux_constraints(
-    dof_handler, u_lower, no_flux_boundaries, constraints, mapping);
-  // Add nonzero normal flux velocity constraints
-  VectorTools::compute_nonzero_normal_flux_constraints(
-    dof_handler,
-    u_lower,
-    velocity_normal_flux_boundaries,
-    velocity_normal_flux_functions,
-    constraints,
-    mapping);
-  // Add nonzero tangential flux velocity constraints
-  VectorTools::compute_nonzero_tangential_flux_constraints(
-    dof_handler,
-    u_lower,
-    velocity_tangential_flux_boundaries,
-    velocity_tangential_flux_functions,
-    constraints,
-    mapping);
-}
 
 
 /* ---------------- template and inline functions ----------------- */

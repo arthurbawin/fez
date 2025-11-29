@@ -42,7 +42,7 @@ namespace ManufacturedSolutions
     {
       exact_velocity->set_time(new_time);
       exact_pressure->set_time(new_time);
-      exact_mesh_displacement->set_time(new_time);
+      exact_mesh_position->set_time(new_time);
     }
 
     void declare_parameters(ParameterHandler &prm);
@@ -51,12 +51,12 @@ namespace ManufacturedSolutions
   public:
     std::shared_ptr<MMSFunction<dim>> exact_velocity;
     std::shared_ptr<MMSFunction<dim>> exact_pressure;
-    std::shared_ptr<MMSFunction<dim>> exact_mesh_displacement;
+    std::shared_ptr<MMSFunction<dim>> exact_mesh_position;
 
   private:
     PresetMMS preset_velocity_type;
     PresetMMS preset_pressure_type;
-    PresetMMS preset_mesh_displacement_type;
+    PresetMMS preset_mesh_position_type;
   };
 
   /**
@@ -270,7 +270,8 @@ namespace ManufacturedSolutions
                                     double       numerical,
                                     double       tol,
                                     unsigned int comp,
-                                    std::string  name) {
+                                    std::string  name,
+                                    std::string  entry) {
       const double err = std::abs(exact - numerical);
 
       if (err < tol)
@@ -279,9 +280,9 @@ namespace ManufacturedSolutions
       const double relative_err = err / std::abs(numerical);
       AssertThrow(relative_err < tol,
                   ExcMessage(
-                    "Derivative check failed for " + name + " and component " +
-                    std::to_string(comp) + " at " + std::to_string(t) +
-                    ": exact = " + std::to_string(exact) +
+                    "Derivative check failed for " + name + " (entry " + entry +
+                    ") and component " + std::to_string(comp) + " at " +
+                    std::to_string(t) + ": exact = " + std::to_string(exact) +
                     ", FD = " + std::to_string(numerical) +
                     ", absolute error = " + std::to_string(err) +
                     ", relative error = " + std::to_string(relative_err)));
@@ -306,7 +307,8 @@ namespace ManufacturedSolutions
                                  fdot_fd,
                                  tol_order_1,
                                  i_comp,
-                                 "time derivative");
+                                 "time derivative",
+                                 "0");
           }
 
           // Check gradient at time t
@@ -320,8 +322,13 @@ namespace ManufacturedSolutions
             const double val_plus  = this->value(p_plus, i_comp);
             const double val_minus = this->value(p_minus, i_comp);
             const double grad_fd   = (val_plus - val_minus) / (2.0 * h_first);
-            check_relative_error(
-              t, grad[d], grad_fd, tol_order_1, i_comp, "gradient");
+            check_relative_error(t,
+                                 grad[d],
+                                 grad_fd,
+                                 tol_order_1,
+                                 i_comp,
+                                 "gradient",
+                                 std::to_string(d));
           }
 
           // Check hessian at time t
@@ -362,8 +369,14 @@ namespace ManufacturedSolutions
                   d2_fd               = (val_pp - val_pm - val_mp + val_mm) /
                           (4.0 * h_second * h_second);
                 }
-                check_relative_error(
-                  t, hess[di][dj], d2_fd, tol_order_2, i_comp, "hessian");
+                check_relative_error(t,
+                                     hess[di][dj],
+                                     d2_fd,
+                                     tol_order_2,
+                                     i_comp,
+                                     "hessian",
+                                     std::to_string(di) +
+                                       " - " + std::to_string(dj));
               }
           }
         }

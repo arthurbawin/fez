@@ -46,6 +46,7 @@ namespace Parameters
     unsigned int n_cahn_hilliard_bc;
 
     bool fix_pressure_constant;
+    bool enforce_zero_mean_pressure;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

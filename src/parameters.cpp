@@ -68,7 +68,11 @@ void BoundaryConditionsData::declare_parameters(ParameterHandler &prm)
     prm.declare_entry("fix pressure constant",
                       "false",
                       Patterns::Bool(),
-                      "Fix pressure nullspace");
+                      "Fix pressure nullspace by pinning a single pressure point");
+    prm.declare_entry("enforce zero mean pressure",
+                      "false",
+                      Patterns::Bool(),
+                      "Fix pressure nullspace by enforcing zero-mean pressure");
   }
   prm.leave_subsection();
 }
@@ -78,6 +82,7 @@ void BoundaryConditionsData::read_parameters(ParameterHandler &prm)
   prm.enter_subsection("Fluid boundary conditions");
   {
     fix_pressure_constant = prm.get_bool("fix pressure constant");
+    enforce_zero_mean_pressure = prm.get_bool("enforce zero mean pressure");
   }
   prm.leave_subsection();
 }

@@ -103,9 +103,12 @@ MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
     error_handler.create_entry("Li_p");
     error_handler.create_entry("Li_x");
     error_handler.create_entry("Li_l");
-    // error_handler.create_entry("H1_u");
-    // error_handler.create_entry("H1_p");
-    // error_handler.create_entry("H1_x");
+    if(time_handler.is_steady())
+    {
+      error_handler.create_entry("H1_u");
+      error_handler.create_entry("H1_p");
+      error_handler.create_entry("H1_x");
+    }
   }
   else
   {
@@ -149,7 +152,7 @@ void MonolithicFSISolver<dim>::MMSSourceTerm::vector_value(
   // Pseudosolid (mesh position) source term
   // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
   Tensor<1, dim> f_PS =
-    mms.exact_mesh_displacement->divergence_linear_elastic_stress(p,
+    mms.exact_mesh_position->divergence_linear_elastic_stress(p,
                                                                   lame_mu,
                                                                   lame_lambda);
 
@@ -971,7 +974,7 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
       *fixed_mapping);
   }
 
-  apply_velocity_boundary_conditions(true,
+  BoundaryConditions::apply_velocity_boundary_conditions(true,
                                      u_lower,
                                      n_components,
                                      dof_handler,
@@ -1070,7 +1073,7 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
       *fixed_mapping);
   }
 
-  apply_velocity_boundary_conditions(false,
+  BoundaryConditions::apply_velocity_boundary_conditions(false,
                                      u_lower,
                                      n_components,
                                      dof_handler,
@@ -2365,7 +2368,7 @@ void MonolithicFSISolver<dim>::check_manufactured_solution_boundary()
   // const Tensor<1, dim> ref_pns =
   //   -param.fsi.spring_constant * translation *
   //   std::static_pointer_cast<MonolithicFSISolver<dim>::MMSSolution>(
-  //     exact_solution)->mms.exact_mesh_displacement->time_function->value(time_handler.current_time);
+  //     exact_solution)->mms.exact_mesh_position->time_function->value(time_handler.current_time);
   // const double err_pns = (ref_pns - pns_integral).norm();
   const double err_pns = -1.;
 

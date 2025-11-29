@@ -52,6 +52,11 @@ namespace ManufacturedSolutions
                           default_point,
                           Patterns::List(Patterns::Double(), dim, dim, ","),
                           "Initial center of the kernel");
+        prm.declare_entry("cylindrical",
+                          "false",
+                          Patterns::Bool(),
+                          "If true, the kernel is cylindrical (z-aligned) "
+                          "instead of spherical.");
       }
       prm.leave_subsection();
 
@@ -70,6 +75,7 @@ namespace ManufacturedSolutions
                           default_point,
                           Patterns::List(Patterns::Double(), dim, dim, ","),
                           "Initial center of the kernel");
+        prm.declare_entry("cylindrical", "false", Patterns::Bool(), "");
       }
       prm.leave_subsection();
 
@@ -89,6 +95,7 @@ namespace ManufacturedSolutions
                           default_point,
                           Patterns::List(Patterns::Double(), dim, dim, ","),
                           "Initial center of the kernel");
+        prm.declare_entry("cylindrical", "false", Patterns::Bool(), "");
       }
       prm.leave_subsection();
     }
@@ -159,10 +166,11 @@ namespace ManufacturedSolutions
         const double     r0 = prm.get_double("r0");
         const double     r1 = prm.get_double("r1");
         const Point<dim> center(parse_rank_1_tensor<dim>(prm.get("center")));
+        const bool       cylindrical = prm.get_bool("cylindrical");
 
         if (preset_field_mms == PresetMMS::rigid_motion_kernel)
-          preset_mms = std::make_shared<RigidMeshPosition2<dim>>(
-            time_function, center, r0, r1, translation);
+          preset_mms = std::make_shared<PositionRadialKernel<dim>>(
+            time_function, center, r0, r1, translation, cylindrical);
       }
       prm.leave_subsection();
 
@@ -173,10 +181,11 @@ namespace ManufacturedSolutions
         const double     r0 = prm.get_double("r0");
         const double     r1 = prm.get_double("r1");
         const Point<dim> center(parse_rank_1_tensor<dim>(prm.get("center")));
+        const bool       cylindrical = prm.get_bool("cylindrical");
 
         if (preset_field_mms == PresetMMS::moving_radial_kernel)
           preset_mms = std::make_shared<MovingRadialKernel<dim>>(
-            time_function, center, r0, r1, translation);
+            time_function, center, r0, r1, translation, cylindrical);
       }
       prm.leave_subsection();
 
@@ -188,10 +197,11 @@ namespace ManufacturedSolutions
         const double     r1 = prm.get_double("r1");
         const double     a  = prm.get_double("a");
         const Point<dim> center(parse_rank_1_tensor<dim>(prm.get("center")));
+        const bool       cylindrical = prm.get_bool("cylindrical");
 
         if (preset_field_mms == PresetMMS::normal_radial_kernel)
           preset_mms = std::make_shared<NormalRadialKernel<dim>>(
-            time_function, center, r0, r1, translation, a);
+            time_function, center, r0, r1, translation, a, cylindrical);
       }
       prm.leave_subsection();
     }
@@ -233,14 +243,13 @@ namespace ManufacturedSolutions
     // end. Symbolic parsed function must be initialized to parse, but preset
     // mms pointers are created in parse_preset_manufactured_solution().
 
-    auto sym_velocity = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
-    auto sym_pressure = std::make_shared<ParsedFunctionSDBase<dim>>(1);
-    auto sym_mesh_displacement =
-      std::make_shared<ParsedFunctionSDBase<dim>>(dim);
+    auto sym_velocity      = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
+    auto sym_pressure      = std::make_shared<ParsedFunctionSDBase<dim>>(1);
+    auto sym_mesh_position = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
 
     std::shared_ptr<MMSFunction<dim>> preset_velocity;
     std::shared_ptr<MMSFunction<dim>> preset_pressure;
-    std::shared_ptr<MMSFunction<dim>> preset_mesh_displacement;
+    std::shared_ptr<MMSFunction<dim>> preset_mesh_position;
 
     prm.enter_subsection("Manufactured solution");
     {
@@ -257,25 +266,24 @@ namespace ManufacturedSolutions
                                          preset_pressure);
       prm.leave_subsection();
       prm.enter_subsection("exact mesh displacement");
-      sym_mesh_displacement->parse_parameters(prm);
+      sym_mesh_position->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
-                                         preset_mesh_displacement_type,
-                                         preset_mesh_displacement);
+                                         preset_mesh_position_type,
+                                         preset_mesh_position);
       prm.leave_subsection();
     }
     prm.leave_subsection();
 
     // Assign the final choice based on the preset_type (none or preset)
-    exact_velocity = (preset_velocity_type == PresetMMS::none) ?
-                       sym_velocity :
-                       preset_velocity;
-    exact_pressure = (preset_pressure_type == PresetMMS::none) ?
-                       sym_pressure :
-                       preset_pressure;
-    exact_mesh_displacement =
-      (preset_mesh_displacement_type == PresetMMS::none) ?
-        sym_mesh_displacement :
-        preset_mesh_displacement;
+    exact_velocity      = (preset_velocity_type == PresetMMS::none) ?
+                            sym_velocity :
+                            preset_velocity;
+    exact_pressure      = (preset_pressure_type == PresetMMS::none) ?
+                            sym_pressure :
+                            preset_pressure;
+    exact_mesh_position = (preset_mesh_position_type == PresetMMS::none) ?
+                            sym_mesh_position :
+                            preset_mesh_position;
   }
 
   // Explicit instantiation

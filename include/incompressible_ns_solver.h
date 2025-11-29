@@ -4,6 +4,7 @@
 #include <copy_data.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
+#include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/table_handler.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
@@ -94,10 +95,14 @@ public:
   }
 
   /**
+   * 
+   */
+  void create_zero_mean_pressure_constraints_data();
+
+  /**
    *
    */
-  void constrain_pressure_point(AffineConstraints<double> &constraints,
-                                const bool                 set_to_zero);
+  void add_zero_pressure_mean_constraints(AffineConstraints<double> &constraints);
 
   /**
    * Create the sparsity pattern and allocate matrix
@@ -237,6 +242,7 @@ protected:
 
   types::global_dof_index constrained_pressure_dof = numbers::invalid_dof_index;
   Point<dim>              constrained_pressure_support_point;
+  std::vector<std::pair<types::global_dof_index, double>> zero_mean_pressure_weights;
 
   LA::ParMatrixType              system_matrix;
   std::vector<LA::ParVectorType> previous_solutions;

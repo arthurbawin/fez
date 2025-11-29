@@ -1,8 +1,13 @@
 #ifndef UTILITIES_H
 #define UTILITIES_H
 
+#include <deal.II/base/function.h>
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/utilities.h>
+#include <deal.II/dofs/dof_handler.h>
+#include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/mapping.h>
 #include <parameters.h>
 
 #include <cmath>
@@ -136,6 +141,44 @@ compute_relative_error(const double A,
 
   const double rel_err = abs_err / std::max({std::abs(A), DBL_EPSILON});
   return std::make_pair(abs_err, rel_err);
+}
+
+/**
+ * Compute the mean value of the given function f on the mesh.
+ */
+template <int dim>
+double compute_global_mean_value(const Function<dim>   &f,
+                                 const unsigned int     component,
+                                 const DoFHandler<dim> &dof_handler,
+                                 const Mapping<dim>    &mapping,
+                                 const unsigned int     n_q_points = 4)
+{
+  double             I_local = 0., vol_local = 0.;
+  QGaussSimplex<dim> quadrature(n_q_points);
+  FEValues<dim>      fe_values(mapping,
+                          dof_handler.get_fe(),
+                          quadrature,
+                          update_quadrature_points | update_JxW_values);
+
+  for (auto cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+    {
+      fe_values.reinit(cell);
+      for (unsigned int q = 0; q < quadrature.size(); ++q)
+      {
+        const Point<dim> &p = fe_values.quadrature_point(q);
+        I_local += f.value(p, component) * fe_values.JxW(q);
+        vol_local += fe_values.JxW(q);
+      }
+    }
+
+  // Reduce across all processes
+  const double I_global =
+    Utilities::MPI::sum(I_local, dof_handler.get_mpi_communicator());
+  const double vol_global =
+    Utilities::MPI::sum(vol_local, dof_handler.get_mpi_communicator());
+
+  return I_global / vol_global;
 }
 
 #endif

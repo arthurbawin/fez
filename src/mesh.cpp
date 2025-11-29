@@ -181,18 +181,24 @@ void create_holed_plate(Triangulation<dim> &tria,
                     0,
                     1,
                     1.,
-                    2,
+                    4,
                     false);
 
   tria.refine_global(refinement_level);
 
-  mesh_param.id2name.insert({0, "OuterBoundary"});
-  mesh_param.id2name.insert({1, "InnerBoundary"});
-  mesh_param.name2id.insert({"OuterBoundary", 0});
-  mesh_param.name2id.insert({"InnerBoundary", 1});
-  if constexpr (dim == 3)
+  if constexpr (dim == 2)
   {
-
+    mesh_param.id2name.insert({0, "OuterBoundary"});
+    mesh_param.id2name.insert({1, "InnerBoundary"});
+    mesh_param.name2id.insert({"OuterBoundary", 0});
+    mesh_param.name2id.insert({"InnerBoundary", 1});
+  }
+  else
+  {
+    mesh_param.id2name.insert({0, "OuterBoundary"});
+    mesh_param.id2name.insert({1, "InnerBoundary"});
+    mesh_param.name2id.insert({"OuterBoundary", 0});
+    mesh_param.name2id.insert({"InnerBoundary", 1});
   }
 
   if (convert_to_tets)

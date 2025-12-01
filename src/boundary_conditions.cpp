@@ -495,7 +495,7 @@ namespace BoundaryConditions
     constraint_weights = coeffs_vec;
   }
 
-  void add_zero_pressure_mean_constraints(
+  void add_zero_mean_pressure_constraints(
     AffineConstraints<double>     &constraints,
     const IndexSet                &locally_relevant_dofs,
     const types::global_dof_index &constrained_pressure_dof,

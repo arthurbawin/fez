@@ -215,6 +215,8 @@ namespace Parameters
       Linfty
     } time_norm;
 
+    bool subtract_mean_pressure;
+
     bool force_source_term;
 
     unsigned int n_convergence;

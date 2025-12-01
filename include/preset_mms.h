@@ -15,20 +15,23 @@ namespace ManufacturedSolutions
    * and translation is the final translation vector.
    */
   template <int dim>
-  class RigidMeshPosition2 : public MMSFunction<dim>
+  class PositionRadialKernel : public MMSFunction<dim>
   {
   public:
-    RigidMeshPosition2(std::shared_ptr<ParsedFunctionSDBase<dim>> time_function,
-                       const Point<dim>                          &center,
-                       const double                               R0,
-                       const double                               R1,
-                       const Tensor<1, dim>                      &translation)
+    PositionRadialKernel(
+      std::shared_ptr<ParsedFunctionSDBase<dim>> time_function,
+      const Point<dim>                          &center,
+      const double                               R0,
+      const double                               R1,
+      const Tensor<1, dim>                      &translation,
+      const bool                                 cylindrical = false)
       : MMSFunction<dim>(dim)
       , time_function(time_function)
       , center(center)
       , R0(R0)
       , R1(R1)
       , translation(translation)
+      , cylindrical(cylindrical)
     {
       this->check_derivatives();
     }
@@ -57,6 +60,7 @@ namespace ManufacturedSolutions
     const double                               R0;
     const double                               R1;
     const Tensor<1, dim>                       translation;
+    const bool                                 cylindrical;
   };
 
   /**
@@ -71,13 +75,15 @@ namespace ManufacturedSolutions
                        const Point<dim>                          &center,
                        const double                               R0,
                        const double                               R1,
-                       const Tensor<1, dim>                      &translation)
+                       const Tensor<1, dim>                      &translation,
+                       const bool                                 cylindrical = false)
       : MMSFunction<dim>(dim)
       , time_function(time_function)
       , center(center)
       , R0(R0)
       , R1(R1)
       , translation(translation)
+      , cylindrical(cylindrical)
     {
       this->check_derivatives();
     }
@@ -106,6 +112,7 @@ namespace ManufacturedSolutions
     const double                               R0;
     const double                               R1;
     const Tensor<1, dim>                       translation;
+    const bool                                 cylindrical;
   };
 
   /**
@@ -134,7 +141,8 @@ namespace ManufacturedSolutions
                        const double                               R0,
                        const double                               R1,
                        const Tensor<1, dim>                      &translation,
-                       const double                               a)
+                       const double                               a,
+                       const bool                                 cylindrical = false)
       : MMSFunction<dim>(dim,
                          /*ignore_time_derivative =*/true,
                          /*ignore_hessian =*/true)
@@ -144,6 +152,7 @@ namespace ManufacturedSolutions
       , R1(R1)
       , translation(translation)
       , a(a)
+      , cylindrical(cylindrical)
     {
       this->check_derivatives();
     }
@@ -181,6 +190,7 @@ namespace ManufacturedSolutions
     const double                               R1;
     const Tensor<1, dim>                       translation;
     const double                               a;
+    const bool                                 cylindrical;
   };
 
   /**

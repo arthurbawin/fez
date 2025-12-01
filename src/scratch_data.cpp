@@ -118,7 +118,8 @@ ScratchDataMonolithicFSI<dim>::ScratchDataMonolithicFSI(
   const Quadrature<dim - 1> &face_quadrature,
   const unsigned int         dofs_per_cell,
   const unsigned int         boundary_id,
-  const std::vector<double> &bdfCoeffs)
+  const std::vector<double> &bdfCoeffs,
+  const ParameterReader<dim> &param)
   : fe_values(moving_mapping, fe, cell_quadrature, required_updates)
   , fe_values_fixed(fixed_mapping, fe, cell_quadrature, required_updates)
   , fe_face_values(moving_mapping, fe, face_quadrature, required_face_updates)
@@ -137,12 +138,24 @@ ScratchDataMonolithicFSI<dim>::ScratchDataMonolithicFSI(
   , bdfCoeffs(bdfCoeffs)
 {
   this->allocate();
+
+  // Check if weak forms are to be assembled on boundaries
+  has_boundary_forms = false;
+  for (const auto &[id, bc] : param.fluid_bc)
+  {
+    if (bc.type == BoundaryConditions::Type::open_mms)
+    {
+      has_boundary_forms = true;
+      break;
+    }
+  }
 }
 
 template <int dim>
 ScratchDataMonolithicFSI<dim>::ScratchDataMonolithicFSI(
   const ScratchDataMonolithicFSI &other)
-  : fe_values(other.fe_values.get_mapping(),
+  : has_boundary_forms(other.has_boundary_forms)
+  , fe_values(other.fe_values.get_mapping(),
               other.fe_values.get_fe(),
               other.fe_values.get_quadrature(),
               other.fe_values.get_update_flags())
@@ -243,8 +256,19 @@ void ScratchDataMonolithicFSI<dim>::allocate()
                       n_faces_q_points,
                       std::vector<Tensor<1, dim>>(dofs_per_cell)));
 
+  face_boundary_id.resize(n_faces);
   face_JxW_moving.resize(n_faces, std::vector<double>(n_faces_q_points));
   face_JxW_fixed.resize(n_faces, std::vector<double>(n_faces_q_points));
+  face_normals_moving.resize(n_faces,
+                             std::vector<Tensor<1, dim>>(n_faces_q_points));
+
+  exact_solution_full.resize(n_faces_q_points, Vector<double>(n_components));
+  grad_exact_solution_full.resize(n_faces_q_points,
+                                  std::vector<Tensor<1, dim>>(n_components));
+  exact_face_velocity_gradients.resize(
+    n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
+  exact_face_pressure_values.resize(n_faces,
+                                    std::vector<double>(n_faces_q_points));
 
   face_G.resize(n_faces, std::vector<Tensor<2, dim - 1>>(n_faces_q_points));
   delta_dx.resize(n_faces,

@@ -266,7 +266,8 @@ public:
                            const Quadrature<dim - 1> &face_quadrature,
                            const unsigned int         dofs_per_cell,
                            const unsigned int         boundary_id,
-                           const std::vector<double> &bdfCoeffs);
+                           const std::vector<double> &bdfCoeffs,
+                           const ParameterReader<dim> &param);
 
   /**
    * Copy constructor. Needed to use WorkStreams.
@@ -277,10 +278,10 @@ public:
 
   template <typename VectorType>
   void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
-              const VectorType              &current_solution,
-              const std::vector<VectorType> &previous_solutions,
+              const VectorType                     &current_solution,
+              const std::vector<VectorType>        &previous_solutions,
               const std::shared_ptr<Function<dim>> &source_terms,
-              const std::shared_ptr<Function<dim>> &/*exact_solution*/)
+              const std::shared_ptr<Function<dim>> &exact_solution)
   {
     fe_values.reinit(cell);
     fe_values_fixed.reinit(cell);
@@ -332,7 +333,7 @@ public:
 
     // Gradient of source term (for u-p only)
     source_terms->vector_gradient_list(fe_values.get_quadrature_points(),
-                                    grad_source_term_full);
+                                       grad_source_term_full);
 
     // Current mesh velocity from displacement
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -353,14 +354,17 @@ public:
     // for(unsigned int iv = 0; iv < cell->n_vertices(); ++iv)
     // {
     //   std::cout << "Cell vertex " << cell->vertex(iv) << std::endl;
-    //   std::cout << "Moved to    " << fe_values.get_mapping().transform_unit_to_real_cell(cell, refs[iv]) << std::endl;
+    //   std::cout << "Moved to    " <<
+    //   fe_values.get_mapping().transform_unit_to_real_cell(cell, refs[iv]) <<
+    //   std::endl;
     // }
 
     // double area_fixed = 0., area_moving = 0.;
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       // for(unsigned int icomp = 0; icomp < n_components; ++icomp)
-        // std::cout << "grad comp " << icomp << " = " << grad_source_term_full[q][icomp] << std::endl;
+      // std::cout << "grad comp " << icomp << " = " <<
+      // grad_source_term_full[q][icomp] << std::endl;
 
       JxW_moving[q] = fe_values.JxW(q);
       JxW_fixed[q]  = fe_values_fixed.JxW(q);
@@ -396,12 +400,12 @@ public:
       }
     }
 
-    // std::cout << "moving = " << std::setprecision(16) << area_moving << std::endl;
-    // std::cout << "fixed  = " << std::setprecision(16) << area_fixed << std::endl;
+    // std::cout << "moving = " << std::setprecision(16) << area_moving <<
+    // std::endl; std::cout << "fixed  = " << std::setprecision(16) <<
+    // area_fixed << std::endl;
 
     //
-    // Face-related values and shape functions,
-    // for the faces touching the prescribed boundary_id
+    // Face-related values and shape functions
     //
     for (const auto i_face : cell->face_indices())
     {
@@ -409,6 +413,8 @@ public:
 
       // if (!(face->at_boundary() && face->boundary_id() == boundary_id))
       //   continue;
+
+      face_boundary_id[i_face] = face->boundary_id();
 
       fe_face_values.reinit(cell, face);
       fe_face_values_fixed.reinit(cell, face);
@@ -431,8 +437,22 @@ public:
 
       for (unsigned int q = 0; q < n_faces_q_points; ++q)
       {
-        face_JxW_moving[i_face][q] = fe_face_values.JxW(q);
-        face_JxW_fixed[i_face][q]  = fe_face_values_fixed.JxW(q);
+        face_JxW_moving[i_face][q]     = fe_face_values.JxW(q);
+        face_JxW_fixed[i_face][q]      = fe_face_values_fixed.JxW(q);
+        face_normals_moving[i_face][q] = fe_face_values.normal_vector(q);
+
+        // Exact solution with layout u-v-(w-)p and its gradient,
+        // used to add open boundary conditions (quasi-traction)
+        exact_solution->vector_value_list(
+          fe_face_values.get_quadrature_points(), exact_solution_full);
+        exact_solution->vector_gradient_list(
+          fe_face_values.get_quadrature_points(), grad_exact_solution_full);
+
+        for (int di = 0; di < dim; ++di)
+          for (int dj = 0; dj < dim; ++dj)
+            exact_face_velocity_gradients[i_face][q][di][dj] =
+              grad_exact_solution_full[q][u_lower + di][dj];
+        exact_face_pressure_values[i_face][q] = exact_solution_full[q](p_lower);
 
         //
         // Jacobian of geometric transformation is needed to compute
@@ -570,6 +590,8 @@ public:
   const unsigned int l_lower      = 2 * dim + 1;
 
 public:
+  bool has_boundary_forms;
+
   FEValues<dim> fe_values;
   FEValues<dim> fe_values_fixed;
 
@@ -587,10 +609,12 @@ public:
 
   const std::vector<double> bdfCoeffs;
 
-  std::vector<double>              JxW_moving;
-  std::vector<double>              JxW_fixed;
-  std::vector<std::vector<double>> face_JxW_moving;
-  std::vector<std::vector<double>> face_JxW_fixed;
+  std::vector<double>                      JxW_moving;
+  std::vector<double>                      JxW_fixed;
+  std::vector<std::vector<double>>         face_JxW_moving;
+  std::vector<std::vector<double>>         face_JxW_fixed;
+  std::vector<unsigned int>                face_boundary_id;
+  std::vector<std::vector<Tensor<1, dim>>> face_normals_moving;
 
   // The reference jacobians partial xsi_dim/partial xsi_(dim-1)
   std::array<Tensor<1, dim>, dim - 1>          dxsids_array;
@@ -648,6 +672,17 @@ public:
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_x_face;
   std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_x_face;
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_l_face;
+
+
+  // Current and previous values on faces
+  // std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
+  // std::vector<std::vector<Tensor<2, dim>>> present_face_velocity_gradients;
+  // std::vector<std::vector<double>>         present_face_pressure_values;
+
+  std::vector<Vector<double>>              exact_solution_full;
+  std::vector<std::vector<Tensor<1, dim>>> grad_exact_solution_full;
+  std::vector<std::vector<Tensor<2, dim>>> exact_face_velocity_gradients;
+  std::vector<std::vector<double>>         exact_face_pressure_values;
 };
 
 #endif

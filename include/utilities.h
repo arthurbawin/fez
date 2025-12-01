@@ -181,4 +181,36 @@ double compute_global_mean_value(const Function<dim>   &f,
   return I_global / vol_global;
 }
 
+/**
+ * 
+ */
+template <int dim>
+class PressureMeanSubtractedFunction : public Function<dim>
+{
+public:
+  PressureMeanSubtractedFunction(const Function<dim> &base_function,
+                         const double mean_pressure,
+                         const unsigned int p_lower)
+    : Function<dim>(base_function.n_components)
+    , base(base_function)
+    , mean_pressure(mean_pressure)
+    , p_lower(p_lower)
+  {}
+
+  virtual double value(const Point<dim> &p,
+                       const unsigned int component = 0) const override
+  {
+    if(component == p_lower)
+      return base.value(p, component) - mean_pressure;
+    else
+      return base.value(p, component);
+  }
+
+private:
+  const Function<dim> &base;
+  const double mean_pressure;
+  const unsigned int p_lower;
+};
+
+
 #endif

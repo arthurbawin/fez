@@ -100,11 +100,6 @@ public:
   void create_zero_mean_pressure_constraints_data();
 
   /**
-   *
-   */
-  void add_zero_pressure_mean_constraints(AffineConstraints<double> &constraints);
-
-  /**
    * Create the sparsity pattern and allocate matrix
    */
   void create_sparsity_pattern();

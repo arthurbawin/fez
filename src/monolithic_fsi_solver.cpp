@@ -14,6 +14,7 @@
 // #include <mms.h>
 #include <monolithic_fsi_solver.h>
 #include <scratch_data.h>
+#include <utilities.h>
 
 template <int dim>
 MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
@@ -75,6 +76,14 @@ MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
                 "A weakly enforced no-slip boundary condition is enforced on "
                 "more than 1 boundary, which is currently not supported."));
 
+  /**
+   * Enforcing zero-mean pressure on moving mesh is not trivial, since
+   * the constraint weights depend on the mesh position.
+   */
+  AssertThrow(!param.bc_data.enforce_zero_mean_pressure,
+              ExcMessage("Enforcing zero mean pressure on moving mesh is "
+                         "currently not functional."));
+
   // Create the initial condition functions for this problem, once the layout of
   // the variables is known (and in particular, the number of components).
   // FIXME: Is there a better way to create the functions?
@@ -103,7 +112,7 @@ MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
     error_handler.create_entry("Li_p");
     error_handler.create_entry("Li_x");
     error_handler.create_entry("Li_l");
-    if(time_handler.is_steady())
+    if (time_handler.is_steady())
     {
       error_handler.create_entry("H1_u");
       error_handler.create_entry("H1_p");
@@ -153,8 +162,8 @@ void MonolithicFSISolver<dim>::MMSSourceTerm::vector_value(
   // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
   Tensor<1, dim> f_PS =
     mms.exact_mesh_position->divergence_linear_elastic_stress(p,
-                                                                  lame_mu,
-                                                                  lame_lambda);
+                                                              lame_mu,
+                                                              lame_lambda);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[x_lower + d] = f_PS[d];
@@ -847,86 +856,17 @@ void MonolithicFSISolver<dim>::remove_cylinder_velocity_constraints(
 }
 
 template <int dim>
-void MonolithicFSISolver<dim>::constrain_pressure_point(
-  AffineConstraints<double> &constraints,
-  const bool                 set_to_zero)
+void MonolithicFSISolver<dim>::create_zero_mean_pressure_constraints_data()
 {
-  // Determine the pressure dof the first time
-  if (constrained_pressure_dof == numbers::invalid_dof_index)
-  {
-    // Choose a fixed physical reference location
-    // Here it's the origin (Point<dim> is initialized at 0)
-    const Point<dim> reference_point;
-
-    IndexSet pressure_dofs = DoFTools::extract_dofs(dof_handler, pressure_mask);
-
-    // Get support points for locally relevant DoFs
-    std::map<types::global_dof_index, Point<dim>> support_points;
-    DoFTools::map_dofs_to_support_points(*mapping, dof_handler, support_points);
-
-    double                  local_min_dist = std::numeric_limits<double>::max();
-    types::global_dof_index local_dof      = numbers::invalid_dof_index;
-
-    for (auto idx : pressure_dofs)
-    {
-      if (!locally_relevant_dofs.is_element(idx))
-        continue;
-
-      const double dist = support_points[idx].distance(reference_point);
-      if (dist < local_min_dist)
-      {
-        local_min_dist = dist;
-        local_dof      = idx;
-      }
-    }
-
-    // Prepare for MPI_MINLOC reduction
-    struct MinLoc
-    {
-      double                  dist;
-      types::global_dof_index dof;
-    } local_pair{local_min_dist, local_dof}, global_pair;
-
-    // MPI reduction to find the global closest DoF
-    MPI_Allreduce(&local_pair,
-                  &global_pair,
-                  1,
-                  MPI_DOUBLE_INT,
-                  MPI_MINLOC,
-                  mpi_communicator);
-
-    constrained_pressure_dof = global_pair.dof;
-
-    // Set support point for MMS evaluation
-    if (locally_relevant_dofs.is_element(constrained_pressure_dof))
-    {
-      constrained_pressure_support_point =
-        support_points[constrained_pressure_dof];
-    }
-  }
-
-  // Constrain that DoF globally
-  if (locally_relevant_dofs.is_element(constrained_pressure_dof))
-  {
-    constraints.add_line(constrained_pressure_dof);
-
-    // The pressure DOF is set to 0 by default for the nonzero constraints,
-    // unless there is a prescribed manufactured solution, in which case it is
-    // prescribed to p_mms.
-    if (set_to_zero || !param.mms_param.enable)
-    {
-      constraints.constrain_dof_to_zero(constrained_pressure_dof);
-    }
-    else
-    {
-      const double pAnalytic =
-        exact_solution->value(constrained_pressure_support_point, p_lower);
-      // std::cout << "Constraining pressure DOF " << constrained_pressure_dof
-      //           << " at " << constrained_pressure_support_point << " to "
-      //           << pAnalytic << std::endl;
-      constraints.set_inhomogeneity(constrained_pressure_dof, pAnalytic);
-    }
-  }
+  BoundaryConditions::create_zero_mean_pressure_constraints_data(
+    triangulation,
+    dof_handler,
+    locally_relevant_dofs,
+    *mapping,
+    quadrature,
+    p_lower,
+    constrained_pressure_dof,
+    zero_mean_pressure_weights);
 }
 
 template <int dim>
@@ -974,20 +914,43 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
       *fixed_mapping);
   }
 
-  BoundaryConditions::apply_velocity_boundary_conditions(true,
-                                     u_lower,
-                                     n_components,
-                                     dof_handler,
-                                     *mapping,
-                                     param.fluid_bc,
-                                     *exact_solution,
-                                     *param.mms.exact_velocity,
-                                     zero_constraints);
+  BoundaryConditions::apply_velocity_boundary_conditions(
+    true,
+    u_lower,
+    n_components,
+    dof_handler,
+    *mapping,
+    param.fluid_bc,
+    *exact_solution,
+    *param.mms.exact_velocity,
+    zero_constraints);
 
   if (param.bc_data.fix_pressure_constant)
   {
     bool set_to_zero = true;
-    constrain_pressure_point(zero_constraints, set_to_zero);
+    // constrain_pressure_point(zero_constraints, set_to_zero);
+    BoundaryConditions::constrain_pressure_point(
+      dof_handler,
+      locally_relevant_dofs,
+      *mapping,
+      *exact_solution,
+      p_lower,
+      set_to_zero,
+      zero_constraints,
+      constrained_pressure_dof,
+      constrained_pressure_support_point);
+  }
+
+  if (param.bc_data.enforce_zero_mean_pressure)
+  {
+    constrained_pressure_dof = numbers::invalid_dof_index;
+    zero_mean_pressure_weights.clear();
+    this->create_zero_mean_pressure_constraints_data();
+    BoundaryConditions::add_zero_mean_pressure_constraints(
+      zero_constraints,
+      locally_relevant_dofs,
+      constrained_pressure_dof,
+      zero_mean_pressure_weights);
   }
 
   zero_constraints.close();
@@ -1073,20 +1036,46 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
       *fixed_mapping);
   }
 
-  BoundaryConditions::apply_velocity_boundary_conditions(false,
-                                     u_lower,
-                                     n_components,
-                                     dof_handler,
-                                     *mapping,
-                                     param.fluid_bc,
-                                     *exact_solution,
-                                     *param.mms.exact_velocity,
-                                     nonzero_constraints);
+  BoundaryConditions::apply_velocity_boundary_conditions(
+    false,
+    u_lower,
+    n_components,
+    dof_handler,
+    *mapping,
+    param.fluid_bc,
+    *exact_solution,
+    *param.mms.exact_velocity,
+    nonzero_constraints);
 
   if (param.bc_data.fix_pressure_constant)
   {
-    bool set_to_zero = false;
-    constrain_pressure_point(nonzero_constraints, set_to_zero);
+    // The pressure DOF is set to 0 by default for the nonzero constraints,
+    // unless there is a prescribed manufactured solution, in which case it is
+    // prescribed to p_mms.
+    bool set_to_zero = !param.mms_param.enable;
+    // constrain_pressure_point(nonzero_constraints, set_to_zero);
+    BoundaryConditions::constrain_pressure_point(
+      dof_handler,
+      locally_relevant_dofs,
+      *mapping,
+      *exact_solution,
+      p_lower,
+      set_to_zero,
+      nonzero_constraints,
+      constrained_pressure_dof,
+      constrained_pressure_support_point);
+  }
+
+  if (param.bc_data.enforce_zero_mean_pressure)
+  {
+    constrained_pressure_dof = numbers::invalid_dof_index;
+    zero_mean_pressure_weights.clear();
+    this->create_zero_mean_pressure_constraints_data();
+    BoundaryConditions::add_zero_mean_pressure_constraints(
+      nonzero_constraints,
+      locally_relevant_dofs,
+      constrained_pressure_dof,
+      zero_mean_pressure_weights);
   }
 
   nonzero_constraints.close();
@@ -1253,6 +1242,29 @@ void MonolithicFSISolver<dim>::set_exact_solution()
                            *exact_solution,
                            local_evaluation_point,
                            pressure_mask);
+
+  if (param.bc_data.enforce_zero_mean_pressure)
+  {
+    present_solution    = local_evaluation_point;
+    const double p_mean = VectorTools::compute_mean_value(
+      *mapping, dof_handler, quadrature, present_solution, p_lower);
+    const double p_mms_mean = compute_global_mean_value(*exact_solution,
+                                                        p_lower,
+                                                        dof_handler,
+                                                        *mapping);
+
+    pcout << "Before removing pressure: " << p_mean << std::endl;
+    pcout << "Analytic mean is        : " << p_mms_mean << std::endl;
+    BoundaryConditions::remove_mean_pressure(pressure_mask,
+                                             dof_handler,
+                                             p_mean,
+                                             local_evaluation_point);
+    present_solution     = local_evaluation_point;
+    const double p_mean2 = VectorTools::compute_mean_value(
+      *mapping, dof_handler, quadrature, present_solution, p_lower);
+    pcout << "After  removing pressure: " << p_mean2 << std::endl;
+  }
+
   evaluation_point = local_evaluation_point;
   present_solution = local_evaluation_point;
 }
@@ -1296,7 +1308,8 @@ void MonolithicFSISolver<dim>::assemble_matrix()
                                              face_quadrature,
                                              fe.n_dofs_per_cell(),
                                              weak_no_slip_boundary_id,
-                                             time_handler.bdf_coefficients);
+                                             time_handler.bdf_coefficients,
+                                             param);
   CopyData                      copy_data(fe.n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
@@ -1637,7 +1650,8 @@ void MonolithicFSISolver<dim>::compare_analytical_matrix_with_fd()
                                              face_quadrature,
                                              fe.n_dofs_per_cell(),
                                              weak_no_slip_boundary_id,
-                                             time_handler.bdf_coefficients);
+                                             time_handler.bdf_coefficients,
+                                             param);
   CopyData                      copy_data(fe.n_dofs_per_cell());
 
   double max_error_over_all_elements;
@@ -1678,7 +1692,8 @@ void MonolithicFSISolver<dim>::assemble_rhs()
                                              face_quadrature,
                                              fe.n_dofs_per_cell(),
                                              weak_no_slip_boundary_id,
-                                             time_handler.bdf_coefficients);
+                                             time_handler.bdf_coefficients,
+                                             param);
   CopyData                      copy_data(fe.n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
@@ -1822,7 +1837,7 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
   }
 
   //
-  // Face contributions (Lagrange multiplier)
+  // Face contributions
   //
   if (cell->at_boundary())
   {
@@ -1830,41 +1845,76 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
     {
       const auto &face = cell->face(i_face);
 
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
+      if (face->at_boundary())
       {
-        for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+        //
+        // Lagrange multiplier for no-slip
+        //
+        if (face->boundary_id() == weak_no_slip_boundary_id)
         {
-          //
-          // Flow related data (no-slip)
-          //
-          const double face_JxW_moving = scratchData.face_JxW_moving[i_face][q];
-          const auto  &phi_u           = scratchData.phi_u_face[i_face][q];
-          const auto  &phi_l           = scratchData.phi_l_face[i_face][q];
-
-          const auto &present_u =
-            scratchData.present_face_velocity_values[i_face][q];
-          const auto &present_w =
-            scratchData.present_face_mesh_velocity_values[i_face][q];
-          const auto &present_l =
-            scratchData.present_face_lambda_values[i_face][q];
-
-          for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
+          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
-            double local_rhs_i = 0.;
+            //
+            // Flow related data (no-slip)
+            //
+            const double face_JxW_moving =
+              scratchData.face_JxW_moving[i_face][q];
+            const auto &phi_u = scratchData.phi_u_face[i_face][q];
+            const auto &phi_l = scratchData.phi_l_face[i_face][q];
 
-            const unsigned int component_i = scratchData.components[i];
-            const bool         i_is_u      = is_velocity(component_i);
-            const bool         i_is_l      = is_lambda(component_i);
+            const auto &present_u =
+              scratchData.present_face_velocity_values[i_face][q];
+            const auto &present_w =
+              scratchData.present_face_mesh_velocity_values[i_face][q];
+            const auto &present_l =
+              scratchData.present_face_lambda_values[i_face][q];
 
-            if (i_is_u)
-              local_rhs_i -= -(phi_u[i] * present_l);
+            for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
+            {
+              double local_rhs_i = 0.;
 
-            if (i_is_l)
-              local_rhs_i -= -(present_u - present_w) * phi_l[i];
+              const unsigned int component_i = scratchData.components[i];
+              const bool         i_is_u      = is_velocity(component_i);
+              const bool         i_is_l      = is_lambda(component_i);
 
-            local_rhs_i *= face_JxW_moving;
-            local_rhs(i) += local_rhs_i;
+              if (i_is_u)
+                local_rhs_i -= -(phi_u[i] * present_l);
+
+              if (i_is_l)
+                local_rhs_i -= -(present_u - present_w) * phi_l[i];
+
+              local_rhs_i *= face_JxW_moving;
+              local_rhs(i) += local_rhs_i;
+            }
+          }
+        }
+
+        /**
+         * Open boundary condition with prescribed manufactured solution.
+         * Applied on moving mesh.
+         */
+        if (param.fluid_bc.at(scratchData.face_boundary_id[i_face]).type ==
+            BoundaryConditions::Type::open_mms)
+        {
+          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+          {
+            const double face_JxW_moving =
+              scratchData.face_JxW_moving[i_face][q];
+            const auto &n = scratchData.face_normals_moving[i_face][q];
+
+            const auto &grad_u_exact =
+              scratchData.exact_face_velocity_gradients[i_face][q];
+            const double p_exact =
+              scratchData.exact_face_pressure_values[i_face][q];
+
+            // This is an open boundary condition, not a traction,
+            // involving only grad_u_exact and not the symmetric gradient.
+            const auto quasisigma_dot_n = -p_exact * n + nu * grad_u_exact * n;
+
+            const auto &phi_u = scratchData.phi_u_face[i_face][q];
+
+            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+              local_rhs(i) -= -phi_u[i] * quasisigma_dot_n * face_JxW_moving;
           }
         }
       }
@@ -2598,13 +2648,54 @@ void MonolithicFSISolver<dim>::compute_errors()
   const unsigned int                  n_points_1D = (dim == 2) ? 6 : 5;
   const QWitherdenVincentSimplex<dim> err_quadrature(n_points_1D);
 
+  std::shared_ptr<Function<dim>> used_exact_solution = exact_solution;
+
+  if (param.bc_data.enforce_zero_mean_pressure)
+  {
+    // Mean pressure value
+    const double p_mean = VectorTools::compute_mean_value(
+      *mapping, dof_handler, quadrature, present_solution, p_lower);
+
+    pcout << "Mean pressure is p_mean = " << p_mean << std::endl;
+
+    AssertThrow(std::abs(p_mean) < 1e-10,
+                ExcMessage(
+                  "Mean pressure should be zero, but it's not : p_mean = " +
+                  std::to_string(p_mean)));
+
+    if (param.mms_param.enable)
+    {
+      // Use a function wrapper where the pressure mean is subtracted
+      const double p_mms_mean = compute_global_mean_value(*exact_solution,
+                                                          p_lower,
+                                                          dof_handler,
+                                                          *mapping);
+
+      if (param.mms_param.subtract_mean_pressure)
+        used_exact_solution =
+          std::make_shared<PressureMeanSubtractedFunction<dim>>(*exact_solution,
+                                                                p_mms_mean,
+                                                                p_lower);
+      else
+        // Use the manufactured pressure which is then assumed to have zero
+        // mean. Throw an error if it's not the case.
+        AssertThrow(
+          std::abs(p_mms_mean) < 1e-6,
+          ExcMessage(
+            "You are comparing a discrete zero-mean pressure with a "
+            "manufactured "
+            "pressure which is not zero-mean. The mean exact pressure is " +
+            std::to_string(p_mms_mean)));
+    }
+  }
+
   // L2 - u
   const double l2_u =
     compute_error_norm<dim, LA::ParVectorType>(triangulation,
                                                *mapping,
                                                dof_handler,
                                                present_solution,
-                                               *exact_solution,
+                                               *used_exact_solution,
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::L2_norm,
@@ -2615,7 +2706,7 @@ void MonolithicFSISolver<dim>::compute_errors()
                                                *mapping,
                                                dof_handler,
                                                present_solution,
-                                               *exact_solution,
+                                               *used_exact_solution,
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::L2_norm,
@@ -2626,7 +2717,7 @@ void MonolithicFSISolver<dim>::compute_errors()
                                                *fixed_mapping,
                                                dof_handler,
                                                present_solution,
-                                               *exact_solution,
+                                               *used_exact_solution,
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::L2_norm,
@@ -2637,7 +2728,7 @@ void MonolithicFSISolver<dim>::compute_errors()
                                                *mapping,
                                                dof_handler,
                                                present_solution,
-                                               *exact_solution,
+                                               *used_exact_solution,
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::Linfty_norm,
@@ -2648,7 +2739,7 @@ void MonolithicFSISolver<dim>::compute_errors()
                                                *mapping,
                                                dof_handler,
                                                present_solution,
-                                               *exact_solution,
+                                               *used_exact_solution,
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::Linfty_norm,
@@ -2659,7 +2750,7 @@ void MonolithicFSISolver<dim>::compute_errors()
                                                *fixed_mapping,
                                                dof_handler,
                                                present_solution,
-                                               *exact_solution,
+                                               *used_exact_solution,
                                                cellwise_errors,
                                                err_quadrature,
                                                VectorTools::Linfty_norm,

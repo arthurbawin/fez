@@ -206,9 +206,18 @@ namespace BoundaryConditions
                            const Point<dim> &reference_point = Point<dim>());
 
   /**
-   * Computes the weights to apply a zero-mean linear constraints
-   * on the pressure dofs and sets the pressure dof to constrain
-   * "constrained_pressure_dof".
+   * Enforcing zero-mean pressure yields the linear constraint:
+   *
+   *  int_\Omega p dx = 0  -> sum_j a_j * p_j = 0,
+   *
+   * where the c_j are obtained from integrating the pressure shape functions
+   * over \Omega. This is satisfied by constraining a single pressure DoF to
+   *
+   *  p_0 = - sum_{j != 0} a_j/a_0 * p_j := sum_{j != 0} c_j * p_j.
+   *
+   * This function computes the weights c_j and sets the pressure dof to
+   * constrain "constrained_pressure_dof", which is simply the (globally) first
+   * pressure DoF.
    *
    * Important: since this is a global constraint, this pressure dof will be
    * coupled to *all* other pressure dofs (on MPI processes which have this dof
@@ -239,12 +248,28 @@ namespace BoundaryConditions
    * Important: this yields a very inefficient sparsity pattern and should only
    * be used for specific verification tests, see above.
    */
-  void add_zero_pressure_mean_constraints(
+  void add_zero_mean_pressure_constraints(
     AffineConstraints<double>     &constraints,
     const IndexSet                &locally_relevant_dofs,
     const types::global_dof_index &constrained_pressure_dof,
     const std::vector<std::pair<types::global_dof_index, double>>
       &constraint_weights);
+
+  /**
+   *
+   */
+  template <int dim, typename VectorType>
+  void remove_mean_pressure(const ComponentMask   &pressure_mask,
+                            const DoFHandler<dim> &dof_handler,
+                            const double           mean_pressure,
+                            VectorType            &solution)
+  {
+    const IndexSet owned_pressure_dofs =
+      DoFTools::extract_dofs(dof_handler, pressure_mask);
+    for (const auto i : owned_pressure_dofs)
+      solution[i] -= mean_pressure;
+    solution.compress(VectorOperation::add);
+  }
 
 } // namespace BoundaryConditions
 

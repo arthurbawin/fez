@@ -65,10 +65,11 @@ void BoundaryConditionsData::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Fluid boundary conditions");
   {
-    prm.declare_entry("fix pressure constant",
-                      "false",
-                      Patterns::Bool(),
-                      "Fix pressure nullspace by pinning a single pressure point");
+    prm.declare_entry(
+      "fix pressure constant",
+      "false",
+      Patterns::Bool(),
+      "Fix pressure nullspace by pinning a single pressure point");
     prm.declare_entry("enforce zero mean pressure",
                       "false",
                       Patterns::Bool(),
@@ -81,7 +82,7 @@ void BoundaryConditionsData::read_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Fluid boundary conditions");
   {
-    fix_pressure_constant = prm.get_bool("fix pressure constant");
+    fix_pressure_constant      = prm.get_bool("fix pressure constant");
     enforce_zero_mean_pressure = prm.get_bool("enforce zero mean pressure");
   }
   prm.leave_subsection();
@@ -475,6 +476,13 @@ void MMS::declare_parameters(ParameterHandler &prm)
                       "space",
                       Patterns::Selection("space|time|spacetime"),
                       "Choose between space and/or time convergence study.");
+    prm.declare_entry(
+      "subtract mean pressure",
+      "false",
+      Patterns::Bool(),
+      "Subtract mean pressure for L2 error computation. If disabled and if the "
+      "pressure solution is not zero-mean, an error is thrown to avoid "
+      "returning erroneous convergence rates.");
     prm.declare_entry("force source term",
                       "false",
                       Patterns::Bool(),
@@ -551,9 +559,10 @@ void MMS::read_parameters(ParameterHandler &prm)
       type = Type::time;
     else if (parsed_type == "spacetime")
       type = Type::spacetime;
-    force_source_term = prm.get_bool("force source term");
-    n_convergence     = prm.get_integer("convergence steps");
-    run_only_step     = prm.get_integer("run only step");
+    subtract_mean_pressure = prm.get_bool("subtract mean pressure");
+    force_source_term      = prm.get_bool("force source term");
+    n_convergence          = prm.get_integer("convergence steps");
+    run_only_step          = prm.get_integer("run only step");
     prm.enter_subsection("Space convergence");
     {
       use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
@@ -658,7 +667,7 @@ void Debug::read_parameters(ParameterHandler &prm)
     analytical_jacobian_relative_tolerance =
       prm.get_double("analytical_jacobian_relative_tolerance");
     fsi_apply_erroneous_coupling = prm.get_bool("fsi_apply_erroneous_coupling");
-    fsi_check_mms_on_boundary = prm.get_bool("fsi_check_mms_on_boundary");
+    fsi_check_mms_on_boundary    = prm.get_bool("fsi_check_mms_on_boundary");
   }
   prm.leave_subsection();
 }

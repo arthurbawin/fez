@@ -70,11 +70,16 @@ public:
    */
   void create_sparsity_pattern();
 
+  // /**
+  //  *
+  //  */
+  // void constrain_pressure_point(AffineConstraints<double> &constraints,
+  //                               const bool                 set_to_zero);
+
   /**
-   *
+   * 
    */
-  void constrain_pressure_point(AffineConstraints<double> &constraints,
-                                const bool                 set_to_zero);
+  void create_zero_mean_pressure_constraints_data();
 
   /**
    * Create the AffineConstraints storing the lambda = 0
@@ -313,6 +318,7 @@ protected:
 
   types::global_dof_index constrained_pressure_dof = numbers::invalid_dof_index;
   Point<dim>              constrained_pressure_support_point;
+  std::vector<std::pair<types::global_dof_index, double>> zero_mean_pressure_weights;
 
   // Position-lambda constraints on the cylinder
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]

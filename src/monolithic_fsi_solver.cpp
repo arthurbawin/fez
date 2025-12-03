@@ -214,7 +214,7 @@ void MonolithicFSISolver<dim>::run()
           //////////////////////////////////////////////////////////
           // Start with BDF1
           solve_nonlinear_problem(false);
-          output_results();
+          postprocess_solution();
           if (param.debug.fsi_check_mms_on_boundary)
             check_manufactured_solution_boundary();
           if (!time_handler.is_steady())
@@ -1428,11 +1428,6 @@ void MonolithicFSISolver<dim>::assemble_local_matrix(
     Tensor<1, dim> dudt =
       time_handler.compute_time_derivative_at_quadrature_node(
         q, present_velocity_values, scratchData.previous_velocity_values);
-    // Tensor<1, dim> dudt = time_handler.bdf_coefficients[0] *
-    // present_velocity_values; for (unsigned int i = 1; i <
-    // time_handler.bdf_coefficients.size(); ++i)
-    //   dudt += time_handler.bdf_coefficients[i] *
-    //   scratchData.previous_velocity_values[i - 1][q];
 
     // const auto &source_term_velocity = scratchData.source_term_velocity[q];
     // const auto &source_term_pressure = scratchData.source_term_pressure[q];

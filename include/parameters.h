@@ -39,15 +39,26 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
-  struct BoundaryConditionsCount
+  struct BoundaryConditionsData
   {
     unsigned int n_fluid_bc;
     unsigned int n_pseudosolid_bc;
+    unsigned int n_cahn_hilliard_bc;
+
+    bool fix_pressure_constant;
+    bool enforce_zero_mean_pressure;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
   };
 
   struct Mesh
   {
+    // Gmsh mesh file
     std::string filename;
+
+    bool use_deal_ii_cube_mesh;
+    unsigned int refinement_level;
 
     // Name of each mesh physical entities
     std::map<types::boundary_id, std::string> id2name;
@@ -61,7 +72,7 @@ namespace Parameters
 
   struct Output
   {
-    bool write_results;
+    bool        write_results;
     std::string output_dir;
     std::string output_prefix;
 
@@ -83,6 +94,11 @@ namespace Parameters
     // Degree of the Lagrange multipliers interpolation
     // when enforcing weak no-slip constraints
     unsigned int no_slip_lagrange_mult_degree;
+
+    // Degree of the tracer and potential interpolation for two-phase
+    // flows with a Cahn-Hilliard Navier-Stokes model
+    unsigned int tracer_degree;
+    unsigned int potential_degree;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -136,14 +152,32 @@ namespace Parameters
   };
 
   struct LinearSolver
-  {};
+  {
+    Verbosity    verbosity;
+
+    enum class Method
+    {
+      direct_mumps,
+      gmres
+    } method;
+
+    double tolerance;
+    unsigned int max_iterations;
+    unsigned int ilu_fill_level;
+
+    bool renumber;
+    bool reuse;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
 
   struct TimeIntegration
   {
     double       dt;
     double       t_initial;
     double       t_end;
-    unsigned int n_constant_timesteps;
+    // unsigned int n_constant_timesteps; // To remove
     Verbosity    verbosity;
 
     enum class Scheme
@@ -152,6 +186,57 @@ namespace Parameters
       BDF1,
       BDF2
     } scheme;
+
+    enum class BDFStart
+    {
+      BDF1,
+      initial_condition
+    } bdfstart;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  struct MMS
+  {
+    bool enable;
+
+    enum class Type
+    {
+      space,
+      time,
+      spacetime
+    } type;
+
+    enum class TimeLpNorm
+    {
+      L1,
+      L2,
+      Linfty
+    } time_norm;
+
+    bool subtract_mean_pressure;
+
+    bool force_source_term;
+
+    unsigned int n_convergence;
+    unsigned int current_step = 0;
+    int run_only_step;
+
+    bool use_deal_ii_cube_mesh;
+    bool use_deal_ii_holed_plate_mesh;
+    std::string  mesh_prefix;
+    unsigned int first_mesh_index;
+    unsigned int mesh_suffix;
+
+    bool use_space_convergence_mesh;
+    unsigned int spatial_mesh_index;
+    double time_step_reduction_factor;
+
+    void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
+    {
+      mesh_param.filename = mesh_prefix + std::to_string(index) + ".msh";
+    }
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -162,10 +247,31 @@ namespace Parameters
    */
   struct FSI
   {
+    Verbosity verbosity;
+    
     bool   enable_coupling;
     double spring_constant;
     double damping;
     double mass;
+
+    double cylinder_radius;
+    double cylinder_length;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  /**
+   * Options for debugging
+   */
+  struct Debug
+  {
+    bool apply_exact_solution;
+    bool compare_analytical_jacobian_with_fd;
+    double analytical_jacobian_absolute_tolerance;
+    double analytical_jacobian_relative_tolerance;
+    bool fsi_apply_erroneous_coupling;
+    bool fsi_check_mms_on_boundary;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

@@ -3,7 +3,9 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
+#include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria_description.h>
 #include <mesh.h>
@@ -11,24 +13,30 @@
 #include <parameters.h>
 
 /**
- * Read mesh from Gmsh file.
- * FIXME: the whole mesh is first read on all processes, then partitioned
- * and distributed. This won't work for really big meshes.
+ * Read sequential mesh from Gmsh file.
  */
-template <int dim, int spacedim>
-void read_gmsh_mesh(
-  Triangulation<dim>                                    &serial_triangulation,
-  parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
-  const std::string                                     &mesh_file)
+template <int dim>
+void read_gmsh_mesh(Triangulation<dim> &serial_triangulation,
+                    const std::string  &mesh_file)
 {
-  MPI_Comm comm = triangulation.get_mpi_communicator();
-
   GridIn<dim> grid_in;
   grid_in.attach_triangulation(serial_triangulation);
 
   std::ifstream input(mesh_file);
   AssertThrow(input, ExcMessage("Could not open mesh file: " + mesh_file));
   grid_in.read_msh(input);
+}
+
+/**
+ * FIXME: the whole mesh is first read on all processes, then partitioned
+ * and distributed. This won't work for really big meshes.
+ */
+template <int dim, int spacedim>
+void partition_and_create_parallel_mesh(
+  Triangulation<dim>                                    &serial_triangulation,
+  parallel::DistributedTriangulationBase<dim, spacedim> &triangulation)
+{
+  MPI_Comm comm = triangulation.get_mpi_communicator();
 
   // Partition serial triangulation:
   GridTools::partition_triangulation(Utilities::MPI::n_mpi_processes(comm),
@@ -97,6 +105,113 @@ void read_gmsh_physical_names(const std::string                   &meshFile,
   }
 }
 
+template <int dim>
+void create_cube(Triangulation<dim> &tria,
+                 Parameters::Mesh   &mesh_param,
+                 const double        min_corner,
+                 const double        max_corner,
+                 const unsigned int  refinements_per_direction,
+                 const bool          convert_to_tets = false)
+{
+  GridGenerator::subdivided_hyper_cube(
+    tria, refinements_per_direction, min_corner, max_corner, true);
+
+  for (auto &cell : tria.active_cell_iterators())
+    for (unsigned int f = 0; f < cell->n_faces(); ++f)
+      if (cell->face(f)->at_boundary())
+      {
+        const auto   c   = cell->face(f)->center();
+        const double tol = 1e-12;
+
+        if (std::fabs(c[0] - min_corner) < tol)
+          cell->face(f)->set_boundary_id(1); // x=0
+        else if (std::fabs(c[0] - max_corner) < tol)
+          cell->face(f)->set_boundary_id(2); // x=1
+        else if (std::fabs(c[1] - min_corner) < tol)
+          cell->face(f)->set_boundary_id(3); // y=0
+        else if (std::fabs(c[1] - max_corner) < tol)
+          cell->face(f)->set_boundary_id(4); // y=1
+
+        if constexpr (dim == 3)
+        {
+          if (std::fabs(c[2] - min_corner) < tol)
+            cell->face(f)->set_boundary_id(5); // z=0
+          if (std::fabs(c[2] - max_corner) < tol)
+            cell->face(f)->set_boundary_id(6); // z=1
+        }
+      }
+
+  mesh_param.id2name.insert({1, "x_min"});
+  mesh_param.id2name.insert({2, "x_max"});
+  mesh_param.id2name.insert({3, "y_min"});
+  mesh_param.id2name.insert({4, "y_max"});
+  mesh_param.name2id.insert({"x_min", 1});
+  mesh_param.name2id.insert({"x_max", 2});
+  mesh_param.name2id.insert({"y_min", 3});
+  mesh_param.name2id.insert({"y_max", 4});
+  if constexpr (dim == 3)
+  {
+    mesh_param.id2name.insert({5, "z_min"});
+    mesh_param.id2name.insert({6, "z_max"});
+    mesh_param.name2id.insert({"z_min", 5});
+    mesh_param.name2id.insert({"z_max", 6});
+  }
+
+  if (convert_to_tets)
+  {
+    const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
+    GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+  }
+}
+
+template <int dim>
+void create_holed_plate(Triangulation<dim> &tria,
+                 Parameters::Mesh   &mesh_param,
+                 const unsigned int  refinement_level,
+                 const bool          convert_to_tets = false)
+{
+  GridGenerator::plate_with_a_hole(tria,
+                    0.15,
+                    0.25,
+                    0.25,
+                    0.25,
+                    0.25,
+                    0.25,
+                    Point<dim>(0.5, 0.5),
+                    0,
+                    1,
+                    1.,
+                    4,
+                    false);
+
+  tria.refine_global(refinement_level);
+
+  if constexpr (dim == 2)
+  {
+    mesh_param.id2name.insert({0, "OuterBoundary"});
+    mesh_param.id2name.insert({1, "InnerBoundary"});
+    mesh_param.name2id.insert({"OuterBoundary", 0});
+    mesh_param.name2id.insert({"InnerBoundary", 1});
+  }
+  else
+  {
+    mesh_param.id2name.insert({0, "OuterBoundary"});
+    mesh_param.id2name.insert({1, "InnerBoundary"});
+    mesh_param.name2id.insert({"OuterBoundary", 0});
+    mesh_param.name2id.insert({"InnerBoundary", 1});
+  }
+
+  if (convert_to_tets)
+  {
+    const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
+    GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+  }
+
+  GridOut grid_out;
+  grid_out.write_msh(tria, "tria.msh");
+}
+
+
 /**
  * Perform checks on the mesh boundary ids and entities.
  */
@@ -118,7 +233,10 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
     AssertThrow(
       param.mesh.id2name.count(id) == 1,
       ExcMessage(
-        "Deal.ii read a boundary entity with id " + std::to_string(id) +
+        "In mesh file " + param.mesh.filename +
+        " :\n"
+        "Deal.ii read a boundary entity with id " +
+        std::to_string(id) +
         " in the mesh, but no named Physical Entity with this tag "
         "was read from the mesh file. This typically happens if there is a "
         "geometric entity (i.e., a boundary curve or surface) in the mesh that "
@@ -135,25 +253,27 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
   {
     // Check that each boundary id appears in the fluid boundary conditions
     AssertThrow(
-      std::count_if(param.fluid_bc.begin(),
-                    param.fluid_bc.end(),
-                    [id](const auto &bc) { return bc.id == id; }) == 1,
-      ExcMessage("No fluid boundary condition was assigned to boundary " +
+      param.fluid_bc.find(id) != param.fluid_bc.end(),
+      ExcMessage("In mesh file " + param.mesh.filename +
+                 " :\n"
+                 "No fluid boundary condition was assigned to boundary " +
                  std::to_string(id) + " (" + param.mesh.id2name.at(id) +
                  "). For now, all boundaries must be assigned a boundary "
                  "condition for all relevant fields."));
 
-    if(param.physical_properties.n_pseudosolids > 0)
+    if (param.physical_properties.n_pseudosolids > 0)
     {
-      // Check that each boundary id appears in the pseudosolid boundary conditions
+      // Check that each boundary id appears in the pseudosolid boundary
+      // conditions
       AssertThrow(
-        std::count_if(param.pseudosolid_bc.begin(),
-                      param.pseudosolid_bc.end(),
-                      [id](const auto &bc) { return bc.id == id; }) == 1,
-        ExcMessage("No pseudosolid boundary condition was assigned to boundary " +
-                   std::to_string(id) + " (" + param.mesh.id2name.at(id) +
-                   "). For now, all boundaries must be assigned a boundary "
-                   "condition for all relevant fields."));
+        param.pseudosolid_bc.find(id) != param.pseudosolid_bc.end(),
+        ExcMessage(
+          "In mesh file " + param.mesh.filename +
+          " :\n"
+          "No pseudosolid boundary condition was assigned to boundary " +
+          std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+          "). For now, all boundaries must be assigned a boundary "
+          "condition for all relevant fields."));
     }
   }
 }
@@ -166,7 +286,10 @@ void check_single_boundary_condition(
   // Check that boundary id given in parameter file exists in the mesh
   AssertThrow(param.mesh.id2name.count(bc.id) == 1,
               ExcMessage(
-                "A " + bc.physics_str +
+                "In mesh file " + param.mesh.filename +
+                " :\n"
+                "A " +
+                bc.physics_str +
                 " boundary condition is prescribed on a mesh "
                 "domain (Physical Entity) with id " +
                 std::to_string(bc.id) +
@@ -176,22 +299,33 @@ void check_single_boundary_condition(
   // Check that the boundary name exists
   AssertThrow(param.mesh.name2id.count(bc.gmsh_name) == 1,
               ExcMessage(
-                "A " + bc.physics_str +
+                "In mesh file " + param.mesh.filename +
+                " :\n"
+                "A " +
+                bc.physics_str +
                 " boundary condition is prescribed on a mesh domain (Physical "
                 "Entity) named \"" +
                 bc.gmsh_name +
                 "\", but this entity either does not exist in the mesh or "
-                "appears more than one time, which is not supported."));
+                "appears more than one time, which is not supported."
+                " This entity appears exactly " +
+                std::to_string(param.mesh.name2id.count(bc.gmsh_name)) +
+                " times in the mesh."));
 
   // Check that the prescribed name and id match in the mesh
   AssertThrow(param.mesh.id2name.at(bc.id) == bc.gmsh_name,
               ExcMessage(
-                "A " + bc.physics_str +
+                "In mesh file " + param.mesh.filename +
+                " :\n"
+                "A " +
+                bc.physics_str +
                 " boundary condition is prescribed on entity \"" +
                 bc.gmsh_name + "\" with id " + std::to_string(bc.id) +
                 ", but this id does not match this entity in the "
                 "mesh. Instead, the entity exists in the mesh with id " +
-                std::to_string(param.mesh.name2id.at(bc.gmsh_name)) + "."));
+                std::to_string(param.mesh.name2id.at(bc.gmsh_name)) +
+                " and id " + std::to_string(bc.id) + " exists with name \"" +
+                param.mesh.id2name.at(bc.id) + "\"."));
 }
 
 /**
@@ -204,18 +338,20 @@ template <int dim>
 void check_boundary_conditions_compatibility(const ParameterReader<dim> &param)
 {
   // Check fluid conditions
-  for (const auto &bc : param.fluid_bc)
+  for (const auto &[id, bc] : param.fluid_bc)
     check_single_boundary_condition(bc, param);
   // Check pseudosolid conditions
-  for (const auto &bc : param.pseudosolid_bc)
+  for (const auto &[id, bc] : param.pseudosolid_bc)
     check_single_boundary_condition(bc, param);
 }
 
-template <int dim>
-void print_mesh_info(Triangulation<dim>         &serial_triangulation,
-                     const ParameterReader<dim> &param)
+template <int dim, int spacedim>
+void print_mesh_info(
+  const Triangulation<dim> &serial_triangulation,
+  const parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
+  const ParameterReader<dim>                                  &param)
 {
-  MPI_Comm           comm = serial_triangulation.get_mpi_communicator();
+  MPI_Comm           comm = triangulation.get_mpi_communicator();
   const unsigned int rank = Utilities::MPI::this_mpi_process(comm);
 
   if (rank == 0 && param.mesh.verbosity == Parameters::Verbosity::verbose)
@@ -246,23 +382,60 @@ void read_mesh(
   ParameterReader<dim>                                  &param)
 {
   Triangulation<dim> serial_triangulation;
-  read_gmsh_mesh(serial_triangulation, triangulation, param.mesh.filename);
 
-  // Manually read the Gmsh entity names and store them
-  read_gmsh_physical_names(param.mesh.filename,
-                           param.mesh.id2name,
-                           param.mesh.name2id);
+  // In 2D; If no mesh prefix was provided for a convergence study, use
+  // deal.II's functions to mesh a square [-1,1]^2. In 3D, there seems to be a
+  // bug in deal.II when reading a transfinite cube mesh file. Always use
+  // deal.II's routines to create a subdivided cube mesh.
+  bool use_deal_ii_mesh = param.mesh.use_deal_ii_cube_mesh ||
+  (param.mms_param.enable && param.mms_param.use_deal_ii_cube_mesh) ||
+  (param.mms_param.enable && param.mms_param.use_deal_ii_holed_plate_mesh);
 
-  print_mesh_info(serial_triangulation, param);
+  if (use_deal_ii_mesh)
+  {
+    const bool convert_to_simplices = true;
+
+    if(param.mesh.use_deal_ii_cube_mesh || param.mms_param.use_deal_ii_cube_mesh)
+    {
+      const double       min_corner = (dim == 2) ? 0. : 0.;
+      const double       max_corner = 1.;
+      const unsigned int refinement_level = param.mms_param.enable ?
+        pow(2, param.mms_param.mesh_suffix + 1) : param.mesh.refinement_level;
+      create_cube(serial_triangulation,
+                  param.mesh,
+                  min_corner,
+                  max_corner,
+                  refinement_level,
+                  convert_to_simplices);
+    }
+    if(param.mms_param.use_deal_ii_holed_plate_mesh)
+    {
+      const unsigned int refinement_level = param.mms_param.enable ?
+        param.mms_param.mesh_suffix : param.mesh.refinement_level;
+      create_holed_plate(serial_triangulation,
+                         param.mesh,
+                         refinement_level,
+                         convert_to_simplices);
+    }
+  }
+  else
+  {
+    // Read Gmsh .msh4 mesh file
+    read_gmsh_mesh(serial_triangulation, param.mesh.filename);
+
+    // Manually read the Gmsh entity names and store them
+    read_gmsh_physical_names(param.mesh.filename,
+                             param.mesh.id2name,
+                             param.mesh.name2id);
+  }
+
+  partition_and_create_parallel_mesh(serial_triangulation, triangulation);
+
+  print_mesh_info(serial_triangulation, triangulation, param);
 
   check_boundary_ids(serial_triangulation, param);
 
   check_boundary_conditions_compatibility(param);
-
-  // for (auto str : boundary_description.weak_velocity_boundary_names)
-  // {
-  //   weak_bc_boundary_id = mesh_domains_name2tag.at(str);
-  // }
 }
 
 template void

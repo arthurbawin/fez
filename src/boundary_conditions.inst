@@ -1,0 +1,68 @@
+
+namespace BoundaryConditions
+{
+  template void apply_velocity_boundary_conditions(
+    const bool,
+    const unsigned int,
+    const unsigned int,
+    const DoFHandler<2> &,
+    const Mapping<2> &,
+    const std::map<types::boundary_id, FluidBC<2>> &,
+    const Function<2> &,
+    const Function<2> &,
+    AffineConstraints<double> &);
+
+  template void apply_velocity_boundary_conditions(
+    const bool,
+    const unsigned int,
+    const unsigned int,
+    const DoFHandler<3> &,
+    const Mapping<3> &,
+    const std::map<types::boundary_id, FluidBC<3>> &,
+    const Function<3> &,
+    const Function<3> &,
+    AffineConstraints<double> &);
+
+  template void constrain_pressure_point(const DoFHandler<2> &,
+                                         const IndexSet &,
+                                         const Mapping<2> &,
+                                         const Function<2> &,
+                                         const unsigned int,
+                                         const bool,
+                                         AffineConstraints<double> &,
+                                         types::global_dof_index &,
+                                         Point<2> &,
+                                         const Point<2> &);
+
+  template void constrain_pressure_point(const DoFHandler<3> &,
+                                         const IndexSet &,
+                                         const Mapping<3> &,
+                                         const Function<3> &,
+                                         const unsigned int,
+                                         const bool,
+                                         AffineConstraints<double> &,
+                                         types::global_dof_index &,
+                                         Point<3> &,
+                                         const Point<3> &);
+
+  template void create_zero_mean_pressure_constraints_data(
+    const Triangulation<2> &,
+    const DoFHandler<2> &,
+    IndexSet &,
+    const Mapping<2> &,
+    const Quadrature<2> &,
+    const unsigned int,
+    types::global_dof_index &,
+    std::vector<std::pair<types::global_dof_index, double>> &);
+
+  template void create_zero_mean_pressure_constraints_data(
+    const Triangulation<3> &,
+    const DoFHandler<3> &,
+    IndexSet &,
+    const Mapping<3> &,
+    const Quadrature<3> &,
+    const unsigned int,
+    types::global_dof_index &,
+    std::vector<std::pair<types::global_dof_index, double>> &);
+
+} // namespace BoundaryConditions

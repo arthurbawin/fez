@@ -3,7 +3,12 @@ subsection Dimension
   set dimension = 2
 end
 
+subsection Timer
+  set enable timer = true
+end
+
 subsection Output
+  set write results    = true
   set output directory = ../data/test/
   set output prefix    = solution
 end
@@ -17,7 +22,7 @@ end
 subsection Time integration
   set dt        = 0.1
   set t_initial = 0
-  set t_end     = 50
+  set t_end     = 4.
   set scheme    = BDF2
 end
 
@@ -27,6 +32,11 @@ subsection Nonlinear solver
   set max_iterations       = 50
   set enable_line_search   = true
   set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  set verbosity      = quiet
+  set method         = direct_mumps
 end
 
 subsection FiniteElements
@@ -52,7 +62,7 @@ end
 
 subsection FSI
   set enable coupling = true
-  set spring constant = 10
+  set spring constant = 1
 end
 
 subsection Initial conditions

@@ -2,6 +2,7 @@
 #define TIME_HANDLER_H
 
 #include <deal.II/base/types.h>
+#include <deal.II/base/conditional_ostream.h>
 #include <parameters.h>
 
 /**
@@ -19,19 +20,39 @@ public:
    * Update the BDF coefficients given the current and previous
    * time steps.
    */
-  void set_bdf_coefficients();
+  void
+  set_bdf_coefficients(const bool force_scheme = false,
+                       const Parameters::TimeIntegration::Scheme forced_scheme =
+                         Parameters::TimeIntegration::Scheme::BDF1);
+
+  /**
+   * Returns true if the time integration scheme is "stationary"
+   */
+  bool is_steady() const
+  {
+    return scheme == Parameters::TimeIntegration::Scheme::stationary;
+  }
+
+  /**
+   * For BDF methods, return true if the current time step is a
+   * "starting step" (none for BDF1, first for BDF2).
+   */
+  bool is_starting_step() const
+  {
+    return current_time_iteration < n_previous_solutions;
+  }
 
   /**
    * Returns true if the simulation should stop:
    * - always true if simulation is steady
    * - if t >= t_end if unsteady
    */
-  bool is_finished();
+  bool is_finished() const;
 
   /**
    * Rotate the computed time step i+1 to position i.
    */
-  void advance();
+  void advance(const ConditionalOStream &pcout);
 
   /**
    * Compute the approximation of the time derivative of the field associated to
@@ -48,16 +69,18 @@ public:
   /**
    * Same as above but for the time derivative of a vector (Tensor<1, dim>),
    * given the current and previous vectors, at index-th quadrature node.
-   * 
+   *
    * This is tailored for a previous_solutions vector stored in a scratch data.
    */
   template <int dim>
   Tensor<1, dim> compute_time_derivative_at_quadrature_node(
-    const unsigned int index,
-    const Tensor<1, dim>              &present_solution,
+    const unsigned int                              index,
+    const Tensor<1, dim>                           &present_solution,
     const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const;
 
 public:
+  Parameters::TimeIntegration time_parameters;
+
   double              current_time;
   unsigned int        current_time_iteration;
   double              initial_time;
@@ -74,7 +97,7 @@ public:
   std::vector<double> bdf_coefficients;
 };
 
-/* ---------------- template functions ----------------- */
+/* ---------------- Template functions ----------------- */
 
 template <typename VectorType>
 double TimeHandler::compute_time_derivative(
@@ -97,9 +120,9 @@ double TimeHandler::compute_time_derivative(
 
 template <int dim>
 Tensor<1, dim> TimeHandler::compute_time_derivative_at_quadrature_node(
-    const unsigned int index,
-    const Tensor<1, dim>              &present_solution,
-    const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const
+  const unsigned int                              index,
+  const Tensor<1, dim>                           &present_solution,
+  const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const
 {
   if (scheme == Parameters::TimeIntegration::Scheme::stationary)
     return Tensor<1, dim>();

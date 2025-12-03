@@ -6,7 +6,8 @@ constexpr auto BDF1 = Parameters::TimeIntegration::Scheme::BDF1;
 constexpr auto BDF2 = Parameters::TimeIntegration::Scheme::BDF2;
 
 TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
-  : current_time(time_parameters.t_initial)
+  : time_parameters(time_parameters)
+  , current_time(time_parameters.t_initial)
   , current_time_iteration(0)
   , initial_time(time_parameters.t_initial)
   , final_time(time_parameters.t_end)
@@ -29,19 +30,22 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
 
   previous_times.resize(n_previous_solutions + 1, initial_time);
   time_steps.resize(n_previous_solutions + 1, initial_dt);
-  bdf_coefficients.resize(n_previous_solutions + 1);
+  bdf_coefficients.resize(n_previous_solutions + 1, 0.);
 }
 
-void TimeHandler::set_bdf_coefficients()
+void TimeHandler::set_bdf_coefficients(
+  const bool                                force_scheme,
+  const Parameters::TimeIntegration::Scheme forced_scheme)
 {
-  switch (scheme)
+  const Parameters::TimeIntegration::Scheme used_scheme =
+    force_scheme ? forced_scheme : scheme;
+  switch (used_scheme)
   {
     case STAT:
       bdf_coefficients[0] = 0.;
       break;
     case BDF1:
     {
-      // FIXME: update for variable step
       const double dt     = time_steps[0];
       bdf_coefficients[0] = 1. / dt;
       bdf_coefficients[1] = -1. / dt;
@@ -59,26 +63,87 @@ void TimeHandler::set_bdf_coefficients()
   }
 }
 
-bool TimeHandler::is_finished()
+bool TimeHandler::is_finished() const
 {
-  if(scheme == STAT)
-    return true;
+  if (scheme == STAT)
+  {
+    // Stop after a single "time step"
+    return current_time_iteration > 0;
+  }
   return current_time >= final_time - 1e-10;
 }
 
-void TimeHandler::advance()
+void TimeHandler::advance(const ConditionalOStream &pcout)
 {
-  // Rotate the times and time steps
-  for (unsigned int i = n_previous_solutions - 1; i >= 1; --i)
-  {
-    previous_times[i] = previous_times[i - 1];
-    time_steps[i]     = time_steps[i - 1];
-  }
-
-  // Update values and coefficients
-  current_time += current_dt;
   current_time_iteration++;
-  previous_times[0] = current_time;
-  time_steps[0]     = current_dt;
-  set_bdf_coefficients();
+
+  if (scheme != STAT)
+  {
+    // Rotate the times and time steps
+    for (unsigned int i = n_previous_solutions - 1; i >= 1; --i)
+    {
+      previous_times[i] = previous_times[i - 1];
+      time_steps[i]     = time_steps[i - 1];
+    }
+
+    if(scheme == BDF1)
+    {
+      // Self-starting: update values and coefficients and proceed
+      current_time += current_dt;
+      previous_times[0] = current_time;
+      time_steps[0]     = current_dt;
+      set_bdf_coefficients();
+    }
+
+    if(scheme == BDF2)
+    {
+      if(time_parameters.bdfstart == Parameters::TimeIntegration::BDFStart::BDF1)
+      {
+        // Start with BDF1
+       const double starting_step_ratio = 0.1;
+
+        if (this->is_starting_step())
+        {
+          current_dt = initial_dt * starting_step_ratio;
+          current_time += current_dt;
+          previous_times[0] = current_time;
+          time_steps[0]     = current_dt;
+
+          // Force scheme to BDF1
+          set_bdf_coefficients(true);
+        }
+        else if (current_time_iteration - 1 < n_previous_solutions)
+        {
+          // Previous step was starting step
+          current_dt = initial_dt * (1. - starting_step_ratio);
+          current_time += current_dt;
+          previous_times[0] = current_time;
+          time_steps[0]     = current_dt;
+          set_bdf_coefficients();
+          current_dt = initial_dt;
+        }
+        else
+        {
+          // Continue with regular time step
+          current_time += current_dt;
+          previous_times[0] = current_time;
+          time_steps[0]     = current_dt;
+          set_bdf_coefficients();
+        }
+      }
+      else
+      {
+        current_time += current_dt;
+        previous_times[0] = current_time;
+        time_steps[0]     = current_dt;
+        set_bdf_coefficients();
+      }
+    }
+
+      if (time_parameters.verbosity == Parameters::Verbosity::verbose)
+        pcout << std::endl
+              << "Time step " << current_time_iteration
+              << " - Advancing to t = " << current_time << '.'
+              << std::endl;
+  }
 }

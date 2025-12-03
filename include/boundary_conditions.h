@@ -3,7 +3,13 @@
 
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/parsed_function.h>
+#include <deal.II/dofs/dof_tools.h>
+#include <deal.II/fe/component_mask.h>
+#include <deal.II/fe/mapping.h>
+#include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/vector.h>
+#include <deal.II/numerics/vector_tools.h>
+#include <deal.II/numerics/vector_tools_interpolate.h>
 
 using namespace dealii;
 
@@ -18,7 +24,8 @@ namespace BoundaryConditions
   enum class PhysicsType
   {
     fluid,
-    pseudosolid
+    pseudosolid,
+    cahn_hilliard
   };
 
   /**
@@ -36,10 +43,23 @@ namespace BoundaryConditions
     weak_no_slip, // Check that lagrange mult is defined, couple
     slip,         // Enforce no_flux
 
+    // These boundary conditions are for flow verification purposes:
+    // Set velocity to prescribed manufactured solution
+    velocity_mms,
+    // Set both the normal and tangential flux to u dot n/t = u_mms dot n/t
+    velocity_flux_mms,
+    // Set (-pI + nu*grad(u)) \cdot n = (-p_mmsI + nu*grad(u_mms)) \cdot n
+    open_mms,
+
     // Pseudo_solid
     fixed, // Enforce 0 displacement. Default when no BC is prescribed?
     coupled_to_fluid, // Couple to lagrange mult
-    no_flux           // Slip. Have to check what happens at corners, etc.
+    no_flux,          // Slip. Have to check what happens at corners, etc.
+    position_mms,     // Enforce x = x_mms
+    position_flux_mms // Enforce x \cdot n = x_mms \cdot n
+
+    // Cahn-Hilliard
+    // no_flux
   };
 
   /**
@@ -65,8 +85,12 @@ namespace BoundaryConditions
      * Declare the parameters common to all boundary conditions
      */
     virtual void declare_parameters(ParameterHandler &prm);
-    virtual void read_parameters(ParameterHandler  &prm,
-                                 const unsigned int boundary_id);
+    virtual void read_parameters(ParameterHandler &prm);
+
+    /**
+     * Update the time in the underlying functions, if applicable.
+     */
+    virtual void set_time(const double new_time) = 0;
   };
 
   /**
@@ -95,10 +119,16 @@ namespace BoundaryConditions
       w = std::make_shared<Functions::ParsedFunction<dim>>();
     };
 
+    virtual void set_time(const double new_time) override
+    {
+      u->set_time(new_time);
+      v->set_time(new_time);
+      w->set_time(new_time);
+    }
+
   public:
-    void declare_parameters(ParameterHandler &prm) override;
-    void read_parameters(ParameterHandler  &prm,
-                         const unsigned int boundary_id) override;
+    virtual void declare_parameters(ParameterHandler &prm) override;
+    virtual void read_parameters(ParameterHandler &prm) override;
   };
 
   /**
@@ -109,215 +139,146 @@ namespace BoundaryConditions
   class PseudosolidBC : public BoundaryCondition
   {
   public:
-    void declare_parameters(ParameterHandler &prm) override;
-    void read_parameters(ParameterHandler  &prm,
-                         const unsigned int boundary_id) override;
+    virtual void declare_parameters(ParameterHandler &prm) override;
+    virtual void read_parameters(ParameterHandler &prm) override;
+    virtual void set_time(const double) override {}
   };
 
-  // FIXME: templatize the "declare" and "read" functions below,
-  // so that one function handles all types of BC vectors.
+  /**
+   * A boundary condition for the Cahn-Hilliard tracer and potential.
+   */
   template <int dim>
-  void declare_fluid_boundary_conditions(ParameterHandler          &prm,
-                                         std::vector<FluidBC<dim>> &fluid_bc)
+  class CahnHilliardBC : public BoundaryCondition
   {
-    prm.enter_subsection("Fluid boundary conditions");
-    {
-      // The number was already parsed in a first dry run
-      prm.declare_entry(
-        "number",
-        "0", // Utilities::int_to_string(number_of_boundary_conditions),
-        Patterns::Integer(),
-        "Number of fluid boundary conditions");
+  public:
+    virtual void declare_parameters(ParameterHandler &prm) override;
+    virtual void read_parameters(ParameterHandler &prm) override;
+    virtual void set_time(const double) override {}
+  };
 
-      for (unsigned int i = 0; i < fluid_bc.size(); ++i)
-      {
-        prm.enter_subsection("boundary " + std::to_string(i));
-        {
-          fluid_bc[i].declare_parameters(prm);
-        }
-        prm.leave_subsection();
-      }
-    }
-    prm.leave_subsection();
+  /**
+   * Declare a family of boundary conditions (fluid, pseudosolid, ...)
+   */
+  template <typename BCType>
+  void declare_boundary_conditions(ParameterHandler  &prm,
+                                   const unsigned int n_bc,
+                                   const std::string &bc_type_name);
+  /**
+   * Parse a family of boundary conditions from the parameter file
+   */
+  template <typename BCType>
+  void read_boundary_conditions(
+    ParameterHandler                     &prm,
+    const unsigned int                    n_bc,
+    const std::string                    &bc_type_name,
+    std::map<types::boundary_id, BCType> &boundary_conditions);
+
+  /**
+   *
+   *
+   */
+  template <int dim>
+  void apply_velocity_boundary_conditions(
+    const bool             homogeneous,
+    const unsigned int     u_lower,
+    const unsigned int     n_components,
+    const DoFHandler<dim> &dof_handler,
+    const Mapping<dim>    &mapping,
+    const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>>
+                              &fluid_bc,
+    const Function<dim>       &exact_solution,
+    const Function<dim>       &exact_velocity,
+    AffineConstraints<double> &constraints);
+
+  /**
+   *
+   */
+  template <int dim>
+  void
+  constrain_pressure_point(const DoFHandler<dim>     &dof_handler,
+                           const IndexSet            &locally_relevant_dofs,
+                           const Mapping<dim>        &mapping,
+                           const Function<dim>       &exact_solution,
+                           const unsigned int         p_lower,
+                           const bool                 set_to_zero,
+                           AffineConstraints<double> &constraints,
+                           types::global_dof_index   &constrained_pressure_dof,
+                           Point<dim>       &constrained_pressure_support_point,
+                           const Point<dim> &reference_point = Point<dim>());
+
+  /**
+   * Enforcing zero-mean pressure yields the linear constraint:
+   *
+   *  int_\Omega p dx = 0  -> sum_j a_j * p_j = 0,
+   *
+   * where the c_j are obtained from integrating the pressure shape functions
+   * over \Omega. This is satisfied by constraining a single pressure DoF to
+   *
+   *  p_0 = - sum_{j != 0} a_j/a_0 * p_j := sum_{j != 0} c_j * p_j.
+   *
+   * This function computes the weights c_j and sets the pressure dof to
+   * constrain "constrained_pressure_dof", which is simply the (globally) first
+   * pressure DoF.
+   *
+   * Important: since this is a global constraint, this pressure dof will be
+   * coupled to *all* other pressure dofs (on MPI processes which have this dof
+   * as owned or ghost). This fills the sparsity pattern and is thus highly
+   * inefficient. Enforcing zero-mean this way is only meant for verification on
+   * corner-case (pun intended, see further) convergence studies, in particular
+   * for 3D tests with some specific non-divergence-free velocity fields, which
+   * show either reduced convergence order for the pressure or even no
+   * convergence at all when setting a corner pressure DoF to zero.
+   */
+  template <int dim>
+  void create_zero_mean_pressure_constraints_data(
+    const Triangulation<dim> &tria,
+    const DoFHandler<dim>    &dof_handler,
+    IndexSet                 &locally_relevant_dofs,
+    const Mapping<dim>       &mapping,
+    const Quadrature<dim>    &quadrature,
+    const unsigned int        p_lower,
+    types::global_dof_index  &constrained_pressure_dof,
+    std::vector<std::pair<types::global_dof_index, double>>
+      &constraint_weights);
+
+  /**
+   * Given the weights and dof computed with the function above,
+   * add the single zero-mean constraint on the specified pressure dof to
+   * the passed constraints.
+   *
+   * Important: this yields a very inefficient sparsity pattern and should only
+   * be used for specific verification tests, see above.
+   */
+  void add_zero_mean_pressure_constraints(
+    AffineConstraints<double>     &constraints,
+    const IndexSet                &locally_relevant_dofs,
+    const types::global_dof_index &constrained_pressure_dof,
+    const std::vector<std::pair<types::global_dof_index, double>>
+      &constraint_weights);
+
+  /**
+   *
+   */
+  template <int dim, typename VectorType>
+  void remove_mean_pressure(const ComponentMask   &pressure_mask,
+                            const DoFHandler<dim> &dof_handler,
+                            const double           mean_pressure,
+                            VectorType            &solution)
+  {
+    const IndexSet owned_pressure_dofs =
+      DoFTools::extract_dofs(dof_handler, pressure_mask);
+    for (const auto i : owned_pressure_dofs)
+      solution[i] -= mean_pressure;
+    solution.compress(VectorOperation::add);
   }
 
-  template <int dim>
-  void read_fluid_boundary_conditions(ParameterHandler          &prm,
-                                      std::vector<FluidBC<dim>> &fluid_bc)
-  {
-    /**
-     * FIXME: If the number of bc actually added in the parameter file is
-     * greater than the specified number, deal.ii throws a parse error.
-     Ideally,
-     * we should be able to return an error here if the user specified too
-     few
-     * boundary conditions.
-     */
-    prm.enter_subsection("Fluid boundary conditions");
-    {
-      for (unsigned int i = 0; i < fluid_bc.size(); ++i)
-      {
-        prm.enter_subsection("boundary " + std::to_string(i));
-        {
-          fluid_bc[i].read_parameters(prm, i);
-        }
-        prm.leave_subsection();
-      }
-    }
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void FluidBC<dim>::declare_parameters(ParameterHandler &prm)
-  {
-    BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry(
-      "type",
-      "none",
-      Patterns::Selection(
-        "none|input_function|outflow|no_slip|weak_no_slip|slip"),
-      "Type of fluid boundary condition");
-
-    // Imposed functions, if any
-    prm.enter_subsection("u");
-    u->declare_parameters(prm);
-    prm.leave_subsection();
-
-    prm.enter_subsection("v");
-    v->declare_parameters(prm);
-    prm.leave_subsection();
-
-    prm.enter_subsection("w");
-    w->declare_parameters(prm);
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void FluidBC<dim>::read_parameters(ParameterHandler  &prm,
-                                     const unsigned int boundary_id)
-  {
-    BoundaryCondition::read_parameters(prm, boundary_id);
-    physics_type                  = PhysicsType::fluid;
-    physics_str                   = "fluid";
-    const std::string parsed_type = prm.get("type");
-    if (parsed_type == "input_function")
-      type = Type::input_function;
-    if (parsed_type == "outflow")
-      type = Type::outflow;
-    if (parsed_type == "no_slip")
-      type = Type::no_slip;
-    if (parsed_type == "weak_no_slip")
-      type = Type::weak_no_slip;
-    if (parsed_type == "slip")
-      type = Type::slip;
-    if (parsed_type == "none")
-      throw std::runtime_error(
-        "Fluid boundary condition for boundary " + std::to_string(boundary_id) +
-        " is set to \"none\".\n"
-        "Either you specified this type by mistake, or the number of \n"
-        "prescribed fluid boundary conditions is smaller than "
-        "the specified \"number\" field.");
-
-    prm.enter_subsection("u");
-    u->parse_parameters(prm);
-    prm.leave_subsection();
-
-    prm.enter_subsection("v");
-    v->parse_parameters(prm);
-    prm.leave_subsection();
-
-    prm.enter_subsection("w");
-    w->parse_parameters(prm);
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void declare_pseudosolid_boundary_conditions(
-    ParameterHandler                &prm,
-    std::vector<PseudosolidBC<dim>> &pseudosolid_bc)
-  {
-    prm.enter_subsection("Pseudosolid boundary conditions");
-    {
-      prm.declare_entry(
-        "number",
-        "0", // Utilities::int_to_string(number_of_boundary_conditions),
-        Patterns::Integer(),
-        "Number of pseudosolid boundary conditions");
-
-      for (unsigned int i = 0; i < pseudosolid_bc.size(); ++i)
-      {
-        prm.enter_subsection("boundary " + std::to_string(i));
-        {
-          pseudosolid_bc[i].declare_parameters(prm);
-        }
-        prm.leave_subsection();
-      }
-    }
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void read_pseudosolid_boundary_conditions(
-    ParameterHandler                &prm,
-    std::vector<PseudosolidBC<dim>> &pseudosolid_bc)
-  {
-    prm.enter_subsection("Pseudosolid boundary conditions");
-    {
-      for (unsigned int i = 0; i < pseudosolid_bc.size(); ++i)
-      {
-        prm.enter_subsection("boundary " + std::to_string(i));
-        {
-          pseudosolid_bc[i].read_parameters(prm, i);
-        }
-        prm.leave_subsection();
-      }
-    }
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void PseudosolidBC<dim>::declare_parameters(ParameterHandler &prm)
-  {
-    BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry("type",
-                      "none",
-                      Patterns::Selection(
-                        "none|fixed|coupled_to_fluid|no_flux|input_function"),
-                      "Type of pseudosolid boundary condition");
-  }
-
-  template <int dim>
-  void PseudosolidBC<dim>::read_parameters(ParameterHandler  &prm,
-                                           const unsigned int boundary_id)
-  {
-    BoundaryCondition::read_parameters(prm, boundary_id);
-    physics_type                  = PhysicsType::pseudosolid;
-    physics_str                   = "pseudosolid";
-    const std::string parsed_type = prm.get("type");
-    if (parsed_type == "fixed")
-      type = Type::fixed;
-    if (parsed_type == "coupled_to_fluid")
-      type = Type::coupled_to_fluid;
-    if (parsed_type == "no_flux")
-      type = Type::no_flux;
-    if (parsed_type == "input_function")
-      type = Type::input_function;
-    if (parsed_type == "none")
-      throw std::runtime_error(
-        "Pseudosolid boundary condition for boundary " +
-        std::to_string(boundary_id) +
-        " is set to \"none\".\n"
-        "Either you specified this type by mistake, or the number of \n"
-        "prescribed pseudosolid boundary conditions is smaller than "
-        "the specified \"number\" field.");
-  }
 } // namespace BoundaryConditions
 
 /**
  * Flow velocity prescribed by individual ParsedFunctions u,v,w.
  * The parameter @p u_lower is the first velocity component in the
  * solution vector (zero-based).
- * 
+ *
  * Note that the time dependency (if any) is accounted for by
  * setting the time of the underlying ParsedFunctions through set_time(t),
  * and calling e.g. u->value(p), and not u->value(p,t).
@@ -326,17 +287,17 @@ template <int dim>
 class ComponentwiseFlowVelocity : public Function<dim>
 {
 public:
-  const unsigned int u_lower;
+  const unsigned int                              u_lower;
   std::shared_ptr<Functions::ParsedFunction<dim>> u;
   std::shared_ptr<Functions::ParsedFunction<dim>> v;
   std::shared_ptr<Functions::ParsedFunction<dim>> w;
 
 public:
   ComponentwiseFlowVelocity(const unsigned int u_lower,
-                    const unsigned int n_components,
-                    std::shared_ptr<Functions::ParsedFunction<dim>> u,
-                    std::shared_ptr<Functions::ParsedFunction<dim>> v,
-                    std::shared_ptr<Functions::ParsedFunction<dim>> w)
+                            const unsigned int n_components,
+                            std::shared_ptr<Functions::ParsedFunction<dim>> u,
+                            std::shared_ptr<Functions::ParsedFunction<dim>> v,
+                            std::shared_ptr<Functions::ParsedFunction<dim>> w)
     : Function<dim>(n_components)
     , u_lower(u_lower)
     , u(u)
@@ -345,13 +306,13 @@ public:
   {}
 
   virtual double value(const Point<dim> &p,
-                       unsigned int component) const override
+                       unsigned int      component) const override
   {
-    if(component == u_lower + 0)
+    if (component == u_lower + 0)
       return u->value(p);
-    if(component == u_lower + 1)
+    if (component == u_lower + 1)
       return v->value(p);
-    if(component == u_lower + 2)
+    if (component == u_lower + 2)
       return w->value(p);
     return 0.;
   }
@@ -361,11 +322,11 @@ public:
  * This function is meant to represent the spatial identity function,
  * and is used to enforce a no displacement boundary condition for a
  * pseudosolid mesh movement problem, that is, x(X) = X.
- * 
+ *
  * The only trick is that depending on the problem, the index of the
  * position variables in the solution vector may vary, so this needs
  * to be specified by the @p x_lower parameter.
- * 
+ *
  * Note that if we were solving for the displacement instead of the
  * position, this function would simply be the zero function.
  */
@@ -377,8 +338,7 @@ public:
   const unsigned int x_lower;
 
 public:
-  FixedMeshPosition(const unsigned int x_lower,
-                    const unsigned int n_components)
+  FixedMeshPosition(const unsigned int x_lower, const unsigned int n_components)
     : Function<dim>(n_components)
     , x_lower(x_lower)
   {}
@@ -390,5 +350,67 @@ public:
       values[x_lower + d] = p[d];
   }
 };
+
+
+/* ---------------- template and inline functions ----------------- */
+
+template <typename BCType>
+void BoundaryConditions::declare_boundary_conditions(
+  ParameterHandler  &prm,
+  const unsigned int n_bc,
+  const std::string &bc_type_name)
+{
+  // These boundary conditions are used to declare the generic parameters
+  // (problem is that map keys are immutable after they are created, although
+  // we could alternatively move or swap the map entries).
+  std::vector<BCType> tmp_bc(n_bc);
+
+  prm.enter_subsection(bc_type_name + " boundary conditions");
+  {
+    // The number was already parsed in a first dry run
+    prm.declare_entry("number",
+                      "0",
+                      Patterns::Integer(),
+                      "Number of " + bc_type_name + " boundary conditions");
+
+    for (unsigned int i = 0; i < n_bc; ++i)
+    {
+      prm.enter_subsection("boundary " + std::to_string(i));
+      {
+        tmp_bc[i].declare_parameters(prm);
+      }
+      prm.leave_subsection();
+    }
+  }
+  prm.leave_subsection();
+}
+
+template <typename BCType>
+void BoundaryConditions::read_boundary_conditions(
+  ParameterHandler                     &prm,
+  const unsigned int                    n_bc,
+  const std::string                    &bc_type_name,
+  std::map<types::boundary_id, BCType> &boundary_conditions)
+{
+  /**
+   * FIXME: If the number of bc actually added in the parameter file is
+   * greater than the specified number, deal.ii throws a parse error.
+   * Ideally, we should be able to return an error here if the user specified
+   * too few boundary conditions.
+   */
+  prm.enter_subsection(bc_type_name + " boundary conditions");
+  {
+    for (unsigned int i = 0; i < n_bc; ++i)
+    {
+      prm.enter_subsection("boundary " + std::to_string(i));
+      {
+        unsigned int id = prm.get_integer("id");
+        boundary_conditions[id].read_parameters(prm);
+      }
+      prm.leave_subsection();
+    }
+  }
+  prm.leave_subsection();
+}
 
 #endif

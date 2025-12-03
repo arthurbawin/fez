@@ -1,7 +1,7 @@
 
+#include <incompressible_ns_solver.h>
 #include <parameter_reader.h>
 #include <utilities.h>
-#include <incompressible_ns_solver.h>
 
 int main(int argc, char *argv[])
 {
@@ -10,10 +10,10 @@ int main(int argc, char *argv[])
     using namespace dealii;
 
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-    ConditionalOStream pcout(
-        std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
+    ConditionalOStream               pcout(
+      std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
 
-    if (argc != 2)
+    if (argc < 2)
     {
       std::cerr << "Usage: " << argv[0] << " <parameter_file>" << std::endl;
       return 1;
@@ -21,35 +21,42 @@ int main(int argc, char *argv[])
 
     const std::string parameter_file = argv[1];
 
-    pcout << "Number of MPI processes: " << Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) << std::endl;
+    pcout << "Number of MPI processes: "
+          << Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) << std::endl;
 
     const unsigned int dim = read_problem_dimension(parameter_file);
-    Parameters::BoundaryConditionsCount bc_count;
-    read_number_of_boundary_conditions(parameter_file, bc_count);
+    Parameters::BoundaryConditionsData bc_data;
+    read_number_of_boundary_conditions(parameter_file, bc_data);
 
-    if(dim == 2)
+    if (dim == 2)
     {
-      ParameterHandler prm;
-      ParameterReader<2>  param(bc_count);
+      ParameterHandler   prm;
+      ParameterReader<2> param(bc_data);
       param.declare(prm);
 
       prm.parse_input(parameter_file);
       param.read(prm);
 
       IncompressibleNavierStokesSolver<2> problem(param);
-      problem.run();
+      if(param.mms_param.enable)
+        problem.run_convergence_loop<2>();
+      else
+        problem.run();
     }
-    else if(dim == 3)
+    else if (dim == 3)
     {
-      ParameterHandler prm;
-      ParameterReader<3>  param(bc_count);
+      ParameterHandler   prm;
+      ParameterReader<3> param(bc_data);
       param.declare(prm);
 
       prm.parse_input(parameter_file);
       param.read(prm);
 
       IncompressibleNavierStokesSolver<3> problem(param);
-      problem.run();
+      if(param.mms_param.enable)
+        problem.run_convergence_loop<3>();
+      else
+        problem.run();
     }
     else
     {

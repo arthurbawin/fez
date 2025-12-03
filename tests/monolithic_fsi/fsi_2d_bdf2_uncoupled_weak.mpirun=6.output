@@ -1,0 +1,24 @@
+Number of MPI processes: 6
+Convergence test with manufactured solution:
+Mesh file was changed to ../../mms_meshes/holed0.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 80
+ boundary indicators: 2(16 faces) 3(8 faces) 
+ID 1 -> Domain
+ID 2 -> OuterBoundary
+ID 3 -> InnerBoundary
+Number of degrees of freedom: 892
+Convergence test with manufactured solution:
+Mesh file was changed to ../../mms_meshes/holed1.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 320
+ boundary indicators: 2(32 faces) 3(16 faces) 
+ID 1 -> Domain
+ID 2 -> OuterBoundary
+ID 3 -> InnerBoundary
+Number of degrees of freedom: 3304
+n_elm n_dof   dt        L2_u            L2_p            L2_x            L2_l            Li_u            Li_p            Li_x            Li_l       
+   80   892 0.1000 1.7122e-02    - 1.0393e+01    - 2.1729e-03    - 1.4096e+01    - 3.5886e-02    - 2.1724e+01    - 7.0213e-03    - 2.2143e+01    - 
+  320  3304 0.0500 4.8673e-03 1.81 3.0874e+00 1.75 7.8333e-04 1.47 4.1515e+00 1.76 1.0018e-02 1.84 6.4661e+00 1.75 2.6998e-03 1.38 6.4745e+00 1.77 

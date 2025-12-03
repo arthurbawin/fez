@@ -1,7 +1,19 @@
 #ifndef UTILITIES_H
 #define UTILITIES_H
 
+#include <deal.II/base/function.h>
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/base/quadrature_lib.h>
+#include <deal.II/base/utilities.h>
+#include <deal.II/dofs/dof_handler.h>
+#include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/mapping.h>
+#include <parameters.h>
+
+#include <cmath>
+#include <limits>
+#include <type_traits>
+#include <utility>
 
 using namespace dealii;
 
@@ -9,7 +21,7 @@ using namespace dealii;
  * Perform a dry run to read the run-time problem dimension set in the
  * "Dimension" block of the given parameter file.
  */
-unsigned int read_problem_dimension(const std::string &parameter_file)
+inline unsigned int read_problem_dimension(const std::string &parameter_file)
 {
   ParameterHandler prm;
 
@@ -40,9 +52,9 @@ unsigned int read_problem_dimension(const std::string &parameter_file)
 /**
  * Perform a dry run to read the number of boundary conditions of each type.
  */
-void read_number_of_boundary_conditions(
-  const std::string                   &parameter_file,
-  Parameters::BoundaryConditionsCount &bc_count)
+inline void
+read_number_of_boundary_conditions(const std::string &parameter_file,
+                                   Parameters::BoundaryConditionsData &bc_data)
 {
   ParameterHandler prm;
 
@@ -68,17 +80,170 @@ void read_number_of_boundary_conditions(
   }
   prm.leave_subsection();
 
+  prm.enter_subsection("CahnHilliard boundary conditions");
+  {
+    prm.declare_entry("number",
+                      "0",
+                      Patterns::Integer(),
+                      "Number of boundary conditions for two-phase flows with "
+                      "the Cahn-Hilliard Navier-Stokes model");
+  }
+  prm.leave_subsection();
+
   // Read only these structures from the file
   prm.parse_input(parameter_file, /*last_line=*/"", /*skip_undefined=*/true);
 
   // Parse
   prm.enter_subsection("Fluid boundary conditions");
-  bc_count.n_fluid_bc = prm.get_integer("number");
+  bc_data.n_fluid_bc = prm.get_integer("number");
   prm.leave_subsection();
 
   prm.enter_subsection("Pseudosolid boundary conditions");
-  bc_count.n_pseudosolid_bc = prm.get_integer("number");
+  bc_data.n_pseudosolid_bc = prm.get_integer("number");
+  prm.leave_subsection();
+
+  prm.enter_subsection("CahnHilliard boundary conditions");
+  bc_data.n_cahn_hilliard_bc = prm.get_integer("number");
   prm.leave_subsection();
 }
+
+template <int dim>
+inline Tensor<1, dim> parse_rank_1_tensor(const std::string &values,
+                                          const std::string &delimiter = ",")
+{
+  const std::vector<double> parsed = Utilities::string_to_double(
+    Utilities::split_string_list(values, delimiter));
+
+  AssertThrow(parsed.size() == dim,
+              ExcMessage("Could not read rank-1 tensor from input " + values));
+
+  Tensor<1, dim> res;
+  for (unsigned int d = 0; d < dim; ++d)
+    res[d] = parsed[d];
+  return res;
+}
+
+/**
+ * 
+ */
+inline std::pair<double, double>
+compute_relative_error(const double A,
+                       const double B,
+                       const double tol_to_ignore = 1e-14)
+{
+  AssertThrow(
+    std::isfinite(A) && std::isfinite(B),
+    ExcMessage(
+      "Taking relative error of values which are not finite or numbers."));
+
+  const double abs_err = std::abs(B - A);
+
+  // If both values are small enough, return 0 as relative error
+  if (std::abs(A) < tol_to_ignore && std::abs(B) < tol_to_ignore)
+    return std::make_pair(abs_err, 0.);
+
+  const double rel_err = abs_err / std::max({std::abs(A), DBL_EPSILON});
+  return std::make_pair(abs_err, rel_err);
+}
+
+/**
+ * Compute the mean value of the given function f on the mesh.
+ */
+template <int dim>
+double compute_global_mean_value(const Function<dim>   &f,
+                                 const unsigned int     component,
+                                 const DoFHandler<dim> &dof_handler,
+                                 const Mapping<dim>    &mapping,
+                                 const unsigned int     n_q_points = 4)
+{
+  double             I_local = 0., vol_local = 0.;
+  QGaussSimplex<dim> quadrature(n_q_points);
+  FEValues<dim>      fe_values(mapping,
+                          dof_handler.get_fe(),
+                          quadrature,
+                          update_quadrature_points | update_JxW_values);
+
+  for (auto cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+    {
+      fe_values.reinit(cell);
+      for (unsigned int q = 0; q < quadrature.size(); ++q)
+      {
+        const Point<dim> &p = fe_values.quadrature_point(q);
+        I_local += f.value(p, component) * fe_values.JxW(q);
+        vol_local += fe_values.JxW(q);
+      }
+    }
+
+  // Reduce across all processes
+  const double I_global =
+    Utilities::MPI::sum(I_local, dof_handler.get_mpi_communicator());
+  const double vol_global =
+    Utilities::MPI::sum(vol_local, dof_handler.get_mpi_communicator());
+
+  return I_global / vol_global;
+}
+
+/**
+ * A wrapper to subtract the mean pressure from a given function,
+ * typically the exact solution.
+ */
+template <int dim>
+class PressureMeanSubtractedFunction : public Function<dim>
+{
+public:
+  PressureMeanSubtractedFunction(const Function<dim> &base_function,
+                         const double mean_pressure,
+                         const unsigned int p_lower)
+    : Function<dim>(base_function.n_components)
+    , base(base_function)
+    , mean_pressure(mean_pressure)
+    , p_lower(p_lower)
+  {}
+
+  virtual double value(const Point<dim> &p,
+                       const unsigned int component = 0) const override
+  {
+    if(component == p_lower)
+      return base.value(p, component) - mean_pressure;
+    else
+      return base.value(p, component);
+  }
+
+private:
+  const Function<dim> &base;
+  const double mean_pressure;
+  const unsigned int p_lower;
+};
+
+/**
+ * Compute the measure (surface or length) of a given boundary.
+ */
+template <int dim>
+double compute_boundary_volume(const DoFHandler<dim>       &dof_handler,
+                               const Mapping<dim>          &mapping,
+                               const Quadrature<dim-1>     &face_quadrature,
+                               const types::boundary_id     boundary_id)
+{
+  double I = 0.;
+
+  FEFaceValues<dim> fe_face_values(mapping,
+                                   dof_handler.get_fe(),
+                                   face_quadrature,
+                                   update_JxW_values);
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (unsigned int f = 0; f < cell->n_faces(); ++f)
+        if (cell->face(f)->at_boundary() &&
+            cell->face(f)->boundary_id() == boundary_id)
+        {
+          fe_face_values.reinit(cell, f);
+          for (unsigned int q = 0; q < face_quadrature.size(); ++q)
+            I += fe_face_values.JxW(q);
+        }
+  return Utilities::MPI::sum(I, dof_handler.get_communicator());
+}
+
 
 #endif

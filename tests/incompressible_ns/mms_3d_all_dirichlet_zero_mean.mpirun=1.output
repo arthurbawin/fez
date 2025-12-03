@@ -1,0 +1,6 @@
+Number of MPI processes: 1
+Number of degrees of freedom: 402
+Number of degrees of freedom: 2312
+n_elm n_dof      L2_u            L2_p            Li_u            Li_p            H1_u            H1_p       
+   48   402 7.4885e-02    - 7.6102e+00    - 3.3442e-01    - 3.4721e+01    - 1.1403e+00    - 6.7645e+01    - 
+  384  2312 9.8951e-03 2.92 7.6959e-01 3.31 5.7540e-02 2.54 1.2374e+01 1.49 3.1158e-01 1.87 9.1492e+00 2.89 

@@ -8,7 +8,6 @@ using namespace dealii;
 
 /**
  * 
- * 
  */
 class CopyData
 {
@@ -21,15 +20,6 @@ public:
   , local_rhs(n_dofs_per_cell)
   , local_dof_indices(n_dofs_per_cell)
   {}
-
-  void reinit_matrix()
-  {
-    local_matrix = 0;
-  }
-  void reinit_rhs()
-  {
-    local_rhs    = 0;
-  }
 
 public:
   FullMatrix<double> local_matrix;

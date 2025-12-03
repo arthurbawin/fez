@@ -75,9 +75,10 @@ public:
 
       if (norm_residual <= this->param.tolerance)
       {
-        solver->pcout
-          << "Stopping because residual is below prescribed tolerance ("
-          << std::setprecision(2) << this->param.tolerance << ")" << std::endl;
+        if(verbose)
+          solver->pcout
+            << "Stopping because residual is below prescribed tolerance ("
+            << std::setprecision(2) << this->param.tolerance << ")" << std::endl;
         break;
       }
 
@@ -101,18 +102,22 @@ public:
           solver->assemble_rhs(); // NL(u + alpha * du)
           norm_ls_residual = solver->system_rhs.l2_norm();
 
-          solver->pcout << "\tLine search with alpha = " << std::fixed
-                        << std::setprecision(3) << alpha << std::scientific
-                        << std::setprecision(8)
-                        << " : res = " << norm_ls_residual << std::endl;
+          if(verbose)
+          {
+            solver->pcout << "\tLine search with alpha = " << std::fixed
+                          << std::setprecision(3) << alpha << std::scientific
+                          << std::setprecision(8)
+                          << " : res = " << norm_ls_residual << std::endl;
+          }
 
           // Exit if next residual is below tolerance
           if (norm_ls_residual <= this->param.tolerance)
           {
-            solver->pcout << "Stopping because residual is below "
-                             "prescribed tolerance ("
-                          << std::setprecision(2) << this->param.tolerance
-                          << ")" << std::endl;
+            if(verbose)
+              solver->pcout << "Stopping because residual is below "
+                               "prescribed tolerance ("
+                            << std::setprecision(2) << this->param.tolerance
+                            << ")" << std::endl;
             last_residual = norm_ls_residual;
             stop          = true;
             break;
@@ -133,8 +138,9 @@ public:
           // Do not reject first iteration
           if (norm_ls_residual > last_residual && ls_iter > 0)
           {
-            solver->pcout << "\tRejecting last step and backtracking"
-                          << std::endl;
+            if(verbose)
+              solver->pcout << "\tRejecting last step and backtracking"
+                            << std::endl;
             // RHS will need to be recomputed for backtracked solution
             recompute_rhs = true;
             alpha *= 2.;
@@ -159,6 +165,14 @@ public:
 
       solver->present_solution = solver->evaluation_point;
       ++iter;
+
+      if(iter > this->param.max_iterations)
+        stop = true;
+    }
+
+    if(iter > this->param.max_iterations && norm_residual > this->param.tolerance)
+    {
+      throw std::runtime_error("Nonlinear solver did not converge");
     }
   }
 };

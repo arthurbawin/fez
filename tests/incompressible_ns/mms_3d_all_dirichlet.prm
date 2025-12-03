@@ -1,0 +1,117 @@
+
+subsection Dimension
+  set dimension = 3
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write results    = false
+  set output directory = ../data/mms/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  set verbosity = quiet
+end
+
+subsection Time integration
+  set verbosity = quiet
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set verbosity            = quiet
+  set tolerance            = 1e-8
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 50
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+end 
+
+subsection Linear solver
+  set verbosity      = quiet
+  set method         = direct_mumps
+end
+
+subsection FiniteElements
+  set Velocity degree = 2
+  set Pressure degree = 1
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid
+    set density             = 1.2345
+    set kinematic viscosity = 9.8765
+  end
+end
+
+subsection Initial conditions
+  set to mms = true
+end
+
+subsection Fluid boundary conditions
+  set number = 6
+  set fix pressure constant      = true
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id   = 1
+    set name = x_min
+    set type = velocity_mms
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = x_max
+    set type = velocity_mms
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = y_min
+    set type = velocity_mms
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = y_max
+    set type = velocity_mms
+  end
+  subsection boundary 4
+    set id   = 5
+    set name = z_min
+    set type = velocity_mms
+  end
+  subsection boundary 5
+    set id   = 6
+    set name = z_max
+    set type = velocity_mms
+  end
+end
+
+subsection Manufactured solution
+  set enable            = true
+  set type              = space
+  set force source term = false
+  set convergence steps = 2
+
+  subsection Space convergence
+    set use dealii cube mesh = true
+  end
+
+  subsection Time convergence
+    set norm                = Linfty
+    set use spatial mesh    = true
+    set spatial mesh index  = 0
+    set time step reduction = 0.5
+  end
+
+  # Divergence-free velocity field
+  subsection exact velocity
+    set Function expression = sin(pi*x*y*z)*cos(pi*y)*cos(pi*z); cos(pi*x)*sin(pi*y)*cos(pi*z); cos(pi*x)*cos(pi*y)*sin(pi*z)
+  end
+
+  subsection exact pressure
+    set Function expression = cos(pi*x)*sin(pi*y)*cos(pi*z)
+  end
+end

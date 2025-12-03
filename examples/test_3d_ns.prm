@@ -3,6 +3,10 @@ subsection Dimension
   set dimension = 3
 end
 
+subsection Timer
+  set enable timer = true
+end
+
 subsection Output
   set output directory = ../data/test/
   set output prefix    = solution
@@ -15,7 +19,7 @@ end
 subsection Time integration
   set dt        = 0.1
   set t_initial = 0
-  set t_end     = 2.
+  set t_end     = 50.
   set scheme    = BDF2
 end
 
@@ -25,6 +29,13 @@ subsection Nonlinear solver
   set max_iterations       = 50
   set enable_line_search   = true
   set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  set method         = direct_mumps
+  set renumber       = false
+  set tolerance      = 1e-6
+  set max iterations = 1000 
 end
 
 subsection FiniteElements

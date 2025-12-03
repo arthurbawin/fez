@@ -1,0 +1,140 @@
+
+subsection Dimension
+  set dimension = 3
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write results    = true
+  set output directory = ../data/mms/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  set mesh file = ../tests/incompressible_ns/cylinder_2d.msh
+end
+
+subsection Time integration
+  set dt        = 0.5
+  set t_initial = 0
+  set t_end     = 1.
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-11
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 50
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  set method         = direct_mumps
+  set renumber       = false
+  set reuse          = false
+end
+
+subsection FiniteElements
+  set Velocity degree      = 2
+  set Pressure degree      = 1
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid
+    set density             = 1
+    set kinematic viscosity = 1
+  end
+end
+
+subsection Initial conditions
+  set to mms = false
+  subsection velocity
+    set Function expression = 0; 0; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 6
+  set fix pressure constant = false
+  subsection boundary 0
+    set id   = 1
+    set name = x0
+    set type = velocity_mms
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = x1
+    set type = velocity_mms
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = y0
+    set type = velocity_mms
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = y1
+    set type = velocity_mms
+  end
+  subsection boundary 4
+    set id   = 5
+    set name = z0
+    set type = velocity_mms
+  end
+  subsection boundary 5
+    set id   = 6
+    set name = z1
+    set type = open_mms
+  end
+end
+
+subsection Manufactured solution
+  set enable            = true
+  set type              = space
+  set force source term = false
+  set convergence steps = 4
+  #set run only step     = 1
+
+  subsection Space convergence
+    set mesh prefix = ../data/meshes/mms/cube_transfinite
+  end
+
+  subsection Time convergence
+    set norm                = Linfty
+    set use spatial mesh    = true
+    set time step reduction = 0.5
+  end
+
+  subsection exact velocity
+    #set Function expression = cos(pi*x)*cos(pi*y); cos(pi*x)*cos(pi*y); 0
+    #set Function expression = cos(x*y*z); cos(y*z*x); cos(z*x*y)
+    #set Function expression = cos(x*y*z); sin(x*y*z); sin(z*y)*cos(x)
+    #set Function expression = cos(z*x) - cos(x*y)*y; cos(x*y)*x - cos(y*z)*z; cos(y*z)*y^2 - cos(z*x)*x
+    #set Function expression = atan(x*y + z); z^2*x*y^2; cos(z^3)
+    #set Function expression = sin(pi*x)*cos(pi*y)*cos(pi*z);cos(pi*x)*sin(pi*y)*cos(pi*z);-2.*cos(pi*x)*cos(pi*y)*sin(pi*z)
+    #set Function expression = cos(x^4); y^4; z^4
+    #set Function expression = x^4*(y+z); -4*x^3*(y^2/2 + y*z); 0
+    #set Function expression = sin(x); sin(y); sin(x*y*z)
+    set Function expression = 0; 0; sin(x*y)*z
+  end
+
+  subsection exact pressure
+    #set Function expression = 0
+    #set Function expression = 1.23 + (x+y+z)^2
+    set Function expression = cos(pi*x)*sin(pi*y)*cos(pi*z)
+    #set Function expression = 1 #123 + exp(x*y*z) * sin(pi*x) * sin(pi*y) * sin(pi*z)
+    #set Function expression = 0.5 * (1 + sin(pi*x)*sin(pi*y))
+  end
+end
+
+    #set Function expression = x^2*y*z; y^3; z^5
+    #set Function expression = x^4*y*z; x*y*z; sin(4.12 + z*y*x)
+    #set Function expression = cos(x*y*z); y*z*x; z*x*y
+    #set Function expression = cos(z*x)*x^2 - cos(x*y)*y; cos(x*y)*x - cos(y*z)*z; cos(y*z)*y^2 - cos(z*x)*x
+    #set Function expression = sin(pi*x)*cos(pi*y)*cos(pi*z);cos(pi*x)*sin(pi*y)*cos(pi*z);-2.*cos(pi*x)*cos(pi*y)*sin(pi*z)
+    #set Function expression = sin(pi * x) * sin(pi * x) * cos(pi * y) * sin(pi * y) * cos(pi * z) * sin(pi * z);  cos(pi * x) * sin(pi * x) * sin(pi * y) * sin(pi * y) * cos(pi * z) * sin(pi * z);-2 * cos(pi * x) * sin(pi * x) * cos(pi * y) * sin(pi * y) * sin(pi * z) * sin(pi * z)

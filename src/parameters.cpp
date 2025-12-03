@@ -61,6 +61,33 @@ void Timer::read_parameters(ParameterHandler &prm)
   prm.leave_subsection();
 }
 
+void BoundaryConditionsData::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Fluid boundary conditions");
+  {
+    prm.declare_entry(
+      "fix pressure constant",
+      "false",
+      Patterns::Bool(),
+      "Fix pressure nullspace by pinning a single pressure point");
+    prm.declare_entry("enforce zero mean pressure",
+                      "false",
+                      Patterns::Bool(),
+                      "Fix pressure nullspace by enforcing zero-mean pressure");
+  }
+  prm.leave_subsection();
+}
+
+void BoundaryConditionsData::read_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Fluid boundary conditions");
+  {
+    fix_pressure_constant      = prm.get_bool("fix pressure constant");
+    enforce_zero_mean_pressure = prm.get_bool("enforce zero mean pressure");
+  }
+  prm.leave_subsection();
+}
+
 void Mesh::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Mesh");
@@ -69,6 +96,14 @@ void Mesh::declare_parameters(ParameterHandler &prm)
                       "",
                       Patterns::FileName(),
                       "Mesh file in .msh format (Gmsh msh4)");
+    prm.declare_entry("use dealii cube mesh",
+                      "false",
+                      Patterns::Bool(),
+                      "Use cube mesh from deal.II's routines");
+    prm.declare_entry("refinement level",
+                      "1",
+                      Patterns::Integer(),
+                      "Level of uniform refinement is using deal.II cube mesh");
     DECLARE_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
@@ -78,7 +113,9 @@ void Mesh::read_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Mesh");
   {
-    filename = prm.get("mesh file");
+    filename              = prm.get("mesh file");
+    use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
+    refinement_level      = prm.get_integer("refinement level");
     READ_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
@@ -136,6 +173,15 @@ void FiniteElements::declare_parameters(ParameterHandler &prm)
       "2",
       Patterns::Integer(),
       "Polynomial degree of the no-slip Lagrange multiplier interpolant");
+    prm.declare_entry("Tracer degree",
+                      "1",
+                      Patterns::Integer(),
+                      "Polynomial degree of the CHNS tracer interpolant");
+    prm.declare_entry(
+      "Potential degree",
+      "1",
+      Patterns::Integer(),
+      "Polynomial degree of the CHNS chemical potential interpolant");
   }
   prm.leave_subsection();
 }
@@ -149,6 +195,8 @@ void FiniteElements::read_parameters(ParameterHandler &prm)
     mesh_position_degree = prm.get_integer("Mesh position degree");
     no_slip_lagrange_mult_degree =
       prm.get_integer("Lagrange multiplier degree");
+    tracer_degree    = prm.get_integer("Tracer degree");
+    potential_degree = prm.get_integer("Potential degree");
   }
   prm.leave_subsection();
 }
@@ -299,6 +347,52 @@ void NonLinearSolver::read_parameters(ParameterHandler &prm)
   prm.leave_subsection();
 }
 
+void LinearSolver::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Linear solver");
+  {
+    prm.declare_entry("method",
+                      "direct_mumps",
+                      Patterns::Selection("direct_mumps|gmres"),
+                      "Method");
+    prm.declare_entry("tolerance",
+                      "1e-6",
+                      Patterns::Double(),
+                      "Tolerance for iterative solver");
+    prm.declare_entry("max iterations",
+                      "100",
+                      Patterns::Integer(),
+                      "Max number of outer iterations for iterative solver");
+    prm.declare_entry("ilu fill level",
+                      "0",
+                      Patterns::Integer(),
+                      "Max lelve of fill-in for ILU preconditioner");
+    prm.declare_entry("renumber", "false", Patterns::Bool(), "");
+    prm.declare_entry("reuse", "false", Patterns::Bool(), "");
+    DECLARE_VERBOSITY_PARAM(prm)
+  }
+  prm.leave_subsection();
+}
+
+void LinearSolver::read_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Linear solver");
+  {
+    const std::string parsed_method = prm.get("method");
+    if (parsed_method == "direct_mumps")
+      method = Method::direct_mumps;
+    else if (parsed_method == "gmres")
+      method = Method::gmres;
+    tolerance      = prm.get_double("tolerance");
+    max_iterations = prm.get_integer("max iterations");
+    ilu_fill_level = prm.get_integer("ilu fill level");
+    renumber       = prm.get_bool("renumber");
+    reuse          = prm.get_bool("reuse");
+    READ_VERBOSITY_PARAM(prm);
+  }
+  prm.leave_subsection();
+}
+
 void TimeIntegration::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("Time integration");
@@ -316,6 +410,10 @@ void TimeIntegration::declare_parameters(ParameterHandler &prm)
                       "stationary",
                       Patterns::Selection("stationary|BDF1|BDF2"),
                       "Time stepping scheme (default is stationary)");
+    prm.declare_entry("bdf start method",
+                      "initial condition",
+                      Patterns::Selection("initial condition|BDF1"),
+                      "Starting method for BDF schemes of order > 1.");
     DECLARE_VERBOSITY_PARAM(prm)
   }
   prm.leave_subsection();
@@ -331,16 +429,15 @@ void TimeIntegration::read_parameters(ParameterHandler &prm)
 
     // Set the number of (constant) time steps.
     // For now, we only consider an integer number of time steps.
-    const double n_timesteps_estimate = (t_end - t_initial) / dt;
-    n_constant_timesteps              = std::floor(n_timesteps_estimate);
-    AssertThrow(
-      std::abs(n_timesteps_estimate - n_constant_timesteps) < 1e-2,
-      ExcMessage(
-        "The prescribed (constant) time step does not yield an integer number "
-        "of steps for the given time interval. The given time step yields " +
-        std::to_string(n_timesteps_estimate) +
-        " time steps. For now, we only consider an integer number of constant "
-        "time steps."));
+    // const double n_timesteps_estimate = (t_end - t_initial) / dt;
+    // n_constant_timesteps              = std::floor(n_timesteps_estimate);
+    // AssertThrow(
+    //   std::abs(n_timesteps_estimate - n_constant_timesteps) < 1e-2,
+    //   ExcMessage(
+    //     "The prescribed (constant) time step does not yield an integer number
+    //     " "of steps for the given time interval. The given time step yields "
+    //     + std::to_string(n_timesteps_estimate) + " time steps. For now, we
+    //     only consider an integer number of constant " "time steps."));
 
     const std::string parsed_scheme = prm.get("scheme");
     if (parsed_scheme == "stationary")
@@ -352,7 +449,143 @@ void TimeIntegration::read_parameters(ParameterHandler &prm)
     else
       throw std::runtime_error("Unknown time intergation scheme : " +
                                parsed_scheme);
+    const std::string parsed_startup = prm.get("bdf start method");
+    if (parsed_startup == "initial condition")
+      bdfstart = BDFStart::initial_condition;
+    else if (parsed_startup == "BDF1")
+      bdfstart = BDFStart::BDF1;
+    else
+      throw std::runtime_error("Unknown BDF starting method : " +
+                               parsed_startup);
     READ_VERBOSITY_PARAM(prm)
+  }
+  prm.leave_subsection();
+}
+
+void MMS::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Manufactured solution");
+  {
+    prm.declare_entry(
+      "enable",
+      "false",
+      Patterns::Bool(),
+      "Enable convergence study for the prescribed manufactured solution. This "
+      "overrides the given mesh filename.");
+    prm.declare_entry("type",
+                      "space",
+                      Patterns::Selection("space|time|spacetime"),
+                      "Choose between space and/or time convergence study.");
+    prm.declare_entry(
+      "subtract mean pressure",
+      "false",
+      Patterns::Bool(),
+      "Subtract mean pressure for L2 error computation. If disabled and if the "
+      "pressure solution is not zero-mean, an error is thrown to avoid "
+      "returning erroneous convergence rates.");
+    prm.declare_entry("force source term",
+                      "false",
+                      Patterns::Bool(),
+                      "Use the provided source term instead of the one "
+                      "computed with symbolic differentiation");
+    prm.declare_entry("convergence steps",
+                      "1",
+                      Patterns::Integer(),
+                      "Number of steps in the convergence study");
+    prm.declare_entry(
+      "run only step",
+      "-1",
+      Patterns::Integer(),
+      "If specified, run only this convergence step (in [0, n_steps])");
+    prm.enter_subsection("Space convergence");
+    {
+      prm.declare_entry("use dealii cube mesh",
+                        "false",
+                        Patterns::Bool(),
+                        "Use cube mesh from deal.II's routines");
+      prm.declare_entry("use dealii holed plate mesh",
+                        "false",
+                        Patterns::Bool(),
+                        "Use plate with hole mesh from deal.II's routines");
+      prm.declare_entry("mesh prefix",
+                        "",
+                        Patterns::Anything(),
+                        "Prefix (including full path) for the meshes to use "
+                        "for the spatial convergence study");
+      prm.declare_entry("first mesh",
+                        "0",
+                        Patterns::Integer(),
+                        "Index of the first mesh, which will be (mesh "
+                        "prefix)_(first mesh).msh");
+    }
+    prm.leave_subsection();
+    prm.enter_subsection("Time convergence");
+    {
+      prm.declare_entry("norm",
+                        "L1",
+                        Patterns::Selection("L1|L2|Linfty"),
+                        "Lp norm to use for the temporal error.");
+      prm.declare_entry(
+        "use spatial mesh",
+        "false",
+        Patterns::Bool(),
+        "If true, use the mesh provided for the spatial convergence study. If "
+        "false, use the provided mesh in the Mesh subsection.");
+      prm.declare_entry("spatial mesh index",
+                        "0",
+                        Patterns::Integer(),
+                        "If use spatial mesh is true, set the index "
+                        "(refinement level) of the used mesh.");
+      prm.declare_entry(
+        "time step reduction",
+        "0.5",
+        Patterns::Double(),
+        "Reduction factor between two time steps in a time convergence study.");
+    }
+    prm.leave_subsection();
+  }
+  prm.leave_subsection();
+}
+
+void MMS::read_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Manufactured solution");
+  {
+    enable                        = prm.get_bool("enable");
+    const std::string parsed_type = prm.get("type");
+    if (parsed_type == "space")
+      type = Type::space;
+    else if (parsed_type == "time")
+      type = Type::time;
+    else if (parsed_type == "spacetime")
+      type = Type::spacetime;
+    subtract_mean_pressure = prm.get_bool("subtract mean pressure");
+    force_source_term      = prm.get_bool("force source term");
+    n_convergence          = prm.get_integer("convergence steps");
+    run_only_step          = prm.get_integer("run only step");
+    prm.enter_subsection("Space convergence");
+    {
+      use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
+      use_deal_ii_holed_plate_mesh =
+        prm.get_bool("use dealii holed plate mesh");
+      mesh_prefix      = prm.get("mesh prefix");
+      first_mesh_index = prm.get_integer("first mesh");
+    }
+    prm.leave_subsection();
+    prm.enter_subsection("Time convergence");
+    {
+      const std::string parsed_norm = prm.get("norm");
+      if (parsed_norm == "L1")
+        time_norm = TimeLpNorm::L1;
+      else if (parsed_norm == "L2")
+        time_norm = TimeLpNorm::L2;
+      else if (parsed_norm == "Linfty")
+        time_norm = TimeLpNorm::Linfty;
+      use_space_convergence_mesh = prm.get_bool("use spatial mesh");
+      spatial_mesh_index         = prm.get_integer("spatial mesh index");
+      time_step_reduction_factor = prm.get_double("time step reduction");
+    }
+    prm.leave_subsection();
   }
   prm.leave_subsection();
 }
@@ -361,6 +594,7 @@ void FSI::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("FSI");
   {
+    DECLARE_VERBOSITY_PARAM(prm)
     prm.declare_entry("enable coupling",
                       "false",
                       Patterns::Bool(),
@@ -377,6 +611,14 @@ void FSI::declare_parameters(ParameterHandler &prm)
                       "1",
                       Patterns::Double(),
                       "Mass of the studied system");
+    prm.declare_entry("cylinder radius",
+                      "1",
+                      Patterns::Double(),
+                      "");
+    prm.declare_entry("cylinder length",
+                      "1",
+                      Patterns::Double(),
+                      "");
   }
   prm.leave_subsection();
 }
@@ -385,10 +627,59 @@ void FSI::read_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("FSI");
   {
+    READ_VERBOSITY_PARAM(prm)
     enable_coupling = prm.get_bool("enable coupling");
     spring_constant = prm.get_double("spring constant");
     damping         = prm.get_double("damping");
     mass            = prm.get_double("mass");
+    cylinder_radius = prm.get_double("cylinder radius");
+    cylinder_length = prm.get_double("cylinder length");
+  }
+  prm.leave_subsection();
+}
+
+void Debug::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Debug");
+  {
+    prm.declare_entry("apply exact solution", "false", Patterns::Bool(), "");
+    prm.declare_entry("compare jacobian matrix with fd",
+                      "false",
+                      Patterns::Bool(),
+                      "");
+    prm.declare_entry("analytical_jacobian_absolute_tolerance",
+                      "1e-3",
+                      Patterns::Double(),
+                      "");
+    prm.declare_entry("analytical_jacobian_relative_tolerance",
+                      "1e-3",
+                      Patterns::Double(),
+                      "");
+    prm.declare_entry("fsi_apply_erroneous_coupling",
+                      "false",
+                      Patterns::Bool(),
+                      "");
+    prm.declare_entry("fsi_check_mms_on_boundary",
+                      "false",
+                      Patterns::Bool(),
+                      "");
+  }
+  prm.leave_subsection();
+}
+
+void Debug::read_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Debug");
+  {
+    apply_exact_solution = prm.get_bool("apply exact solution");
+    compare_analytical_jacobian_with_fd =
+      prm.get_bool("compare jacobian matrix with fd");
+    analytical_jacobian_absolute_tolerance =
+      prm.get_double("analytical_jacobian_absolute_tolerance");
+    analytical_jacobian_relative_tolerance =
+      prm.get_double("analytical_jacobian_relative_tolerance");
+    fsi_apply_erroneous_coupling = prm.get_bool("fsi_apply_erroneous_coupling");
+    fsi_check_mms_on_boundary    = prm.get_bool("fsi_check_mms_on_boundary");
   }
   prm.leave_subsection();
 }

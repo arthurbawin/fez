@@ -63,6 +63,7 @@ subsection Physical properties
 end
 
 subsection FSI
+  set verbosity       = quiet
   set enable coupling = true
   set spring constant = 1
 end

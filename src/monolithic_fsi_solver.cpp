@@ -180,6 +180,9 @@ void MonolithicFSISolver<dim>::run()
   read_mesh(triangulation, param);
   setup_dofs();
 
+  if(param.bc_data.enforce_zero_mean_pressure)
+    create_zero_mean_pressure_constraints_data();
+
   create_lagrange_multiplier_constraints();
   if (param.fsi.enable_coupling)
     create_position_lagrange_mult_coupling_data();
@@ -237,7 +240,6 @@ void MonolithicFSISolver<dim>::run()
       // constraints, which were applied in update_boundary_condition().
       if (param.debug.compare_analytical_jacobian_with_fd)
         compare_analytical_matrix_with_fd();
-      // throw std::runtime_error("Debug");
 
       if (param.debug.apply_exact_solution)
         set_exact_solution();
@@ -245,41 +247,7 @@ void MonolithicFSISolver<dim>::run()
         solve_nonlinear_problem(false);
     }
 
-    output_results();
-
-    if (!param.mms_param.enable)
-    {
-      // Check position - lambda coupling if coupled
-      if (param.fsi.enable_coupling)
-        compare_forces_and_position_on_obstacle();
-
-      // Always check that weak no-slip is satisfied
-      check_velocity_boundary();
-
-      const bool export_force_table =
-        (time_handler.current_time_iteration % 5) == 0;
-      compute_forces(export_force_table);
-      const bool export_position_table =
-        (time_handler.current_time_iteration % 5) == 0;
-      write_cylinder_position(export_position_table);
-    }
-    else
-    {
-      if (param.debug.fsi_check_mms_on_boundary)
-      {
-        check_manufactured_solution_boundary();
-
-        /**
-         * When applying the exact solution, the fluid velocity will be exact,
-         * but the mesh velocity is only precise up to time integration order.
-         * So these velocities differ by some power of the time step, rather
-         * than the machine epsilon as checked in this function.
-         */
-        if (!param.debug.apply_exact_solution)
-          check_velocity_boundary();
-      }
-      compute_errors();
-    }
+    postprocess_solution();
 
     if (!time_handler.is_steady())
     {
@@ -512,11 +480,13 @@ void MonolithicFSISolver<dim>::create_lagrange_multiplier_constraints()
     if (!lambda_constraints.is_constrained(dof))
       unconstrained_owned_dofs++;
 
-  // const unsigned int total_unconstrained_owned_dofs =
-  //   Utilities::MPI::sum(unconstrained_owned_dofs, mpi_communicator);
-
-  // std::cout << total_unconstrained_owned_dofs
-  //           << " unconstrained owned lambda dofs" << std::endl;
+  if (param.fsi.verbosity == Parameters::Verbosity::verbose)
+  {
+    const unsigned int total_unconstrained_owned_dofs =
+      Utilities::MPI::sum(unconstrained_owned_dofs, mpi_communicator);
+    std::cout << total_unconstrained_owned_dofs
+              << " unconstrained owned lambda dofs" << std::endl;
+  }
 }
 
 /**
@@ -633,11 +603,11 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
             {
               const unsigned int d = comp - l_lower;
 
+              const types::global_dof_index lambda_dof = face_dofs[i_dof];
+
               // Only move in x and y, even in 3D
               if (d < 2)
               {
-                const types::global_dof_index lambda_dof = face_dofs[i_dof];
-
                 // Very, very, very important:
                 // Even though fe_face_values_fixed is a FEFaceValues, the dof
                 // index given to shape_value is still a CELL dof index.
@@ -649,13 +619,18 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
                 coeffs[d][lambda_dof] +=
                   -phi_i * JxW / this->param.fsi.spring_constant;
               }
+              else
+              {
+                coeffs[d][lambda_dof] = 0.;
+              }
             }
 
             // Position face dofs are added to the list of coupled dofs
             if (is_position(comp))
             {
               const unsigned int d = comp - x_lower;
-              coupled_position_dofs.insert({face_dofs[i_dof], d});
+              if (d < 2)
+                coupled_position_dofs.insert({face_dofs[i_dof], d});
             }
           }
         }
@@ -663,41 +638,52 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
     }
   }
 
-  // ////////////////////////////////////////////////////////////////////////
-  // // // Expected sum is -1/k * |Cylinder| (surface)
-  // double       expected_weights_sum;
-  // const double radius = 0.5;
-  // if constexpr (dim == 2)
-  //   expected_weights_sum = -1. / param.fsi.spring_constant * 2. * M_PI *
-  //   radius;
-  // else
-  // {
-  //   const double width = 8.;
-  //   expected_weights_sum =
-  //     -1. / param.fsi.spring_constant * 2. * M_PI * radius * width;
-  // }
+  /**
+   * Sanity check on the weights
+   * Expected sum is -1/k * |Cylinder|
+   */
+  {
+    const double k                    = param.fsi.spring_constant;
+    const double r                    = param.fsi.cylinder_radius;
+    double       expected_weights_sum = -1 / k * 2. * M_PI * r;
+    if constexpr (dim == 3)
+      expected_weights_sum *= param.fsi.cylinder_length;
 
-  // for (unsigned int d = 0; d < dim; ++d)
-  // {
-  //   double local_weights_sum = 0.;
-  //   // std::cout << "Weights for dim = " << d << std::endl;
-  //   for (const auto &[lambda_dof, weight] : coeffs[d])
-  //   {
-  //     // std::cout << "Lambda dof: " << lambda_dof << " - weight: " << weight
-  //     <<
-  //     // std::endl;
-  //     local_weights_sum += weight;
-  //   }
-  //   // std::cout << "Sum is = " << local_weights_sum << " - Expected : " <<
-  //   // expected_weights_sum << std::endl;
+    const double expected_discrete_weights_sum =
+      -1. / k *
+      compute_boundary_volume(dof_handler,
+                              *mapping,
+                              face_quadrature,
+                              weak_no_slip_boundary_id);
 
-  //   const double weights_sum =
-  //     Utilities::MPI::sum(local_weights_sum, mpi_communicator);
-  //   // std::cout << "Sum of lambda weights for dim " << d << " = " <<
-  //   weights_sum
-  //   //           << " - Expected : " << expected_weights_sum << std::endl;
-  // }
-  ////////////////////////////////////////////////////////////////////////
+    for (unsigned int d = 0; d < dim; ++d)
+    {
+      // Do not compare for dim = 2
+      if (d < 2)
+      {
+        double local_weights_sum = 0.;
+        for (const auto &[lambda_dof, weight] : coeffs[d])
+          local_weights_sum += weight;
+
+        const double weights_sum =
+          Utilities::MPI::sum(local_weights_sum, mpi_communicator);
+
+        if (param.fsi.verbosity == Parameters::Verbosity::verbose)
+        {
+          pcout << "Dim " << d << " : Sum of weights = " << weights_sum
+                << " - expected from mesh : " << expected_discrete_weights_sum
+                << " - expected theoretical : " << expected_weights_sum
+                << std::endl;
+        }
+
+        AssertThrow(
+          std::abs(weights_sum - expected_discrete_weights_sum) < 1e-10,
+          ExcMessage(
+            "The sum of weights for component " + std::to_string(d) +
+            " of lambda coupling should be -1/k * |Cylinder|, but it's not."));
+      }
+    }
+  }
 
   //
   // Gather the constraint weights
@@ -882,6 +868,9 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
     FixedMeshPosition<dim>                              fixed_mesh_fun(0, dim);
     std::set<types::boundary_id>                        normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *> position_flux_functions;
+    std::set<types::boundary_id> mms_normal_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *>
+      mms_position_flux_functions;
     for (const auto &[id, bc] : this->param.pseudosolid_bc)
     {
       if (bc.type == BoundaryConditions::Type::fixed ||
@@ -902,6 +891,12 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
         normal_flux_boundaries.insert(bc.id);
         position_flux_functions[bc.id] = &fixed_mesh_fun;
       }
+      if (bc.type == BoundaryConditions::Type::position_flux_mms)
+      {
+        mms_normal_flux_boundaries.insert(bc.id);
+        mms_position_flux_functions[bc.id] =
+          param.mms.exact_mesh_position.get();
+      }
     }
 
     // Add position nonzero flux constraints (tangential movement)
@@ -910,6 +905,16 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
       x_lower,
       normal_flux_boundaries,
       position_flux_functions,
+      zero_constraints,
+      *fixed_mapping);
+
+    // Add position nonzero flux constraints from manufactured solution
+    // (tangential movement)
+    VectorTools::compute_nonzero_normal_flux_constraints(
+      dof_handler,
+      x_lower,
+      mms_normal_flux_boundaries,
+      mms_position_flux_functions,
       zero_constraints,
       *fixed_mapping);
   }
@@ -975,6 +980,21 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
       AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
       true);
   }
+
+  /**
+   * Check that the coupled position dofs are not also constrained by a boundary
+   * condition. Because the force-position coupling is done "by hand" and not
+   * through an AffineConstraints, we can't specify "no_conflicts_allowed", and
+   * it has to be checked.
+   */
+  for (const auto &[dof, d] : coupled_position_dofs)
+    AssertThrow(
+      !zero_constraints.is_constrained(dof),
+      ExcMessage(
+        "At least one position degree of freedom is at the same time coupled "
+        "to the fluid forces *and* constrained by a boundary condition. This "
+        "can happen if position dofs lying on both the cylinder and a face "
+        "boundary have conflicting prescribed boundary conditions."));
 }
 
 template <int dim>
@@ -990,6 +1010,9 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
     FixedMeshPosition<dim>                              fixed_mesh_fun(0, dim);
     std::set<types::boundary_id>                        normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *> position_flux_functions;
+    std::set<types::boundary_id> mms_normal_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *>
+      mms_position_flux_functions;
     for (const auto &[id, bc] : param.pseudosolid_bc)
     {
       if (bc.type == BoundaryConditions::Type::fixed)
@@ -1024,6 +1047,12 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
         normal_flux_boundaries.insert(bc.id);
         position_flux_functions[bc.id] = &fixed_mesh_fun;
       }
+      if (bc.type == BoundaryConditions::Type::position_flux_mms)
+      {
+        mms_normal_flux_boundaries.insert(bc.id);
+        mms_position_flux_functions[bc.id] =
+          param.mms.exact_mesh_position.get();
+      }
     }
 
     // Add position nonzero flux constraints (tangential movement)
@@ -1032,6 +1061,16 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
       x_lower,
       normal_flux_boundaries,
       position_flux_functions,
+      nonzero_constraints,
+      *fixed_mapping);
+
+    // Add position nonzero flux constraints from manufactured solution
+    // (tangential movement)
+    VectorTools::compute_nonzero_normal_flux_constraints(
+      dof_handler,
+      x_lower,
+      mms_normal_flux_boundaries,
+      mms_position_flux_functions,
       nonzero_constraints,
       *fixed_mapping);
   }
@@ -1395,10 +1434,10 @@ void MonolithicFSISolver<dim>::assemble_local_matrix(
     //   dudt += time_handler.bdf_coefficients[i] *
     //   scratchData.previous_velocity_values[i - 1][q];
 
-    const auto &source_term_velocity = scratchData.source_term_velocity[q];
-    const auto &source_term_pressure = scratchData.source_term_pressure[q];
-    const auto &grad_source_velocity = scratchData.grad_source_velocity[q];
-    const auto &grad_source_pressure = scratchData.grad_source_pressure[q];
+    // const auto &source_term_velocity = scratchData.source_term_velocity[q];
+    // const auto &source_term_pressure = scratchData.source_term_pressure[q];
+    // const auto &grad_source_velocity = scratchData.grad_source_velocity[q];
+    // const auto &grad_source_pressure = scratchData.grad_source_pressure[q];
 
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
     {
@@ -1486,12 +1525,12 @@ void MonolithicFSISolver<dim>::assemble_local_matrix(
           local_flow_matrix_ij +=
             -present_pressure_values * div_phi_u[i] * trace(grad_phi_x[j]);
 
-          // Source term for velocity:
-          // Variation of the source term integral with mesh position.
-          // det J is accounted for at the end when multiplying by JxW(q).
-          local_flow_matrix_ij += phi_u[i] * grad_source_velocity * phi_x[j];
-          local_flow_matrix_ij +=
-            source_term_velocity * phi_u[i] * trace(grad_phi_x[j]);
+          // // Source term for velocity:
+          // // Variation of the source term integral with mesh position.
+          // // det J is accounted for at the end when multiplying by JxW(q).
+          // local_flow_matrix_ij += phi_u[i] * grad_source_velocity * phi_x[j];
+          // local_flow_matrix_ij +=
+          //   source_term_velocity * phi_u[i] * trace(grad_phi_x[j]);
         }
 
         if (i_is_p && j_is_u)
@@ -1512,10 +1551,10 @@ void MonolithicFSISolver<dim>::assemble_local_matrix(
           local_flow_matrix_ij +=
             -present_velocity_divergence * phi_p[i] * trace(grad_phi_x[j]);
 
-          // Source term for pressure:
-          local_flow_matrix_ij += phi_p[i] * grad_source_pressure * phi_x[j];
-          local_flow_matrix_ij +=
-            source_term_pressure * phi_p[i] * trace(grad_phi_x[j]);
+          // // Source term for pressure:
+          // local_flow_matrix_ij += phi_p[i] * grad_source_pressure * phi_x[j];
+          // local_flow_matrix_ij +=
+          //   source_term_pressure * phi_p[i] * trace(grad_phi_x[j]);
 
           // local_flow_matrix_ij += trace(grad_phi_x[j]);
         }
@@ -1840,7 +1879,6 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
   // Face contributions
   //
   if (cell->at_boundary())
-  {
     for (const auto i_face : cell->face_indices())
     {
       const auto &face = cell->face(i_face);
@@ -1851,7 +1889,6 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
         // Lagrange multiplier for no-slip
         //
         if (face->boundary_id() == weak_no_slip_boundary_id)
-        {
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
             //
@@ -1887,7 +1924,6 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
               local_rhs(i) += local_rhs_i;
             }
           }
-        }
 
         /**
          * Open boundary condition with prescribed manufactured solution.
@@ -1895,7 +1931,6 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
          */
         if (param.fluid_bc.at(scratchData.face_boundary_id[i_face]).type ==
             BoundaryConditions::Type::open_mms)
-        {
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
             const double face_JxW_moving =
@@ -1916,10 +1951,8 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
             for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
               local_rhs(i) -= -phi_u[i] * quasisigma_dot_n * face_JxW_moving;
           }
-        }
       }
     }
-  }
   cell->get_dof_indices(copy_data.local_dof_indices);
 }
 
@@ -2037,114 +2070,78 @@ void MonolithicFSISolver<dim>::compare_forces_and_position_on_obstacle() const
   Tensor<1, dim> lambda_integral, lambda_integral_local;
   lambda_integral_local = 0;
 
-  const FEValuesExtractors::Vector lambda(l_lower);
-
   FEFaceValues<dim> fe_face_values(*mapping,
                                    fe,
                                    face_quadrature,
-                                   update_values | update_quadrature_points |
-                                     update_JxW_values | update_normal_vectors);
+                                   update_values | update_JxW_values);
 
-  const unsigned int          n_faces_q_points = face_quadrature.size();
+  // Compute integral of lambda on owned boundary
+  const unsigned int n_faces_q_points = face_quadrature.size();
+  std::vector<types::global_dof_index> face_dofs(fe.n_dofs_per_face());
+
   std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
 
+  Tensor<1, dim>    cylinder_displacement_local, max_diff_local;
+  std::vector<bool> first_computed_displacement(dim, true);
+
   for (auto cell : dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
+    if (cell->is_locally_owned())
+      for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
       {
-        fe_face_values.reinit(cell, i_face);
-
-        // Get FE solution values on the face
-        fe_face_values[lambda].get_function_values(this->present_solution,
-                                                   lambda_values);
-
-        // Evaluate exact solution at quadrature points
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        const auto &face = cell->face(i_face);
+        if (face->at_boundary() &&
+            face->boundary_id() == weak_no_slip_boundary_id)
         {
-          // Increment the integral of lambda
-          lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
+          fe_face_values.reinit(cell, i_face);
+
+          // Increment lambda integral
+          fe_face_values[lambda_extractor].get_function_values(present_solution,
+                                                               lambda_values);
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+            lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
+
+          /**
+           * Cylinder is rigid, so all displacements should be identical for a
+           * given component. If first position dof, save displacement,
+           * otherwise compare with saved displacement.
+           */
+          face->get_dof_indices(face_dofs);
+
+          for (unsigned int i_dof = 0; i_dof < fe.n_dofs_per_face(); ++i_dof)
+            if (locally_owned_dofs.is_element(face_dofs[i_dof]))
+            {
+              const unsigned int comp =
+                fe.face_system_to_component_index(i_dof, i_face).first;
+              if (is_position(comp))
+              {
+                const unsigned int d = comp - x_lower;
+
+                if (first_computed_displacement[d])
+                {
+                  // Save displacement
+                  first_computed_displacement[d] = false;
+                  cylinder_displacement_local[d] =
+                    present_solution[face_dofs[i_dof]] -
+                    initial_positions.at(face_dofs[i_dof])[d];
+                }
+                else
+                {
+                  // Compare with saved displacement
+                  const double displ =
+                    present_solution[face_dofs[i_dof]] -
+                    initial_positions.at(face_dofs[i_dof])[d];
+                  max_diff_local[d] =
+                    std::max(max_diff_local[d],
+                             cylinder_displacement_local[d] - displ);
+                }
+              }
+            }
         }
       }
-    }
-  }
 
   for (unsigned int d = 0; d < dim; ++d)
-  {
     lambda_integral[d] =
       Utilities::MPI::sum(lambda_integral_local[d], mpi_communicator);
-  }
-
-  //
-  // Position BC
-  //
-  Tensor<1, dim> cylinder_displacement_local, max_diff_local;
-  bool           first_displacement_x = true;
-  bool           first_displacement_y = true;
-  std::vector<types::global_dof_index> face_dofs(fe.n_dofs_per_face());
-  for (const auto &cell : dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-
-      if (!(face->at_boundary() &&
-            face->boundary_id() == weak_no_slip_boundary_id))
-        continue;
-
-      face->get_dof_indices(face_dofs);
-
-      for (unsigned int i = 0; i < fe.n_dofs_per_face(); ++i)
-      {
-        if (!locally_owned_dofs.is_element(face_dofs[i]))
-          continue;
-
-        const unsigned int comp =
-          fe.face_system_to_component_index(i, i_face).first;
-
-        //
-        // Displacement or position coupling
-        //
-        if (is_position(comp))
-        {
-          const unsigned int d = comp - x_lower;
-          if (d == 0 && first_displacement_x)
-          {
-            first_displacement_x = false;
-            cylinder_displacement_local[d] =
-              this->present_solution[face_dofs[i]] -
-              this->initial_positions.at(face_dofs[i])[d];
-          }
-          if (d == 1 && first_displacement_y)
-          {
-            first_displacement_y = false;
-            cylinder_displacement_local[d] =
-              this->present_solution[face_dofs[i]] -
-              this->initial_positions.at(face_dofs[i])[d];
-          }
-          if (!first_displacement_x && !first_displacement_y)
-          {
-            // Compare with cylinder_displacement_local
-            const double displ = this->present_solution[face_dofs[i]] -
-                                 this->initial_positions.at(face_dofs[i])[d];
-            max_diff_local[d] =
-              std::max(max_diff_local[d],
-                       cylinder_displacement_local[d] - displ);
-          }
-        }
-      }
-    }
-  }
 
   // To take the max displacement while preserving sign
   struct MaxAbsOp
@@ -2167,13 +2164,12 @@ void MonolithicFSISolver<dim>::compare_forces_and_position_on_obstacle() const
   Tensor<1, dim> cylinder_displacement, max_diff, ratio;
   for (unsigned int d = 0; d < dim; ++d)
   {
-    // cylinder_displacement[d] =
-    //   Utilities::MPI::max(cylinder_displacement_local[d], mpi_communicator);
-
-    // The cylinder displacement is trivially 0 on processes which do not own
-    // a part of the boundary, and is nontrivial otherwise.
-    // Taking the max to synchronize does not work because displacement
-    // can be negative. Instead, we take the max while preserving the sign.
+    /**
+     * Cylinder displacement is trivially 0 on processes which do not own a part
+     * of the boundary, and is nontrivial otherwise.     Taking the max to
+     * synchronize does not work because displacement can be negative. Instead,
+     * we take the max while preserving the sign.
+     */
     MPI_Allreduce(&cylinder_displacement_local[d],
                   &cylinder_displacement[d],
                   1,
@@ -2192,16 +2188,22 @@ void MonolithicFSISolver<dim>::compare_forces_and_position_on_obstacle() const
       ratio[d] = lambda_integral[d] / cylinder_displacement[d];
   }
 
-  pcout << std::endl;
-  pcout << std::scientific << std::setprecision(8) << std::showpos;
-  pcout << "Checking consistency between lambda integral and position BC:"
-        << std::endl;
-  pcout << "Integral of lambda on cylinder is " << lambda_integral << std::endl;
-  pcout << "Prescribed displacement        is " << cylinder_displacement
-        << std::endl;
-  pcout << "                         Ratio is " << ratio
-        << " (expected: " << -param.fsi.spring_constant << ")" << std::endl;
-  pcout << "Max diff between displacements is " << max_diff << std::endl;
+  if (param.fsi.verbosity == Parameters::Verbosity::verbose)
+  {
+    pcout << std::endl;
+    pcout << std::scientific << std::setprecision(8) << std::showpos;
+    pcout << "Checking consistency between lambda integral and position BC:"
+          << std::endl;
+    pcout << "Integral of lambda on cylinder is " << lambda_integral
+          << std::endl;
+    pcout << "Prescribed displacement        is " << cylinder_displacement
+          << std::endl;
+    pcout << "                         Ratio is " << ratio
+          << " (expected: " << -param.fsi.spring_constant << ")" << std::endl;
+    pcout << "Max diff between displacements is " << max_diff << std::endl;
+    pcout << std::endl;
+  }
+
   AssertThrow(max_diff.norm() <= 1e-10,
               ExcMessage(
                 "Displacement values of the cylinder are not all the same."));
@@ -2224,7 +2226,6 @@ void MonolithicFSISolver<dim>::compare_forces_and_position_on_obstacle() const
     AssertThrow(relative_error <= 1e-2,
                 ExcMessage("Ratio integral vs displacement values is not -k"));
   }
-  pcout << std::endl;
 }
 
 template <int dim>
@@ -2310,17 +2311,22 @@ void MonolithicFSISolver<dim>::check_velocity_boundary() const
   const double l2_error =
     std::sqrt(Utilities::MPI::sum(l2_local, mpi_communicator));
   const double li_error = Utilities::MPI::max(li_local, mpi_communicator);
-  pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
-  pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
-  pcout << "||uh - wh||_Li = " << li_error << std::endl;
 
-  if (!time_handler.is_starting_step() &&
-      !param.debug.fsi_apply_erroneous_coupling)
+  if (param.fsi.verbosity == Parameters::Verbosity::verbose)
+  {
+    pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
+    pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
+    pcout << "||uh - wh||_Li = " << li_error << std::endl;
+  }
+
+  if (!param.debug.fsi_apply_erroneous_coupling)
   {
     AssertThrow(l2_error < 1e-12,
-                ExcMessage("L2 norm of uh - wh is too large."));
+                ExcMessage("L2 norm of uh - wh is too large : " +
+                           std::to_string(l2_error)));
     AssertThrow(li_error < 1e-12,
-                ExcMessage("Linf norm of uh - wh is too large."));
+                ExcMessage("Linf norm of uh - wh is too large : " +
+                           std::to_string(li_error)));
   }
 }
 
@@ -3046,6 +3052,51 @@ void MonolithicFSISolver<dim>::write_cylinder_position(const bool export_table)
   {
     std::ofstream outfile(param.output.output_dir + "cylinder_center.txt");
     cylinder_position_table.write_text(outfile);
+  }
+}
+
+template <int dim>
+void MonolithicFSISolver<dim>::postprocess_solution()
+{
+  output_results();
+
+  // Check position - lambda coupling if coupled
+  if (param.fsi.enable_coupling)
+    compare_forces_and_position_on_obstacle();
+
+  /**
+   * Check that no-slip condition is satisfied.
+   * 
+   * When applying the exact solution, the fluid velocity will be exact,
+   * but the mesh velocity is only precise up to time integration order.
+   * So these velocities differ by some power of the time step, rather
+   * than the machine epsilon as checked in this function, thus the 
+   * no-slip is not checked in this case.
+   * 
+   * Also, not checking when using BDF2 and starting with the initial
+   * condition, as it will generally not respect the no-slip condition.
+   */
+  if (!param.debug.apply_exact_solution)
+  {
+    if (!(time_handler.is_starting_step() &&
+          param.time_integration.bdfstart ==
+            Parameters::TimeIntegration::BDFStart::initial_condition))
+      check_velocity_boundary();
+  }
+
+  const bool export_force_table =
+    (time_handler.current_time_iteration % 5) == 0;
+  compute_forces(export_force_table);
+  const bool export_position_table =
+    (time_handler.current_time_iteration % 5) == 0;
+  write_cylinder_position(export_position_table);
+
+  if (param.mms_param.enable)
+  {
+    compute_errors();
+
+    if (param.debug.fsi_check_mms_on_boundary)
+      check_manufactured_solution_boundary();
   }
 }
 

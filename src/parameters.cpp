@@ -594,6 +594,7 @@ void FSI::declare_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("FSI");
   {
+    DECLARE_VERBOSITY_PARAM(prm)
     prm.declare_entry("enable coupling",
                       "false",
                       Patterns::Bool(),
@@ -610,6 +611,14 @@ void FSI::declare_parameters(ParameterHandler &prm)
                       "1",
                       Patterns::Double(),
                       "Mass of the studied system");
+    prm.declare_entry("cylinder radius",
+                      "1",
+                      Patterns::Double(),
+                      "");
+    prm.declare_entry("cylinder length",
+                      "1",
+                      Patterns::Double(),
+                      "");
   }
   prm.leave_subsection();
 }
@@ -618,10 +627,13 @@ void FSI::read_parameters(ParameterHandler &prm)
 {
   prm.enter_subsection("FSI");
   {
+    READ_VERBOSITY_PARAM(prm)
     enable_coupling = prm.get_bool("enable coupling");
     spring_constant = prm.get_double("spring constant");
     damping         = prm.get_double("damping");
     mass            = prm.get_double("mass");
+    cylinder_radius = prm.get_double("cylinder radius");
+    cylinder_length = prm.get_double("cylinder length");
   }
   prm.leave_subsection();
 }

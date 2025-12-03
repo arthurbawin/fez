@@ -331,9 +331,10 @@ public:
     source_terms->vector_value_list(fe_values_fixed.get_quadrature_points(),
                                     source_term_full_fixed);
 
-    // Gradient of source term (for u-p only)
-    source_terms->vector_gradient_list(fe_values.get_quadrature_points(),
-                                       grad_source_term_full);
+    // This takes a lot of time, and the Newton solver converges without it
+    // // Gradient of source term (for u-p only)
+    // source_terms->vector_gradient_list(fe_values.get_quadrature_points(),
+    //                                    grad_source_term_full);
 
     // Current mesh velocity from displacement
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -362,15 +363,8 @@ public:
     // double area_fixed = 0., area_moving = 0.;
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
-      // for(unsigned int icomp = 0; icomp < n_components; ++icomp)
-      // std::cout << "grad comp " << icomp << " = " <<
-      // grad_source_term_full[q][icomp] << std::endl;
-
       JxW_moving[q] = fe_values.JxW(q);
       JxW_fixed[q]  = fe_values_fixed.JxW(q);
-
-      // area_moving += JxW_moving[q];
-      // area_fixed += JxW_fixed[q];
 
       for (int d = 0; d < dim; ++d)
         source_term_velocity[q][d] = source_term_full[q](u_lower + d);
@@ -378,14 +372,14 @@ public:
       for (int d = 0; d < dim; ++d)
         source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
 
-      // Layout: grad_source_velocity[q] = df_i/dx_j
-      for (int di = 0; di < dim; ++di)
-      {
-        grad_source_pressure[q][di] = grad_source_term_full[q][p_lower][di];
-        for (int dj = 0; dj < dim; ++dj)
-          grad_source_velocity[q][di][dj] =
-            grad_source_term_full[q][u_lower + di][dj];
-      }
+      // // Layout: grad_source_velocity[q] = df_i/dx_j
+      // for (int di = 0; di < dim; ++di)
+      // {
+      //   grad_source_pressure[q][di] = grad_source_term_full[q][p_lower][di];
+      //   for (int dj = 0; dj < dim; ++dj)
+      //     grad_source_velocity[q][di][dj] =
+      //       grad_source_term_full[q][u_lower + di][dj];
+      // }
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -400,186 +394,183 @@ public:
       }
     }
 
-    // std::cout << "moving = " << std::setprecision(16) << area_moving <<
-    // std::endl; std::cout << "fixed  = " << std::setprecision(16) <<
-    // area_fixed << std::endl;
-
     //
     // Face-related values and shape functions
     //
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-
-      // if (!(face->at_boundary() && face->boundary_id() == boundary_id))
-      //   continue;
-
-      face_boundary_id[i_face] = face->boundary_id();
-
-      fe_face_values.reinit(cell, face);
-      fe_face_values_fixed.reinit(cell, face);
-
-      fe_face_values[velocity].get_function_values(
-        current_solution, present_face_velocity_values[i_face]);
-      fe_face_values[lambda].get_function_values(
-        current_solution, present_face_lambda_values[i_face]);
-
-      fe_face_values_fixed[position].get_function_values(
-        current_solution, present_face_position_values[i_face]);
-      fe_face_values_fixed[position].get_function_gradients(
-        current_solution, present_face_position_gradient[i_face]);
-
-      for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+    if(cell->at_boundary())
+      for (const auto i_face : cell->face_indices())
       {
+        const auto &face = cell->face(i_face);
+
+        if (!face->at_boundary())
+          continue;
+
+        face_boundary_id[i_face] = face->boundary_id();
+
+        fe_face_values.reinit(cell, face);
+        fe_face_values_fixed.reinit(cell, face);
+
+        fe_face_values[velocity].get_function_values(
+          current_solution, present_face_velocity_values[i_face]);
+        fe_face_values[lambda].get_function_values(
+          current_solution, present_face_lambda_values[i_face]);
+
         fe_face_values_fixed[position].get_function_values(
-          previous_solutions[i], previous_face_position_values[i_face][i]);
-      }
+          current_solution, present_face_position_values[i_face]);
+        fe_face_values_fixed[position].get_function_gradients(
+          current_solution, present_face_position_gradient[i_face]);
 
-      for (unsigned int q = 0; q < n_faces_q_points; ++q)
-      {
-        face_JxW_moving[i_face][q]     = fe_face_values.JxW(q);
-        face_JxW_fixed[i_face][q]      = fe_face_values_fixed.JxW(q);
-        face_normals_moving[i_face][q] = fe_face_values.normal_vector(q);
-
-        // Exact solution with layout u-v-(w-)p and its gradient,
-        // used to add open boundary conditions (quasi-traction)
-        exact_solution->vector_value_list(
-          fe_face_values.get_quadrature_points(), exact_solution_full);
-        exact_solution->vector_gradient_list(
-          fe_face_values.get_quadrature_points(), grad_exact_solution_full);
-
-        for (int di = 0; di < dim; ++di)
-          for (int dj = 0; dj < dim; ++dj)
-            exact_face_velocity_gradients[i_face][q][di][dj] =
-              grad_exact_solution_full[q][u_lower + di][dj];
-        exact_face_pressure_values[i_face][q] = exact_solution_full[q](p_lower);
-
-        //
-        // Jacobian of geometric transformation is needed to compute
-        // tangent metric for the lambda equation, on moving mapping
-        //
-        const Tensor<2, dim> J = fe_face_values.jacobian(q);
-
-        if constexpr (dim == 2)
+        for (unsigned int i = 0; i < previous_solutions.size(); ++i)
         {
-          switch (i_face)
-          {
-            case 0:
-              dxsids_array[0][0] = 1.;
-              dxsids_array[0][1] = 0.;
-              break;
-            case 1:
-              dxsids_array[0][0] = -1.;
-              dxsids_array[0][1] = 1.;
-              break;
-            case 2:
-              dxsids_array[0][0] = 0.;
-              dxsids_array[0][1] = -1.;
-              break;
-            default:
-              DEAL_II_ASSERT_UNREACHABLE();
-          }
-        }
-        else
-        {
-          switch (i_face)
-          {
-            // Using dealii's face ordering
-            case 3: // Opposite to v0
-              dxsids_array[0][0] = -1.;
-              dxsids_array[1][0] = -1.;
-              dxsids_array[0][1] = 1.;
-              dxsids_array[1][1] = 0.;
-              dxsids_array[0][2] = 0.;
-              dxsids_array[1][2] = 1.;
-              break;
-            case 2: // Opposite to v1
-              dxsids_array[0][0] = 0.;
-              dxsids_array[1][0] = 0.;
-              dxsids_array[0][1] = 1.;
-              dxsids_array[1][1] = 0.;
-              dxsids_array[0][2] = 0.;
-              dxsids_array[1][2] = 1.;
-              break;
-            case 1: // Opposite to v2
-              dxsids_array[0][0] = 1.;
-              dxsids_array[1][0] = 0.;
-              dxsids_array[0][1] = 0.;
-              dxsids_array[1][1] = 0.;
-              dxsids_array[0][2] = 0.;
-              dxsids_array[1][2] = 1.;
-              break;
-            case 0: // Opposite to v3
-              dxsids_array[0][0] = 1.;
-              dxsids_array[1][0] = 0.;
-              dxsids_array[0][1] = 0.;
-              dxsids_array[1][1] = 1.;
-              dxsids_array[0][2] = 0.;
-              dxsids_array[1][2] = 0.;
-              break;
-            default:
-              DEAL_II_ASSERT_UNREACHABLE();
-          }
+          fe_face_values_fixed[position].get_function_values(
+            previous_solutions[i], previous_face_position_values[i_face][i]);
         }
 
-        Tensor<2, dim - 1> G;
-        G = 0;
-        for (unsigned int di = 0; di < dim - 1; ++di)
-          for (unsigned int dj = 0; dj < dim - 1; ++dj)
-            for (unsigned int im = 0; im < dim; ++im)
-              for (unsigned int in = 0; in < dim; ++in)
-                for (unsigned int ip = 0; ip < dim; ++ip)
-                  G[di][dj] += dxsids_array[di][im] * J[in][im] * J[in][ip] *
-                               dxsids_array[dj][ip];
-        face_G[i_face][q]                  = G;
-        const Tensor<2, dim - 1> G_inverse = invert(G);
-
-        // Result of G^(-1) * (J * dxsids)^T * grad_phi_x_j * dxsids
-        Tensor<2, dim - 1> res;
-
-        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        for (unsigned int q = 0; q < n_faces_q_points; ++q)
         {
-          phi_u_face[i_face][q][k] = fe_face_values[velocity].value(k, q);
-          phi_l_face[i_face][q][k] = fe_face_values[lambda].value(k, q);
+          face_JxW_moving[i_face][q]     = fe_face_values.JxW(q);
+          face_JxW_fixed[i_face][q]      = fe_face_values_fixed.JxW(q);
+          face_normals_moving[i_face][q] = fe_face_values.normal_vector(q);
 
-          phi_x_face[i_face][q][k] = fe_face_values_fixed[position].value(k, q);
-          grad_phi_x_face[i_face][q][k] =
-            fe_face_values_fixed[position].gradient(k, q);
+          // Exact solution with layout u-v-(w-)p and its gradient,
+          // used to add open boundary conditions (quasi-traction)
+          exact_solution->vector_value_list(
+            fe_face_values.get_quadrature_points(), exact_solution_full);
+          exact_solution->vector_gradient_list(
+            fe_face_values.get_quadrature_points(), grad_exact_solution_full);
 
-          const auto &grad_phi_x = grad_phi_x_face[i_face][q][k];
+          for (int di = 0; di < dim; ++di)
+            for (int dj = 0; dj < dim; ++dj)
+              exact_face_velocity_gradients[i_face][q][di][dj] =
+                grad_exact_solution_full[q][u_lower + di][dj];
+          exact_face_pressure_values[i_face][q] = exact_solution_full[q](p_lower);
 
-          Tensor<2, dim> A =
-            transpose(J) *
-            (transpose(present_face_position_gradient[i_face][q]) * grad_phi_x +
-             transpose(grad_phi_x) *
-               present_face_position_gradient[i_face][q]) *
-            J;
+          //
+          // Jacobian of geometric transformation is needed to compute
+          // tangent metric for the lambda equation, on moving mapping
+          //
+          const Tensor<2, dim> J = fe_face_values.jacobian(q);
 
-          res = 0;
+          if constexpr (dim == 2)
+          {
+            switch (i_face)
+            {
+              case 0:
+                dxsids_array[0][0] = 1.;
+                dxsids_array[0][1] = 0.;
+                break;
+              case 1:
+                dxsids_array[0][0] = -1.;
+                dxsids_array[0][1] = 1.;
+                break;
+              case 2:
+                dxsids_array[0][0] = 0.;
+                dxsids_array[0][1] = -1.;
+                break;
+              default:
+                DEAL_II_ASSERT_UNREACHABLE();
+            }
+          }
+          else
+          {
+            switch (i_face)
+            {
+              // Using dealii's face ordering
+              case 3: // Opposite to v0
+                dxsids_array[0][0] = -1.;
+                dxsids_array[1][0] = -1.;
+                dxsids_array[0][1] = 1.;
+                dxsids_array[1][1] = 0.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 1.;
+                break;
+              case 2: // Opposite to v1
+                dxsids_array[0][0] = 0.;
+                dxsids_array[1][0] = 0.;
+                dxsids_array[0][1] = 1.;
+                dxsids_array[1][1] = 0.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 1.;
+                break;
+              case 1: // Opposite to v2
+                dxsids_array[0][0] = 1.;
+                dxsids_array[1][0] = 0.;
+                dxsids_array[0][1] = 0.;
+                dxsids_array[1][1] = 0.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 1.;
+                break;
+              case 0: // Opposite to v3
+                dxsids_array[0][0] = 1.;
+                dxsids_array[1][0] = 0.;
+                dxsids_array[0][1] = 0.;
+                dxsids_array[1][1] = 1.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 0.;
+                break;
+              default:
+                DEAL_II_ASSERT_UNREACHABLE();
+            }
+          }
+
+          Tensor<2, dim - 1> G;
+          G = 0;
           for (unsigned int di = 0; di < dim - 1; ++di)
             for (unsigned int dj = 0; dj < dim - 1; ++dj)
-              for (unsigned int im = 0; im < dim - 1; ++im)
+              for (unsigned int im = 0; im < dim; ++im)
                 for (unsigned int in = 0; in < dim; ++in)
-                  for (unsigned int io = 0; io < dim; ++io)
-                    res[di][dj] += G_inverse[di][im] * dxsids_array[im][in] *
-                                   A[in][io] * dxsids_array[dj][io];
-          delta_dx[i_face][q][k] =
-            0.5 * trace(res); // Choose this if multiplying by JxW in the matrix
-          // delta_dx[i_face][q][k] = 0.5 * sqrt_det_G * trace(res); // Choose
-          // this if multiplying by W
-        }
+                  for (unsigned int ip = 0; ip < dim; ++ip)
+                    G[di][dj] += dxsids_array[di][im] * J[in][im] * J[in][ip] *
+                                 dxsids_array[dj][ip];
+          face_G[i_face][q]                  = G;
+          const Tensor<2, dim - 1> G_inverse = invert(G);
 
-        // Face mesh velocity
-        present_face_mesh_velocity_values[i_face][q] =
-          bdfCoeffs[0] * present_face_position_values[i_face][q];
-        for (unsigned int iBDF = 1; iBDF < bdfCoeffs.size(); ++iBDF)
-        {
-          present_face_mesh_velocity_values[i_face][q] +=
-            bdfCoeffs[iBDF] *
-            previous_face_position_values[i_face][iBDF - 1][q];
+          // Result of G^(-1) * (J * dxsids)^T * grad_phi_x_j * dxsids
+          Tensor<2, dim - 1> res;
+
+          for (unsigned int k = 0; k < dofs_per_cell; ++k)
+          {
+            phi_u_face[i_face][q][k] = fe_face_values[velocity].value(k, q);
+            phi_l_face[i_face][q][k] = fe_face_values[lambda].value(k, q);
+
+            phi_x_face[i_face][q][k] = fe_face_values_fixed[position].value(k, q);
+            grad_phi_x_face[i_face][q][k] =
+              fe_face_values_fixed[position].gradient(k, q);
+
+            const auto &grad_phi_x = grad_phi_x_face[i_face][q][k];
+
+            Tensor<2, dim> A =
+              transpose(J) *
+              (transpose(present_face_position_gradient[i_face][q]) * grad_phi_x +
+               transpose(grad_phi_x) *
+                 present_face_position_gradient[i_face][q]) *
+              J;
+
+            res = 0;
+            for (unsigned int di = 0; di < dim - 1; ++di)
+              for (unsigned int dj = 0; dj < dim - 1; ++dj)
+                for (unsigned int im = 0; im < dim - 1; ++im)
+                  for (unsigned int in = 0; in < dim; ++in)
+                    for (unsigned int io = 0; io < dim; ++io)
+                      res[di][dj] += G_inverse[di][im] * dxsids_array[im][in] *
+                                     A[in][io] * dxsids_array[dj][io];
+            delta_dx[i_face][q][k] =
+              0.5 * trace(res); // Choose this if multiplying by JxW in the matrix
+            // delta_dx[i_face][q][k] = 0.5 * sqrt_det_G * trace(res); // Choose
+            // this if multiplying by W
+          }
+
+          // Face mesh velocity
+          present_face_mesh_velocity_values[i_face][q] =
+            bdfCoeffs[0] * present_face_position_values[i_face][q];
+          for (unsigned int iBDF = 1; iBDF < bdfCoeffs.size(); ++iBDF)
+          {
+            present_face_mesh_velocity_values[i_face][q] +=
+              bdfCoeffs[iBDF] *
+              previous_face_position_values[i_face][iBDF - 1][q];
+          }
         }
       }
-    }
   }
 
 public:

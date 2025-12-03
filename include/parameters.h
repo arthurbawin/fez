@@ -247,10 +247,15 @@ namespace Parameters
    */
   struct FSI
   {
+    Verbosity verbosity;
+    
     bool   enable_coupling;
     double spring_constant;
     double damping;
     double mass;
+
+    double cylinder_radius;
+    double cylinder_length;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

@@ -123,6 +123,9 @@ inline Tensor<1, dim> parse_rank_1_tensor(const std::string &values,
   return res;
 }
 
+/**
+ * 
+ */
 inline std::pair<double, double>
 compute_relative_error(const double A,
                        const double B,
@@ -182,7 +185,8 @@ double compute_global_mean_value(const Function<dim>   &f,
 }
 
 /**
- * 
+ * A wrapper to subtract the mean pressure from a given function,
+ * typically the exact solution.
  */
 template <int dim>
 class PressureMeanSubtractedFunction : public Function<dim>
@@ -211,6 +215,35 @@ private:
   const double mean_pressure;
   const unsigned int p_lower;
 };
+
+/**
+ * Compute the measure (surface or length) of a given boundary.
+ */
+template <int dim>
+double compute_boundary_volume(const DoFHandler<dim>       &dof_handler,
+                               const Mapping<dim>          &mapping,
+                               const Quadrature<dim-1>     &face_quadrature,
+                               const types::boundary_id     boundary_id)
+{
+  double I = 0.;
+
+  FEFaceValues<dim> fe_face_values(mapping,
+                                   dof_handler.get_fe(),
+                                   face_quadrature,
+                                   update_JxW_values);
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (unsigned int f = 0; f < cell->n_faces(); ++f)
+        if (cell->face(f)->at_boundary() &&
+            cell->face(f)->boundary_id() == boundary_id)
+        {
+          fe_face_values.reinit(cell, f);
+          for (unsigned int q = 0; q < face_quadrature.size(); ++q)
+            I += fe_face_values.JxW(q);
+        }
+  return Utilities::MPI::sum(I, dof_handler.get_communicator());
+}
 
 
 #endif

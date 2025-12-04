@@ -28,6 +28,8 @@ namespace ManufacturedSolutions
 
   template <int dim>
   class MMSFunction;
+  template <int dim>
+  class ParsedFunctionSDBase;
 
   /**
    *
@@ -236,6 +238,14 @@ namespace ManufacturedSolutions
       return lame_mu * this->vector_laplacian(p) +
              (lame_mu + lame_lambda) * this->grad_div(p);
     }
+
+    /**
+     * 
+     */
+    virtual Tensor<1, dim>
+    divergence_linear_elastic_stress_variable_coefficients(const Point<dim> &p,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
 
     /**
      * Check that the provided time and spatial derivatives match

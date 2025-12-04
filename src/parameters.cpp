@@ -237,14 +237,6 @@ namespace Parameters
 
     prm.enter_subsection("Pseudosolid");
     {
-      prm.declare_entry("lame lambda",
-                        "1",
-                        Patterns::Double(),
-                        "First Lamé coefficient lambda");
-      prm.declare_entry("lame mu",
-                        "1",
-                        Patterns::Double(),
-                        "Second Lamé coefficient mu");
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->declare_parameters(prm);
       prm.leave_subsection();
@@ -260,8 +252,6 @@ namespace Parameters
   {
     prm.enter_subsection("Pseudosolid");
     {
-      lame_lambda = prm.get_double("lame lambda");
-      lame_mu     = prm.get_double("lame mu");
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->parse_parameters(prm);
       prm.leave_subsection();

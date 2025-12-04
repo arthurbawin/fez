@@ -134,8 +134,6 @@ void MonolithicFSISolver<dim>::MMSSourceTerm::vector_value(
   Vector<double>   &values) const
 {
   const double nu          = physical_properties.fluids[0].kinematic_viscosity;
-  const double lame_mu     = physical_properties.pseudosolids[0].lame_mu;
-  const double lame_lambda = physical_properties.pseudosolids[0].lame_lambda;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
@@ -161,13 +159,9 @@ void MonolithicFSISolver<dim>::MMSSourceTerm::vector_value(
   // Pseudosolid (mesh position) source term
   // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
   Tensor<1, dim> f_PS =
-    mms.exact_mesh_position->divergence_linear_elastic_stress(p,
-                                                              lame_mu,
-                                                              lame_lambda);
-  // Tensor<1, dim> f_PS =
-  //   mms.exact_mesh_position->divergence_linear_elastic_stress_variable_coefficients(p,
-  //      physical_properties.pseudosolids[0].lame_mu_fun,
-  //      physical_properties.pseudosolids[0].lame_lambda_fun);
+    mms.exact_mesh_position->divergence_linear_elastic_stress_variable_coefficients(p,
+       physical_properties.pseudosolids[0].lame_mu_fun,
+       physical_properties.pseudosolids[0].lame_lambda_fun);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[x_lower + d] = f_PS[d];
@@ -343,12 +337,14 @@ void MonolithicFSISolver<dim>::set_time()
   // - relevant boundary conditions
   // - source terms, if any
   // - exact solution, if any
+  // - physical properties
   for (auto &[id, bc] : param.fluid_bc)
     bc.set_time(time_handler.current_time);
   for (auto &[id, bc] : param.pseudosolid_bc)
     bc.set_time(time_handler.current_time);
   source_terms->set_time(time_handler.current_time);
   exact_solution->set_time(time_handler.current_time);
+  param.physical_properties.set_time(time_handler.current_time);
 }
 
 template <int dim>
@@ -1400,17 +1396,13 @@ void MonolithicFSISolver<dim>::assemble_local_matrix(
 
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
-  const double lame_lambda =
-    this->param.physical_properties.pseudosolids[0].lame_lambda;
-  const double lame_mu =
-    this->param.physical_properties.pseudosolids[0].lame_mu;
 
   const double bdf_c0 = time_handler.bdf_coefficients[0];
 
   for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
   {
-    // const double lame_mu     = scratchData.lame_mu[q];
-    // const double lame_lambda = scratchData.lame_lambda[q];
+    const double lame_mu     = scratchData.lame_mu[q];
+    const double lame_lambda = scratchData.lame_lambda[q];
 
     const double JxW_moving = scratchData.JxW_moving[q];
     const double JxW_fixed  = scratchData.JxW_fixed[q];
@@ -1774,10 +1766,6 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
 
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
-  const double lame_lambda =
-    this->param.physical_properties.pseudosolids[0].lame_lambda;
-  const double lame_mu =
-    this->param.physical_properties.pseudosolids[0].lame_mu;
 
   for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
   {
@@ -1811,8 +1799,8 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
     //
     // Pseudo-solid related data
     //
-    // const double lame_mu = scratchData.lame_mu[q];
-    // const double lame_lambda = scratchData.lame_lambda[q];
+    const double lame_mu     = scratchData.lame_mu[q];
+    const double lame_lambda = scratchData.lame_lambda[q];
 
     const double JxW_fixed = scratchData.JxW_fixed[q];
 
@@ -1857,10 +1845,6 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
 
         // Pressure source term
         + source_term_pressure * phi_p[i]);
-
-      // double local_rhs_flow_i = 0.;
-      // if(is_pressure(fe.system_to_component_index(i).first))
-      //   local_rhs_flow_i = -1.;
 
       local_rhs_flow_i *= JxW_moving;
 

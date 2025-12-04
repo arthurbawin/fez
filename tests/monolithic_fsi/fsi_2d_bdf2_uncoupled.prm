@@ -77,8 +77,6 @@ subsection Physical properties
 
   set number of pseudosolids = 1
   subsection Pseudosolid
-    set lame lambda = 1
-    set lame mu     = 1
     subsection lame lambda
       set Function expression = 1
     end

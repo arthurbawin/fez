@@ -118,14 +118,17 @@ namespace Parameters
   class PseudoSolid
   {
   public:
-    double lame_lambda;
-    double lame_mu;
-
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_lambda_fun;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_mu_fun;
 
+  public:
+    void set_time(const double newtime)
+    {
+      lame_lambda_fun->set_time(newtime);
+      lame_mu_fun->set_time(newtime);
+    }
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -143,6 +146,11 @@ namespace Parameters
     std::vector<PseudoSolid<dim>> pseudosolids;
 
   public:
+    void set_time(const double newtime)
+    {
+      for(auto &ps : pseudosolids)
+        ps.set_time(newtime);
+    }
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };

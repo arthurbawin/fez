@@ -22,5 +22,5 @@ Curve Loop(1) = {1, 2, 3, 4};
 Plane Surface(1) = {1};
 
 // Physical entities : named domains
-Physical Curve("Bord")  = {1,2,3,4};
-Physical Surface("Domaine") = {1};
+Physical Curve("Boundary")  = {1,2,3,4};
+Physical Surface("Domain") = {1};

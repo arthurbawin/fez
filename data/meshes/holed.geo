@@ -1,7 +1,7 @@
 // Parameters
-X0 = 10.;
-Y0 = 10.;
-Lx = 5.0;      
+X0 = 0.;
+Y0 = 0.;
+Lx = 1.0;      
 Ly = 1.0;
 R = 0.15;       // circle radius
 lc = 0.25;     // mesh size
@@ -40,7 +40,7 @@ Circle(8) = {8, 9, 5};
 // -----------------------------------------------------------------------------
 // Curve loops and surfaces
 Curve Loop(1) = {1,2,3,4};  // outer square
-Curve Loop(2) = {5,6,7,8};  // inner circle
+Curve Loop(2) = {-5,-6,-7,-8};  // inner circle
 
 Plane Surface(1) = {1,2};   // annular domain
 

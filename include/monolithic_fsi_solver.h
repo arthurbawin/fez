@@ -430,7 +430,7 @@ protected:
   {
   public:
     MMSSourceTerm(const double                          time,
-                  const Parameters::PhysicalProperties &physical_properties,
+                  const Parameters::PhysicalProperties<dim> &physical_properties,
                   const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
       : Function<dim>(n_components, time)
       , physical_properties(physical_properties)
@@ -449,34 +449,34 @@ protected:
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override;
 
-    // /**
-    //  * Gradient of source term, using finite differences
-    //  */
-    // virtual void
-    // vector_gradient(const Point<dim>            &p,
-    //                 std::vector<Tensor<1, dim>> &gradients) const override
-    // {
-    //   const double h = 1e-8;
+    /**
+     * Gradient of source term, using finite differences
+     */
+    virtual void
+    vector_gradient(const Point<dim>            &p,
+                    std::vector<Tensor<1, dim>> &gradients) const override
+    {
+      const double h = 1e-8;
 
-    //   Vector<double> vals_plus(gradients.size()), vals_minus(gradients.size());
+      Vector<double> vals_plus(gradients.size()), vals_minus(gradients.size());
 
-    //   for (unsigned int d = 0; d < dim; ++d)
-    //   {
-    //     Point<dim> p_plus = p, p_minus = p;
-    //     p_plus[d] += h;
-    //     p_minus[d] -= h;
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        Point<dim> p_plus = p, p_minus = p;
+        p_plus[d] += h;
+        p_minus[d] -= h;
 
-    //     this->vector_value(p_plus, vals_plus);
-    //     this->vector_value(p_minus, vals_minus);
+        this->vector_value(p_plus, vals_plus);
+        this->vector_value(p_minus, vals_minus);
 
-    //     // Centered finite differences
-    //     for (unsigned int c = 0; c < gradients.size(); ++c)
-    //       gradients[c][d] = (vals_plus[c] - vals_minus[c]) / (2.0 * h);
-    //   }
-    // }
+        // Centered finite differences
+        for (unsigned int c = 0; c < gradients.size(); ++c)
+          gradients[c][d] = (vals_plus[c] - vals_minus[c]) / (2.0 * h);
+      }
+    }
 
   protected:
-    const Parameters::PhysicalProperties &physical_properties;
+    const Parameters::PhysicalProperties<dim> &physical_properties;
 
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;

@@ -70,17 +70,6 @@ public:
    */
   void create_sparsity_pattern();
 
-  // /**
-  //  *
-  //  */
-  // void constrain_pressure_point(AffineConstraints<double> &constraints,
-  //                               const bool                 set_to_zero);
-
-  /**
-   * 
-   */
-  void create_zero_mean_pressure_constraints_data();
-
   /**
    * Create the AffineConstraints storing the lambda = 0
    * constraints everywhere, except on the boundary of interest
@@ -345,6 +334,37 @@ protected:
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
 protected:
+  /**
+   * Source term.
+   */
+  class SourceTerm : public Function<dim>
+  {
+  public:
+    SourceTerm(const double time,
+      const Parameters::SourceTerms<dim> &source_terms)
+      : Function<dim>(n_components, time)
+      , source_terms(source_terms)
+    {}
+
+    virtual void set_time(const double new_time) override
+    {
+      source_terms.set_time(new_time);
+    }
+
+    virtual void vector_value(const Point<dim> &p,
+                              Vector<double>   &values) const override
+    {
+      // source_terms.fluid_source is a function with dim+1 components
+      for(unsigned int d = 0; d < dim; ++d)
+        values[u_lower + d] = source_terms.fluid_source->value(p, d);
+      values[p_lower] = source_terms.fluid_source->value(p, p_lower);
+    }
+
+  protected:
+    // Copy since time must be updated
+    Parameters::SourceTerms<dim> source_terms;
+  };
+
   /**
    * Exact solution when performing a convergence study with a manufactured
    * solution.

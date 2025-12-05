@@ -225,6 +225,7 @@ void IncompressibleNavierStokesSolver<dim>::run()
     }
 
     output_results();
+    // compute_forces();
 
     if (param.mms_param.enable)
       compute_errors();
@@ -492,13 +493,13 @@ void IncompressibleNavierStokesSolver<dim>::set_exact_solution()
 
   if (param.bc_data.enforce_zero_mean_pressure)
   {
-    present_solution = local_evaluation_point;
+    present_solution    = local_evaluation_point;
     const double p_mean = VectorTools::compute_mean_value(
       *mapping, dof_handler, quadrature, present_solution, p_lower);
     const double p_mms_mean = compute_global_mean_value(*exact_solution,
-                                                          p_lower,
-                                                          dof_handler,
-                                                          *mapping);
+                                                        p_lower,
+                                                        dof_handler,
+                                                        *mapping);
 
     pcout << "Before removing pressure: " << p_mean << std::endl;
     pcout << "Analytic mean is        : " << p_mms_mean << std::endl;
@@ -506,7 +507,7 @@ void IncompressibleNavierStokesSolver<dim>::set_exact_solution()
                                              dof_handler,
                                              p_mean,
                                              local_evaluation_point);
-    present_solution = local_evaluation_point;
+    present_solution     = local_evaluation_point;
     const double p_mean2 = VectorTools::compute_mean_value(
       *mapping, dof_handler, quadrature, present_solution, p_lower);
     pcout << "After  removing pressure: " << p_mean2 << std::endl;
@@ -580,8 +581,7 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix(
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
 
-  const double kinematic_viscosity =
-    param.physical_properties.fluids[0].kinematic_viscosity;
+  const double nu = param.physical_properties.fluids[0].kinematic_viscosity;
 
   const double bdf_c0 = time_handler.bdf_coefficients[0];
 
@@ -627,8 +627,7 @@ void IncompressibleNavierStokesSolver<dim>::assemble_local_matrix(
                              phi_u[i];
 
           // Diffusion
-          local_matrix_ij +=
-            kinematic_viscosity * scalar_product(grad_phi_u[i], grad_phi_u[j]);
+          local_matrix_ij += nu * scalar_product(grad_phi_u[i], grad_phi_u[j]);
         }
 
         if (i_is_u && j_is_p)
@@ -1041,6 +1040,75 @@ void IncompressibleNavierStokesSolver<dim>::compute_errors()
     error_handler.add_unsteady_error("Li_p", t, li_p);
     error_handler.add_unsteady_error("H1_u", t, h1semi_u);
     error_handler.add_unsteady_error("H1_p", t, h1semi_p);
+  }
+}
+
+template <int dim>
+void IncompressibleNavierStokesSolver<dim>::compute_forces()
+{
+  // FIXME
+  const double boundary_id1 = param.mesh.name2id["Sphere"];
+  const double boundary_id2 = param.mesh.name2id["InnerBoundary"];
+
+  const double rho = param.physical_properties.fluids[0].density;
+  const double nu  = param.physical_properties.fluids[0].kinematic_viscosity;
+  const double mu  = nu * rho;
+
+  FEFaceValues<dim> fe_face_values(*mapping,
+                                   fe,
+                                   face_quadrature,
+                                   update_values | update_gradients |
+                                     update_JxW_values | update_normal_vectors);
+
+  Tensor<1, dim>              viscous_local_force, pressure_local_force;
+  double                      area;
+  const unsigned int          n_faces_q_points = face_quadrature.size();
+  std::vector<Tensor<2, dim>> velocity_gradients(n_faces_q_points);
+  std::vector<double>         pressure_values(n_faces_q_points);
+  for (auto cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (const auto i_face : cell->face_indices())
+      {
+        const auto &face = cell->face(i_face);
+
+        if (face->at_boundary() && (face->boundary_id() == boundary_id1 ||
+                                    face->boundary_id() == boundary_id2))
+        {
+          fe_face_values.reinit(cell, i_face);
+
+          fe_face_values[velocity_extractor].get_function_gradients(
+            present_solution, velocity_gradients);
+          fe_face_values[pressure_extractor].get_function_values(
+            present_solution, pressure_values);
+
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            const auto  &n      = fe_face_values.normal_vector(q);
+            const double p      = pressure_values[q];
+            const auto  &grad_u = velocity_gradients[q];
+            pressure_local_force += -p * n * fe_face_values.JxW(q);
+            viscous_local_force +=
+              mu * (grad_u + transpose(grad_u)) * n * fe_face_values.JxW(q);
+            area += fe_face_values.JxW(q);
+          }
+        }
+      }
+
+  Tensor<1, dim> viscous_force, pressure_force;
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    pressure_force[d] =
+      Utilities::MPI::sum(pressure_local_force[d], mpi_communicator);
+    viscous_force[d] =
+      Utilities::MPI::sum(viscous_local_force[d], mpi_communicator);
+  }
+
+  const double area_tot = Utilities::MPI::sum(area, mpi_communicator);
+
+  if (param.debug.verbosity == Parameters::Verbosity::verbose)
+  {
+    pcout << "Viscous: " << viscous_force << " - Pressure: " << pressure_force
+          << " - Total: " << viscous_force + pressure_force << std::endl;
   }
 }
 

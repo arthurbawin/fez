@@ -274,6 +274,8 @@ namespace Parameters
     double cylinder_radius;
     double cylinder_length;
 
+    bool fix_z_component;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };

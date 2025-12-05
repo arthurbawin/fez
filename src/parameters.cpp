@@ -635,6 +635,7 @@ namespace Parameters
                         "Mass of the studied system");
       prm.declare_entry("cylinder radius", "1", Patterns::Double(), "");
       prm.declare_entry("cylinder length", "1", Patterns::Double(), "");
+      prm.declare_entry("fix z component", "true", Patterns::Bool(), "");
     }
     prm.leave_subsection();
   }
@@ -650,6 +651,7 @@ namespace Parameters
       mass            = prm.get_double("mass");
       cylinder_radius = prm.get_double("cylinder radius");
       cylinder_length = prm.get_double("cylinder length");
+      fix_z_component = prm.get_bool("fix z component");
     }
     prm.leave_subsection();
   }

@@ -166,23 +166,23 @@ void create_cube(Triangulation<dim> &tria,
 
 template <int dim>
 void create_holed_plate(Triangulation<dim> &tria,
-                 Parameters::Mesh   &mesh_param,
-                 const unsigned int  refinement_level,
-                 const bool          convert_to_tets = false)
+                        Parameters::Mesh   &mesh_param,
+                        const unsigned int  refinement_level,
+                        const bool          convert_to_tets = false)
 {
   GridGenerator::plate_with_a_hole(tria,
-                    0.15,
-                    0.25,
-                    0.25,
-                    0.25,
-                    0.25,
-                    0.25,
-                    Point<dim>(0.5, 0.5),
-                    0,
-                    1,
-                    1.,
-                    4,
-                    false);
+                                   0.15,
+                                   0.25,
+                                   0.25,
+                                   0.25,
+                                   0.25,
+                                   0.25,
+                                   Point<dim>(0.5, 0.5),
+                                   0,
+                                   1,
+                                   1.,
+                                   4,
+                                   false);
 
   tria.refine_global(refinement_level);
 
@@ -225,6 +225,20 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
       boundary_count[face->boundary_id()]++;
 
   /**
+   * TODO: In some meshes, there remains boundary geometric entities which are
+   * not part of any physical entity, which are read by deal.II with boundary id
+   * 0. Filtering them out of the mesh can be very tedious, here they are simply
+   * set as unused, but associated boundary conditions are still required in the
+   * parameter file. This should be treated here.
+   */
+  // for (const auto &[id, count] : boundary_count)
+  //   if(id == 0 && param.mesh.id2name.count(id) == 0)
+  //   {
+  //     param.mesh.id2name[id] = "BOUNDARY_IS_UNUSED";
+  //     param.mesh.name2id["BOUNDARY_IS_UNUSED"] = id;
+  //   }
+
+  /**
    * Check that all boundary ids found in the mesh have a matching name in the
    * mesh file. That is, all boundaries must be part of a named Gmsh
    * Physical Entity.
@@ -252,14 +266,14 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
   for (const auto &[id, count] : boundary_count)
   {
     // Check that each boundary id appears in the fluid boundary conditions
-    AssertThrow(
-      param.fluid_bc.find(id) != param.fluid_bc.end(),
-      ExcMessage("In mesh file " + param.mesh.filename +
-                 " :\n"
-                 "No fluid boundary condition was assigned to boundary " +
-                 std::to_string(id) + " (" + param.mesh.id2name.at(id) +
-                 "). For now, all boundaries must be assigned a boundary "
-                 "condition for all relevant fields."));
+    AssertThrow(param.fluid_bc.find(id) != param.fluid_bc.end(),
+                ExcMessage(
+                  "In mesh file " + param.mesh.filename +
+                  " :\n"
+                  "No fluid boundary condition was assigned to boundary " +
+                  std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+                  "). For now, all boundaries must be assigned a boundary "
+                  "condition for all relevant fields."));
 
     if (param.physical_properties.n_pseudosolids > 0)
     {
@@ -387,20 +401,23 @@ void read_mesh(
   // deal.II's functions to mesh a square [-1,1]^2. In 3D, there seems to be a
   // bug in deal.II when reading a transfinite cube mesh file. Always use
   // deal.II's routines to create a subdivided cube mesh.
-  bool use_deal_ii_mesh = param.mesh.use_deal_ii_cube_mesh ||
-  (param.mms_param.enable && param.mms_param.use_deal_ii_cube_mesh) ||
-  (param.mms_param.enable && param.mms_param.use_deal_ii_holed_plate_mesh);
+  bool use_deal_ii_mesh =
+    param.mesh.use_deal_ii_cube_mesh ||
+    (param.mms_param.enable && param.mms_param.use_deal_ii_cube_mesh) ||
+    (param.mms_param.enable && param.mms_param.use_deal_ii_holed_plate_mesh);
 
   if (use_deal_ii_mesh)
   {
     const bool convert_to_simplices = true;
 
-    if(param.mesh.use_deal_ii_cube_mesh || param.mms_param.use_deal_ii_cube_mesh)
+    if (param.mesh.use_deal_ii_cube_mesh ||
+        param.mms_param.use_deal_ii_cube_mesh)
     {
       const double       min_corner = (dim == 2) ? 0. : 0.;
       const double       max_corner = 1.;
-      const unsigned int refinement_level = param.mms_param.enable ?
-        pow(2, param.mms_param.mesh_suffix + 1) : param.mesh.refinement_level;
+      const unsigned int refinement_level =
+        param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix + 1) :
+                                 param.mesh.refinement_level;
       create_cube(serial_triangulation,
                   param.mesh,
                   min_corner,
@@ -408,10 +425,11 @@ void read_mesh(
                   refinement_level,
                   convert_to_simplices);
     }
-    if(param.mms_param.use_deal_ii_holed_plate_mesh)
+    if (param.mms_param.use_deal_ii_holed_plate_mesh)
     {
       const unsigned int refinement_level = param.mms_param.enable ?
-        param.mms_param.mesh_suffix : param.mesh.refinement_level;
+                                              param.mms_param.mesh_suffix :
+                                              param.mesh.refinement_level;
       create_holed_plate(serial_triangulation,
                          param.mesh,
                          refinement_level,

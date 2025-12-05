@@ -171,6 +171,8 @@ public:
    */
   void compute_errors();
 
+  void compute_forces();
+
   /**
    * Write the velocity and pressure to vtu file.
    */

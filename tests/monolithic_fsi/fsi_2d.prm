@@ -53,8 +53,12 @@ subsection Physical properties
 
   set number of pseudosolids = 1
   subsection Pseudosolid
-    set lame lambda = 1
-    set lame mu     = 1
+    subsection lame lambda
+      set Function expression = 1
+    end
+    subsection lame mu
+      set Function expression = 1
+    end
   end
 end
 
@@ -62,6 +66,8 @@ subsection FSI
   set verbosity       = verbose
   set enable coupling = true
   set spring constant = 1
+  set cylinder radius = 0.5
+  set cylinder length = 1 # Unused in 2D 
 end
 
 subsection Initial conditions

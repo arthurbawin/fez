@@ -58,10 +58,10 @@ subsection Physical properties
   set number of pseudosolids = 1
   subsection Pseudosolid
     subsection lame lambda
-      set Function expression = 1
+      set Function expression = 1 + sin(pi*x) * cos(pi*y) * (1 + t)
     end
     subsection lame mu
-      set Function expression = 1
+      set Function expression = 1 + cos(pi*x) * cos(pi*y) * (1 + sin(t))
     end
   end
 end
@@ -77,75 +77,43 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
-  set number = 5
-  set fix pressure constant      = false
-  set enforce zero mean pressure = false
+  set number = 2
+  set fix pressure constant = true
   subsection boundary 0
     set id   = 2
-    set name = Left
+    set name = OuterBoundary
     set type = velocity_mms
   end
   subsection boundary 1
     set id   = 3
-    set name = Right
-    set type = open_mms
-  end
-  subsection boundary 2
-    set id   = 4
-    set name = Top
-    set type = velocity_mms
-  end
-  subsection boundary 3
-    set id   = 5
-    set name = Bottom
-    set type = velocity_mms
-  end
-  subsection boundary 4
-    set id   = 6
     set name = InnerBoundary
     set type = weak_no_slip
   end
 end
 
 subsection Pseudosolid boundary conditions
-  set number = 5
+  set number = 2
   subsection boundary 0
     set id   = 2
-    set name = Left
+    set name = OuterBoundary
     set type = position_mms
   end
   subsection boundary 1
     set id   = 3
-    set name = Right
-    set type = position_mms
-  end
-  subsection boundary 2
-    set id   = 4
-    set name = Top
-    set type = position_mms
-  end
-  subsection boundary 3
-    set id   = 5
-    set name = Bottom
-    set type = position_mms
-  end
-  subsection boundary 4
-    set id   = 6
     set name = InnerBoundary
     set type = coupled_to_fluid
   end
 end
 
 subsection Manufactured solution
-  set enable                 = true
-  set type                   = spacetime
-  set convergence steps      = 2
-  set subtract mean pressure = false
+  set enable            = true
+  set type              = spacetime
+  set convergence steps = 2
 
   subsection Space convergence
     set use dealii cube mesh        = false
     set use dealii holed plate mesh = false
-    set mesh prefix          = ../../mms_meshes/holed_with_one_physical_per_boundary
+    set mesh prefix          = ../../mms_meshes/holed
   end
 
   subsection Time convergence
@@ -156,18 +124,8 @@ subsection Manufactured solution
   end
 
   subsection exact velocity
-    subsection space component
-      set preset = moving radial kernel
-      subsection moving radial kernel
-        set translation = 0.1, 0.05
-        set r0          = 0.15
-        set r1          = 0.45
-        set center      = 0.5, 0.5
-      end
-    end
-    subsection time component
-      set Function expression = 0.5 * sin(2.*pi*t)
-    end
+    set Function constants  = translation_x=0.1, translation_y=0.05
+    set Function expression = translation_x * pi * cos(2.*pi*t); translation_y * pi * cos(2.*pi*t)
   end
 
   subsection exact pressure
@@ -175,9 +133,9 @@ subsection Manufactured solution
       set preset = normal_radial_kernel
       subsection normal_radial_kernel
         set translation = 0.1, 0.05
-        set r0          = 0.15
-        set r1          = 3
-        set a           = 2.122065908 # = spring_constant / (Pi * R0)
+        set r0          = 1 #0.15
+        set r1          = 0.45 #1
+        set a           = 2.122065908 # = 1. / (Pi * 0.15)
         set center      = 0.5, 0.5
       end
     end

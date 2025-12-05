@@ -20,6 +20,12 @@ namespace Parameters
       , pseudosolid_source(std::make_shared<Functions::ParsedFunction<dim>>(dim))
     {}
 
+    void set_time(const double new_time)
+    {
+      fluid_source->set_time(new_time);
+      pseudosolid_source->set_time(new_time);
+    }
+
   public:
     // Source term for the Navier-Stokes momentum and mass equations.
     // Layout is u-v-(w-)p.

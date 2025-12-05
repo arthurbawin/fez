@@ -324,6 +324,8 @@ public:
         previous_solutions[i], previous_position_values[i]);
     }
 
+    const auto &fixed_quadrature_points = fe_values_fixed.get_quadrature_points();
+
     // Source terms on moving mapping for u-p-lambda
     source_terms->vector_value_list(fe_values.get_quadrature_points(),
                                     source_term_full);
@@ -360,9 +362,12 @@ public:
     //   std::endl;
     // }
 
-    // double area_fixed = 0., area_moving = 0.;
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
+      const Point<dim> &q_point = fixed_quadrature_points[q];
+      lame_mu[q]     = physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
+      lame_lambda[q] = physical_properties.pseudosolids[0].lame_lambda_fun->value(q_point);
+
       JxW_moving[q] = fe_values.JxW(q);
       JxW_fixed[q]  = fe_values_fixed.JxW(q);
 
@@ -581,6 +586,8 @@ public:
   const unsigned int l_lower      = 2 * dim + 1;
 
 public:
+  Parameters::PhysicalProperties<dim> physical_properties;
+
   bool has_boundary_forms;
 
   FEValues<dim> fe_values;
@@ -599,6 +606,9 @@ public:
   const unsigned int boundary_id;
 
   const std::vector<double> bdfCoeffs;
+
+  std::vector<double> lame_mu;
+  std::vector<double> lame_lambda;
 
   std::vector<double>                      JxW_moving;
   std::vector<double>                      JxW_fixed;

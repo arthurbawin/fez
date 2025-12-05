@@ -171,6 +171,8 @@ public:
    */
   void compute_errors();
 
+  void compute_forces();
+
   /**
    * Write the velocity and pressure to vtu file.
    */
@@ -319,7 +321,7 @@ protected:
   {
   public:
     MMSSourceTerm(const double                          time,
-                  const Parameters::PhysicalProperties &physical_properties,
+                  const Parameters::PhysicalProperties<dim> &physical_properties,
                   const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
       : Function<dim>(n_components, time)
       , physical_properties(physical_properties)
@@ -343,7 +345,7 @@ protected:
     static constexpr unsigned int         n_components = dim + 1;
     static constexpr unsigned int         u_lower      = 0;
     static constexpr unsigned int         p_lower      = dim;
-    const Parameters::PhysicalProperties &physical_properties;
+    const Parameters::PhysicalProperties<dim> &physical_properties;
 
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;

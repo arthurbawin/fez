@@ -18,9 +18,6 @@ Prescribed displacement        is +0.00000000e+00 +8.88178420e-16
                          Ratio is +0.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
 Max diff between displacements is +8.88178420e-16 +1.77635684e-15
 
-Checking no-slip enforcement on cylinder:
-||uh - wh||_L2 = +1.77154278e+00
-||uh - wh||_Li = +1.00000000e+00
 
 Time step 2 - Advancing to t = +2.00000000e-01.
 Newton iter.  0:          nonlinear residual = +3.69859724e-01

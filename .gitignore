@@ -34,3 +34,4 @@
 # Ignore build/ and data/ folder
 build*/*
 data/*
+tmp/*

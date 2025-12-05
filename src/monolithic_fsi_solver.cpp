@@ -82,7 +82,7 @@ MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
    */
   AssertThrow(!param.bc_data.enforce_zero_mean_pressure,
               ExcMessage("Enforcing zero mean pressure on moving mesh is "
-                         "currently not functional."));
+                         "currently not implemented."));
 
   // Create the initial condition functions for this problem, once the layout of
   // the variables is known (and in particular, the number of components).
@@ -121,8 +121,8 @@ MonolithicFSISolver<dim>::MonolithicFSISolver(const ParameterReader<dim> &param)
   }
   else
   {
-    // FIXME: this is the source term for fluid problem only
-    source_terms = param.source_terms.fluid_source;
+    source_terms = std::make_shared<MonolithicFSISolver<dim>::SourceTerm>(
+      time_handler.current_time, param.source_terms);
     exact_solution =
       std::make_shared<Functions::ZeroFunction<dim>>(n_components);
   }
@@ -133,9 +133,7 @@ void MonolithicFSISolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
-  const double nu          = physical_properties.fluids[0].kinematic_viscosity;
-  const double lame_mu     = physical_properties.pseudosolids[0].lame_mu;
-  const double lame_lambda = physical_properties.pseudosolids[0].lame_lambda;
+  const double nu = physical_properties.fluids[0].kinematic_viscosity;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
@@ -161,9 +159,11 @@ void MonolithicFSISolver<dim>::MMSSourceTerm::vector_value(
   // Pseudosolid (mesh position) source term
   // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
   Tensor<1, dim> f_PS =
-    mms.exact_mesh_position->divergence_linear_elastic_stress(p,
-                                                              lame_mu,
-                                                              lame_lambda);
+    mms.exact_mesh_position
+      ->divergence_linear_elastic_stress_variable_coefficients(
+        p,
+        physical_properties.pseudosolids[0].lame_mu_fun,
+        physical_properties.pseudosolids[0].lame_lambda_fun);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[x_lower + d] = f_PS[d];
@@ -179,9 +179,6 @@ void MonolithicFSISolver<dim>::run()
   reset();
   read_mesh(triangulation, param);
   setup_dofs();
-
-  if(param.bc_data.enforce_zero_mean_pressure)
-    create_zero_mean_pressure_constraints_data();
 
   create_lagrange_multiplier_constraints();
   if (param.fsi.enable_coupling)
@@ -199,40 +196,16 @@ void MonolithicFSISolver<dim>::run()
     set_time();
     update_boundary_conditions();
 
-    if (time_handler.is_starting_step())
+    if (time_handler.is_starting_step() &&
+        param.time_integration.bdfstart ==
+          Parameters::TimeIntegration::BDFStart::initial_condition)
     {
-      if (param.mms_param.enable)
-      {
-        if (param.time_integration.bdfstart ==
-            Parameters::TimeIntegration::BDFStart::initial_condition)
-        {
-          // Convergence study: start with exact solution at first time step
-          set_exact_solution();
-        }
-        else
-        {
-          //////////////////////////////////////////////////////////
-          // Start with BDF1
-          solve_nonlinear_problem(false);
-          postprocess_solution();
-          if (param.debug.fsi_check_mms_on_boundary)
-            check_manufactured_solution_boundary();
-          if (!time_handler.is_steady())
-          {
-            // Rotate solutions
-            for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-              previous_solutions[j] = previous_solutions[j - 1];
-            previous_solutions[0] = present_solution;
-          }
-          continue;
-          //////////////////////////////////////////////////////////
-        }
-      }
+      if (param.mms_param.enable || param.debug.apply_exact_solution)
+        // Convergence study: start with exact solution at first time step
+        set_exact_solution();
       else
-      {
-        // FIXME: Start with BDF1
+        // Repeat initial condition
         set_initial_conditions();
-      }
     }
     else
     {
@@ -363,80 +336,19 @@ void MonolithicFSISolver<dim>::set_time()
   // - relevant boundary conditions
   // - source terms, if any
   // - exact solution, if any
+  // - physical properties
   for (auto &[id, bc] : param.fluid_bc)
     bc.set_time(time_handler.current_time);
   for (auto &[id, bc] : param.pseudosolid_bc)
     bc.set_time(time_handler.current_time);
   source_terms->set_time(time_handler.current_time);
   exact_solution->set_time(time_handler.current_time);
+  param.physical_properties.set_time(time_handler.current_time);
 }
 
 template <int dim>
 void MonolithicFSISolver<dim>::create_lagrange_multiplier_constraints()
 {
-  // lambda_constraints.clear();
-  // lambda_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
-
-  // const FEValuesExtractors::Vector lambda(l_lower);
-
-  // // The lambda dofs which are not set to zero
-  // std::set<types::global_dof_index> unconstrained_lambda_dofs;
-
-  // // Flag the unconstrained lambda dofs, lying on the boundary associated
-  // with a
-  // // weakly enforced no-slip BC. If there is no such boundary, constrain all
-  // // lambdas. This allows to keep the problem structure as is, to test with
-  // only
-  // // strong BC.
-  // if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
-  // {
-  //   const unsigned int                   n_dofs_per_face =
-  //   fe.n_dofs_per_face(); std::vector<types::global_dof_index>
-  //   face_dofs(n_dofs_per_face); for (const auto &cell :
-  //   dof_handler.active_cell_iterators())
-  //   {
-  //     // if (cell->is_locally_owned())
-  //     // {
-  //     for (const auto f : cell->face_indices())
-  //       if (cell->face(f)->at_boundary() &&
-  //           cell->face(f)->boundary_id() == weak_no_slip_boundary_id)
-  //       {
-  //         cell->face(f)->get_dof_indices(face_dofs);
-  //         for (unsigned int idof = 0; idof < n_dofs_per_face; ++idof)
-  //         {
-  //           if (!locally_relevant_dofs.is_element(face_dofs[idof]))
-  //             continue;
-
-  //           const unsigned int component =
-  //             fe.face_system_to_component_index(idof).first;
-
-  //           if (fe.has_support_on_face(idof, f) && is_lambda(component))
-  //           {
-  //             // Lambda DoF on the prescribed boundary: do not constrain
-  //             unconstrained_lambda_dofs.insert(face_dofs[idof]);
-  //           }
-  //         }
-  //       }
-  //     // }
-  //   }
-  // }
-
-  // // Add zero constraints to all lambda DOFs *not* in the boundary set
-  // IndexSet     lambda_dofs = DoFTools::extract_dofs(dof_handler,
-  // lambda_mask); unsigned int n_constrained_local = 0; for (const auto dof :
-  // lambda_dofs)
-  // {
-  //   if (locally_relevant_dofs.is_element(dof))
-  //     if (unconstrained_lambda_dofs.count(dof) == 0)
-  //     {
-  //       lambda_constraints.constrain_dof_to_zero(dof); // More readable (-:
-  //       n_constrained_local++;
-  //     }
-  // }
-  // lambda_constraints.close();
-
-  ///////////////////////////////////////////////////////////////////////
-  // Get the relevant lambda dofs on the boundary and constrain them
   lambda_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
   // If there is no weakly enforced no slip boundary, this set remains empty and
@@ -471,17 +383,16 @@ void MonolithicFSISolver<dim>::create_lagrange_multiplier_constraints()
     }
   }
   lambda_constraints.close();
-  ///////////////////////////////////////////////////////////////////////
 
-  // Show the number of owned and constrained lambda dofs
-  IndexSet     lambda_dofs = DoFTools::extract_dofs(dof_handler, lambda_mask);
-  unsigned int unconstrained_owned_dofs = 0;
-  for (const auto &dof : lambda_dofs)
-    if (!lambda_constraints.is_constrained(dof))
-      unconstrained_owned_dofs++;
-
-  if (param.fsi.verbosity == Parameters::Verbosity::verbose)
+  if (param.debug.verbosity == Parameters::Verbosity::verbose)
   {
+    // Print number of owned and constrained lambda dofs
+    IndexSet     lambda_dofs = DoFTools::extract_dofs(dof_handler, lambda_mask);
+    unsigned int unconstrained_owned_dofs = 0;
+    for (const auto &dof : lambda_dofs)
+      if (!lambda_constraints.is_constrained(dof))
+        unconstrained_owned_dofs++;
+
     const unsigned int total_unconstrained_owned_dofs =
       Utilities::MPI::sum(unconstrained_owned_dofs, mpi_communicator);
     std::cout << total_unconstrained_owned_dofs
@@ -605,32 +516,26 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
               const types::global_dof_index lambda_dof = face_dofs[i_dof];
 
-              // Only move in x and y, even in 3D
-              if (d < 2)
-              {
-                // Very, very, very important:
-                // Even though fe_face_values_fixed is a FEFaceValues, the dof
-                // index given to shape_value is still a CELL dof index.
-                const unsigned int i_cell_dof =
-                  fe.face_to_cell_index(i_dof, i_face);
+              // Very, very, very important:
+              // Even though fe_face_values_fixed is a FEFaceValues, the dof
+              // index given to shape_value is still a CELL dof index.
+              const unsigned int i_cell_dof =
+                fe.face_to_cell_index(i_dof, i_face);
 
-                const double phi_i =
-                  fe_face_values_fixed.shape_value(i_cell_dof, q);
-                coeffs[d][lambda_dof] +=
-                  -phi_i * JxW / this->param.fsi.spring_constant;
-              }
-              else
-              {
+              const double phi_i =
+                fe_face_values_fixed.shape_value(i_cell_dof, q);
+              coeffs[d][lambda_dof] +=
+                -phi_i * JxW / this->param.fsi.spring_constant;
+
+              if (d == 2 && param.fsi.fix_z_component)
                 coeffs[d][lambda_dof] = 0.;
-              }
             }
 
             // Position face dofs are added to the list of coupled dofs
             if (is_position(comp))
             {
               const unsigned int d = comp - x_lower;
-              if (d < 2)
-                coupled_position_dofs.insert({face_dofs[i_dof], d});
+              coupled_position_dofs.insert({face_dofs[i_dof], d});
             }
           }
         }
@@ -658,30 +563,30 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
     for (unsigned int d = 0; d < dim; ++d)
     {
-      // Do not compare for dim = 2
-      if (d < 2)
+      // Do not compare for dim = 2 if fixed
+      if (d == 2 && param.fsi.fix_z_component)
+        continue;
+
+      double local_weights_sum = 0.;
+      for (const auto &[lambda_dof, weight] : coeffs[d])
+        local_weights_sum += weight;
+
+      const double weights_sum =
+        Utilities::MPI::sum(local_weights_sum, mpi_communicator);
+
+      if (param.debug.verbosity == Parameters::Verbosity::verbose)
       {
-        double local_weights_sum = 0.;
-        for (const auto &[lambda_dof, weight] : coeffs[d])
-          local_weights_sum += weight;
-
-        const double weights_sum =
-          Utilities::MPI::sum(local_weights_sum, mpi_communicator);
-
-        if (param.fsi.verbosity == Parameters::Verbosity::verbose)
-        {
-          pcout << "Dim " << d << " : Sum of weights = " << weights_sum
-                << " - expected from mesh : " << expected_discrete_weights_sum
-                << " - expected theoretical : " << expected_weights_sum
-                << std::endl;
-        }
-
-        AssertThrow(
-          std::abs(weights_sum - expected_discrete_weights_sum) < 1e-10,
-          ExcMessage(
-            "The sum of weights for component " + std::to_string(d) +
-            " of lambda coupling should be -1/k * |Cylinder|, but it's not."));
+        pcout << "Dim " << d << " : Sum of weights = " << weights_sum
+              << " - expected from mesh : " << expected_discrete_weights_sum
+              << " - expected theoretical : " << expected_weights_sum
+              << std::endl;
       }
+
+      AssertThrow(
+        std::abs(weights_sum - expected_discrete_weights_sum) < 1e-10,
+        ExcMessage(
+          "The sum of weights for component " + std::to_string(d) +
+          " of lambda coupling should be -1/k * |Cylinder|, but it's not."));
     }
   }
 
@@ -776,9 +681,13 @@ void MonolithicFSISolver<dim>::remove_cylinder_velocity_constraints(
   if (weak_no_slip_boundary_id == numbers::invalid_unsigned_int)
     return;
 
-  IndexSet weak_velocity_dofs =
+  IndexSet relevant_boundary_velocity_dofs =
     DoFTools::extract_boundary_dofs(dof_handler,
                                     velocity_mask,
+                                    {weak_no_slip_boundary_id});
+  IndexSet relevant_boundary_position_dofs =
+    DoFTools::extract_boundary_dofs(dof_handler,
+                                    position_mask,
                                     {weak_no_slip_boundary_id});
 
   {
@@ -787,7 +696,8 @@ void MonolithicFSISolver<dim>::remove_cylinder_velocity_constraints(
 
     for (const auto &line : constraints.get_lines())
     {
-      if (weak_velocity_dofs.is_element(line.index))
+      if (relevant_boundary_velocity_dofs.is_element(line.index) ||
+          relevant_boundary_position_dofs.is_element(line.index))
         continue;
 
       filtered.add_line(line.index);
@@ -797,14 +707,19 @@ void MonolithicFSISolver<dim>::remove_cylinder_velocity_constraints(
       // Check that entries do not involve an absent velocity dof
       // With the get_view() function, this is done automatically
       for (const auto &entry : line.entries)
-        AssertThrow(!weak_velocity_dofs.is_element(entry.first),
+      {
+        AssertThrow(!relevant_boundary_velocity_dofs.is_element(entry.first),
                     ExcMessage("Constraint involve a cylinder velocity dof"));
+        AssertThrow(!relevant_boundary_position_dofs.is_element(entry.first),
+                    ExcMessage("Constraint involve a cylinder position dof"));
+      }
     }
     filtered.close();
     constraints = std::move(filtered);
-    // constraints.make_consistent_in_parallel(locally_owned_dofs,
-    //                           constraints.get_local_lines(),
-    //                           mpi_communicator);
+
+    constraints.make_consistent_in_parallel(locally_owned_dofs,
+                                            constraints.get_local_lines(),
+                                            mpi_communicator);
   }
 
   // {
@@ -839,20 +754,6 @@ void MonolithicFSISolver<dim>::remove_cylinder_velocity_constraints(
   //   constraints.add_selected_constraints(tmp, subset);
   //   constraints.close();
   // }
-}
-
-template <int dim>
-void MonolithicFSISolver<dim>::create_zero_mean_pressure_constraints_data()
-{
-  BoundaryConditions::create_zero_mean_pressure_constraints_data(
-    triangulation,
-    dof_handler,
-    locally_relevant_dofs,
-    *mapping,
-    quadrature,
-    p_lower,
-    constrained_pressure_dof,
-    zero_mean_pressure_weights);
 }
 
 template <int dim>
@@ -933,7 +834,6 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
   if (param.bc_data.fix_pressure_constant)
   {
     bool set_to_zero = true;
-    // constrain_pressure_point(zero_constraints, set_to_zero);
     BoundaryConditions::constrain_pressure_point(
       dof_handler,
       locally_relevant_dofs,
@@ -946,22 +846,11 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
       constrained_pressure_support_point);
   }
 
-  if (param.bc_data.enforce_zero_mean_pressure)
-  {
-    constrained_pressure_dof = numbers::invalid_dof_index;
-    zero_mean_pressure_weights.clear();
-    this->create_zero_mean_pressure_constraints_data();
-    BoundaryConditions::add_zero_mean_pressure_constraints(
-      zero_constraints,
-      locally_relevant_dofs,
-      constrained_pressure_dof,
-      zero_mean_pressure_weights);
-  }
-
   zero_constraints.close();
 
   if constexpr (dim == 3)
-    remove_cylinder_velocity_constraints(zero_constraints);
+    if (param.fsi.enable_coupling)
+      remove_cylinder_velocity_constraints(zero_constraints);
 
   // Merge the zero lambda constraints
   zero_constraints.merge(
@@ -980,6 +869,100 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
       AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
       true);
   }
+
+  /////////////////////////////////////////////////////////
+  // const IndexSet relevant_boundary_velocity_dofs =
+  //   DoFTools::extract_boundary_dofs(dof_handler,
+  //                                   velocity_mask,
+  //                                   {weak_no_slip_boundary_id});
+  const IndexSet relevant_boundary_position_dofs =
+    DoFTools::extract_boundary_dofs(dof_handler,
+                                    position_mask,
+                                    {weak_no_slip_boundary_id});
+  const IndexSet owned_boundary_position_dofs =
+    relevant_boundary_position_dofs & locally_owned_dofs;
+
+  /**
+   * Are there relevant dofs (position and/or velocity) on the cylinder
+   * which should be constrained but aren't, or vice versa?
+   */
+  {
+    std::map<types::global_dof_index, Point<dim>> support_points;
+    DoFTools::map_dofs_to_support_points(*fixed_mapping,
+                                         dof_handler,
+                                         support_points);
+    {
+      // Print owned position dofs
+      std::ofstream outfile(param.output.output_dir + "position_dofs_proc" +
+                            std::to_string(mpi_rank) + ".pos");
+      outfile << "View \"position_dofs_proc" << mpi_rank << "\"{" << std::endl;
+      for (const auto dof : owned_boundary_position_dofs)
+      {
+        const Point<dim> &pt = support_points[dof];
+        outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+                << std::endl;
+      }
+      outfile << "};" << std::endl;
+      outfile.close();
+    }
+    {
+      // Print ghost position dofs
+      std::ofstream outfile(param.output.output_dir +
+                            "position_ghost_dofs_proc" +
+                            std::to_string(mpi_rank) + ".pos");
+      outfile << "View \"position_ghost_dofs_proc" << mpi_rank << "\"{"
+              << std::endl;
+      for (const auto dof : relevant_boundary_position_dofs)
+        if (!owned_boundary_position_dofs.is_element(dof))
+        {
+          const Point<dim> &pt = support_points[dof];
+          outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+                  << std::endl;
+        }
+      outfile << "};" << std::endl;
+      outfile.close();
+    }
+  }
+
+  if (param.debug.verbosity == Parameters::Verbosity::verbose)
+  {
+    for (unsigned int i = 0; i < mpi_size; ++i)
+    {
+      MPI_Barrier(mpi_communicator);
+      if (i == mpi_rank)
+      {
+        std::cout << "Proc " << i << std::endl;
+        std::cout << "Number of owned dofs                : "
+                  << locally_owned_dofs.n_elements() << std::endl;
+        std::cout << "Number of rlvnt dofs                : "
+                  << locally_relevant_dofs.n_elements() << std::endl;
+        std::cout << "Number of owned bdr position dofs   : "
+                  << owned_boundary_position_dofs.n_elements() << std::endl;
+        std::cout << "Number of relevant bdr position dofs: "
+                  << relevant_boundary_position_dofs.n_elements() << std::endl;
+        std::cout << "Number of local lines in constraints: "
+                  << zero_constraints.get_local_lines().n_elements()
+                  << std::endl;
+        std::cout << "Number of constrained dofs          : "
+                  << zero_constraints.n_constraints() << std::endl;
+        unsigned int n_constrained_owned_position = 0;
+        for (const auto dof : owned_boundary_position_dofs)
+          if (zero_constraints.is_constrained(dof))
+            n_constrained_owned_position++;
+        std::cout << "Number of constrained owned pos dofs: "
+                  << n_constrained_owned_position << std::endl;
+        unsigned int n_constrained_relevant_position = 0;
+        for (const auto dof : relevant_boundary_position_dofs)
+          if (!locally_owned_dofs.is_element(dof))
+            if (zero_constraints.is_constrained(dof))
+              n_constrained_relevant_position++;
+        std::cout << "Number of constrained rel not owned : "
+                  << n_constrained_relevant_position << std::endl;
+      }
+      MPI_Barrier(mpi_communicator);
+    }
+  }
+  /////////////////////////////////////////////////////////
 
   /**
    * Check that the coupled position dofs are not also constrained by a boundary
@@ -1105,23 +1088,12 @@ void MonolithicFSISolver<dim>::create_nonzero_constraints()
       constrained_pressure_support_point);
   }
 
-  if (param.bc_data.enforce_zero_mean_pressure)
-  {
-    constrained_pressure_dof = numbers::invalid_dof_index;
-    zero_mean_pressure_weights.clear();
-    this->create_zero_mean_pressure_constraints_data();
-    BoundaryConditions::add_zero_mean_pressure_constraints(
-      nonzero_constraints,
-      locally_relevant_dofs,
-      constrained_pressure_dof,
-      zero_mean_pressure_weights);
-  }
-
   nonzero_constraints.close();
 
   //
   if constexpr (dim == 3)
-    remove_cylinder_velocity_constraints(nonzero_constraints);
+    if (param.fsi.enable_coupling)
+      remove_cylinder_velocity_constraints(nonzero_constraints);
 
   // Merge the zero lambda constraints
   nonzero_constraints.merge(
@@ -1282,28 +1254,6 @@ void MonolithicFSISolver<dim>::set_exact_solution()
                            local_evaluation_point,
                            pressure_mask);
 
-  if (param.bc_data.enforce_zero_mean_pressure)
-  {
-    present_solution    = local_evaluation_point;
-    const double p_mean = VectorTools::compute_mean_value(
-      *mapping, dof_handler, quadrature, present_solution, p_lower);
-    const double p_mms_mean = compute_global_mean_value(*exact_solution,
-                                                        p_lower,
-                                                        dof_handler,
-                                                        *mapping);
-
-    pcout << "Before removing pressure: " << p_mean << std::endl;
-    pcout << "Analytic mean is        : " << p_mms_mean << std::endl;
-    BoundaryConditions::remove_mean_pressure(pressure_mask,
-                                             dof_handler,
-                                             p_mean,
-                                             local_evaluation_point);
-    present_solution     = local_evaluation_point;
-    const double p_mean2 = VectorTools::compute_mean_value(
-      *mapping, dof_handler, quadrature, present_solution, p_lower);
-    pcout << "After  removing pressure: " << p_mean2 << std::endl;
-  }
-
   evaluation_point = local_evaluation_point;
   present_solution = local_evaluation_point;
 }
@@ -1393,15 +1343,14 @@ void MonolithicFSISolver<dim>::assemble_local_matrix(
 
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
-  const double lame_lambda =
-    this->param.physical_properties.pseudosolids[0].lame_lambda;
-  const double lame_mu =
-    this->param.physical_properties.pseudosolids[0].lame_mu;
 
   const double bdf_c0 = time_handler.bdf_coefficients[0];
 
   for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
   {
+    const double lame_mu     = scratchData.lame_mu[q];
+    const double lame_lambda = scratchData.lame_lambda[q];
+
     const double JxW_moving = scratchData.JxW_moving[q];
     const double JxW_fixed  = scratchData.JxW_fixed[q];
 
@@ -1764,10 +1713,6 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
 
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
-  const double lame_lambda =
-    this->param.physical_properties.pseudosolids[0].lame_lambda;
-  const double lame_mu =
-    this->param.physical_properties.pseudosolids[0].lame_mu;
 
   for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
   {
@@ -1801,6 +1746,9 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
     //
     // Pseudo-solid related data
     //
+    const double lame_mu     = scratchData.lame_mu[q];
+    const double lame_lambda = scratchData.lame_lambda[q];
+
     const double JxW_fixed = scratchData.JxW_fixed[q];
 
     const auto &present_position_gradients =
@@ -1844,10 +1792,6 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
 
         // Pressure source term
         + source_term_pressure * phi_p[i]);
-
-      // double local_rhs_flow_i = 0.;
-      // if(is_pressure(fe.system_to_component_index(i).first))
-      //   local_rhs_flow_i = -1.;
 
       local_rhs_flow_i *= JxW_moving;
 
@@ -1973,7 +1917,6 @@ void MonolithicFSISolver<dim>::add_algebraic_position_coupling_to_matrix()
     position_row_entries;
   // Get row entries for each pos_dof
   for (const auto &[pos_dof, d] : coupled_position_dofs)
-  {
     if (locally_owned_dofs.is_element(pos_dof))
     {
       std::vector<LA::ConstMatrixIterator> row_entries;
@@ -1983,26 +1926,19 @@ void MonolithicFSISolver<dim>::add_algebraic_position_coupling_to_matrix()
         row_entries.push_back(it);
       position_row_entries[pos_dof] = row_entries;
     }
-  }
 
   // Constrain matrix and RHS
   for (const auto &[pos_dof, d] : coupled_position_dofs)
-  {
     if (locally_owned_dofs.is_element(pos_dof))
     {
       for (auto it : position_row_entries.at(pos_dof))
-      {
-        // std::cout << "zeroing " << pos_dof << " - " << it->column() <<
-        // std::endl;
         system_matrix.set(pos_dof, it->column(), 0.0);
-      }
 
       // Set constraint row: x_i - sum_j c_ij * lambda_j = 0
       system_matrix.set(pos_dof, pos_dof, 1.);
       for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
         system_matrix.set(pos_dof, lambda_dof, -weight);
     }
-  }
 
   system_matrix.compress(VectorOperation::insert);
 }
@@ -2013,9 +1949,9 @@ void MonolithicFSISolver<dim>::add_algebraic_position_coupling_to_rhs()
   // Set RHS to zero for coupled position dofs
   for (const auto &[pos_dof, d] : coupled_position_dofs)
     if (locally_owned_dofs.is_element(pos_dof))
-      this->system_rhs(pos_dof) = 0.;
+      system_rhs(pos_dof) = 0.;
 
-  this->system_rhs.compress(VectorOperation::insert);
+  system_rhs.compress(VectorOperation::insert);
 }
 
 template <int dim>
@@ -2080,7 +2016,7 @@ void MonolithicFSISolver<dim>::compare_forces_and_position_on_obstacle() const
   std::vector<bool> first_computed_displacement(dim, true);
 
   for (auto cell : dof_handler.active_cell_iterators())
-    if (cell->is_locally_owned())
+    if (cell->is_locally_owned() && cell->at_boundary())
       for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
       {
         const auto &face = cell->face(i_face);
@@ -2288,12 +2224,6 @@ void MonolithicFSISolver<dim>::check_velocity_boundary() const
               bdf_coefficients[iBDF] * position_values[iBDF][q];
 
           diff = mesh_velocity_values[q] - fluid_velocity_values[q];
-
-          // std::cout << std::scientific << std::setprecision(8) <<
-          // std::showpos;
-          // // std::cout << "wh = " << mesh_velocity_values[q] << std::endl;
-          // std::cout << "wh = " << mesh_velocity_values[q] << " - uh = " <<
-          // fluid_velocity_values[q] << " - diff = " << diff << std::endl;
 
           // u_h - w_h
           l2_local += diff * diff * fe_face_values_fixed.JxW(q);
@@ -2651,45 +2581,6 @@ void MonolithicFSISolver<dim>::compute_errors()
 
   std::shared_ptr<Function<dim>> used_exact_solution = exact_solution;
 
-  if (param.bc_data.enforce_zero_mean_pressure)
-  {
-    // Mean pressure value
-    const double p_mean = VectorTools::compute_mean_value(
-      *mapping, dof_handler, quadrature, present_solution, p_lower);
-
-    pcout << "Mean pressure is p_mean = " << p_mean << std::endl;
-
-    AssertThrow(std::abs(p_mean) < 1e-10,
-                ExcMessage(
-                  "Mean pressure should be zero, but it's not : p_mean = " +
-                  std::to_string(p_mean)));
-
-    if (param.mms_param.enable)
-    {
-      // Use a function wrapper where the pressure mean is subtracted
-      const double p_mms_mean = compute_global_mean_value(*exact_solution,
-                                                          p_lower,
-                                                          dof_handler,
-                                                          *mapping);
-
-      if (param.mms_param.subtract_mean_pressure)
-        used_exact_solution =
-          std::make_shared<PressureMeanSubtractedFunction<dim>>(*exact_solution,
-                                                                p_mms_mean,
-                                                                p_lower);
-      else
-        // Use the manufactured pressure which is then assumed to have zero
-        // mean. Throw an error if it's not the case.
-        AssertThrow(
-          std::abs(p_mms_mean) < 1e-6,
-          ExcMessage(
-            "You are comparing a discrete zero-mean pressure with a "
-            "manufactured "
-            "pressure which is not zero-mean. The mean exact pressure is " +
-            std::to_string(p_mms_mean)));
-    }
-  }
-
   // L2 - u
   const double l2_u =
     compute_error_norm<dim, LA::ParVectorType>(triangulation,
@@ -2976,6 +2867,9 @@ void MonolithicFSISolver<dim>::compute_forces(const bool export_table)
     forces_table.add_value("CFz", -lambda_integral[2]);
   }
 
+  if(param.debug.verbosity == Parameters::Verbosity::verbose)
+    pcout << "Computed forces: " << -lambda_integral << std::endl;
+
   if (export_table && param.output.write_results && mpi_rank == 0)
   {
     std::ofstream outfile(param.output.output_dir + "forces.txt");
@@ -3061,13 +2955,13 @@ void MonolithicFSISolver<dim>::postprocess_solution()
 
   /**
    * Check that no-slip condition is satisfied.
-   * 
+   *
    * When applying the exact solution, the fluid velocity will be exact,
    * but the mesh velocity is only precise up to time integration order.
    * So these velocities differ by some power of the time step, rather
-   * than the machine epsilon as checked in this function, thus the 
+   * than the machine epsilon as checked in this function, thus the
    * no-slip is not checked in this case.
-   * 
+   *
    * Also, not checking when using BDF2 and starting with the initial
    * condition, as it will generally not respect the no-slip condition.
    */
@@ -3080,10 +2974,12 @@ void MonolithicFSISolver<dim>::postprocess_solution()
   }
 
   const bool export_force_table =
-    (time_handler.current_time_iteration % 5) == 0;
+    time_handler.is_steady() ||
+    ((time_handler.current_time_iteration % 5) == 0);
   compute_forces(export_force_table);
   const bool export_position_table =
-    (time_handler.current_time_iteration % 5) == 0;
+    time_handler.is_steady() ||
+    ((time_handler.current_time_iteration % 5) == 0);
   write_cylinder_position(export_position_table);
 
   if (param.mms_param.enable)

@@ -70,17 +70,6 @@ public:
    */
   void create_sparsity_pattern();
 
-  // /**
-  //  *
-  //  */
-  // void constrain_pressure_point(AffineConstraints<double> &constraints,
-  //                               const bool                 set_to_zero);
-
-  /**
-   * 
-   */
-  void create_zero_mean_pressure_constraints_data();
-
   /**
    * Create the AffineConstraints storing the lambda = 0
    * constraints everywhere, except on the boundary of interest
@@ -346,6 +335,37 @@ protected:
 
 protected:
   /**
+   * Source term.
+   */
+  class SourceTerm : public Function<dim>
+  {
+  public:
+    SourceTerm(const double time,
+      const Parameters::SourceTerms<dim> &source_terms)
+      : Function<dim>(n_components, time)
+      , source_terms(source_terms)
+    {}
+
+    virtual void set_time(const double new_time) override
+    {
+      source_terms.set_time(new_time);
+    }
+
+    virtual void vector_value(const Point<dim> &p,
+                              Vector<double>   &values) const override
+    {
+      // source_terms.fluid_source is a function with dim+1 components
+      for(unsigned int d = 0; d < dim; ++d)
+        values[u_lower + d] = source_terms.fluid_source->value(p, d);
+      values[p_lower] = source_terms.fluid_source->value(p, p_lower);
+    }
+
+  protected:
+    // Copy since time must be updated
+    Parameters::SourceTerms<dim> source_terms;
+  };
+
+  /**
    * Exact solution when performing a convergence study with a manufactured
    * solution.
    */
@@ -430,7 +450,7 @@ protected:
   {
   public:
     MMSSourceTerm(const double                          time,
-                  const Parameters::PhysicalProperties &physical_properties,
+                  const Parameters::PhysicalProperties<dim> &physical_properties,
                   const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
       : Function<dim>(n_components, time)
       , physical_properties(physical_properties)
@@ -449,34 +469,34 @@ protected:
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override;
 
-    // /**
-    //  * Gradient of source term, using finite differences
-    //  */
-    // virtual void
-    // vector_gradient(const Point<dim>            &p,
-    //                 std::vector<Tensor<1, dim>> &gradients) const override
-    // {
-    //   const double h = 1e-8;
+    /**
+     * Gradient of source term, using finite differences
+     */
+    virtual void
+    vector_gradient(const Point<dim>            &p,
+                    std::vector<Tensor<1, dim>> &gradients) const override
+    {
+      const double h = 1e-8;
 
-    //   Vector<double> vals_plus(gradients.size()), vals_minus(gradients.size());
+      Vector<double> vals_plus(gradients.size()), vals_minus(gradients.size());
 
-    //   for (unsigned int d = 0; d < dim; ++d)
-    //   {
-    //     Point<dim> p_plus = p, p_minus = p;
-    //     p_plus[d] += h;
-    //     p_minus[d] -= h;
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        Point<dim> p_plus = p, p_minus = p;
+        p_plus[d] += h;
+        p_minus[d] -= h;
 
-    //     this->vector_value(p_plus, vals_plus);
-    //     this->vector_value(p_minus, vals_minus);
+        this->vector_value(p_plus, vals_plus);
+        this->vector_value(p_minus, vals_minus);
 
-    //     // Centered finite differences
-    //     for (unsigned int c = 0; c < gradients.size(); ++c)
-    //       gradients[c][d] = (vals_plus[c] - vals_minus[c]) / (2.0 * h);
-    //   }
-    // }
+        // Centered finite differences
+        for (unsigned int c = 0; c < gradients.size(); ++c)
+          gradients[c][d] = (vals_plus[c] - vals_minus[c]) / (2.0 * h);
+      }
+    }
 
   protected:
-    const Parameters::PhysicalProperties &physical_properties;
+    const Parameters::PhysicalProperties<dim> &physical_properties;
 
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;

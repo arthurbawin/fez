@@ -2,6 +2,7 @@
 #define PARAMETERS_H
 
 #include <deal.II/base/parameter_handler.h>
+#include <parsed_function_symengine.h>
 
 using namespace dealii;
 
@@ -57,7 +58,7 @@ namespace Parameters
     // Gmsh mesh file
     std::string filename;
 
-    bool use_deal_ii_cube_mesh;
+    bool         use_deal_ii_cube_mesh;
     unsigned int refinement_level;
 
     // Name of each mesh physical entities
@@ -113,15 +114,26 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
-  struct PseudoSolid
+  template <int dim>
+  class PseudoSolid
   {
-    double lame_lambda;
-    double lame_mu;
+  public:
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
+      lame_lambda_fun;
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
+      lame_mu_fun;
 
+  public:
+    void set_time(const double newtime)
+    {
+      lame_lambda_fun->set_time(newtime);
+      lame_mu_fun->set_time(newtime);
+    }
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
 
+  template <int dim>
   class PhysicalProperties
   {
   public:
@@ -129,11 +141,16 @@ namespace Parameters
     unsigned int       n_fluids;
     std::vector<Fluid> fluids;
 
-    const unsigned int       max_pseudosolids = 1;
-    unsigned int             n_pseudosolids;
-    std::vector<PseudoSolid> pseudosolids;
+    const unsigned int            max_pseudosolids = 1;
+    unsigned int                  n_pseudosolids;
+    std::vector<PseudoSolid<dim>> pseudosolids;
 
   public:
+    void set_time(const double newtime)
+    {
+      for(auto &ps : pseudosolids)
+        ps.set_time(newtime);
+    }
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -153,7 +170,7 @@ namespace Parameters
 
   struct LinearSolver
   {
-    Verbosity    verbosity;
+    Verbosity verbosity;
 
     enum class Method
     {
@@ -161,7 +178,7 @@ namespace Parameters
       gmres
     } method;
 
-    double tolerance;
+    double       tolerance;
     unsigned int max_iterations;
     unsigned int ilu_fill_level;
 
@@ -174,11 +191,11 @@ namespace Parameters
 
   struct TimeIntegration
   {
-    double       dt;
-    double       t_initial;
-    double       t_end;
+    double dt;
+    double t_initial;
+    double t_end;
     // unsigned int n_constant_timesteps; // To remove
-    Verbosity    verbosity;
+    Verbosity verbosity;
 
     enum class Scheme
     {
@@ -221,17 +238,17 @@ namespace Parameters
 
     unsigned int n_convergence;
     unsigned int current_step = 0;
-    int run_only_step;
+    int          run_only_step;
 
-    bool use_deal_ii_cube_mesh;
-    bool use_deal_ii_holed_plate_mesh;
+    bool         use_deal_ii_cube_mesh;
+    bool         use_deal_ii_holed_plate_mesh;
     std::string  mesh_prefix;
     unsigned int first_mesh_index;
     unsigned int mesh_suffix;
 
-    bool use_space_convergence_mesh;
+    bool         use_space_convergence_mesh;
     unsigned int spatial_mesh_index;
-    double time_step_reduction_factor;
+    double       time_step_reduction_factor;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {
@@ -248,7 +265,7 @@ namespace Parameters
   struct FSI
   {
     Verbosity verbosity;
-    
+
     bool   enable_coupling;
     double spring_constant;
     double damping;
@@ -256,6 +273,8 @@ namespace Parameters
 
     double cylinder_radius;
     double cylinder_length;
+
+    bool fix_z_component;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -266,12 +285,13 @@ namespace Parameters
    */
   struct Debug
   {
-    bool apply_exact_solution;
-    bool compare_analytical_jacobian_with_fd;
-    double analytical_jacobian_absolute_tolerance;
-    double analytical_jacobian_relative_tolerance;
-    bool fsi_apply_erroneous_coupling;
-    bool fsi_check_mms_on_boundary;
+    Verbosity verbosity;
+    bool      apply_exact_solution;
+    bool      compare_analytical_jacobian_with_fd;
+    double    analytical_jacobian_absolute_tolerance;
+    double    analytical_jacobian_relative_tolerance;
+    bool      fsi_apply_erroneous_coupling;
+    bool      fsi_check_mms_on_boundary;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

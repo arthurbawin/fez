@@ -120,7 +120,8 @@ ScratchDataMonolithicFSI<dim>::ScratchDataMonolithicFSI(
   const unsigned int         boundary_id,
   const std::vector<double> &bdfCoeffs,
   const ParameterReader<dim> &param)
-  : fe_values(moving_mapping, fe, cell_quadrature, required_updates)
+  : physical_properties(param.physical_properties)
+  , fe_values(moving_mapping, fe, cell_quadrature, required_updates)
   , fe_values_fixed(fixed_mapping, fe, cell_quadrature, required_updates)
   , fe_face_values(moving_mapping, fe, face_quadrature, required_face_updates)
   , fe_face_values_fixed(fixed_mapping,
@@ -154,7 +155,8 @@ ScratchDataMonolithicFSI<dim>::ScratchDataMonolithicFSI(
 template <int dim>
 ScratchDataMonolithicFSI<dim>::ScratchDataMonolithicFSI(
   const ScratchDataMonolithicFSI &other)
-  : has_boundary_forms(other.has_boundary_forms)
+  : physical_properties(other.physical_properties)
+  , has_boundary_forms(other.has_boundary_forms)
   , fe_values(other.fe_values.get_mapping(),
               other.fe_values.get_fe(),
               other.fe_values.get_quadrature(),
@@ -185,6 +187,9 @@ template <int dim>
 void ScratchDataMonolithicFSI<dim>::allocate()
 {
   components.resize(dofs_per_cell);
+
+  lame_mu.resize(n_q_points);
+  lame_lambda.resize(n_q_points);
 
   JxW_moving.resize(n_q_points);
   JxW_fixed.resize(n_q_points);

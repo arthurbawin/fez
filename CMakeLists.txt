@@ -89,18 +89,18 @@ target_include_directories(project_src PUBLIC include)
 # Ensure project_src is built with deal.II flags
 deal_ii_setup_target(project_src)
 
-# === Build example executables ===
-file(GLOB EXAMPLE_FILES CONFIGURE_DEPENDS examples/*.cpp)
+# === Build solvers executables ===
+file(GLOB EXAMPLE_FILES CONFIGURE_DEPENDS solvers/*.cpp)
 
-foreach(example_src ${EXAMPLE_FILES})
-    get_filename_component(example_name ${example_src} NAME_WE)
+foreach(solver_src ${EXAMPLE_FILES})
+    get_filename_component(solver_name ${solver_src} NAME_WE)
 
-    add_executable(${example_name} ${example_src})
-    target_include_directories(${example_name} PRIVATE include)
+    add_executable(${solver_name} ${solver_src})
+    target_include_directories(${solver_name} PRIVATE include)
 
     # Link with project source code and deal.II
-    target_link_libraries(${example_name} project_src)
-    deal_ii_setup_target(${example_name})
+    target_link_libraries(${solver_name} project_src)
+    deal_ii_setup_target(${solver_name})
 endforeach()
 
 # Tests

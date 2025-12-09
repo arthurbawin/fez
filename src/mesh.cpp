@@ -391,6 +391,47 @@ void print_mesh_info(
 }
 
 template <int dim, int spacedim>
+void print_partition_gmsh(
+  parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
+  const ParameterReader<dim>                            &param)
+{
+  MPI_Comm           comm = triangulation.get_mpi_communicator();
+  const unsigned int rank = Utilities::MPI::this_mpi_process(comm);
+
+  std::ofstream outfile(param.output.output_dir + "partitions_proc" +
+                        std::to_string(rank) + ".pos");
+  outfile << "View \"partitions_proc" + std::to_string(rank) + "\"{"
+          << std::endl;
+
+  for (const auto &cell : triangulation.active_cell_iterators())
+  {
+    if (cell->is_locally_owned())
+    {
+      const std::string id = std::to_string(cell->subdomain_id());
+      outfile << ((dim == 2) ? "ST(" : "SS(");
+      for (unsigned int v = 0; v < cell->n_vertices(); ++v)
+      {
+        const Point<dim> &p = cell->vertex(v);
+        if constexpr (dim == 2)
+          outfile << p[0] << "," << p[1] << ",0."
+                  << ((v == cell->n_vertices() - 1) ? "" : ",");
+        else
+          outfile << p[0] << "," << p[1] << "," << p[2]
+                  << ((v == cell->n_vertices() - 1) ? "" : ",");
+      }
+      if constexpr (dim == 2)
+        outfile << "){" << id << "," << id << "," << id << "};" << std::endl;
+      else
+        outfile << "){" << id << "," << id << "," << id << "," << id << "};"
+                << std::endl;
+    }
+  }
+
+  outfile << "};" << std::endl;
+  outfile.close();
+}
+
+template <int dim, int spacedim>
 void read_mesh(
   parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
   ParameterReader<dim>                                  &param)
@@ -463,3 +504,11 @@ read_mesh(parallel::DistributedTriangulationBase<2> &triangulation,
 template void
 read_mesh(parallel::DistributedTriangulationBase<3> &triangulation,
           ParameterReader<3>                        &param);
+
+template void
+print_partition_gmsh(parallel::DistributedTriangulationBase<2> &triangulation,
+                     const ParameterReader<2>                  &param);
+
+template void
+print_partition_gmsh(parallel::DistributedTriangulationBase<3> &triangulation,
+                     const ParameterReader<3>                  &param);

@@ -368,6 +368,9 @@ public:
       lame_mu[q]     = physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
       lame_lambda[q] = physical_properties.pseudosolids[0].lame_lambda_fun->value(q_point);
 
+      AssertThrow(lame_mu[q] >= 0, ExcMessage("Lamé coefficient mu should be positive"));
+      AssertThrow(lame_lambda[q] >= 0, ExcMessage("Lamé coefficient lambda should be positive"));
+
       JxW_moving[q] = fe_values.JxW(q);
       JxW_fixed[q]  = fe_values_fixed.JxW(q);
 

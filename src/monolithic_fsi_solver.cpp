@@ -1,6 +1,7 @@
 
 #include <compare_matrix.h>
 #include <copy_data.h>
+#include <deal.II/base/symmetric_tensor.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_values.h>
@@ -1513,10 +1514,11 @@ void MonolithicFSISolver<dim>::assemble_local_matrix(
           // Linear elasticity
           local_ps_matrix_ij +=
             lame_lambda * div_phi_x[j] * div_phi_x[i] +
-            // param.pseudo_solid_mu * scalar_product((grad_phi_x[j] +
-            // transpose(grad_phi_x[j])), grad_phi_x[i]);
-            lame_mu * scalar_product((grad_phi_x[i] + transpose(grad_phi_x[i])),
-                                     grad_phi_x[j]);
+            lame_mu * scalar_product((grad_phi_x[j] + transpose(grad_phi_x[j])),
+                                     grad_phi_x[i]);
+          // lame_mu * scalar_product((grad_phi_x[i] +
+          // transpose(grad_phi_x[i])),
+          //                          grad_phi_x[j]);
         }
 
         if (assemble)
@@ -1713,6 +1715,7 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
 
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
+  const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
 
   for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
   {
@@ -1755,8 +1758,10 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
       scratchData.present_position_gradients[q];
     const double present_displacement_divergence =
       trace(present_position_gradients);
-    const auto present_displacement_gradient_sym =
-      present_position_gradients + transpose(present_position_gradients);
+    const auto present_strain =
+      symmetrize(present_position_gradients) - identity_tensor;
+    const double present_trace_strain =
+      present_displacement_divergence - (double)dim;
     const auto &source_term_position = scratchData.source_term_position[q];
 
     const auto &phi_x      = scratchData.phi_x[q];
@@ -1798,12 +1803,10 @@ void MonolithicFSISolver<dim>::assemble_local_rhs(
       //
       // Pseudo-solid
       //
-      double local_rhs_ps_i = -( // Linear elasticity
-        lame_lambda * present_displacement_divergence * div_phi_x[i] +
-        // param.pseudo_solid_mu * scalar_product(grad_phi_x[i],
-        // present_displacement_gradient_sym)
-        lame_mu *
-          scalar_product(present_displacement_gradient_sym, grad_phi_x[i])
+      double local_rhs_ps_i = -(
+        // Linear elasticity
+        lame_lambda * present_trace_strain * div_phi_x[i] +
+        2. * lame_mu * scalar_product(present_strain, grad_phi_x[i])
 
         // Linear elasticity source term
         + phi_x[i] * source_term_position);
@@ -2867,7 +2870,7 @@ void MonolithicFSISolver<dim>::compute_forces(const bool export_table)
     forces_table.add_value("CFz", -lambda_integral[2]);
   }
 
-  if(param.debug.verbosity == Parameters::Verbosity::verbose)
+  if (param.debug.verbosity == Parameters::Verbosity::verbose)
     pcout << "Computed forces: " << -lambda_integral << std::endl;
 
   if (export_table && param.output.write_results && mpi_rank == 0)

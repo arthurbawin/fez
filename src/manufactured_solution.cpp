@@ -1,4 +1,5 @@
 
+#include <deal.II/base/symmetric_tensor.h>
 #include <manufactured_solution.h>
 #include <parsed_function_symengine.h>
 #include <preset_mms.h>
@@ -293,20 +294,24 @@ namespace ManufacturedSolutions
 
   template <int dim>
   Tensor<1, dim>
-  MMSFunction<dim>::divergence_linear_elastic_stress_variable_coefficients(const Point<dim> &p,
-      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
-      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const
+  MMSFunction<dim>::divergence_linear_elastic_stress_variable_coefficients(
+    const Point<dim>                          &p,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const
   {
-    const double mu     = lame_mu->value(p);
-    const double lambda = lame_lambda->value(p);
-    const Tensor<1, dim> grad_mu = lame_mu->gradient(p);
+    const double         mu          = lame_mu->value(p);
+    const double         lambda      = lame_lambda->value(p);
+    const Tensor<1, dim> grad_mu     = lame_mu->gradient(p);
     const Tensor<1, dim> grad_lambda = lame_lambda->gradient(p);
-    const Tensor<2, dim> grad_x = this->gradient_vi_xj(p);
-    const Tensor<2, dim> grad_x_sym = grad_x + transpose(grad_x);
+    const Tensor<2, dim> grad_x      = gradient_vi_xj(p);
+    const Tensor<1, dim> grad_div_x  = grad_div(p);
 
-    return mu * this->vector_laplacian(p) +
-           (mu + lambda) * this->grad_div(p) + 
-           grad_mu * grad_x_sym + grad_lambda * this->divergence(p);
+    const SymmetricTensor<2, dim> strain =
+      symmetrize(grad_x) - unit_symmetric_tensor<dim>();
+    const Tensor<1, dim> div_strain = 0.5 * (vector_laplacian(p) + grad_div_x);
+
+    return 2. * (mu * div_strain + grad_mu * strain) + lambda * grad_div_x +
+           grad_lambda * trace(strain);
   }
 
   template class MMSFunction<2>;

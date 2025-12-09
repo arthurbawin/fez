@@ -240,7 +240,8 @@ namespace ManufacturedSolutions
     }
 
     /**
-     * 
+     * Attention: here we consider eps = (grad(u) + grad(u)^T)/2
+     *                                 = (grad(x) + grad(x)^T)/2 - I
      */
     virtual Tensor<1, dim>
     divergence_linear_elastic_stress_variable_coefficients(const Point<dim> &p,

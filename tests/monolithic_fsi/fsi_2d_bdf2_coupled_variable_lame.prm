@@ -9,7 +9,7 @@ end
 
 subsection Output
   set write results    = false
-  set output directory = ../data/mms/
+  set output directory = ../../../../../data/mms/
   set output prefix    = solution
 end
 
@@ -58,10 +58,10 @@ subsection Physical properties
   set number of pseudosolids = 1
   subsection Pseudosolid
     subsection lame lambda
-      set Function expression = 1 + sin(pi*x) * cos(pi*y) * (1 + t)
+      set Function expression = 1 + sin(pi*x) * sin(pi*x) * (1 + t)
     end
     subsection lame mu
-      set Function expression = 1 + cos(pi*x) * cos(pi*y) * (1 + sin(t))
+      set Function expression = 1 + cos(pi*y) * cos(pi*y) * (1 + sin(t))
     end
   end
 end

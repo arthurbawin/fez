@@ -1,5 +1,6 @@
 
 #include "SolutionRecovery.h"
+#include <fstream>
 
 namespace SolutionRecoveryNamespace
 {

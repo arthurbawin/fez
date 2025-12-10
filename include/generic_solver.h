@@ -6,7 +6,6 @@
  */
 
 #include <deal.II/base/conditional_ostream.h>
-#include <deal.II/base/observer_pointer.h>
 #include <deal.II/base/timer.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <error_handler.h>
@@ -14,6 +13,42 @@
 #include <nonlinear_solver.h>
 #include <parameter_reader.h>
 #include <types.h>
+
+#ifdef __has_include
+#  if __has_include(<deal.II/base/observer_pointer.h>)
+
+     // deal.II récent (9.8.0-pre etc.) : on utilise directement le header officiel
+#    include <deal.II/base/observer_pointer.h>
+
+#  else
+
+     // deal.II plus ancien (comme 9.6.2 sur Trillium) : on fabrique un équivalent
+#    include <deal.II/base/smartpointer.h>
+#    include <deal.II/base/subscriptor.h>
+namespace dealii
+{
+  template <typename T, typename P = void>
+  using ObserverPointer = SmartPointer<T, P>;
+
+  using EnableObserverPointer = Subscriptor;
+} // namespace dealii
+
+#  endif
+#else
+
+   // Si __has_include n’existe pas : on utilise le fallback « à l’ancienne »
+#  include <deal.II/base/smartpointer.h>
+#  include <deal.II/base/subscriptor.h>
+
+namespace dealii
+{
+  template <typename T, typename P = void>
+  using ObserverPointer = SmartPointer<T, P>;
+
+  using EnableObserverPointer = Subscriptor;
+} // namespace dealii
+
+#endif
 
 using namespace dealii;
 

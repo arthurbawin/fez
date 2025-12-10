@@ -177,9 +177,9 @@ double compute_global_mean_value(const Function<dim>   &f,
 
   // Reduce across all processes
   const double I_global =
-    Utilities::MPI::sum(I_local, dof_handler.get_mpi_communicator());
+    Utilities::MPI::sum(I_local, dof_handler.get_communicator());
   const double vol_global =
-    Utilities::MPI::sum(vol_local, dof_handler.get_mpi_communicator());
+    Utilities::MPI::sum(vol_local, dof_handler.get_communicator());
 
   return I_global / vol_global;
 }

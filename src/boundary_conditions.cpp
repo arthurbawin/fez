@@ -337,7 +337,7 @@ namespace BoundaryConditions
                     1,
                     MPI_DOUBLE_INT,
                     MPI_MINLOC,
-                    dof_handler.get_mpi_communicator());
+                    dof_handler.get_communicator());
 
       constrained_pressure_dof = global_pair.dof;
 
@@ -391,7 +391,7 @@ namespace BoundaryConditions
 
     // Gather all lists to all processes
     std::vector<std::vector<types::global_dof_index>> gathered_dofs =
-      Utilities::MPI::all_gather(dof_handler.get_mpi_communicator(),
+      Utilities::MPI::all_gather(dof_handler.get_communicator(),
                                  local_pressure_dofs.get_index_vector());
 
     std::vector<types::global_dof_index> gathered_dofs_flattened;
@@ -459,8 +459,8 @@ namespace BoundaryConditions
     {
       std::vector<std::pair<types::global_dof_index, double>> coeffs_vec(
         coeffs.begin(), coeffs.end());
-      std::vector<std::vector<std::pair<unsigned int, double>>> gathered =
-        Utilities::MPI::all_gather(dof_handler.get_mpi_communicator(),
+      std::vector<std::vector<std::pair<types::global_dof_index, double>>> gathered =
+        Utilities::MPI::all_gather(dof_handler.get_communicator(),
                                    coeffs_vec);
 
       // Sum contributions to same DoF from different processes

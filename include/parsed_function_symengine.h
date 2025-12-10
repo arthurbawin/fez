@@ -1,7 +1,19 @@
 #ifndef PARSED_FUNCTION_SYMENGINE_H
 #define PARSED_FUNCTION_SYMENGINE_H
 
-#include <deal.II/base/exception_macros.h>
+#ifdef __has_include
+#  if __has_include(<deal.II/base/exception_macros.h>)
+     // deal.II ≥ 9.8 (ou versions qui fournissent explicitement ce header)
+#    include <deal.II/base/exception_macros.h>
+#  else
+     // deal.II 9.6.2 (et anciennes) : les macros sont dans exceptions.h
+#    include <deal.II/base/exceptions.h>
+#  endif
+#else
+   // Au cas où le compilateur ne connaîtrait pas __has_include
+#  include <deal.II/base/exceptions.h>
+#endif
+
 #include <deal.II/base/function_parser.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/parsed_function.h>

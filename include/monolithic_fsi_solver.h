@@ -316,7 +316,7 @@ protected:
 
   // Position-lambda constraints on the cylinder
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
-  std::vector<std::vector<std::pair<unsigned int, double>>>
+  std::vector<std::vector<std::pair<types::global_dof_index, double>>>
                                                   position_lambda_coeffs;
   std::map<types::global_dof_index, Point<dim>>   initial_positions;
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;

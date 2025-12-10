@@ -11,6 +11,33 @@
 #include <mesh.h>
 #include <parameter_reader.h>
 #include <parameters.h>
+#include <fstream>
+#include <deal.II/base/config.h>
+
+namespace
+{
+  using namespace dealii;
+
+  template <int dim, int spacedim>
+  void
+  convert_hypercube_to_simplex_mesh_compat(const Triangulation<dim, spacedim> &in_tria,
+                                           Triangulation<dim, spacedim>       &out_tria,
+                                           const unsigned int                  n_refinements)
+  {
+#if DEAL_II_VERSION_GTE(9,8,0)
+    // Version récente : la fonction connaît n_refinements
+    GridGenerator::convert_hypercube_to_simplex_mesh(in_tria, out_tria, n_refinements);
+#else
+    // Version 9.6.x : seulement 2 arguments.
+    // On convertit puis on raffine globalement n_refinements fois.
+    GridGenerator::convert_hypercube_to_simplex_mesh(in_tria, out_tria);
+    if (n_refinements > 0)
+      out_tria.refine_global(n_refinements);
+#endif
+  }
+} // namespace
+
+
 
 /**
  * Read sequential mesh from Gmsh file.
@@ -36,7 +63,7 @@ void partition_and_create_parallel_mesh(
   Triangulation<dim>                                    &serial_triangulation,
   parallel::DistributedTriangulationBase<dim, spacedim> &triangulation)
 {
-  MPI_Comm comm = triangulation.get_mpi_communicator();
+  MPI_Comm comm = triangulation.get_communicator();
 
   // Partition serial triangulation:
   GridTools::partition_triangulation(Utilities::MPI::n_mpi_processes(comm),
@@ -160,7 +187,8 @@ void create_cube(Triangulation<dim> &tria,
   if (convert_to_tets)
   {
     const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
-    GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+    convert_hypercube_to_simplex_mesh_compat(tria, tria, n_divisions);
+
   }
 }
 
@@ -204,7 +232,8 @@ void create_holed_plate(Triangulation<dim> &tria,
   if (convert_to_tets)
   {
     const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
-    GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+    convert_hypercube_to_simplex_mesh_compat(tria, tria, n_divisions);
+
   }
 
   GridOut grid_out;
@@ -365,7 +394,7 @@ void print_mesh_info(
   const parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
   const ParameterReader<dim>                                  &param)
 {
-  MPI_Comm           comm = triangulation.get_mpi_communicator();
+  MPI_Comm           comm = triangulation.get_communicator();
   const unsigned int rank = Utilities::MPI::this_mpi_process(comm);
 
   if (rank == 0 && param.mesh.verbosity == Parameters::Verbosity::verbose)
@@ -395,7 +424,7 @@ void print_partition_gmsh(
   parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
   const ParameterReader<dim>                            &param)
 {
-  MPI_Comm           comm = triangulation.get_mpi_communicator();
+  MPI_Comm           comm = triangulation.get_communicator();
   const unsigned int rank = Utilities::MPI::this_mpi_process(comm);
 
   std::ofstream outfile(param.output.output_dir + "partitions_proc" +

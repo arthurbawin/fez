@@ -595,24 +595,25 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
   // Gather the constraint weights
   //
   position_lambda_coeffs.resize(dim);
-  std::vector<std::map<unsigned int, double>> gathered_coeffs_map(dim);
+  std::vector<std::map<types::global_dof_index, double>> gathered_coeffs_map(dim);
 
   for (unsigned int d = 0; d < dim; ++d)
   {
-    std::vector<std::pair<unsigned int, double>> coeffs_vector(
+    // coeffs[d] est déjà un std::map<types::global_dof_index,double>
+    std::vector<std::pair<types::global_dof_index, double>> coeffs_vector(
       coeffs[d].begin(), coeffs[d].end());
-    std::vector<std::vector<std::pair<unsigned int, double>>> gathered =
+
+    auto gathered =
       Utilities::MPI::all_gather(mpi_communicator, coeffs_vector);
 
-    // Put back into map and sum contributions to same DoF from different
-    // processes
+    // Recomposer une map globale en sommant les contributions
     for (const auto &vec : gathered)
       for (const auto &pair : vec)
         gathered_coeffs_map[d][pair.first] += pair.second;
 
-    position_lambda_coeffs[d].insert(position_lambda_coeffs[d].end(),
-                                     gathered_coeffs_map[d].begin(),
-                                     gathered_coeffs_map[d].end());
+    // Stocker (dof, poids) dans le vector correspondant
+    position_lambda_coeffs[d].assign(gathered_coeffs_map[d].begin(),
+                                    gathered_coeffs_map[d].end());
   }
 }
 

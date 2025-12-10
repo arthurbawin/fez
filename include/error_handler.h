@@ -4,6 +4,8 @@
 #include <deal.II/base/convergence_table.h>
 #include <parameters.h>
 
+#include <type_traits>  // <<< AJOUT IMPORTANT
+
 /**
  * A thin wrapper to the ConvergenceTable for error computations.
  */
@@ -38,8 +40,12 @@ public:
   template <typename T>
   void add_reference_data(const std::string &name, const T &value)
   {
-    constexpr bool supported = std::is_same_v<T, unsigned int>;
-    static_assert(supported, "Unsupported");
+    using Decayed = std::decay_t<T>;
+    constexpr bool supported = std::is_integral_v<Decayed>;
+    static_assert(supported,
+                  "ErrorHandler::add_reference_data expects an integral type "
+                  "(e.g. unsigned int, size_t, types::global_dof_index, ...)");
+    // Si c’est un entier, ConvergenceTable l’affichera déjà en décimal classique
     error_table.add_value(name, value);
   }
 
@@ -153,12 +159,6 @@ public:
 
   void write_rates()
   {
-    // for(const auto &[field, errors]: unsteady_errors)
-    // {
-    //   std::cout << "Errors for " << field << std::endl;
-    //   for(const auto &[t,e] : errors)
-    //     std::cout << t << " : " << e << std::endl;
-    // }
     error_table.write_text(std::cout);
   }
 

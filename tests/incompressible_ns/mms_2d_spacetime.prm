@@ -88,6 +88,9 @@ subsection Manufactured solution
 
   subsection Space convergence
     set use dealii cube mesh = true
+    set compute L2 norm      = true
+    set compute Li norm      = true
+    set compute H1 norm      = true
   end
 
   subsection Time convergence

@@ -114,6 +114,9 @@ subsection Manufactured solution
     set use dealii cube mesh        = false
     set use dealii holed plate mesh = false
     set mesh prefix          = ../../mms_meshes/holed
+    set compute L2 norm      = true
+    set compute Li norm      = true
+    set compute H1 norm      = false
   end
 
   subsection Time convergence

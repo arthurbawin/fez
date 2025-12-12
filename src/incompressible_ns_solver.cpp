@@ -53,17 +53,6 @@ IncompressibleNavierStokesSolver<dim>::IncompressibleNavierStokesSolver(
       std::make_shared<IncompressibleNavierStokesSolver<dim>::MMSSolution>(
         time_handler.current_time, param.mms);
 
-    // auto &stream = pcout.get_stream();
-    // pcout << "Pression" << std::endl;
-    // param.mms.exact_pressure->print_function(stream);
-    // param.mms.exact_pressure->print_time_derivative(stream);
-    // param.mms.exact_pressure->print_gradient(stream);
-    // pcout << "Vitesse" << std::endl;
-    // param.mms.exact_velocity->print_function(stream);
-    // param.mms.exact_velocity->print_time_derivative(stream);
-    // param.mms.exact_velocity->print_gradient(stream);
-    // param.mms.exact_velocity->print_hessian(stream);
-
     if (mms_param.force_source_term)
     {
       // Use the provided source term instead of the source term computed from

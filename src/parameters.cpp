@@ -102,11 +102,17 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Use cube mesh from deal.II's routines");
+       prm.declare_entry("dealii preset mesh",
+                        "none",
+                        Patterns::Selection("none|cube|rectangle|holed plate"),
+                        "Use dealii meshing routines for specified geometry");
+      prm.declare_entry("dealii mesh parameters",
+                        "2, 2 : 0., 0. : 1., 1. : false");
       prm.declare_entry(
         "refinement level",
         "1",
         Patterns::Integer(),
-        "Level of uniform refinement is using deal.II cube mesh");
+        "Level of uniform refinement if using deal.II's meshing routines");
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
     }
     prm.leave_subsection();
@@ -118,6 +124,8 @@ namespace Parameters
     {
       filename              = prm.get("mesh file");
       use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
+      deal_ii_preset_mesh   = prm.get("dealii preset mesh");
+      deal_ii_mesh_param    = prm.get("dealii mesh parameters");
       refinement_level      = prm.get_integer("refinement level");
       READ_VERBOSITY_PARAM(prm)
     }
@@ -538,6 +546,9 @@ namespace Parameters
                           Patterns::Integer(),
                           "Index of the first mesh, which will be (mesh "
                           "prefix)_(first mesh).msh");
+        prm.declare_entry("compute L2 norm", "false", Patterns::Bool(), "");
+        prm.declare_entry("compute Li norm", "false", Patterns::Bool(), "");
+        prm.declare_entry("compute H1 norm", "false", Patterns::Bool(), "");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -592,6 +603,9 @@ namespace Parameters
           prm.get_bool("use dealii holed plate mesh");
         mesh_prefix      = prm.get("mesh prefix");
         first_mesh_index = prm.get_integer("first mesh");
+        compute_L2_spatial_norm = prm.get_bool("compute L2 norm");
+        compute_Li_spatial_norm = prm.get_bool("compute Li norm");
+        compute_H1_spatial_norm = prm.get_bool("compute H1 norm");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");

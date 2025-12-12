@@ -59,6 +59,8 @@ namespace Parameters
     std::string filename;
 
     bool         use_deal_ii_cube_mesh;
+    std::string  deal_ii_preset_mesh;
+    std::string  deal_ii_mesh_param;
     unsigned int refinement_level;
 
     // Name of each mesh physical entities
@@ -245,6 +247,10 @@ namespace Parameters
     std::string  mesh_prefix;
     unsigned int first_mesh_index;
     unsigned int mesh_suffix;
+
+    bool compute_L2_spatial_norm;
+    bool compute_Li_spatial_norm;
+    bool compute_H1_spatial_norm;
 
     bool         use_space_convergence_mesh;
     unsigned int spatial_mesh_index;

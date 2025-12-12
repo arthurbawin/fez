@@ -357,7 +357,9 @@ protected:
       // source_terms.fluid_source is a function with dim+1 components
       for(unsigned int d = 0; d < dim; ++d)
         values[u_lower + d] = source_terms.fluid_source->value(p, d);
-      values[p_lower] = source_terms.fluid_source->value(p, p_lower);
+      values[p_lower] = source_terms.fluid_source->value(p, dim);
+      for(unsigned int d = 0; d < dim; ++d)
+        values[x_lower + d] = source_terms.pseudosolid_source->value(p, d);
     }
 
   protected:

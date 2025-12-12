@@ -1,10 +1,10 @@
 #ifndef ERRORS_H
 #define ERRORS_H
 
-#include <deal.II/distributed/fully_distributed_tria.h>
-#include <deal.II/fe/mapping_fe.h>
-#include <deal.II/dofs/dof_handler.h>
 #include <deal.II/base/function.h>
+#include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/dofs/dof_handler.h>
+#include <deal.II/fe/mapping_fe.h>
 #include <deal.II/numerics/vector_tools.h>
 
 using namespace dealii;
@@ -14,7 +14,7 @@ using namespace dealii;
  */
 template <int dim, typename VectorType>
 double
-compute_error_norm(const Triangulation<dim> &tria,
+compute_error_norm(const Triangulation<dim>           &tria,
                    const Mapping<dim>                 &mapping,
                    const DoFHandler<dim>              &dof_handler,
                    const VectorType                   &current_solution,

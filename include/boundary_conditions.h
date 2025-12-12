@@ -190,6 +190,23 @@ namespace BoundaryConditions
     const Function<dim>       &exact_velocity,
     AffineConstraints<double> &constraints);
 
+   /**
+   *
+   *
+   */
+  template <int dim>
+  void apply_mesh_position_boundary_conditions(
+    const bool             homogeneous,
+    const unsigned int     x_lower,
+    const unsigned int     n_components,
+    const DoFHandler<dim> &dof_handler,
+    const Mapping<dim>    &mapping,
+    const std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<dim>>
+                              &pseudosolid_bc,
+    const Function<dim>       &exact_solution,
+    const Function<dim>       &exact_mesh_position,
+    AffineConstraints<double> &constraints);
+
   /**
    *
    */
@@ -271,7 +288,6 @@ namespace BoundaryConditions
       solution[i] -= mean_pressure;
     solution.compress(VectorOperation::add);
   }
-
 } // namespace BoundaryConditions
 
 /**

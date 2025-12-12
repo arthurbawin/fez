@@ -23,6 +23,28 @@ namespace BoundaryConditions
     const Function<3> &,
     AffineConstraints<double> &);
 
+  template void apply_mesh_position_boundary_conditions(
+    const bool,
+    const unsigned int,
+    const unsigned int,
+    const DoFHandler<2> &,
+    const Mapping<2> &,
+    const std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<2>> &,
+    const Function<2> &,
+    const Function<2> &,
+    AffineConstraints<double> &);
+
+  template void apply_mesh_position_boundary_conditions(
+    const bool,
+    const unsigned int,
+    const unsigned int,
+    const DoFHandler<3> &,
+    const Mapping<3> &,
+    const std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<3>> &,
+    const Function<3> &,
+    const Function<3> &,
+    AffineConstraints<double> &);
+
   template void constrain_pressure_point(const DoFHandler<2> &,
                                          const IndexSet &,
                                          const Mapping<2> &,

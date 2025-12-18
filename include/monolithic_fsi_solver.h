@@ -1,6 +1,7 @@
 #ifndef MONOLITHIC_FSI_SOLVER_H
 #define MONOLITHIC_FSI_SOLVER_H
 
+#include <components_ordering.h>
 #include <copy_data.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
@@ -15,6 +16,7 @@
 #include <deal.II/lac/affine_constraints.h>
 #include <generic_solver.h>
 #include <mumps_solver.h>
+#include <navier_stokes_solver.h>
 #include <parameter_reader.h>
 #include <scratch_data.h>
 #include <time_handler.h>
@@ -27,47 +29,18 @@ using namespace dealii;
  * It is a somewhat "niche" class, which treats a single obstacle for now.
  */
 template <int dim>
-class MonolithicFSISolver : public GenericSolver<LA::ParVectorType>
+class FSISolver : public NavierStokesSolver<dim>
 {
 public:
-  MonolithicFSISolver(const ParameterReader<dim> &param);
+  /**
+   * Constructor
+   */
+  FSISolver(const ParameterReader<dim> &param);
+
+  virtual ~FSISolver() {}
 
 public:
-  virtual ~MonolithicFSISolver() {}
-
-public:
-  /**
-   * Solve the FSI problem
-   */
-  virtual void run() override;
-
-  /**
-   *
-   */
-  void setup_dofs();
-
-  /**
-   *
-   */
-  void create_zero_constraints();
-
-  /**
-   *
-   */
-  void create_nonzero_constraints();
-
-  /**
-   *
-   */
-  virtual AffineConstraints<double> &get_nonzero_constraints() override
-  {
-    return nonzero_constraints;
-  }
-
-  /**
-   *
-   */
-  void create_sparsity_pattern();
+  virtual void reset_solver_specific_data() override;
 
   /**
    * Create the AffineConstraints storing the lambda = 0
@@ -81,7 +54,12 @@ public:
    */
   void create_position_lagrange_mult_coupling_data();
 
-  void apply_erroneous_position_lambda_constraints(const bool homogeneous);
+  virtual void create_solver_specific_constraints_data() override
+  {
+    create_lagrange_multiplier_constraints();
+    if (this->param.fsi.enable_coupling)
+      create_position_lagrange_mult_coupling_data();
+  }
 
   /**
    *
@@ -89,20 +67,13 @@ public:
   void remove_cylinder_velocity_constraints(
     AffineConstraints<double> &constraints) const;
 
-  /**
-   *
-   */
-  void set_initial_conditions();
-
-  /**
-   * Set solution to exact solution, if provided
-   */
-  void set_exact_solution();
+  virtual void create_solver_specific_zero_constraints() override;
+  virtual void create_solver_specific_nonzero_constraints() override;
 
   /**
    *
    */
-  void update_boundary_conditions();
+  virtual void create_sparsity_pattern() override;
 
   /**
    *
@@ -118,23 +89,13 @@ public:
    *
    */
   void assemble_local_matrix(
-    bool                                                  first_step,
     const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchDataMonolithicFSI<dim>                        &scratchData,
-    LA::ParVectorType                                    &current_solution,
-    std::vector<LA::ParVectorType>                       &previous_solutions,
-    std::vector<types::global_dof_index>                 &local_dof_indices,
-    FullMatrix<double>                                   &local_matrix,
-    bool                                                  distribute);
-
-  void assemble_local_matrix(
-    const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchDataMonolithicFSI<dim>                        &scratchData,
-    CopyData                                             &copy_data);
+    ScratchDataFSI<dim>                                  &scratchData,
+    CopyData &copy_data);
 
   void copy_local_to_global_matrix(const CopyData &copy_data);
 
-  void compare_analytical_matrix_with_fd();
+  virtual void compare_analytical_matrix_with_fd() override;
 
   /**
    *
@@ -145,24 +106,9 @@ public:
    *
    */
   void
-  assemble_local_rhs(bool first_step,
-                     const typename DoFHandler<dim>::active_cell_iterator &cell,
-                     ScratchDataMonolithicFSI<dim>        &scratchData,
-                     LA::ParVectorType                    &current_solution,
-                     std::vector<LA::ParVectorType>       &previous_solutions,
-                     std::vector<types::global_dof_index> &local_dof_indices,
-                     Vector<double>                       &local_rhs,
-                     std::vector<double>                  &cell_dof_values,
-                     bool                                  distribute,
-                     bool                                  use_full_solution);
-
-  /**
-   *
-   */
-  void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
-                     ScratchDataMonolithicFSI<dim> &scratchData,
-                     CopyData                      &copy_data);
+                     ScratchDataFSI<dim> &scratchData,
+                     CopyData &copy_data);
 
   /**
    * See copy_local_to_global_matrix.
@@ -177,17 +123,6 @@ public:
   /**
    *
    */
-  virtual void
-  solve_linear_system(const bool apply_inhomogeneous_constraints) override;
-
-  /**
-   *
-   */
-  void postprocess_solution();
-
-  /**
-   *
-   */
   void compute_lambda_error_on_boundary(double         &lambda_l2_error,
                                         double         &lambda_linf_error,
                                         Tensor<1, dim> &error_on_integral);
@@ -195,14 +130,14 @@ public:
   void check_manufactured_solution_boundary();
 
   /**
-   *
+   * Errors for lambda on the relevant boundaries
    */
-  void compute_errors();
+  virtual void compute_solver_specific_errors() override;
 
   /**
    *
    */
-  void output_results() const;
+  virtual void output_results() override;
 
   /**
    *
@@ -213,6 +148,8 @@ public:
    *
    */
   void check_velocity_boundary() const;
+
+  virtual void solver_specific_post_processing() override;
 
   /**
    * Compute the "raw" forces on the obstacle.
@@ -225,75 +162,13 @@ public:
    */
   void write_cylinder_position(const bool export_table);
 
-  /**
-   * Reset the resolution related structures (mesh, dof_handler, etc.) in
-   * between two runs, e.g. when performing convergence tests.
-   */
-  void reset();
-
-  /**
-   * Update time in all relevant structures (boundary conditions, source terms,
-   * exact solution).
-   */
-  void set_time();
+  virtual const FESystem<dim> &get_fe_system() const override { return fe; }
 
 protected:
-  // Ordering of the FE system for the FSI solver.
-  // Each field is in the half-open [lower, upper)
-  // Check for matching component by doing e.g.:
-  // if(u_lower <= comp && comp < u_upper)
-  static constexpr unsigned int n_components = 3 * dim + 1;
-  static constexpr unsigned int u_lower      = 0;
-  static constexpr unsigned int u_upper      = dim;
-  static constexpr unsigned int p_lower      = dim;
-  static constexpr unsigned int p_upper      = dim + 1;
-  static constexpr unsigned int x_lower      = dim + 1;
-  static constexpr unsigned int x_upper      = 2 * dim + 1;
-  static constexpr unsigned int l_lower      = 2 * dim + 1;
-  static constexpr unsigned int l_upper      = 3 * dim + 1;
+  FESystem<dim> fe;
 
-  const FEValuesExtractors::Vector velocity_extractor;
-  const FEValuesExtractors::Scalar pressure_extractor;
-  const FEValuesExtractors::Vector position_extractor;
-  const FEValuesExtractors::Vector lambda_extractor;
-
-  /**
-   * Quality-of-life functions to check which field a given component is
-   */
-  static bool is_velocity(const unsigned int component)
-  {
-    return u_lower <= component && component < u_upper;
-  }
-  static bool is_pressure(const unsigned int component)
-  {
-    return p_lower <= component && component < p_upper;
-  }
-  static bool is_position(const unsigned int component)
-  {
-    return x_lower <= component && component < x_upper;
-  }
-  static bool is_lambda(const unsigned int component)
-  {
-    return l_lower <= component && component < l_upper;
-  }
-
-protected:
-  ParameterReader<dim> param;
-
-  QSimplex<dim>     quadrature;
-  QSimplex<dim - 1> face_quadrature;
-
-  parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::shared_ptr<Mapping<dim>>                  fixed_mapping;
-  std::shared_ptr<Mapping<dim>>                  mapping;
-  FESystem<dim>                                  fe;
-  DoFHandler<dim>                                dof_handler;
-  TimeHandler                                    time_handler;
-
-  const ComponentMask velocity_mask;
-  const ComponentMask pressure_mask;
-  const ComponentMask position_mask;
-  const ComponentMask lambda_mask;
+  FEValuesExtractors::Vector lambda_extractor;
+  ComponentMask              lambda_mask;
 
   /**
    * The id of the mesh boundary on which the weak no-slip condition
@@ -301,37 +176,15 @@ protected:
    */
   types::boundary_id weak_no_slip_boundary_id = numbers::invalid_unsigned_int;
 
-  IndexSet locally_owned_dofs;
-  IndexSet locally_relevant_dofs;
-
-  AffineConstraints<double> zero_constraints;
-  AffineConstraints<double> nonzero_constraints;
   AffineConstraints<double> lambda_constraints;
-  AffineConstraints<double> erroneous_position_constraints;
-
-  types::global_dof_index constrained_pressure_dof = numbers::invalid_dof_index;
-  Point<dim>              constrained_pressure_support_point;
-  std::vector<std::pair<types::global_dof_index, double>>
-    zero_mean_pressure_weights;
 
   // Position-lambda constraints on the cylinder
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
   std::vector<std::vector<std::pair<unsigned int, double>>>
                                                   position_lambda_coeffs;
-  std::map<types::global_dof_index, Point<dim>>   initial_positions;
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
 
-  LA::ParMatrixType              system_matrix;
-  std::vector<LA::ParVectorType> previous_solutions;
-
-  std::shared_ptr<Function<dim>> source_terms;
-  std::shared_ptr<Function<dim>> exact_solution;
-
-  TableHandler forces_table;
   TableHandler cylinder_position_table;
-
-  SolverControl                                          solver_control;
-  std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
 protected:
   /**
@@ -341,8 +194,10 @@ protected:
   {
   public:
     SourceTerm(const double                        time,
+               const ComponentOrdering            &ordering,
                const Parameters::SourceTerms<dim> &source_terms)
-      : Function<dim>(n_components, time)
+      : Function<dim>(ordering.n_components, time)
+      , ordering(ordering)
       , source_terms(source_terms)
     {}
 
@@ -356,14 +211,15 @@ protected:
     {
       // source_terms.fluid_source is a function with dim+1 components
       for (unsigned int d = 0; d < dim; ++d)
-        values[u_lower + d] = source_terms.fluid_source->value(p, d);
-      values[p_lower] = source_terms.fluid_source->value(p, dim);
+        values[ordering.u_lower + d] = source_terms.fluid_source->value(p, d);
+      values[ordering.p_lower] = source_terms.fluid_source->value(p, dim);
       for (unsigned int d = 0; d < dim; ++d)
-        values[x_lower + d] = source_terms.pseudosolid_source->value(p, d);
+        values[ordering.x_lower + d] =
+          source_terms.pseudosolid_source->value(p, d);
     }
 
   protected:
-    // Copy since time must be updated
+    const ComponentOrdering     &ordering;
     Parameters::SourceTerms<dim> source_terms;
   };
 
@@ -374,9 +230,11 @@ protected:
   class MMSSolution : public Function<dim>
   {
   public:
-    MMSSolution(const double                                            time,
+    MMSSolution(const double             time,
+                const ComponentOrdering &ordering,
                 const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
-      : Function<dim>(n_components, time)
+      : Function<dim>(ordering.n_components, time)
+      , ordering(ordering)
       , mms(mms)
     {}
 
@@ -389,13 +247,13 @@ protected:
     virtual double value(const Point<dim>  &p,
                          const unsigned int component = 0) const override
     {
-      if (is_velocity(component))
-        return mms.exact_velocity->value(p, component - u_lower);
-      else if (is_pressure(component))
+      if (ordering.is_velocity(component))
+        return mms.exact_velocity->value(p, component - ordering.u_lower);
+      else if (ordering.is_pressure(component))
         return mms.exact_pressure->value(p);
-      else if (is_position(component))
-        return mms.exact_mesh_position->value(p, component - x_lower);
-      else if (is_lambda(component))
+      else if (ordering.is_position(component))
+        return mms.exact_mesh_position->value(p, component - ordering.x_lower);
+      else if (ordering.is_lambda(component))
         // For the exact Lagrange multiplier, call the function below.
         // It can only be called at quadrature nodes on faces, where
         // the normal is well-defined.
@@ -428,20 +286,21 @@ protected:
     gradient(const Point<dim>  &p,
              const unsigned int component = 0) const override
     {
-      if (is_velocity(component))
-        return mms.exact_velocity->gradient(p, component - u_lower);
-      else if (is_pressure(component))
+      if (ordering.is_velocity(component))
+        return mms.exact_velocity->gradient(p, component - ordering.u_lower);
+      else if (ordering.is_pressure(component))
         return mms.exact_pressure->gradient(p);
-      else if (is_position(component))
-        return mms.exact_mesh_position->gradient(p, component - x_lower);
-      else if (is_lambda(component))
+      else if (ordering.is_position(component))
+        return mms.exact_mesh_position->gradient(p,
+                                                 component - ordering.x_lower);
+      else if (ordering.is_lambda(component))
         return Tensor<1, dim>();
       else
         DEAL_II_ASSERT_UNREACHABLE();
     }
 
   public:
-    // MMS cannot be const since its internal time must be updated
+    const ComponentOrdering                         &ordering;
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
 
@@ -453,9 +312,11 @@ protected:
   public:
     MMSSourceTerm(
       const double                               time,
+      const ComponentOrdering                   &ordering,
       const Parameters::PhysicalProperties<dim> &physical_properties,
       const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
-      : Function<dim>(n_components, time)
+      : Function<dim>(ordering.n_components, time)
+      , ordering(ordering)
       , physical_properties(physical_properties)
       , mms(mms)
     {}
@@ -499,9 +360,8 @@ protected:
     }
 
   protected:
-    const Parameters::PhysicalProperties<dim> &physical_properties;
-
-    // MMS cannot be const since its internal time must be updated
+    const ComponentOrdering                         &ordering;
+    const Parameters::PhysicalProperties<dim>       &physical_properties;
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
 };

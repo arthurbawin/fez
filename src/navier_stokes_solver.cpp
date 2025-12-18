@@ -524,8 +524,6 @@ void NavierStokesSolver<dim>::compute_errors()
 {
   TimerOutput::Scope t(this->computing_timer, "Compute errors");
 
-  const double time = time_handler.current_time;
-
   const unsigned int n_components = ordering->n_components;
   const unsigned int u_lower      = ordering->u_lower;
   const unsigned int p_lower      = ordering->p_lower;

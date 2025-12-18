@@ -1,6 +1,5 @@
 
 #include <incompressible_ns_solver.h>
-#include <derived_ns_solver.h>
 #include <parameter_reader.h>
 #include <utilities.h>
 

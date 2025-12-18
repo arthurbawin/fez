@@ -2,24 +2,9 @@
 #define INCOMPRESSIBLE_NS_SOLVER_H
 
 #include <copy_data.h>
-#include <deal.II/base/convergence_table.h>
-#include <deal.II/base/index_set.h>
-#include <deal.II/base/quadrature_lib.h>
-#include <deal.II/base/table_handler.h>
-#include <deal.II/base/utilities.h>
-#include <deal.II/distributed/fully_distributed_tria.h>
-#include <deal.II/dofs/dof_handler.h>
-#include <deal.II/fe/fe_simplex_p.h>
-#include <deal.II/fe/fe_system.h>
-#include <deal.II/fe/mapping_fe.h>
-#include <deal.II/lac/affine_constraints.h>
-#include <error_handler.h>
-#include <generic_solver.h>
-#include <parameter_reader.h>
+#include <deal.II/fe/fe_values_extractors.h>
+#include <navier_stokes_solver.h>
 #include <scratch_data.h>
-#include <time_handler.h>
-#include <types.h>
-#include <mumps_solver.h>
 
 using namespace dealii;
 
@@ -56,68 +41,33 @@ using namespace dealii;
  * Taylor-Hood element.
  */
 template <int dim>
-class IncompressibleNavierStokesSolver : public GenericSolver<LA::ParVectorType>
+class NSSolver : public NavierStokesSolver<dim>
 {
 public:
   /**
    * Constructor
    */
-  IncompressibleNavierStokesSolver(const ParameterReader<dim> &param);
+  NSSolver(const ParameterReader<dim> &param);
 
   /**
    * Destructor
    */
-  virtual ~IncompressibleNavierStokesSolver() {}
+  virtual ~NSSolver() {}
 
   /**
-   * Solve the flow problem
+   *
    */
-  virtual void run() override;
+  virtual void create_sparsity_pattern() override;
 
   /**
-   * Initialize the dof handler and allocate parallel vectors
+   *
    */
-  void setup_dofs();
+  virtual void output_results() override;
 
   /**
-   * Create the homogeneous constraints
+   * Get the FESystem of the derived solver
    */
-  void create_zero_constraints();
-
-  /**
-   * (Re-)create the nonhomogeneous constraints
-   */
-  void create_nonzero_constraints();
-
-  virtual AffineConstraints<double> &get_nonzero_constraints() override
-  {
-    return nonzero_constraints;
-  }
-
-  /**
-   * 
-   */
-  void create_zero_mean_pressure_constraints_data();
-
-  /**
-   * Create the sparsity pattern and allocate matrix
-   */
-  void create_sparsity_pattern();
-
-  /**
-   * Apply initial conditions
-   */
-  void set_initial_conditions();
-
-  /**
-   * Set solution to exact solution, if provided
-   */
-  void set_exact_solution();
-
-  /**
-   * Recreate and apply nonhomogeneous constraints
-   */
-  void update_boundary_conditions();
+  virtual const FESystem<dim> &get_fe_system() const override { return fe; }
 
   /**
    * Assemble the linearized Jacobian matrix at the current evaluation point
@@ -131,7 +81,7 @@ public:
    */
   void assemble_local_matrix(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchDataNS<dim>                                   &scratchData,
+    ScratchDataIncompressibleNS<dim>                     &scratchData,
     CopyData                                             &copy_data);
 
   /**
@@ -140,10 +90,10 @@ public:
    */
   void copy_local_to_global_matrix(const CopyData &copy_data);
 
-  void compare_analytical_matrix_with_fd();
+  virtual void compare_analytical_matrix_with_fd() override;
 
   /**
-   * Assemble the Newton residual at the current evluation point
+   * Assemble the Newton residual at the current evaluation point
    */
   virtual void assemble_rhs() override;
 
@@ -152,118 +102,34 @@ public:
    */
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
-                     ScratchDataNS<dim> &scratchData,
-                     CopyData           &copy_data);
+                     ScratchDataIncompressibleNS<dim> &scratchData,
+                     CopyData                         &copy_data);
 
   /**
    * See copy_local_to_global_matrix.
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
-  /**
-   * Solve the linear system J(u) * du = -NL(u).
-   */
-  virtual void
-  solve_linear_system(const bool apply_inhomogeneous_constraints) override;
-
-  /**
-   *
-   */
-  void compute_errors();
-
-  void compute_forces();
-
-  /**
-   * Write the velocity and pressure to vtu file.
-   */
-  void output_results();
-
-  /**
-   * Reset the resolution related structures (mesh, dof_handler, etc.) in
-   * between two runs, e.g. when performing convergence tests.
-   */
-  void reset();
-
-  /**
-   * Update time in all relevant structures (boundary conditions, source terms,
-   * exact solution).
-   */
-  void set_time();
-
 protected:
-  // Ordering of the FE system for the incompressible NS solver.
-  // Each field is in the half-open [lower, upper)
-  // Check for matching component by doing e.g.:
-  // if(u_lower <= comp && comp < u_upper)
-  static constexpr unsigned int n_components = dim + 1;
-  static constexpr unsigned int u_lower      = 0;
-  static constexpr unsigned int u_upper      = dim;
-  static constexpr unsigned int p_lower      = dim;
-  static constexpr unsigned int p_upper      = dim + 1;
+  FESystem<dim> fe;
 
-  const FEValuesExtractors::Vector velocity_extractor;
-  const FEValuesExtractors::Scalar pressure_extractor;
+  // Non-owning pointer to base class fixed_mapping, used for clarity.
+  Mapping<dim> *mapping;
 
   /**
-   * Quality-of-life functions to check which field a given component is
-   */
-  inline bool is_velocity(const unsigned int component) const
-  {
-    return u_lower <= component && component < u_upper;
-  }
-  inline bool is_pressure(const unsigned int component) const
-  {
-    return p_lower <= component && component < p_upper;
-  }
-
-protected:
-  ParameterReader<dim> param;
-
-  QSimplex<dim>     quadrature;
-  QSimplex<dim - 1> face_quadrature;
-
-  parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::shared_ptr<Mapping<dim>>                  mapping;
-  FESystem<dim>                                  fe;
-  DoFHandler<dim>                                dof_handler;
-  TimeHandler                                    time_handler;
-
-  const ComponentMask velocity_mask;
-  const ComponentMask pressure_mask;
-
-  IndexSet locally_owned_dofs;
-  IndexSet locally_relevant_dofs;
-
-  AffineConstraints<double> zero_constraints;
-  AffineConstraints<double> nonzero_constraints;
-
-  types::global_dof_index constrained_pressure_dof = numbers::invalid_dof_index;
-  Point<dim>              constrained_pressure_support_point;
-  std::vector<std::pair<types::global_dof_index, double>> zero_mean_pressure_weights;
-
-  LA::ParMatrixType              system_matrix;
-  std::vector<LA::ParVectorType> previous_solutions;
-
-  std::shared_ptr<Function<dim>> source_terms;
-  std::shared_ptr<Function<dim>> exact_solution;
-
-  TableHandler forces_table;
-  TableHandler cylinder_position_table;
-
-  SolverControl                    solver_control;
-  std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
-
-protected:
-    /**
    * Exact solution when performing a convergence study with a manufactured
    * solution.
    */
   class MMSSolution : public Function<dim>
   {
   public:
-    MMSSolution(const double                                           time,
+    MMSSolution(const double             time,
+                const ComponentOrdering &ordering,
                 const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
-      : Function<dim>(n_components, time)
+      : Function<dim>(ordering.n_components, time)
+      , n_components(ordering.n_components)
+      , u_lower(ordering.u_lower)
+      , p_lower(ordering.p_lower)
       , mms(mms)
     {}
 
@@ -304,10 +170,9 @@ protected:
     }
 
   protected:
-    static constexpr unsigned int n_components = dim + 1;
-    static constexpr unsigned int u_lower      = 0;
-    static constexpr unsigned int p_lower      = dim;
-
+    const unsigned int n_components;
+    const unsigned int u_lower;
+    const unsigned int p_lower;
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
@@ -320,10 +185,15 @@ protected:
   class MMSSourceTerm : public Function<dim>
   {
   public:
-    MMSSourceTerm(const double                          time,
-                  const Parameters::PhysicalProperties<dim> &physical_properties,
-                  const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
-      : Function<dim>(n_components, time)
+    MMSSourceTerm(
+      const double                               time,
+      const ComponentOrdering                   &ordering,
+      const Parameters::PhysicalProperties<dim> &physical_properties,
+      const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
+      : Function<dim>(ordering.n_components, time)
+      , n_components(ordering.n_components)
+      , u_lower(ordering.u_lower)
+      , p_lower(ordering.p_lower)
       , physical_properties(physical_properties)
       , mms(mms)
     {}
@@ -342,11 +212,10 @@ protected:
                               Vector<double>   &values) const override;
 
   protected:
-    static constexpr unsigned int         n_components = dim + 1;
-    static constexpr unsigned int         u_lower      = 0;
-    static constexpr unsigned int         p_lower      = dim;
+    const unsigned int                         n_components;
+    const unsigned int                         u_lower;
+    const unsigned int                         p_lower;
     const Parameters::PhysicalProperties<dim> &physical_properties;
-
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };

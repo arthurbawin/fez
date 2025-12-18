@@ -2,8 +2,8 @@
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
-#include <deal.II/dofs/dof_tools.h>
 #include <deal.II/dofs/dof_renumbering.h>
+#include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/trilinos_solver.h>
@@ -15,634 +15,252 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <scratch_data.h>
+#include <utilities.h>
 
 template <int dim>
-IncompressibleCHNSSolver<dim>::IncompressibleCHNSSolver(
-  const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
-                                     param.timer,
-                                     param.mesh,
-                                     param.time_integration,
-                                     param.mms_param)
-  , velocity_extractor(u_lower)
-  , pressure_extractor(p_lower)
-  , tracer_extractor(phi_lower)
-  , potential_extractor(mu_lower)
-  , param(param)
-  , quadrature(QGaussSimplex<dim>(4))
-  , face_quadrature(QGaussSimplex<dim - 1>(4))
-  , triangulation(mpi_communicator)
-  , mapping(new MappingFE<dim>(FE_SimplexP<dim>(1)))
+CHNSSolver<dim>::CHNSSolver(const ParameterReader<dim> &param)
+  : NavierStokesSolver<dim>(param, false)
   , fe(FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
        dim,
        FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
+       1,
+       FE_SimplexP<dim>(param.finite_elements.tracer_degree), // Tracer
+       1,
+       FE_SimplexP<dim>(param.finite_elements.potential_degree), // Potential
        1)
-  , dof_handler(triangulation)
-  , time_handler(param.time_integration)
-  , velocity_mask(fe.component_mask(velocity_extractor))
-  , pressure_mask(fe.component_mask(pressure_extractor))
 {
-  // Create the initial condition functions for this problem, once the layout of
-  // the variables is known (and in particular, the number of components).
-  // FIXME: Is there a better way to create the functions?
-  this->param.initial_conditions.create_initial_velocity(u_lower, n_components);
+  this->ordering = std::make_shared<ComponentOrderingCHNS<dim>>();
+
+  this->velocity_extractor =
+    FEValuesExtractors::Vector(this->ordering->u_lower);
+  this->pressure_extractor =
+    FEValuesExtractors::Scalar(this->ordering->p_lower);
+  tracer_extractor    = FEValuesExtractors::Scalar(this->ordering->phi_lower);
+  potential_extractor = FEValuesExtractors::Scalar(this->ordering->mu_lower);
+
+  this->velocity_mask = fe.component_mask(this->velocity_extractor);
+  this->pressure_mask = fe.component_mask(this->pressure_extractor);
+  tracer_mask         = fe.component_mask(tracer_extractor);
+  potential_mask      = fe.component_mask(potential_extractor);
+
+  /**
+   * This solver uses a fixed mapping only.
+   */
+  mapping = this->fixed_mapping.get();
+
+  /**
+   * Create the initial condition functions
+   */
+  this->param.initial_conditions.create_initial_velocity(
+    this->ordering->u_lower, this->ordering->n_components);
+  this->param.initial_conditions.create_initial_chns_tracer(
+    this->ordering->phi_lower, this->ordering->n_components);
 
   if (param.mms_param.enable)
   {
-    // // Assign the manufactured solution
-    // exact_solution =
-    //   std::make_shared<IncompressibleCHNSSolver<dim>::MMSSolution>(
-    //     time_handler.current_time, param.mms);
+    // Assign the manufactured solution
+    this->exact_solution = std::make_shared<CHNSSolver<dim>::MMSSolution>(
+      this->time_handler.current_time, *this->ordering, param.mms);
 
-    // // auto &stream = pcout.get_stream();
-    // // pcout << "Pression" << std::endl;
-    // // param.mms.exact_pressure->print_function(stream);
-    // // param.mms.exact_pressure->print_time_derivative(stream);
-    // // param.mms.exact_pressure->print_gradient(stream);
-    // // pcout << "Vitesse" << std::endl;
-    // // param.mms.exact_velocity->print_function(stream);
-    // // param.mms.exact_velocity->print_time_derivative(stream);
-    // // param.mms.exact_velocity->print_gradient(stream);
-    // // param.mms.exact_velocity->print_hessian(stream);
+    // Create the MMS source term function and override source terms
+    this->source_terms = std::make_shared<CHNSSolver<dim>::MMSSourceTerm>(
+      this->time_handler.current_time, *this->ordering, param);
 
-    // if(mms_param.force_source_term)
-    // {
-    //   // Use the provided source term instead of the source term computed from
-    //   // symbolic differentiation.
-    //   pcout << "Forcing source term" << std::endl;
-    //   source_terms = param.source_terms.fluid_source;
-    // }
-    // else
-    // {
-    //   // Create the source term function for the given MMS and override source
-    //   // terms
-    //   source_terms =
-    //     std::make_shared<IncompressibleCHNSSolver<dim>::MMSSourceTerm>(
-    //       time_handler.current_time, param.physical_properties, param.mms);
-    // }
-
-    // error_handler.create_entry("L2_u");
-    // error_handler.create_entry("L2_p");
-    // error_handler.create_entry("Li_u");
-    // error_handler.create_entry("Li_p");
-    // error_handler.create_entry("H1_u");
-    // error_handler.create_entry("H1_p");
+    if (this->param.mms_param.compute_L2_spatial_norm)
+    {
+      this->error_handler.create_entry("L2_phi");
+      this->error_handler.create_entry("L2_mu");
+    }
+    if (this->param.mms_param.compute_Li_spatial_norm)
+    {
+      this->error_handler.create_entry("Li_phi");
+      this->error_handler.create_entry("Li_mu");
+    }
+    if (this->param.mms_param.compute_H1_spatial_norm)
+    {
+      this->error_handler.create_entry("H1_phi");
+      this->error_handler.create_entry("H1_mu");
+    }
   }
   else
   {
-    source_terms = param.source_terms.fluid_source;
-    exact_solution =
-      std::make_shared<Functions::ZeroFunction<dim>>(n_components);
-  }
-}
-
-// template <int dim>
-// void IncompressibleCHNSSolver<dim>::MMSSourceTerm::vector_value(
-//   const Point<dim> &p,
-//   Vector<double>   &values) const
-// {
-//   const double nu = physical_properties.fluids[0].kinematic_viscosity;
-
-//   Tensor<2, dim> grad_u;
-//   Tensor<1, dim> f, u, dudt_eulerian, uDotGradu, grad_p, lap_u;
-
-//   mms.exact_velocity->time_derivative(p, dudt_eulerian);
-//   mms.exact_velocity->value(p, u);
-//   // mms.exact_velocity->gradient_vi_xj(p, grad_u);
-//   mms.exact_velocity->gradient_vj_xi(p, grad_u);
-//   mms.exact_velocity->laplacian(p, lap_u);
-//   mms.exact_pressure->gradient(p, grad_p);
-
-//   // FIXME: double, triple and quadruple-check index convention
-//   uDotGradu = u * grad_u;
-
-//   // Navier-Stokes momentum (velocity) source term
-//   f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
-
-//   for (unsigned int d = 0; d < dim; ++d)
-//     values[u_lower + d] = f[d];
-
-//   // Mass conservation (pressure) source term,
-//   // for - div(u) + f = 0 -> f = div(u_mms).
-//   values[p_lower] = mms.exact_velocity->divergence(p);
-// }
-
-template <int dim>
-void IncompressibleCHNSSolver<dim>::reset()
-{
-  // FIXME: This is not very clean: the derived class has the full parameters,
-  // and the base class GenericSolver has a mesh and time param to be able to
-  // modify the mesh file and/or time step in a convergence loop.
-  this->param.mms_param.current_step = this->mms_param.current_step;
-  this->param.mms_param.mesh_suffix  = this->mms_param.mesh_suffix;
-  this->param.mesh.filename          = this->mesh_param.filename;
-  this->param.time_integration.dt    = this->time_param.dt;
-
-  // Mesh
-  triangulation.clear();
-
-  // Time handler (move assign a new time handler)
-  time_handler = TimeHandler(param.time_integration);
-  this->set_time();
-
-  // Pressure DOF
-  constrained_pressure_dof = numbers::invalid_dof_index;
-}
-
-template <int dim>
-void IncompressibleCHNSSolver<dim>::set_time()
-{
-  // Update time in all relevant structures:
-  // - relevant boundary conditions
-  // - source terms, if any
-  // - exact solution, if any
-  for (auto &[id, bc] : param.fluid_bc)
-    bc.set_time(time_handler.current_time);
-  source_terms->set_time(time_handler.current_time);
-  exact_solution->set_time(time_handler.current_time);
-}
-
-template <int dim>
-void IncompressibleCHNSSolver<dim>::run()
-{
-  reset();
-  read_mesh(triangulation, param);
-  setup_dofs();
-  create_zero_constraints();
-  create_nonzero_constraints();
-  create_sparsity_pattern();
-  set_initial_conditions();
-  output_results();
-
-  while (!time_handler.is_finished())
-  {
-    time_handler.advance(pcout);
-    set_time();
-
-    if (param.time_integration.verbosity == Parameters::Verbosity::verbose)
-      pcout << std::endl
-            << "Time step " << time_handler.current_time_iteration
-            << " - Advancing to t = " << time_handler.current_time << '.'
-            << std::endl;
-
-    update_boundary_conditions();
-    if (time_handler.current_time_iteration == 1 &&
-        param.time_integration.scheme ==
-          Parameters::TimeIntegration::Scheme::BDF2)
-    {
-      if (param.mms_param.enable)
-      {
-        // Convergence study: start with exact solution at first time step
-        set_exact_solution();
-      }
-      else
-      {
-        // FIXME: Start with BDF1
-        set_initial_conditions();
-      }
-    }
-    else
-    {
-      // Entering the Newton solver with a solution satisfying the nonzero
-      // constraints, which were applied in update_boundary_condition().
-      // compare_analytical_matrix_with_fd();
-      solve_nonlinear_problem(false);
-    }
-
-    if (param.mms_param.enable)
-      compute_errors();
-
-    output_results();
-
-    if (!time_handler.is_steady())
-    {
-      // Rotate solutions
-      for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-        previous_solutions[j] = previous_solutions[j - 1];
-      previous_solutions[0] = present_solution;
-    }
+    this->source_terms = std::make_shared<CHNSSolver<dim>::SourceTerm>(
+      this->time_handler.current_time, *this->ordering, param.source_terms);
+    this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
+      this->ordering->n_components);
   }
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::setup_dofs()
+void CHNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
+                                                  Vector<double> &values) const
 {
-  TimerOutput::Scope t(computing_timer, "Setup");
+  const double phi          = mms.exact_tracer->value(p);
+  const double filtered_phi = phi;
+  const double rho0         = physical_properties.fluids[0].density;
+  const double rho1         = physical_properties.fluids[1].density;
+  const double rho  = cahn_hilliard_linear_mixing(filtered_phi, rho0, rho1);
+  const double eta0 = rho0 * physical_properties.fluids[0].kinematic_viscosity;
+  const double eta1 = rho1 * physical_properties.fluids[1].kinematic_viscosity;
+  const double eta  = cahn_hilliard_linear_mixing(filtered_phi, eta0, eta1);
+  const double M    = cahn_hilliard_param.mobility;
+  const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
+  // const double drhodphi =
+  //   cahn_hilliard_linear_mixing_derivative(filtered_phi, rho0, rho1);
+  const double detadphi =
+    cahn_hilliard_linear_mixing_derivative(filtered_phi, eta0, eta1);
+  const double epsilon = cahn_hilliard_param.epsilon_interface;
+  const double sigma_tilde =
+    3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
+  const double sigma_tilde_over_eps  = sigma_tilde / epsilon;
+  const double sigma_tilde_times_eps = sigma_tilde * epsilon;
 
-  auto &comm = mpi_communicator;
-
-  // Initialize dof handler
-  dof_handler.distribute_dofs(fe);
-
-  ////////////////////////////////////////////////////////
-  if(param.linear_solver.renumber)
-    DoFRenumbering::Cuthill_McKee(dof_handler, true);
-  ////////////////////////////////////////////////////////
-
-  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
-              << std::endl;
-
-  locally_owned_dofs    = dof_handler.locally_owned_dofs();
-  locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
-
-  // Initialize parallel vectors
-  present_solution.reinit(locally_owned_dofs,
-                                locally_relevant_dofs,
-                                comm);
-  evaluation_point.reinit(locally_owned_dofs,
-                                locally_relevant_dofs,
-                                comm);
-
-#if !defined(FEZ_WITH_TRILINOS) && !defined(FEZ_WITH_PETSC)
-  local_evaluation_point.reinit(locally_owned_dofs,
-                                      locally_relevant_dofs,
-                                      comm);
-  newton_update.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
-  system_rhs.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
-#else
-  local_evaluation_point.reinit(locally_owned_dofs, comm);
-  newton_update.reinit(locally_owned_dofs, comm);
-  system_rhs.reinit(locally_owned_dofs, comm);
-#endif
-
-  // Allocate for previous BDF solutions
-  previous_solutions.clear();
-  previous_solutions.resize(time_handler.n_previous_solutions);
-  for (auto &previous_sol : previous_solutions)
+  Tensor<1, dim> u, dudt_eulerian;
+  for (unsigned int d = 0; d < dim; ++d)
   {
-    previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+    dudt_eulerian[d] = mms.exact_velocity->time_derivative(p, d);
+    u[d]             = mms.exact_velocity->value(p, d);
   }
 
-  // For unsteady simulation, add the number of elements, dofs and/or the time
-  // step to the error handler, once per convergence run.
-  if (!time_handler.is_steady() && param.mms_param.enable)
-  {
-    error_handler.add_reference_data("n_elm",
-                                     triangulation.n_global_active_cells());
-    error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
-    error_handler.add_time_step(time_handler.initial_dt);
-  }
+  // Use convention (grad_u)_ij := dvj/dxi
+  Tensor<2, dim> grad_u      = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<1, dim> lap_u       = mms.exact_velocity->vector_laplacian(p);
+  Tensor<1, dim> grad_div_u  = mms.exact_velocity->grad_div(p);
+  Tensor<1, dim> grad_p      = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> uDotGradu   = u * grad_u;
+  Tensor<1, dim> grad_mu     = mms.exact_potential->gradient(p);
+  Tensor<1, dim> grad_phi    = mms.exact_tracer->gradient(p);
+  Tensor<1, dim> J_flux      = diff_flux_factor * grad_mu;
+  Tensor<1, dim> div_viscous = (eta * (lap_u + grad_div_u) +
+                                2. * detadphi * grad_phi * symmetrize(grad_u));
+
+  // Navier-Stokes momentum (velocity) source term
+  Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu) + J_flux * grad_u +
+                       grad_p - div_viscous + phi * grad_mu);
+  for (unsigned int d = 0; d < dim; ++d)
+    values[u_lower + d] = f[d];
+
+  // Mass conservation (pressure) source term,
+  // for - div(u) + f = 0 -> f = div(u_mms).
+  values[p_lower] = mms.exact_velocity->divergence(p);
+
+  // Tracer source term
+  const double dphidt = mms.exact_tracer->time_derivative(p);
+  const double lap_mu = mms.exact_potential->laplacian(p);
+  values[phi_lower]   = -(dphidt + u * grad_phi - M * lap_mu);
+
+  // Potential source term
+  const double mu      = mms.exact_potential->value(p);
+  const double lap_phi = mms.exact_tracer->laplacian(p);
+  values[mu_lower]     = -(mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) +
+                       sigma_tilde_times_eps * lap_phi);
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::constrain_pressure_point(
-  AffineConstraints<double> &constraints,
-  const bool                 set_to_zero)
+void CHNSSolver<dim>::create_solver_specific_zero_constraints()
 {
-  // Determine the pressure dof the first time
-  if (constrained_pressure_dof == numbers::invalid_dof_index)
-  {
-    // Choose a fixed physical reference location
-    // Here it's the origin (Point<dim> is initialized at 0)
-    const Point<dim> reference_point;
-
-    IndexSet pressure_dofs = DoFTools::extract_dofs(dof_handler, pressure_mask);
-
-    // Get support points for locally relevant DoFs
-    std::map<types::global_dof_index, Point<dim>> support_points;
-    DoFTools::map_dofs_to_support_points(*mapping, dof_handler, support_points);
-
-    double                  local_min_dist = std::numeric_limits<double>::max();
-    types::global_dof_index local_dof      = numbers::invalid_dof_index;
-
-    for (auto idx : pressure_dofs)
-    {
-      if (!locally_relevant_dofs.is_element(idx))
-        continue;
-
-      const double dist = support_points[idx].distance(reference_point);
-      if (dist < local_min_dist)
-      {
-        local_min_dist = dist;
-        local_dof      = idx;
-      }
-    }
-
-    // Prepare for MPI_MINLOC reduction
-    struct MinLoc
-    {
-      double                  dist;
-      types::global_dof_index dof;
-    } local_pair{local_min_dist, local_dof}, global_pair;
-
-    // MPI reduction to find the global closest DoF
-    MPI_Allreduce(&local_pair,
-                  &global_pair,
-                  1,
-                  MPI_DOUBLE_INT,
-                  MPI_MINLOC,
-                  mpi_communicator);
-
-    constrained_pressure_dof = global_pair.dof;
-
-    // Set support point for MMS evaluation
-    if (locally_relevant_dofs.is_element(constrained_pressure_dof))
-    {
-      constrained_pressure_support_point =
-        support_points[constrained_pressure_dof];
-    }
-  }
-
-  // Constrain that DoF globally
-  if (locally_relevant_dofs.is_element(constrained_pressure_dof))
-  {
-    constraints.add_line(constrained_pressure_dof);
-
-    // The pressure DOF is set to 0 by default for the nonzero constraints,
-    // unless there is a prescribed manufactured solution, in which case it is
-    // prescribed to p_mms.
-    if (set_to_zero || !param.mms_param.enable)
-    {
-      constraints.constrain_dof_to_zero(constrained_pressure_dof);
-    }
-    else
-    {
-      const double pAnalytic =
-        exact_solution->value(constrained_pressure_support_point, p_lower);
-      constraints.set_inhomogeneity(constrained_pressure_dof, pAnalytic);
-    }
-  }
+  // By default we set zero-flux on both tracer and potential.
+  // Modify when necessary.
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::create_zero_constraints()
+void CHNSSolver<dim>::create_solver_specific_nonzero_constraints()
 {
-  zero_constraints.clear();
-  zero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
-
-  //
-  // Velocity homogeneous BC
-  //
-  {
-    std::set<types::boundary_id> no_flux_boundaries;
-    std::set<types::boundary_id> velocity_normal_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_normal_flux_functions;
-    std::set<types::boundary_id> velocity_tangential_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_tangential_flux_functions;
-    for (const auto &[id, bc] : param.fluid_bc)
-    {
-      if (bc.type == BoundaryConditions::Type::no_slip ||
-          bc.type == BoundaryConditions::Type::input_function ||
-          bc.type == BoundaryConditions::Type::velocity_mms)
-      {
-        VectorTools::interpolate_boundary_values(*mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 zero_constraints,
-                                                 velocity_mask);
-      }
-      if (bc.type == BoundaryConditions::Type::slip)
-        no_flux_boundaries.insert(bc.id);
-      if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
-      {
-        velocity_normal_flux_boundaries.insert(bc.id);
-        velocity_normal_flux_functions[bc.id] = param.mms.exact_velocity.get();
-        velocity_tangential_flux_boundaries.insert(bc.id);
-        velocity_tangential_flux_functions[bc.id] = param.mms.exact_velocity.get();
-      }
-    }
-
-    // Add no velocity flux constraints
-    VectorTools::compute_no_normal_flux_constraints(
-      dof_handler, u_lower, no_flux_boundaries, zero_constraints, *mapping);
-    // Add nonzero normal flux velocity constraints
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_normal_flux_boundaries,
-      velocity_normal_flux_functions,
-      zero_constraints,
-      *mapping);
-    // Add nonzero tangential flux velocity constraints
-    VectorTools::compute_nonzero_tangential_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_tangential_flux_boundaries,
-      velocity_tangential_flux_functions,
-      zero_constraints,
-      *mapping);
-  }
-
-  if (param.bc_data.fix_pressure_constant)
-  {
-    bool set_to_zero = true;
-    constrain_pressure_point(zero_constraints, set_to_zero);
-  }
-
-  zero_constraints.close();
+  // By default we set zero-flux on both tracer and potential.
+  // Modify when necessary.
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::create_nonzero_constraints()
+void CHNSSolver<dim>::set_solver_specific_initial_conditions()
 {
-  TimerOutput::Scope t(this->computing_timer, "Create constraints");
+  const Function<dim> *tracer_fun =
+    this->param.initial_conditions.set_to_mms ?
+      this->exact_solution.get() :
+      this->param.initial_conditions.initial_chns_tracer.get();
 
-  nonzero_constraints.clear();
-  nonzero_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
-
-  //
-  // Velocity inhomogeneous BC
-  //
-  {
-    std::set<types::boundary_id> no_flux_boundaries;
-    std::set<types::boundary_id> velocity_normal_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_normal_flux_functions;
-    std::set<types::boundary_id> velocity_tangential_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_tangential_flux_functions;
-    for (const auto &[id, bc] : param.fluid_bc)
-    {
-      if (bc.type == BoundaryConditions::Type::no_slip)
-      {
-        VectorTools::interpolate_boundary_values(*mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 nonzero_constraints,
-                                                 velocity_mask);
-      }
-      if (bc.type == BoundaryConditions::Type::input_function)
-      {
-        VectorTools::interpolate_boundary_values(
-          *mapping,
-          dof_handler,
-          bc.id,
-          ComponentwiseFlowVelocity<dim>(
-            u_lower, n_components, bc.u, bc.v, bc.w),
-          nonzero_constraints,
-          velocity_mask);
-      }
-      if (bc.type == BoundaryConditions::Type::velocity_mms)
-      {
-        VectorTools::interpolate_boundary_values(*mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 *exact_solution,
-                                                 nonzero_constraints,
-                                                 velocity_mask);
-      }
-      if (bc.type == BoundaryConditions::Type::slip)
-        no_flux_boundaries.insert(bc.id);
-      if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
-      {
-        // Enforce both the normal and tangential flux to be well-posed
-        velocity_normal_flux_boundaries.insert(bc.id);
-        velocity_normal_flux_functions[bc.id] = param.mms.exact_velocity.get();
-        velocity_tangential_flux_boundaries.insert(bc.id);
-        velocity_tangential_flux_functions[bc.id] = param.mms.exact_velocity.get();
-      }
-    }
-
-    // Add no velocity flux constraints
-    VectorTools::compute_no_normal_flux_constraints(
-      dof_handler, u_lower, no_flux_boundaries, nonzero_constraints, *mapping);
-    // Add nonzero normal flux velocity constraints
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_normal_flux_boundaries,
-      velocity_normal_flux_functions,
-      nonzero_constraints,
-      *mapping);
-    // Add nonzero tangential flux velocity constraints
-    VectorTools::compute_nonzero_tangential_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_tangential_flux_boundaries,
-      velocity_tangential_flux_functions,
-      nonzero_constraints,
-      *mapping);
-  }
-
-  if (param.bc_data.fix_pressure_constant)
-  {
-    bool set_to_zero = false;
-    constrain_pressure_point(nonzero_constraints, set_to_zero);
-  }
-
-  nonzero_constraints.close();
+  // Set tracer only
+  VectorTools::interpolate(
+    *mapping, this->dof_handler, *tracer_fun, this->newton_update, tracer_mask);
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::create_sparsity_pattern()
+void CHNSSolver<dim>::set_solver_specific_exact_solution()
 {
-  //
-  // Sparsity pattern and allocate matrix after the constraints have been
-  // defined
-  //
-#if defined(FEZ_WITH_PETSC)
+  // Set tracer and potential
+  VectorTools::interpolate(*mapping,
+                           this->dof_handler,
+                           *this->exact_solution,
+                           this->local_evaluation_point,
+                           tracer_mask);
+  VectorTools::interpolate(*mapping,
+                           this->dof_handler,
+                           *this->exact_solution,
+                           this->local_evaluation_point,
+                           potential_mask);
+}
 
-  DynamicSparsityPattern dsp(locally_relevant_dofs);
-  DoFTools::make_sparsity_pattern(dof_handler,
+template <int dim>
+void CHNSSolver<dim>::create_sparsity_pattern()
+{
+  DynamicSparsityPattern dsp(this->locally_relevant_dofs);
+
+  const unsigned int n_components   = this->ordering->n_components;
+  auto              &coupling_table = this->coupling_table;
+  coupling_table = Table<2, DoFTools::Coupling>(n_components, n_components);
+  for (unsigned int i = 0; i < n_components; ++i)
+    for (unsigned int j = 0; j < n_components; ++j)
+    {
+      coupling_table[i][j] = DoFTools::none;
+
+      // u couples to all variables
+      if (this->ordering->is_velocity(i))
+        coupling_table[i][j] = DoFTools::always;
+
+      // p couples to u only
+      if (this->ordering->is_pressure(i) && this->ordering->is_velocity(j))
+        coupling_table[i][j] = DoFTools::always;
+
+      // phi couples to u, phi, mu
+      if (this->ordering->is_tracer(i))
+        if (!this->ordering->is_pressure(j))
+          coupling_table[i][j] = DoFTools::always;
+
+      // mu couples to phi, mu
+      if (this->ordering->is_potential(i))
+        if (this->ordering->is_tracer(j) || this->ordering->is_potential(j))
+          coupling_table[i][j] = DoFTools::always;
+    }
+
+  DoFTools::make_sparsity_pattern(this->dof_handler,
+                                  coupling_table,
                                   dsp,
-                                  nonzero_constraints,
+                                  this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
-
-  ////////////////////////////////////////////////////////////////
-  // Table<2, DoFTools::Coupling> coupling(dim + 1, dim + 1);
-  // for (unsigned int c = 0; c < dim + 1; ++c)
-  //   for (unsigned int d = 0; d < dim + 1; ++d)
-  //     if (!((c == dim) && (d == dim)))
-  //       coupling[c][d] = DoFTools::always;
-  //     else
-  //       // Pressure-pressure dofs do not couple if nonstabilized
-  //       coupling[c][d] = DoFTools::none;
-  // DynamicSparsityPattern dsp2(locally_relevant_dofs);
-  // DoFTools::make_sparsity_pattern(
-  //   dof_handler, coupling, dsp2, nonzero_constraints, false);
-  ////////////////////////////////////////////////////////////////
-
   SparsityTools::distribute_sparsity_pattern(dsp,
-                                             locally_owned_dofs,
-                                             mpi_communicator,
-                                             locally_relevant_dofs);
-  system_matrix.reinit(locally_owned_dofs,
-                       locally_owned_dofs,
-                       dsp,
-                       mpi_communicator);
-#else
-  TrilinosWrappers::SparsityPattern dsp(locally_owned_dofs,
-                                        locally_owned_dofs,
-                                        locally_relevant_dofs,
-                                        mpi_communicator);
-  DoFTools::make_sparsity_pattern(dof_handler, dsp, nonzero_constraints);
-  dsp.compress();
-  system_matrix.reinit(dsp);
-#endif
+                                             this->locally_owned_dofs,
+                                             this->mpi_communicator,
+                                             this->locally_relevant_dofs);
+  this->system_matrix.reinit(this->locally_owned_dofs,
+                             this->locally_owned_dofs,
+                             dsp,
+                             this->mpi_communicator);
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::set_initial_conditions()
-{
-  VectorTools::interpolate(*mapping,
-                           dof_handler,
-                           param.initial_conditions.set_to_mms ?
-                             *exact_solution :
-                             *param.initial_conditions.initial_velocity,
-                           newton_update,
-                           velocity_mask);
-
-#if defined(FORCE_DEAL_II_PARALLEL_VECTOR)
-  newton_update.update_ghost_values();
-#endif
-
-  // Apply non-homogeneous Dirichlet BC and set as current solution
-  nonzero_constraints.distribute(newton_update);
-  present_solution = newton_update;
-
-  if (!time_handler.is_steady())
-  {
-    // Rotate solutions
-    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-      previous_solutions[j] = previous_solutions[j - 1];
-    previous_solutions[0] = present_solution;
-  }
-}
-
-template <int dim>
-void IncompressibleCHNSSolver<dim>::set_exact_solution()
-{
-  VectorTools::interpolate(*mapping,
-                           dof_handler,
-                           *exact_solution,
-                           local_evaluation_point,
-                           velocity_mask);
-  VectorTools::interpolate(*mapping,
-                           dof_handler,
-                           *exact_solution,
-                           local_evaluation_point,
-                           pressure_mask);
-  evaluation_point = local_evaluation_point;
-  present_solution = local_evaluation_point;
-}
-
-template <int dim>
-void IncompressibleCHNSSolver<dim>::update_boundary_conditions()
-{
-  // Re-create and distribute nonzero constraints:
-  this->local_evaluation_point = this->present_solution;
-  this->create_nonzero_constraints();
-  nonzero_constraints.distribute(this->local_evaluation_point);
-  this->present_solution = this->local_evaluation_point;
-}
-
-template <int dim>
-void IncompressibleCHNSSolver<dim>::assemble_matrix()
+void CHNSSolver<dim>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
 
-  system_matrix = 0;
+  this->system_matrix = 0;
 
-  ScratchDataNS<dim> scratchData(fe,
-                                 quadrature,
-                                 *mapping,
-                                 face_quadrature,
-                                 fe.n_dofs_per_cell(),
-                                 time_handler.bdf_coefficients,
-                                 param);
-  CopyData           copyData(fe.n_dofs_per_cell());
+  ScratchDataCHNS<dim> scratchData(*this->ordering,
+                                   fe,
+                                   *mapping,
+                                   this->quadrature,
+                                   this->face_quadrature,
+                                   this->time_handler.bdf_coefficients,
+                                   this->param);
+  CopyData             copyData(fe.n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -653,22 +271,21 @@ void IncompressibleCHNSSolver<dim>::assemble_matrix()
 #endif
 
   // Assemble matrix (multithreaded if supported)
-  WorkStream::run(
-    dof_handler.begin_active(),
-    dof_handler.end(),
-    *this,
-    &IncompressibleCHNSSolver::assemble_local_matrix,
-    &IncompressibleCHNSSolver::copy_local_to_global_matrix,
-    scratchData,
-    copyData);
+  WorkStream::run(this->dof_handler.begin_active(),
+                  this->dof_handler.end(),
+                  *this,
+                  &CHNSSolver::assemble_local_matrix,
+                  &CHNSSolver::copy_local_to_global_matrix,
+                  scratchData,
+                  copyData);
 
-  system_matrix.compress(VectorOperation::add);
+  this->system_matrix.compress(VectorOperation::add);
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::assemble_local_matrix(
+void CHNSSolver<dim>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataNS<dim>                                   &scratchData,
+  ScratchDataCHNS<dim>                                 &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -676,89 +293,195 @@ void IncompressibleCHNSSolver<dim>::assemble_local_matrix(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(
-    cell, evaluation_point, previous_solutions, source_terms, exact_solution);
+  scratch_data.reinit(cell,
+                      this->evaluation_point,
+                      this->previous_solutions,
+                      this->source_terms,
+                      this->exact_solution);
 
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
 
-  const double kinematic_viscosity =
-    param.physical_properties.fluids[0].kinematic_viscosity;
+  /**
+   * Material parameters
+   */
+  const double mobility = scratch_data.mobility;
+  const double sigma_tilde_over_eps =
+    scratch_data.sigma_tilde / scratch_data.epsilon;
+  const double sigma_tilde_times_eps =
+    scratch_data.sigma_tilde * scratch_data.epsilon;
+  const double diffusive_flux_factor = scratch_data.diffusive_flux_factor;
 
-  const double bdf_c0 = time_handler.bdf_coefficients[0];
+  const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
-    const double JxW = scratchData.JxW[q];
+    const double JxW      = scratch_data.JxW_moving[q];
+    const double rho      = scratch_data.density[q];
+    const double eta      = scratch_data.dynamic_viscosity[q];
+    const double drhodphi = scratch_data.derivative_density_wrt_tracer[q];
+    const double detadphi =
+      scratch_data.derivative_dynamic_viscosity_wrt_tracer[q];
 
-    const auto &phi_u      = scratchData.phi_u[q];
-    const auto &grad_phi_u = scratchData.grad_phi_u[q];
-    const auto &div_phi_u  = scratchData.div_phi_u[q];
-    const auto &phi_p      = scratchData.phi_p[q];
+    const auto &phi_u        = scratch_data.phi_u[q];
+    const auto &grad_phi_u   = scratch_data.grad_phi_u[q];
+    const auto &div_phi_u    = scratch_data.div_phi_u[q];
+    const auto &phi_p        = scratch_data.phi_p[q];
+    const auto &phi_phi      = scratch_data.shape_phi[q];
+    const auto &grad_phi_phi = scratch_data.grad_shape_phi[q];
+    const auto &phi_mu       = scratch_data.shape_mu[q];
+    const auto &grad_phi_mu  = scratch_data.grad_shape_mu[q];
+
+    const auto &sym_grad_phi_u = scratch_data.sym_grad_phi_u[q];
 
     const auto &present_velocity_values =
-      scratchData.present_velocity_values[q];
+      scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
-      scratchData.present_velocity_gradients[q];
+      scratch_data.present_velocity_gradients[q];
+    const auto &present_velocity_sym_gradients =
+      scratch_data.present_velocity_sym_gradients[q];
+    const auto &source_term_velocity = scratch_data.source_term_velocity[q];
 
-    // const auto &source_term_velocity = scratchData.source_term_velocity[q];
-    // const auto &source_term_pressure = scratchData.source_term_pressure[q];
-    // const auto &grad_source_velocity = scratchData.grad_source_velocity[q];
-    // const auto &grad_source_pressure = scratchData.grad_source_pressure[q];
+    const auto &tracer_value       = scratch_data.tracer_values[q];
+    const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
+    const auto &potential_gradient = scratch_data.potential_gradients[q];
 
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      const unsigned int component_i = scratchData.components[i];
-      const bool         i_is_u      = is_velocity(component_i);
-      const bool         i_is_p      = is_pressure(component_i);
+      const unsigned int comp_i   = scratch_data.components[i];
+      const bool         i_is_u   = this->ordering->is_velocity(comp_i);
+      const bool         i_is_p   = this->ordering->is_pressure(comp_i);
+      const bool         i_is_phi = this->ordering->is_tracer(comp_i);
+      const bool         i_is_mu  = this->ordering->is_potential(comp_i);
 
-      for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
+      for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
-        const unsigned int component_j = scratchData.components[j];
-        const bool         j_is_u      = is_velocity(component_j);
-        const bool         j_is_p      = is_pressure(component_j);
+        const unsigned int comp_j = scratch_data.components[j];
+        bool               assemble =
+          this->coupling_table[comp_i][comp_j] == DoFTools::always;
+        if (!assemble)
+          continue;
 
-        bool   assemble        = false;
+        const bool j_is_u   = this->ordering->is_velocity(comp_j);
+        const bool j_is_p   = this->ordering->is_pressure(comp_j);
+        const bool j_is_phi = this->ordering->is_tracer(comp_j);
+        const bool j_is_mu  = this->ordering->is_potential(comp_j);
+
         double local_matrix_ij = 0.;
 
-        if (i_is_u && j_is_u)
+        /**
+         * Momentum equation
+         */
+        if (i_is_u)
         {
-          assemble = true;
+          if (j_is_u)
+          {
+            // Time-dependent
+            local_matrix_ij += rho * bdf_c0 * phi_u[i] * phi_u[j];
 
-          // Time-dependent
-          local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
+            // Convection
+            local_matrix_ij += rho *
+                               (grad_phi_u[j] * present_velocity_values +
+                                present_velocity_gradients * phi_u[j]) *
+                               phi_u[i];
 
-          // Convection
-          local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
-                              present_velocity_gradients * phi_u[j]) *
-                             phi_u[i];
+            // Diffusive flux
+            local_matrix_ij += phi_u[i] * diffusive_flux_factor *
+                               grad_phi_u[j] * potential_gradient;
 
-          // Diffusion
-          local_matrix_ij +=
-            kinematic_viscosity * scalar_product(grad_phi_u[i], grad_phi_u[j]);
+            // Diffusion
+            local_matrix_ij +=
+              2. * eta * scalar_product(grad_phi_u[i], sym_grad_phi_u[j]);
+          }
+          if (j_is_p)
+          {
+            // Pressure gradient
+            local_matrix_ij += -div_phi_u[i] * phi_p[j];
+          }
+          if (j_is_phi)
+          {
+            // Convection
+            local_matrix_ij +=
+              drhodphi * phi_phi[j] *
+              (present_velocity_gradients * present_velocity_values) * phi_u[i];
+
+            // Diffusion
+            local_matrix_ij +=
+              2. * detadphi * phi_phi[j] *
+              scalar_product(grad_phi_u[i], present_velocity_sym_gradients);
+            // Surface tension
+            local_matrix_ij += phi_u[i] * phi_phi[j] * potential_gradient;
+            // Source term
+            local_matrix_ij +=
+              phi_u[i] * drhodphi * phi_phi[j] * source_term_velocity;
+          }
+          if (j_is_mu)
+          {
+            // Diffusive flux
+            local_matrix_ij += phi_u[i] * diffusive_flux_factor *
+                               present_velocity_gradients * grad_phi_mu[j];
+            // Surface tension
+            local_matrix_ij += phi_u[i] * tracer_value * grad_phi_mu[j];
+          }
         }
 
-        if (i_is_u && j_is_p)
-        {
-          assemble = true;
-
-          // Pressure gradient
-          local_matrix_ij += -div_phi_u[i] * phi_p[j];
-        }
-
+        /**
+         * Continuity equation
+         */
         if (i_is_p && j_is_u)
         {
-          assemble = true;
-
           // Continuity : variation w.r.t. u
           local_matrix_ij += -phi_p[i] * div_phi_u[j];
         }
 
-        if (assemble)
+        /**
+         * Tracer equation
+         */
+        if (i_is_phi)
         {
-          local_matrix_ij *= JxW;
-          local_matrix(i, j) += local_matrix_ij;
+          if (j_is_u)
+          {
+            // Advection
+            local_matrix_ij += phi_phi[i] * phi_u[j] * tracer_gradient;
+          }
+          if (j_is_phi)
+          {
+            // Transient
+            local_matrix_ij += phi_phi[i] * bdf_c0 * phi_phi[j];
+            // Advection
+            local_matrix_ij +=
+              phi_phi[i] * present_velocity_values * grad_phi_phi[j];
+          }
+          if (j_is_mu)
+          {
+            // Diffusion
+            local_matrix_ij += mobility * grad_phi_mu[j] * grad_phi_phi[i];
+          }
         }
+
+        /**
+         * Potential equation
+         */
+        if (i_is_mu)
+        {
+          if (j_is_mu)
+          {
+            // Mass
+            local_matrix_ij += phi_mu[i] * phi_mu[j];
+          }
+          if (j_is_phi)
+          {
+            // Double well
+            local_matrix_ij += -sigma_tilde_over_eps * phi_mu[i] * phi_phi[j] *
+                               (3. * tracer_value * tracer_value - 1.);
+            // Diffusion
+            local_matrix_ij +=
+              -sigma_tilde_times_eps * grad_phi_mu[i] * grad_phi_phi[j];
+          }
+        }
+
+        local_matrix_ij *= JxW;
+        local_matrix(i, j) += local_matrix_ij;
       }
     }
   }
@@ -766,81 +489,86 @@ void IncompressibleCHNSSolver<dim>::assemble_local_matrix(
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::copy_local_to_global_matrix(
-  const CopyData &copy_data)
+void CHNSSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  zero_constraints.distribute_local_to_global(copy_data.local_matrix,
-                                              copy_data.local_dof_indices,
-                                              system_matrix);
+  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix,
+                                                    copy_data.local_dof_indices,
+                                                    this->system_matrix);
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::compare_analytical_matrix_with_fd()
+void CHNSSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchDataNS<dim> scratchData(fe,
-                                 quadrature,
-                                 *mapping,
-                                 face_quadrature,
-                                 fe.n_dofs_per_cell(),
-                                 time_handler.bdf_coefficients,
-                                 param);
-  CopyData           copyData(fe.n_dofs_per_cell());
+  ScratchDataCHNS<dim> scratchData(*this->ordering,
+                                   fe,
+                                   *mapping,
+                                   this->quadrature,
+                                   this->face_quadrature,
+                                   this->time_handler.bdf_coefficients,
+                                   this->param);
+  CopyData             copyData(fe.n_dofs_per_cell());
 
-  double max_error_over_all_elements;
-
-  Verification::compare_analytical_matrix_with_fd(
-    dof_handler,
+  auto errors = Verification::compare_analytical_matrix_with_fd(
+    this->dof_handler,
     fe.n_dofs_per_cell(),
     *this,
-    &IncompressibleCHNSSolver::assemble_local_matrix,
-    &IncompressibleCHNSSolver::assemble_local_rhs,
+    &CHNSSolver::assemble_local_matrix,
+    &CHNSSolver::assemble_local_rhs,
     scratchData,
     copyData,
-    present_solution,
-    evaluation_point,
-    local_evaluation_point,
-    mpi_communicator,
-    max_error_over_all_elements);
+    this->present_solution,
+    this->evaluation_point,
+    this->local_evaluation_point,
+    this->mpi_communicator,
+    this->param.output.output_prefix,
+    false,
+    this->param.debug.analytical_jacobian_absolute_tolerance,
+    this->param.debug.analytical_jacobian_relative_tolerance);
 
-  pcout << "Max error analytical vs fd matrix is "
-        << max_error_over_all_elements << std::endl;
+  this->pcout << "Max absolute error analytical vs fd matrix is "
+              << errors.first << std::endl;
+
+  // Only print relative error if absolute is too large
+  if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
+    this->pcout << "Max relative error analytical vs fd matrix is "
+                << errors.second << std::endl;
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::assemble_rhs()
+void CHNSSolver<dim>::assemble_rhs()
 {
-  TimerOutput::Scope t(computing_timer, "Assemble RHS");
+  TimerOutput::Scope t(this->computing_timer, "Assemble RHS");
 
-  system_rhs = 0;
+  this->system_rhs = 0;
 
-  ScratchDataNS<dim> scratchData(fe,
-                                 quadrature,
-                                 *mapping,
-                                 face_quadrature,
-                                 fe.n_dofs_per_cell(),
-                                 time_handler.bdf_coefficients,
-                                 param);
-  CopyData           copyData(fe.n_dofs_per_cell());
+  ScratchDataCHNS<dim> scratchData(*this->ordering,
+                                   fe,
+                                   *mapping,
+                                   this->quadrature,
+                                   this->face_quadrature,
+                                   this->time_handler.bdf_coefficients,
+                                   this->param);
+  CopyData             copyData(fe.n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
-  WorkStream::run(dof_handler.begin_active(),
-                  dof_handler.end(),
+  WorkStream::run(this->dof_handler.begin_active(),
+                  this->dof_handler.end(),
                   *this,
-                  &IncompressibleCHNSSolver::assemble_local_rhs,
-                  &IncompressibleCHNSSolver::copy_local_to_global_rhs,
+                  &CHNSSolver::assemble_local_rhs,
+                  &CHNSSolver::copy_local_to_global_rhs,
                   scratchData,
                   copyData);
 
-  system_rhs.compress(VectorOperation::add);
+  this->system_rhs.compress(VectorOperation::add);
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::assemble_local_rhs(
+void CHNSSolver<dim>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataNS<dim>                                   &scratchData,
+  ScratchDataCHNS<dim>                                 &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -848,64 +576,130 @@ void IncompressibleCHNSSolver<dim>::assemble_local_rhs(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(
-    cell, evaluation_point, previous_solutions, source_terms, exact_solution);
+  scratch_data.reinit(cell,
+                      this->evaluation_point,
+                      this->previous_solutions,
+                      this->source_terms,
+                      this->exact_solution);
 
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;
 
-  const double nu = param.physical_properties.fluids[0].kinematic_viscosity;
+  const double mobility = scratch_data.mobility;
+  const double sigma_tilde_over_eps =
+    scratch_data.sigma_tilde / scratch_data.epsilon;
+  const double sigma_tilde_times_eps =
+    scratch_data.sigma_tilde * scratch_data.epsilon;
 
   //
   // Volume contributions
   //
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
-    const double JxW = scratchData.JxW[q];
+    const double JxW = scratch_data.JxW_moving[q];
+    const double rho = scratch_data.density[q];
+    const double eta = scratch_data.dynamic_viscosity[q];
 
     const auto &present_velocity_values =
-      scratchData.present_velocity_values[q];
+      scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
-      scratchData.present_velocity_gradients[q];
+      scratch_data.present_velocity_gradients[q];
+    const auto &present_velocity_sym_gradients =
+      scratch_data.present_velocity_sym_gradients[q];
     const auto &present_pressure_values =
-      scratchData.present_pressure_values[q];
-    const auto  &source_term_velocity = scratchData.source_term_velocity[q];
-    const auto  &source_term_pressure = scratchData.source_term_pressure[q];
-    const double present_velocity_divergence =
-      trace(present_velocity_gradients);
+      scratch_data.present_pressure_values[q];
+    const auto &source_term_velocity = scratch_data.source_term_velocity[q];
+    const auto &source_term_pressure = scratch_data.source_term_pressure[q];
+    const auto &present_velocity_divergence =
+      scratch_data.present_velocity_divergence[q];
+
+    const auto &diffusive_flux     = scratch_data.diffusive_flux[q];
+    const auto &tracer_value       = scratch_data.tracer_values[q];
+    const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
+    const auto &potential_value    = scratch_data.potential_values[q];
+    const auto &potential_gradient = scratch_data.potential_gradients[q];
+    const auto &velocity_dot_tracer_gradient =
+      scratch_data.velocity_dot_tracer_gradient[q];
+    const double phi_cube_minus_phi =
+      tracer_value * (tracer_value * tracer_value - 1.);
 
     const Tensor<1, dim> dudt =
-      time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratchData.previous_velocity_values);
+      this->time_handler.compute_time_derivative_at_quadrature_node(
+        q, present_velocity_values, scratch_data.previous_velocity_values);
+    const double dphidt =
+      this->time_handler.compute_time_derivative_at_quadrature_node(
+        q, tracer_value, scratch_data.previous_tracer_values);
 
-    const auto &phi_p      = scratchData.phi_p[q];
-    const auto &phi_u      = scratchData.phi_u[q];
-    const auto &grad_phi_u = scratchData.grad_phi_u[q];
-    const auto &div_phi_u  = scratchData.div_phi_u[q];
+    const auto &phi_p        = scratch_data.phi_p[q];
+    const auto &phi_u        = scratch_data.phi_u[q];
+    const auto &grad_phi_u   = scratch_data.grad_phi_u[q];
+    const auto &div_phi_u    = scratch_data.div_phi_u[q];
+    const auto &phi_phi      = scratch_data.shape_phi[q];
+    const auto &grad_phi_phi = scratch_data.grad_shape_phi[q];
+    const auto &phi_mu       = scratch_data.shape_mu[q];
+    const auto &grad_phi_mu  = scratch_data.grad_shape_mu[q];
 
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       double local_rhs_i = -(
+
+        /**
+         * Momentum equation
+         */
+
         // Transient
-        dudt * phi_u[i]
+        rho * phi_u[i] * dudt
 
         // Convection
-        + (present_velocity_gradients * present_velocity_values) * phi_u[i]
+        +
+        rho * (present_velocity_gradients * present_velocity_values) * phi_u[i]
+
+        // Diffusive flux
+        + phi_u[i] * diffusive_flux
 
         // Diffusion
-        + nu * scalar_product(present_velocity_gradients, grad_phi_u[i])
+        +
+        2. * eta * scalar_product(grad_phi_u[i], present_velocity_sym_gradients)
 
         // Pressure gradient
         - div_phi_u[i] * present_pressure_values
 
+        // Surface tension phi * grad(mu)
+        + phi_u[i] * tracer_value * potential_gradient
+
         // Momentum source term
-        + source_term_velocity * phi_u[i]
+        + rho * source_term_velocity * phi_u[i]
+
+        /**
+         * Continuity equation
+         */
 
         // Continuity
         - present_velocity_divergence * phi_p[i]
 
         // Pressure source term
-        + source_term_pressure * phi_p[i]);
+        + source_term_pressure * phi_p[i]
+
+        /**
+         * Tracer equation
+         */
+
+        // Transient and advection
+        + phi_phi[i] * (dphidt + velocity_dot_tracer_gradient)
+
+        // Diffusion
+        + mobility * potential_gradient * grad_phi_phi[i]
+
+        /**
+         * Potential equation
+         */
+
+        // Mass and double well
+        + phi_mu[i] *
+            (potential_value - sigma_tilde_over_eps * phi_cube_minus_phi)
+
+        // Diffusion
+        - sigma_tilde_times_eps * grad_phi_mu[i] * tracer_gradient);
 
       local_rhs_i *= JxW;
       local_rhs(i) += local_rhs_i;
@@ -915,37 +709,39 @@ void IncompressibleCHNSSolver<dim>::assemble_local_rhs(
   //
   // Face contributions
   //
-  if (scratchData.has_boundary_forms && cell->at_boundary())
+  if (cell->at_boundary())
     for (const auto i_face : cell->face_indices())
     {
       const auto &face = cell->face(i_face);
       if (face->at_boundary())
       {
         // Open boundary condition with prescribed manufactured solution
-        if (param.fluid_bc.at(scratchData.face_boundary_id[i_face]).type ==
-            BoundaryConditions::Type::open_mms)
+        if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
+              .type == BoundaryConditions::Type::open_mms)
         {
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-          {
-            const double face_JxW = scratchData.face_JxW[i_face][q];
-            const auto  &n        = scratchData.face_normals[i_face][q];
+          DEAL_II_NOT_IMPLEMENTED();
+          // for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
+          // {
+          //   const double face_JxW = scratch_data.face_JxW_moving[i_face][q];
+          //   const auto  &n        =
+          //   scratch_data.face_normals_moving[i_face][q];
 
-            const auto &grad_u_exact =
-              scratchData.exact_face_velocity_gradients[i_face][q];
-            const double p_exact =
-              scratchData.exact_face_pressure_values[i_face][q];
+          //   const auto &grad_u_exact =
+          //     scratch_data.exact_face_velocity_gradients[i_face][q];
+          //   const double p_exact =
+          //     scratch_data.exact_face_pressure_values[i_face][q];
 
-            // This is an open boundary condition, not a traction,
-            // involving only grad_u_exact and not the symmetric gradient.
-            const auto sigma_dot_n = -p_exact * n + nu * grad_u_exact * n;
+          //   // This is an open boundary condition, not a traction,
+          //   // involving only grad_u_exact and not the symmetric gradient.
+          //   const auto sigma_dot_n = -p_exact * n + nu * grad_u_exact * n;
 
-            const auto &phi_u_face = scratchData.phi_u_face[i_face][q];
+          //   const auto &phi_u_face = scratch_data.phi_u_face[i_face][q];
 
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-            {
-              local_rhs(i) -= -phi_u_face[i] * sigma_dot_n * face_JxW;
-            }
-          }
+          //   for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+          //   {
+          //     local_rhs(i) -= -phi_u_face[i] * sigma_dot_n * face_JxW;
+          //   }
+          // }
         }
       }
     }
@@ -954,201 +750,173 @@ void IncompressibleCHNSSolver<dim>::assemble_local_rhs(
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::copy_local_to_global_rhs(
-  const CopyData &copy_data)
+void CHNSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  zero_constraints.distribute_local_to_global(copy_data.local_rhs,
-                                              copy_data.local_dof_indices,
-                                              this->system_rhs);
+  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs,
+                                                    copy_data.local_dof_indices,
+                                                    this->system_rhs);
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::solve_linear_system(
-  const bool /*apply_inhomogeneous_constraints*/)
+void CHNSSolver<dim>::compute_solver_specific_errors()
 {
-  if (param.linear_solver.method ==
-      Parameters::LinearSolver::Method::direct_mumps)
-  {
-    if(param.linear_solver.reuse)
-      DEAL_II_NOT_IMPLEMENTED();
-    else
-      solve_linear_system_direct(this,
-                                 param.linear_solver,
-                                 system_matrix,
-                                 locally_owned_dofs,
-                                 zero_constraints);
-  }
-  else if (param.linear_solver.method ==
-           Parameters::LinearSolver::Method::gmres)
-  {
-    solve_linear_system_iterative(this,
-                                  param.linear_solver,
-                                  system_matrix,
-                                  locally_owned_dofs,
-                                  zero_constraints);
-  }
-  else
-  {
-    AssertThrow(false, ExcMessage("No known resolution method"));
-  }
+  // const double       t              = this->time_handler.current_time;
+  // const unsigned int n_active_cells = this->triangulation.n_active_cells();
+  // Vector<double>     cellwise_errors(n_active_cells);
+  // const ComponentSelectFunction<dim> tracer_comp_select(
+  //   this->ordering->phi_lower, this->ordering->n_components);
+  // const ComponentSelectFunction<dim> potential_comp_select(
+  //   this->ordering->mu_lower, this->ordering->n_components);
+
+  // if (this->param.mms_param.compute_L2_spatial_norm)
+  // {
+  //   const double l2_phi =
+  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
+  //                                                *mapping,
+  //                                                this->dof_handler,
+  //                                                this->present_solution,
+  //                                                *this->exact_solution,
+  //                                                cellwise_errors,
+  //                                                this->error_quadrature,
+  //                                                VectorTools::L2_norm,
+  //                                                &tracer_comp_select);
+  //   const double l2_mu =
+  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
+  //                                                *mapping,
+  //                                                this->dof_handler,
+  //                                                this->present_solution,
+  //                                                *this->exact_solution,
+  //                                                cellwise_errors,
+  //                                                this->error_quadrature,
+  //                                                VectorTools::L2_norm,
+  //                                                &potential_comp_select);
+  //   if (this->time_handler.is_steady())
+  //   {
+  //     this->error_handler.add_steady_error("L2_phi", l2_phi);
+  //     this->error_handler.add_steady_error("L2_mu", l2_mu);
+  //   }
+  //   else
+  //   {
+  //     this->error_handler.add_unsteady_error("L2_phi", t, l2_phi);
+  //     this->error_handler.add_unsteady_error("L2_mu", t, l2_mu);
+  //   }
+  // }
+  // if (this->param.mms_param.compute_Li_spatial_norm)
+  // {
+  //   const double li_phi =
+  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
+  //                                                *mapping,
+  //                                                this->dof_handler,
+  //                                                this->present_solution,
+  //                                                *this->exact_solution,
+  //                                                cellwise_errors,
+  //                                                this->error_quadrature,
+  //                                                VectorTools::Linfty_norm,
+  //                                                &tracer_comp_select);
+  //   const double li_mu =
+  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
+  //                                                *mapping,
+  //                                                this->dof_handler,
+  //                                                this->present_solution,
+  //                                                *this->exact_solution,
+  //                                                cellwise_errors,
+  //                                                this->error_quadrature,
+  //                                                VectorTools::Linfty_norm,
+  //                                                &potential_comp_select);
+  //   if (this->time_handler.is_steady())
+  //   {
+  //     this->error_handler.add_steady_error("Li_phi", li_phi);
+  //     this->error_handler.add_steady_error("Li_mu", li_mu);
+  //   }
+  //   else
+  //   {
+  //     this->error_handler.add_unsteady_error("Li_phi", t, li_phi);
+  //     this->error_handler.add_unsteady_error("Li_mu", t, li_mu);
+  //   }
+  // }
+  // if (this->param.mms_param.compute_H1_spatial_norm)
+  // {
+  //   const double h1semi_phi =
+  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
+  //                                                *mapping,
+  //                                                this->dof_handler,
+  //                                                this->present_solution,
+  //                                                *this->exact_solution,
+  //                                                cellwise_errors,
+  //                                                this->error_quadrature,
+  //                                                VectorTools::H1_seminorm,
+  //                                                &tracer_comp_select);
+  //   const double h1semi_mu =
+  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
+  //                                                *mapping,
+  //                                                this->dof_handler,
+  //                                                this->present_solution,
+  //                                                *this->exact_solution,
+  //                                                cellwise_errors,
+  //                                                this->error_quadrature,
+  //                                                VectorTools::H1_seminorm,
+  //                                                &potential_comp_select);
+  //   if (this->time_handler.is_steady())
+  //   {
+  //     this->error_handler.add_steady_error("H1_phi", h1semi_phi);
+  //     this->error_handler.add_steady_error("H1_mu", h1semi_mu);
+  //   }
+  //   else
+  //   {
+  //     this->error_handler.add_unsteady_error("H1_phi", t, h1semi_phi);
+  //     this->error_handler.add_unsteady_error("H1_mu", t, h1semi_mu);
+  //   }
+  // }
 }
 
 template <int dim>
-void IncompressibleCHNSSolver<dim>::compute_errors()
-{
-  TimerOutput::Scope t(this->computing_timer, "Compute errors");
-
-  const unsigned int n_active_cells = triangulation.n_active_cells();
-  Vector<double>     cellwise_errors(n_active_cells);
-
-  const ComponentSelectFunction<dim> velocity_comp_select(
-    std::make_pair(u_lower, u_upper), n_components);
-  const ComponentSelectFunction<dim> pressure_comp_select(p_lower,
-                                                          n_components);
-
-  // Choose another quadrature rule for error computation
-  const unsigned int                  n_points_1D = (dim == 2) ? 6 : 5;
-  const QWitherdenVincentSimplex<dim> err_quadrature(n_points_1D);
-
-  // L2 - u
-  const double l2_u =
-    compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                               *mapping,
-                                               dof_handler,
-                                               present_solution,
-                                               *exact_solution,
-                                               cellwise_errors,
-                                               err_quadrature,
-                                               VectorTools::L2_norm,
-                                               &velocity_comp_select);
-  // L2 - p
-  const double l2_p =
-    compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                               *mapping,
-                                               dof_handler,
-                                               present_solution,
-                                               *exact_solution,
-                                               cellwise_errors,
-                                               err_quadrature,
-                                               VectorTools::L2_norm,
-                                               &pressure_comp_select);
-  // Linf - u
-  const double li_u =
-    compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                               *mapping,
-                                               dof_handler,
-                                               present_solution,
-                                               *exact_solution,
-                                               cellwise_errors,
-                                               err_quadrature,
-                                               VectorTools::Linfty_norm,
-                                               &velocity_comp_select);
-  // Linf - p
-  const double li_p =
-    compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                               *mapping,
-                                               dof_handler,
-                                               present_solution,
-                                               *exact_solution,
-                                               cellwise_errors,
-                                               err_quadrature,
-                                               VectorTools::Linfty_norm,
-                                               &pressure_comp_select);
-  // H1 seminorm - u
-  const double h1semi_u =
-    compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                               *mapping,
-                                               dof_handler,
-                                               present_solution,
-                                               *exact_solution,
-                                               cellwise_errors,
-                                               err_quadrature,
-                                               VectorTools::H1_seminorm,
-                                               &velocity_comp_select);
-  // H1 seminorm - p
-  const double h1semi_p =
-    compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                               *mapping,
-                                               dof_handler,
-                                               present_solution,
-                                               *exact_solution,
-                                               cellwise_errors,
-                                               err_quadrature,
-                                               VectorTools::H1_seminorm,
-                                               &pressure_comp_select);
-
-  if (time_handler.is_steady())
-  {
-    // Steady solver: simply add errors to convergence table
-    error_handler.add_reference_data("n_elm",
-                                     triangulation.n_global_active_cells());
-    error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
-    error_handler.add_steady_error("L2_u", l2_u);
-    error_handler.add_steady_error("L2_p", l2_p);
-    error_handler.add_steady_error("Li_u", li_u);
-    error_handler.add_steady_error("Li_p", li_p);
-    error_handler.add_steady_error("H1_u", h1semi_u);
-    error_handler.add_steady_error("H1_p", h1semi_p);
-  }
-  else
-  {
-    const double t = time_handler.current_time;
-    error_handler.add_unsteady_error("L2_u", t, l2_u);
-    error_handler.add_unsteady_error("L2_p", t, l2_p);
-    error_handler.add_unsteady_error("Li_u", t, li_u);
-    error_handler.add_unsteady_error("Li_p", t, li_p);
-    error_handler.add_unsteady_error("H1_u", t, h1semi_u);
-    error_handler.add_unsteady_error("H1_p", t, h1semi_p);
-  }
-}
-
-template <int dim>
-void IncompressibleCHNSSolver<dim>::output_results()
+void CHNSSolver<dim>::output_results()
 {
   TimerOutput::Scope t(this->computing_timer, "Write outputs");
 
-  if (param.output.write_results)
+  if (this->param.output.write_results)
   {
-    //
-    // Plot FE solution
-    //
     std::vector<std::string> solution_names(dim, "velocity");
     solution_names.push_back("pressure");
+    solution_names.push_back("tracer");
+    solution_names.push_back("potential");
 
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
       data_component_interpretation(
         dim, DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
+    for (unsigned int i = 0; i < 3; ++i)
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_scalar);
 
     DataOut<dim> data_out;
-    data_out.attach_dof_handler(dof_handler);
-    data_out.add_data_vector(present_solution,
+    data_out.attach_dof_handler(this->dof_handler);
+    data_out.add_data_vector(this->present_solution,
                              solution_names,
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
     //
     // Partition
     //
-    Vector<float> subdomain(triangulation.n_active_cells());
+    Vector<float> subdomain(this->triangulation.n_active_cells());
     for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = triangulation.locally_owned_subdomain();
+      subdomain(i) = this->triangulation.locally_owned_subdomain();
     data_out.add_data_vector(subdomain, "subdomain");
 
     data_out.build_patches(*mapping, 2);
 
     // Export regular time step
-    data_out.write_vtu_with_pvtu_record(param.output.output_dir,
-                                        param.output.output_prefix,
-                                        time_handler.current_time_iteration,
-                                        mpi_communicator,
-                                        2);
+    data_out.write_vtu_with_pvtu_record(
+      this->param.output.output_dir,
+      this->param.output.output_prefix,
+      this->time_handler.current_time_iteration,
+      this->mpi_communicator,
+      2);
   }
 }
 
 // Explicit instantiation
-template class IncompressibleCHNSSolver<2>;
-template class IncompressibleCHNSSolver<3>;
+template class CHNSSolver<2>;
+template class CHNSSolver<3>;

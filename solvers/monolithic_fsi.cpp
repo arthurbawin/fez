@@ -1,7 +1,7 @@
 
 #include <parameter_reader.h>
 #include <utilities.h>
-#include <derived_fsi_solver.h>
+#include <monolithic_fsi_solver.h>
 
 int main(int argc, char *argv[])
 {

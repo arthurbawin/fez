@@ -16,7 +16,6 @@
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
-#include <scratch_data.h>
 #include <time_handler.h>
 #include <types.h>
 

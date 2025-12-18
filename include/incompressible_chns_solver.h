@@ -1,10 +1,10 @@
-#ifndef INCOMPRESSIBLE_CHNS_SOLVER_PREV_H
-#define INCOMPRESSIBLE_CHNS_SOLVER_PREV_H
+#ifndef INCOMPRESSIBLE_CHNS_SOLVER_H
+#define INCOMPRESSIBLE_CHNS_SOLVER_H
 
 #include <copy_data.h>
 #include <deal.II/fe/fe_values_extractors.h>
 #include <navier_stokes_solver.h>
-#include <scratch_data_base.h>
+#include <scratch_data.h>
 
 using namespace dealii;
 
@@ -45,7 +45,7 @@ public:
   virtual void create_sparsity_pattern() override;
 
   virtual void compute_solver_specific_errors() override;
-  
+
   /**
    *
    */

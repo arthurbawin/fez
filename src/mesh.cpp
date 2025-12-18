@@ -206,7 +206,7 @@ void create_rectangle(Triangulation<dim> &tria,
                                                   updated_param);
 
   // Use the boundary pattern obtained with "colorize = true" for
-  // subdivided_hyper_rectangle. 
+  // subdivided_hyper_rectangle.
   mesh_param.id2name.insert({0, "x_min"});
   mesh_param.id2name.insert({1, "x_max"});
   mesh_param.id2name.insert({2, "y_min"});
@@ -344,7 +344,7 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
                   "). For now, all boundaries must be assigned a boundary "
                   "condition for all relevant fields."));
 
-    if (param.physical_properties.n_pseudosolids > 0)
+    if (param.pseudosolid_bc.size() > 0)
     {
       // Check that each boundary id appears in the pseudosolid boundary
       // conditions
@@ -354,6 +354,20 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
           "In mesh file " + param.mesh.filename +
           " :\n"
           "No pseudosolid boundary condition was assigned to boundary " +
+          std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+          "). For now, all boundaries must be assigned a boundary "
+          "condition for all relevant fields."));
+    }
+
+    if (param.cahn_hilliard_bc.size() > 0)
+    {
+      // Check that each boundary id appears in the CH boundary conditions
+      AssertThrow(
+        param.cahn_hilliard_bc.find(id) != param.cahn_hilliard_bc.end(),
+        ExcMessage(
+          "In mesh file " + param.mesh.filename +
+          " :\n"
+          "No Cahn-Hilliard boundary condition was assigned to boundary " +
           std::to_string(id) + " (" + param.mesh.id2name.at(id) +
           "). For now, all boundaries must be assigned a boundary "
           "condition for all relevant fields."));

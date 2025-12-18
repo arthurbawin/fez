@@ -101,8 +101,9 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
       param.physical_properties,
       param.mms);
 
-    // this->error_handler.create_entry("L2_l");
-    // this->error_handler.create_entry("Li_l");
+    // Create entry in error handler for Lagrange multiplier
+    for (auto norm : this->param.mms_param.norms_to_compute)
+      this->error_handlers[norm]->create_entry("l");
   }
   else
   {
@@ -156,65 +157,6 @@ void FSISolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   for (unsigned int d = 0; d < dim; ++d)
     values[ordering.l_lower + d] = 0.;
 }
-
-// template <int dim>
-// void FSISolver<dim>::run()
-// {
-//   reset();
-//   read_mesh(triangulation, param);
-//   setup_dofs();
-
-//   create_lagrange_multiplier_constraints();
-//   if (param.fsi.enable_coupling)
-//     create_position_lagrange_mult_coupling_data();
-
-//   create_zero_constraints();
-//   create_nonzero_constraints();
-//   create_sparsity_pattern();
-//   set_initial_conditions();
-//   output_results();
-
-//   while (!this->time_handler.is_finished())
-//   {
-//     this->time_handler.advance(this->pcout);
-//     set_time();
-//     update_boundary_conditions();
-
-//     if (this->time_handler.is_starting_step() &&
-//         param.time_integration.bdfstart ==
-//           Parameters::TimeIntegration::BDFStart::initial_condition)
-//     {
-//       if (param.mms_param.enable || param.debug.apply_exact_solution)
-//         // Convergence study: start with exact solution at first time step
-//         set_exact_solution();
-//       else
-//         // Repeat initial condition
-//         set_initial_conditions();
-//     }
-//     else
-//     {
-//       // Entering the Newton solver with a solution satisfying the nonzero
-//       // constraints, which were applied in update_boundary_condition().
-//       if (param.debug.compare_analytical_jacobian_with_fd)
-//         compare_analytical_matrix_with_fd();
-
-//       if (param.debug.apply_exact_solution)
-//         set_exact_solution();
-//       else
-//         solve_nonlinear_problem(false);
-//     }
-
-//     postprocess_solution();
-
-//     if (!this->time_handler.is_steady())
-//     {
-//       // Rotate solutions
-//       for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-//         previous_solutions[j] = previous_solutions[j - 1];
-//       previous_solutions[0] = present_solution;
-//     }
-//   }
-// }
 
 template <int dim>
 void FSISolver<dim>::reset_solver_specific_data()
@@ -1038,9 +980,7 @@ void FSISolver<dim>::compare_analytical_matrix_with_fd()
                                    this->param);
   CopyData            copy_data(fe.n_dofs_per_cell());
 
-  double max_error_over_all_elements;
-
-  Verification::compare_analytical_matrix_with_fd(
+  auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
     fe.n_dofs_per_cell(),
     *this,
@@ -1052,14 +992,18 @@ void FSISolver<dim>::compare_analytical_matrix_with_fd()
     this->evaluation_point,
     this->local_evaluation_point,
     this->mpi_communicator,
-    max_error_over_all_elements,
     this->param.output.output_dir,
     true,
     this->param.debug.analytical_jacobian_absolute_tolerance,
     this->param.debug.analytical_jacobian_relative_tolerance);
 
-  this->pcout << "Max error analytical vs fd matrix is "
-              << max_error_over_all_elements << std::endl;
+  this->pcout << "Max absolute error analytical vs fd matrix is "
+              << errors.first << std::endl;
+
+  // Only print relative error if absolute is too large
+  if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
+    this->pcout << "Max relative error analytical vs fd matrix is "
+                << errors.second << std::endl;
 }
 
 template <int dim>
@@ -1941,16 +1885,13 @@ void FSISolver<dim>::compute_solver_specific_errors()
   // linf_error_Fx = std::max(linf_error_Fx, error_on_integral[0]);
   // linf_error_Fy = std::max(linf_error_Fy, error_on_integral[1]);
 
-  if (this->time_handler.is_steady())
+  const double t = this->time_handler.current_time;
+  for(auto &[norm, handler] : this->error_handlers)
   {
-    this->error_handler.add_steady_error("L2_l", l2_l);
-    this->error_handler.add_steady_error("Li_l", li_l);
-  }
-  else
-  {
-    const double t = this->time_handler.current_time;
-    this->error_handler.add_unsteady_error("L2_l", t, l2_l);
-    this->error_handler.add_unsteady_error("Li_l", t, li_l);
+    if (norm == VectorTools::L2_norm)
+      handler->add_error("l", l2_l, t);
+    if (norm == VectorTools::Linfty_norm)
+      handler->add_error("l", li_l, t);
   }
 }
 

@@ -14,7 +14,6 @@
 #include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <generic_solver.h>
-// #include <mms.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <scratch_data.h>
@@ -182,7 +181,7 @@ public:
   solve_linear_system(const bool apply_inhomogeneous_constraints) override;
 
   /**
-   * 
+   *
    */
   void postprocess_solution();
 
@@ -312,7 +311,8 @@ protected:
 
   types::global_dof_index constrained_pressure_dof = numbers::invalid_dof_index;
   Point<dim>              constrained_pressure_support_point;
-  std::vector<std::pair<types::global_dof_index, double>> zero_mean_pressure_weights;
+  std::vector<std::pair<types::global_dof_index, double>>
+    zero_mean_pressure_weights;
 
   // Position-lambda constraints on the cylinder
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
@@ -340,8 +340,8 @@ protected:
   class SourceTerm : public Function<dim>
   {
   public:
-    SourceTerm(const double time,
-      const Parameters::SourceTerms<dim> &source_terms)
+    SourceTerm(const double                        time,
+               const Parameters::SourceTerms<dim> &source_terms)
       : Function<dim>(n_components, time)
       , source_terms(source_terms)
     {}
@@ -355,10 +355,10 @@ protected:
                               Vector<double>   &values) const override
     {
       // source_terms.fluid_source is a function with dim+1 components
-      for(unsigned int d = 0; d < dim; ++d)
+      for (unsigned int d = 0; d < dim; ++d)
         values[u_lower + d] = source_terms.fluid_source->value(p, d);
       values[p_lower] = source_terms.fluid_source->value(p, dim);
-      for(unsigned int d = 0; d < dim; ++d)
+      for (unsigned int d = 0; d < dim; ++d)
         values[x_lower + d] = source_terms.pseudosolid_source->value(p, d);
     }
 
@@ -451,9 +451,10 @@ protected:
   class MMSSourceTerm : public Function<dim>
   {
   public:
-    MMSSourceTerm(const double                          time,
-                  const Parameters::PhysicalProperties<dim> &physical_properties,
-                  const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
+    MMSSourceTerm(
+      const double                               time,
+      const Parameters::PhysicalProperties<dim> &physical_properties,
+      const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
       : Function<dim>(n_components, time)
       , physical_properties(physical_properties)
       , mms(mms)

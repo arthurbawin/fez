@@ -1639,9 +1639,7 @@ void MonolithicFSISolver<dim>::compare_analytical_matrix_with_fd()
                                              param);
   CopyData                      copy_data(fe.n_dofs_per_cell());
 
-  double max_error_over_all_elements;
-
-  Verification::compare_analytical_matrix_with_fd(
+  auto errors = Verification::compare_analytical_matrix_with_fd(
     dof_handler,
     fe.n_dofs_per_cell(),
     *this,
@@ -1653,14 +1651,18 @@ void MonolithicFSISolver<dim>::compare_analytical_matrix_with_fd()
     evaluation_point,
     local_evaluation_point,
     mpi_communicator,
-    max_error_over_all_elements,
     param.output.output_dir,
     true,
     param.debug.analytical_jacobian_absolute_tolerance,
     param.debug.analytical_jacobian_relative_tolerance);
 
-  pcout << "Max error analytical vs fd matrix is "
-        << max_error_over_all_elements << std::endl;
+  this->pcout << "Max absolute error analytical vs fd matrix is "
+              << errors.first << std::endl;
+
+  // Only print relative error if absolute is too large
+  if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
+    this->pcout << "Max relative error analytical vs fd matrix is "
+                << errors.second << std::endl;
 }
 
 template <int dim>
@@ -2697,37 +2699,37 @@ void MonolithicFSISolver<dim>::compute_errors()
   // linf_error_Fy = std::max(linf_error_Fy, error_on_integral[1]);
   // }
 
-  if (time_handler.is_steady())
-  {
-    // Steady solver: simply add errors to convergence table
-    error_handler.add_reference_data("n_elm",
-                                     triangulation.n_global_active_cells());
-    error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
-    error_handler.add_steady_error("L2_u", l2_u);
-    error_handler.add_steady_error("L2_p", l2_p);
-    error_handler.add_steady_error("L2_x", l2_x);
-    error_handler.add_steady_error("Li_u", li_u);
-    error_handler.add_steady_error("Li_p", li_p);
-    error_handler.add_steady_error("Li_x", li_x);
-    error_handler.add_steady_error("H1_u", h1semi_u);
-    error_handler.add_steady_error("H1_p", h1semi_p);
-    error_handler.add_steady_error("H1_x", h1semi_x);
-  }
-  else
-  {
-    const double t = time_handler.current_time;
-    error_handler.add_unsteady_error("L2_u", t, l2_u);
-    error_handler.add_unsteady_error("L2_p", t, l2_p);
-    error_handler.add_unsteady_error("L2_x", t, l2_x);
-    error_handler.add_unsteady_error("L2_l", t, l2_l);
-    error_handler.add_unsteady_error("Li_u", t, li_u);
-    error_handler.add_unsteady_error("Li_p", t, li_p);
-    error_handler.add_unsteady_error("Li_x", t, li_x);
-    error_handler.add_unsteady_error("Li_l", t, li_l);
-    // error_handler.add_unsteady_error("H1_u", t, h1semi_u);
-    // error_handler.add_unsteady_error("H1_p", t, h1semi_p);
-    // error_handler.add_unsteady_error("H1_x", t, h1semi_x);
-  }
+  // if (time_handler.is_steady())
+  // {
+  //   // Steady solver: simply add errors to convergence table
+  //   error_handler.add_reference_data("n_elm",
+  //                                    triangulation.n_global_active_cells());
+  //   error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
+  //   error_handler.add_steady_error("L2_u", l2_u);
+  //   error_handler.add_steady_error("L2_p", l2_p);
+  //   error_handler.add_steady_error("L2_x", l2_x);
+  //   error_handler.add_steady_error("Li_u", li_u);
+  //   error_handler.add_steady_error("Li_p", li_p);
+  //   error_handler.add_steady_error("Li_x", li_x);
+  //   error_handler.add_steady_error("H1_u", h1semi_u);
+  //   error_handler.add_steady_error("H1_p", h1semi_p);
+  //   error_handler.add_steady_error("H1_x", h1semi_x);
+  // }
+  // else
+  // {
+  //   const double t = time_handler.current_time;
+  //   error_handler.add_unsteady_error("L2_u", t, l2_u);
+  //   error_handler.add_unsteady_error("L2_p", t, l2_p);
+  //   error_handler.add_unsteady_error("L2_x", t, l2_x);
+  //   error_handler.add_unsteady_error("L2_l", t, l2_l);
+  //   error_handler.add_unsteady_error("Li_u", t, li_u);
+  //   error_handler.add_unsteady_error("Li_p", t, li_p);
+  //   error_handler.add_unsteady_error("Li_x", t, li_x);
+  //   error_handler.add_unsteady_error("Li_l", t, li_l);
+  //   // error_handler.add_unsteady_error("H1_u", t, h1semi_u);
+  //   // error_handler.add_unsteady_error("H1_p", t, h1semi_p);
+  //   // error_handler.add_unsteady_error("H1_x", t, h1semi_x);
+  // }
 }
 
 template <int dim>

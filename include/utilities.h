@@ -124,7 +124,7 @@ inline Tensor<1, dim> parse_rank_1_tensor(const std::string &values,
 }
 
 /**
- * 
+ *
  */
 inline std::pair<double, double>
 compute_relative_error(const double A,
@@ -193,37 +193,43 @@ class PressureMeanSubtractedFunction : public Function<dim>
 {
 public:
   PressureMeanSubtractedFunction(const Function<dim> &base_function,
-                         const double mean_pressure,
-                         const unsigned int p_lower)
+                                 const double         mean_pressure,
+                                 const unsigned int   p_lower)
     : Function<dim>(base_function.n_components)
     , base(base_function)
     , mean_pressure(mean_pressure)
     , p_lower(p_lower)
   {}
 
-  virtual double value(const Point<dim> &p,
+  virtual double value(const Point<dim>  &p,
                        const unsigned int component = 0) const override
   {
-    if(component == p_lower)
+    if (component == p_lower)
       return base.value(p, component) - mean_pressure;
     else
       return base.value(p, component);
   }
 
+  virtual Tensor<1, dim>
+  gradient(const Point<dim> &p, const unsigned int component = 0) const override
+  {
+    return base.gradient(p, component);
+  }
+
 private:
   const Function<dim> &base;
-  const double mean_pressure;
-  const unsigned int p_lower;
+  const double         mean_pressure;
+  const unsigned int   p_lower;
 };
 
 /**
  * Compute the measure (surface or length) of a given boundary.
  */
 template <int dim>
-double compute_boundary_volume(const DoFHandler<dim>       &dof_handler,
-                               const Mapping<dim>          &mapping,
-                               const Quadrature<dim-1>     &face_quadrature,
-                               const types::boundary_id     boundary_id)
+double compute_boundary_volume(const DoFHandler<dim>     &dof_handler,
+                               const Mapping<dim>        &mapping,
+                               const Quadrature<dim - 1> &face_quadrature,
+                               const types::boundary_id   boundary_id)
 {
   double I = 0.;
 

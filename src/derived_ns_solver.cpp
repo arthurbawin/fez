@@ -298,9 +298,7 @@ void NSSolver<dim>::compare_analytical_matrix_with_fd()
     this->param);
   CopyData copyData(fe.n_dofs_per_cell());
 
-  double max_error_over_all_elements;
-
-  Verification::compare_analytical_matrix_with_fd(
+  auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
     fe.n_dofs_per_cell(),
     *this,
@@ -311,11 +309,15 @@ void NSSolver<dim>::compare_analytical_matrix_with_fd()
     this->present_solution,
     this->evaluation_point,
     this->local_evaluation_point,
-    this->mpi_communicator,
-    max_error_over_all_elements);
+    this->mpi_communicator);
 
-  this->pcout << "Max error analytical vs fd matrix is "
-              << max_error_over_all_elements << std::endl;
+  this->pcout << "Max absolute error analytical vs fd matrix is "
+              << errors.first << std::endl;
+
+  // Only print relative error if absolute is too large
+  if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
+    this->pcout << "Max relative error analytical vs fd matrix is "
+                << errors.second << std::endl;
 }
 
 template <int dim>
@@ -429,7 +431,7 @@ void NSSolver<dim>::assemble_local_rhs(
   //
   // Face contributions
   //
-  if (scratchData.has_navier_stokes_boundary_forms && cell->at_boundary())
+  if (cell->at_boundary())
     for (const auto i_face : cell->face_indices())
     {
       const auto &face = cell->face(i_face);

@@ -29,6 +29,7 @@ public:
   Parameters::TimeIntegration         time_integration;
   Parameters::LinearSolver            linear_solver;
   Parameters::NonLinearSolver         nonlinear_solver;
+  Parameters::CahnHilliard            cahn_hilliard;
   Parameters::MMS                     mms_param;
   Parameters::Debug                   debug;
 
@@ -89,6 +90,7 @@ public:
       BoundaryConditions::CahnHilliardBC<dim>>(prm,
                                                bc_data.n_cahn_hilliard_bc,
                                                "CahnHilliard");
+    cahn_hilliard.declare_parameters(prm);
     source_terms.declare_parameters(prm);
     mms_param.declare_parameters(prm);
     mms.declare_parameters(prm);
@@ -122,6 +124,7 @@ public:
                                                  bc_data.n_cahn_hilliard_bc,
                                                  "CahnHilliard",
                                                  cahn_hilliard_bc);
+    cahn_hilliard.read_parameters(prm);
     source_terms.read_parameters(prm);
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);

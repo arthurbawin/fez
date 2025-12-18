@@ -14,6 +14,7 @@ public:
                const Parameters::TimeIntegration &time_parameters)
     : mms_param(mms_parameters)
     , time_param(time_parameters)
+    , is_steady(time_parameters.scheme == Parameters::TimeIntegration::Scheme::stationary)
   {}
 
   /**
@@ -35,11 +36,8 @@ public:
    * Add an integer reference value (number of mesh elements or dof).
    * These values won't be printed in scientific notation.
    */
-  template <typename T>
-  void add_reference_data(const std::string &name, const T &value)
+  void add_reference_data(const std::string &name, const unsigned int value)
   {
-    constexpr bool supported = std::is_same_v<T, unsigned int>;
-    static_assert(supported, "Unsupported");
     error_table.add_value(name, value);
   }
 
@@ -52,8 +50,28 @@ public:
   }
 
   /**
-   * Add an error for a steady simulation. This error is directly added to
+   * Add a spatial error entry.
+   * 
+   * If the simulation is steady, this error is directly added to
    * the underlying error table to compute convergence.
+   * 
+   * If it is unsteady, this stores the spatial error at time t. The prescribed
+   * L^p norm in time is computed at the end of the simulation.
+   * The error at all times are kept, e.g. to be plotted in postprocessing.
+   */
+  void add_error(const std::string &field_name,
+                 const double       error_val,
+                 const double       time = 0.)
+  {
+    if(is_steady)
+      add_steady_error(field_name, error_val);
+    else
+      add_unsteady_error(field_name, error_val, time);
+  }
+
+private:
+  /**
+   * Add an error to the underlying error table to compute convergence.
    */
   void add_steady_error(const std::string &error_name, const double error_val)
   {
@@ -67,14 +85,11 @@ public:
   }
 
   /**
-   * Add a spatial error at time t for an unsteady simulation. The prescribed
-   * L^p norm in time is computed at the end of the simulation.
-   *
-   * The error at all times are kept, e.g. to be plotted in postprocessing.
+   * Store a spatial error at time t for an unsteady simulation.
    */
   void add_unsteady_error(const std::string &error_name,
-                          const double       time,
-                          const double       error_val)
+                          const double       error_val,
+                          const double       time)
   {
     AssertThrow(
       domain_errors.count(error_name) == 1,
@@ -88,6 +103,7 @@ public:
     error_vec.push_back({time, error_val});
   }
 
+public:
   // Compute the temporal or spacetime error if needed
   void compute_temporal_error()
   {
@@ -165,12 +181,14 @@ public:
 public:
   const Parameters::MMS             &mms_param;
   const Parameters::TimeIntegration &time_param;
+  bool is_steady;
 
   // For unsteady problems: keep the spatial errors at all time steps
   // For each field, a vector of (t, error(t)) pairs.
   std::map<std::string, std::vector<std::pair<double, double>>> unsteady_errors;
 
   ConvergenceTable error_table;
+
 
   // Use vector of keys to maintain prescribed errors order
   std::vector<std::string>                       ordered_keys;

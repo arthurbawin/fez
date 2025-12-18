@@ -18,7 +18,9 @@ NavierStokesSolver<dim>::NavierStokesSolver(const ParameterReader<dim> &param,
   , param(param)
   , with_moving_mesh(with_moving_mesh)
   , quadrature(QGaussSimplex<dim>(4))
+  , error_quadrature(QWitherdenVincentSimplex<dim>((dim == 2) ? 6 : 5))
   , face_quadrature(QGaussSimplex<dim - 1>(4))
+  , error_face_quadrature(QWitherdenVincentSimplex<dim - 1>((dim == 2) ? 6 : 5))
   , triangulation(mpi_communicator)
   , fixed_mapping(new MappingFE<dim>(FE_SimplexP<dim>(1)))
   , dof_handler(triangulation)
@@ -26,34 +28,12 @@ NavierStokesSolver<dim>::NavierStokesSolver(const ParameterReader<dim> &param,
 {
   if (param.mms_param.enable)
   {
-    if (param.mms_param.compute_L2_spatial_norm)
+    for (auto norm : param.mms_param.norms_to_compute)
     {
-      error_handler.create_entry("L2_u");
-      error_handler.create_entry("L2_p");
+      error_handlers[norm]->create_entry("u");
+      error_handlers[norm]->create_entry("p");
       if (with_moving_mesh)
-      {
-        error_handler.create_entry("L2_x");
-        error_handler.create_entry("L2_l");
-      }
-    }
-    if (param.mms_param.compute_Li_spatial_norm)
-    {
-      error_handler.create_entry("Li_u");
-      error_handler.create_entry("Li_p");
-      if (with_moving_mesh)
-      {
-        error_handler.create_entry("Li_x");
-        error_handler.create_entry("Li_l");
-      }
-    }
-    if (param.mms_param.compute_H1_spatial_norm)
-    {
-      error_handler.create_entry("H1_u");
-      error_handler.create_entry("H1_p");
-      if (with_moving_mesh)
-      {
-        error_handler.create_entry("H1_x");
-      }
+        error_handlers[norm]->create_entry("x");
     }
   }
 
@@ -232,12 +212,13 @@ void NavierStokesSolver<dim>::setup_dofs()
   // For unsteady simulation, add the number of elements, dofs and/or the time
   // step to the error handler, once per convergence run.
   if (!time_handler.is_steady() && param.mms_param.enable)
-  {
-    error_handler.add_reference_data("n_elm",
-                                     triangulation.n_global_active_cells());
-    error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
-    error_handler.add_time_step(time_handler.initial_dt);
-  }
+    for (auto &[norm, handler] : error_handlers)
+    {
+      handler->add_reference_data("n_elm",
+                                  triangulation.n_global_active_cells());
+      handler->add_reference_data("n_dof", dof_handler.n_dofs());
+      handler->add_time_step(time_handler.initial_dt);
+    }
 }
 
 template <int dim>
@@ -513,6 +494,32 @@ void NavierStokesSolver<dim>::solve_linear_system(
 }
 
 template <int dim>
+void NavierStokesSolver<dim>::compute_and_add_errors(
+  const Mapping<dim>                 &mapping,
+  const Function<dim>                &exact_solution,
+  Vector<double>                     &cellwise_errors,
+  const ComponentSelectFunction<dim> &comp_function,
+  const std::string                  &field_name)
+{
+  const double time = time_handler.current_time;
+  for (auto norm : param.mms_param.norms_to_compute)
+  {
+    const double err =
+      compute_error_norm<dim, LA::ParVectorType>(triangulation,
+                                                 mapping,
+                                                 dof_handler,
+                                                 present_solution,
+                                                 exact_solution,
+                                                 cellwise_errors,
+                                                 error_quadrature,
+                                                 norm,
+                                                 &comp_function);
+    error_handlers.at(norm)->add_error(field_name, err, time);
+  }
+}
+
+
+template <int dim>
 void NavierStokesSolver<dim>::compute_errors()
 {
   TimerOutput::Scope t(this->computing_timer, "Compute errors");
@@ -527,21 +534,18 @@ void NavierStokesSolver<dim>::compute_errors()
   Vector<double>     cellwise_errors(n_active_cells);
 
   if (time_handler.is_steady())
-  {
-    error_handler.add_reference_data("n_elm",
-                                     triangulation.n_global_active_cells());
-    error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
-  }
+    for (auto norm : param.mms_param.norms_to_compute)
+    {
+      error_handlers.at(norm)->add_reference_data(
+        "n_elm", triangulation.n_global_active_cells());
+      error_handlers.at(norm)->add_reference_data("n_dof",
+                                                  dof_handler.n_dofs());
+    }
 
-  const ComponentSelectFunction<dim> velocity_comp_select(
-    std::make_pair(u_lower, u_lower + dim), n_components);
-  const ComponentSelectFunction<dim> pressure_comp_select(p_lower,
-                                                          n_components);
-
-  // Choose another quadrature rule for error computation
-  const unsigned int                  n_points_1D = (dim == 2) ? 6 : 5;
-  const QWitherdenVincentSimplex<dim> err_quadrature(n_points_1D);
-
+  /**
+   * Set the function pointer to use, depending on whether the mean pressure
+   * should be subtracted or not.
+   */
   std::shared_ptr<Function<dim>> used_exact_solution = exact_solution;
 
   if (param.bc_data.enforce_zero_mean_pressure)
@@ -581,175 +585,35 @@ void NavierStokesSolver<dim>::compute_errors()
     }
   }
 
-  if (param.mms_param.compute_L2_spatial_norm)
-  {
-    // L2 - u
-    const double l2_u =
-      compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                                 *moving_mapping,
-                                                 dof_handler,
-                                                 present_solution,
-                                                 *used_exact_solution,
-                                                 cellwise_errors,
-                                                 err_quadrature,
-                                                 VectorTools::L2_norm,
-                                                 &velocity_comp_select);
-    // L2 - p
-    const double l2_p =
-      compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                                 *moving_mapping,
-                                                 dof_handler,
-                                                 present_solution,
-                                                 *used_exact_solution,
-                                                 cellwise_errors,
-                                                 err_quadrature,
-                                                 VectorTools::L2_norm,
-                                                 &pressure_comp_select);
-    if (time_handler.is_steady())
-    {
-      error_handler.add_steady_error("L2_u", l2_u);
-      error_handler.add_steady_error("L2_p", l2_p);
-    }
-    else
-    {
-      error_handler.add_unsteady_error("L2_u", time, l2_u);
-      error_handler.add_unsteady_error("L2_p", time, l2_p);
-    }
-  }
+  /**
+   * Compute errors on velocity, pressure and position if applicable
+   */
+  const ComponentSelectFunction<dim> velocity_comp_select(
+    std::make_pair(u_lower, u_lower + dim), n_components);
+  const ComponentSelectFunction<dim> pressure_comp_select(p_lower,
+                                                          n_components);
 
-  if (param.mms_param.compute_Li_spatial_norm)
-  {
-    // Linf - u
-    const double li_u =
-      compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                                 *moving_mapping,
-                                                 dof_handler,
-                                                 present_solution,
-                                                 *used_exact_solution,
-                                                 cellwise_errors,
-                                                 err_quadrature,
-                                                 VectorTools::Linfty_norm,
-                                                 &velocity_comp_select);
-    // Linf - p
-    const double li_p =
-      compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                                 *moving_mapping,
-                                                 dof_handler,
-                                                 present_solution,
-                                                 *used_exact_solution,
-                                                 cellwise_errors,
-                                                 err_quadrature,
-                                                 VectorTools::Linfty_norm,
-                                                 &pressure_comp_select);
-    if (time_handler.is_steady())
-    {
-      error_handler.add_steady_error("Li_u", li_u);
-      error_handler.add_steady_error("Li_p", li_p);
-    }
-    else
-    {
-      error_handler.add_unsteady_error("Li_u", time, li_u);
-      error_handler.add_unsteady_error("Li_p", time, li_p);
-    }
-  }
-
-  if (param.mms_param.compute_H1_spatial_norm)
-  {
-    // H1 seminorm - u
-    const double h1semi_u =
-      compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                                 *moving_mapping,
-                                                 dof_handler,
-                                                 present_solution,
-                                                 *exact_solution,
-                                                 cellwise_errors,
-                                                 err_quadrature,
-                                                 VectorTools::H1_seminorm,
-                                                 &velocity_comp_select);
-    // H1 seminorm - p
-    const double h1semi_p =
-      compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                                 *moving_mapping,
-                                                 dof_handler,
-                                                 present_solution,
-                                                 *exact_solution,
-                                                 cellwise_errors,
-                                                 err_quadrature,
-                                                 VectorTools::H1_seminorm,
-                                                 &pressure_comp_select);
-    if (time_handler.is_steady())
-    {
-      error_handler.add_steady_error("H1_u", h1semi_u);
-      error_handler.add_steady_error("H1_p", h1semi_p);
-    }
-    else
-    {
-      error_handler.add_unsteady_error("H1_u", time, h1semi_u);
-      error_handler.add_unsteady_error("H1_p", time, h1semi_p);
-    }
-  }
-
+  compute_and_add_errors(*moving_mapping,
+                         *used_exact_solution,
+                         cellwise_errors,
+                         velocity_comp_select,
+                         "u");
+  compute_and_add_errors(*moving_mapping,
+                         *used_exact_solution,
+                         cellwise_errors,
+                         pressure_comp_select,
+                         "p");
   if (with_moving_mesh)
   {
     // Error on mesh position
     const unsigned int                 x_lower = ordering->x_lower;
     const ComponentSelectFunction<dim> position_comp_select(
       std::make_pair(x_lower, x_lower + dim), n_components);
-
-    if (param.mms_param.compute_L2_spatial_norm)
-    {
-      // L2 - x
-      const double l2_x =
-        compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                                   *fixed_mapping,
-                                                   dof_handler,
-                                                   present_solution,
-                                                   *exact_solution,
-                                                   cellwise_errors,
-                                                   err_quadrature,
-                                                   VectorTools::L2_norm,
-                                                   &position_comp_select);
-      if (time_handler.is_steady())
-        error_handler.add_steady_error("L2_x", l2_x);
-      else
-        error_handler.add_unsteady_error("L2_x", time, l2_x);
-    }
-    if (param.mms_param.compute_Li_spatial_norm)
-    {
-      // Linf - x
-      const double li_x =
-        compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                                   *fixed_mapping,
-                                                   dof_handler,
-                                                   present_solution,
-                                                   *exact_solution,
-                                                   cellwise_errors,
-                                                   err_quadrature,
-                                                   VectorTools::Linfty_norm,
-                                                   &position_comp_select);
-      if (time_handler.is_steady())
-        error_handler.add_steady_error("Li_x", li_x);
-      else
-        error_handler.add_unsteady_error("Li_x", time, li_x);
-    }
-    if (param.mms_param.compute_H1_spatial_norm)
-    {
-      // H1 seminorm - x
-      const double h1semi_x =
-        compute_error_norm<dim, LA::ParVectorType>(triangulation,
-                                                   *fixed_mapping,
-                                                   dof_handler,
-                                                   present_solution,
-                                                   *exact_solution,
-                                                   cellwise_errors,
-                                                   err_quadrature,
-                                                   VectorTools::H1_seminorm,
-                                                   &position_comp_select);
-      if (time_handler.is_steady())
-        error_handler.add_steady_error("H1_x", h1semi_x);
-      else
-        error_handler.add_unsteady_error("H1_x", time, h1semi_x);
-    }
+    compute_and_add_errors(*fixed_mapping,
+                           *exact_solution,
+                           cellwise_errors,
+                           position_comp_select,
+                           "x");
   }
 
   compute_solver_specific_errors();

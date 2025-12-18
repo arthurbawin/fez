@@ -2,6 +2,7 @@
 #define PARAMETERS_H
 
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/numerics/vector_tools_common.h>
 #include <parsed_function_symengine.h>
 
 using namespace dealii;
@@ -112,8 +113,8 @@ namespace Parameters
     double density;
     double kinematic_viscosity;
 
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
+    void declare_parameters(ParameterHandler &prm, unsigned int index);
+    void read_parameters(ParameterHandler &prm, unsigned int index);
   };
 
   template <int dim>
@@ -131,8 +132,8 @@ namespace Parameters
       lame_lambda_fun->set_time(newtime);
       lame_mu_fun->set_time(newtime);
     }
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
+    void declare_parameters(ParameterHandler &prm, unsigned int index);
+    void read_parameters(ParameterHandler &prm, unsigned int index);
   };
 
   template <int dim>
@@ -150,7 +151,7 @@ namespace Parameters
   public:
     void set_time(const double newtime)
     {
-      for(auto &ps : pseudosolids)
+      for (auto &ps : pseudosolids)
         ps.set_time(newtime);
     }
     void declare_parameters(ParameterHandler &prm);
@@ -216,6 +217,21 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
+  struct CahnHilliard
+  {
+    enum class MobilityModel
+    {
+      constant
+    } mobility_model;
+
+    double mobility;
+    double surface_tension;
+    double epsilon_interface;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
   struct MMS
   {
     bool enable;
@@ -248,9 +264,10 @@ namespace Parameters
     unsigned int first_mesh_index;
     unsigned int mesh_suffix;
 
-    bool compute_L2_spatial_norm;
-    bool compute_Li_spatial_norm;
-    bool compute_H1_spatial_norm;
+    bool                               compute_L2_spatial_norm;
+    bool                               compute_Li_spatial_norm;
+    bool                               compute_H1_spatial_norm;
+    std::vector<VectorTools::NormType> norms_to_compute;
 
     bool         use_space_convergence_mesh;
     unsigned int spatial_mesh_index;

@@ -70,13 +70,13 @@ end
 
 subsection Physical properties
   set number of fluids = 1
-  subsection Fluid
+  subsection Fluid 0
     set density             = 1
     set kinematic viscosity = 1
   end
 
   set number of pseudosolids = 1
-  subsection Pseudosolid
+  subsection Pseudosolid 0
     subsection lame lambda
       set Function expression = 1
     end

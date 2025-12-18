@@ -1,6 +1,7 @@
 #ifndef NAVIER_STOKES_SOLVER_H
 #define NAVIER_STOKES_SOLVER_H
 
+#include <components_ordering.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/table_handler.h>
@@ -18,7 +19,6 @@
 #include <scratch_data.h>
 #include <time_handler.h>
 #include <types.h>
-#include <components_ordering.h>
 
 using namespace dealii;
 
@@ -71,7 +71,7 @@ public:
   void setup_dofs();
 
   /**
-   * 
+   *
    */
   void create_zero_mean_pressure_constraints_data();
 
@@ -104,7 +104,7 @@ public:
   }
 
   /**
-   * 
+   *
    */
   void update_boundary_conditions();
 
@@ -120,35 +120,41 @@ public:
   virtual void set_solver_specific_initial_conditions() {}
 
   /**
-   * 
+   *
    */
-  void set_exact_solution();
-
-  /**
-   * 
-   */
-  virtual void compare_analytical_matrix_with_fd() = 0;
-
-  /**
-   * 
-   */
-  virtual void
-  solve_linear_system(const bool /* */) override;
+  void         set_exact_solution();
+  virtual void set_solver_specific_exact_solution() {}
 
   /**
    *
    */
-  void postprocess_solution();
-  virtual void solver_specific_post_processing() {}
+  virtual void compare_analytical_matrix_with_fd() = 0;
 
   /**
-   * 
+   *
    */
-  void compute_errors();
+  virtual void solve_linear_system(const bool /* */) override;
+
+  /**
+   *
+   */
+  void         postprocess_solution();
+  virtual void solver_specific_post_processing() {}
+
+  void compute_and_add_errors(const Mapping<dim>  &mapping,
+                              const Function<dim> &exact_solution,
+                              Vector<double>      &cellwise_errors,
+                              const ComponentSelectFunction<dim> &comp_function,
+                              const std::string                  &field_name);
+
+  /**
+   *
+   */
+  void         compute_errors();
   virtual void compute_solver_specific_errors() {}
 
   /**
-   * 
+   *
    */
   void compute_forces();
 
@@ -169,14 +175,17 @@ protected:
 
   const bool with_moving_mesh;
 
+  // Choose another quadrature rule for error computation
   QSimplex<dim>     quadrature;
+  QSimplex<dim>     error_quadrature;
   QSimplex<dim - 1> face_quadrature;
+  QSimplex<dim - 1> error_face_quadrature;
 
   parallel::fullydistributed::Triangulation<dim> triangulation;
   std::shared_ptr<Mapping<dim>>                  fixed_mapping;
   std::shared_ptr<Mapping<dim>>                  moving_mapping;
-  DoFHandler<dim> dof_handler;
-  TimeHandler     time_handler;
+  DoFHandler<dim>                                dof_handler;
+  TimeHandler                                    time_handler;
 
   FEValuesExtractors::Vector velocity_extractor;
   FEValuesExtractors::Scalar pressure_extractor;
@@ -185,6 +194,8 @@ protected:
   ComponentMask velocity_mask;
   ComponentMask pressure_mask;
   ComponentMask position_mask;
+
+  Table<2, DoFTools::Coupling> coupling_table;
 
   IndexSet locally_owned_dofs;
   IndexSet locally_relevant_dofs;

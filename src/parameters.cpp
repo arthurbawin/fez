@@ -102,7 +102,7 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Use cube mesh from deal.II's routines");
-       prm.declare_entry("dealii preset mesh",
+      prm.declare_entry("dealii preset mesh",
                         "none",
                         Patterns::Selection("none|cube|rectangle|holed plate"),
                         "Use dealii meshing routines for specified geometry");
@@ -212,9 +212,9 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void Fluid::declare_parameters(ParameterHandler &prm)
+  void Fluid::declare_parameters(ParameterHandler &prm, unsigned int index)
   {
-    prm.enter_subsection("Fluid");
+    prm.enter_subsection("Fluid " + std::to_string(index));
     {
       prm.declare_entry("density", "1", Patterns::Double(), "Fluid density");
       prm.declare_entry("kinematic viscosity",
@@ -225,9 +225,9 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void Fluid::read_parameters(ParameterHandler &prm)
+  void Fluid::read_parameters(ParameterHandler &prm, unsigned int index)
   {
-    prm.enter_subsection("Fluid");
+    prm.enter_subsection("Fluid " + std::to_string(index));
     {
       density             = prm.get_double("density");
       kinematic_viscosity = prm.get_double("kinematic viscosity");
@@ -236,14 +236,15 @@ namespace Parameters
   }
 
   template <int dim>
-  void PseudoSolid<dim>::declare_parameters(ParameterHandler &prm)
+  void PseudoSolid<dim>::declare_parameters(ParameterHandler &prm,
+                                            unsigned int      index)
   {
     lame_lambda_fun =
       std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
     lame_mu_fun =
       std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
 
-    prm.enter_subsection("Pseudosolid");
+    prm.enter_subsection("Pseudosolid " + std::to_string(index));
     {
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->declare_parameters(prm);
@@ -256,9 +257,10 @@ namespace Parameters
   }
 
   template <int dim>
-  void PseudoSolid<dim>::read_parameters(ParameterHandler &prm)
+  void PseudoSolid<dim>::read_parameters(ParameterHandler &prm,
+                                         unsigned int      index)
   {
-    prm.enter_subsection("Pseudosolid");
+    prm.enter_subsection("Pseudosolid " + std::to_string(index));
     {
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->parse_parameters(prm);
@@ -286,7 +288,7 @@ namespace Parameters
 
       fluids.resize(max_fluids);
       for (unsigned int i = 0; i < max_fluids; ++i)
-        fluids[i].declare_parameters(prm);
+        fluids[i].declare_parameters(prm, i);
 
       // Declare the pseudosolid subsections
       prm.declare_entry(
@@ -297,7 +299,7 @@ namespace Parameters
 
       pseudosolids.resize(max_pseudosolids);
       for (unsigned int i = 0; i < max_pseudosolids; ++i)
-        pseudosolids[i].declare_parameters(prm);
+        pseudosolids[i].declare_parameters(prm, i);
     }
     prm.leave_subsection();
   }
@@ -313,7 +315,7 @@ namespace Parameters
                              " fluids are specified, which is not supported"));
 
       for (unsigned int i = 0; i < n_fluids; ++i)
-        fluids[i].read_parameters(prm);
+        fluids[i].read_parameters(prm, i);
 
       n_pseudosolids = prm.get_integer("number of pseudosolids");
       AssertThrow(n_pseudosolids <= max_pseudosolids,
@@ -322,7 +324,7 @@ namespace Parameters
                              "which is not supported"));
 
       for (unsigned int i = 0; i < n_pseudosolids; ++i)
-        pseudosolids[i].read_parameters(prm);
+        pseudosolids[i].read_parameters(prm, i);
     }
     prm.leave_subsection();
   }
@@ -490,6 +492,44 @@ namespace Parameters
     prm.leave_subsection();
   }
 
+  void CahnHilliard::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Cahn Hilliard");
+    {
+      prm.declare_entry("mobility model",
+                        "constant",
+                        Patterns::Selection("constant"),
+                        "Model for the mobility tensor");
+      prm.declare_entry("mobility",
+                        "1.",
+                        Patterns::Double(),
+                        "Mobility value if constant");
+      prm.declare_entry("surface tension",
+                        "1.",
+                        Patterns::Double(),
+                        "Fluid-fluid surface tension");
+      prm.declare_entry("interface thickness",
+                        "1e-2",
+                        Patterns::Double(),
+                        "Interface thickness (epsilon)");
+    }
+    prm.leave_subsection();
+  }
+
+  void CahnHilliard::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Cahn Hilliard");
+    {
+      const std::string parsed_mobility_model = prm.get("mobility model");
+      if (parsed_mobility_model == "linear")
+        mobility_model = MobilityModel::constant;
+      mobility          = prm.get_double("mobility");
+      surface_tension   = prm.get_double("surface tension");
+      epsilon_interface = prm.get_double("interface thickness");
+    }
+    prm.leave_subsection();
+  }
+
   void MMS::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Manufactured solution");
@@ -601,11 +641,17 @@ namespace Parameters
         use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
         use_deal_ii_holed_plate_mesh =
           prm.get_bool("use dealii holed plate mesh");
-        mesh_prefix      = prm.get("mesh prefix");
-        first_mesh_index = prm.get_integer("first mesh");
+        mesh_prefix             = prm.get("mesh prefix");
+        first_mesh_index        = prm.get_integer("first mesh");
         compute_L2_spatial_norm = prm.get_bool("compute L2 norm");
+        if (compute_L2_spatial_norm)
+          norms_to_compute.push_back(VectorTools::L2_norm);
         compute_Li_spatial_norm = prm.get_bool("compute Li norm");
+        if (compute_Li_spatial_norm)
+          norms_to_compute.push_back(VectorTools::Linfty_norm);
         compute_H1_spatial_norm = prm.get_bool("compute H1 norm");
+        if (compute_H1_spatial_norm)
+          norms_to_compute.push_back(VectorTools::H1_seminorm);
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");

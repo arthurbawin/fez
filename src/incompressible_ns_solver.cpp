@@ -670,9 +670,7 @@ void IncompressibleNavierStokesSolver<dim>::compare_analytical_matrix_with_fd()
                                  param);
   CopyData           copyData(fe.n_dofs_per_cell());
 
-  double max_error_over_all_elements;
-
-  Verification::compare_analytical_matrix_with_fd(
+  auto errors = Verification::compare_analytical_matrix_with_fd(
     dof_handler,
     fe.n_dofs_per_cell(),
     *this,
@@ -683,11 +681,15 @@ void IncompressibleNavierStokesSolver<dim>::compare_analytical_matrix_with_fd()
     present_solution,
     evaluation_point,
     local_evaluation_point,
-    mpi_communicator,
-    max_error_over_all_elements);
+    mpi_communicator);
 
-  pcout << "Max error analytical vs fd matrix is "
-        << max_error_over_all_elements << std::endl;
+  this->pcout << "Max absolute error analytical vs fd matrix is "
+              << errors.first << std::endl;
+
+  // Only print relative error if absolute is too large
+  if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
+    this->pcout << "Max relative error analytical vs fd matrix is "
+                << errors.second << std::endl;
 }
 
 template <int dim>
@@ -1007,29 +1009,29 @@ void IncompressibleNavierStokesSolver<dim>::compute_errors()
                                                VectorTools::H1_seminorm,
                                                &pressure_comp_select);
 
-  if (time_handler.is_steady())
-  {
-    // Steady solver: simply add errors to convergence table
-    error_handler.add_reference_data("n_elm",
-                                     triangulation.n_global_active_cells());
-    error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
-    error_handler.add_steady_error("L2_u", l2_u);
-    error_handler.add_steady_error("L2_p", l2_p);
-    error_handler.add_steady_error("Li_u", li_u);
-    error_handler.add_steady_error("Li_p", li_p);
-    error_handler.add_steady_error("H1_u", h1semi_u);
-    error_handler.add_steady_error("H1_p", h1semi_p);
-  }
-  else
-  {
-    const double t = time_handler.current_time;
-    error_handler.add_unsteady_error("L2_u", t, l2_u);
-    error_handler.add_unsteady_error("L2_p", t, l2_p);
-    error_handler.add_unsteady_error("Li_u", t, li_u);
-    error_handler.add_unsteady_error("Li_p", t, li_p);
-    error_handler.add_unsteady_error("H1_u", t, h1semi_u);
-    error_handler.add_unsteady_error("H1_p", t, h1semi_p);
-  }
+  // if (time_handler.is_steady())
+  // {
+  //   // Steady solver: simply add errors to convergence table
+  //   error_handler.add_reference_data("n_elm",
+  //                                    triangulation.n_global_active_cells());
+  //   error_handler.add_reference_data("n_dof", dof_handler.n_dofs());
+  //   error_handler.add_steady_error("L2_u", l2_u);
+  //   error_handler.add_steady_error("L2_p", l2_p);
+  //   error_handler.add_steady_error("Li_u", li_u);
+  //   error_handler.add_steady_error("Li_p", li_p);
+  //   error_handler.add_steady_error("H1_u", h1semi_u);
+  //   error_handler.add_steady_error("H1_p", h1semi_p);
+  // }
+  // else
+  // {
+  //   const double t = time_handler.current_time;
+  //   error_handler.add_unsteady_error("L2_u", t, l2_u);
+  //   error_handler.add_unsteady_error("L2_p", t, l2_p);
+  //   error_handler.add_unsteady_error("Li_u", t, li_u);
+  //   error_handler.add_unsteady_error("Li_p", t, li_p);
+  //   error_handler.add_unsteady_error("H1_u", t, h1semi_u);
+  //   error_handler.add_unsteady_error("H1_p", t, h1semi_p);
+  // }
 }
 
 template <int dim>
@@ -1050,7 +1052,7 @@ void IncompressibleNavierStokesSolver<dim>::compute_forces()
                                      update_JxW_values | update_normal_vectors);
 
   Tensor<1, dim>              viscous_local_force, pressure_local_force;
-  double                      area;
+  // double                      area;
   const unsigned int          n_faces_q_points = face_quadrature.size();
   std::vector<Tensor<2, dim>> velocity_gradients(n_faces_q_points);
   std::vector<double>         pressure_values(n_faces_q_points);
@@ -1078,7 +1080,7 @@ void IncompressibleNavierStokesSolver<dim>::compute_forces()
             pressure_local_force += -p * n * fe_face_values.JxW(q);
             viscous_local_force +=
               mu * (grad_u + transpose(grad_u)) * n * fe_face_values.JxW(q);
-            area += fe_face_values.JxW(q);
+            // area += fe_face_values.JxW(q);
           }
         }
       }
@@ -1092,7 +1094,7 @@ void IncompressibleNavierStokesSolver<dim>::compute_forces()
       Utilities::MPI::sum(viscous_local_force[d], mpi_communicator);
   }
 
-  const double area_tot = Utilities::MPI::sum(area, mpi_communicator);
+  // const double area_tot = Utilities::MPI::sum(area, mpi_communicator);
 
   if (param.debug.verbosity == Parameters::Verbosity::verbose)
   {

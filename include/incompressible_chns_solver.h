@@ -1,93 +1,60 @@
-#ifndef INCOMPRESSIBLE_CHNS_SOLVER_H
-#define INCOMPRESSIBLE_CHNS_SOLVER_H
+#ifndef INCOMPRESSIBLE_CHNS_SOLVER_PREV_H
+#define INCOMPRESSIBLE_CHNS_SOLVER_PREV_H
 
 #include <copy_data.h>
-#include <deal.II/base/convergence_table.h>
-#include <deal.II/base/index_set.h>
-#include <deal.II/base/table_handler.h>
-#include <deal.II/base/utilities.h>
-#include <deal.II/distributed/fully_distributed_tria.h>
-#include <deal.II/dofs/dof_handler.h>
-#include <deal.II/fe/fe_simplex_p.h>
-#include <deal.II/fe/fe_system.h>
-#include <deal.II/fe/mapping_fe.h>
-#include <deal.II/lac/affine_constraints.h>
-#include <error_handler.h>
-#include <generic_solver.h>
-#include <parameter_reader.h>
-#include <scratch_data.h>
-#include <time_handler.h>
-#include <types.h>
+#include <deal.II/fe/fe_values_extractors.h>
+#include <navier_stokes_solver.h>
+#include <scratch_data_base.h>
 
 using namespace dealii;
 
 /**
  * Quasi-incompressible Cahn-Hilliard Navier-Stokes solver.
+ * TODO: Add equations.
  */
 template <int dim>
-class IncompressibleCHNSSolver : public GenericSolver<LA::ParVectorType>
+class CHNSSolver : public NavierStokesSolver<dim>
 {
 public:
   /**
    * Constructor
    */
-  IncompressibleCHNSSolver(const ParameterReader<dim> &param);
+  CHNSSolver(const ParameterReader<dim> &param);
 
   /**
    * Destructor
    */
-  virtual ~IncompressibleCHNSSolver() {}
+  virtual ~CHNSSolver() {}
 
   /**
-   * Solve the flow problem
+   * Apply initial condition on the tracer (phase marker)
    */
-  virtual void run() override;
+  virtual void set_solver_specific_initial_conditions() override;
 
   /**
-   * Initialize the dof handler and allocate parallel vectors
+   * Apply exact tracer and potential
    */
-  void setup_dofs();
+  virtual void set_solver_specific_exact_solution() override;
 
-  /**
-   * Create the homogeneous constraints
-   */
-  void create_zero_constraints();
-
-  /**
-   * (Re-)create the nonhomogeneous constraints
-   */
-  void create_nonzero_constraints();
-
-  virtual AffineConstraints<double> &get_nonzero_constraints() override
-  {
-    return nonzero_constraints;
-  }
+  virtual void create_solver_specific_zero_constraints() override;
+  virtual void create_solver_specific_nonzero_constraints() override;
 
   /**
    *
    */
-  void constrain_pressure_point(AffineConstraints<double> &constraints,
-                                const bool                 set_to_zero);
+  virtual void create_sparsity_pattern() override;
+
+  virtual void compute_solver_specific_errors() override;
+  
+  /**
+   *
+   */
+  virtual void output_results() override;
 
   /**
-   * Create the sparsity pattern and allocate matrix
+   * Get the FESystem of the derived solver
    */
-  void create_sparsity_pattern();
-
-  /**
-   * Apply initial conditions
-   */
-  void set_initial_conditions();
-
-  /**
-   * Set solution to exact solution, if provided
-   */
-  void set_exact_solution();
-
-  /**
-   * Recreate and apply nonhomogeneous constraints
-   */
-  void update_boundary_conditions();
+  virtual const FESystem<dim> &get_fe_system() const override { return fe; }
 
   /**
    * Assemble the linearized Jacobian matrix at the current evaluation point
@@ -101,7 +68,7 @@ public:
    */
   void assemble_local_matrix(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchDataNS<dim>                                   &scratchData,
+    ScratchDataCHNS<dim>                     &scratchData,
     CopyData                                             &copy_data);
 
   /**
@@ -110,10 +77,10 @@ public:
    */
   void copy_local_to_global_matrix(const CopyData &copy_data);
 
-  void compare_analytical_matrix_with_fd();
+  virtual void compare_analytical_matrix_with_fd() override;
 
   /**
-   * Assemble the Newton residual at the current evluation point
+   * Assemble the Newton residual at the current evaluation point
    */
   virtual void assemble_rhs() override;
 
@@ -122,213 +89,162 @@ public:
    */
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
-                     ScratchDataNS<dim> &scratchData,
-                     CopyData           &copy_data);
+                     ScratchDataCHNS<dim> &scratchData,
+                     CopyData                         &copy_data);
 
   /**
    * See copy_local_to_global_matrix.
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
-  /**
-   * Solve the linear system J(u) * du = -NL(u).
-   */
-  virtual void
-  solve_linear_system(const bool apply_inhomogeneous_constraints) override;
+protected:
+  FESystem<dim> fe;
 
-  /**
-   *
-   */
-  void compute_errors();
+  // Non-owning pointer to base class fixed_mapping, used for clarity.
+  Mapping<dim> *mapping;
 
-  /**
-   * Write the velocity and pressure to vtu file.
-   */
-  void output_results();
+  FEValuesExtractors::Scalar tracer_extractor;
+  FEValuesExtractors::Scalar potential_extractor;
+  ComponentMask              tracer_mask;
+  ComponentMask              potential_mask;
 
+protected:
   /**
-   * Reset the resolution related structures (mesh, dof_handler, etc.) in
-   * between two runs, e.g. when performing convergence tests.
+   * Source term.
    */
-  void reset();
+  class SourceTerm : public Function<dim>
+  {
+  public:
+    SourceTerm(const double                        time,
+               const ComponentOrdering            &ordering,
+               const Parameters::SourceTerms<dim> &source_terms)
+      : Function<dim>(ordering.n_components, time)
+      , ordering(ordering)
+      , source_terms(source_terms)
+    {}
 
-  /**
-   * Update time in all relevant structures (boundary conditions, source terms,
-   * exact solution).
-   */
-  void set_time();
+    virtual void set_time(const double new_time) override
+    {
+      source_terms.set_time(new_time);
+    }
+
+    virtual void vector_value(const Point<dim> &p,
+                              Vector<double>   &values) const override
+    {
+      // source_terms.fluid_source is a function with dim+1 components
+      for (unsigned int d = 0; d < dim; ++d)
+        values[ordering.u_lower + d] = source_terms.fluid_source->value(p, d);
+      values[ordering.p_lower] = source_terms.fluid_source->value(p, dim);
+      values[ordering.phi_lower] =
+        source_terms.cahnhilliard_source->value(p, 0);
+      values[ordering.mu_lower] = source_terms.cahnhilliard_source->value(p, 1);
+    }
+
+  protected:
+    const ComponentOrdering     &ordering;
+    Parameters::SourceTerms<dim> source_terms;
+  };
 
   /**
    * Exact solution when performing a convergence study with a manufactured
    * solution.
    */
-  // class MMSSolution : public Function<dim>
-  // {
-  // public:
-  //   MMSSolution(const double                                           time,
-  //               const ManufacturedSolution::ManufacturedSolution<dim> &mms)
-  //     : Function<dim>(n_components, time)
-  //     , mms(mms)
-  //   {}
+  class MMSSolution : public Function<dim>
+  {
+  public:
+    MMSSolution(const double             time,
+                const ComponentOrdering &ordering,
+                const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
+      : Function<dim>(ordering.n_components, time)
+      , n_components(ordering.n_components)
+      , u_lower(ordering.u_lower)
+      , p_lower(ordering.p_lower)
+      , phi_lower(ordering.phi_lower)
+      , mu_lower(ordering.mu_lower)
+      , mms(mms)
+    {}
 
-  //   // Update time in the mms functions
-  //   virtual void set_time(const double new_time) override
-  //   {
-  //     mms.set_time(new_time);
-  //   }
+    // Update time in the mms functions
+    virtual void set_time(const double new_time) override
+    {
+      mms.set_time(new_time);
+    }
 
-  //   virtual double value(const Point<dim>  &p,
-  //                        const unsigned int component = 0) const override
-  //   {
-  //     Assert(component < n_components, ExcMessage("Component mismatch"));
-  //     if (component < dim)
-  //       return mms.exact_velocity->value(p, component);
-  //     else
-  //       return mms.exact_pressure->value(p);
-  //   }
+    virtual void vector_value(const Point<dim> &p,
+                              Vector<double>   &values) const override
+    {
+      Assert(values.size() == n_components, ExcMessage("Component mismatch"));
+      for (unsigned int d = 0; d < dim; ++d)
+        values[u_lower + d] = mms.exact_velocity->value(p, d);
+      values[p_lower]   = mms.exact_pressure->value(p);
+      values[phi_lower] = mms.exact_tracer->value(p);
+      values[mu_lower]  = mms.exact_pressure->value(p);
+    }
 
-  //   virtual void vector_value(const Point<dim> &p,
-  //                             Vector<double>   &values) const override
-  //   {
-  //     Assert(values.size() == n_components, ExcMessage("Component mismatch"));
-  //     for (unsigned int d = 0; d < dim; ++d)
-  //       values[u_lower + d] = mms.exact_velocity->value(p, d);
-  //     values[p_lower] = mms.exact_pressure->value(p);
-  //   }
+    virtual void
+    vector_gradient(const Point<dim>            &p,
+                    std::vector<Tensor<1, dim>> &gradients) const override
+    {
+      Assert(gradients.size() == n_components,
+             ExcMessage("Component mismatch"));
+      for (unsigned int d = 0; d < dim; ++d)
+        gradients[u_lower + d] = mms.exact_velocity->gradient(p, d);
+      gradients[p_lower]   = mms.exact_pressure->gradient(p);
+      gradients[phi_lower] = mms.exact_tracer->gradient(p);
+      gradients[mu_lower]  = mms.exact_pressure->gradient(p);
+    }
 
-  //   virtual Tensor<1, dim>
-  //   gradient(const Point<dim>  &p,
-  //            const unsigned int component = 0) const override
-  //   {
-  //     Assert(component < n_components, ExcMessage("Component mismatch"));
-  //     if (component < dim)
-  //       return mms.exact_velocity->gradient(p, component);
-  //     else
-  //       return mms.exact_pressure->gradient(p);
-  //   }
-
-  // protected:
-  //   static constexpr unsigned int n_components = dim + 1;
-  //   static constexpr unsigned int u_lower      = 0;
-  //   static constexpr unsigned int p_lower      = dim;
-
-  //   // MMS cannot be const since its internal time must be updated
-  //   ManufacturedSolution::ManufacturedSolution<dim> mms;
-  // };
+  protected:
+    const unsigned int                               n_components;
+    const unsigned int                               u_lower;
+    const unsigned int                               p_lower;
+    const unsigned int                               phi_lower;
+    const unsigned int                               mu_lower;
+    ManufacturedSolutions::ManufacturedSolution<dim> mms;
+  };
 
   /**
    * Source term called when performing a convergence study.
    * This function calls the derivatives functions from the given
    * pre-set manufactured solution.
    */
-  // class MMSSourceTerm : public Function<dim>
-  // {
-  // public:
-  //   MMSSourceTerm(const double                          time,
-  //                 const Parameters::PhysicalProperties &physical_properties,
-  //                 const ManufacturedSolution::ManufacturedSolution<dim> &mms)
-  //     : Function<dim>(n_components, time)
-  //     , physical_properties(physical_properties)
-  //     , mms(mms)
-  //   {}
-
-  //   // Update time in the mms functions
-  //   virtual void set_time(const double new_time) override
-  //   {
-  //     mms.set_time(new_time);
-  //   }
-
-  //   /**
-  //    * Evaluate the combined velocity-pressure source term for the
-  //    * incompressible Navier-Stokes momentum-mass equations.
-  //    */
-  //   virtual void vector_value(const Point<dim> &p,
-  //                             Vector<double>   &values) const override;
-
-  // protected:
-  //   static constexpr unsigned int         n_components = dim + 1;
-  //   static constexpr unsigned int         u_lower      = 0;
-  //   static constexpr unsigned int         p_lower      = dim;
-  //   const Parameters::PhysicalProperties &physical_properties;
-
-  //   // MMS cannot be const since its internal time must be updated
-  //   ManufacturedSolution::ManufacturedSolution<dim> mms;
-  // };
-
-protected:
-  // Ordering of the FE system for the incompressible CHNS solver.
-  // Each field is in the half-open [lower, upper)
-  // Check for matching component by doing e.g.:
-  // if(u_lower <= comp && comp < u_upper)
-  static constexpr unsigned int n_components = dim + 3;
-  static constexpr unsigned int u_lower      = 0;
-  static constexpr unsigned int u_upper      = dim;
-  static constexpr unsigned int p_lower      = dim;
-  static constexpr unsigned int p_upper      = dim + 1;
-  static constexpr unsigned int phi_lower      = dim + 1;
-  static constexpr unsigned int phi_upper      = dim + 2;
-  static constexpr unsigned int mu_lower      = dim + 2;
-  static constexpr unsigned int mu_upper      = dim + 3;
-
-  const FEValuesExtractors::Vector velocity_extractor;
-  const FEValuesExtractors::Scalar pressure_extractor;
-  const FEValuesExtractors::Scalar tracer_extractor;
-  const FEValuesExtractors::Scalar potential_extractor;
-
-  /**
-   * Quality-of-life functions to check which field a given component is
-   */
-  inline bool is_velocity(const unsigned int component) const
+  class MMSSourceTerm : public Function<dim>
   {
-    return u_lower <= component && component < u_upper;
-  }
-  inline bool is_pressure(const unsigned int component) const
-  {
-    return p_lower <= component && component < p_upper;
-  }
-  inline bool is_tracer(const unsigned int component) const
-  {
-    return phi_lower <= component && component < phi_upper;
-  }
-  inline bool is_potential(const unsigned int component) const
-  {
-    return mu_lower <= component && component < mu_upper;
-  }
+  public:
+    MMSSourceTerm(
+      const double                               time,
+      const ComponentOrdering                   &ordering,
+      const ParameterReader<dim> &param)
+      : Function<dim>(ordering.n_components, time)
+      , n_components(ordering.n_components)
+      , u_lower(ordering.u_lower)
+      , p_lower(ordering.p_lower)
+      , phi_lower(ordering.phi_lower)
+      , mu_lower(ordering.mu_lower)
+      , physical_properties(param.physical_properties)
+      , cahn_hilliard_param(param.cahn_hilliard)
+      , mms(param.mms)
+    {}
 
-protected:
-  ParameterReader<dim> param;
+    // Update time in the mms functions
+    virtual void set_time(const double new_time) override
+    {
+      mms.set_time(new_time);
+    }
 
-  QSimplex<dim>     quadrature;
-  QSimplex<dim - 1> face_quadrature;
+    virtual void vector_value(const Point<dim> &p,
+                              Vector<double>   &values) const override;
 
-  parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::shared_ptr<Mapping<dim>>                  mapping;
-  FESystem<dim>                                  fe;
-  DoFHandler<dim>                                dof_handler;
-  TimeHandler                                    time_handler;
-
-  const ComponentMask velocity_mask;
-  const ComponentMask pressure_mask;
-  const ComponentMask tracer_mask;
-  const ComponentMask potential_mask;
-
-  IndexSet locally_owned_dofs;
-  IndexSet locally_relevant_dofs;
-
-  AffineConstraints<double> zero_constraints;
-  AffineConstraints<double> nonzero_constraints;
-
-  types::global_dof_index constrained_pressure_dof = numbers::invalid_dof_index;
-  Point<dim>              constrained_pressure_support_point;
-
-  LA::ParMatrixType              system_matrix;
-  std::vector<LA::ParVectorType> previous_solutions;
-
-  std::shared_ptr<Function<dim>> source_terms;
-  std::shared_ptr<Function<dim>> exact_solution;
-
-  TableHandler forces_table;
-  TableHandler cylinder_position_table;
+  protected:
+    const unsigned int                               n_components;
+    const unsigned int                               u_lower;
+    const unsigned int                               p_lower;
+    const unsigned int                               phi_lower;
+    const unsigned int                               mu_lower;
+    const Parameters::PhysicalProperties<dim>       &physical_properties;
+    const Parameters::CahnHilliard       &cahn_hilliard_param;
+    ManufacturedSolutions::ManufacturedSolution<dim> mms;
+  };
 };
 
 #endif

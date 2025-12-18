@@ -1,8 +1,8 @@
 #ifndef TIME_HANDLER_H
 #define TIME_HANDLER_H
 
-#include <deal.II/base/types.h>
 #include <deal.II/base/conditional_ostream.h>
+#include <deal.II/base/types.h>
 #include <parameters.h>
 
 /**
@@ -67,14 +67,22 @@ public:
     const std::vector<VectorType> &previous_solutions) const;
 
   /**
-   * Same as above but for the time derivative of a vector (Tensor<1, dim>),
+   * Same as above but for the time derivative of a scalar,
    * given the current and previous vectors, at index-th quadrature node.
    *
    * This is tailored for a previous_solutions vector stored in a scratch data.
    */
+  double compute_time_derivative_at_quadrature_node(
+    const unsigned int                      quadrature_node_index,
+    const double                            present_solution,
+    const std::vector<std::vector<double>> &previous_solutions) const;
+
+  /**
+   * Same as above but for the time derivative of a vector (Tensor<1, dim>).
+   */
   template <int dim>
   Tensor<1, dim> compute_time_derivative_at_quadrature_node(
-    const unsigned int                              index,
+    const unsigned int                              quadrature_node_index,
     const Tensor<1, dim>                           &present_solution,
     const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const;
 
@@ -120,7 +128,7 @@ double TimeHandler::compute_time_derivative(
 
 template <int dim>
 Tensor<1, dim> TimeHandler::compute_time_derivative_at_quadrature_node(
-  const unsigned int                              index,
+  const unsigned int                              quadrature_node_index,
   const Tensor<1, dim>                           &present_solution,
   const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const
 {
@@ -131,7 +139,8 @@ Tensor<1, dim> TimeHandler::compute_time_derivative_at_quadrature_node(
   {
     Tensor<1, dim> value_dot = bdf_coefficients[0] * present_solution;
     for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
-      value_dot += bdf_coefficients[i] * previous_solutions[i - 1][index];
+      value_dot +=
+        bdf_coefficients[i] * previous_solutions[i - 1][quadrature_node_index];
     return value_dot;
   }
   DEAL_II_ASSERT_UNREACHABLE();

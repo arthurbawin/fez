@@ -55,6 +55,9 @@ public:
   }
 };
 
+/**
+ * Components ordering for the incompressible Navier-Stokes solver without ALE.
+ */
 template <int dim>
 class ComponentOrderingNS : public ComponentOrdering
 {
@@ -70,6 +73,9 @@ public:
   }
 };
 
+/**
+ * Components ordering for the fluid-structure solver with ALE.
+ */
 template <int dim>
 class ComponentOrderingFSI : public ComponentOrdering
 {
@@ -86,6 +92,29 @@ public:
     x_upper      = 2 * dim + 1;
     l_lower      = 2 * dim + 1;
     l_upper      = 3 * dim + 1;
+  }
+};
+
+/**
+ * Components ordering for the quasi-incompressible Cahn-Hilliard Navier-Stokes
+ * solver without ALE.
+ */
+template <int dim>
+class ComponentOrderingCHNS : public ComponentOrdering
+{
+public:
+  ComponentOrderingCHNS()
+    : ComponentOrdering()
+  {
+    n_components = dim + 3;
+    u_lower      = 0;
+    u_upper      = dim;
+    p_lower      = dim;
+    p_upper      = dim + 1;
+    phi_lower    = dim + 1;
+    phi_upper    = dim + 2;
+    mu_lower     = dim + 2;
+    mu_upper     = dim + 3;
   }
 };
 

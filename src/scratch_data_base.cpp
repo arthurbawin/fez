@@ -68,6 +68,7 @@ ScratchData<dim>::ScratchData(const ComponentOrdering &ordering,
   , enable_lagrange_multiplier(enable_lagrange_multiplier)
   , enable_cahn_hilliard(enable_cahn_hilliard)
   , physical_properties(param.physical_properties)
+  , cahn_hilliard_param(param.cahn_hilliard)
   , fe_values(moving_mapping,
               fe,
               cell_quadrature,
@@ -98,63 +99,16 @@ ScratchData<dim>::ScratchData(const ComponentOrdering &ordering,
   , dofs_per_cell(fe.dofs_per_cell)
   , bdf_coefficients(bdf_coefficients)
 {
-  velocity.first_vector_component = u_lower = ordering.u_lower;
-  pressure.component = p_lower = ordering.p_lower;
-
-  // Check if weak forms are to be assembled on boundaries
-  for (const auto &[id, bc] : param.fluid_bc)
-    if (bc.type == BoundaryConditions::Type::open_mms)
-    {
-      has_navier_stokes_boundary_forms = true;
-      break;
-    }
+  initialize_navier_stokes();
 
   if (enable_pseudo_solid)
-  {
-    // Check if the given ordering allows to compute the requested features
-    // FIXME: This should be checked at compile-time, but I'm not sure what's
-    // the best way...
-    AssertThrow(ordering.x_lower != numbers::invalid_unsigned_int,
-                ExcMessage(
-                  "Cannot create ScratchData with pseudo solid data because "
-                  "solver does not have a mesh position variable."));
-
-    position.first_vector_component = x_lower = ordering.x_lower;
-
-    // No boundary integrals for now
-    has_pseudo_solid_boundary_forms = false;
-  }
+    initialize_pseudo_solid();
 
   if (enable_lagrange_multiplier)
-  {
-    AssertThrow(
-      ordering.l_lower != numbers::invalid_unsigned_int,
-      ExcMessage(
-        "Cannot create ScratchData with Lagrange multiplier data because "
-        "solver does not have a Lagrange multiplier variable."));
-
-    lambda.first_vector_component = ordering.l_lower;
-  }
+    initialize_lagrange_multiplier();
 
   if (enable_cahn_hilliard)
-  {
-    AssertThrow(
-      ordering.phi_lower != numbers::invalid_unsigned_int &&
-        ordering.mu_lower != numbers::invalid_unsigned_int,
-      ExcMessage(
-        "Cannot create ScratchData with Cahn Hilliard data because solver does "
-        "not have a tracer and/or potential variable(s)."));
-
-    tracer.component = phi_lower = ordering.phi_lower;
-    potential.component = mu_lower = ordering.mu_lower;
-
-    // No boundary integrals for now
-    has_cahn_hilliard_boundary_forms = false;
-  }
-
-  has_boundary_forms =
-    enable_lagrange_multiplier || has_navier_stokes_boundary_forms ||
-    has_pseudo_solid_boundary_forms || has_cahn_hilliard_boundary_forms;
+    initialize_cahn_hilliard();
 
   allocate();
 }
@@ -167,6 +121,7 @@ ScratchData<dim>::ScratchData(const ScratchData &other)
   , enable_lagrange_multiplier(other.enable_lagrange_multiplier)
   , enable_cahn_hilliard(other.enable_cahn_hilliard)
   , physical_properties(other.physical_properties)
+  , cahn_hilliard_param(other.cahn_hilliard_param)
   , fe_values(other.fe_values.get_mapping(),
               other.fe_values.get_fe(),
               other.fe_values.get_quadrature(),
@@ -183,29 +138,82 @@ ScratchData<dim>::ScratchData(const ScratchData &other)
                          other.fe_face_values_fixed.get_fe(),
                          other.fe_face_values_fixed.get_quadrature(),
                          other.fe_face_values_fixed.get_update_flags())
-  , has_boundary_forms(other.has_boundary_forms)
-  , has_navier_stokes_boundary_forms(other.has_navier_stokes_boundary_forms)
-  , has_pseudo_solid_boundary_forms(other.has_pseudo_solid_boundary_forms)
-  , has_cahn_hilliard_boundary_forms(other.has_cahn_hilliard_boundary_forms)
   , n_q_points(other.n_q_points)
   , n_faces(other.n_faces)
   , n_faces_q_points(other.n_faces_q_points)
   , dofs_per_cell(other.dofs_per_cell)
   , bdf_coefficients(other.bdf_coefficients)
 {
-  velocity.first_vector_component = u_lower = ordering.u_lower;
-  pressure.component = p_lower = ordering.p_lower;
+  initialize_navier_stokes();
+
   if (enable_pseudo_solid)
-    position.first_vector_component = x_lower = ordering.x_lower;
+    initialize_pseudo_solid();
+
   if (enable_lagrange_multiplier)
-    lambda.first_vector_component = l_lower = ordering.l_lower;
+    initialize_lagrange_multiplier();
+
   if (enable_cahn_hilliard)
-  {
-    tracer.component = phi_lower = ordering.phi_lower;
-    potential.component = mu_lower = ordering.mu_lower;
-  }
+    initialize_cahn_hilliard();
 
   allocate();
+}
+
+template <int dim>
+void ScratchData<dim>::initialize_navier_stokes()
+{
+  velocity.first_vector_component = u_lower = ordering.u_lower;
+  pressure.component = p_lower = ordering.p_lower;
+}
+
+template <int dim>
+void ScratchData<dim>::initialize_pseudo_solid()
+{
+  // Check if the given ordering allows to compute the requested features
+  // FIXME: This should be checked at compile-time, but I'm not sure what's
+  // the best way...
+  AssertThrow(ordering.x_lower != numbers::invalid_unsigned_int,
+              ExcMessage(
+                "Cannot create ScratchData with pseudo solid data because "
+                "solver does not have a mesh position variable."));
+
+  position.first_vector_component = x_lower = ordering.x_lower;
+}
+
+template <int dim>
+void ScratchData<dim>::initialize_lagrange_multiplier()
+{
+  AssertThrow(
+    ordering.l_lower != numbers::invalid_unsigned_int,
+    ExcMessage(
+      "Cannot create ScratchData with Lagrange multiplier data because "
+      "solver does not have a Lagrange multiplier variable."));
+
+  lambda.first_vector_component = ordering.l_lower;
+}
+
+template <int dim>
+void ScratchData<dim>::initialize_cahn_hilliard()
+{
+  AssertThrow(
+    ordering.phi_lower != numbers::invalid_unsigned_int &&
+      ordering.mu_lower != numbers::invalid_unsigned_int,
+    ExcMessage(
+      "Cannot create ScratchData with Cahn Hilliard data because solver does "
+      "not have a tracer and/or potential variable(s)."));
+
+  tracer.component = phi_lower = ordering.phi_lower;
+  potential.component = mu_lower = ordering.mu_lower;
+
+  density0           = physical_properties.fluids[0].density;
+  density1           = physical_properties.fluids[1].density;
+  const double nu0   = physical_properties.fluids[0].kinematic_viscosity;
+  const double nu1   = physical_properties.fluids[1].kinematic_viscosity;
+  dynamic_viscosity0 = density0 * nu0;
+  dynamic_viscosity1 = density1 * nu1;
+  mobility           = cahn_hilliard_param.mobility;
+  epsilon            = cahn_hilliard_param.epsilon_interface;
+  sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
+  diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
 }
 
 template <int dim>
@@ -225,6 +233,8 @@ void ScratchData<dim>::allocate()
    */
   present_velocity_values.resize(n_q_points);
   present_velocity_gradients.resize(n_q_points);
+  present_velocity_sym_gradients.resize(n_q_points);
+  present_velocity_divergence.resize(n_q_points);
   present_pressure_values.resize(n_q_points);
   previous_velocity_values.resize(bdf_coefficients.size() - 1,
                                   std::vector<Tensor<1, dim>>(n_q_points));
@@ -234,6 +244,7 @@ void ScratchData<dim>::allocate()
 
   phi_u.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
   grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
+  sym_grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
   div_phi_u.resize(n_q_points, std::vector<double>(dofs_per_cell));
   phi_p.resize(n_q_points, std::vector<double>(dofs_per_cell));
 
@@ -312,7 +323,33 @@ void ScratchData<dim>::allocate()
                         std::vector<Tensor<1, dim>>(dofs_per_cell)));
   }
 
-  if (enable_cahn_hilliard) {}
+  if (enable_cahn_hilliard)
+  {
+    density.resize(n_q_points);
+    derivative_density_wrt_tracer.resize(n_q_points);
+    dynamic_viscosity.resize(n_q_points);
+    derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
+
+    tracer_values.resize(n_q_points);
+    tracer_gradients.resize(n_q_points);
+    potential_values.resize(n_q_points);
+    potential_gradients.resize(n_q_points);
+    previous_tracer_values.resize(bdf_coefficients.size() - 1,
+                                  std::vector<double>(n_q_points));
+
+    diffusive_flux.resize(n_q_points);
+    velocity_dot_tracer_gradient.resize(n_q_points);
+
+    shape_phi.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    grad_shape_phi.resize(n_q_points,
+                          std::vector<Tensor<1, dim>>(dofs_per_cell));
+    shape_mu.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    grad_shape_mu.resize(n_q_points,
+                         std::vector<Tensor<1, dim>>(dofs_per_cell));
+
+    source_term_tracer.resize(n_q_points);
+    source_term_potential.resize(n_q_points);
+  }
 }
 
 // Explicit instantiations

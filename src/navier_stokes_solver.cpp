@@ -300,7 +300,11 @@ void NavierStokesSolver<dim>::create_base_constraints(
       constrained_pressure_dof,
       zero_mean_pressure_weights);
 
-  constraints.close();
+  /**
+   * Do not close the constraints here, as derived solvers may need
+   * to add boundary conditions on their own fields (e.g., Cahn Hilliard)
+   */
+  // constraints.close();
 }
 
 template <int dim>
@@ -308,6 +312,7 @@ void NavierStokesSolver<dim>::create_zero_constraints()
 {
   create_base_constraints(true, zero_constraints);
   create_solver_specific_zero_constraints();
+  zero_constraints.close();
 }
 
 template <int dim>
@@ -315,6 +320,7 @@ void NavierStokesSolver<dim>::create_nonzero_constraints()
 {
   create_base_constraints(false, nonzero_constraints);
   create_solver_specific_nonzero_constraints();
+  nonzero_constraints.close();
 }
 
 template <int dim>
@@ -423,6 +429,8 @@ void NavierStokesSolver<dim>::set_exact_solution()
                                                            ordering->p_lower);
     pcout << "After  removing pressure: " << p_mean2 << std::endl;
   }
+
+  set_solver_specific_exact_solution();
 
   evaluation_point = local_evaluation_point;
   present_solution = local_evaluation_point;

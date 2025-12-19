@@ -66,20 +66,11 @@ CHNSSolver<dim>::CHNSSolver(const ParameterReader<dim> &param)
     this->source_terms = std::make_shared<CHNSSolver<dim>::MMSSourceTerm>(
       this->time_handler.current_time, *this->ordering, param);
 
-    if (this->param.mms_param.compute_L2_spatial_norm)
+    // Create entry in error handler for tracer and potential
+    for (auto norm : this->param.mms_param.norms_to_compute)
     {
-      this->error_handler.create_entry("L2_phi");
-      this->error_handler.create_entry("L2_mu");
-    }
-    if (this->param.mms_param.compute_Li_spatial_norm)
-    {
-      this->error_handler.create_entry("Li_phi");
-      this->error_handler.create_entry("Li_mu");
-    }
-    if (this->param.mms_param.compute_H1_spatial_norm)
-    {
-      this->error_handler.create_entry("H1_phi");
-      this->error_handler.create_entry("H1_mu");
+      this->error_handlers[norm]->create_entry("phi");
+      this->error_handlers[norm]->create_entry("mu");
     }
   }
   else
@@ -114,6 +105,7 @@ void CHNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   const double sigma_tilde_over_eps  = sigma_tilde / epsilon;
   const double sigma_tilde_times_eps = sigma_tilde * epsilon;
+  const auto &body_force = cahn_hilliard_param.body_force;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
@@ -135,7 +127,7 @@ void CHNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
 
   // Navier-Stokes momentum (velocity) source term
-  Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu) + J_flux * grad_u +
+  Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu + body_force) + J_flux * grad_u +
                        grad_p - div_viscous + phi * grad_mu);
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
@@ -159,15 +151,55 @@ void CHNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
 template <int dim>
 void CHNSSolver<dim>::create_solver_specific_zero_constraints()
 {
-  // By default we set zero-flux on both tracer and potential.
-  // Modify when necessary.
+  for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
+  {
+    /**
+     * Apply manufactured solution for both tracer and potential
+     */
+    if (bc.type == BoundaryConditions::Type::dirichlet_mms)
+    {
+      VectorTools::interpolate_boundary_values(*mapping,
+                                               this->dof_handler,
+                                               id,
+                                               Functions::ZeroFunction<dim>(
+                                                 this->ordering->n_components),
+                                               this->zero_constraints,
+                                               tracer_mask);
+      VectorTools::interpolate_boundary_values(*mapping,
+                                               this->dof_handler,
+                                               id,
+                                               Functions::ZeroFunction<dim>(
+                                                 this->ordering->n_components),
+                                               this->zero_constraints,
+                                               potential_mask);
+    }
+  }
 }
 
 template <int dim>
 void CHNSSolver<dim>::create_solver_specific_nonzero_constraints()
 {
-  // By default we set zero-flux on both tracer and potential.
-  // Modify when necessary.
+  for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
+  {
+    /**
+     * Apply manufactured solution for both tracer and potential
+     */
+    if (bc.type == BoundaryConditions::Type::dirichlet_mms)
+    {
+      VectorTools::interpolate_boundary_values(*mapping,
+                                               this->dof_handler,
+                                               id,
+                                               *this->exact_solution,
+                                               this->nonzero_constraints,
+                                               tracer_mask);
+      VectorTools::interpolate_boundary_values(*mapping,
+                                               this->dof_handler,
+                                               id,
+                                               *this->exact_solution,
+                                               this->nonzero_constraints,
+                                               potential_mask);
+    }
+  }
 }
 
 template <int dim>
@@ -311,6 +343,7 @@ void CHNSSolver<dim>::assemble_local_matrix(
   const double sigma_tilde_times_eps =
     scratch_data.sigma_tilde * scratch_data.epsilon;
   const double diffusive_flux_factor = scratch_data.diffusive_flux_factor;
+  const auto &body_force = scratch_data.body_force;
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
@@ -340,7 +373,6 @@ void CHNSSolver<dim>::assemble_local_matrix(
       scratch_data.present_velocity_gradients[q];
     const auto &present_velocity_sym_gradients =
       scratch_data.present_velocity_sym_gradients[q];
-    const auto &source_term_velocity = scratch_data.source_term_velocity[q];
 
     const auto &tracer_value       = scratch_data.tracer_values[q];
     const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
@@ -404,16 +436,15 @@ void CHNSSolver<dim>::assemble_local_matrix(
             local_matrix_ij +=
               drhodphi * phi_phi[j] *
               (present_velocity_gradients * present_velocity_values) * phi_u[i];
-
+            // Body force
+            local_matrix_ij +=
+              phi_u[i] * drhodphi * phi_phi[j] * body_force;
             // Diffusion
             local_matrix_ij +=
               2. * detadphi * phi_phi[j] *
               scalar_product(grad_phi_u[i], present_velocity_sym_gradients);
             // Surface tension
             local_matrix_ij += phi_u[i] * phi_phi[j] * potential_gradient;
-            // Source term
-            local_matrix_ij +=
-              phi_u[i] * drhodphi * phi_phi[j] * source_term_velocity;
           }
           if (j_is_mu)
           {
@@ -590,6 +621,7 @@ void CHNSSolver<dim>::assemble_local_rhs(
     scratch_data.sigma_tilde / scratch_data.epsilon;
   const double sigma_tilde_times_eps =
     scratch_data.sigma_tilde * scratch_data.epsilon;
+  const auto &body_force = scratch_data.body_force;
 
   //
   // Volume contributions
@@ -608,8 +640,10 @@ void CHNSSolver<dim>::assemble_local_rhs(
       scratch_data.present_velocity_sym_gradients[q];
     const auto &present_pressure_values =
       scratch_data.present_pressure_values[q];
-    const auto &source_term_velocity = scratch_data.source_term_velocity[q];
-    const auto &source_term_pressure = scratch_data.source_term_pressure[q];
+    const auto &source_term_velocity  = scratch_data.source_term_velocity[q];
+    const auto &source_term_pressure  = scratch_data.source_term_pressure[q];
+    const auto &source_term_tracer    = scratch_data.source_term_tracer[q];
+    const auto &source_term_potential = scratch_data.source_term_potential[q];
     const auto &present_velocity_divergence =
       scratch_data.present_velocity_divergence[q];
 
@@ -641,6 +675,15 @@ void CHNSSolver<dim>::assemble_local_rhs(
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
+      const auto &phi_u_i        = phi_u[i];
+      const auto &grad_phi_u_i   = grad_phi_u[i];
+      const auto &div_phi_u_i    = div_phi_u[i];
+      const auto &phi_p_i        = phi_p[i];
+      const auto &phi_phi_i      = phi_phi[i];
+      const auto &grad_phi_phi_i = grad_phi_phi[i];
+      const auto &phi_mu_i       = phi_mu[i];
+      const auto &grad_phi_mu_i  = grad_phi_mu[i];
+
       double local_rhs_i = -(
 
         /**
@@ -648,58 +691,66 @@ void CHNSSolver<dim>::assemble_local_rhs(
          */
 
         // Transient
-        rho * phi_u[i] * dudt
+        rho * phi_u_i * dudt
 
         // Convection
-        +
-        rho * (present_velocity_gradients * present_velocity_values) * phi_u[i]
+        + rho * (present_velocity_gradients * present_velocity_values) * phi_u_i
+
+        // Body force
+        + rho * phi_u_i * body_force
 
         // Diffusive flux
-        + phi_u[i] * diffusive_flux
+        + phi_u_i * diffusive_flux
 
         // Diffusion
         +
-        2. * eta * scalar_product(grad_phi_u[i], present_velocity_sym_gradients)
+        2. * eta * scalar_product(grad_phi_u_i, present_velocity_sym_gradients)
 
         // Pressure gradient
-        - div_phi_u[i] * present_pressure_values
+        - div_phi_u_i * present_pressure_values
 
         // Surface tension phi * grad(mu)
-        + phi_u[i] * tracer_value * potential_gradient
+        + phi_u_i * tracer_value * potential_gradient
 
-        // Momentum source term
-        + rho * source_term_velocity * phi_u[i]
+        // Source term
+        + source_term_velocity * phi_u_i
 
         /**
          * Continuity equation
          */
 
         // Continuity
-        - present_velocity_divergence * phi_p[i]
+        - present_velocity_divergence * phi_p_i
 
-        // Pressure source term
-        + source_term_pressure * phi_p[i]
+        // Source term
+        + source_term_pressure * phi_p_i
 
         /**
          * Tracer equation
          */
 
         // Transient and advection
-        + phi_phi[i] * (dphidt + velocity_dot_tracer_gradient)
+        + phi_phi_i * (dphidt + velocity_dot_tracer_gradient)
 
         // Diffusion
-        + mobility * potential_gradient * grad_phi_phi[i]
+        + mobility * potential_gradient * grad_phi_phi_i
+
+        // Source term
+        + phi_phi_i * source_term_tracer
 
         /**
          * Potential equation
          */
 
         // Mass and double well
-        + phi_mu[i] *
-            (potential_value - sigma_tilde_over_eps * phi_cube_minus_phi)
+        +
+        phi_mu_i * (potential_value - sigma_tilde_over_eps * phi_cube_minus_phi)
 
         // Diffusion
-        - sigma_tilde_times_eps * grad_phi_mu[i] * tracer_gradient);
+        - sigma_tilde_times_eps * grad_phi_mu_i * tracer_gradient
+
+        // Source term
+        + phi_mu_i * source_term_potential);
 
       local_rhs_i *= JxW;
       local_rhs(i) += local_rhs_i;
@@ -763,113 +814,24 @@ void CHNSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 template <int dim>
 void CHNSSolver<dim>::compute_solver_specific_errors()
 {
-  // const double       t              = this->time_handler.current_time;
-  // const unsigned int n_active_cells = this->triangulation.n_active_cells();
-  // Vector<double>     cellwise_errors(n_active_cells);
-  // const ComponentSelectFunction<dim> tracer_comp_select(
-  //   this->ordering->phi_lower, this->ordering->n_components);
-  // const ComponentSelectFunction<dim> potential_comp_select(
-  //   this->ordering->mu_lower, this->ordering->n_components);
+  const unsigned int n_active_cells = this->triangulation.n_active_cells();
+  Vector<double>     cellwise_errors(n_active_cells);
 
-  // if (this->param.mms_param.compute_L2_spatial_norm)
-  // {
-  //   const double l2_phi =
-  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
-  //                                                *mapping,
-  //                                                this->dof_handler,
-  //                                                this->present_solution,
-  //                                                *this->exact_solution,
-  //                                                cellwise_errors,
-  //                                                this->error_quadrature,
-  //                                                VectorTools::L2_norm,
-  //                                                &tracer_comp_select);
-  //   const double l2_mu =
-  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
-  //                                                *mapping,
-  //                                                this->dof_handler,
-  //                                                this->present_solution,
-  //                                                *this->exact_solution,
-  //                                                cellwise_errors,
-  //                                                this->error_quadrature,
-  //                                                VectorTools::L2_norm,
-  //                                                &potential_comp_select);
-  //   if (this->time_handler.is_steady())
-  //   {
-  //     this->error_handler.add_steady_error("L2_phi", l2_phi);
-  //     this->error_handler.add_steady_error("L2_mu", l2_mu);
-  //   }
-  //   else
-  //   {
-  //     this->error_handler.add_unsteady_error("L2_phi", t, l2_phi);
-  //     this->error_handler.add_unsteady_error("L2_mu", t, l2_mu);
-  //   }
-  // }
-  // if (this->param.mms_param.compute_Li_spatial_norm)
-  // {
-  //   const double li_phi =
-  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
-  //                                                *mapping,
-  //                                                this->dof_handler,
-  //                                                this->present_solution,
-  //                                                *this->exact_solution,
-  //                                                cellwise_errors,
-  //                                                this->error_quadrature,
-  //                                                VectorTools::Linfty_norm,
-  //                                                &tracer_comp_select);
-  //   const double li_mu =
-  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
-  //                                                *mapping,
-  //                                                this->dof_handler,
-  //                                                this->present_solution,
-  //                                                *this->exact_solution,
-  //                                                cellwise_errors,
-  //                                                this->error_quadrature,
-  //                                                VectorTools::Linfty_norm,
-  //                                                &potential_comp_select);
-  //   if (this->time_handler.is_steady())
-  //   {
-  //     this->error_handler.add_steady_error("Li_phi", li_phi);
-  //     this->error_handler.add_steady_error("Li_mu", li_mu);
-  //   }
-  //   else
-  //   {
-  //     this->error_handler.add_unsteady_error("Li_phi", t, li_phi);
-  //     this->error_handler.add_unsteady_error("Li_mu", t, li_mu);
-  //   }
-  // }
-  // if (this->param.mms_param.compute_H1_spatial_norm)
-  // {
-  //   const double h1semi_phi =
-  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
-  //                                                *mapping,
-  //                                                this->dof_handler,
-  //                                                this->present_solution,
-  //                                                *this->exact_solution,
-  //                                                cellwise_errors,
-  //                                                this->error_quadrature,
-  //                                                VectorTools::H1_seminorm,
-  //                                                &tracer_comp_select);
-  //   const double h1semi_mu =
-  //     compute_error_norm<dim, LA::ParVectorType>(this->triangulation,
-  //                                                *mapping,
-  //                                                this->dof_handler,
-  //                                                this->present_solution,
-  //                                                *this->exact_solution,
-  //                                                cellwise_errors,
-  //                                                this->error_quadrature,
-  //                                                VectorTools::H1_seminorm,
-  //                                                &potential_comp_select);
-  //   if (this->time_handler.is_steady())
-  //   {
-  //     this->error_handler.add_steady_error("H1_phi", h1semi_phi);
-  //     this->error_handler.add_steady_error("H1_mu", h1semi_mu);
-  //   }
-  //   else
-  //   {
-  //     this->error_handler.add_unsteady_error("H1_phi", t, h1semi_phi);
-  //     this->error_handler.add_unsteady_error("H1_mu", t, h1semi_mu);
-  //   }
-  // }
+  const ComponentSelectFunction<dim> tracer_comp_select(
+    this->ordering->phi_lower, this->ordering->n_components);
+  const ComponentSelectFunction<dim> potential_comp_select(
+    this->ordering->mu_lower, this->ordering->n_components);
+
+  this->compute_and_add_errors(*mapping,
+                               *this->exact_solution,
+                               cellwise_errors,
+                               tracer_comp_select,
+                               "phi");
+  this->compute_and_add_errors(*mapping,
+                               *this->exact_solution,
+                               cellwise_errors,
+                               potential_comp_select,
+                               "mu");
 }
 
 template <int dim>

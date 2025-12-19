@@ -36,6 +36,7 @@ namespace BoundaryConditions
     // Common
     none,
     input_function,
+    dirichlet_mms,
 
     // Flow
     outflow,      // Do nothing
@@ -56,7 +57,7 @@ namespace BoundaryConditions
     coupled_to_fluid, // Couple to lagrange mult
     no_flux,          // Slip. Have to check what happens at corners, etc.
     position_mms,     // Enforce x = x_mms
-    position_flux_mms // Enforce x \cdot n = x_mms \cdot n
+    position_flux_mms, // Enforce x \cdot n = x_mms \cdot n
 
     // Cahn-Hilliard
     // no_flux

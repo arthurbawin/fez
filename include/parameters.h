@@ -217,8 +217,10 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
-  struct CahnHilliard
+  template <int dim>
+  class CahnHilliard
   {
+  public:
     enum class MobilityModel
     {
       constant
@@ -227,6 +229,13 @@ namespace Parameters
     double mobility;
     double surface_tension;
     double epsilon_interface;
+
+    /**
+     * We differentiate between the body force which is multiplied by the mixture density
+     * (typically gravity), and the generic source term (e.g., for manufactured solutions)
+     * which is not.
+     */
+    Tensor<1, dim> body_force;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -264,9 +273,6 @@ namespace Parameters
     unsigned int first_mesh_index;
     unsigned int mesh_suffix;
 
-    bool                               compute_L2_spatial_norm;
-    bool                               compute_Li_spatial_norm;
-    bool                               compute_H1_spatial_norm;
     std::vector<VectorTools::NormType> norms_to_compute;
 
     bool         use_space_convergence_mesh;

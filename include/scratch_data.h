@@ -62,7 +62,7 @@ private:
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> &exact_solution)
+    const std::shared_ptr<Function<dim>> &/*exact_solution*/)
   {
     fe_values[velocity].get_function_values(current_solution,
                                             present_velocity_values);
@@ -108,8 +108,8 @@ private:
   void reinit_navier_stokes_face(
     const unsigned int                    i_face,
     const VectorType                     &current_solution,
-    const std::vector<VectorType>        &previous_solutions,
-    const std::shared_ptr<Function<dim>> &source_terms,
+    const std::vector<VectorType>        &/*previous_solutions*/,
+    const std::shared_ptr<Function<dim>> &/*source_terms*/,
     const std::shared_ptr<Function<dim>> &exact_solution)
   {
     fe_face_values[velocity].get_function_values(
@@ -144,7 +144,7 @@ private:
   reinit_pseudo_solid_cell(const VectorType              &current_solution,
                            const std::vector<VectorType> &previous_solutions,
                            const std::shared_ptr<Function<dim>> &source_terms,
-                           const std::shared_ptr<Function<dim>> &exact_solution)
+                           const std::shared_ptr<Function<dim>> &/*exact_solution*/)
   {
     fe_values_fixed[position].get_function_values(current_solution,
                                                   present_position_values);
@@ -216,8 +216,8 @@ private:
   reinit_pseudo_solid_face(const unsigned int             i_face,
                            const VectorType              &current_solution,
                            const std::vector<VectorType> &previous_solutions,
-                           const std::shared_ptr<Function<dim>> &source_terms,
-                           const std::shared_ptr<Function<dim>> &exact_solution)
+                           const std::shared_ptr<Function<dim>> &/*source_terms*/,
+                           const std::shared_ptr<Function<dim>> &/*exact_solution*/)
   {
     fe_face_values_fixed[position].get_function_values(
       current_solution, present_face_position_values[i_face]);
@@ -360,9 +360,9 @@ private:
   void reinit_lagrange_multiplier_face(
     const unsigned int                    i_face,
     const VectorType                     &current_solution,
-    const std::vector<VectorType>        &previous_solutions,
-    const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> &exact_solution)
+    const std::vector<VectorType>        &/*previous_solutions*/,
+    const std::shared_ptr<Function<dim>> &/*source_terms*/,
+    const std::shared_ptr<Function<dim>> &/*exact_solution*/)
   {
     fe_face_values[lambda].get_function_values(
       current_solution, present_face_lambda_values[i_face]);
@@ -377,7 +377,7 @@ private:
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> &exact_solution)
+    const std::shared_ptr<Function<dim>> &/*exact_solution*/)
   {
     fe_values[tracer].get_function_values(current_solution, tracer_values);
     fe_values[tracer].get_function_gradients(current_solution,
@@ -516,7 +516,7 @@ private:
   const bool enable_cahn_hilliard;
 
   Parameters::PhysicalProperties<dim> physical_properties;
-  Parameters::CahnHilliard            cahn_hilliard_param;
+  Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
   FEValues<dim> fe_values;
   FEValues<dim> fe_values_fixed;
@@ -644,6 +644,7 @@ public:
   double epsilon;
   double sigma_tilde;
   double diffusive_flux_factor;
+  Tensor<1, dim> body_force;
 
   std::vector<double> density;
   std::vector<double> derivative_density_wrt_tracer;

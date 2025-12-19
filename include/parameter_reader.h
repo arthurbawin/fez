@@ -29,7 +29,7 @@ public:
   Parameters::TimeIntegration         time_integration;
   Parameters::LinearSolver            linear_solver;
   Parameters::NonLinearSolver         nonlinear_solver;
-  Parameters::CahnHilliard            cahn_hilliard;
+  Parameters::CahnHilliard<dim>       cahn_hilliard;
   Parameters::MMS                     mms_param;
   Parameters::Debug                   debug;
 

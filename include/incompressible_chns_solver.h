@@ -68,7 +68,7 @@ public:
    */
   void assemble_local_matrix(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchDataCHNS<dim>                     &scratchData,
+    ScratchDataCHNS<dim>                                 &scratchData,
     CopyData                                             &copy_data);
 
   /**
@@ -90,7 +90,7 @@ public:
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
                      ScratchDataCHNS<dim> &scratchData,
-                     CopyData                         &copy_data);
+                     CopyData             &copy_data);
 
   /**
    * See copy_local_to_global_matrix.
@@ -156,6 +156,7 @@ protected:
                 const ComponentOrdering &ordering,
                 const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
       : Function<dim>(ordering.n_components, time)
+      , ordering(ordering)
       , n_components(ordering.n_components)
       , u_lower(ordering.u_lower)
       , p_lower(ordering.p_lower)
@@ -170,6 +171,26 @@ protected:
       mms.set_time(new_time);
     }
 
+    /**
+     * Setting the individual value function is required for e.g.
+     * constraining a pressure point, which calls value() for pressure.
+     */
+    virtual double value(const Point<dim>  &p,
+                         const unsigned int component = 0) const override
+    {
+      Assert(component < n_components, ExcMessage("Component mismatch"));
+      if (ordering.is_velocity(component))
+        return mms.exact_velocity->value(p, component - ordering.u_lower);
+      else if (ordering.is_pressure(component))
+        return mms.exact_pressure->value(p);
+      else if (ordering.is_tracer(component))
+        return mms.exact_tracer->value(p);
+      else if (ordering.is_potential(component))
+        return mms.exact_potential->value(p);
+      else
+        DEAL_II_ASSERT_UNREACHABLE();
+    }
+
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override
     {
@@ -178,7 +199,27 @@ protected:
         values[u_lower + d] = mms.exact_velocity->value(p, d);
       values[p_lower]   = mms.exact_pressure->value(p);
       values[phi_lower] = mms.exact_tracer->value(p);
-      values[mu_lower]  = mms.exact_pressure->value(p);
+      values[mu_lower]  = mms.exact_potential->value(p);
+    }
+
+    /**
+     * Required for H1 norm computations on invididual components
+     */
+    virtual Tensor<1, dim>
+    gradient(const Point<dim>  &p,
+             const unsigned int component = 0) const override
+    {
+      Assert(component < n_components, ExcMessage("Component mismatch"));
+      if (ordering.is_velocity(component))
+        return mms.exact_velocity->gradient(p, component - ordering.u_lower);
+      else if (ordering.is_pressure(component))
+        return mms.exact_pressure->gradient(p);
+      else if (ordering.is_tracer(component))
+        return mms.exact_tracer->gradient(p);
+      else if (ordering.is_potential(component))
+        return mms.exact_potential->gradient(p);
+      else
+        DEAL_II_ASSERT_UNREACHABLE();
     }
 
     virtual void
@@ -191,10 +232,11 @@ protected:
         gradients[u_lower + d] = mms.exact_velocity->gradient(p, d);
       gradients[p_lower]   = mms.exact_pressure->gradient(p);
       gradients[phi_lower] = mms.exact_tracer->gradient(p);
-      gradients[mu_lower]  = mms.exact_pressure->gradient(p);
+      gradients[mu_lower]  = mms.exact_potential->gradient(p);
     }
 
   protected:
+    const ComponentOrdering                         &ordering;
     const unsigned int                               n_components;
     const unsigned int                               u_lower;
     const unsigned int                               p_lower;
@@ -211,10 +253,9 @@ protected:
   class MMSSourceTerm : public Function<dim>
   {
   public:
-    MMSSourceTerm(
-      const double                               time,
-      const ComponentOrdering                   &ordering,
-      const ParameterReader<dim> &param)
+    MMSSourceTerm(const double                time,
+                  const ComponentOrdering    &ordering,
+                  const ParameterReader<dim> &param)
       : Function<dim>(ordering.n_components, time)
       , n_components(ordering.n_components)
       , u_lower(ordering.u_lower)
@@ -242,7 +283,7 @@ protected:
     const unsigned int                               phi_lower;
     const unsigned int                               mu_lower;
     const Parameters::PhysicalProperties<dim>       &physical_properties;
-    const Parameters::CahnHilliard       &cahn_hilliard_param;
+    const Parameters::CahnHilliard<dim>             &cahn_hilliard_param;
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
 };

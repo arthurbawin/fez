@@ -140,7 +140,7 @@ namespace BoundaryConditions
     BoundaryCondition::declare_parameters(prm);
     prm.declare_entry("type",
                       "none",
-                      Patterns::Selection("none|no_flux"),
+                      Patterns::Selection("none|no_flux|dirichlet_mms"),
                       "Type of Cahn-Hilliard boundary condition");
   }
 
@@ -153,6 +153,8 @@ namespace BoundaryConditions
     const std::string parsed_type = prm.get("type");
     if (parsed_type == "no_flux")
       type = Type::no_flux;
+    if (parsed_type == "dirichlet_mms")
+      type = Type::dirichlet_mms;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Cahn-Hilliard boundary condition for boundary " +

@@ -1,5 +1,6 @@
 
 #include <parameters.h>
+#include <utilities.h>
 
 #define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
   (prm).declare_entry("verbosity",                                             \
@@ -492,8 +493,10 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void CahnHilliard::declare_parameters(ParameterHandler &prm)
+  template <int dim>
+  void CahnHilliard<dim>::declare_parameters(ParameterHandler &prm)
   {
+    const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
     prm.enter_subsection("Cahn Hilliard");
     {
       prm.declare_entry("mobility model",
@@ -512,11 +515,16 @@ namespace Parameters
                         "1e-2",
                         Patterns::Double(),
                         "Interface thickness (epsilon)");
+      prm.declare_entry("body force",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Body force vector (e.g., gravity acceleration)");
     }
     prm.leave_subsection();
   }
 
-  void CahnHilliard::read_parameters(ParameterHandler &prm)
+  template <int dim>
+  void CahnHilliard<dim>::read_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Cahn Hilliard");
     {
@@ -526,9 +534,13 @@ namespace Parameters
       mobility          = prm.get_double("mobility");
       surface_tension   = prm.get_double("surface tension");
       epsilon_interface = prm.get_double("interface thickness");
+      body_force        = parse_rank_1_tensor<dim>(prm.get("body force"));
     }
     prm.leave_subsection();
   }
+
+  template class CahnHilliard<2>;
+  template class CahnHilliard<3>;
 
   void MMS::declare_parameters(ParameterHandler &prm)
   {
@@ -586,9 +598,12 @@ namespace Parameters
                           Patterns::Integer(),
                           "Index of the first mesh, which will be (mesh "
                           "prefix)_(first mesh).msh");
-        prm.declare_entry("compute L2 norm", "false", Patterns::Bool(), "");
-        prm.declare_entry("compute Li norm", "false", Patterns::Bool(), "");
-        prm.declare_entry("compute H1 norm", "false", Patterns::Bool(), "");
+        prm.declare_entry(
+          "norms to compute",
+          "L2_norm",
+          Patterns::List(
+            *Patterns::Tools::Convert<VectorTools::NormType>::to_pattern()),
+          "A comma-separated list of norms (e.g., L2_norm, H1_norm)");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -641,17 +656,13 @@ namespace Parameters
         use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
         use_deal_ii_holed_plate_mesh =
           prm.get_bool("use dealii holed plate mesh");
-        mesh_prefix             = prm.get("mesh prefix");
-        first_mesh_index        = prm.get_integer("first mesh");
-        compute_L2_spatial_norm = prm.get_bool("compute L2 norm");
-        if (compute_L2_spatial_norm)
-          norms_to_compute.push_back(VectorTools::L2_norm);
-        compute_Li_spatial_norm = prm.get_bool("compute Li norm");
-        if (compute_Li_spatial_norm)
-          norms_to_compute.push_back(VectorTools::Linfty_norm);
-        compute_H1_spatial_norm = prm.get_bool("compute H1 norm");
-        if (compute_H1_spatial_norm)
-          norms_to_compute.push_back(VectorTools::H1_seminorm);
+        mesh_prefix      = prm.get("mesh prefix");
+        first_mesh_index = prm.get_integer("first mesh");
+        const auto parsed_norms =
+          Utilities::split_string_list(prm.get("norms to compute"));
+        for (const auto &s : parsed_norms)
+          norms_to_compute.push_back(
+            Patterns::Tools::Convert<VectorTools::NormType>::to_value(s));
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");

@@ -25,7 +25,7 @@ subsection Time integration
   set t_initial        = 0
   set t_end            = 0.2
   set scheme           = BDF2
-  set bdf start method = BDF1
+  set bdf start method = initial condition
 end
 
 subsection Nonlinear solver

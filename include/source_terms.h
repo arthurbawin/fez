@@ -18,19 +18,34 @@ namespace Parameters
     SourceTerms()
       : fluid_source(std::make_shared<Functions::ParsedFunction<dim>>(dim + 1))
       , pseudosolid_source(std::make_shared<Functions::ParsedFunction<dim>>(dim))
+      , cahnhilliard_source(std::make_shared<Functions::ParsedFunction<dim>>(2))
     {}
 
     void set_time(const double new_time)
     {
       fluid_source->set_time(new_time);
       pseudosolid_source->set_time(new_time);
+      cahnhilliard_source->set_time(new_time);
     }
 
   public:
-    // Source term for the Navier-Stokes momentum and mass equations.
-    // Layout is u-v-(w-)p.
+    /**
+     * Source term for the Navier-Stokes momentum and mass equations.
+     * Combined vector + scalar source term, thus dim + 1 components : u-v-(w-)p.
+     */
     std::shared_ptr<Functions::ParsedFunction<dim>> fluid_source;
+
+    /**
+     * Source term for the pseudosolid (linear elasticity) equation.
+     * Vector-valued source term, thus dim components : x-y-(z)
+     */
     std::shared_ptr<Functions::ParsedFunction<dim>> pseudosolid_source;
+
+    /**
+     * Source term for the pseudosolid (linear elasticity) equation.
+     * Two scalar-valued source terms, thus 2 components : phi-mu.
+     */
+    std::shared_ptr<Functions::ParsedFunction<dim>> cahnhilliard_source;
 
     void declare_parameters(ParameterHandler &prm)
     {
@@ -41,6 +56,9 @@ namespace Parameters
         prm.leave_subsection();
         prm.enter_subsection("pseudosolid");
         pseudosolid_source->declare_parameters(prm, dim);
+        prm.leave_subsection();
+        prm.enter_subsection("cahn hilliard");
+        cahnhilliard_source->declare_parameters(prm, 2);
         prm.leave_subsection();
       }
       prm.leave_subsection();
@@ -55,6 +73,9 @@ namespace Parameters
         prm.leave_subsection();
         prm.enter_subsection("pseudosolid");
         pseudosolid_source->parse_parameters(prm);
+        prm.leave_subsection();
+        prm.enter_subsection("cahn hilliard");
+        cahnhilliard_source->parse_parameters(prm);
         prm.leave_subsection();
       }
       prm.leave_subsection();

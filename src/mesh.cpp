@@ -165,6 +165,75 @@ void create_cube(Triangulation<dim> &tria,
 }
 
 template <int dim>
+void create_rectangle(Triangulation<dim> &tria,
+                      Parameters::Mesh   &mesh_param,
+                      const std::string  &parameters,
+                      const unsigned int  refinement,
+                      const bool          convert_to_tets = false)
+{
+  // Parse the "repetitions" part of the parameters and
+  // multiply by the global refinement (for e.g. convergence studies)
+  auto blocks      = Utilities::split_string_list(parameters, ':');
+  auto repetitions = Utilities::split_string_list(blocks[0], ',');
+
+  AssertThrow(blocks.size() > 1,
+              ExcMessage(
+                "The parsed arguments to create a rectangle/box mesh do not "
+                "contain any \":\" separator. Please separate the arguments by "
+                "a colon. The parsed parameters are : " +
+                parameters));
+  AssertThrow(
+    repetitions.size() > 1,
+    ExcMessage(
+      "The parsed arguments to create a rectangle/box mesh should start by a "
+      "comma-separated list of refinement per direction (e.g., nx, ny [, nz] : "
+      "[remaining parameters]), but the given parameters are not separated by "
+      "commas. The parsed parameters are : " +
+      parameters));
+
+  std::string updated_param = "";
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    updated_param += std::to_string(std::stoi(repetitions[d]) * refinement);
+    if (d < dim - 1)
+      updated_param += ", ";
+  }
+  for (unsigned int i = 1; i < blocks.size(); ++i)
+    updated_param += " : " + blocks[i];
+
+  GridGenerator::generate_from_name_and_arguments(tria,
+                                                  "subdivided_hyper_rectangle",
+                                                  updated_param);
+
+  // Use the boundary pattern obtained with "colorize = true" for
+  // subdivided_hyper_rectangle.
+  mesh_param.id2name.insert({0, "x_min"});
+  mesh_param.id2name.insert({1, "x_max"});
+  mesh_param.id2name.insert({2, "y_min"});
+  mesh_param.id2name.insert({3, "y_max"});
+  mesh_param.name2id.insert({"x_min", 0});
+  mesh_param.name2id.insert({"x_max", 1});
+  mesh_param.name2id.insert({"y_min", 2});
+  mesh_param.name2id.insert({"y_max", 3});
+  if constexpr (dim == 3)
+  {
+    mesh_param.id2name.insert({4, "z_min"});
+    mesh_param.id2name.insert({5, "z_max"});
+    mesh_param.name2id.insert({"z_min", 4});
+    mesh_param.name2id.insert({"z_max", 5});
+  }
+
+  if (convert_to_tets)
+  {
+    const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
+    GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+  }
+
+  GridOut grid_out;
+  grid_out.write_msh(tria, "tria.msh");
+}
+
+template <int dim>
 void create_holed_plate(Triangulation<dim> &tria,
                         Parameters::Mesh   &mesh_param,
                         const unsigned int  refinement_level,
@@ -275,7 +344,7 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
                   "). For now, all boundaries must be assigned a boundary "
                   "condition for all relevant fields."));
 
-    if (param.physical_properties.n_pseudosolids > 0)
+    if (param.pseudosolid_bc.size() > 0)
     {
       // Check that each boundary id appears in the pseudosolid boundary
       // conditions
@@ -285,6 +354,20 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
           "In mesh file " + param.mesh.filename +
           " :\n"
           "No pseudosolid boundary condition was assigned to boundary " +
+          std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+          "). For now, all boundaries must be assigned a boundary "
+          "condition for all relevant fields."));
+    }
+
+    if (param.cahn_hilliard_bc.size() > 0)
+    {
+      // Check that each boundary id appears in the CH boundary conditions
+      AssertThrow(
+        param.cahn_hilliard_bc.find(id) != param.cahn_hilliard_bc.end(),
+        ExcMessage(
+          "In mesh file " + param.mesh.filename +
+          " :\n"
+          "No Cahn-Hilliard boundary condition was assigned to boundary " +
           std::to_string(id) + " (" + param.mesh.id2name.at(id) +
           "). For now, all boundaries must be assigned a boundary "
           "condition for all relevant fields."));
@@ -438,11 +521,8 @@ void read_mesh(
 {
   Triangulation<dim> serial_triangulation;
 
-  // In 2D; If no mesh prefix was provided for a convergence study, use
-  // deal.II's functions to mesh a square [-1,1]^2. In 3D, there seems to be a
-  // bug in deal.II when reading a transfinite cube mesh file. Always use
-  // deal.II's routines to create a subdivided cube mesh.
   bool use_deal_ii_mesh =
+    param.mesh.deal_ii_preset_mesh != "none" ||
     param.mesh.use_deal_ii_cube_mesh ||
     (param.mms_param.enable && param.mms_param.use_deal_ii_cube_mesh) ||
     (param.mms_param.enable && param.mms_param.use_deal_ii_holed_plate_mesh);
@@ -451,7 +531,8 @@ void read_mesh(
   {
     const bool convert_to_simplices = true;
 
-    if (param.mesh.use_deal_ii_cube_mesh ||
+    if (param.mesh.deal_ii_preset_mesh == "cube" ||
+        param.mesh.use_deal_ii_cube_mesh ||
         param.mms_param.use_deal_ii_cube_mesh)
     {
       const double       min_corner = (dim == 2) ? 0. : 0.;
@@ -466,7 +547,21 @@ void read_mesh(
                   refinement_level,
                   convert_to_simplices);
     }
-    if (param.mms_param.use_deal_ii_holed_plate_mesh)
+    else if (param.mesh.deal_ii_preset_mesh == "rectangle")
+    {
+      const double       min_corner = (dim == 2) ? 0. : 0.;
+      const double       max_corner = 1.;
+      const unsigned int refinement_level =
+        param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix) :
+                                 param.mesh.refinement_level;
+      create_rectangle(serial_triangulation,
+                       param.mesh,
+                       param.mesh.deal_ii_mesh_param,
+                       refinement_level,
+                       convert_to_simplices);
+    }
+    else if (param.mesh.deal_ii_preset_mesh == "holed plate" ||
+             param.mms_param.use_deal_ii_holed_plate_mesh)
     {
       const unsigned int refinement_level = param.mms_param.enable ?
                                               param.mms_param.mesh_suffix :
@@ -489,6 +584,8 @@ void read_mesh(
   }
 
   partition_and_create_parallel_mesh(serial_triangulation, triangulation);
+
+  // print_partition_gmsh(triangulation, param);
 
   print_mesh_info(serial_triangulation, triangulation, param);
 

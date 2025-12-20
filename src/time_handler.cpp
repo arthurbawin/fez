@@ -86,7 +86,7 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
       time_steps[i]     = time_steps[i - 1];
     }
 
-    if(scheme == BDF1)
+    if (scheme == BDF1)
     {
       // Self-starting: update values and coefficients and proceed
       current_time += current_dt;
@@ -95,12 +95,13 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
       set_bdf_coefficients();
     }
 
-    if(scheme == BDF2)
+    if (scheme == BDF2)
     {
-      if(time_parameters.bdfstart == Parameters::TimeIntegration::BDFStart::BDF1)
+      if (time_parameters.bdfstart ==
+          Parameters::TimeIntegration::BDFStart::BDF1)
       {
         // Start with BDF1
-       const double starting_step_ratio = 0.1;
+        const double starting_step_ratio = 0.1;
 
         if (this->is_starting_step())
         {
@@ -140,10 +141,28 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
       }
     }
 
-      if (time_parameters.verbosity == Parameters::Verbosity::verbose)
-        pcout << std::endl
-              << "Time step " << current_time_iteration
-              << " - Advancing to t = " << current_time << '.'
-              << std::endl;
+    if (time_parameters.verbosity == Parameters::Verbosity::verbose)
+      pcout << std::endl
+            << "Time step " << current_time_iteration
+            << " - Advancing to t = " << current_time << '.' << std::endl;
   }
+}
+
+double TimeHandler::compute_time_derivative_at_quadrature_node(
+  const unsigned int                      quadrature_node_index,
+  const double                            present_solution,
+  const std::vector<std::vector<double>> &previous_solutions) const
+{
+  if (scheme == Parameters::TimeIntegration::Scheme::stationary)
+    return 0.;
+  if (scheme == Parameters::TimeIntegration::Scheme::BDF1 ||
+      scheme == Parameters::TimeIntegration::Scheme::BDF2)
+  {
+    double value_dot = bdf_coefficients[0] * present_solution;
+    for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
+      value_dot +=
+        bdf_coefficients[i] * previous_solutions[i - 1][quadrature_node_index];
+    return value_dot;
+  }
+  DEAL_II_ASSERT_UNREACHABLE();
 }

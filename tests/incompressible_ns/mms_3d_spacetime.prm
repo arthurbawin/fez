@@ -46,7 +46,7 @@ end
 
 subsection Physical properties
   set number of fluids = 1
-  subsection Fluid
+  subsection Fluid 0
     set density             = 1.2345
     set kinematic viscosity = 9.8765
   end
@@ -99,6 +99,7 @@ subsection Manufactured solution
 
   subsection Space convergence
     set use dealii cube mesh = true
+    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
   end
 
   subsection Time convergence

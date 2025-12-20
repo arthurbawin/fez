@@ -2,6 +2,7 @@
 #define PARAMETERS_H
 
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/numerics/vector_tools_common.h>
 #include <parsed_function_symengine.h>
 
 using namespace dealii;
@@ -59,6 +60,8 @@ namespace Parameters
     std::string filename;
 
     bool         use_deal_ii_cube_mesh;
+    std::string  deal_ii_preset_mesh;
+    std::string  deal_ii_mesh_param;
     unsigned int refinement_level;
 
     // Name of each mesh physical entities
@@ -110,8 +113,8 @@ namespace Parameters
     double density;
     double kinematic_viscosity;
 
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
+    void declare_parameters(ParameterHandler &prm, unsigned int index);
+    void read_parameters(ParameterHandler &prm, unsigned int index);
   };
 
   template <int dim>
@@ -129,8 +132,8 @@ namespace Parameters
       lame_lambda_fun->set_time(newtime);
       lame_mu_fun->set_time(newtime);
     }
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
+    void declare_parameters(ParameterHandler &prm, unsigned int index);
+    void read_parameters(ParameterHandler &prm, unsigned int index);
   };
 
   template <int dim>
@@ -148,7 +151,7 @@ namespace Parameters
   public:
     void set_time(const double newtime)
     {
-      for(auto &ps : pseudosolids)
+      for (auto &ps : pseudosolids)
         ps.set_time(newtime);
     }
     void declare_parameters(ParameterHandler &prm);
@@ -214,6 +217,30 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
+  template <int dim>
+  class CahnHilliard
+  {
+  public:
+    enum class MobilityModel
+    {
+      constant
+    } mobility_model;
+
+    double mobility;
+    double surface_tension;
+    double epsilon_interface;
+
+    /**
+     * We differentiate between the body force which is multiplied by the mixture density
+     * (typically gravity), and the generic source term (e.g., for manufactured solutions)
+     * which is not.
+     */
+    Tensor<1, dim> body_force;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
   struct MMS
   {
     bool enable;
@@ -245,6 +272,8 @@ namespace Parameters
     std::string  mesh_prefix;
     unsigned int first_mesh_index;
     unsigned int mesh_suffix;
+
+    std::vector<VectorTools::NormType> norms_to_compute;
 
     bool         use_space_convergence_mesh;
     unsigned int spatial_mesh_index;

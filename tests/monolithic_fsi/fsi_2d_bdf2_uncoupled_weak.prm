@@ -59,13 +59,13 @@ end
 
 subsection Physical properties
   set number of fluids = 1
-  subsection Fluid
+  subsection Fluid 0
     set density             = 2.345
     set kinematic viscosity = 9.654
   end
 
   set number of pseudosolids = 1
-  subsection Pseudosolid
+  subsection Pseudosolid 0
     subsection lame lambda
       set Function expression = 10.345
     end
@@ -123,6 +123,7 @@ subsection Manufactured solution
     set use dealii cube mesh        = false
     set use dealii holed plate mesh = false
     set mesh prefix          = ../../mms_meshes/holed
+    set norms to compute = L2_norm, Linfty_norm
   end
 
   subsection Time convergence

@@ -232,6 +232,14 @@ namespace ManufacturedSolutions
       dummy_vector_fun->declare_parameters(prm, dim);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
+      prm.enter_subsection("exact cahn hilliard tracer");
+      dummy_scalar_fun->declare_parameters(prm, 1);
+      declare_preset_manufactured_solutions<dim>(prm);
+      prm.leave_subsection();
+      prm.enter_subsection("exact cahn hilliard potential");
+      dummy_scalar_fun->declare_parameters(prm, 1);
+      declare_preset_manufactured_solutions<dim>(prm);
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -248,10 +256,14 @@ namespace ManufacturedSolutions
     auto sym_velocity      = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
     auto sym_pressure      = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_mesh_position = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
+    auto sym_tracer        = std::make_shared<ParsedFunctionSDBase<dim>>(1);
+    auto sym_potential     = std::make_shared<ParsedFunctionSDBase<dim>>(1);
 
     std::shared_ptr<MMSFunction<dim>> preset_velocity;
     std::shared_ptr<MMSFunction<dim>> preset_pressure;
     std::shared_ptr<MMSFunction<dim>> preset_mesh_position;
+    std::shared_ptr<MMSFunction<dim>> preset_tracer;
+    std::shared_ptr<MMSFunction<dim>> preset_potential;
 
     prm.enter_subsection("Manufactured solution");
     {
@@ -273,6 +285,18 @@ namespace ManufacturedSolutions
                                          preset_mesh_position_type,
                                          preset_mesh_position);
       prm.leave_subsection();
+      prm.enter_subsection("exact cahn hilliard tracer");
+      sym_tracer->parse_parameters(prm);
+      parse_preset_manufactured_solution(prm,
+                                         preset_tracer_type,
+                                         preset_tracer);
+      prm.leave_subsection();
+      prm.enter_subsection("exact cahn hilliard potential");
+      sym_potential->parse_parameters(prm);
+      parse_preset_manufactured_solution(prm,
+                                         preset_potential_type,
+                                         preset_potential);
+      prm.leave_subsection();
     }
     prm.leave_subsection();
 
@@ -286,6 +310,11 @@ namespace ManufacturedSolutions
     exact_mesh_position = (preset_mesh_position_type == PresetMMS::none) ?
                             sym_mesh_position :
                             preset_mesh_position;
+    exact_tracer =
+      (preset_tracer_type == PresetMMS::none) ? sym_tracer : preset_tracer;
+    exact_potential = (preset_potential_type == PresetMMS::none) ?
+                        sym_potential :
+                        preset_potential;
   }
 
   // Explicit instantiation
@@ -312,6 +341,141 @@ namespace ManufacturedSolutions
 
     return 2. * (mu * div_strain + grad_mu * strain) + lambda * grad_div_x +
            grad_lambda * trace(strain);
+  }
+
+  template <int dim>
+  void MMSFunction<dim>::check_derivatives(const double tol_order_1,
+                                           const double tol_order_2)
+  {
+    const double h_first  = 1e-8;
+    const double h_second = 1e-5;
+
+    std::vector<double> test_times = {0., 0.1, 0.345, 1., 10.};
+
+    std::vector<Point<dim>> test_points;
+    if constexpr (dim == 2)
+      test_points = {{0., 0.}, {0.3, 0.7}, {0.52, 0.52}, {0.9, 0.1}};
+    else if constexpr (dim == 3)
+      test_points = {{0., 0., 0.},
+                     {0.3, 0.7, 0.2},
+                     {0.5, 0.5, 0.5},
+                     {0.9, 0.1, 0.4}};
+
+    auto check_relative_error = [&](double       t,
+                                    double       exact,
+                                    double       numerical,
+                                    double       tol,
+                                    unsigned int comp,
+                                    std::string  name,
+                                    std::string  entry) {
+      const double err = std::abs(exact - numerical);
+
+      if (err < tol)
+        return;
+
+      const double relative_err = err / std::abs(numerical);
+      AssertThrow(relative_err < tol,
+                  ExcMessage(
+                    "Derivative check failed for " + name + " (entry " + entry +
+                    ") and component " + std::to_string(comp) + " at " +
+                    std::to_string(t) + ": exact = " + std::to_string(exact) +
+                    ", FD = " + std::to_string(numerical) +
+                    ", absolute error = " + std::to_string(err) +
+                    ", relative error = " + std::to_string(relative_err)));
+    };
+
+    for (const auto &t : test_times)
+      for (const auto &p : test_points)
+        for (unsigned int i_comp = 0; i_comp < this->n_components; ++i_comp)
+        {
+          // For each vector component:
+          // Check time derivatives
+          if (!ignore_time_derivative)
+          {
+            this->set_time(t + h_first);
+            const double val_plus = this->value(p, i_comp);
+            this->set_time(t - h_first);
+            const double val_minus = this->value(p, i_comp);
+            const double fdot_fd   = (val_plus - val_minus) / (2.0 * h_first);
+            this->set_time(t);
+            check_relative_error(t,
+                                 this->time_derivative(p, i_comp),
+                                 fdot_fd,
+                                 tol_order_1,
+                                 i_comp,
+                                 "time derivative",
+                                 "0");
+          }
+
+          // Check gradient at time t
+          this->set_time(t);
+          const Tensor<1, dim> grad = this->gradient(p, i_comp);
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            Point<dim> p_plus = p, p_minus = p;
+            p_plus[d] += h_first;
+            p_minus[d] -= h_first;
+            const double val_plus  = this->value(p_plus, i_comp);
+            const double val_minus = this->value(p_minus, i_comp);
+            const double grad_fd   = (val_plus - val_minus) / (2.0 * h_first);
+            check_relative_error(t,
+                                 grad[d],
+                                 grad_fd,
+                                 tol_order_1,
+                                 i_comp,
+                                 "gradient",
+                                 std::to_string(d));
+          }
+
+          // Check hessian at time t
+          if (!ignore_hessian)
+          {
+            this->set_time(t);
+            const SymmetricTensor<2, dim> hess = this->hessian(p, i_comp);
+            for (unsigned int di = 0; di < dim; ++di)
+              for (unsigned int dj = 0; dj < dim; ++dj)
+              {
+                double d2_fd;
+                if (di == dj)
+                {
+                  // Centered 2nd order finite differences
+                  Point<dim> p_p = p, p_m = p;
+                  p_p[di] += h_second;
+                  p_m[di] -= h_second;
+                  const double val_p = this->value(p_p, i_comp);
+                  const double val_m = this->value(p_m, i_comp);
+                  const double val   = this->value(p, i_comp);
+                  d2_fd = (val_p - 2.0 * val + val_m) / (h_second * h_second);
+                }
+                else
+                {
+                  Point<dim> p_pp = p, p_pm = p, p_mp = p, p_mm = p;
+                  p_pp[di] += h_second;
+                  p_pp[dj] += h_second;
+                  p_pm[di] += h_second;
+                  p_pm[dj] -= h_second;
+                  p_mp[di] -= h_second;
+                  p_mp[dj] += h_second;
+                  p_mm[di] -= h_second;
+                  p_mm[dj] -= h_second;
+                  const double val_pp = this->value(p_pp, i_comp);
+                  const double val_pm = this->value(p_pm, i_comp);
+                  const double val_mp = this->value(p_mp, i_comp);
+                  const double val_mm = this->value(p_mm, i_comp);
+                  d2_fd               = (val_pp - val_pm - val_mp + val_mm) /
+                          (4.0 * h_second * h_second);
+                }
+                check_relative_error(t,
+                                     hess[di][dj],
+                                     d2_fd,
+                                     tol_order_2,
+                                     i_comp,
+                                     "hessian",
+                                     std::to_string(di) + " - " +
+                                       std::to_string(dj));
+              }
+          }
+        }
   }
 
   template class MMSFunction<2>;

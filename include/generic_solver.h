@@ -9,6 +9,7 @@
 #include <deal.II/base/observer_pointer.h>
 #include <deal.II/base/timer.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <deal.II/numerics/vector_tools_common.h>
 #include <error_handler.h>
 #include <newton_solver.h>
 #include <nonlinear_solver.h>
@@ -53,6 +54,11 @@ public:
     // Create the nonlinear solver (Newton-Raphson solver)
     nonlinear_solver =
       std::make_shared<NewtonSolver<VectorType>>(nonlinear_solver_param, this);
+
+    // Create the error handlers
+    for (auto norm : mms_param.norms_to_compute)
+      error_handlers[norm] =
+        std::make_shared<ErrorHandler>(mms_param, time_param);
   }
 
   virtual ~GenericSolver() {}
@@ -72,17 +78,17 @@ public:
     for (unsigned int i_conv = 0; i_conv < mms_param.n_convergence; ++i_conv)
     {
       mms_param.current_step = i_conv;
-      error_handler.clear_error_history();
+      for (auto &[norm, handler] : error_handlers)
+        handler->clear_error_history();
 
       // If a manufactured solution test is run, bypass the given mesh file
       // and run the i_conv-th prescribed mms mesh
       // Update mesh file. Keep previous mesh file only if it is a time
       // convergence study.
-      bool update_mesh =
-        mms_param.type == Parameters::MMS::Type::space ||
-        mms_param.type == Parameters::MMS::Type::spacetime ||
-        (mms_param.type == Parameters::MMS::Type::time &&
-         mms_param.use_space_convergence_mesh && i_conv == 0);
+      bool update_mesh = mms_param.type == Parameters::MMS::Type::space ||
+                         mms_param.type == Parameters::MMS::Type::spacetime ||
+                         (mms_param.type == Parameters::MMS::Type::time &&
+                          mms_param.use_space_convergence_mesh && i_conv == 0);
 
       if (update_mesh)
       {
@@ -91,24 +97,24 @@ public:
         mms_param.mesh_suffix = i_conv;
 
         // If this is a time convergence study using an indexed mesh used
-        // for space convergence studies, override the mesh_suffix with 
+        // for space convergence studies, override the mesh_suffix with
         // the specified mesh index
-        if(mms_param.type == Parameters::MMS::Type::time &&
-           mms_param.use_space_convergence_mesh)
+        if (mms_param.type == Parameters::MMS::Type::time &&
+            mms_param.use_space_convergence_mesh)
           mms_param.mesh_suffix = mms_param.spatial_mesh_index;
 
-        if(mms_param.run_only_step >= 0)
+        if (mms_param.run_only_step >= 0)
         {
           mms_param.current_step = mms_param.run_only_step;
 
           // Set the mesh suffix to the only run step for space studies
           // For time studies, the "run only" only affects the time step.
-          if( mms_param.type == Parameters::MMS::Type::space ||
+          if (mms_param.type == Parameters::MMS::Type::space ||
               mms_param.type == Parameters::MMS::Type::spacetime)
             mms_param.mesh_suffix = mms_param.run_only_step;
         }
 
-        if(!mms_param.use_deal_ii_cube_mesh)
+        if (!mms_param.use_deal_ii_cube_mesh)
         {
           mms_param.override_mesh_filename(mesh_param, mms_param.mesh_suffix);
           pcout << "Convergence test with manufactured solution:" << std::endl;
@@ -132,16 +138,25 @@ public:
       this->run();
 
       // If unsteady, compute the Lp time norm for this convergence step
-      if(time_param.scheme != Parameters::TimeIntegration::Scheme::stationary)
-        error_handler.compute_temporal_error();
+      if (time_param.scheme != Parameters::TimeIntegration::Scheme::stationary)
+        for (auto &[norm, handler] : error_handlers)
+          handler->compute_temporal_error();
 
-      if(mms_param.run_only_step >= 0)
+      if (mms_param.run_only_step >= 0)
         break;
     }
 
-    error_handler.compute_rates<dim>();
+    for (auto &[norm, handler] : error_handlers)
+      handler->compute_rates<dim>();
     if (mpi_rank == 0)
-      error_handler.write_rates();
+      for (auto &[norm, handler] : error_handlers)
+      {
+        std::cout << std::endl;
+        std::cout << Patterns::Tools::Convert<VectorTools::NormType>::to_string(
+                       norm)
+                  << std::endl;
+        handler->write_rates();
+      }
   }
 
   /**
@@ -209,11 +224,14 @@ protected:
 
   std::shared_ptr<NonLinearSolver<VectorType>> nonlinear_solver;
 
-  // Necessary data to perform a space and/or time convergence study
-  Parameters::Mesh            mesh_param;
-  Parameters::TimeIntegration time_param;
-  Parameters::MMS             mms_param;
-  ErrorHandler                error_handler;
+  // Data to perform a space and/or time convergence study
+  Parameters::Mesh                                               mesh_param;
+  Parameters::TimeIntegration                                    time_param;
+  Parameters::MMS                                                mms_param;
+
+  // Remove the single ErrorHandler once the deprecated solvers have been removed
+  ErrorHandler                                                   error_handler;
+  std::map<VectorTools::NormType, std::shared_ptr<ErrorHandler>> error_handlers;
 
   // Friend-ness is not inherited, so each derived nonlinear solver
   // should be marked as friend individually.

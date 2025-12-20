@@ -97,12 +97,12 @@ namespace BoundaryConditions
   void PseudosolidBC<dim>::declare_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry(
-      "type",
-      "none",
-      Patterns::Selection(
-        "none|fixed|coupled_to_fluid|no_flux|input_function|position_mms|position_flux_mms"),
-      "Type of pseudosolid boundary condition");
+    prm.declare_entry("type",
+                      "none",
+                      Patterns::Selection(
+                        "none|fixed|coupled_to_fluid|no_flux|input_function|"
+                        "position_mms|position_flux_mms"),
+                      "Type of pseudosolid boundary condition");
   }
 
   template <int dim>
@@ -140,7 +140,7 @@ namespace BoundaryConditions
     BoundaryCondition::declare_parameters(prm);
     prm.declare_entry("type",
                       "none",
-                      Patterns::Selection("none|no_flux"),
+                      Patterns::Selection("none|no_flux|dirichlet_mms"),
                       "Type of Cahn-Hilliard boundary condition");
   }
 
@@ -153,13 +153,15 @@ namespace BoundaryConditions
     const std::string parsed_type = prm.get("type");
     if (parsed_type == "no_flux")
       type = Type::no_flux;
+    if (parsed_type == "dirichlet_mms")
+      type = Type::dirichlet_mms;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Cahn-Hilliard boundary condition for boundary " +
         std::to_string(this->id) +
         " is set to \"none\".\n"
         "Either you specified this type by mistake, or the number of \n"
-        "prescribed pseudosolid boundary conditions is smaller than "
+        "prescribed Cahn-Hilliard boundary conditions is smaller than "
         "the specified \"number\" field.");
   }
 
@@ -275,6 +277,101 @@ namespace BoundaryConditions
       u_lower,
       velocity_tangential_flux_boundaries,
       velocity_tangential_flux_functions,
+      constraints,
+      mapping);
+  }
+
+  template <int dim>
+  void apply_mesh_position_boundary_conditions(
+    const bool             homogeneous,
+    const unsigned int     x_lower,
+    const unsigned int     n_components,
+    const DoFHandler<dim> &dof_handler,
+    const Mapping<dim>    &mapping,
+    const std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<dim>>
+                              &pseudosolid_bc,
+    const Function<dim>       &exact_solution,
+    const Function<dim>       &exact_mesh_position,
+    AffineConstraints<double> &constraints)
+  {
+    const FEValuesExtractors::Vector position(x_lower);
+    const ComponentMask              position_mask =
+      dof_handler.get_fe().component_mask(position);
+
+    Functions::ZeroFunction<dim> zero_fun(n_components);
+    FixedMeshPosition<dim> fixed_mesh(x_lower, n_components);
+    const Function<dim> *fun_ptr;
+
+    FixedMeshPosition<dim>                              fixed_mesh_for_flux(0, dim);
+    std::set<types::boundary_id>                        normal_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *> position_flux_functions;
+    std::set<types::boundary_id> mms_normal_flux_boundaries;
+    std::map<types::boundary_id, const Function<dim> *>
+      mms_position_flux_functions;
+    for (const auto &[id, bc] : pseudosolid_bc)
+    {
+      if (bc.type == BoundaryConditions::Type::fixed)
+      {
+        if(homogeneous)
+          fun_ptr = &zero_fun;
+        else
+          fun_ptr = &fixed_mesh;
+        VectorTools::interpolate_boundary_values(mapping,
+                                                 dof_handler,
+                                                 bc.id,
+                                                 *fun_ptr,
+                                                 constraints,
+                                                 position_mask);
+      }
+      if (bc.type == BoundaryConditions::Type::input_function)
+      {
+        // TODO: Prescribed but non-fixed mesh position?
+        if(!homogeneous)
+          DEAL_II_NOT_IMPLEMENTED();
+
+        VectorTools::interpolate_boundary_values(mapping,
+                                                 dof_handler,
+                                                 bc.id,
+                                                 Functions::ZeroFunction<dim>(
+                                                   n_components),
+                                                 constraints,
+                                                 position_mask);
+      }
+      if (bc.type == BoundaryConditions::Type::position_mms)
+      {
+        fun_ptr = homogeneous ? &zero_fun : &exact_solution;
+        VectorTools::interpolate_boundary_values(
+          mapping, dof_handler, bc.id, *fun_ptr, constraints, position_mask);
+      }
+
+      if (bc.type == BoundaryConditions::Type::no_flux)
+      {
+        normal_flux_boundaries.insert(bc.id);
+        position_flux_functions[bc.id] = &fixed_mesh_for_flux;
+      }
+      if (bc.type == BoundaryConditions::Type::position_flux_mms)
+      {
+        mms_normal_flux_boundaries.insert(bc.id);
+        mms_position_flux_functions[bc.id] = &exact_mesh_position;
+      }
+    }
+
+    // Add position nonzero flux constraints (tangential movement)
+    VectorTools::compute_nonzero_normal_flux_constraints(
+      dof_handler,
+      x_lower,
+      normal_flux_boundaries,
+      position_flux_functions,
+      constraints,
+      mapping);
+
+    // Add position nonzero flux constraints from manufactured solution
+    // (tangential movement)
+    VectorTools::compute_nonzero_normal_flux_constraints(
+      dof_handler,
+      x_lower,
+      mms_normal_flux_boundaries,
+      mms_position_flux_functions,
       constraints,
       mapping);
   }

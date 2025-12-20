@@ -36,6 +36,7 @@ namespace BoundaryConditions
     // Common
     none,
     input_function,
+    dirichlet_mms,
 
     // Flow
     outflow,      // Do nothing
@@ -53,10 +54,10 @@ namespace BoundaryConditions
 
     // Pseudo_solid
     fixed, // Enforce 0 displacement. Default when no BC is prescribed?
-    coupled_to_fluid, // Couple to lagrange mult
-    no_flux,          // Slip. Have to check what happens at corners, etc.
-    position_mms,     // Enforce x = x_mms
-    position_flux_mms // Enforce x \cdot n = x_mms \cdot n
+    coupled_to_fluid,  // Couple to lagrange mult
+    no_flux,           // Slip. Have to check what happens at corners, etc.
+    position_mms,      // Enforce x = x_mms
+    position_flux_mms, // Enforce x \cdot n = x_mms \cdot n
 
     // Cahn-Hilliard
     // no_flux
@@ -192,6 +193,23 @@ namespace BoundaryConditions
 
   /**
    *
+   *
+   */
+  template <int dim>
+  void apply_mesh_position_boundary_conditions(
+    const bool             homogeneous,
+    const unsigned int     x_lower,
+    const unsigned int     n_components,
+    const DoFHandler<dim> &dof_handler,
+    const Mapping<dim>    &mapping,
+    const std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<dim>>
+                              &pseudosolid_bc,
+    const Function<dim>       &exact_solution,
+    const Function<dim>       &exact_mesh_position,
+    AffineConstraints<double> &constraints);
+
+  /**
+   *
    */
   template <int dim>
   void
@@ -271,7 +289,6 @@ namespace BoundaryConditions
       solution[i] -= mean_pressure;
     solution.compress(VectorOperation::add);
   }
-
 } // namespace BoundaryConditions
 
 /**
@@ -405,6 +422,22 @@ void BoundaryConditions::read_boundary_conditions(
       prm.enter_subsection("boundary " + std::to_string(i));
       {
         unsigned int id = prm.get_integer("id");
+        AssertThrow(
+          id != numbers::invalid_unsigned_int,
+          ExcMessage(
+            bc_type_name + " boundary condition " + std::to_string(i) +
+            " could not be read, possibly because a boundary condition "
+            "sequential number (not the id) is repeated, for instance:\n\n"
+            "subsection boundary 1\n"
+            "  set id   = 2\n"
+            "  set name = boundary_2\n"
+            "  set type = type\n"
+            "  end\n"
+            "subsection boundary 1 <====== 1 is repeated\n"
+            "  set id   = 3\n"
+            "  set name = boundary_3\n"
+            "  set type = type\n"
+            "end"));
         boundary_conditions[id].read_parameters(prm);
       }
       prm.leave_subsection();

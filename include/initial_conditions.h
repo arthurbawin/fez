@@ -162,8 +162,8 @@ namespace Parameters
       prm.enter_subsection("velocity");
       initial_velocity_callback->declare_parameters(prm, dim);
       prm.leave_subsection();
-      prm.enter_subsection("chns tracer");
-      initial_chns_tracer_callback->declare_parameters(prm);
+      prm.enter_subsection("cahn hilliard tracer");
+      initial_chns_tracer_callback->declare_parameters(prm, 1);
       prm.leave_subsection();
     }
     prm.leave_subsection();
@@ -178,7 +178,7 @@ namespace Parameters
       prm.enter_subsection("velocity");
       initial_velocity_callback->parse_parameters(prm);
       prm.leave_subsection();
-      prm.enter_subsection("chns tracer");
+      prm.enter_subsection("cahn hilliard tracer");
       initial_chns_tracer_callback->parse_parameters(prm);
       prm.leave_subsection();
     }

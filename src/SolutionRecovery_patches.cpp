@@ -1,7 +1,7 @@
 
-#include "SolutionRecovery.h"
+#include "error_estimation/solution_recovery.h"
 
-namespace SolutionRecoveryNamespace
+namespace ErrorEstimation
 {
   using namespace dealii;
 
@@ -211,4 +211,4 @@ namespace SolutionRecoveryNamespace
   template class Patches<2>;
   template class Patches<3>;
 
-} // namespace SolutionRecoveryNamespace
+} // namespace ErrorEstimation

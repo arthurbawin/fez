@@ -334,15 +334,18 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
    */
   for (const auto &[id, count] : boundary_count)
   {
-    // Check that each boundary id appears in the fluid boundary conditions
-    AssertThrow(param.fluid_bc.find(id) != param.fluid_bc.end(),
-                ExcMessage(
-                  "In mesh file " + param.mesh.filename +
-                  " :\n"
-                  "No fluid boundary condition was assigned to boundary " +
-                  std::to_string(id) + " (" + param.mesh.id2name.at(id) +
-                  "). For now, all boundaries must be assigned a boundary "
-                  "condition for all relevant fields."));
+    if (param.fluid_bc.size() > 0)
+    {
+      // Check that each boundary id appears in the fluid boundary conditions
+      AssertThrow(param.fluid_bc.find(id) != param.fluid_bc.end(),
+                  ExcMessage(
+                    "In mesh file " + param.mesh.filename +
+                    " :\n"
+                    "No fluid boundary condition was assigned to boundary " +
+                    std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+                    "). For now, all boundaries must be assigned a boundary "
+                    "condition for all relevant fields."));
+    }
 
     if (param.pseudosolid_bc.size() > 0)
     {
@@ -368,6 +371,20 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
           "In mesh file " + param.mesh.filename +
           " :\n"
           "No Cahn-Hilliard boundary condition was assigned to boundary " +
+          std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+          "). For now, all boundaries must be assigned a boundary "
+          "condition for all relevant fields."));
+    }
+
+    if (param.heat_bc.size() > 0)
+    {
+      // Check that each boundary id appears in the heat boundary conditions
+      AssertThrow(
+        param.heat_bc.find(id) != param.heat_bc.end(),
+        ExcMessage(
+          "In mesh file " + param.mesh.filename +
+          " :\n"
+          "No heat boundary condition was assigned to boundary " +
           std::to_string(id) + " (" + param.mesh.id2name.at(id) +
           "). For now, all boundaries must be assigned a boundary "
           "condition for all relevant fields."));

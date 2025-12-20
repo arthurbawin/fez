@@ -240,6 +240,10 @@ namespace ManufacturedSolutions
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
+      prm.enter_subsection("exact temperature");
+      dummy_scalar_fun->declare_parameters(prm, 1);
+      declare_preset_manufactured_solutions<dim>(prm);
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -258,12 +262,14 @@ namespace ManufacturedSolutions
     auto sym_mesh_position = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
     auto sym_tracer        = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_potential     = std::make_shared<ParsedFunctionSDBase<dim>>(1);
+    auto sym_temperature   = std::make_shared<ParsedFunctionSDBase<dim>>(1);
 
     std::shared_ptr<MMSFunction<dim>> preset_velocity;
     std::shared_ptr<MMSFunction<dim>> preset_pressure;
     std::shared_ptr<MMSFunction<dim>> preset_mesh_position;
     std::shared_ptr<MMSFunction<dim>> preset_tracer;
     std::shared_ptr<MMSFunction<dim>> preset_potential;
+    std::shared_ptr<MMSFunction<dim>> preset_temperature;
 
     prm.enter_subsection("Manufactured solution");
     {
@@ -297,6 +303,12 @@ namespace ManufacturedSolutions
                                          preset_potential_type,
                                          preset_potential);
       prm.leave_subsection();
+      prm.enter_subsection("exact temperature");
+      sym_temperature->parse_parameters(prm);
+      parse_preset_manufactured_solution(prm,
+                                         preset_temperature_type,
+                                         preset_temperature);
+      prm.leave_subsection();
     }
     prm.leave_subsection();
 
@@ -315,6 +327,9 @@ namespace ManufacturedSolutions
     exact_potential = (preset_potential_type == PresetMMS::none) ?
                         sym_potential :
                         preset_potential;
+    exact_temperature = (preset_temperature_type == PresetMMS::none) ?
+                        sym_temperature :
+                        preset_temperature;
   }
 
   // Explicit instantiation

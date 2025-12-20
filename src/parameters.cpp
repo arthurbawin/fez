@@ -194,6 +194,10 @@ namespace Parameters
         "1",
         Patterns::Integer(),
         "Polynomial degree of the CHNS chemical potential interpolant");
+      prm.declare_entry("Temperature degree",
+                        "1",
+                        Patterns::Integer(),
+                        "Polynomial degree of the temperature interpolant");
     }
     prm.leave_subsection();
   }
@@ -209,6 +213,7 @@ namespace Parameters
         prm.get_integer("Lagrange multiplier degree");
       tracer_degree    = prm.get_integer("Tracer degree");
       potential_degree = prm.get_integer("Potential degree");
+      temperature_degree = prm.get_integer("Temperature degree");
     }
     prm.leave_subsection();
   }

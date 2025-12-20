@@ -165,6 +165,43 @@ namespace BoundaryConditions
         "the specified \"number\" field.");
   }
 
+  template <int dim>
+  void HeatBC<dim>::declare_parameters(ParameterHandler &prm)
+  {
+    BoundaryCondition::declare_parameters(prm);
+    prm.declare_entry("type",
+                      "none",
+                      Patterns::Selection("none|input_function|dirichlet_mms"),
+                      "Type of temperature boundary condition");
+    prm.enter_subsection("temperature");
+    temperature->declare_parameters(prm);
+    prm.leave_subsection();
+  }
+
+  template <int dim>
+  void HeatBC<dim>::read_parameters(ParameterHandler &prm)
+  {
+    BoundaryCondition::read_parameters(prm);
+    physics_type                  = PhysicsType::heat;
+    physics_str                   = "heat";
+    const std::string parsed_type = prm.get("type");
+    if (parsed_type == "input_function")
+      type = Type::input_function;
+    if (parsed_type == "dirichlet_mms")
+      type = Type::dirichlet_mms;
+    if (parsed_type == "none")
+      throw std::runtime_error(
+        "Temperature boundary condition for boundary " +
+        std::to_string(this->id) +
+        " is set to \"none\".\n"
+        "Either you specified this type by mistake, or the number of \n"
+        "prescribed temperature boundary conditions is smaller than "
+        "the specified \"number\" field.");
+    prm.enter_subsection("temperature");
+    temperature->parse_parameters(prm);
+    prm.leave_subsection();
+  }
+
   // Explicit instantiation
   template class FluidBC<2>;
   template class FluidBC<3>;
@@ -172,6 +209,8 @@ namespace BoundaryConditions
   template class PseudosolidBC<3>;
   template class CahnHilliardBC<2>;
   template class CahnHilliardBC<3>;
+  template class HeatBC<2>;
+  template class HeatBC<3>;
 
   template <int dim>
   void apply_velocity_boundary_conditions(

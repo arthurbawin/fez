@@ -43,9 +43,11 @@ namespace Parameters
 
   struct BoundaryConditionsData
   {
+    // These are parsed in utilities.h
     unsigned int n_fluid_bc;
     unsigned int n_pseudosolid_bc;
     unsigned int n_cahn_hilliard_bc;
+    unsigned int n_heat_bc;
 
     bool fix_pressure_constant;
     bool enforce_zero_mean_pressure;
@@ -103,6 +105,9 @@ namespace Parameters
     // flows with a Cahn-Hilliard Navier-Stokes model
     unsigned int tracer_degree;
     unsigned int potential_degree;
+
+    // Degree of the temperature for the heat equation
+    unsigned int temperature_degree;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

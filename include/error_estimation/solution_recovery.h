@@ -10,7 +10,7 @@
 
 #include <array>
 
-namespace SolutionRecoveryNamespace
+namespace ErrorEstimation
 {
   using namespace dealii;
 
@@ -36,16 +36,17 @@ namespace SolutionRecoveryNamespace
 
     void increase_patch_size(unsigned int vertex_index);
 
-    void write_patch_to_pos(const unsigned int i, const unsigned int posTag) const;
+    void write_patch_to_pos(const unsigned int i,
+                            const unsigned int posTag) const;
 
   public:
     const Triangulation<dim> &triangulation;
     const DoFHandler<dim>    &dof_handler;
 
     // Patches of elements and vertices
-    std::vector<std::set<CellIterator>>    patches;
-    std::vector<std::set<types::global_vertex_index>>    patches_of_vertices;
-    std::vector<unsigned int>              num_layers;
+    std::vector<std::set<CellIterator>>               patches;
+    std::vector<std::set<types::global_vertex_index>> patches_of_vertices;
+    std::vector<unsigned int>                         num_layers;
 
     std::vector<Point<dim>> scalings;
 
@@ -120,16 +121,17 @@ namespace SolutionRecoveryNamespace
      * @param dof_handler The DoFHandler associated with the finite element space.
      * @param solution The finite element solution vector.
      */
-    SolutionRecovery(Patches<dim>       &patches,
-                     const Vector<double>     &solution,
-                     const FiniteElement<dim> &fe,
-                     const Mapping<dim>       &mapping = MappingFE<dim>(FE_SimplexP<dim>(1)));
+    SolutionRecovery(
+      Patches<dim>             &patches,
+      const Vector<double>     &solution,
+      const FiniteElement<dim> &fe,
+      const Mapping<dim>       &mapping = MappingFE<dim>(FE_SimplexP<dim>(1)));
 
     void write_derivatives_to_vtu(const unsigned int order) const;
 
   private:
     // Patches may be increased when computing the least-squares matrices
-    Patches<dim>       &patches;
+    Patches<dim>             &patches;
     const Triangulation<dim> &triangulation;
     const FiniteElement<dim> &fe;
     const Mapping<dim>       &mapping;
@@ -141,15 +143,17 @@ namespace SolutionRecoveryNamespace
     const unsigned int degree;
     const unsigned int dim_recovery_basis;
     const unsigned int dim_derivative_basis;
-    unsigned int n_fields_to_recover;
-    unsigned int n_recovered_fields;
-    unsigned int n_derivatives_to_store;
-    unsigned int n_derivatives_computed;
+    unsigned int       n_fields_to_recover;
+    unsigned int       n_recovered_fields;
+    unsigned int       n_derivatives_to_store;
+    unsigned int       n_derivatives_computed;
 
     // The polynomial basis for the fitting of degree p+1 and p respectively
     std::vector<std::array<unsigned int, dim>> monomials, monomials_derivatives;
-    // A map from monomials of degree p to their position in monomials_derivatives.
-    std::map<std::array<unsigned int, dim>, unsigned int> monomials_derivatives_index;
+    // A map from monomials of degree p to their position in
+    // monomials_derivatives.
+    std::map<std::array<unsigned int, dim>, unsigned int>
+      monomials_derivatives_index;
 
     // The least squares matrix for each mesh vertex
     std::vector<FullMatrix<double>> least_squares_matrices;
@@ -178,13 +182,12 @@ namespace SolutionRecoveryNamespace
 
     void computeLeastSquaresMatrices();
     void fill_vandermonde_matrix(const unsigned int  vertex,
-                                   FullMatrix<double> &mat) const;
+                                 FullMatrix<double> &mat) const;
     void build_vertex_to_dof_map();
     void recover_from_solution(const unsigned i_recovered_derivative);
-    void compute_derivatives(const Vector<double> &coeffs,
-     std::vector<Vector<double>> &derivatives);
-
+    void compute_derivatives(const Vector<double>        &coeffs,
+                             std::vector<Vector<double>> &derivatives);
   };
-} // namespace SolutionRecoveryNamespace
+} // namespace ErrorEstimation
 
 #endif

@@ -105,7 +105,7 @@ void CHNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   const double sigma_tilde_over_eps  = sigma_tilde / epsilon;
   const double sigma_tilde_times_eps = sigma_tilde * epsilon;
-  const auto &body_force = cahn_hilliard_param.body_force;
+  const auto  &body_force            = cahn_hilliard_param.body_force;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
@@ -127,8 +127,8 @@ void CHNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
 
   // Navier-Stokes momentum (velocity) source term
-  Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu + body_force) + J_flux * grad_u +
-                       grad_p - div_viscous + phi * grad_mu);
+  Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu + body_force) +
+                       J_flux * grad_u + grad_p - div_viscous + phi * grad_mu);
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
 
@@ -343,9 +343,11 @@ void CHNSSolver<dim>::assemble_local_matrix(
   const double sigma_tilde_times_eps =
     scratch_data.sigma_tilde * scratch_data.epsilon;
   const double diffusive_flux_factor = scratch_data.diffusive_flux_factor;
-  const auto &body_force = scratch_data.body_force;
+  const auto  &body_force            = scratch_data.body_force;
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
+
+  const unsigned int n_dofs_per_cell = scratch_data.dofs_per_cell;
 
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
@@ -374,140 +376,158 @@ void CHNSSolver<dim>::assemble_local_matrix(
     const auto &present_velocity_sym_gradients =
       scratch_data.present_velocity_sym_gradients[q];
 
+    const auto u_dot_grad_u =
+      present_velocity_gradients * present_velocity_values;
+
+    const Tensor<1, dim> dudt =
+      this->time_handler.compute_time_derivative_at_quadrature_node(
+        q, present_velocity_values, scratch_data.previous_velocity_values);
+
     const auto &tracer_value       = scratch_data.tracer_values[q];
     const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
     const auto &potential_gradient = scratch_data.potential_gradients[q];
 
-    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-    {
-      const unsigned int comp_i   = scratch_data.components[i];
-      const bool         i_is_u   = this->ordering->is_velocity(comp_i);
-      const bool         i_is_p   = this->ordering->is_pressure(comp_i);
-      const bool         i_is_phi = this->ordering->is_tracer(comp_i);
-      const bool         i_is_mu  = this->ordering->is_potential(comp_i);
+    const auto to_multiply_by_phi_u_i_phi_phi_j =
+      (drhodphi * (dudt + u_dot_grad_u + body_force) + potential_gradient);
 
-      for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
+    for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
+    {
+      const unsigned int &comp_i = scratch_data.components[i];
+      // const bool         i_is_u   = this->ordering->is_velocity(comp_i);
+      // const bool         i_is_p   = this->ordering->is_pressure(comp_i);
+      // const bool         i_is_phi = this->ordering->is_tracer(comp_i);
+      // const bool         i_is_mu  = this->ordering->is_potential(comp_i);
+
+      const auto &phi_u_i        = phi_u[i];
+      const auto &grad_phi_u_i   = grad_phi_u[i];
+      const auto &sym_grad_phi_u_i   = sym_grad_phi_u[i];
+      const auto &div_phi_u_i    = div_phi_u[i];
+      const auto &phi_p_i        = phi_p[i];
+      const auto &phi_phi_i      = phi_phi[i];
+      const auto &grad_phi_phi_i = grad_phi_phi[i];
+      const auto &phi_mu_i       = phi_mu[i];
+      const auto &grad_phi_mu_i  = grad_phi_mu[i];
+
+      for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
       {
-        const unsigned int comp_j = scratch_data.components[j];
-        bool               assemble =
+        const unsigned int &comp_j = scratch_data.components[j];
+        bool                assemble =
           this->coupling_table[comp_i][comp_j] == DoFTools::always;
         if (!assemble)
           continue;
 
-        const bool j_is_u   = this->ordering->is_velocity(comp_j);
-        const bool j_is_p   = this->ordering->is_pressure(comp_j);
-        const bool j_is_phi = this->ordering->is_tracer(comp_j);
-        const bool j_is_mu  = this->ordering->is_potential(comp_j);
+        // const bool j_is_u   = this->ordering->is_velocity(comp_j);
+        // const bool j_is_p   = this->ordering->is_pressure(comp_j);
+        // const bool j_is_phi = this->ordering->is_tracer(comp_j);
+        // const bool j_is_mu  = this->ordering->is_potential(comp_j);
+
+        const auto &phi_u_j          = phi_u[j];
+        const auto &grad_phi_u_j     = grad_phi_u[j];
+        const auto &sym_grad_phi_u_j = sym_grad_phi_u[j];
+        const auto &div_phi_u_j      = div_phi_u[j];
+        const auto &phi_p_j          = phi_p[j];
+        const auto &phi_phi_j        = phi_phi[j];
+        const auto &grad_phi_phi_j   = grad_phi_phi[j];
+        const auto &phi_mu_j         = phi_mu[j];
+        const auto &grad_phi_mu_j    = grad_phi_mu[j];
 
         double local_matrix_ij = 0.;
 
         /**
          * Momentum equation
          */
-        if (i_is_u)
+        if (const_ordering.u_lower <= comp_i && comp_i <
+        const_ordering.u_upper)
         {
-          if (j_is_u)
+          if (const_ordering.u_lower <= comp_j &&
+              comp_j < const_ordering.u_upper)
           {
-            // Time-dependent
-            local_matrix_ij += rho * bdf_c0 * phi_u[i] * phi_u[j];
+            local_matrix_ij +=
+              phi_u_i *
+              (rho *
+                 (bdf_c0 * phi_u_j + grad_phi_u_j * present_velocity_values +
+                  present_velocity_gradients * phi_u_j) +
+               diffusive_flux_factor * grad_phi_u_j * potential_gradient);
 
-            // Convection
-            local_matrix_ij += rho *
-                               (grad_phi_u[j] * present_velocity_values +
-                                present_velocity_gradients * phi_u[j]) *
-                               phi_u[i];
-
-            // Diffusive flux
-            local_matrix_ij += phi_u[i] * diffusive_flux_factor *
-                               grad_phi_u[j] * potential_gradient;
-
-            // Diffusion
             local_matrix_ij +=
-              2. * eta * scalar_product(grad_phi_u[i], sym_grad_phi_u[j]);
+              // 2. * eta * scalar_product(grad_phi_u_i, sym_grad_phi_u_j);
+              2. * eta * scalar_product(sym_grad_phi_u_i, sym_grad_phi_u_j);
           }
-          if (j_is_p)
+          if (comp_j == const_ordering.p_lower)
           {
-            // Pressure gradient
-            local_matrix_ij += -div_phi_u[i] * phi_p[j];
+            local_matrix_ij += -div_phi_u_i * phi_p_j;
           }
-          if (j_is_phi)
+          if (comp_j == const_ordering.phi_lower)
           {
-            // Convection
-            local_matrix_ij +=
-              drhodphi * phi_phi[j] *
-              (present_velocity_gradients * present_velocity_values) * phi_u[i];
-            // Body force
-            local_matrix_ij +=
-              phi_u[i] * drhodphi * phi_phi[j] * body_force;
-            // Diffusion
-            local_matrix_ij +=
-              2. * detadphi * phi_phi[j] *
-              scalar_product(grad_phi_u[i], present_velocity_sym_gradients);
-            // Surface tension
-            local_matrix_ij += phi_u[i] * phi_phi[j] * potential_gradient;
+            local_matrix_ij += phi_u_i * phi_phi_j *
+            to_multiply_by_phi_u_i_phi_phi_j; local_matrix_ij +=
+              2. * detadphi * phi_phi_j *
+              scalar_product(grad_phi_u_i, present_velocity_sym_gradients);
           }
-          if (j_is_mu)
+          if (comp_j == const_ordering.mu_lower)
           {
-            // Diffusive flux
-            local_matrix_ij += phi_u[i] * diffusive_flux_factor *
-                               present_velocity_gradients * grad_phi_mu[j];
-            // Surface tension
-            local_matrix_ij += phi_u[i] * tracer_value * grad_phi_mu[j];
+            local_matrix_ij +=
+              phi_u_i * (diffusive_flux_factor * present_velocity_gradients *
+                           grad_phi_mu_j +
+                         tracer_value * grad_phi_mu_j);
           }
         }
 
         /**
          * Continuity equation
          */
-        if (i_is_p && j_is_u)
+        if (comp_i == const_ordering.p_lower &&
+            const_ordering.u_lower <= comp_j && comp_j <
+            const_ordering.u_upper)
         {
           // Continuity : variation w.r.t. u
-          local_matrix_ij += -phi_p[i] * div_phi_u[j];
+          local_matrix_ij += -phi_p_i * div_phi_u_j;
         }
 
         /**
          * Tracer equation
          */
-        if (i_is_phi)
+        if (comp_i == const_ordering.phi_lower)
         {
-          if (j_is_u)
+          if (const_ordering.u_lower <= comp_j &&
+              comp_j < const_ordering.u_upper)
           {
             // Advection
-            local_matrix_ij += phi_phi[i] * phi_u[j] * tracer_gradient;
+            local_matrix_ij += phi_phi_i * phi_u_j * tracer_gradient;
           }
-          if (j_is_phi)
+          if (comp_j == const_ordering.phi_lower)
           {
             // Transient
-            local_matrix_ij += phi_phi[i] * bdf_c0 * phi_phi[j];
+            local_matrix_ij += phi_phi_i * bdf_c0 * phi_phi_j;
             // Advection
             local_matrix_ij +=
-              phi_phi[i] * present_velocity_values * grad_phi_phi[j];
+              phi_phi_i * present_velocity_values * grad_phi_phi_j;
           }
-          if (j_is_mu)
+          if (comp_j == const_ordering.mu_lower)
           {
             // Diffusion
-            local_matrix_ij += mobility * grad_phi_mu[j] * grad_phi_phi[i];
+            local_matrix_ij += mobility * grad_phi_mu_j * grad_phi_phi_i;
           }
         }
 
         /**
          * Potential equation
          */
-        if (i_is_mu)
+        if (comp_i == const_ordering.mu_lower)
         {
-          if (j_is_mu)
+          if (comp_j == const_ordering.mu_lower)
           {
             // Mass
-            local_matrix_ij += phi_mu[i] * phi_mu[j];
+            local_matrix_ij += phi_mu_i * phi_mu_j;
           }
-          if (j_is_phi)
+          if (comp_j == const_ordering.phi_lower)
           {
             // Double well
-            local_matrix_ij += -sigma_tilde_over_eps * phi_mu[i] * phi_phi[j] *
+            local_matrix_ij += -sigma_tilde_over_eps * phi_mu_i * phi_phi_j *
                                (3. * tracer_value * tracer_value - 1.);
             // Diffusion
             local_matrix_ij +=
-              -sigma_tilde_times_eps * grad_phi_mu[i] * grad_phi_phi[j];
+              -sigma_tilde_times_eps * grad_phi_mu_i * grad_phi_phi_j;
           }
         }
 
@@ -647,6 +667,9 @@ void CHNSSolver<dim>::assemble_local_rhs(
     const auto &present_velocity_divergence =
       scratch_data.present_velocity_divergence[q];
 
+    const auto u_dot_grad_u =
+      present_velocity_gradients * present_velocity_values;
+
     const auto &diffusive_flux     = scratch_data.diffusive_flux[q];
     const auto &tracer_value       = scratch_data.tracer_values[q];
     const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
@@ -663,6 +686,20 @@ void CHNSSolver<dim>::assemble_local_rhs(
     const double dphidt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, tracer_value, scratch_data.previous_tracer_values);
+
+    // Terms of the momentum equation multiplied by phi_u_i
+    const auto to_multiply_by_phi_u_i =
+      rho * (dudt + u_dot_grad_u + body_force) + diffusive_flux +
+      tracer_value * potential_gradient + source_term_velocity;
+
+    // Terms of the tracer equation multiplied by phi_phi_i
+    const auto to_multiply_by_phi_phi_i =
+      dphidt + velocity_dot_tracer_gradient + source_term_tracer;
+
+    // Terms of the potential equation multiplied by phi_mu_i
+    const auto to_multiply_by_phi_mu_i =
+      potential_value - sigma_tilde_over_eps * phi_cube_minus_phi +
+      source_term_potential;
 
     const auto &phi_p        = scratch_data.phi_p[q];
     const auto &phi_u        = scratch_data.phi_u[q];
@@ -684,76 +721,34 @@ void CHNSSolver<dim>::assemble_local_rhs(
       const auto &phi_mu_i       = phi_mu[i];
       const auto &grad_phi_mu_i  = grad_phi_mu[i];
 
-      double local_rhs_i = -(
+      /**
+       * Momentum equation
+       */
+      double local_rhs_i =
+        phi_u_i * to_multiply_by_phi_u_i -
+        div_phi_u_i * present_pressure_values +
+        2. * eta * scalar_product(grad_phi_u_i, present_velocity_sym_gradients);
 
-        /**
-         * Momentum equation
-         */
+      /**
+       * Continuity equation
+       */
+      local_rhs_i +=
+        phi_p_i * (-present_velocity_divergence + source_term_pressure);
 
-        // Transient
-        rho * phi_u_i * dudt
+      /**
+       * Tracer equation
+       */
+      local_rhs_i += phi_phi_i * to_multiply_by_phi_phi_i +
+                     grad_phi_phi_i * mobility * potential_gradient;
 
-        // Convection
-        + rho * (present_velocity_gradients * present_velocity_values) * phi_u_i
-
-        // Body force
-        + rho * phi_u_i * body_force
-
-        // Diffusive flux
-        + phi_u_i * diffusive_flux
-
-        // Diffusion
-        +
-        2. * eta * scalar_product(grad_phi_u_i, present_velocity_sym_gradients)
-
-        // Pressure gradient
-        - div_phi_u_i * present_pressure_values
-
-        // Surface tension phi * grad(mu)
-        + phi_u_i * tracer_value * potential_gradient
-
-        // Source term
-        + source_term_velocity * phi_u_i
-
-        /**
-         * Continuity equation
-         */
-
-        // Continuity
-        - present_velocity_divergence * phi_p_i
-
-        // Source term
-        + source_term_pressure * phi_p_i
-
-        /**
-         * Tracer equation
-         */
-
-        // Transient and advection
-        + phi_phi_i * (dphidt + velocity_dot_tracer_gradient)
-
-        // Diffusion
-        + mobility * potential_gradient * grad_phi_phi_i
-
-        // Source term
-        + phi_phi_i * source_term_tracer
-
-        /**
-         * Potential equation
-         */
-
-        // Mass and double well
-        +
-        phi_mu_i * (potential_value - sigma_tilde_over_eps * phi_cube_minus_phi)
-
-        // Diffusion
-        - sigma_tilde_times_eps * grad_phi_mu_i * tracer_gradient
-
-        // Source term
-        + phi_mu_i * source_term_potential);
+      /**
+       * Potential equation
+       */
+      local_rhs_i += phi_mu_i * to_multiply_by_phi_mu_i -
+                     grad_phi_mu_i * sigma_tilde_times_eps * tracer_gradient;
 
       local_rhs_i *= JxW;
-      local_rhs(i) += local_rhs_i;
+      local_rhs(i) -= local_rhs_i;
     }
   }
 

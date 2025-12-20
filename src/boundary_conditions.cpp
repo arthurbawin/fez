@@ -161,7 +161,7 @@ namespace BoundaryConditions
         std::to_string(this->id) +
         " is set to \"none\".\n"
         "Either you specified this type by mistake, or the number of \n"
-        "prescribed pseudosolid boundary conditions is smaller than "
+        "prescribed Cahn-Hilliard boundary conditions is smaller than "
         "the specified \"number\" field.");
   }
 

@@ -118,4 +118,21 @@ public:
   }
 };
 
+template <int dim>
+class ConstexprComponentOrderingCHNS
+{
+public:
+  constexpr ConstexprComponentOrderingCHNS() = default;
+
+  static constexpr unsigned int n_components = dim + 3;
+  static constexpr unsigned int u_lower      = 0;
+  static constexpr unsigned int u_upper      = dim;
+  static constexpr unsigned int p_lower      = dim;
+  static constexpr unsigned int p_upper      = dim + 1;
+  static constexpr unsigned int phi_lower    = dim + 1;
+  static constexpr unsigned int phi_upper    = dim + 2;
+  static constexpr unsigned int mu_lower     = dim + 2;
+  static constexpr unsigned int mu_upper     = dim + 3;
+};
+
 #endif

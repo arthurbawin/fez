@@ -1,0 +1,184 @@
+
+subsection Dimension
+  set dimension = 3
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write results    = false
+  set output directory = ../data/mms/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  set dealii preset mesh     = rectangle
+  set dealii mesh parameters = 2, 2, 2: 0., 0., 0,: 1., 1., 2. : true
+  set refinement level       = 1
+end
+
+subsection Time integration
+  set verbosity        = quiet
+  set dt               = 0.1
+  set t_initial        = 0
+  set t_end            = 0.2
+  set scheme           = BDF2
+  set bdf start method = BDF1
+end
+
+subsection Nonlinear solver
+  set verbosity            = quiet
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 25
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  set verbosity      = quiet
+  set method         = direct_mumps
+  set reuse          = true
+end
+
+subsection FiniteElements
+  set Velocity degree   = 2
+  set Pressure degree   = 1
+  set Tracer degree     = 1
+  set Potential degree  = 1
+end
+
+subsection Physical properties
+  set number of fluids = 2
+  subsection Fluid 0
+    set density             = 20
+    set kinematic viscosity = 2
+  end
+  subsection Fluid 1
+    set density             = 0.3
+    set kinematic viscosity = 1
+  end
+end
+
+subsection Cahn Hilliard
+  set mobility model      = constant
+  set mobility            = 1
+  set surface tension     = 1
+  set interface thickness = 1
+  set body force          = 0, 0, -9.81
+end
+
+subsection Initial conditions
+  set to mms = true
+end
+
+subsection Fluid boundary conditions
+  set number = 6
+  set fix pressure constant      = true
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = velocity_mms
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = velocity_mms
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = velocity_mms
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type = velocity_mms
+  end
+  subsection boundary 4
+    set id   = 4
+    set name = z_min
+    set type = velocity_mms
+  end
+  subsection boundary 5
+    set id   = 5
+    set name = z_max
+    set type = velocity_mms
+  end
+end
+
+subsection CahnHilliard boundary conditions
+  set number = 6
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = dirichlet_mms
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type = dirichlet_mms
+  end
+  subsection boundary 4
+    set id   = 4
+    set name = z_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 5
+    set id   = 5
+    set name = z_max
+    set type = dirichlet_mms
+  end
+end
+
+subsection Manufactured solution
+  set enable                 = true
+  set type                   = spacetime
+  set convergence steps      = 2
+  set subtract mean pressure = false
+
+  subsection Space convergence
+    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+  end
+
+  subsection Time convergence
+    set norm                 = Linfty
+    set use spatial mesh     = true
+    set spatial mesh index   = 1
+    set time step reduction  = 0.5
+  end
+
+  subsection exact velocity
+    set Function expression = sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * cos(t); cos(pi*x)*sin(pi*x)*sin(pi*y)*sin(pi*y) * 1/(1 + t^2); sin(t) * (-2.)*cos(pi*x)*cos(pi*y)*sin(pi*z)
+  end
+  subsection exact pressure
+    set Function expression = cos(t)*cos(pi*x)*sin(pi*y)*cos(pi*z)
+  end
+  subsection exact cahn hilliard tracer
+    set Function expression = (x + y + z)^3 * sin(t)
+  end
+  subsection exact cahn hilliard potential
+    set Function expression = (x + y + z)^4 * t^3
+  end
+end
+
+subsection Debug
+  set verbosity                              = verbose
+  set apply exact solution                   = false
+  set compare jacobian matrix with fd        = false
+  set analytical_jacobian_absolute_tolerance = 1e-3
+  set analytical_jacobian_relative_tolerance = 1e-3
+end

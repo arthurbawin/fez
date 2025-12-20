@@ -1,5 +1,5 @@
-#ifndef SCRATCH_DATA_BASE_H
-#define SCRATCH_DATA_BASE_H
+#ifndef SCRATCH_DATA_H
+#define SCRATCH_DATA_H
 
 #include <cahn_hilliard.h>
 #include <components_ordering.h>
@@ -62,7 +62,7 @@ private:
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> &/*exact_solution*/)
+    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
     fe_values[velocity].get_function_values(current_solution,
                                             present_velocity_values);
@@ -106,10 +106,10 @@ private:
 
   template <typename VectorType>
   void reinit_navier_stokes_face(
-    const unsigned int                    i_face,
-    const VectorType                     &current_solution,
-    const std::vector<VectorType>        &/*previous_solutions*/,
-    const std::shared_ptr<Function<dim>> &/*source_terms*/,
+    const unsigned int i_face,
+    const VectorType  &current_solution,
+    const std::vector<VectorType> & /*previous_solutions*/,
+    const std::shared_ptr<Function<dim>> & /*source_terms*/,
     const std::shared_ptr<Function<dim>> &exact_solution)
   {
     fe_face_values[velocity].get_function_values(
@@ -140,11 +140,11 @@ private:
   }
 
   template <typename VectorType>
-  void
-  reinit_pseudo_solid_cell(const VectorType              &current_solution,
-                           const std::vector<VectorType> &previous_solutions,
-                           const std::shared_ptr<Function<dim>> &source_terms,
-                           const std::shared_ptr<Function<dim>> &/*exact_solution*/)
+  void reinit_pseudo_solid_cell(
+    const VectorType                     &current_solution,
+    const std::vector<VectorType>        &previous_solutions,
+    const std::shared_ptr<Function<dim>> &source_terms,
+    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
     fe_values_fixed[position].get_function_values(current_solution,
                                                   present_position_values);
@@ -212,12 +212,12 @@ private:
   }
 
   template <typename VectorType>
-  void
-  reinit_pseudo_solid_face(const unsigned int             i_face,
-                           const VectorType              &current_solution,
-                           const std::vector<VectorType> &previous_solutions,
-                           const std::shared_ptr<Function<dim>> &/*source_terms*/,
-                           const std::shared_ptr<Function<dim>> &/*exact_solution*/)
+  void reinit_pseudo_solid_face(
+    const unsigned int             i_face,
+    const VectorType              &current_solution,
+    const std::vector<VectorType> &previous_solutions,
+    const std::shared_ptr<Function<dim>> & /*source_terms*/,
+    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
     fe_face_values_fixed[position].get_function_values(
       current_solution, present_face_position_values[i_face]);
@@ -358,11 +358,11 @@ private:
 
   template <typename VectorType>
   void reinit_lagrange_multiplier_face(
-    const unsigned int                    i_face,
-    const VectorType                     &current_solution,
-    const std::vector<VectorType>        &/*previous_solutions*/,
-    const std::shared_ptr<Function<dim>> &/*source_terms*/,
-    const std::shared_ptr<Function<dim>> &/*exact_solution*/)
+    const unsigned int i_face,
+    const VectorType  &current_solution,
+    const std::vector<VectorType> & /*previous_solutions*/,
+    const std::shared_ptr<Function<dim>> & /*source_terms*/,
+    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
     fe_face_values[lambda].get_function_values(
       current_solution, present_face_lambda_values[i_face]);
@@ -377,7 +377,7 @@ private:
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> &/*exact_solution*/)
+    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
     fe_values[tracer].get_function_values(current_solution, tracer_values);
     fe_values[tracer].get_function_gradients(current_solution,
@@ -549,7 +549,7 @@ public:
   // Current and previous values and gradients for each quad node
   std::vector<Tensor<1, dim>>              present_velocity_values;
   std::vector<Tensor<2, dim>>              present_velocity_gradients;
-  std::vector<Tensor<2, dim>>              present_velocity_sym_gradients;
+  std::vector<SymmetricTensor<2, dim>>     present_velocity_sym_gradients;
   std::vector<double>                      present_velocity_divergence;
   std::vector<double>                      present_pressure_values;
   std::vector<std::vector<Tensor<1, dim>>> previous_velocity_values;
@@ -558,11 +558,11 @@ public:
   std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
 
   // Shape functions in volume (each quad node and each dof)
-  std::vector<std::vector<Tensor<1, dim>>> phi_u;
-  std::vector<std::vector<Tensor<2, dim>>> grad_phi_u;
-  std::vector<std::vector<Tensor<2, dim>>> sym_grad_phi_u;
-  std::vector<std::vector<double>>         div_phi_u;
-  std::vector<std::vector<double>>         phi_p;
+  std::vector<std::vector<Tensor<1, dim>>>          phi_u;
+  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_u;
+  std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_u;
+  std::vector<std::vector<double>>                  div_phi_u;
+  std::vector<std::vector<double>>                  phi_p;
 
   // Shape functions on faces (each face, quad node and dof)
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
@@ -636,14 +636,14 @@ public:
   FEValuesExtractors::Scalar tracer;
   FEValuesExtractors::Scalar potential;
 
-  double density0;
-  double density1;
-  double dynamic_viscosity0;
-  double dynamic_viscosity1;
-  double mobility;
-  double epsilon;
-  double sigma_tilde;
-  double diffusive_flux_factor;
+  double         density0;
+  double         density1;
+  double         dynamic_viscosity0;
+  double         dynamic_viscosity1;
+  double         mobility;
+  double         epsilon;
+  double         sigma_tilde;
+  double         diffusive_flux_factor;
   Tensor<1, dim> body_force;
 
   std::vector<double> density;

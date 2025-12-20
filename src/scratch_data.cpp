@@ -245,7 +245,7 @@ void ScratchData<dim>::allocate()
 
   phi_u.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
   grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
-  sym_grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
+  sym_grad_phi_u.resize(n_q_points, std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
   div_phi_u.resize(n_q_points, std::vector<double>(dofs_per_cell));
   phi_p.resize(n_q_points, std::vector<double>(dofs_per_cell));
 

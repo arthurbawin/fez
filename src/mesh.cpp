@@ -552,7 +552,7 @@ void read_mesh(
       const double       min_corner = (dim == 2) ? 0. : 0.;
       const double       max_corner = 1.;
       const unsigned int refinement_level =
-        param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix + 1) :
+        param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix) :
                                  param.mesh.refinement_level;
       create_rectangle(serial_triangulation,
                        param.mesh,

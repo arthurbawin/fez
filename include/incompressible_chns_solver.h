@@ -103,6 +103,8 @@ protected:
   // Non-owning pointer to base class fixed_mapping, used for clarity.
   Mapping<dim> *mapping;
 
+  static constexpr ConstexprComponentOrderingCHNS<dim> const_ordering = {};
+
   FEValuesExtractors::Scalar tracer_extractor;
   FEValuesExtractors::Scalar potential_extractor;
   ComponentMask              tracer_mask;

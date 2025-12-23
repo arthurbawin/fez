@@ -73,9 +73,25 @@ namespace Parameters
 
   struct Output
   {
-    bool        write_results;
+    bool        vtu_write_results;
     std::string output_dir;
     std::string output_prefix;
+    int        vtu_output_frequency;
+    int        force_and_position_output_frequency;
+    bool       write_peau_results;
+    bool       write_fluid_vorticity_results;
+    bool       write_slices;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  struct Post_processing
+  {
+    bool compute_drag_lift;
+    bool compute_drag_lift_on_slices;
+    int  number_of_slices;
+    bool compute_boundary_position;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

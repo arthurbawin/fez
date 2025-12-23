@@ -184,7 +184,6 @@ void MonolithicFSISolver<dim>::run()
   create_lagrange_multiplier_constraints();
   if (param.fsi.enable_coupling)
     create_position_lagrange_mult_coupling_data();
-
   create_zero_constraints();
   create_nonzero_constraints();
   create_sparsity_pattern();
@@ -470,14 +469,16 @@ void MonolithicFSISolver<dim>::create_position_lagrange_mult_coupling_data()
   // Compute the weights c_ij and identify the constrained position DOFs.
   // Done only once as cylinder is rigid and those weights will not change.
   //
+
+
   std::vector<std::map<types::global_dof_index, double>> coeffs(dim);
 
   FEFaceValues<dim> fe_face_values_fixed(*fixed_mapping,
                                          fe,
                                          face_quadrature,
                                          update_values |
-                                           // update_quadrature_points |
-                                           update_JxW_values);
+                                         // update_quadrature_points |
+                                         update_JxW_values);
 
   const unsigned int                   n_dofs_per_face = fe.n_dofs_per_face();
   std::vector<types::global_dof_index> face_dofs(n_dofs_per_face);
@@ -888,43 +889,43 @@ void MonolithicFSISolver<dim>::create_zero_constraints()
    * Are there relevant dofs (position and/or velocity) on the cylinder
    * which should be constrained but aren't, or vice versa?
    */
-  {
-    std::map<types::global_dof_index, Point<dim>> support_points;
-    DoFTools::map_dofs_to_support_points(*fixed_mapping,
-                                         dof_handler,
-                                         support_points);
-    {
+  //{
+  //  std::map<types::global_dof_index, Point<dim>> support_points;
+  //  DoFTools::map_dofs_to_support_points(*fixed_mapping,
+  //                                       dof_handler,
+  //                                       support_points);
+  //  {
       // Print owned position dofs
-      std::ofstream outfile(param.output.output_dir + "position_dofs_proc" +
-                            std::to_string(mpi_rank) + ".pos");
-      outfile << "View \"position_dofs_proc" << mpi_rank << "\"{" << std::endl;
-      for (const auto dof : owned_boundary_position_dofs)
-      {
-        const Point<dim> &pt = support_points[dof];
-        outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-                << std::endl;
-      }
-      outfile << "};" << std::endl;
-      outfile.close();
-    }
-    {
+  //    std::ofstream outfile(param.output.output_dir + "position_dofs_proc" +
+   //                         std::to_string(mpi_rank) + ".pos");
+    //  outfile << "View \"position_dofs_proc" << mpi_rank << "\"{" << std::endl;
+     // for (const auto dof : owned_boundary_position_dofs)
+      //{
+       // const Point<dim> &pt = support_points[dof];
+        //outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+         //       << std::endl;
+     // }
+      //outfile << "};" << std::endl;
+      //outfile.close();
+    //}
+    //{
       // Print ghost position dofs
-      std::ofstream outfile(param.output.output_dir +
-                            "position_ghost_dofs_proc" +
-                            std::to_string(mpi_rank) + ".pos");
-      outfile << "View \"position_ghost_dofs_proc" << mpi_rank << "\"{"
-              << std::endl;
-      for (const auto dof : relevant_boundary_position_dofs)
-        if (!owned_boundary_position_dofs.is_element(dof))
-        {
-          const Point<dim> &pt = support_points[dof];
-          outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-                  << std::endl;
-        }
-      outfile << "};" << std::endl;
-      outfile.close();
-    }
-  }
+     // std::ofstream outfile(param.output.output_dir +
+      //                      "position_ghost_dofs_proc" +
+       //                     std::to_string(mpi_rank) + ".pos");
+      //outfile << "View \"position_ghost_dofs_proc" << mpi_rank << "\"{"
+       //       << std::endl;
+      //for (const auto dof : relevant_boundary_position_dofs)
+       // if (!owned_boundary_position_dofs.is_element(dof))
+        //{
+         // const Point<dim> &pt = support_points[dof];
+          //outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+            //      << std::endl;
+        //}
+      //outfile << "};" << std::endl;
+      //outfile.close();
+    //}
+  //}
 
   if (param.debug.verbosity == Parameters::Verbosity::verbose)
   {
@@ -2734,7 +2735,12 @@ void MonolithicFSISolver<dim>::compute_errors()
 template <int dim>
 void MonolithicFSISolver<dim>::output_results() const
 {
-  if (param.output.write_results)
+
+  if (param.output.vtu_write_results &&
+      (time_handler.current_time_iteration %
+         param.output.vtu_output_frequency ==
+       0 ||
+       time_handler.is_finished()))
   {
     //
     // Plot FE solution
@@ -2874,9 +2880,16 @@ void MonolithicFSISolver<dim>::compute_forces(const bool export_table)
   if (param.debug.verbosity == Parameters::Verbosity::verbose)
     pcout << "Computed forces: " << -lambda_integral << std::endl;
 
-  if (export_table && param.output.write_results && mpi_rank == 0)
+  if (export_table && param.output.vtu_write_results && mpi_rank == 0)
   {
     std::ofstream outfile(param.output.output_dir + "forces.txt");
+    std::vector<std::string> columns = {"time", "CFx", "CFy"};
+    if constexpr (dim == 3) columns.push_back("CFz");
+
+    for (const auto &col : columns) {
+      forces_table.set_scientific(col, true);
+      forces_table.set_precision(col, 10);
+    }
     forces_table.write_text(outfile);
   }
 }
@@ -2941,9 +2954,16 @@ void MonolithicFSISolver<dim>::write_cylinder_position(const bool export_table)
   if constexpr (dim == 3)
     cylinder_position_table.add_value("zc", average_position[2]);
 
-  if (export_table && param.output.write_results && mpi_rank == 0)
+  if (export_table && param.output.vtu_write_results && mpi_rank == 0)
   {
     std::ofstream outfile(param.output.output_dir + "cylinder_center.txt");
+    std::vector<std::string> columns = {"time", "xc", "yc"};
+    if constexpr (dim == 3) columns.push_back("zc");
+
+    for (const auto &col : columns) {
+      cylinder_position_table.set_scientific(col, true);
+      cylinder_position_table.set_precision(col, 10);
+    }
     cylinder_position_table.write_text(outfile);
   }
 }
@@ -2978,12 +2998,14 @@ void MonolithicFSISolver<dim>::postprocess_solution()
   }
 
   const bool export_force_table =
-    time_handler.is_steady() ||
-    ((time_handler.current_time_iteration % 5) == 0);
+    (time_handler.is_steady()&&(time_handler.current_time_iteration %
+         param.output.force_and_position_output_frequency ==
+       0));
   compute_forces(export_force_table);
   const bool export_position_table =
-    time_handler.is_steady() ||
-    ((time_handler.current_time_iteration % 5) == 0);
+    (time_handler.is_steady()&&(time_handler.current_time_iteration %
+         param.output.force_and_position_output_frequency ==
+       0));
   write_cylinder_position(export_position_table);
 
   if (param.mms_param.enable)

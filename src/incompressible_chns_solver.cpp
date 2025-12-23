@@ -1110,7 +1110,7 @@ void IncompressibleCHNSSolver<dim>::output_results()
 {
   TimerOutput::Scope t(this->computing_timer, "Write outputs");
 
-  if (param.output.write_results)
+  if (param.output.vtu_write_results)
   {
     //
     // Plot FE solution

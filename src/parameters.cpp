@@ -128,7 +128,7 @@ namespace Parameters
   {
     prm.enter_subsection("Output");
     {
-      prm.declare_entry("write results",
+      prm.declare_entry("vtu write results",
                         "true",
                         Patterns::Bool(),
                         "Enable/disable output writing");
@@ -140,6 +140,22 @@ namespace Parameters
                         "solution",
                         Patterns::FileName(),
                         "Prefix to attach to the output files");
+      prm.declare_entry(
+        "VTU output frequency",
+        "1",
+        Patterns::Integer(),
+        "Frequency in step unit for the exportation of the VTU output");
+      prm.declare_entry(
+        "force and position output frequency",
+        "1",
+        Patterns::Integer(),
+        "Frequency in step unit for the exportation of the force and position output");
+      prm.declare_entry("write peau results", "false", Patterns::Bool(),
+                        "Write surface (skin) results specifically");
+      prm.declare_entry("write fluid vorticity results", "false", Patterns::Bool(),
+                        "Compute and write fluid vorticity in the VTU output");
+      prm.declare_entry("write slices", "false", Patterns::Bool(),
+                        "Write specific slices of the domain (if implemented)");
     }
     prm.leave_subsection();
   }
@@ -148,9 +164,42 @@ namespace Parameters
   {
     prm.enter_subsection("Output");
     {
-      write_results = prm.get_bool("write results");
+      vtu_write_results = prm.get_bool("vtu write results");
       output_dir    = prm.get("output directory");
       output_prefix = prm.get("output prefix");
+      vtu_output_frequency = prm.get_integer("VTU output frequency");
+      force_and_position_output_frequency = prm.get_integer("force and position output frequency");
+      write_peau_results = prm.get_bool("write peau results");
+      write_fluid_vorticity_results = prm.get_bool("write fluid vorticity results");
+      write_slices = prm.get_bool("write slices");
+    }
+    prm.leave_subsection();
+  }
+
+  void Post_processing::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Post processing");
+    {
+      prm.declare_entry("compute drag lift", "false", Patterns::Bool(),
+                        "Compute drag and lift coefficients on the obstacle");
+      prm.declare_entry("compute drag lift on slices", "false", Patterns::Bool(),
+                        "Compute drag and lift coefficients on slices (2D cuts in 3D)");
+      prm.declare_entry("number of slices", "1", Patterns::Integer(),
+                        "Number of slices to use for drag/lift computation");
+      prm.declare_entry("compute boundary position", "false", Patterns::Bool(),
+                        "Compute the exact position of the moving boundary");
+    }
+    prm.leave_subsection();
+  }
+
+  void Post_processing::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Post processing");
+    {
+      compute_drag_lift = prm.get_bool("compute drag lift");
+      compute_drag_lift_on_slices = prm.get_bool("compute drag lift on slices");
+      number_of_slices = prm.get_integer("number of slices");
+      compute_boundary_position = prm.get_bool("compute boundary position");
     }
     prm.leave_subsection();
   }

@@ -23,6 +23,7 @@ public:
   Parameters::Timer                   timer;
   Parameters::Mesh                    mesh;
   Parameters::Output                  output;
+  Parameters::Post_processing         post_processing;
   Parameters::FiniteElements          finite_elements;
   Parameters::PhysicalProperties<dim> physical_properties;
   Parameters::FSI                     fsi;
@@ -71,6 +72,7 @@ public:
     timer.declare_parameters(prm);
     mesh.declare_parameters(prm);
     output.declare_parameters(prm);
+    post_processing.declare_parameters(prm);
     finite_elements.declare_parameters(prm);
     physical_properties.declare_parameters(prm);
     fsi.declare_parameters(prm);
@@ -101,6 +103,7 @@ public:
     timer.read_parameters(prm);
     mesh.read_parameters(prm);
     output.read_parameters(prm);
+    post_processing.read_parameters(prm);
     finite_elements.read_parameters(prm);
     physical_properties.read_parameters(prm);
     fsi.read_parameters(prm);

@@ -6,7 +6,7 @@ namespace ErrorEstimation
   using namespace dealii;
 
   template <int dim>
-  Patches<dim>::Patches(const Triangulation<dim> &triangulation,
+  ErrorPatches<dim>::ErrorPatches(const Triangulation<dim> &triangulation,
                         const DoFHandler<dim>    &dof_handler,
                         unsigned int              degree)
     : triangulation(triangulation)
@@ -14,7 +14,7 @@ namespace ErrorEstimation
   {
     // Build patches with enough vertices to fit a degree p+1 polynomial
     unsigned int num_required_vertices =
-      PolynomialSpace<dim>::dim_polynomial_basis(degree + 1);
+      PolynomialSpace_not_deal_ii<dim>::dim_polynomial_basis(degree + 1);
 
     const auto n_vertices = triangulation.n_vertices();
 
@@ -40,7 +40,7 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  void Patches<dim>::addLayer(unsigned int vertex_index)
+  void ErrorPatches<dim>::addLayer(unsigned int vertex_index)
   {
     auto         &patch          = patches[vertex_index];
     auto         &patch_vertices = patches_of_vertices[vertex_index];
@@ -116,7 +116,7 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  void Patches<dim>::compute_scalings()
+  void ErrorPatches<dim>::compute_scalings()
   {
     const auto                     n_vertices = triangulation.n_vertices();
     const std::vector<Point<dim>> &vertices   = triangulation.get_vertices();
@@ -139,7 +139,7 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  void Patches<dim>::increase_patch_size(unsigned int vertex_index)
+  void ErrorPatches<dim>::increase_patch_size(unsigned int vertex_index)
   {
     this->addLayer(vertex_index);
 
@@ -159,7 +159,7 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  void Patches<dim>::write_patch_to_pos(const unsigned int i,
+  void ErrorPatches<dim>::write_patch_to_pos(const unsigned int i,
                                         const unsigned int posTag) const
   {
     Assert(dim == 2, ExcNotImplemented());
@@ -208,7 +208,7 @@ namespace ErrorEstimation
   }
 
   // Explicit instantiations
-  template class Patches<2>;
-  template class Patches<3>;
+  template class ErrorPatches<2>;
+  template class ErrorPatches<3>;
 
 } // namespace ErrorEstimation

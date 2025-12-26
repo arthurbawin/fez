@@ -7,6 +7,7 @@
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <error_estimation/patches.h>
 #include <errors.h>
 #include <heat_solver.h>
 #include <linear_solver.h>
@@ -65,9 +66,9 @@ template <int dim>
 void HeatSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                                   Vector<double> &values) const
 {
-  const double dTdt  = mms.exact_temperature->time_derivative(p);
+  const double dTdt     = mms.exact_temperature->time_derivative(p);
   const double lap_temp = mms.exact_temperature->laplacian(p);
-  values[0] = - (dTdt - lap_temp);
+  values[0]             = -(dTdt - lap_temp);
 }
 
 template <int dim>
@@ -485,9 +486,8 @@ void HeatSolver<dim>::assemble_local_rhs(
     const auto &source_term_temperature =
       scratchData.source_term_temperature[q];
 
-    const double dTdt =
-      time_handler.compute_time_derivative_at_quadrature_node(
-        q, temperature_value, scratchData.previous_temperature_values);
+    const double dTdt = time_handler.compute_time_derivative_at_quadrature_node(
+      q, temperature_value, scratchData.previous_temperature_values);
 
     const auto &phi_t      = scratchData.phi_t[q];
     const auto &grad_phi_t = scratchData.grad_phi_t[q];
@@ -576,7 +576,7 @@ void HeatSolver<dim>::output_results()
     Vector<float> subdomain(triangulation.n_active_cells());
     for (unsigned int i = 0; i < subdomain.size(); ++i)
       subdomain(i) = triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain");
+    data_out.add_data_vector(subdomain, "subdomain", DataOut<dim>::type_cell_data);
 
     data_out.build_patches(*mapping, 2);
 
@@ -640,12 +640,23 @@ void HeatSolver<dim>::compute_errors()
 }
 
 template <int dim>
+void HeatSolver<dim>::compute_recovery()
+{
+  TimerOutput::Scope t(computing_timer, "Compute recovery");
+
+  ErrorEstimation::Patches patches(
+    triangulation, *mapping, dof_handler,  param.finite_elements.temperature_degree + 1, temperature_mask);
+}
+
+template <int dim>
 void HeatSolver<dim>::postprocess_solution()
 {
   output_results();
 
   if (param.mms_param.enable)
     compute_errors();
+
+  compute_recovery();
 }
 
 // Explicit instantiation

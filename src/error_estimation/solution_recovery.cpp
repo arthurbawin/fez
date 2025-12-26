@@ -64,7 +64,7 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  SolutionRecovery<dim>::SolutionRecovery(Patches<dim>             &patches,
+  SolutionRecovery<dim>::SolutionRecovery(ErrorPatches<dim>             &patches,
                                           const Vector<double>     &solution,
                                           const FiniteElement<dim> &fe,
                                           const Mapping<dim>       &mapping)
@@ -77,11 +77,11 @@ namespace ErrorEstimation
     , n_vertices(triangulation.n_vertices())
     , n_components(fe.n_components())
     , degree(fe.degree)
-    , dim_recovery_basis(PolynomialSpace<dim>::dim_polynomial_basis(degree + 1))
-    , dim_derivative_basis(PolynomialSpace<dim>::dim_polynomial_basis(degree))
+    , dim_recovery_basis(PolynomialSpace_not_deal_ii<dim>::dim_polynomial_basis(degree + 1))
+    , dim_derivative_basis(PolynomialSpace_not_deal_ii<dim>::dim_polynomial_basis(degree))
   {
-    monomials = PolynomialSpace<dim>::generate_monomials(degree + 1);
-    monomials_derivatives = PolynomialSpace<dim>::generate_monomials(degree);
+    monomials = PolynomialSpace_not_deal_ii<dim>::generate_monomials(degree + 1);
+    monomials_derivatives = PolynomialSpace_not_deal_ii<dim>::generate_monomials(degree);
 
     // Map exponent -> index for reduced basis
     for (unsigned int i = 0; i < dim_derivative_basis; ++i)

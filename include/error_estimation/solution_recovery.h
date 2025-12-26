@@ -18,7 +18,7 @@ namespace ErrorEstimation
    *
    */
   template <int dim>
-  class Patches
+  class ErrorPatches
   {
   public:
     using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
@@ -30,7 +30,7 @@ namespace ErrorEstimation
      * @param degree The degree of the polynomial solution. A polynomial
      *        of order degree + 1 will be fitted on the patches.
      */
-    Patches(const Triangulation<dim> &triangulation,
+    ErrorPatches(const Triangulation<dim> &triangulation,
             const DoFHandler<dim>    &dof_handler,
             unsigned int              degree);
 
@@ -61,7 +61,7 @@ namespace ErrorEstimation
    * A small convenience class to define monomials.
    */
   template <int dim>
-  class PolynomialSpace
+  class PolynomialSpace_not_deal_ii
   {
   public:
     using MultiIndex = std::array<unsigned int, dim>;
@@ -122,7 +122,7 @@ namespace ErrorEstimation
      * @param solution The finite element solution vector.
      */
     SolutionRecovery(
-      Patches<dim>             &patches,
+      ErrorPatches<dim>             &patches,
       const Vector<double>     &solution,
       const FiniteElement<dim> &fe,
       const Mapping<dim>       &mapping = MappingFE<dim>(FE_SimplexP<dim>(1)));
@@ -131,7 +131,7 @@ namespace ErrorEstimation
 
   private:
     // Patches may be increased when computing the least-squares matrices
-    Patches<dim>             &patches;
+    ErrorPatches<dim>             &patches;
     const Triangulation<dim> &triangulation;
     const FiniteElement<dim> &fe;
     const Mapping<dim>       &mapping;

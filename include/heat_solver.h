@@ -98,6 +98,8 @@ public:
 
   virtual void output_results();
 
+  void compute_recovery();
+
 protected:
   std::shared_ptr<ComponentOrdering> ordering;
 

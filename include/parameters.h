@@ -44,10 +44,10 @@ namespace Parameters
   struct BoundaryConditionsData
   {
     // These are parsed in utilities.h
-    unsigned int n_fluid_bc;
-    unsigned int n_pseudosolid_bc;
-    unsigned int n_cahn_hilliard_bc;
-    unsigned int n_heat_bc;
+    unsigned int n_fluid_bc         = 0;
+    unsigned int n_pseudosolid_bc   = 0;
+    unsigned int n_cahn_hilliard_bc = 0;
+    unsigned int n_heat_bc          = 0;
 
     bool fix_pressure_constant;
     bool enforce_zero_mean_pressure;
@@ -236,9 +236,9 @@ namespace Parameters
     double epsilon_interface;
 
     /**
-     * We differentiate between the body force which is multiplied by the mixture density
-     * (typically gravity), and the generic source term (e.g., for manufactured solutions)
-     * which is not.
+     * We differentiate between the body force which is multiplied by the
+     * mixture density (typically gravity), and the generic source term (e.g.,
+     * for manufactured solutions) which is not.
      */
     Tensor<1, dim> body_force;
 
@@ -276,7 +276,7 @@ namespace Parameters
     bool         use_deal_ii_holed_plate_mesh;
     std::string  mesh_prefix;
     unsigned int first_mesh_index;
-    unsigned int mesh_suffix;
+    unsigned int mesh_suffix = 0;
 
     std::vector<VectorTools::NormType> norms_to_compute;
 

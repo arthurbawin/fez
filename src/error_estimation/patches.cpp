@@ -23,10 +23,8 @@ namespace ErrorEstimation
     , subdomain_id(Utilities::MPI::this_mpi_process(mpi_communicator))
     , n_vertices(triangulation.n_vertices())
     , owned_vertices(n_vertices, false)
-    , patches_of_elements(n_vertices)
-    , patches_of_dofs(n_vertices)
-    , patches_of_support_points(n_vertices)
-    , scalings(n_vertices)
+    , patches(n_vertices)
+  // , scalings(n_vertices)
   {
     {
       /**
@@ -53,7 +51,7 @@ namespace ErrorEstimation
     }
 
     relevant_dofs_support_points =
-      DoFTools::map_dofs_to_support_points(mapping, dof_handler);
+      DoFTools::map_dofs_to_support_points(mapping, dof_handler, mask);
 
     locally_owned_dofs = dof_handler.locally_owned_dofs();
     locally_relevant_dofs =
@@ -105,9 +103,6 @@ namespace ErrorEstimation
     for (unsigned int layer = 0; needs_further_expansion; ++layer)
     {
       add_element_layer(layer, n_required_vertices, needs_further_expansion);
-      // for (unsigned int i = 0; i < n_vertices; ++i)
-      //   if (owned_vertices[i])
-      //     write_element_patch_gmsh(i, layer);
 
       /**
        * If any rank needs expansion, all ranks must continue exhchanging
@@ -126,48 +121,46 @@ namespace ErrorEstimation
                                        const unsigned     n_required_vertices,
                                        bool &needs_further_expansion)
   {
-    const FESystem<dim>                 &fe              = dof_handler.get_fe();
-    const unsigned int                   n_dofs_per_cell = fe.n_dofs_per_cell();
+    const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
+    const FESystem<dim>           &fe       = dof_handler.get_fe();
+    const unsigned int             n_dofs_per_cell = fe.n_dofs_per_cell();
     std::vector<types::global_dof_index> local_dofs(n_dofs_per_cell);
 
     needs_further_expansion = false;
 
     std::vector<bool> needs_expansion(n_vertices, false);
 
-    for (types::global_vertex_index vertex_index = 0; vertex_index < n_vertices;
-         ++vertex_index)
+    for (types::global_vertex_index v = 0; v < n_vertices; ++v)
     {
-      needs_expansion[vertex_index] =
-        patches_of_support_points[vertex_index].size() < n_required_vertices;
+      needs_expansion[v] = patches[v].neighbours.size() < n_required_vertices;
     }
 
     /**
-     * If the previous layer included ghost cells, this layer may need to
+     * If previous layer included ghost cells, this layer may need to
      * request neighbouring dof support points to other ranks. Start by
      * exchanging this info, and add the non-owned, non-ghosted support points
      * to the patch.
      */
     if (layer > 0)
     {
-      std::map<types::global_dof_index, std::vector<Point<dim>>>
-        connected_support_points_to_requested_dofs;
+      std::map<types::global_dof_index,
+               std::vector<std::pair<types::global_dof_index, Point<dim>>>>
+        connected_dofs_to_requested_dofs;
 
       exchange_ghost_layer_dofs(dofs_in_ghost_layer,
-                                connected_support_points_to_requested_dofs);
+                                connected_dofs_to_requested_dofs);
 
       for (const auto &[dof, vertex_indices] : to_add_after_request)
       {
-        const auto &connected_support_points =
-          connected_support_points_to_requested_dofs.at(dof);
+        const auto &connected_data = connected_dofs_to_requested_dofs.at(dof);
 
         // All owned vertices containing this dof
-        for (const auto vertex_index : vertex_indices)
+        for (const auto v : vertex_indices)
         {
-          auto &patches_support_points =
-            patches_of_support_points[vertex_index];
-          if (needs_expansion[vertex_index])
-            for (const auto &pt : connected_support_points)
-              patches_support_points.push_back(pt);
+          auto &patch = patches[v];
+          if (needs_expansion[v])
+            for (const auto &pair : connected_data)
+              patch.neighbours.insert(pair);
         }
       }
     }
@@ -176,39 +169,30 @@ namespace ErrorEstimation
      * Then extend the current patches (at owned mesh vertices) with the dof
      * support points in the next layer of elements.
      */
-    for (types::global_vertex_index vertex_index = 0; vertex_index < n_vertices;
-         ++vertex_index)
+    for (types::global_vertex_index v = 0; v < n_vertices; ++v)
     {
-      if (!owned_vertices[vertex_index])
-        continue;
-
       // Skip this patch if it already has enough support points
-      if (!needs_expansion[vertex_index])
+      if (!owned_vertices[v] || !needs_expansion[v])
         continue;
 
-      auto &patch_elements         = patches_of_elements[vertex_index];
-      auto &patch_dofs             = patches_of_dofs[vertex_index];
-      auto &patches_support_points = patches_of_support_points[vertex_index];
+      auto &patch = patches[v];
 
       std::set<CellIterator>            new_cells;
       std::set<types::global_dof_index> new_dofs;
 
       if (layer == 0)
       {
-        AssertThrow(patch_elements.size() == 0,
-                    ExcMessage("Initial patch should be empty"));
-        AssertThrow(patch_dofs.size() == 0,
-                    ExcMessage("Initial patch should be empty"));
-        AssertThrow(patches_support_points.size() == 0,
+        AssertThrow(patch.elements.size() == 0,
                     ExcMessage("Initial patch should be empty"));
         /**
          * First layer: add cells containing the vertex directly.
          * There is always at least 1 ghost cell layer, so the first cell layer
          * is local to the partition.
          */
+        patch.center = vertices[v];
         for (const auto &cell : dof_handler.active_cell_iterators())
           for (unsigned int i = 0; i < cell->n_vertices(); ++i)
-            if (cell->vertex_index(i) == vertex_index)
+            if (cell->vertex_index(i) == v)
             {
               new_cells.insert(cell);
               break;
@@ -224,37 +208,50 @@ namespace ErrorEstimation
           cell->get_dof_indices(local_dofs);
           for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
             if (mask[fe.system_to_component_index(i).first])
+            {
               // Add cell if one of its dofs is in current patch
-              if (patch_dofs.count(local_dofs[i]) > 0)
+              // auto v1 = patch.dofs.count(local_dofs[i]);
+              // auto v2 = patch.neighbours.count(local_dofs[i]);
+              // if (v1 != v2 && subdomain_id == 0)
+              // {
+              //   std::cout << "Miss for " << v1 << " vs " << v2
+              //   << " for dof " << local_dofs[i]
+              //   << " ( " << locally_owned_dofs.is_element(local_dofs[i])
+              //   << " - " << locally_relevant_dofs.is_element(local_dofs[i])
+              //   << ")" << std::endl;
+              // }
+
+              // FIXME: Testing this yields different patches in parallel...
+              // Sticking to patch.dofs for now.
+              // if (patch.neighbours.count(local_dofs[i]) > 0)
+              if (patch.dofs.count(local_dofs[i]) > 0)
               {
                 new_cells.insert(cell);
                 break;
               }
+            }
         }
       }
 
+      // Add new elements
+      patch.elements.insert(new_cells.begin(), new_cells.end());
+
+      // Add new dofs
+      for (const auto &cell : new_cells)
       {
-        // Add new elements
-        patch_elements.insert(new_cells.begin(), new_cells.end());
-
-        // Add new dofs
-        for (const auto &cell : new_cells)
-        {
-          cell->get_dof_indices(local_dofs);
-          for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
-            if (mask[fe.system_to_component_index(i).first])
-              new_dofs.insert(local_dofs[i]);
-        }
-        patch_dofs.insert(new_dofs.begin(), new_dofs.end());
-
-        // Add support points from dof indices
-        for (const auto dof : new_dofs)
-          patches_support_points.push_back(
-            relevant_dofs_support_points.at(dof));
+        cell->get_dof_indices(local_dofs);
+        for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
+          if (mask[fe.system_to_component_index(i).first])
+            new_dofs.insert(local_dofs[i]);
       }
+      patch.dofs.insert(new_dofs.begin(), new_dofs.end());
+
+      // Add neighbouring dofs and their support points
+      for (const auto dof : new_dofs)
+        patch.neighbours.insert({dof, relevant_dofs_support_points.at(dof)});
 
       // Check if an additional layer will be required for at least one patch
-      if (patches_support_points.size() < n_required_vertices)
+      if (patch.neighbours.size() < n_required_vertices)
       {
         needs_further_expansion = true;
 
@@ -263,7 +260,7 @@ namespace ErrorEstimation
          * dofs might not have an adjacent cell in this partition, and a request
          * will be done to other partitions.
          */
-        for (const auto &cell : patch_elements)
+        for (const auto &cell : patch.elements)
           if (cell->is_ghost())
           {
             cell->get_dof_indices(local_dofs);
@@ -273,29 +270,29 @@ namespace ErrorEstimation
                 {
                   dofs_in_ghost_layer[cell->subdomain_id()].insert(
                     local_dofs[i]);
-                  to_add_after_request[local_dofs[i]].insert(vertex_index);
+                  to_add_after_request[local_dofs[i]].insert(v);
                 }
           }
       }
     }
   }
 
-  // template <int dim>
-  // struct SupportPointData
-  // {
-  //   types::global_dof_index global_dof_index;
-  //   std::vector<Point<dim>> support_points_on_cell;
-  //   // double                          value;
+  template <int dim>
+  struct NeighbourDofData
+  {
+    types::global_dof_index requested_dof;
+    types::global_dof_index neighbouring_dof;
+    Point<dim>              support_point;
 
-  //   // Boost serialization
-  //   template <class Archive>
-  //   void serialize(Archive &ar, const unsigned int version)
-  //   {
-  //     ar &global_dof_index;
-  //     ar &support_points_on_cell;
-  //     // ar &value;
-  //   }
-  // };
+    // Boost serialization
+    template <class Archive>
+    void serialize(Archive &ar, const unsigned int version)
+    {
+      ar &requested_dof;
+      ar &neighbouring_dof;
+      ar &support_point;
+    }
+  };
 
   /**
    * Given a list of dofs located in the ghost layer of this partition,
@@ -308,8 +305,9 @@ namespace ErrorEstimation
   void Patches<dim>::exchange_ghost_layer_dofs(
     const std::map<types::subdomain_id, std::set<types::global_dof_index>>
       &dofs_to_request,
-    std::map<types::global_dof_index, std::vector<Point<dim>>>
-      &connected_support_points_to_requested_dofs)
+    std::map<types::global_dof_index,
+             std::vector<std::pair<types::global_dof_index, Point<dim>>>>
+      &connected_dofs_to_requested_dofs)
   {
     const FESystem<dim> &fe = dof_handler.get_fe();
     std::map<types::subdomain_id, std::vector<types::global_dof_index>>
@@ -352,21 +350,20 @@ namespace ErrorEstimation
     }
 
     /**
-     * Get the support points of (owned or relevant) dofs connected to the
-     * requested dofs.
+     * Get the dof indices and the support points of (owned or relevant) dofs
+     * connected to the requested dofs.
      *
      * These should be interpreted as : if you are using a ghost dof that I own,
      * and thus would have expanded the patch with a cell that I own and is not
-     * ghosted on your rank, here are the dof support points that you would have
-     * added.
+     * ghosted on your rank, here are the dofs and support points that you would
+     * have added.
      */
     const unsigned int                   n_dofs_per_cell = fe.n_dofs_per_cell();
     std::vector<types::global_dof_index> local_dofs(n_dofs_per_cell);
 
-    // 1. Identify which owned DoFs are connected to the DoFs others requested
-    // from us
-    std::map<types::global_dof_index, std::set<types::global_dof_index>>
-      connected_dofs;
+    std::unordered_map<types::global_dof_index,
+                       std::unordered_map<types::global_dof_index, Point<dim>>>
+      connected_dofs_and_support_points;
 
     for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned() || cell->is_ghost())
@@ -381,61 +378,74 @@ namespace ErrorEstimation
             // Add all dofs on this element for the prescribed field
             for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
               if (mask[fe.system_to_component_index(i).first])
-                connected_dofs[requested_dof].insert(local_dofs[i]);
+              {
+                const auto &pt = relevant_dofs_support_points.at(local_dofs[i]);
+                connected_dofs_and_support_points[requested_dof].insert(
+                  {local_dofs[i], pt});
+              }
           }
         }
       }
 
     /**
-     * Send the connected support points back.
+     * Send the connected dofs and support points back.
      */
     {
-      using MessageType =
-        std::map<types::global_dof_index, std::vector<Point<dim>>>;
+      using MessageType = std::vector<NeighbourDofData<dim>>;
 
-      // Send to each requesting rank a map containing:
-      // [requested dof : list of connected support points]
+      /**
+       * For each requesting rank, add relevant NeighbourDofData to a vector
+       * This repeats the requested_dof across each NeighbourDofData, but should
+       * be faster than exchanging maps
+       */
       std::map<types::subdomain_id, MessageType> data_to_send;
 
       for (const auto &[dest, requested_dofs] : requested_dofs_by_others)
       {
-        MessageType support_points_map;
-        for (const auto dof : requested_dofs)
-          for (const auto connected_dof : connected_dofs.at(dof))
+        MessageType connected_data;
+        for (const auto requested_dof : requested_dofs)
+          for (const auto &[dof, pt] :
+               connected_dofs_and_support_points.at(requested_dof))
           {
-            support_points_map[dof].push_back(
-              relevant_dofs_support_points.at(connected_dof));
+            NeighbourDofData<dim> data;
+            data.requested_dof    = requested_dof;
+            data.neighbouring_dof = dof;
+            data.support_point    = pt;
+            connected_data.push_back(data);
           }
-        data_to_send[dest] = support_points_map;
+        data_to_send[dest] = connected_data;
       }
 
       std::map<unsigned int, MessageType> received_data =
         Utilities::MPI::some_to_some(mpi_communicator, data_to_send);
 
-      for (const auto &[source, support_points_map] : received_data)
-        for (const auto &[requested_dof, pts] : support_points_map)
+      for (const auto &[source, connected_data] : received_data)
+      {
+        for (const auto &data : connected_data)
         {
-          connected_support_points_to_requested_dofs[requested_dof] = pts;
+          const auto  requested_dof = data.requested_dof;
+          const auto  connected_dof = data.neighbouring_dof;
+          const auto &pt            = data.support_point;
+          connected_dofs_to_requested_dofs[requested_dof].push_back(
+            {connected_dof, pt});
         }
+      }
     }
   }
 
   template <int dim>
   void Patches<dim>::compute_scalings()
   {
-    const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
+    for (auto &patch : patches)
+    {
+      const Point<dim> &center     = patch.center;
+      Point<dim>       &scaling    = patch.scaling;
+      const auto       &neighbours = patch.neighbours;
 
-    for (unsigned int i = 0; i < n_vertices; ++i)
-      if (owned_vertices[i])
-      {
-        const Point<dim> &v_i                  = vertices[i];
-        Point<dim>       &scaling              = scalings[i];
-        const auto       &patch_support_points = patches_of_support_points[i];
-
-        for (const auto &pt_j : patch_support_points)
-          for (unsigned int d = 0; d < dim; ++d)
-            scaling[d] = std::max(scaling[d], std::abs(v_i[d] - pt_j[d]));
-      }
+      for (const auto &[dof, pt] : neighbours)
+        for (unsigned int d = 0; d < dim; ++d)
+          scaling[d] = std::max(scaling[d], std::abs(pt[d] - center[d]));
+    }
   }
 
   template <int dim>
@@ -443,65 +453,66 @@ namespace ErrorEstimation
     const types::global_vertex_index vertex_index,
     const unsigned int               layer) const
   {
-    const auto &patch_elements = patches_of_elements[vertex_index];
-    const auto &patches_support_points =
-      patches_of_support_points[vertex_index];
-    const auto       &scaling = scalings[vertex_index];
-    const Point<dim> &v       = triangulation.get_vertices()[vertex_index];
+    // const auto &patch_elements = patches_of_elements[vertex_index];
+    // const auto &patches_support_points =
+    //   patches_of_support_points[vertex_index];
+    // const auto       &scaling = scalings[vertex_index];
+    // const Point<dim> &v       = triangulation.get_vertices()[vertex_index];
 
-    if (patch_elements.size() == 0)
-      return;
+    // if (patch_elements.size() == 0)
+    //   return;
 
-    std::ofstream out(
-      "patch_elements_subdomain_" + std::to_string(subdomain_id) + "_vertex_" +
-      std::to_string(vertex_index) + "_" + std::to_string(layer) + ".pos");
-    out << "View \"Subdomain " << subdomain_id << " - Vertex " << vertex_index
-        << " - Layer " << layer << "\" {\n";
+    // std::ofstream out(
+    //   "patch_elements_subdomain_" + std::to_string(subdomain_id) + "_vertex_"
+    //   + std::to_string(vertex_index) + "_" + std::to_string(layer) + ".pos");
+    // out << "View \"Subdomain " << subdomain_id << " - Vertex " <<
+    // vertex_index
+    //     << " - Layer " << layer << "\" {\n";
 
-    out << "SP(" << v[0] << "," << v[1] << "," << (dim == 3 ? v[2] : 0.)
-        << "){2.};\n"
-        << std::endl;
+    // out << "SP(" << v[0] << "," << v[1] << "," << (dim == 3 ? v[2] : 0.)
+    //     << "){2.};\n"
+    //     << std::endl;
 
-    for (const auto &cell : patch_elements)
-    {
-      // FIXME: Add for 3D
-      out << "ST(";
-      for (unsigned int iv = 0; iv < cell->n_vertices(); ++iv)
-      {
-        const Point<dim> &pt = cell->vertex(iv);
-        out << pt[0] << "," << pt[1] << ",0";
-        if (iv < 2)
-          out << ",";
-      }
+    // for (const auto &cell : patch_elements)
+    // {
+    //   // FIXME: Add for 3D
+    //   out << "ST(";
+    //   for (unsigned int iv = 0; iv < cell->n_vertices(); ++iv)
+    //   {
+    //     const Point<dim> &pt = cell->vertex(iv);
+    //     out << pt[0] << "," << pt[1] << ",0";
+    //     if (iv < 2)
+    //       out << ",";
+    //   }
 
-      // Color elements by owning partition (subdomain id)
-      const unsigned int id = cell->subdomain_id();
-      out << "){" << id << "," << id << "," << id << "};\n";
-    }
-    for (const auto &pt : patches_support_points)
-    {
-      // Get the support point of this dof
-      out << "SP(" << pt[0] << "," << pt[1] << "," << (dim == 3 ? pt[2] : 0.)
-          << "){1.};\n"
-          << std::endl;
-    }
+    //   // Color elements by owning partition (subdomain id)
+    //   const unsigned int id = cell->subdomain_id();
+    //   out << "){" << id << "," << id << "," << id << "};\n";
+    // }
+    // for (const auto &pt : patches_support_points)
+    // {
+    //   // Get the support point of this dof
+    //   out << "SP(" << pt[0] << "," << pt[1] << "," << (dim == 3 ? pt[2] : 0.)
+    //       << "){1.};\n"
+    //       << std::endl;
+    // }
 
-    // The bounding box
-    const double xmin = v[0] - scaling[0];
-    const double xmax = v[0] + scaling[0];
-    const double ymin = v[1] - scaling[1];
-    const double ymax = v[1] + scaling[1];
-    out << "SL(" << xmin << "," << ymin << ",0.," << xmax << "," << ymin
-        << ",0.){1., 1.};\n";
-    out << "SL(" << xmax << "," << ymin << ",0.," << xmax << "," << ymax
-        << ",0.){1., 1.};\n";
-    out << "SL(" << xmax << "," << ymax << ",0.," << xmin << "," << ymax
-        << ",0.){1., 1.};\n";
-    out << "SL(" << xmin << "," << ymax << ",0.," << xmin << "," << ymin
-        << ",0.){1., 1.};\n";
+    // // The bounding box
+    // const double xmin = v[0] - scaling[0];
+    // const double xmax = v[0] + scaling[0];
+    // const double ymin = v[1] - scaling[1];
+    // const double ymax = v[1] + scaling[1];
+    // out << "SL(" << xmin << "," << ymin << ",0.," << xmax << "," << ymin
+    //     << ",0.){1., 1.};\n";
+    // out << "SL(" << xmax << "," << ymin << ",0.," << xmax << "," << ymax
+    //     << ",0.){1., 1.};\n";
+    // out << "SL(" << xmax << "," << ymax << ",0.," << xmin << "," << ymax
+    //     << ",0.){1., 1.};\n";
+    // out << "SL(" << xmin << "," << ymax << ",0.," << xmin << "," << ymin
+    //     << ",0.){1., 1.};\n";
 
-    out << "};\n";
-    out.close();
+    // out << "};\n";
+    // out.close();
   }
 
   template <int dim>
@@ -527,11 +538,29 @@ namespace ErrorEstimation
     }
   };
 
+  // Define a SerializablePatch for all_gather
   template <int dim>
-  void Patches<dim>::write_support_points_patch(std::ostream &out)
+  struct SerializablePatch
   {
-    std::vector<Point<dim>>              global_vertices;
-    std::vector<std::vector<Point<dim>>> global_patches;
+    Point<dim>                                                  center;
+    Point<dim>                                                  scaling;
+    std::vector<std::pair<types::global_dof_index, Point<dim>>> neighbours;
+
+    template <class Archive>
+    void serialize(Archive &ar, const unsigned int)
+    {
+      ar &center &scaling &neighbours;
+    }
+  };
+
+  template <int dim>
+  void
+  Patches<dim>::write_support_points_patch(const LA::ParVectorType &solution,
+                                           std::ostream            &out)
+  {
+    std::vector<Point<dim>>             global_vertices;
+    std::vector<SerializablePatch<dim>> global_patches;
+    std::vector<SerializablePatch<dim>> local_patches;
 
     const unsigned int mpi_rank =
       Utilities::MPI::this_mpi_process(mpi_communicator);
@@ -558,56 +587,100 @@ namespace ErrorEstimation
                 PointComparator<dim>());
     }
 
-    // Sort and unique the patches
-    for (auto &patch : patches_of_support_points)
+    // Create the serializable patches (only for owned vertices)
+    for (unsigned int i = 0; i < n_vertices; ++i)
     {
-      std::sort(patch.begin(), patch.end(), PointComparator<dim>());
-      auto last = std::unique(patch.begin(), patch.end(), PointEquality<dim>());
-      patch.erase(last, patch.end());
+      if (!owned_vertices[i])
+        continue;
+
+      auto                  &patch = patches[i];
+      SerializablePatch<dim> serializable_patch;
+
+      serializable_patch.center  = patch.center;
+      serializable_patch.scaling = patch.scaling;
+      serializable_patch.neighbours =
+        std::vector<std::pair<types::global_dof_index, Point<dim>>>(
+          patch.neighbours.begin(), patch.neighbours.end());
+
+      // Sort the dofs and support points w.r.t. support points coordinates
+      std::sort(serializable_patch.neighbours.begin(),
+                serializable_patch.neighbours.end(),
+                [](const auto &a, const auto &b) {
+                  PointComparator<dim> comp;
+                  return comp(a.second, b.second);
+                });
+      auto last = std::unique(serializable_patch.neighbours.begin(),
+                              serializable_patch.neighbours.end(),
+                              [](const auto &a, const auto &b) {
+                                PointEquality<dim> comp;
+                                return comp(a.second, b.second);
+                              });
+      serializable_patch.neighbours.erase(last,
+                                          serializable_patch.neighbours.end());
+
+      local_patches.push_back(serializable_patch);
+      // /////////////////////////////////////
+      // std::cout << "Converted" << std::endl;
+      // std::cout << patch.center << std::endl;
+      // std::cout << patch.scaling << std::endl;
+      // for(const auto &[dof, pt] : patch.neighbours)
+      //   std::cout << dof << " : " << pt << std::endl;
+      // std::cout << "to" << std::endl;
+      // std::cout << serializable_patch.center << std::endl;
+      // std::cout << serializable_patch.scaling << std::endl;
+      // for(const auto &[dof, pt] : serializable_patch.neighbours)
+      //   std::cout << dof << " : " << pt << std::endl;
+      // /////////////////////////////////////
     }
 
     // Gather the patches
     {
-      // Attach each patch to its mesh vertex Point<dim>
-      std::map<Point<dim>, std::vector<Point<dim>>, PointComparator<dim>>
-        patches_of_support_points_with_vertex;
-      for (unsigned int i = 0; i < n_vertices; ++i)
-        if (owned_vertices[i])
-          patches_of_support_points_with_vertex[vertices[i]] =
-            patches_of_support_points[i];
+      std::vector<std::vector<SerializablePatch<dim>>> gathered_patches =
+        Utilities::MPI::all_gather(mpi_communicator, local_patches);
 
-      std::vector<
-        std::map<Point<dim>, std::vector<Point<dim>>, PointComparator<dim>>>
-        gathered_patches =
-          Utilities::MPI::all_gather(mpi_communicator,
-                                     patches_of_support_points_with_vertex);
-
-      // global_patches : mesh_vertex -> patch of support points
       global_patches.resize(global_vertices.size());
       for (unsigned int i = 0; i < global_vertices.size(); ++i)
       {
         bool found = false;
         for (unsigned int r = 0; r < mpi_size; ++r)
-          for (const auto &[pt, patch] : gathered_patches[r])
-            if (global_vertices[i].distance(pt) < 1e-12)
+          for (const auto &patch : gathered_patches[r])
+            if (global_vertices[i].distance(patch.center) < 1e-12)
             {
               global_patches[i] = patch;
-              found             = true;
+              AssertThrow(patch.neighbours.size() > 0,
+                          ExcMessage("Vertex found but has no neighbours"));
+              found = true;
               break;
             }
         AssertThrow(found, ExcMessage("Vertex not found"));
       }
     }
 
+    /**
+     * To print the FE solution at the points of the patches, create a vector of
+     * relevant dofs containing in addition the non-local dofs. Since the print
+     * is done from rank 0, this amounts to adding *all* dofs as relevant. This
+     * is only done for testing on small meshes, where a single rank can store
+     * the complete set of dofs.
+     */
+    IndexSet          all_dofs = complete_index_set(dof_handler.n_dofs());
+    LA::ParVectorType local_solution;
+    local_solution.reinit(locally_owned_dofs, all_dofs, mpi_communicator);
+    local_solution = solution;
+
     if (mpi_rank == 0)
     {
       for (unsigned int i = 0; i < global_vertices.size(); ++i)
       {
+        const auto &patch = global_patches[i];
+
+        AssertThrow(patch.neighbours.size() > 0, ExcMessage("No neighbours"));
+
         out << "Mesh vertex " << global_vertices[i] << std::endl;
-
-        const auto &patch_support_points = global_patches[i];
-
-        for (const auto pt : patch_support_points)
+        // out << "Center      " << patch.center << std::endl;
+        // out << "Scaling     " << patch.scaling << std::endl;
+        for (const auto &[dof, pt] : patch.neighbours)
+          // out << pt << " : sol = " << local_solution[dof] << std::endl;
           out << pt << std::endl;
       }
     }

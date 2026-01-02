@@ -17,6 +17,29 @@
 
 using namespace dealii;
 
+template <int dim>
+struct PointComparator
+{
+  bool operator()(const Point<dim> &a, const Point<dim> &b) const
+  {
+    for (unsigned int d = 0; d < dim; ++d)
+    {
+      if (std::abs(a[d] - b[d]) > 1e-14)
+        return a[d] < b[d];
+    }
+    return false;
+  }
+};
+
+template <int dim>
+struct PointEquality
+{
+  bool operator()(const Point<dim> &a, const Point<dim> &b) const
+  {
+    return a.distance(b) < 1e-14;
+  }
+};
+  
 /**
  * Perform a dry run to read the run-time problem dimension set in the
  * "Dimension" block of the given parameter file.

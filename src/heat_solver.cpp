@@ -8,6 +8,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
 #include <errors.h>
 #include <heat_solver.h>
 #include <linear_solver.h>
@@ -39,7 +40,7 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
 
   if (param.mms_param.enable)
   {
-    // Add the unknown "u" to the error handlers
+    // Add the unknown to the error handlers
     if (param.mms_param.enable)
       for (auto norm : param.mms_param.norms_to_compute)
         error_handlers[norm]->create_entry("T");
@@ -576,7 +577,9 @@ void HeatSolver<dim>::output_results()
     Vector<float> subdomain(triangulation.n_active_cells());
     for (unsigned int i = 0; i < subdomain.size(); ++i)
       subdomain(i) = triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain", DataOut<dim>::type_cell_data);
+    data_out.add_data_vector(subdomain,
+                             "subdomain",
+                             DataOut<dim>::type_cell_data);
 
     data_out.build_patches(*mapping, 2);
 
@@ -644,8 +647,17 @@ void HeatSolver<dim>::compute_recovery()
 {
   TimerOutput::Scope t(computing_timer, "Compute recovery");
 
-  ErrorEstimation::Patches patches(
-    triangulation, *mapping, dof_handler,  param.finite_elements.temperature_degree + 1, temperature_mask);
+  ErrorEstimation::Patches patches(triangulation,
+                                   *mapping,
+                                   dof_handler,
+                                   param.finite_elements.temperature_degree + 1,
+                                   temperature_mask);
+  // patches.write_support_points_patch(present_solution, std::cout);
+
+  // ErrorEstimation::SolutionRecovery recovery(patches,
+  //                                            present_solution,
+  //                                            fe,
+  //                                            *mapping);
 }
 
 template <int dim>

@@ -11,6 +11,7 @@
 #include "../tests.h"
 
 #include "mesh.h"
+#include "types.h"
 #include "parameter_reader.h"
 
 /**
@@ -20,6 +21,24 @@
  * to fit a polynomial of order field_polynomial_degree + 1 at each owned mesh
  * vertex.
  */
+
+template <int dim>
+class ScalarField : public Function<dim>
+{
+public:
+  ScalarField()
+    : Function<dim>(1)
+  {}
+
+  virtual double value(const Point<dim>  &p,
+                       const unsigned int component = 0) const override
+  {
+    if constexpr(dim == 2)
+      return sin(M_PI * p[0]) * cos(M_PI * p[1]);
+    else
+      return sin(M_PI * p[0]) * cos(M_PI * p[1]) * sin(M_PI * p[2]);
+  }
+};
 
 template <int dim>
 void test_patches(const unsigned int field_polynomial_degree)
@@ -47,6 +66,18 @@ void test_patches(const unsigned int field_polynomial_degree)
   DoFHandler<dim> dof_handler(triangulation);
   dof_handler.distribute_dofs(fe);
 
+  // Initialize solution vectors
+  IndexSet locally_owned_dofs    = dof_handler.locally_owned_dofs();
+  IndexSet locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
+  LA::ParVectorType solution, local_solution;
+  solution.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
+  local_solution.reinit(locally_owned_dofs, mpi_communicator);
+  VectorTools::interpolate(mapping,
+                           dof_handler,
+                           ScalarField<dim>(),
+                           local_solution);
+  solution = local_solution;
+
   // Create the patches of dof support points and print the sorted patches
   // for each owned mesh vertex
   ErrorEstimation::Patches patches(triangulation,
@@ -57,7 +88,7 @@ void test_patches(const unsigned int field_polynomial_degree)
                                      FEValuesExtractors::Scalar(0)));
 
   deallog << "Patches" << std::endl;
-  patches.write_support_points_patch(deallog.get_file_stream());
+  patches.write_support_points_patch(solution, deallog.get_file_stream());
 }
 
 int main(int argc, char *argv[])

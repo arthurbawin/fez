@@ -6,14 +6,35 @@
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_system.h>
 
+#include <types.h>
+
 namespace ErrorEstimation
 {
   using namespace dealii;
 
   /**
+   * This struct represents a single patch of data around an owned mesh vertex,
+   * such as the layers of surrounding elements/dofs/support points, as well
+   * as the finite element solution at these dofs.
+   */
+  template <int dim>
+  struct Patch
+  {
+    using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
+
+    Point<dim> center;
+    Point<dim> scaling;
+
+    std::set<CellIterator>            elements;
+    std::set<types::global_dof_index> dofs;
+
+    std::unordered_map<types::global_dof_index, Point<dim>> neighbours;
+  };
+
+  /**
    * Patches of elements and dof support points around mesh vertices for the
    * computation of a more accurate solution by least-square projection,
-   * following the Polynomial-Preserving Recovery (PPR) of Zhang & Naga.
+   * following the Polynomial-Preserving Recovery (PPR) of Zhang & Naga [ref].
    *
    * The least-square recovery uses nearby information from the numerical
    * solution to fit a polynomial of order p + 1. Thus, the information stored
@@ -28,10 +49,16 @@ namespace ErrorEstimation
    *
    * Patches are constructed by adding layers of mesh elements, then by adding
    * the support points of each dof of the given field lying on these elements.
+   *
+   * The patches for, say, a P1 and P2 fields typically differ (the P1 patches
+   * require more elements), so for now each set of patches is created for a
+   * single component mask.
    */
   template <int dim>
   class Patches
   {
+    using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
+
   public:
     /**
      * Constructor
@@ -44,7 +71,8 @@ namespace ErrorEstimation
 
     void write_element_patch_gmsh(const types::global_vertex_index vertex_index,
                                   const unsigned int               layer) const;
-    void write_support_points_patch(std::ostream &out = std::cout);
+    void write_support_points_patch(const LA::ParVectorType &solution,
+      std::ostream &out = std::cout);
 
   private:
     /**
@@ -68,8 +96,10 @@ namespace ErrorEstimation
     void exchange_ghost_layer_dofs(
       const std::map<types::subdomain_id, std::set<types::global_dof_index>>
         &dofs_to_request,
-      std::map<types::global_dof_index, std::vector<Point<dim>>>
-        &connected_support_points_to_requested_dofs);
+      // std::map<types::global_dof_index, std::vector<Point<dim>>>
+      //   &connected_support_points_to_requested_dofs,
+      std::map<types::global_dof_index, std::vector<std::pair<types::global_dof_index, Point<dim>>>>
+        &connected_dofs_to_requested_dofs);
 
     /**
      * Compute the scaling s of each patch, defined as s_i = max_i |x_i - x|,
@@ -81,7 +111,7 @@ namespace ErrorEstimation
      */
     void compute_scalings();
 
-  protected:
+  public:
     const parallel::DistributedTriangulationBase<dim> &triangulation;
     const DoFHandler<dim>                             &dof_handler;
     const ComponentMask                                mask;
@@ -116,8 +146,7 @@ namespace ErrorEstimation
      *
      * Instead of storing the support points, the global dof index is stored.
      */
-    using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
-
+    std::vector<Patch<dim>>                        patches;
     std::vector<std::set<CellIterator>>            patches_of_elements;
     std::vector<std::set<types::global_dof_index>> patches_of_dofs;
     std::vector<std::vector<Point<dim>>>           patches_of_support_points;

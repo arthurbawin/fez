@@ -24,7 +24,6 @@ namespace ErrorEstimation
     , n_vertices(triangulation.n_vertices())
     , owned_vertices(n_vertices, false)
     , patches(n_vertices)
-  // , scalings(n_vertices)
   {
     {
       /**
@@ -160,7 +159,13 @@ namespace ErrorEstimation
           auto &patch = patches[v];
           if (needs_expansion[v])
             for (const auto &pair : connected_data)
-              patch.neighbours.insert(pair);
+              /**
+               * FIXME: Here we check that the added dof is non-local, because
+               * otherwise there is a difference with the layers obtained by
+               * considering local dofs only (patch.dofs), I'm not sure why.
+               */
+              if (!locally_relevant_dofs.is_element(pair.first))
+                patch.neighbours.insert(pair);
         }
       }
     }
@@ -210,21 +215,8 @@ namespace ErrorEstimation
             if (mask[fe.system_to_component_index(i).first])
             {
               // Add cell if one of its dofs is in current patch
-              // auto v1 = patch.dofs.count(local_dofs[i]);
-              // auto v2 = patch.neighbours.count(local_dofs[i]);
-              // if (v1 != v2 && subdomain_id == 0)
-              // {
-              //   std::cout << "Miss for " << v1 << " vs " << v2
-              //   << " for dof " << local_dofs[i]
-              //   << " ( " << locally_owned_dofs.is_element(local_dofs[i])
-              //   << " - " << locally_relevant_dofs.is_element(local_dofs[i])
-              //   << ")" << std::endl;
-              // }
-
-              // FIXME: Testing this yields different patches in parallel...
-              // Sticking to patch.dofs for now.
-              // if (patch.neighbours.count(local_dofs[i]) > 0)
-              if (patch.dofs.count(local_dofs[i]) > 0)
+              if (patch.neighbours.count(local_dofs[i]) > 0)
+              // if (patch.dofs.count(local_dofs[i]) > 0)
               {
                 new_cells.insert(cell);
                 break;
@@ -244,7 +236,7 @@ namespace ErrorEstimation
           if (mask[fe.system_to_component_index(i).first])
             new_dofs.insert(local_dofs[i]);
       }
-      patch.dofs.insert(new_dofs.begin(), new_dofs.end());
+      // patch.dofs.insert(new_dofs.begin(), new_dofs.end());
 
       // Add neighbouring dofs and their support points
       for (const auto dof : new_dofs)
@@ -539,6 +531,7 @@ namespace ErrorEstimation
   };
 
   // Define a SerializablePatch for all_gather
+  // Only difference is that it stores a vector of neighbours instead of a map
   template <int dim>
   struct SerializablePatch
   {
@@ -677,11 +670,10 @@ namespace ErrorEstimation
         AssertThrow(patch.neighbours.size() > 0, ExcMessage("No neighbours"));
 
         out << "Mesh vertex " << global_vertices[i] << std::endl;
-        // out << "Center      " << patch.center << std::endl;
-        // out << "Scaling     " << patch.scaling << std::endl;
+        out << "Center      " << patch.center << std::endl;
+        out << "Scaling     " << patch.scaling << std::endl;
         for (const auto &[dof, pt] : patch.neighbours)
-          // out << pt << " : sol = " << local_solution[dof] << std::endl;
-          out << pt << std::endl;
+          out << pt << " : sol = " << local_solution[dof] << std::endl;
       }
     }
   }

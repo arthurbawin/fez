@@ -5,7 +5,6 @@
 #include <deal.II/distributed/tria_base.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_system.h>
-
 #include <types.h>
 
 namespace ErrorEstimation
@@ -25,9 +24,7 @@ namespace ErrorEstimation
     Point<dim> center;
     Point<dim> scaling;
 
-    std::set<CellIterator>            elements;
-    std::set<types::global_dof_index> dofs;
-
+    std::set<CellIterator>                                  elements;
     std::unordered_map<types::global_dof_index, Point<dim>> neighbours;
   };
 
@@ -72,7 +69,7 @@ namespace ErrorEstimation
     void write_element_patch_gmsh(const types::global_vertex_index vertex_index,
                                   const unsigned int               layer) const;
     void write_support_points_patch(const LA::ParVectorType &solution,
-      std::ostream &out = std::cout);
+                                    std::ostream            &out = std::cout);
 
   private:
     /**
@@ -96,9 +93,8 @@ namespace ErrorEstimation
     void exchange_ghost_layer_dofs(
       const std::map<types::subdomain_id, std::set<types::global_dof_index>>
         &dofs_to_request,
-      // std::map<types::global_dof_index, std::vector<Point<dim>>>
-      //   &connected_support_points_to_requested_dofs,
-      std::map<types::global_dof_index, std::vector<std::pair<types::global_dof_index, Point<dim>>>>
+      std::map<types::global_dof_index,
+               std::vector<std::pair<types::global_dof_index, Point<dim>>>>
         &connected_dofs_to_requested_dofs);
 
     /**

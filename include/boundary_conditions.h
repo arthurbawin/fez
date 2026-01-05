@@ -25,7 +25,8 @@ namespace BoundaryConditions
   {
     fluid,
     pseudosolid,
-    cahn_hilliard
+    cahn_hilliard,
+    heat
   };
 
   /**
@@ -155,6 +156,29 @@ namespace BoundaryConditions
     virtual void declare_parameters(ParameterHandler &prm) override;
     virtual void read_parameters(ParameterHandler &prm) override;
     virtual void set_time(const double) override {}
+  };
+
+  /**
+   * A boundary condition for the heat equation.
+   */
+  template <int dim>
+  class HeatBC : public BoundaryCondition
+  {
+  public:
+    // User-defined temperature function for input_function boundary
+    std::shared_ptr<Functions::ParsedFunction<dim>> temperature;
+
+  public:
+    HeatBC()
+      : temperature(std::make_shared<Functions::ParsedFunction<dim>>())
+    {}
+
+    virtual void declare_parameters(ParameterHandler &prm) override;
+    virtual void read_parameters(ParameterHandler &prm) override;
+    virtual void set_time(const double new_time) override
+    {
+      temperature->set_time(new_time);
+    }
   };
 
   /**

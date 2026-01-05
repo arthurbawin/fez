@@ -334,15 +334,18 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
    */
   for (const auto &[id, count] : boundary_count)
   {
-    // Check that each boundary id appears in the fluid boundary conditions
-    AssertThrow(param.fluid_bc.find(id) != param.fluid_bc.end(),
-                ExcMessage(
-                  "In mesh file " + param.mesh.filename +
-                  " :\n"
-                  "No fluid boundary condition was assigned to boundary " +
-                  std::to_string(id) + " (" + param.mesh.id2name.at(id) +
-                  "). For now, all boundaries must be assigned a boundary "
-                  "condition for all relevant fields."));
+    if (param.fluid_bc.size() > 0)
+    {
+      // Check that each boundary id appears in the fluid boundary conditions
+      AssertThrow(param.fluid_bc.find(id) != param.fluid_bc.end(),
+                  ExcMessage(
+                    "In mesh file " + param.mesh.filename +
+                    " :\n"
+                    "No fluid boundary condition was assigned to boundary " +
+                    std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+                    "). For now, all boundaries must be assigned a boundary "
+                    "condition for all relevant fields."));
+    }
 
     if (param.pseudosolid_bc.size() > 0)
     {
@@ -371,6 +374,19 @@ void check_boundary_ids(Triangulation<dim>         &serial_triangulation,
           std::to_string(id) + " (" + param.mesh.id2name.at(id) +
           "). For now, all boundaries must be assigned a boundary "
           "condition for all relevant fields."));
+    }
+
+    if (param.heat_bc.size() > 0)
+    {
+      // Check that each boundary id appears in the heat boundary conditions
+      AssertThrow(param.heat_bc.find(id) != param.heat_bc.end(),
+                  ExcMessage(
+                    "In mesh file " + param.mesh.filename +
+                    " :\n"
+                    "No heat boundary condition was assigned to boundary " +
+                    std::to_string(id) + " (" + param.mesh.id2name.at(id) +
+                    "). For now, all boundaries must be assigned a boundary "
+                    "condition for all relevant fields."));
     }
   }
 }
@@ -549,8 +565,6 @@ void read_mesh(
     }
     else if (param.mesh.deal_ii_preset_mesh == "rectangle")
     {
-      const double       min_corner = (dim == 2) ? 0. : 0.;
-      const double       max_corner = 1.;
       const unsigned int refinement_level =
         param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix) :
                                  param.mesh.refinement_level;
@@ -570,6 +584,13 @@ void read_mesh(
                          param.mesh,
                          refinement_level,
                          convert_to_simplices);
+    }
+    else
+    {
+      AssertThrow(false,
+                  ExcMessage("Mesh creation for deal.II preset geometry \"" +
+                             param.mesh.deal_ii_preset_mesh +
+                             "\" is not implemented."));
     }
   }
   else

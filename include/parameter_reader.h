@@ -43,7 +43,7 @@ public:
     pseudosolid_bc;
   std::map<types::boundary_id, BoundaryConditions::CahnHilliardBC<dim>>
     cahn_hilliard_bc;
-
+  std::map<types::boundary_id, BoundaryConditions::HeatBC<dim>> heat_bc;
 
   //
   // Source terms
@@ -90,6 +90,8 @@ public:
       BoundaryConditions::CahnHilliardBC<dim>>(prm,
                                                bc_data.n_cahn_hilliard_bc,
                                                "CahnHilliard");
+    BoundaryConditions::declare_boundary_conditions<
+      BoundaryConditions::HeatBC<dim>>(prm, bc_data.n_heat_bc, "Heat");
     cahn_hilliard.declare_parameters(prm);
     source_terms.declare_parameters(prm);
     mms_param.declare_parameters(prm);
@@ -124,6 +126,10 @@ public:
                                                  bc_data.n_cahn_hilliard_bc,
                                                  "CahnHilliard",
                                                  cahn_hilliard_bc);
+    BoundaryConditions::read_boundary_conditions(prm,
+                                                 bc_data.n_heat_bc,
+                                                 "Heat",
+                                                 heat_bc);
     cahn_hilliard.read_parameters(prm);
     source_terms.read_parameters(prm);
     mms_param.read_parameters(prm);

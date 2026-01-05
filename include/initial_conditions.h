@@ -12,6 +12,8 @@ namespace Parameters
   class InitialVelocity;
   template <int dim>
   class InitialCHNSTracer;
+  template <int dim>
+  class InitialTemperature;
 
   /**
    * Structure storing the initial conditions. This is essentially a collection
@@ -45,6 +47,8 @@ namespace Parameters
           std::make_shared<Functions::ParsedFunction<dim>>(dim))
       , initial_chns_tracer_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
+      , initial_temperature_callback(
+          std::make_shared<Functions::ParsedFunction<dim>>(1))
     {}
 
     /**
@@ -60,7 +64,8 @@ namespace Parameters
     }
 
     /**
-     * Create the actual CHNS tracer, once the components and layout are known.
+     * Create the actual initial CHNS tracer, once the components and layout are
+     * known.
      */
     void create_initial_chns_tracer(const unsigned int phi_lower,
                                     const unsigned int n_components)
@@ -68,6 +73,18 @@ namespace Parameters
       initial_chns_tracer =
         std::make_shared<Parameters::InitialCHNSTracer<dim>>(
           phi_lower, n_components, initial_chns_tracer_callback);
+    }
+
+    /**
+     * Create the actual initial temperature, once the components and layout are
+     * known.
+     */
+    void create_initial_temperature(const unsigned int t_lower,
+                                    const unsigned int n_components)
+    {
+      initial_temperature =
+        std::make_shared<Parameters::InitialTemperature<dim>>(
+          t_lower, n_components, initial_temperature_callback);
     }
 
     void declare_parameters(ParameterHandler &prm);
@@ -82,6 +99,11 @@ namespace Parameters
     std::shared_ptr<Functions::ParsedFunction<dim>>
                                             initial_chns_tracer_callback;
     std::shared_ptr<InitialCHNSTracer<dim>> initial_chns_tracer;
+
+    // Temperature data
+    std::shared_ptr<Functions::ParsedFunction<dim>>
+                                             initial_temperature_callback;
+    std::shared_ptr<InitialTemperature<dim>> initial_temperature;
 
     // If true, the initial condition is specified by a manufactured solution
     bool set_to_mms;
@@ -149,6 +171,38 @@ namespace Parameters
     }
   };
 
+  /**
+   * Initial condition for the temperature for the heat equation.
+   * This is a function with @p n_components components, which only fills
+   * the t_lower-th component.
+   */
+  template <int dim>
+  class InitialTemperature : public Function<dim>
+  {
+  public:
+    const unsigned int t_lower;
+    std::shared_ptr<Functions::ParsedFunction<dim>>
+      initial_temperature_callback;
+
+  public:
+    InitialTemperature(const unsigned int t_lower,
+                       const unsigned int n_components,
+                       std::shared_ptr<Functions::ParsedFunction<dim>>
+                         initial_temperature_callback)
+      : Function<dim>(n_components)
+      , t_lower(t_lower)
+      , initial_temperature_callback(initial_temperature_callback)
+    {}
+
+    virtual double value(const Point<dim> &p,
+                         unsigned int      component) const override
+    {
+      if (component == t_lower)
+        return initial_temperature_callback->value(p);
+      return 0.;
+    }
+  };
+
   template <int dim>
   void InitialConditions<dim>::declare_parameters(ParameterHandler &prm)
   {
@@ -165,6 +219,9 @@ namespace Parameters
       prm.enter_subsection("cahn hilliard tracer");
       initial_chns_tracer_callback->declare_parameters(prm, 1);
       prm.leave_subsection();
+      prm.enter_subsection("temperature");
+      initial_temperature_callback->declare_parameters(prm, 1);
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -180,6 +237,9 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("cahn hilliard tracer");
       initial_chns_tracer_callback->parse_parameters(prm);
+      prm.leave_subsection();
+      prm.enter_subsection("temperature");
+      initial_temperature_callback->parse_parameters(prm);
       prm.leave_subsection();
     }
     prm.leave_subsection();

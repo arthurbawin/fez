@@ -47,6 +47,7 @@ namespace ManufacturedSolutions
       exact_mesh_position->set_time(new_time);
       exact_tracer->set_time(new_time);
       exact_potential->set_time(new_time);
+      exact_temperature->set_time(new_time);
     }
 
     void declare_parameters(ParameterHandler &prm);
@@ -58,6 +59,7 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> exact_mesh_position;
     std::shared_ptr<MMSFunction<dim>> exact_tracer;
     std::shared_ptr<MMSFunction<dim>> exact_potential;
+    std::shared_ptr<MMSFunction<dim>> exact_temperature;
 
   private:
     PresetMMS preset_velocity_type;
@@ -65,6 +67,7 @@ namespace ManufacturedSolutions
     PresetMMS preset_mesh_position_type;
     PresetMMS preset_tracer_type;
     PresetMMS preset_potential_type;
+    PresetMMS preset_temperature_type;
   };
 
   /**

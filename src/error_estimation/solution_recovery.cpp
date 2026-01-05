@@ -1,8 +1,9 @@
 
 #include <deal.II/base/polynomial_space.h>
+#include <deal.II/dofs/dof_tools.h>
 #include <error_estimation/patches.h>
 #include <error_estimation/solution_recovery.h>
-// #include <deal.II/dofs/dof_tools.h>
+#include <utilities.h>
 // #include <deal.II/fe/fe_system.h>
 // #include <deal.II/grid/grid_tools.h>
 // #include <deal.II/numerics/data_out.h>
@@ -68,26 +69,114 @@ namespace ErrorEstimation
   //     return result;
   //   }
 
+  // /**
+  //  * Generates a flat vector of exponents for a P_p space.
+  //  * Layout: [exp0_dim0, exp0_dim1, exp1_dim0, exp1_dim1, ...]
+  //  */
+  // template <int dim>
+  // std::vector<unsigned int> create_numbering(const unsigned int degree)
+  // {
+  //     std::vector<unsigned int> exponents;
+  //     std::array<unsigned int, dim> current_idx;
+
+  //     for (unsigned int total_deg = 0; total_deg <= degree; ++total_deg) {
+  //         current_idx.fill(0);
+  //         current_idx[0] = total_deg;
+
+  //         while (true) {
+  //             // Push all dimensions for the current polynomial term
+  //             for (unsigned int d = 0; d < dim; ++d) {
+  //                 exponents.push_back(current_idx[d]);
+  //             }
+
+  //             if (dim == 1) break;
+
+  //             // Graded Lexicographical logic to find the next combination
+  //             int target = -1;
+  //             for (int d = static_cast<int>(dim) - 2; d >= 0; --d) {
+  //                 if (current_idx[d] > 0) {
+  //                     target = d;
+  //                     break;
+  //                 }
+  //             }
+
+  //             if (target == -1) break;
+
+  //             current_idx[target]--;
+  //             current_idx[target + 1]++;
+
+  //             for (unsigned int d = target + 2; d < dim; ++d) {
+  //                 current_idx[target + 1] += current_idx[d];
+  //                 current_idx[d] = 0;
+  //             }
+  //         }
+  //     }
+  //     return exponents;
+  // }
+
   template <int dim>
-  SolutionRecovery<dim>::SolutionRecovery(Patches<dim> &support_point_patches,
+  void parse_dealii_indices(
+    const PolynomialSpace<dim>             &poly,
+    std::vector<std::vector<unsigned int>> &monomials_exponents)
+  {
+    std::stringstream ss;
+    poly.output_indices(ss);
+
+    monomials_exponents.resize(dim);
+
+    // 3. Parse the stream
+    // The format is: Index  Exp_0  Exp_1 ...
+    unsigned int val;
+    unsigned int count = 0;
+
+    while (ss >> val)
+    {
+      // output_indices prints: [RowIndex] [Dim0] [Dim1] ...
+      // We want to skip the RowIndex, which occurs every (dim + 1) entries.
+      const auto i = count % (dim + 1);
+      if (i != 0)
+        monomials_exponents[i - 1].push_back(val);
+      count++;
+    }
+  }
+
+  template <int dim>
+  SolutionRecovery<dim>::SolutionRecovery(PatchHandler<dim> &patch_handler,
                                           const LA::ParVectorType  &solution,
                                           const FiniteElement<dim> &fe,
                                           const Mapping<dim>       &mapping)
-    : patches(support_point_patches)
+    : patch_handler(patch_handler)
+    , patches(patch_handler.patches)
     , solution(solution)
     , fe(fe)
     , mapping(mapping)
-    , mpi_communicator(support_point_patches.mpi_communicator)
+    , mpi_communicator(patch_handler.mpi_communicator)
     , pcout(std::cout,
             (Utilities::MPI::this_mpi_process(mpi_communicator) == 0))
-    , n_vertices(support_point_patches.n_vertices)
-    , owned_vertices(support_point_patches.owned_vertices)
-  // , degree(fe.degree)
-  // ,
-  // dim_recovery_basis(PolynomialSpace_not_deal_ii<dim>::dim_polynomial_basis(degree
-  // + 1)) ,
-  // dim_derivative_basis(PolynomialSpace_not_deal_ii<dim>::dim_polynomial_basis(degree))
+    , n_vertices(patch_handler.n_vertices)
+    , owned_vertices(patch_handler.owned_vertices)
+    , least_squares_matrices(patch_handler.n_vertices)
+    , recoveries(patch_handler.n_vertices)
+    , recoveries_coefficients(patch_handler.n_vertices)
   {
+    /**
+     * Create the set of locally relevant dofs
+     */
+    relevant_dofs =
+      DoFTools::extract_locally_relevant_dofs(patch_handler.dof_handler);
+    for (const auto &patch : patches)
+    {
+      for (const auto &[dof, pt] : patch.neighbours)
+      {
+        relevant_dofs.add_index(dof);
+      }
+    }
+
+    local_solution.reinit(patch_handler.dof_handler.locally_owned_dofs(),
+                          relevant_dofs,
+                          mpi_communicator);
+    local_solution = solution;
+
     /**
      * Create the polynomial bases for polynomial fitting of degree p + 1 and
      * for the gradients
@@ -131,54 +220,24 @@ namespace ErrorEstimation
     dim_gradient_basis =
       monomials_gradient->n_polynomials(monomials_1d_gradient.size());
 
-    // monomials =
-    //   PolynomialSpace_not_deal_ii<dim>::generate_monomials(degree + 1);
-    // monomials_derivatives =
-    //   PolynomialSpace_not_deal_ii<dim>::generate_monomials(degree);
+    // For each vector component, the number of fields to reconstruct (the field
+    // + all its derivatives up to order "degree") and the number of derivatives
+    // to store (sum of dim^i, i > 0, until degree + 1).
+    n_fields_to_recover = 1;
+    for (unsigned int i = 1; i <= fe.degree; ++i)
+    {
+      n_fields_to_recover += std::pow(dim, i);
+    }
+    n_derivatives_to_store =
+      n_fields_to_recover - 1 + std::pow(dim, fe.degree + 1);
 
-    // // Map exponent -> index for reduced basis
-    // for (unsigned int i = 0; i < dim_derivative_basis; ++i)
-    //   monomials_derivatives_index[monomials_derivatives[i]] = i;
-
-    // // For each vector component, the number of fields to reconstruct
-    // // (the field + all its derivatives up to order "degree") and the number
-    // of
-    // // derivatives to store (sum of dim^i, i > 0, until degree + 1).
-    // n_fields_to_recover = 1;
-    // for (unsigned int i = 1; i <= degree; ++i)
-    // {
-    //   n_fields_to_recover += std::pow(dim, i);
-    // }
-    // n_derivatives_to_store =
-    //   n_fields_to_recover - 1 + std::pow(dim, degree + 1);
-
-    // recovered_polynomials.resize(
-    //   n_vertices, std::vector<std::vector<Vector<double>>>(n_components));
-    // recovered_derivatives.resize(
-    //   n_vertices, std::vector<std::vector<Vector<double>>>(n_components));
-    // for (unsigned int v = 0; v < n_vertices; ++v)
-    // {
-    //   for (unsigned int c = 0; c < n_components; ++c)
-    //   {
-    //     recovered_polynomials[v][c].resize(n_fields_to_recover,
-    //                                        Vector<double>());
-    //     recovered_derivatives[v][c].resize(n_derivatives_to_store,
-    //                                        Vector<double>());
-    //   }
-    // }
-
-    // std::cout << "The monomials are:" << std::endl;
-    // for (const auto &m : monomials)
-    // {
-    //   std::cout << m[0] << " - " << m[1] << std::endl;
-    // }
+    for (types::global_vertex_index i = 0; i < n_vertices; ++i)
+      if (owned_vertices[i])
+        recoveries_coefficients[i].resize(n_fields_to_recover);
 
     pcout << "Computing least squares matrices" << std::endl;
     compute_least_squares_matrices();
     pcout << "Done computing least squares matrices" << std::endl;
-
-    // build_vertex_to_dof_map();
-    // std::cout << "Built vertex to dof map" << std::endl;
 
     n_recovered_fields     = 0;
     n_derivatives_computed = 0;
@@ -218,8 +277,9 @@ namespace ErrorEstimation
   void SolutionRecovery<dim>::compute_least_squares_matrices()
   {
     // The matrices are of size dim_recovery_basis x n_adjacent,
-    // but n_adjacent varies and can change if the patch is increased...
-    least_squares_matrices.resize(n_vertices);
+    // but n_adjacent varies and can change if the patch is increased.
+    // The least-squares matrix A^T * A, however, is dim_recovery_basis x
+    // dim_recovery_basis
 
     FullMatrix<double> AtA(dim_recovery_basis, dim_recovery_basis);
     Eigen::MatrixXd    eigenAtA =
@@ -228,102 +288,90 @@ namespace ErrorEstimation
     // Construct (A^T*A)^-1 * A^T
     for (types::global_vertex_index i = 0; i < n_vertices; ++i)
     {
-      if (owned_vertices[i])
+      if (!owned_vertices[i])
+        continue;
+
+      const Patch<dim> &patch = patches[i];
+
+      bool         is_full_rank = false;
+      unsigned int rank, num_patch_increases = 0, max_patch_increases = 2;
+
+      do
       {
-        bool         is_full_rank = false;
-        unsigned int rank, num_patch_increases = 0, max_patch_increases = 2;
+        const unsigned int n_adjacent = patch.neighbours.size();
 
-        do
-        {
-          const auto &patch_support_points =
-            patches.patches_of_support_points[i];
-          const unsigned int n_adjacent = patch_support_points.size();
+        AssertThrow(
+          n_adjacent >= dim_recovery_basis,
+          ExcMessage(
+            "Internal error: "
+            "Cannot create least-squares matrix because a patch of support "
+            "points "
+            "has fewer vertices than the dimension of the polynomial "
+            "basis for the polynomial fitting. This should not have "
+            "happened, as the "
+            "patches are created with at least that many vertices."));
 
-          AssertThrow(
-            n_adjacent >= dim_recovery_basis,
-            ExcMessage(
-              "Internal error: "
-              "Cannot create least-squares matrix because a patch of support "
-              "points "
-              "has fewer vertices than the dimension of the polynomial "
-              "basis for the polynomial fitting. This should not have "
-              "happened, as the "
-              "patches are created with at least that many vertices."));
+        FullMatrix<double> A(n_adjacent, dim_recovery_basis);
+        fill_vandermonde_matrix(patch, A);
+        A.Tmmult(AtA, A);
+        rank = get_rank<dim>(AtA, eigenAtA);
 
-          FullMatrix<double> A(n_adjacent, dim_recovery_basis);
-          fill_vandermonde_matrix(i, A);
-          A.Tmmult(AtA, A);
-          rank = get_rank<dim>(AtA, eigenAtA);
+        pcout << "rank is " << rank << std::endl;
 
-          pcout << "rank is " << rank << std::endl;
+        AssertThrow(rank >= dim_recovery_basis,
+                    ExcMessage("Matrix is not full rank at vertex"));
 
-          AssertThrow(rank >= dim_recovery_basis,
-                      ExcMessage("Matrix is not full rank at vertex"));
+        // if (rank >= dim_recovery_basis)
+        // {
+        is_full_rank = true;
+        FullMatrix<double> least_squares_mat(dim_recovery_basis, n_adjacent);
+        least_squares_mat.left_invert(A);
+        least_squares_matrices[i] = least_squares_mat;
+        // }
+        // else
+        // {
+        //   if (num_patch_increases++ > max_patch_increases)
+        //   {
+        //     throw std::runtime_error(
+        //       "Could not create least-squares matrix of full rank even "
+        //       "after increasing the patch size several times.");
+        //   }
 
-          // if (rank >= dim_recovery_basis)
-          // {
-          is_full_rank = true;
-          FullMatrix<double> least_squares_mat(dim_recovery_basis, n_adjacent);
-          least_squares_mat.left_invert(A);
-          least_squares_matrices[i] = least_squares_mat;
-          // }
-          // else
-          // {
-          //   if (num_patch_increases++ > max_patch_increases)
-          //   {
-          //     throw std::runtime_error(
-          //       "Could not create least-squares matrix of full rank even "
-          //       "after increasing the patch size several times.");
-          //   }
-
-          //   // Increase patch size
-          //   patches.increase_patch_size(i);
-          // }
-        }
-        while (!is_full_rank);
+        //   // Increase patch size
+        //   patches.increase_patch_size(i);
+        // }
       }
+      while (!is_full_rank);
     }
   }
 
   template <int dim>
-  void SolutionRecovery<dim>::fill_vandermonde_matrix(
-    const types::global_vertex_index v,
-    FullMatrix<double>              &mat) const
+  void
+  SolutionRecovery<dim>::fill_vandermonde_matrix(const Patch<dim>   &patch,
+                                                 FullMatrix<double> &mat) const
   {
-    const Point<dim>        &center  = patches.triangulation.get_vertices()[v];
-    std::vector<Point<dim>> &patch   = patches.patches_of_support_points[v];
-    const Point<dim>        &scaling = patches.scalings[v];
-
-    // AssertThrow(dim_recovery_basis == monomials.size(), ExcMessage("Dimension
-    // mismatch")); const unsigned int dim_basis         = monomials.size();
-
-    Point<dim> local_coordinates;
+    const auto &neighbours = patch.neighbours_local_coordinates;
 
     unsigned int i = 0;
-    for (const Point<dim> &pt : patch)
+    for (const auto &[dof, pt] : neighbours)
     {
-      // Local scaled coordinates
-      local_coordinates = pt - center;
-      for (unsigned int d = 0; d < dim; ++d)
-        local_coordinates /= scaling[d];
-
       // Evaluate each monomial at local_coordinates
       for (unsigned int j = 0; j < dim_recovery_basis; ++j)
-        mat(i, j) = monomials_recovery->compute_value(j, local_coordinates);
+        mat(i, j) = monomials_recovery->compute_value(j, pt);
       ++i;
     }
   }
 
   // Get the solution field u_h at the vertices of a patch
-  void get_component_values_on_patch(
-    const LA::ParVectorType                 &solution,
-    const std::set<types::global_dof_index> &patches_of_dofs,
-    Vector<double>                          &values_out)
+  template <int dim>
+  void get_component_values_on_patch(const LA::ParVectorType &local_solution,
+                                     const Patch<dim>        &patch,
+                                     Vector<double>          &values_out)
   {
     unsigned int i = 0;
-    for (const auto dof : patches_of_dofs)
+    for (const auto &[dof, pt] : patch.neighbours_local_coordinates)
     {
-      values_out[i] = solution[dof];
+      values_out[i] = local_solution[dof];
       ++i;
     }
   }
@@ -350,55 +398,78 @@ namespace ErrorEstimation
   //     }
   //   }
 
-    template <int dim>
-    void SolutionRecovery<dim>::recover_from_solution(
-      const unsigned int i_recovered_derivative)
+  /**
+   *
+   */
+  // template <int dim>
+  // PolynomialSpace<dim> coeffs_to_polynomial(const Vector<double> &coeffs)
+  // {
+  //   std::vector<Polynomials::Polynomial<double>> pols(dim);
+  //   for (unsigned int d = 0; d < dim; ++d)
+  //     pols[d] = Polynomials::Polynomial<double>()
+  // }
+
+  template <int dim>
+  void SolutionRecovery<dim>::recover_from_solution(
+    const unsigned int i_recovered_derivative)
+  {
+    Vector<double> coeffs(dim_recovery_basis);
+
+    for (types::global_vertex_index v = 0; v < n_vertices; ++v)
     {
-      Vector<double> coeffs(dim_recovery_basis);
+      if (!owned_vertices[v])
+        continue;
 
-      for (types::global_vertex_index v = 0; v < n_vertices; ++v)
-      {
-        if (owned_vertices[v])
-        {
-          const Point<dim> &scaling = patches.scalings[v];
-          const auto       &ls_mat  = least_squares_matrices[v];
-          Vector<double>    patch_values(ls_mat.n());
+      const Patch<dim> &patch  = patches[v];
+      const auto       &ls_mat = least_squares_matrices[v];
+      Vector<double>    rhs(ls_mat.n());
 
-          const auto &patch_dofs = patches.patches_of_dofs[v];
+      // pcout << "Vertex " << patch.center << std::endl;
+      // pcout << "Neighbours" << std::endl;
+      // for (unsigned int i = 0; i < patch.neighbours_local_coordinates.size();
+      // ++i)
+      // {
+      //   pcout << patch.neighbours[i].second << " - local: " <<
+      //   patch.neighbours_local_coordinates[i].second << std::endl;
+      // }
+      // pcout << "LSM" << std::endl;
+      // ls_mat.print_formatted(pcout.get_stream(), 4, true, 0, " ", 1., 0., "
+      // ");
 
-          // Extract local solution values for each component
-          // if (i_recovered_derivative == 0)
-            get_component_values_on_patch(solution, patch_dofs, patch_values);
-          // else
-          //   get_component_derivative_on_patch(i_recovered_derivative - 1,
-          //                                     recovered_derivatives,
-          //                                     patch_vertices,
-          //                                     c,
-          //                                     patch_values);
+      // Extract local solution values for each component
+      // if (i_recovered_derivative == 0)
+      get_component_values_on_patch(local_solution, patch, rhs);
+      // else
+      //   get_component_derivative_on_patch(i_recovered_derivative - 1,
+      //                                     recovered_derivatives,
+      //                                     patch_vertices,
+      //                                     c,
+      //                                     rhs);
 
-          ls_mat.vmult(coeffs, patch_values);
+      ls_mat.vmult(coeffs, rhs);
 
-          for (unsigned int i = 0; i < dim_recovery_basis; ++i)
-          {
-            // Scale back
-            // for (unsigned int d = 0; d < dim; ++d)
-              // coeffs[i] /= std::pow(scaling[d], monomials[i][d]);
-            coeffs[i] /= monomials_recovery->compute_value(i, scaling);
-          }
-          pcout << coeffs << std::endl;
+      // Scale back
+      for (unsigned int i = 0; i < dim_recovery_basis; ++i)
+        coeffs[i] /= monomials_recovery->compute_value(i, patch.scaling);
 
-          // // Store coefficients
-          // recovered_polynomials[v][c][i_recovered_derivative] = coeffs;
+      if (i_recovered_derivative == 0)
+        recoveries_coefficients[v][0] = coeffs;
 
+      // pcout << "RHS" << std::endl;
+      // pcout << rhs << std::endl;
+      // pcout << "Coeffs" << std::endl;
+      // pcout << coeffs << std::endl;
 
-          // // Compute derivatives
-          // compute_derivatives(coeffs, recovered_derivatives[v][c]);
-        }
-      }
+      // // Store coefficients
+      // recovered_polynomials[v][c][i_recovered_derivative] = coeffs;
 
-      n_recovered_fields++;
-      n_derivatives_computed += dim;
+      // // Compute derivatives
+      // compute_derivatives(coeffs, recovered_derivatives[v][c]);
     }
+
+    n_recovered_fields++;
+    n_derivatives_computed += dim;
+  }
 
   //   template <int dim>
   //   void SolutionRecovery<dim>::compute_derivatives(
@@ -699,6 +770,108 @@ namespace ErrorEstimation
   //                       ".vtu");
   //     data_out.write_vtu(out);
   //   }
+
+  template <int dim>
+  void
+  SolutionRecovery<dim>::write_least_squares_systems(std::ostream &out) const
+  {
+    std::vector<Point<dim>>         global_vertices;
+    std::vector<FullMatrix<double>> global_ls_matrices;
+    std::vector<Vector<double>>     global_recovery_coeffs;
+
+    const unsigned int mpi_rank =
+      Utilities::MPI::this_mpi_process(mpi_communicator);
+    const unsigned int mpi_size =
+      Utilities::MPI::n_mpi_processes(mpi_communicator);
+
+    const std::vector<Point<dim>> &vertices =
+      patch_handler.triangulation.get_vertices();
+
+    // Gather the mesh vertices
+    {
+      std::vector<Point<dim>> local_vertices;
+      for (unsigned int i = 0; i < n_vertices; ++i)
+        if (owned_vertices[i])
+          local_vertices.push_back(vertices[i]);
+      std::vector<std::vector<Point<dim>>> gathered_vertices =
+        Utilities::MPI::all_gather(mpi_communicator, local_vertices);
+      for (const auto &vec : gathered_vertices)
+        global_vertices.insert(global_vertices.end(), vec.begin(), vec.end());
+      std::sort(global_vertices.begin(),
+                global_vertices.end(),
+                PointComparator<dim>());
+    }
+    // Gather the least-squares matrices
+    {
+      using MessageType =
+        std::vector<std::pair<Point<dim>, FullMatrix<double>>>;
+
+      MessageType local_matrices;
+
+      for (types::global_vertex_index i = 0; i < n_vertices; ++i)
+        if (owned_vertices[i])
+          local_matrices.push_back({vertices[i], least_squares_matrices[i]});
+
+      std::vector<MessageType> gathered_matrices =
+        Utilities::MPI::all_gather(mpi_communicator, local_matrices);
+
+      global_ls_matrices.resize(global_vertices.size());
+      for (unsigned int i = 0; i < global_vertices.size(); ++i)
+      {
+        bool found = false;
+        for (unsigned int r = 0; r < mpi_size; ++r)
+          for (const auto &[pt, mat] : gathered_matrices[r])
+            if (global_vertices[i].distance(pt) < 1e-12)
+            {
+              global_ls_matrices[i] = mat;
+              found                 = true;
+              break;
+            }
+        AssertThrow(found, ExcMessage("Vertex not found"));
+      }
+    }
+    // Gather the coefficients of the solution recovery of degree p + 1
+    {
+      using MessageType = std::vector<std::pair<Point<dim>, Vector<double>>>;
+
+      MessageType local_coeffs;
+
+      for (types::global_vertex_index i = 0; i < n_vertices; ++i)
+        if (owned_vertices[i])
+          local_coeffs.push_back({vertices[i], recoveries_coefficients[i][0]});
+
+      std::vector<MessageType> gathered_coeffs =
+        Utilities::MPI::all_gather(mpi_communicator, local_coeffs);
+
+      global_recovery_coeffs.resize(global_vertices.size());
+      for (unsigned int i = 0; i < global_vertices.size(); ++i)
+      {
+        bool found = false;
+        for (unsigned int r = 0; r < mpi_size; ++r)
+          for (const auto &[pt, coeffs] : gathered_coeffs[r])
+            if (global_vertices[i].distance(pt) < 1e-12)
+            {
+              global_recovery_coeffs[i] = coeffs;
+              found                     = true;
+              break;
+            }
+        AssertThrow(found, ExcMessage("Vertex not found"));
+      }
+    }
+    // Print
+    if (mpi_rank == 0)
+    {
+      for (unsigned int i = 0; i < global_vertices.size(); ++i)
+      {
+        out << "Mesh vertex " << global_vertices[i] << std::endl;
+        out << "Least-squares matrix" << std::endl;
+        global_ls_matrices[i].print_formatted(
+          out, 3, true, 0, " ", 1., 0., " ");
+        out << "Polynomial coefficients" << std::endl;
+        global_recovery_coeffs[i].print(out, 3, true, true);
+      }
+    }
+  }
 
   template class SolutionRecovery<2>;
   template class SolutionRecovery<3>;

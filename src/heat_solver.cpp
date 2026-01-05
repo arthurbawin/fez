@@ -647,17 +647,15 @@ void HeatSolver<dim>::compute_recovery()
 {
   TimerOutput::Scope t(computing_timer, "Compute recovery");
 
-  ErrorEstimation::Patches patches(triangulation,
+  ErrorEstimation::PatchHandler patch_handler(triangulation,
                                    *mapping,
                                    dof_handler,
                                    param.finite_elements.temperature_degree + 1,
                                    temperature_mask);
-  // patches.write_support_points_patch(present_solution, std::cout);
-
-  // ErrorEstimation::SolutionRecovery recovery(patches,
-  //                                            present_solution,
-  //                                            fe,
-  //                                            *mapping);
+  ErrorEstimation::SolutionRecovery recovery(patch_handler,
+                                             present_solution,
+                                             fe,
+                                             *mapping);
 }
 
 template <int dim>

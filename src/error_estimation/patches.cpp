@@ -7,10 +7,12 @@
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/grid/grid_tools.h>
 
+#include "utilities.h"
+
 namespace ErrorEstimation
 {
   template <int dim>
-  Patches<dim>::Patches(
+  PatchHandler<dim>::PatchHandler(
     const parallel::DistributedTriangulationBase<dim> &triangulation,
     const Mapping<dim>                                &mapping,
     const DoFHandler<dim>                             &dof_handler,
@@ -112,13 +114,40 @@ namespace ErrorEstimation
         0;
     }
 
-    compute_scalings();
+    /**
+     * Convert map of neighbours to vector and sort.
+     * FIXME: For now, the pairs are sorted based on the Points<dim> and in
+     * lexicographic order, it would be more intuitive (and robust) to sort them
+     * based on their dof indices (-: (but then the test results must be
+     * re-written)
+     */
+    for (auto &patch : patches)
+    {
+      patch.neighbours =
+        std::vector<std::pair<types::global_dof_index, Point<dim>>>(
+          patch.neighbours_map.begin(), patch.neighbours_map.end());
+      std::sort(patch.neighbours.begin(),
+                patch.neighbours.end(),
+                [](const auto &a, const auto &b) {
+                  PointComparator<dim> comp;
+                  return comp(a.second, b.second);
+                });
+      auto last = std::unique(patch.neighbours.begin(),
+                              patch.neighbours.end(),
+                              [](const auto &a, const auto &b) {
+                                PointEquality<dim> comp;
+                                return comp(a.second, b.second);
+                              });
+      patch.neighbours.erase(last, patch.neighbours.end());
+    }
+
+    compute_scalings_and_local_coordinates();
   }
 
   template <int dim>
-  void Patches<dim>::add_element_layer(const unsigned int layer,
-                                       const unsigned     n_required_vertices,
-                                       bool &needs_further_expansion)
+  void PatchHandler<dim>::add_element_layer(const unsigned int layer,
+                                            const unsigned n_required_vertices,
+                                            bool &needs_further_expansion)
   {
     const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
     const FESystem<dim>           &fe       = dof_handler.get_fe();
@@ -130,9 +159,9 @@ namespace ErrorEstimation
     std::vector<bool> needs_expansion(n_vertices, false);
 
     for (types::global_vertex_index v = 0; v < n_vertices; ++v)
-    {
-      needs_expansion[v] = patches[v].neighbours.size() < n_required_vertices;
-    }
+      if (owned_vertices[v])
+        needs_expansion[v] =
+          patches[v].neighbours_map.size() < n_required_vertices;
 
     /**
      * If previous layer included ghost cells, this layer may need to
@@ -165,7 +194,7 @@ namespace ErrorEstimation
                * considering local dofs only (patch.dofs), I'm not sure why.
                */
               if (!locally_relevant_dofs.is_element(pair.first))
-                patch.neighbours.insert(pair);
+                patch.neighbours_map.insert(pair);
         }
       }
     }
@@ -215,7 +244,7 @@ namespace ErrorEstimation
             if (mask[fe.system_to_component_index(i).first])
             {
               // Add cell if one of its dofs is in current patch
-              if (patch.neighbours.count(local_dofs[i]) > 0)
+              if (patch.neighbours_map.count(local_dofs[i]) > 0)
               // if (patch.dofs.count(local_dofs[i]) > 0)
               {
                 new_cells.insert(cell);
@@ -240,10 +269,11 @@ namespace ErrorEstimation
 
       // Add neighbouring dofs and their support points
       for (const auto dof : new_dofs)
-        patch.neighbours.insert({dof, relevant_dofs_support_points.at(dof)});
+        patch.neighbours_map.insert(
+          {dof, relevant_dofs_support_points.at(dof)});
 
       // Check if an additional layer will be required for at least one patch
-      if (patch.neighbours.size() < n_required_vertices)
+      if (patch.neighbours_map.size() < n_required_vertices)
       {
         needs_further_expansion = true;
 
@@ -269,6 +299,10 @@ namespace ErrorEstimation
     }
   }
 
+  /**
+   * A small struct to share by MPI::some_to_some :
+   * the requesting dof, one of its neighbour and its support point.
+   */
   template <int dim>
   struct NeighbourDofData
   {
@@ -278,7 +312,7 @@ namespace ErrorEstimation
 
     // Boost serialization
     template <class Archive>
-    void serialize(Archive &ar, const unsigned int version)
+    void serialize(Archive &ar, const unsigned int)
     {
       ar &requested_dof;
       ar &neighbouring_dof;
@@ -290,11 +324,9 @@ namespace ErrorEstimation
    * Given a list of dofs located in the ghost layer of this partition,
    * we want to get from its owning proc a list of dofs belonging to the cell(s)
    * touching this dof.
-   *
-   * -
    */
   template <int dim>
-  void Patches<dim>::exchange_ghost_layer_dofs(
+  void PatchHandler<dim>::exchange_ghost_layer_dofs(
     const std::map<types::subdomain_id, std::set<types::global_dof_index>>
       &dofs_to_request,
     std::map<types::global_dof_index,
@@ -426,22 +458,36 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  void Patches<dim>::compute_scalings()
+  void PatchHandler<dim>::compute_scalings_and_local_coordinates()
   {
     for (auto &patch : patches)
     {
-      const Point<dim> &center     = patch.center;
-      Point<dim>       &scaling    = patch.scaling;
-      const auto       &neighbours = patch.neighbours;
+      const Point<dim> &center           = patch.center;
+      Point<dim>       &scaling          = patch.scaling;
+      const auto       &neighbours       = patch.neighbours;
+      auto &neighbours_local_coordinates = patch.neighbours_local_coordinates;
 
+      // Compute scaling (bounding box)
       for (const auto &[dof, pt] : neighbours)
         for (unsigned int d = 0; d < dim; ++d)
           scaling[d] = std::max(scaling[d], std::abs(pt[d] - center[d]));
+
+      // Compute local coordinates : (x_i - center) / scaling
+      for (const auto &[dof, pt] : neighbours)
+      {
+        // Although pt - center is a Tensor<1, dim> (as the difference of two
+        // Points), it denotes local coordinates w.r.t. an origin, so it makes
+        // sense to convert it to a Point.
+        Point<dim> local_coordinates(pt - center);
+        for (unsigned int d = 0; d < dim; ++d)
+          local_coordinates[d] /= scaling[d];
+        neighbours_local_coordinates.push_back({dof, local_coordinates});
+      }
     }
   }
 
   template <int dim>
-  void Patches<dim>::write_element_patch_gmsh(
+  void PatchHandler<dim>::write_element_patch_gmsh(
     const types::global_vertex_index vertex_index,
     const unsigned int               layer) const
   {
@@ -508,52 +554,12 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  struct PointComparator
+  void PatchHandler<dim>::write_support_points_patch(
+    const LA::ParVectorType &solution,
+    std::ostream            &out) const
   {
-    bool operator()(const Point<dim> &a, const Point<dim> &b) const
-    {
-      for (unsigned int d = 0; d < dim; ++d)
-      {
-        if (std::abs(a[d] - b[d]) > 1e-14)
-          return a[d] < b[d];
-      }
-      return false;
-    }
-  };
-
-  template <int dim>
-  struct PointEquality
-  {
-    bool operator()(const Point<dim> &a, const Point<dim> &b) const
-    {
-      return a.distance(b) < 1e-14;
-    }
-  };
-
-  // Define a SerializablePatch for all_gather
-  // Only difference is that it stores a vector of neighbours instead of a map
-  template <int dim>
-  struct SerializablePatch
-  {
-    Point<dim>                                                  center;
-    Point<dim>                                                  scaling;
-    std::vector<std::pair<types::global_dof_index, Point<dim>>> neighbours;
-
-    template <class Archive>
-    void serialize(Archive &ar, const unsigned int)
-    {
-      ar &center &scaling &neighbours;
-    }
-  };
-
-  template <int dim>
-  void
-  Patches<dim>::write_support_points_patch(const LA::ParVectorType &solution,
-                                           std::ostream            &out)
-  {
-    std::vector<Point<dim>>             global_vertices;
-    std::vector<SerializablePatch<dim>> global_patches;
-    std::vector<SerializablePatch<dim>> local_patches;
+    std::vector<Point<dim>> global_vertices;
+    std::vector<Patch<dim>> global_patches;
 
     const unsigned int mpi_rank =
       Utilities::MPI::this_mpi_process(mpi_communicator);
@@ -580,56 +586,10 @@ namespace ErrorEstimation
                 PointComparator<dim>());
     }
 
-    // Create the serializable patches (only for owned vertices)
-    for (unsigned int i = 0; i < n_vertices; ++i)
-    {
-      if (!owned_vertices[i])
-        continue;
-
-      auto                  &patch = patches[i];
-      SerializablePatch<dim> serializable_patch;
-
-      serializable_patch.center  = patch.center;
-      serializable_patch.scaling = patch.scaling;
-      serializable_patch.neighbours =
-        std::vector<std::pair<types::global_dof_index, Point<dim>>>(
-          patch.neighbours.begin(), patch.neighbours.end());
-
-      // Sort the dofs and support points w.r.t. support points coordinates
-      std::sort(serializable_patch.neighbours.begin(),
-                serializable_patch.neighbours.end(),
-                [](const auto &a, const auto &b) {
-                  PointComparator<dim> comp;
-                  return comp(a.second, b.second);
-                });
-      auto last = std::unique(serializable_patch.neighbours.begin(),
-                              serializable_patch.neighbours.end(),
-                              [](const auto &a, const auto &b) {
-                                PointEquality<dim> comp;
-                                return comp(a.second, b.second);
-                              });
-      serializable_patch.neighbours.erase(last,
-                                          serializable_patch.neighbours.end());
-
-      local_patches.push_back(serializable_patch);
-      // /////////////////////////////////////
-      // std::cout << "Converted" << std::endl;
-      // std::cout << patch.center << std::endl;
-      // std::cout << patch.scaling << std::endl;
-      // for(const auto &[dof, pt] : patch.neighbours)
-      //   std::cout << dof << " : " << pt << std::endl;
-      // std::cout << "to" << std::endl;
-      // std::cout << serializable_patch.center << std::endl;
-      // std::cout << serializable_patch.scaling << std::endl;
-      // for(const auto &[dof, pt] : serializable_patch.neighbours)
-      //   std::cout << dof << " : " << pt << std::endl;
-      // /////////////////////////////////////
-    }
-
     // Gather the patches
     {
-      std::vector<std::vector<SerializablePatch<dim>>> gathered_patches =
-        Utilities::MPI::all_gather(mpi_communicator, local_patches);
+      std::vector<std::vector<Patch<dim>>> gathered_patches =
+        Utilities::MPI::all_gather(mpi_communicator, patches);
 
       global_patches.resize(global_vertices.size());
       for (unsigned int i = 0; i < global_vertices.size(); ++i)
@@ -637,14 +597,15 @@ namespace ErrorEstimation
         bool found = false;
         for (unsigned int r = 0; r < mpi_size; ++r)
           for (const auto &patch : gathered_patches[r])
-            if (global_vertices[i].distance(patch.center) < 1e-12)
-            {
-              global_patches[i] = patch;
-              AssertThrow(patch.neighbours.size() > 0,
-                          ExcMessage("Vertex found but has no neighbours"));
-              found = true;
-              break;
-            }
+          {
+            if (patch.neighbours.size() > 0)
+              if (global_vertices[i].distance(patch.center) < 1e-12)
+              {
+                global_patches[i] = patch;
+                found             = true;
+                break;
+              }
+          }
         AssertThrow(found, ExcMessage("Vertex not found"));
       }
     }
@@ -678,6 +639,6 @@ namespace ErrorEstimation
     }
   }
 
-  template class Patches<2>;
-  template class Patches<3>;
+  template class PatchHandler<2>;
+  template class PatchHandler<3>;
 } // namespace ErrorEstimation

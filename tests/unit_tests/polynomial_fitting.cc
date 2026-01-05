@@ -1,5 +1,6 @@
 
 #include "error_estimation/patches.h"
+#include "error_estimation/solution_recovery.h"
 
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/dofs/dof_handler.h>
@@ -15,11 +16,7 @@
 #include "parameter_reader.h"
 
 /**
- * This tests that the patches of dof support points, used for least-squares
- * recovery of more accurate solution, are identical in sequential and parallel.
- * We create a uniform rectangle mesh and define the patches of support points
- * to fit a polynomial of order field_polynomial_degree + 1 at each owned mesh
- * vertex.
+ * This tests 
  */
 
 template <int dim>
@@ -41,7 +38,7 @@ public:
 };
 
 template <int dim>
-void test_patches(const unsigned int field_polynomial_degree)
+void test_fitting(const unsigned int field_polynomial_degree)
 {
   MPI_Comm mpi_communicator(MPI_COMM_WORLD);
 
@@ -86,9 +83,14 @@ void test_patches(const unsigned int field_polynomial_degree)
                                    field_polynomial_degree + 1,
                                    fe.component_mask(
                                      FEValuesExtractors::Scalar(0)));
+  ErrorEstimation::SolutionRecovery recovery(patch_handler,
+                                             solution,
+                                             fe,
+                                             mapping);
 
-  deallog << "Patches" << std::endl;
-  patch_handler.write_support_points_patch(solution, deallog.get_file_stream());
+  // Write the least-squares matrices and coefficient vectors
+  // for the solution recovery of degree p + 1
+  recovery.write_least_squares_systems(deallog.get_file_stream());
 }
 
 int main(int argc, char *argv[])
@@ -99,7 +101,7 @@ int main(int argc, char *argv[])
     // This also reroutes deallog output to a file "output".
     initlog();
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-    test_patches<2>(1);
+    test_fitting<2>(1);
   }
   catch (const std::exception &exc)
   {

@@ -11,27 +11,63 @@ namespace ErrorEstimation
 {
   using namespace dealii;
 
+  // Forward declaration
+  template <int dim>
+  class PatchHandler;
+
   /**
-   * This struct represents a single patch of data around an owned mesh vertex,
-   * such as the layers of surrounding elements/dofs/support points, as well
-   * as the finite element solution at these dofs.
+   * This struct represents a "patch" of data surrounding a mesh vertex. These
+   * patches are used to fit a locally more accurate polynomial representing the
+   * FE solution around the vertex, using the Polynomial-Preserving Recovery
+   * (PPR) of Zhang & Naga [ref]. Each patch is centered at an owned mesh
+   * vertex, and consists of the dof support points of the surrounding layers of
+   * elements. The solution at these dofs is used to fit a polynomial of degree
+   * p + 1 with least squares.
+   *
+   * Of course, this definition of a patch in terms of dof support points only
+   * makes sense for nodal finite elements.
+   *
+   * The "neighbours"
+   * map stores pairs [dof index : support points], and contains both local
+   * (relevant) and non-local dof indices. Non-local dof indices must be added
+   * to the index set of relevant dofs to gather the solution value at these
+   * dofs.
    */
   template <int dim>
   struct Patch
   {
     using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
+    using DofData = typename std::pair<types::global_dof_index, Point<dim>>;
 
     Point<dim> center;
     Point<dim> scaling;
 
-    std::set<CellIterator>                                  elements;
-    std::unordered_map<types::global_dof_index, Point<dim>> neighbours;
+    std::vector<DofData> neighbours;
+    std::vector<DofData> neighbours_local_coordinates;
+
+    // Boost serialization for MPI communications through deal.II wrappers
+    template <class Archive>
+    void serialize(Archive &ar, const unsigned int)
+    {
+      ar &center &scaling &neighbours &neighbours_local_coordinates;
+    }
+
+  private:
+    /**
+     * Set of local (owned or ghost) cells around the vertex, and map of
+     * neighbouring dofs (local and non-local). These are used only during patch
+     * creation.
+     */
+    std::set<CellIterator> elements;
+
+    std::unordered_map<types::global_dof_index, Point<dim>> neighbours_map;
+
+    friend class PatchHandler<dim>;
   };
 
   /**
-   * Patches of elements and dof support points around mesh vertices for the
-   * computation of a more accurate solution by least-square projection,
-   * following the Polynomial-Preserving Recovery (PPR) of Zhang & Naga [ref].
+   * This class manages the creation of patches, for polynomial fitting with
+   * the Polynomial-Preserving Recovery (PPR) of Zhang & Naga [ref].
    *
    * The least-square recovery uses nearby information from the numerical
    * solution to fit a polynomial of order p + 1. Thus, the information stored
@@ -52,7 +88,7 @@ namespace ErrorEstimation
    * single component mask.
    */
   template <int dim>
-  class Patches
+  class PatchHandler
   {
     using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
 
@@ -60,16 +96,17 @@ namespace ErrorEstimation
     /**
      * Constructor
      */
-    Patches(const parallel::DistributedTriangulationBase<dim> &triangulation,
-            const Mapping<dim>                                &mapping,
-            const DoFHandler<dim>                             &dof_handler,
-            const unsigned int                                 degree,
-            const ComponentMask                               &mask);
+    PatchHandler(
+      const parallel::DistributedTriangulationBase<dim> &triangulation,
+      const Mapping<dim>                                &mapping,
+      const DoFHandler<dim>                             &dof_handler,
+      const unsigned int                                 degree,
+      const ComponentMask                               &mask);
 
     void write_element_patch_gmsh(const types::global_vertex_index vertex_index,
                                   const unsigned int               layer) const;
     void write_support_points_patch(const LA::ParVectorType &solution,
-                                    std::ostream            &out = std::cout);
+                                    std::ostream &out = std::cout) const;
 
   private:
     /**
@@ -105,7 +142,7 @@ namespace ErrorEstimation
      * On anisotropic meshes, the least-square projection is computed on scaled
      * patches for better stability and accuracy.
      */
-    void compute_scalings();
+    void compute_scalings_and_local_coordinates();
 
   public:
     const parallel::DistributedTriangulationBase<dim> &triangulation;
@@ -133,29 +170,24 @@ namespace ErrorEstimation
     // Number of owned mesh vertices on this process
     unsigned int n_owned_vertices;
 
-    /**
-     * Patches for the Zhang & Naga recovery are vertex-centered, and consist
-     * of the dof support points of the surrounding layers of elements.
-     *
-     * Of course, this is only valid for nodal finite elements, for which the
-     * notion of dof support point makes sense.
-     *
-     * Instead of storing the support points, the global dof index is stored.
-     */
-    std::vector<Patch<dim>>                        patches;
-    std::vector<std::set<CellIterator>>            patches_of_elements;
-    std::vector<std::set<types::global_dof_index>> patches_of_dofs;
-    std::vector<std::vector<Point<dim>>>           patches_of_support_points;
+    // The patches associated to the owned mesh vertices on this partition
+    std::vector<Patch<dim>> patches;
 
-    // owning subdomain : dof to request
+    /**
+     * Map to request neighbouring dofs to other ranks.
+     * For each neighbouring rank, a set of dof indices for which the neighbours
+     * are requested. These dofs may be ghosted on the specified rank, but
+     * they'll still know the neighbouring dofs to these dofs.
+     */
     std::map<types::subdomain_id, std::set<types::global_dof_index>>
       dofs_in_ghost_layer;
-    // For each requested dof, the owned vertices containing this dof
-    // and for which queried support points must be added
+
+    /**
+     * For each requested dof in the ghost layer, the owned vertices containing
+     * this dof and for which queried support points must be added once known.
+     */
     std::map<types::global_dof_index, std::set<types::global_vertex_index>>
       to_add_after_request;
-
-    std::vector<Point<dim>> scalings;
 
     std::map<types::global_dof_index, Point<dim>> relevant_dofs_support_points;
 

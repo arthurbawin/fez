@@ -10,10 +10,10 @@
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
-#include <monolithic_fsi_solver.h>
 #include <errors.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <monolithic_fsi_solver.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
@@ -285,9 +285,30 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
   // DoFs: Do this only if partition contains a chunk of the cylinder
   if (n_local_lambda_dofs > 0)
   {
-    this->locally_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
-                                            gathered_dofs_flattened.end());
+    additional_relevant_dofs.set_size(this->dof_handler.n_dofs());
+    additional_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
+                                         gathered_dofs_flattened.end());
+    this->locally_relevant_dofs.add_indices(additional_relevant_dofs);
     this->locally_relevant_dofs.compress();
+  }
+
+  /**
+   * Reinitialize the ghosted parallel vectors with the additional ghosts.
+   */
+  this->present_solution.reinit(this->locally_owned_dofs,
+                                this->locally_relevant_dofs,
+                                this->mpi_communicator);
+  this->evaluation_point.reinit(this->locally_owned_dofs,
+                                this->locally_relevant_dofs,
+                                this->mpi_communicator);
+  this->present_solution = this->local_evaluation_point;
+  this->evaluation_point = this->local_evaluation_point;
+
+  for (auto &previous_sol : this->previous_solutions)
+  {
+    previous_sol.reinit(this->locally_owned_dofs,
+                        this->locally_relevant_dofs,
+                        this->mpi_communicator);
   }
 
   //
@@ -303,8 +324,30 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
   const unsigned int                   n_dofs_per_face = fe.n_dofs_per_face();
   std::vector<types::global_dof_index> face_dofs(n_dofs_per_face);
+
   for (const auto &cell : this->dof_handler.active_cell_iterators())
   {
+    /**
+     * Loop only on the owned cells for 2 reasons :
+     *
+     * - Only owned cells contribute to the integral of lambda on this partition
+     *
+     * - The force-position coupling is done by hand by modifying the linear
+     * system directly. Since each rank only stores its *owned* lines in the
+     * matrix/rhs, we are only interested in the *owned* position dofs that are
+     * coupled to the lambda dofs. Some ghost dofs are added here, but we only
+     * care for the owned.
+     *
+     *   Important (see below) : since we loop over cell *faces*, we can miss
+     * owned position dofs which should be coupled. This happens when owned dofs
+     * are located on the edges of slanted tets, whose faces do *not* lie on the
+     *   boundary of the obstacle. Thus, we never loop over these faces and
+     * cannot get these owned dofs. They are added afterwards after gathering
+     * the coupled dofs from other ranks.
+     *
+     *   TODO: Check if it's possible to loop over edges, but I doubt it since
+     * the boundary ID is ill defined on edges.
+     */
     if (cell->is_locally_owned())
     {
       for (const auto i_face : cell->face_indices())
@@ -332,11 +375,12 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
             if (!this->locally_relevant_dofs.is_element(face_dofs[i_dof]))
               continue;
 
-            // Lambda face dofs contribute to the weights
+            /**
+             * Lambda face dofs contribute to the weights
+             */
             if (this->ordering->is_lambda(comp))
             {
-              const unsigned int d = comp - this->ordering->l_lower;
-
+              const unsigned int            d = comp - this->ordering->l_lower;
               const types::global_dof_index lambda_dof = face_dofs[i_dof];
 
               // Very, very, very important:
@@ -344,7 +388,6 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
               // index given to shape_value is still a CELL dof index.
               const unsigned int i_cell_dof =
                 fe.face_to_cell_index(i_dof, i_face);
-
               const double phi_i =
                 fe_face_values_fixed.shape_value(i_cell_dof, q);
               coeffs[d][lambda_dof] +=
@@ -355,7 +398,9 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
                   coeffs[d][lambda_dof] = 0.;
             }
 
-            // Position face dofs are added to the list of coupled dofs
+            /**
+             * Position face dofs are added to the list of coupled dofs
+             */
             if (this->ordering->is_position(comp))
             {
               const unsigned int d = comp - this->ordering->x_lower;
@@ -365,6 +410,27 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
         }
       }
     }
+  }
+
+  /**
+   * We might be missing some owned coupled dofs, on boundary edges
+   * (see also comment in the remove_constraints function below).
+   * Add them here.
+   */
+  {
+    using MessageType =
+      std::vector<std::pair<types::global_dof_index, unsigned int>>;
+    MessageType coupled_position_dofs_vec(coupled_position_dofs.begin(),
+                                          coupled_position_dofs.end());
+
+    std::vector<MessageType> gathered_coupled_dofs =
+      Utilities::MPI::all_gather(this->mpi_communicator,
+                                 coupled_position_dofs_vec);
+
+    for (const auto &vec : gathered_coupled_dofs)
+      for (const auto &[dof, dimension] : vec)
+        if (this->locally_relevant_dofs.is_element(dof))
+          coupled_position_dofs.insert({dof, dimension});
   }
 
   /**
@@ -419,20 +485,22 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
   // Gather the constraint weights
   //
   position_lambda_coeffs.resize(dim);
-  std::vector<std::map<unsigned int, double>> gathered_coeffs_map(dim);
+  std::vector<std::map<types::global_dof_index, double>> gathered_coeffs_map(
+    dim);
 
   for (unsigned int d = 0; d < dim; ++d)
   {
-    std::vector<std::pair<unsigned int, double>> coeffs_vector(
+    std::vector<std::pair<types::global_dof_index, double>> coeffs_vector(
       coeffs[d].begin(), coeffs[d].end());
-    std::vector<std::vector<std::pair<unsigned int, double>>> gathered =
-      Utilities::MPI::all_gather(this->mpi_communicator, coeffs_vector);
+    std::vector<std::vector<std::pair<types::global_dof_index, double>>>
+      gathered =
+        Utilities::MPI::all_gather(this->mpi_communicator, coeffs_vector);
 
     // Put back into map and sum contributions to same DoF from different
     // processes
     for (const auto &vec : gathered)
-      for (const auto &pair : vec)
-        gathered_coeffs_map[d][pair.first] += pair.second;
+      for (const auto &[lambda_dof, weight] : vec)
+        gathered_coeffs_map[d][lambda_dof] += weight;
 
     position_lambda_coeffs[d].insert(position_lambda_coeffs[d].end(),
                                      gathered_coeffs_map[d].begin(),
@@ -442,7 +510,9 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
 template <int dim>
 void FSISolver<dim>::remove_cylinder_velocity_constraints(
-  AffineConstraints<double> &constraints) const
+  AffineConstraints<double> &constraints,
+  const bool                 remove_velocity_constraints,
+  const bool                 remove_position_constraints) const
 {
   if (weak_no_slip_boundary_id == numbers::invalid_unsigned_int)
     return;
@@ -456,114 +526,562 @@ void FSISolver<dim>::remove_cylinder_velocity_constraints(
                                     this->position_mask,
                                     {weak_no_slip_boundary_id});
 
+  /**
+   * There is a tricky corner case that happens when a partition has ghost dofs
+   * on a boundary edge, but the faces sharing this edge do not belong to this
+   * boundary (for instance, tets making an angle, and the tet whose face is on
+   * the boundary belongs to another rank). In that case, the ghost dofs on the
+   * boundary are not collected with DoFTools::extract_boundary_dofs, since the
+   * ghost faces are simply not on the given boundary.
+   *
+   * We have to exchange the boundary dofs, and add the missing ghost ones from
+   * other ranks.
+   */
+  {
+    std::vector<std::vector<types::global_dof_index>> gathered_vel_bdr_dofs =
+      Utilities::MPI::all_gather(
+        this->mpi_communicator,
+        relevant_boundary_velocity_dofs.get_index_vector());
+    std::vector<std::vector<types::global_dof_index>> gathered_pos_bdr_dofs =
+      Utilities::MPI::all_gather(
+        this->mpi_communicator,
+        relevant_boundary_position_dofs.get_index_vector());
+
+    for (const auto &vec : gathered_vel_bdr_dofs)
+      for (const auto dof : vec)
+        if (this->locally_relevant_dofs.is_element(dof))
+          relevant_boundary_velocity_dofs.add_index(dof);
+    for (const auto &vec : gathered_pos_bdr_dofs)
+      for (const auto dof : vec)
+        if (this->locally_relevant_dofs.is_element(dof))
+          relevant_boundary_position_dofs.add_index(dof);
+  }
+
+  // ///////////////////////////////////////////////////////////////////////////
+  // // Get the support points for the relevant dofs
+  // std::map<types::global_dof_index, Point<dim>> support_points =
+  //   DoFTools::map_dofs_to_support_points(*this->fixed_mapping,
+  //                                        this->dof_handler);
+
+  // /**
+  //  * For debug: Create a dof to component map (relevant dofs only,
+  //  * because looping over owned and ghost cells)
+  //  */
+  // const types::global_dof_index n_dofs        = this->dof_handler.n_dofs();
+  // const unsigned int            dofs_per_cell = fe.dofs_per_cell;
+
+  // std::vector<int>                     dof_to_component(n_dofs, -1);
+  // std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+
+  // for (const auto &cell : this->dof_handler.active_cell_iterators())
+  // {
+  //   cell->get_dof_indices(local_dof_indices);
+  //   for (unsigned int i = 0; i < dofs_per_cell; ++i)
+  //   {
+  //     const unsigned int component      =
+  //     fe.system_to_component_index(i).first; const types::global_dof_index
+  //     dof = local_dof_indices[i];
+
+  //     // Check that this is compatible with value already there, if any
+  //     AssertThrow(dof_to_component[dof] == -1 ||
+  //                   dof_to_component[dof] == component,
+  //                 ExcMessage("Mismatch in dof component"));
+
+  //     dof_to_component[dof] = component;
+  //   }
+  // }
+
+  // /**
+  //  * Print owned, ghost and relevant boundary VELOCITY dofs
+  //  */
+  // {
+  //   // Print owned velocity dofs
+  //   std::ofstream outfile(this->param.output.output_dir +
+  //                         "owned_velocity_dofs_proc" +
+  //                         std::to_string(this->mpi_rank) + ".pos");
+  //   outfile << "View \"owned_velocity_dofs_proc" << this->mpi_rank << "\"{"
+  //           << std::endl;
+  //   for (const auto dof : this->locally_owned_dofs)
+  //   {
+  //     if (this->ordering->is_velocity(dof_to_component[dof]))
+  //     {
+  //       const Point<dim> &pt = support_points.at(dof);
+  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+  //               << std::endl;
+  //     }
+  //   }
+  //   outfile << "};" << std::endl;
+  //   outfile.close();
+  // }
+  // {
+  //   // Print ghost velocity dofs
+  //   std::ofstream outfile(this->param.output.output_dir +
+  //                         "ghost_velocity_dofs_proc" +
+  //                         std::to_string(this->mpi_rank) + ".pos");
+  //   outfile << "View \"ghost_velocity_dofs_proc" << this->mpi_rank << "\"{"
+  //           << std::endl;
+  //   for (const auto dof : this->locally_relevant_dofs)
+  //   {
+  //     if (this->locally_owned_dofs.is_element(dof))
+  //       continue;
+
+  //     if (this->ordering->is_velocity(dof_to_component[dof]))
+  //     {
+  //       const Point<dim> &pt = support_points.at(dof);
+  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+  //               << std::endl;
+  //     }
+  //   }
+  //   outfile << "};" << std::endl;
+  //   outfile.close();
+  // }
+  // {
+  //   // Print relevant boundary velocity dofs from extraction
+  //   std::ofstream outfile(this->param.output.output_dir +
+  //                         "extracted_velocity_dofs_proc" +
+  //                         std::to_string(this->mpi_rank) + ".pos");
+  //   outfile << "View \"extracted_velocity_dofs_proc" << this->mpi_rank <<
+  //   "\"{"
+  //           << std::endl;
+  //   for (const auto dof : relevant_boundary_velocity_dofs)
+  //   {
+  //     if (this->ordering->is_velocity(dof_to_component[dof]))
+  //     {
+  //       const Point<dim> &pt = support_points.at(dof);
+  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+  //               << std::endl;
+  //     }
+  //   }
+  //   outfile << "};" << std::endl;
+  //   outfile.close();
+  // }
+  // /**
+  //  * Print owned, ghost and relevant boundary POSITION dofs
+  //  */
+  // {
+  //   // Print owned position dofs
+  //   std::ofstream outfile(this->param.output.output_dir +
+  //                         "owned_position_dofs_proc" +
+  //                         std::to_string(this->mpi_rank) + ".pos");
+  //   outfile << "View \"owned_position_dofs_proc" << this->mpi_rank << "\"{"
+  //           << std::endl;
+  //   for (const auto dof : this->locally_owned_dofs)
+  //   {
+  //     if (this->ordering->is_position(dof_to_component[dof]))
+  //     {
+  //       const Point<dim> &pt = support_points.at(dof);
+  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+  //               << std::endl;
+  //     }
+  //   }
+  //   outfile << "};" << std::endl;
+  //   outfile.close();
+  // }
+  // {
+  //   // Print ghost position dofs
+  //   std::ofstream outfile(this->param.output.output_dir +
+  //                         "ghost_position_dofs_proc" +
+  //                         std::to_string(this->mpi_rank) + ".pos");
+  //   outfile << "View \"ghost_position_dofs_proc" << this->mpi_rank << "\"{"
+  //           << std::endl;
+  //   for (const auto dof : this->locally_relevant_dofs)
+  //   {
+  //     if (this->locally_owned_dofs.is_element(dof))
+  //       continue;
+
+  //     if (this->ordering->is_position(dof_to_component[dof]))
+  //     {
+  //       const Point<dim> &pt = support_points.at(dof);
+  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+  //               << std::endl;
+  //     }
+  //   }
+  //   outfile << "};" << std::endl;
+  //   outfile.close();
+  // }
+  // {
+  //   // Print relevant boundary position dofs from extraction
+  //   std::ofstream outfile(this->param.output.output_dir +
+  //                         "extracted_position_dofs_proc" +
+  //                         std::to_string(this->mpi_rank) + ".pos");
+  //   outfile << "View \"extracted_position_dofs_proc" << this->mpi_rank <<
+  //   "\"{"
+  //           << std::endl;
+  //   for (const auto dof : relevant_boundary_position_dofs)
+  //   {
+  //     if (this->ordering->is_position(dof_to_component[dof]))
+  //     {
+  //       const Point<dim> &pt = support_points.at(dof);
+  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+  //               << std::endl;
+  //     }
+  //   }
+  //   outfile << "};" << std::endl;
+  //   outfile.close();
+  // }
+  // {
+  //   // Print the COUPLED POSITION DOFS on this partition
+  //   std::ofstream outfile(this->param.output.output_dir +
+  //                         "coupled_position_dofs_proc" +
+  //                         std::to_string(this->mpi_rank) + ".pos");
+  //   outfile << "View \"coupled_position_dofs_proc" << this->mpi_rank << "\"{"
+  //           << std::endl;
+  //   for (const auto &[dof, dimension] : coupled_position_dofs)
+  //   {
+  //     const Point<dim> &pt = support_points.at(dof);
+  //     outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+  //             << std::endl;
+  //   }
+  //   outfile << "};" << std::endl;
+  //   outfile.close();
+  // }
+  // MPI_Barrier(this->mpi_communicator);
+  // {
+  //   // Check that all coupled position dofs are indeed relevant on the
+  //   // boundary and vice versa
+  //   for (const auto &[pos_dof, d] : coupled_position_dofs)
+  //   {
+  //     AssertThrow(relevant_boundary_position_dofs.is_element(pos_dof),
+  //                 ExcMessage("A coupled position dof was not extracted"));
+  //   }
+  //   for (const auto &pos_dof : relevant_boundary_position_dofs)
+  //   {
+  //     AssertThrow(coupled_position_dofs.count(pos_dof) > 0,
+  //                 ExcMessage(
+  //                   "An extract position dof is not in the coupled map"));
+  //   }
+  // }
+
+  // const auto og_relevant =
+  //   DoFTools::extract_locally_relevant_dofs(this->dof_handler);
+
+  // Print
+  // for (unsigned int r = 0; r < this->mpi_size; ++r)
+  // {
+  //   MPI_Barrier(this->mpi_communicator);
+  //   if (r == this->mpi_rank)
+  //   {
+  //     std::cout << "In remove : Rank " << this->mpi_rank << " has "
+  //               << this->locally_relevant_dofs.n_elements() << " relevant and
+  //               "
+  //               << additional_relevant_dofs.n_elements()
+  //               << " additional and og has " << og_relevant.n_elements()
+  //               << std::endl;
+
+  //     for (unsigned int i = 0; i < n_dofs; ++i)
+  //     {
+  //       // Support points are defined only for relevant dofs
+  //       if (!this->locally_relevant_dofs.is_element(i))
+  //         continue;
+
+  //       // Support points are not defined for the additional ghost lambda
+  //       dofs if (additional_relevant_dofs.is_element(i))
+  //         continue;
+
+  //       if (!og_relevant.is_element(i))
+  //       {
+  //         std::cout << "B: Rank " << r << " : dof " << i
+  //                   << " is component : " << dof_to_component[i]
+  //                   << " is owned       : "
+  //                   << this->locally_owned_dofs.is_element(i)
+  //                   << " is relevant    : "
+  //                   << this->locally_relevant_dofs.is_element(i)
+  //                   << " is og relevant : " << og_relevant.is_element(i)
+  //                   << " is additional  : "
+  //                   << additional_relevant_dofs.is_element(i) << std::endl;
+  //         AssertThrow(false,
+  //                     ExcMessage("Dof is not additional but not og
+  //                     relevant"));
+  //       }
+
+  //       if (relevant_boundary_velocity_dofs.is_element(i) ||
+  //           relevant_boundary_position_dofs.is_element(i))
+  //       {
+  //         std::cout << "B: Rank " << r << " : dof " << i << " at "
+  //                   << support_points.at(i)
+  //                   << " is component : " << dof_to_component[i]
+  //                   << " is owned : " <<
+  //                   this->locally_owned_dofs.is_element(i)
+  //                   << " is relevant : "
+  //                   << this->locally_relevant_dofs.is_element(i)
+  //                   << " is constrained : " << constraints.is_constrained(i)
+  //                   << std::endl;
+
+  //         // Faces are at z = 0 and z = 0.5
+  //         if (constraints.is_constrained(i))
+  //         {
+  //           const double z = support_points.at(i)[2];
+  //           AssertThrow(std::abs(z) < 1e-10 || std::abs(z - 0.5) < 1e-10,
+  //                       ExcMessage("Unexpected constrained dof"));
+  //         }
+  //       }
+  //       else
+  //         std::cout << "B: Rank " << r << " : dof " << i << " at "
+  //                   << support_points.at(i)
+  //                   << " is component : " << dof_to_component[i]
+  //                   << " is owned : " <<
+  //                   this->locally_owned_dofs.is_element(i)
+  //                   << " is relevant : "
+  //                   << this->locally_relevant_dofs.is_element(i)
+  //                   << " is constrained : " << constraints.is_constrained(i)
+  //                   << " (not u/x or not on boundary)" << std::endl;
+  //     }
+  //   }
+  // }
+  ///////////////////////////////////////////////////////////////////////////
+
+  // Check consistency of constraints for RELEVANT (not active) dofs before
+  // removing
+  {
+    const bool consistent = constraints.is_consistent_in_parallel(
+      Utilities::MPI::all_gather(this->mpi_communicator,
+                                 this->locally_owned_dofs),
+      // this->locally_relevant_dofs,
+      DoFTools::extract_locally_active_dofs(this->dof_handler),
+      this->mpi_communicator,
+      true);
+    AssertThrow(consistent,
+                ExcMessage("Constraints are not consistent before removing"));
+  }
+
+  /**
+   * Now actually remove the constraints
+   */
   {
     AffineConstraints<double> filtered;
     filtered.reinit(this->locally_owned_dofs, this->locally_relevant_dofs);
 
     for (const auto &line : constraints.get_lines())
     {
-      if (relevant_boundary_velocity_dofs.is_element(line.index) ||
+      if (remove_velocity_constraints &&
+          relevant_boundary_velocity_dofs.is_element(line.index))
+        continue;
+      if (remove_position_constraints &&
           relevant_boundary_position_dofs.is_element(line.index))
         continue;
 
-      filtered.add_line(line.index);
-      filtered.add_entries(line.index, line.entries);
-      filtered.set_inhomogeneity(line.index, line.inhomogeneity);
+      filtered.add_constraint(line.index, line.entries, line.inhomogeneity);
 
       // Check that entries do not involve an absent velocity dof
       // With the get_view() function, this is done automatically
       for (const auto &entry : line.entries)
       {
-        AssertThrow(!relevant_boundary_velocity_dofs.is_element(entry.first),
-                    ExcMessage("Constraint involve a cylinder velocity dof"));
-        AssertThrow(!relevant_boundary_position_dofs.is_element(entry.first),
-                    ExcMessage("Constraint involve a cylinder position dof"));
+        if (remove_velocity_constraints)
+          AssertThrow(!relevant_boundary_velocity_dofs.is_element(entry.first),
+                      ExcMessage(
+                        "Constraint involves a cylinder velocity dof"));
+        if (remove_position_constraints)
+          AssertThrow(!relevant_boundary_position_dofs.is_element(entry.first),
+                      ExcMessage(
+                        "Constraint involves a cylinder position dof"));
       }
     }
-    filtered.close();
-    constraints = std::move(filtered);
 
-    constraints.make_consistent_in_parallel(this->locally_owned_dofs,
-                                            constraints.get_local_lines(),
-                                            this->mpi_communicator);
+    filtered.close();
+    constraints.clear();
+    constraints = std::move(filtered);
   }
 
   // {
-  //   // Get the dofs that are not the cylinder fluid velocity
-  //   // IndexSet subset = constraints.get_local_lines();
-  //   // subset.subtract_set(weak_velocity_dofs);
-
-  //   IndexSet local_lines = zero_constraints.get_local_lines();
-  //   local_lines.compress();
-  //   this->pcout << local_lines.n_intervals() << std::endl;
-  //   this->pcout << local_lines.n_elements() << std::endl;
-  //   this->pcout << local_lines.size() << std::endl;
-  //   this->pcout << weak_velocity_dofs.n_intervals() << std::endl;
-  //   this->pcout << weak_velocity_dofs.n_elements() << std::endl;
-  //   this->pcout << weak_velocity_dofs.size() << std::endl;
-  //   local_lines.get_view(weak_velocity_dofs);
-
-  //   // IndexSet subset = constraints.get_local_lines() & weak_velocity_dofs;
-
   //   // This does not work:
-  //   // auto tmp_constraints = constraints.get_view(subset);
-  //   // constraints.reinit(this->locally_owned_dofs,
-  //   this->locally_relevant_dofs);
-  //   // constraints.close();
-  //   // constraints.merge(tmp_constraints);
+
+  //   // IndexSet local_lines = zero_constraints.get_local_lines();
+  //   // local_lines.compress();
+  //   // this->pcout << local_lines.n_intervals() << std::endl;
+  //   // this->pcout << local_lines.n_elements() << std::endl;
+  //   // this->pcout << local_lines.size() << std::endl;
+  //   // this->pcout << weak_velocity_dofs.n_intervals() << std::endl;
+  //   // this->pcout << weak_velocity_dofs.n_elements() << std::endl;
+  //   // this->pcout << weak_velocity_dofs.size() << std::endl;
+  //   // local_lines.get_view(weak_velocity_dofs);
+
+  //   IndexSet velocity_to_keep = this->locally_relevant_dofs;
+  //   velocity_to_keep.subtract_set(relevant_boundary_velocity_dofs);
+  //   IndexSet position_to_keep = this->locally_relevant_dofs;
+  //   position_to_keep.subtract_set(relevant_boundary_position_dofs);
+  //   IndexSet to_keep = velocity_to_keep;
+  //   to_keep.add_indices(position_to_keep.begin(), position_to_keep.end());
+
+  //   auto tmp_constraints = constraints.get_view(to_keep);
+  //   constraints.reinit(this->locally_owned_dofs,
+  //   this->locally_relevant_dofs); constraints.close();
+  //   constraints.merge(tmp_constraints);
   // }
 
   // {
-  //   This does not work either:
+  //   // This does not work either: (test for velocity only)
+  //   // Keep everything (relevant) but the relevant boundary dofs
+  //   IndexSet to_keep = this->locally_relevant_dofs;
+  //   to_keep.subtract_set(relevant_boundary_velocity_dofs);
   //   AffineConstraints<double> tmp;
   //   tmp.copy_from(constraints);
-  //   constraints.reinit(this->locally_owned_dofs,
-  //   this->locally_relevant_dofs); constraints.add_selected_constraints(tmp,
-  //   subset); constraints.close();
+
+  //   constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
+  //   constraints.add_selected_constraints(tmp, to_keep);
+  //   constraints.close();
   // }
+
+  ///////////////////////////////////////////////////////////////////////////
+  // Print the relevant dofs after removing the constraints.
+  // No relevant velocity dof on the boundary should be constrained
+  // for (unsigned int r = 0; r < this->mpi_size; ++r)
+  // {
+  //   MPI_Barrier(this->mpi_communicator);
+  //   if (r == this->mpi_rank)
+  //     for (unsigned int i = 0; i < n_dofs; ++i)
+  //     {
+  //       // Support points are defined only for relevant dofs
+  //       if (!this->locally_relevant_dofs.is_element(i))
+  //         continue;
+
+  //       // Support points are not defined for the additional ghost lambda
+  //       dofs if (additional_relevant_dofs.is_element(i))
+  //         continue;
+
+  //       if (relevant_boundary_velocity_dofs.is_element(i) ||
+  //           relevant_boundary_position_dofs.is_element(i))
+  //       {
+  //         std::cout << "A: Rank " << r << " : dof " << i << " at "
+  //                   << support_points.at(i)
+  //                   << " is component : " << dof_to_component[i]
+  //                   << " is owned : " <<
+  //                   this->locally_owned_dofs.is_element(i)
+  //                   << " is relevant : "
+  //                   << this->locally_relevant_dofs.is_element(i)
+  //                   << " is constrained : " << constraints.is_constrained(i)
+  //                   << std::endl;
+  //         AssertThrow(!constraints.is_constrained(i),
+  //                     ExcMessage("Constrained dof remains"));
+  //       }
+  //       else
+  //       {
+  //         std::cout << "A: Rank " << r << " : dof " << i << " at "
+  //                   << support_points.at(i)
+  //                   << " is component : " << dof_to_component[i]
+  //                   << " is owned : " <<
+  //                   this->locally_owned_dofs.is_element(i)
+  //                   << " is relevant : "
+  //                   << this->locally_relevant_dofs.is_element(i)
+  //                   << " is constrained : " << constraints.is_constrained(i)
+  //                   << " (not u/x or not on boundary)" << std::endl;
+  //       }
+  //     }
+  // }
+  ///////////////////////////////////////////////////////////////////////////
+
+  // Check consistency of constraints for RELEVANT (not active) dofs after
+  // removing
+  {
+    const bool consistent = constraints.is_consistent_in_parallel(
+      Utilities::MPI::all_gather(this->mpi_communicator,
+                                 this->locally_owned_dofs),
+      // this->locally_relevant_dofs,
+      DoFTools::extract_locally_active_dofs(this->dof_handler),
+      this->mpi_communicator,
+      true);
+    AssertThrow(consistent,
+                ExcMessage("Constraints are not consistent after removing"));
+  }
+
+  // Check that boundary dofs were correctly removed
+  if (remove_velocity_constraints)
+    for (const auto &dof : relevant_boundary_velocity_dofs)
+      AssertThrow(
+        !constraints.is_constrained(dof),
+        ExcMessage(
+          "On rank " + std::to_string(this->mpi_rank) +
+          " : "
+          "Velocity dof " +
+          std::to_string(dof) +
+          " on a boundary with weak no-slip remains "
+          "constrained by a boundary condition. This can happen if "
+          "velocity dofs lying on both the cylinder and a face "
+          "boundary have conflicting prescribed boundary conditions."));
+  if (remove_position_constraints)
+    for (const auto &dof : relevant_boundary_position_dofs)
+      AssertThrow(
+        !constraints.is_constrained(dof),
+        ExcMessage(
+          "On rank " + std::to_string(this->mpi_rank) +
+          " : "
+          "Position dof " +
+          std::to_string(dof) +
+          " on a boundary with weak no-slip remains "
+          "constrained by a boundary condition. This can happen if "
+          "position dofs lying on both the cylinder and a face "
+          "boundary have conflicting prescribed boundary conditions."));
 }
 
 template <int dim>
 void FSISolver<dim>::create_solver_specific_zero_constraints()
 {
-  if constexpr (dim == 3)
-    if (this->param.fsi.enable_coupling)
-      remove_cylinder_velocity_constraints(this->zero_constraints);
+  this->zero_constraints.close();
 
   // Merge the zero lambda constraints
   this->zero_constraints.merge(
     lambda_constraints,
-    AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
-    true);
+    AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
 
-  /**
-   * Check that the coupled position dofs are not also constrained by a boundary
-   * condition. Because the force-position coupling is done "by hand" and not
-   * through an AffineConstraints, we can't specify "no_conflicts_allowed", and
-   * it has to be checked.
-   */
-  for (const auto &[dof, d] : coupled_position_dofs)
-    AssertThrow(
-      !this->zero_constraints.is_constrained(dof),
-      ExcMessage(
-        "At least one position degree of freedom is at the same time coupled "
-        "to the fluid forces *and* constrained by a boundary condition. This "
-        "can happen if position dofs lying on both the cylinder and a face "
-        "boundary have conflicting prescribed boundary conditions."));
+  if constexpr (dim == 3)
+  {
+    /** FIXME: Instead of dim = 3, the test should be whether dofs
+     * belong to multiple boundaries, but for now this only happens for the
+     * 3D fsi test case.
+     */
+    if (this->param.fsi.enable_coupling)
+    {
+      /**
+       * Remove both position and velocity constraints on the moving boundary:
+       *
+       * - Position because it is coupled to the Lagrange multiplier.
+       *   If the force-position constraints were handled with an
+       *   AffineConstraints, this would be checked by the merge() and
+       *   specifying "no_conflicts_allowed". But the constraints are enforced
+       *   "by hand", so we have to manually check and remove constrained
+       *   position dofs from adjacent faces.
+       *
+       * - Velocity because a Lagrange multiplier enforces no slip.
+       *   If velocity is set by another constraint, the lambda will have
+       *   garbage values since the constraint cannot be satisfied.
+       */
+      this->pcout << "Removing zero constraints on cylinder" << std::endl;
+      remove_cylinder_velocity_constraints(this->zero_constraints, true, true);
+    }
+    else if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
+    {
+      // If boundary has a weakly enforced no-slip, remove velocity constraints.
+      remove_cylinder_velocity_constraints(this->zero_constraints, true, false);
+    }
+  }
 }
 
 template <int dim>
 void FSISolver<dim>::create_solver_specific_nonzero_constraints()
 {
-  if constexpr (dim == 3)
-    if (this->param.fsi.enable_coupling)
-      remove_cylinder_velocity_constraints(this->nonzero_constraints);
+  this->nonzero_constraints.close();
 
   // Merge the zero lambda constraints
   this->nonzero_constraints.merge(
     lambda_constraints,
-    AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed,
-    true);
+    AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
+
+  if constexpr (dim == 3)
+  {
+    if (this->param.fsi.enable_coupling)
+    {
+      this->pcout << "Removing nonzero constraints on cylinder" << std::endl;
+      remove_cylinder_velocity_constraints(this->nonzero_constraints,
+                                           true,
+                                           true);
+    }
+    else if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
+    {
+      // If boundary has a weakly enforced no-slip, remove velocity constraints.
+      remove_cylinder_velocity_constraints(this->nonzero_constraints,
+                                           true,
+                                           false);
+    }
+  }
 }
 
 template <int dim>
@@ -1886,7 +2404,7 @@ void FSISolver<dim>::compute_solver_specific_errors()
   // linf_error_Fy = std::max(linf_error_Fy, error_on_integral[1]);
 
   const double t = this->time_handler.current_time;
-  for(auto &[norm, handler] : this->error_handlers)
+  for (auto &[norm, handler] : this->error_handlers)
   {
     if (norm == VectorTools::L2_norm)
       handler->add_error("l", l2_l, t);

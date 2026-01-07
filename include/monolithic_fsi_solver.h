@@ -49,6 +49,8 @@ public:
    */
   void create_lagrange_multiplier_constraints();
 
+  void check_dofs(const AffineConstraints<double> &constraints) const;
+
   /**
    *
    */
@@ -56,16 +58,18 @@ public:
 
   virtual void create_solver_specific_constraints_data() override
   {
-    create_lagrange_multiplier_constraints();
     if (this->param.fsi.enable_coupling)
       create_position_lagrange_mult_coupling_data();
+    create_lagrange_multiplier_constraints();
   }
 
   /**
    *
    */
   void remove_cylinder_velocity_constraints(
-    AffineConstraints<double> &constraints) const;
+    AffineConstraints<double> &constraints,
+    const bool                 remove_velocity_constraints,
+    const bool                 remove_position_constraints) const;
 
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;
@@ -91,7 +95,7 @@ public:
   void assemble_local_matrix(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchDataFSI<dim>                                  &scratchData,
-    CopyData &copy_data);
+    CopyData                                             &copy_data);
 
   void copy_local_to_global_matrix(const CopyData &copy_data);
 
@@ -108,7 +112,7 @@ public:
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
                      ScratchDataFSI<dim> &scratchData,
-                     CopyData &copy_data);
+                     CopyData            &copy_data);
 
   /**
    * See copy_local_to_global_matrix.
@@ -177,6 +181,7 @@ protected:
   types::boundary_id weak_no_slip_boundary_id = numbers::invalid_unsigned_int;
 
   AffineConstraints<double> lambda_constraints;
+  IndexSet                  additional_relevant_dofs;
 
   // Position-lambda constraints on the cylinder
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]

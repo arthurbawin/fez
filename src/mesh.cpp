@@ -62,19 +62,24 @@ void read_gmsh_physical_names(const std::string                   &meshFile,
                               std::map<std::string, unsigned int> &name2tag)
 {
   std::ifstream in(meshFile);
-  if (!in)
-    throw std::runtime_error("Could not open file " + meshFile);
+  AssertThrow(in, ExcMessage("Could not open file " + meshFile));
 
   std::string line;
   while (std::getline(in, line))
   {
+    // Trim the possible trailing whitespaces
+    line.erase(std::find_if(line.rbegin(),
+                            line.rend(),
+                            [](unsigned char ch) { return !std::isspace(ch); })
+                 .base(),
+               line.end());
+
     if (line == "$PhysicalNames")
     {
       // Next line contains the number of entries
       unsigned int num;
-      if (!(in >> num))
-        throw std::runtime_error("Invalid $PhysicalNames section in " +
-                                 meshFile);
+      AssertThrow(in >> num,
+                  ExcMessage("Invalid $PhysicalNames section in " + meshFile));
 
       // Each of the next 'num' lines: <dim> <id> "<name>"
       for (unsigned int i = 0; i < num; ++i)
@@ -84,6 +89,15 @@ void read_gmsh_physical_names(const std::string                   &meshFile,
         in >> dim >> id;
         in >> std::ws; // skip spaces before name
         std::getline(in, name);
+
+        // Trim the possible trailing whitespaces
+        name.erase(std::find_if(name.rbegin(),
+                                name.rend(),
+                                [](unsigned char ch) {
+                                  return !std::isspace(ch);
+                                })
+                     .base(),
+                   name.end());
 
         // Gmsh usually puts the name in quotes; strip them
         if (!name.empty() && name.front() == '"')

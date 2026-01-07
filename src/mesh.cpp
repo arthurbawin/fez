@@ -504,26 +504,23 @@ void print_partition_gmsh(
 
   for (const auto &cell : triangulation.active_cell_iterators())
   {
-    if (cell->is_locally_owned())
+    const std::string id = std::to_string(cell->subdomain_id());
+    outfile << ((dim == 2) ? "ST(" : "SS(");
+    for (unsigned int v = 0; v < cell->n_vertices(); ++v)
     {
-      const std::string id = std::to_string(cell->subdomain_id());
-      outfile << ((dim == 2) ? "ST(" : "SS(");
-      for (unsigned int v = 0; v < cell->n_vertices(); ++v)
-      {
-        const Point<dim> &p = cell->vertex(v);
-        if constexpr (dim == 2)
-          outfile << p[0] << "," << p[1] << ",0."
-                  << ((v == cell->n_vertices() - 1) ? "" : ",");
-        else
-          outfile << p[0] << "," << p[1] << "," << p[2]
-                  << ((v == cell->n_vertices() - 1) ? "" : ",");
-      }
+      const Point<dim> &p = cell->vertex(v);
       if constexpr (dim == 2)
-        outfile << "){" << id << "," << id << "," << id << "};" << std::endl;
+        outfile << p[0] << "," << p[1] << ",0."
+                << ((v == cell->n_vertices() - 1) ? "" : ",");
       else
-        outfile << "){" << id << "," << id << "," << id << "," << id << "};"
-                << std::endl;
+        outfile << p[0] << "," << p[1] << "," << p[2]
+                << ((v == cell->n_vertices() - 1) ? "" : ",");
     }
+    if constexpr (dim == 2)
+      outfile << "){" << id << "," << id << "," << id << "};" << std::endl;
+    else
+      outfile << "){" << id << "," << id << "," << id << "," << id << "};"
+              << std::endl;
   }
 
   outfile << "};" << std::endl;
@@ -606,7 +603,7 @@ void read_mesh(
 
   partition_and_create_parallel_mesh(serial_triangulation, triangulation);
 
-  // print_partition_gmsh(triangulation, param);
+  print_partition_gmsh(triangulation, param);
 
   print_mesh_info(serial_triangulation, triangulation, param);
 

@@ -439,10 +439,9 @@ namespace BoundaryConditions
         DoFTools::extract_dofs(dof_handler, pressure_mask);
 
       // Get support points for locally relevant DoFs
-      std::map<types::global_dof_index, Point<dim>> support_points;
+      std::map<types::global_dof_index, Point<dim>> support_points = 
       DoFTools::map_dofs_to_support_points(mapping,
-                                           dof_handler,
-                                           support_points);
+                                           dof_handler);
 
       double local_min_dist             = std::numeric_limits<double>::max();
       types::global_dof_index local_dof = numbers::invalid_dof_index;

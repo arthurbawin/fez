@@ -147,7 +147,7 @@ public:
     }
 
     for (auto &[norm, handler] : error_handlers)
-      handler->compute_rates<dim>();
+      handler->template compute_rates<dim>();
     if (mpi_rank == 0)
       for (auto &[norm, handler] : error_handlers)
       {

@@ -1,4 +1,5 @@
 
+#include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
@@ -138,15 +139,10 @@ void NavierStokesSolver<dim>::run()
     }
 
     postprocess_solution();
-
-    if (!time_handler.is_steady())
-    {
-      // Rotate solutions
-      for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-        previous_solutions[j] = previous_solutions[j - 1];
-      previous_solutions[0] = present_solution;
-    }
+    time_handler.rotate_solutions(present_solution, previous_solutions);
   }
+
+  finalize();
 }
 
 template <int dim>
@@ -177,9 +173,7 @@ void NavierStokesSolver<dim>::setup_dofs()
   previous_solutions.clear();
   previous_solutions.resize(time_handler.n_previous_solutions);
   for (auto &previous_sol : previous_solutions)
-  {
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
-  }
 
   if (with_moving_mesh)
   {
@@ -365,13 +359,7 @@ void NavierStokesSolver<dim>::set_initial_conditions()
   present_solution = newton_update;
   evaluation_point = newton_update;
 
-  if (!time_handler.is_steady())
-  {
-    // Rotate solutions
-    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-      previous_solutions[j] = previous_solutions[j - 1];
-    previous_solutions[0] = present_solution;
-  }
+  time_handler.rotate_solutions(present_solution, previous_solutions);
 }
 
 template <int dim>
@@ -634,6 +622,18 @@ void NavierStokesSolver<dim>::postprocess_solution()
     compute_errors();
 
   solver_specific_post_processing();
+}
+
+template <int dim>
+void NavierStokesSolver<dim>::finalize()
+{
+  if (param.output.write_results)
+  {
+    // Write .pvd output
+    std::ofstream pvd_output(param.output.output_dir +
+                             param.output.output_prefix + ".pvd");
+    DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
+  }
 }
 
 // Explicit instantiation

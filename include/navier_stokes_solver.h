@@ -163,6 +163,12 @@ public:
   virtual void output_results() = 0;
 
   /**
+   * Perform actions after the end of the simulation loop, such as writing
+   * .pvd output.
+   */
+  void finalize();
+
+  /**
    * Get the FESystem of the derived solver
    */
   virtual const FESystem<dim> &get_fe_system() const = 0;

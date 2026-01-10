@@ -10,8 +10,8 @@
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
-#include <incompressible_ns_solver.h>
 #include <errors.h>
+#include <incompressible_ns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
 #include <scratch_data.h>
@@ -512,13 +512,15 @@ void NSSolver<dim>::output_results()
 
     data_out.build_patches(*mapping, 2);
 
-    // Export regular time step
-    data_out.write_vtu_with_pvtu_record(
+    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
       this->param.output.output_dir,
       this->param.output.output_prefix,
       this->time_handler.current_time_iteration,
       this->mpi_communicator,
       2);
+
+    this->visualization_times_and_names.emplace_back(
+      this->time_handler.current_time, pvtu_file);
   }
 }
 

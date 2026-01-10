@@ -197,12 +197,13 @@ public:
     nonzero_constraints.distribute(local_evaluation_point);
   }
 
-  // Non-const getters
   VectorType &get_present_solution() { return present_solution; }
   VectorType &get_evaluation_point() { return evaluation_point; }
   VectorType &get_local_evaluation_point() { return local_evaluation_point; }
   VectorType &get_newton_update() { return newton_update; }
   VectorType &get_system_rhs() { return system_rhs; }
+
+  const Parameters::TimeIntegration &get_time_parameters() { return time_param; }
 
 public:
   MPI_Comm           mpi_communicator;
@@ -232,6 +233,9 @@ protected:
   // Remove the single ErrorHandler once the deprecated solvers have been removed
   ErrorHandler                                                   error_handler;
   std::map<VectorTools::NormType, std::shared_ptr<ErrorHandler>> error_handlers;
+
+  // The times and names of the pvtu files
+  std::vector<std::pair<double, std::string>> visualization_times_and_names;
 
   // Friend-ness is not inherited, so each derived nonlinear solver
   // should be marked as friend individually.

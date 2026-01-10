@@ -172,6 +172,8 @@ namespace Parameters
     bool         analytic_jacobian;
     Verbosity    verbosity;
 
+    double reassembly_decrease_tol;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -220,6 +222,10 @@ namespace Parameters
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
+    bool is_steady() const
+    {
+      return scheme == Scheme::stationary;
+    }
   };
 
   template <int dim>

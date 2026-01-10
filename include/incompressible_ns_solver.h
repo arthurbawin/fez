@@ -114,7 +114,7 @@ protected:
   FESystem<dim> fe;
 
   // Non-owning pointer to base class fixed_mapping, used for clarity.
-  Mapping<dim> *mapping;
+  const Mapping<dim> *mapping;
 
   /**
    * Exact solution when performing a convergence study with a manufactured

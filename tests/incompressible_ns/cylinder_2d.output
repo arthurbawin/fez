@@ -15,10 +15,10 @@ Newton iter.  0:          nonlinear residual = 3.38511359e-01
 	Line search with alpha = 1.000 : res = 1.39527628e-01
 	Line search with alpha = 0.500 : res = 1.78720025e-01
 	Rejecting last step and backtracking
-Newton iter.  1:          nonlinear residual = 1.39527628e-01
+Newton iter.  1:          nonlinear residual = 1.39527628e-01	(M)
 	Line search with alpha = 1.000 : res = 5.18698271e-03
-Newton iter.  2:          nonlinear residual = 5.18698271e-03
+Newton iter.  2:          nonlinear residual = 5.18698271e-03	(M)
 	Line search with alpha = 1.000 : res = 9.15038062e-06
-Newton iter.  3:          nonlinear residual = 9.15038062e-06
+Newton iter.  3:          nonlinear residual = 9.15038062e-06	(M)
 	Line search with alpha = 1.000 : res = 4.74411078e-11
 Stopping because residual is below prescribed tolerance (1.00e-10)

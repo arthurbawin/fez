@@ -211,8 +211,8 @@ namespace Parameters
       mesh_position_degree = prm.get_integer("Mesh position degree");
       no_slip_lagrange_mult_degree =
         prm.get_integer("Lagrange multiplier degree");
-      tracer_degree    = prm.get_integer("Tracer degree");
-      potential_degree = prm.get_integer("Potential degree");
+      tracer_degree      = prm.get_integer("Tracer degree");
+      potential_degree   = prm.get_integer("Potential degree");
       temperature_degree = prm.get_integer("Temperature degree");
     }
     prm.leave_subsection();
@@ -363,6 +363,16 @@ namespace Parameters
         "true",
         Patterns::Bool(),
         "Compute exact Jacobian matrix. If false, use finite differences.");
+      prm.enter_subsection("reassembly heuristic");
+      {
+        prm.declare_entry(
+          "decrease tolerance",
+          "0.",
+          Patterns::Double(),
+          "If the norm of the current residual is higher than this value times "
+          "the previous residual norm, reassemble the matrix.");
+      }
+      prm.leave_subsection();
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
     }
     prm.leave_subsection();
@@ -377,6 +387,11 @@ namespace Parameters
       max_iterations       = prm.get_integer("max_iterations");
       enable_line_search   = prm.get_bool("enable_line_search");
       analytic_jacobian    = prm.get_bool("analytic_jacobian");
+      prm.enter_subsection("reassembly heuristic");
+      {
+        reassembly_decrease_tol = prm.get_double("decrease tolerance");
+      }
+      prm.leave_subsection();
       READ_VERBOSITY_PARAM(prm);
     }
     prm.leave_subsection();
@@ -401,7 +416,7 @@ namespace Parameters
       prm.declare_entry("ilu fill level",
                         "0",
                         Patterns::Integer(),
-                        "Max lelve of fill-in for ILU preconditioner");
+                        "Max level of fill-in for ILU preconditioner");
       prm.declare_entry("renumber", "false", Patterns::Bool(), "");
       prm.declare_entry("reuse", "false", Patterns::Bool(), "");
       DECLARE_VERBOSITY_PARAM(prm, "verbose")

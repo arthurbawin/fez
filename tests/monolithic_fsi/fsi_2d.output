@@ -22,9 +22,9 @@ Max diff between displacements is +8.88178420e-16 +1.77635684e-15
 Time step 2 - Advancing to t = +2.00000000e-01.
 Newton iter.  0:          nonlinear residual = +3.69859724e-01
 	Line search with alpha = +1.000 : res = +9.86043847e-04
-Newton iter.  1:          nonlinear residual = +9.86043847e-04
+Newton iter.  1:          nonlinear residual = +9.86043847e-04	(M)
 	Line search with alpha = +1.000 : res = +1.52689669e-07
-Newton iter.  2:          nonlinear residual = +1.52689669e-07
+Newton iter.  2:          nonlinear residual = +1.52689669e-07	(M)
 	Line search with alpha = +1.000 : res = +2.01514157e-13
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 
@@ -41,9 +41,9 @@ Checking no-slip enforcement on cylinder:
 Time step 3 - Advancing to t = +3.00000000e-01.
 Newton iter.  0:          nonlinear residual = +4.90933126e-01
 	Line search with alpha = +1.000 : res = +3.21684432e-03
-Newton iter.  1:          nonlinear residual = +3.21684432e-03
+Newton iter.  1:          nonlinear residual = +3.21684432e-03	(M)
 	Line search with alpha = +1.000 : res = +1.56799544e-06
-Newton iter.  2:          nonlinear residual = +1.56799544e-06
+Newton iter.  2:          nonlinear residual = +1.56799544e-06	(M)
 	Line search with alpha = +1.000 : res = +1.86800712e-12
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 
@@ -60,9 +60,9 @@ Checking no-slip enforcement on cylinder:
 Time step 4 - Advancing to t = +4.00000000e-01.
 Newton iter.  0:          nonlinear residual = +5.26445120e-01
 	Line search with alpha = +1.000 : res = +5.65665376e-03
-Newton iter.  1:          nonlinear residual = +5.65665376e-03
+Newton iter.  1:          nonlinear residual = +5.65665376e-03	(M)
 	Line search with alpha = +1.000 : res = +4.90609959e-06
-Newton iter.  2:          nonlinear residual = +4.90609959e-06
+Newton iter.  2:          nonlinear residual = +4.90609959e-06	(M)
 	Line search with alpha = +1.000 : res = +1.30368062e-11
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 
@@ -79,9 +79,9 @@ Checking no-slip enforcement on cylinder:
 Time step 5 - Advancing to t = +5.00000000e-01.
 Newton iter.  0:          nonlinear residual = +5.30797508e-01
 	Line search with alpha = +1.000 : res = +7.84941153e-03
-Newton iter.  1:          nonlinear residual = +7.84941153e-03
+Newton iter.  1:          nonlinear residual = +7.84941153e-03	(M)
 	Line search with alpha = +1.000 : res = +9.64014142e-06
-Newton iter.  2:          nonlinear residual = +9.64014142e-06
+Newton iter.  2:          nonlinear residual = +9.64014142e-06	(M)
 	Line search with alpha = +1.000 : res = +3.91730034e-11
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 

@@ -159,7 +159,7 @@ public:
    * Compute the "raw" forces on the obstacle.
    * These need to nondimensionalized to obtain the force coefficients.
    */
-  void compute_forces(const bool export_table);
+  void compute_forces_lagrange_multiplier(const bool export_table);
 
   /**
    *

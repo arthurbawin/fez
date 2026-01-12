@@ -78,13 +78,45 @@ namespace Parameters
 
   struct Output
   {
-    bool        write_results;
-    std::string output_dir;
-    std::string output_prefix;
+    bool         write_results = true;
+    std::string  output_dir = "./";
+    std::string  output_prefix = "solution";
+    unsigned int vtu_output_frequency = 1;
 
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
+    // Skin output
+    bool         write_skin_results = false;
+    int          skin_boundary_id_raw = -1;
+    types::boundary_id skin_boundary_id = numbers::invalid_unsigned_int;
+    unsigned int skin_vtu_output_frequency = 1;
+
+    static void declare_parameters(ParameterHandler &prm);
+    void        read_parameters(ParameterHandler &prm);
   };
+
+  struct PostProcessing
+  {
+    // Total force + position
+    bool         write_total_force = false;
+    bool         write_body_position = false;
+    unsigned int force_and_position_output_frequency = 1;
+
+    // Slicing
+    bool         enable_slicing = false;
+    int          slicing_boundary_id_raw = -1;
+    types::boundary_id slicing_boundary_id = numbers::invalid_unsigned_int;
+
+    std::string  slicing_direction = "z";
+    unsigned int number_of_slices = 1;
+
+    bool         write_force_per_slice = false;
+    unsigned int force_per_slice_output_frequency = 1;
+
+    bool         write_slice_vtu = false;
+
+    static void declare_parameters(ParameterHandler &prm);
+    void        read_parameters(ParameterHandler &prm);
+  };
+
 
   struct FiniteElements
   {

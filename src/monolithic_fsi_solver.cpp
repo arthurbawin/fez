@@ -16,6 +16,7 @@
 #include <monolithic_fsi_solver.h>
 #include <scratch_data.h>
 #include <utilities.h>
+#include <post_processing_tools.h>
 
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
@@ -2416,12 +2417,24 @@ void FSISolver<dim>::compute_solver_specific_errors()
 template <int dim>
 void FSISolver<dim>::output_results()
 {
-  if (this->param.output.write_results)
+  // ============================================================
+  // 1) Full-domain VTU output
+  // ============================================================
+  if (this->param.output.write_results &&
+      (this->time_handler.current_time_iteration %
+         this->param.output.vtu_output_frequency ==
+       0 ||
+       this->time_handler.is_finished()))
   {
     //
-    // Plot FE solution
+    // Plot FE solution: (u, p, mesh_position, lambda)
+    // Total components = dim + 1 + dim + dim = 3*dim + 1
     //
-    std::vector<std::string> solution_names(dim, "velocity");
+    std::vector<std::string> solution_names;
+    solution_names.reserve(3 * dim + 1);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      solution_names.push_back("velocity");
     solution_names.push_back("pressure");
     for (unsigned int d = 0; d < dim; ++d)
       solution_names.push_back("mesh_position");
@@ -2429,16 +2442,24 @@ void FSISolver<dim>::output_results()
       solution_names.push_back("lambda");
 
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        dim, DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-    for (unsigned int d = 0; d < 2 * dim; ++d)
+      data_component_interpretation;
+    data_component_interpretation.reserve(3 * dim + 1);
+
+    for (unsigned int d = 0; d < dim; ++d)
       data_component_interpretation.push_back(
         DataComponentInterpretation::component_is_part_of_vector);
+    data_component_interpretation.push_back(
+      DataComponentInterpretation::component_is_scalar);
+    for (unsigned int d = 0; d < dim; ++d)
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_part_of_vector); // mesh_position
+    for (unsigned int d = 0; d < dim; ++d)
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_part_of_vector); // lambda
 
     DataOut<dim> data_out;
     data_out.attach_dof_handler(this->dof_handler);
+
     data_out.add_data_vector(this->present_solution,
                              solution_names,
                              DataOut<dim>::type_dof_data,
@@ -2446,12 +2467,11 @@ void FSISolver<dim>::output_results()
 
     //
     // Compute mesh velocity in post-processing
-    // This is not ideal, this is done by modifying the displacement and
-    // reexporting.
     //
     LA::ParVectorType mesh_velocity;
     mesh_velocity.reinit(this->locally_owned_dofs, this->mpi_communicator);
-    IndexSet disp_dofs =
+
+    const IndexSet disp_dofs =
       DoFTools::extract_dofs(this->dof_handler, this->position_mask);
 
     for (const auto &i : disp_dofs)
@@ -2460,13 +2480,21 @@ void FSISolver<dim>::output_results()
           this->time_handler.compute_time_derivative(i,
                                                      this->present_solution,
                                                      this->previous_solutions);
+
     mesh_velocity.compress(VectorOperation::insert);
 
-    std::vector<std::string> mesh_velocity_name(dim, "ph_velocity");
-    mesh_velocity_name.emplace_back("ph_pressure");
-    for (unsigned int i = 0; i < dim; ++i)
+    //
+    // Names for the re-exported vector (must match 3*dim + 1)
+    //
+    std::vector<std::string> mesh_velocity_name;
+    mesh_velocity_name.reserve(3 * dim + 1);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      mesh_velocity_name.push_back("ph_velocity");
+    mesh_velocity_name.push_back("ph_pressure");
+    for (unsigned int d = 0; d < dim; ++d)
       mesh_velocity_name.push_back("mesh_velocity");
-    for (unsigned int i = 0; i < dim; ++i)
+    for (unsigned int d = 0; d < dim; ++d)
       mesh_velocity_name.push_back("ph_lambda");
 
     data_out.add_data_vector(mesh_velocity,
@@ -2484,18 +2512,122 @@ void FSISolver<dim>::output_results()
 
     data_out.build_patches(*this->moving_mapping, 2);
 
-    // Export regular time step
-    data_out.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      this->param.output.output_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
+    data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
+                                        this->param.output.output_prefix,
+                                        this->time_handler.current_time_iteration,
+                                        this->mpi_communicator,
+                                        2);
+  }
+
+
+  // ============================================================
+  // 2) Skin (boundary-only) VTU output
+  // ============================================================
+  if (this->param.output.write_skin_results &&
+      this->param.output.skin_boundary_id != numbers::invalid_unsigned_int &&
+      (this->time_handler.current_time_iteration %
+         this->param.output.skin_vtu_output_frequency ==
+       0 ||
+       this->time_handler.is_finished()))
+  {
+    //
+    // Same fields as full-domain: (u, p, mesh_position, lambda)
+    //
+    std::vector<std::string> solution_names_faces;
+    solution_names_faces.reserve(3 * dim + 1);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      solution_names_faces.push_back("velocity");
+    solution_names_faces.push_back("pressure");
+    for (unsigned int d = 0; d < dim; ++d)
+      solution_names_faces.push_back("mesh_position");
+    for (unsigned int d = 0; d < dim; ++d)
+      solution_names_faces.push_back("lambda");
+
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      data_component_interpretation_faces;
+    data_component_interpretation_faces.reserve(3 * dim + 1);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      data_component_interpretation_faces.push_back(
+        DataComponentInterpretation::component_is_part_of_vector);
+    data_component_interpretation_faces.push_back(
+      DataComponentInterpretation::component_is_scalar);
+    for (unsigned int d = 0; d < dim; ++d)
+      data_component_interpretation_faces.push_back(
+        DataComponentInterpretation::component_is_part_of_vector); // mesh_position
+    for (unsigned int d = 0; d < dim; ++d)
+      data_component_interpretation_faces.push_back(
+        DataComponentInterpretation::component_is_part_of_vector); // lambda
+
+    // Filter faces by boundary_id
+    PostProcessingTools::BoundaryDataOutFaces<dim>
+      data_out_faces(this->dof_handler,
+                     this->param.output.skin_boundary_id,
+                     /*surface_only=*/true);
+
+    data_out_faces.attach_dof_handler(this->dof_handler);
+
+    data_out_faces.add_data_vector(this->present_solution,
+                                   solution_names_faces,
+                                   DataOutFaces<dim>::type_dof_data,
+                                   data_component_interpretation_faces);
+
+    const unsigned int n_slices =
+    std::max(1u, this->param.postprocessing.number_of_slices);
+
+    // slicing_direction est une string "x|y|z"
+    const std::string &dir = this->param.postprocessing.slicing_direction;
+
+    // En 2D, on n'accepte pas "z"
+    if constexpr (dim == 2)
+      AssertThrow(dir == "x" || dir == "y",
+                  ExcMessage("slicing direction must be 'x' or 'y' in 2D."));
+    else
+      AssertThrow(dir == "x" || dir == "y" || dir == "z",
+                  ExcMessage("slicing direction must be 'x', 'y' or 'z' in 3D."));
+
+    const auto axis =
+      (dir == "x" ? PostProcessingTools::SliceAxis::x :
+      dir == "y" ? PostProcessingTools::SliceAxis::y :
+                    PostProcessingTools::SliceAxis::z);
+
+
+    const QGauss<dim - 1> face_quadrature(this->fe.degree + 1);
+
+    const dealii::Vector<float> slice_index =
+      PostProcessingTools::compute_slice_index_on_boundary<dim>(
+      this->dof_handler,
+      this->param.output.skin_boundary_id,
+      n_slices,
+      axis,
+      this->mpi_communicator);
+
+
+    data_out_faces.add_data_vector(slice_index,
+                                   "slice_index",
+                                   DataOutFaces<dim>::type_cell_data);
+
+    // Build patches on the current/moving mapping (important in ALE/FSI)
+    data_out_faces.build_patches(*this->moving_mapping, 2);
+
+    // Use a distinct prefix to avoid overwriting the full-domain outputs
+    const std::string skin_prefix = this->param.output.output_prefix + "_skin";
+
+    // Parallel-safe export (pvtu + vtu per rank)
+
+    
+    data_out_faces.write_vtu_with_pvtu_record(this->param.output.output_dir,
+                                              skin_prefix,
+                                              this->time_handler.current_time_iteration,
+                                              this->mpi_communicator,
+                                              2);
   }
 }
 
+
 template <int dim>
-void FSISolver<dim>::compute_forces(const bool export_table)
+void FSISolver<dim>::compute_forces_lagrange_multiplier(const bool export_table)
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
   lambda_integral_local = 0;
@@ -2632,7 +2764,7 @@ void FSISolver<dim>::write_cylinder_position(const bool export_table)
 template <int dim>
 void FSISolver<dim>::solver_specific_post_processing()
 {
-  // output_results();
+  output_results();
 
   if (this->param.mms_param.enable)
   {
@@ -2666,13 +2798,13 @@ void FSISolver<dim>::solver_specific_post_processing()
       check_velocity_boundary();
   }
 
-  const bool export_force_table =
-    this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 5) == 0);
-  compute_forces(export_force_table);
-  const bool export_position_table =
-    this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 5) == 0);
+  const bool export_force_table = this->param.postprocessing.write_total_force &&
+    (this->time_handler.is_steady() ||
+    ((this->time_handler.current_time_iteration % this->param.postprocessing.force_and_position_output_frequency) == 0));
+  compute_forces_lagrange_multiplier(export_force_table);
+  const bool export_position_table = this->param.postprocessing.write_body_position &&
+    (this->time_handler.is_steady() ||
+    ((this->time_handler.current_time_iteration % this->param.postprocessing.force_and_position_output_frequency) == 0));
   write_cylinder_position(export_position_table);
 }
 

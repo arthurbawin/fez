@@ -8,7 +8,6 @@
 #include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria_description.h>
-#include <grid_generator_simplex.h>
 #include <mesh.h>
 #include <parameter_reader.h>
 #include <parameters.h>

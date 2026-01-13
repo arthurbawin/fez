@@ -81,6 +81,8 @@ namespace PostProcessingTools
                                   const SliceAxis          axis,
                                   const MPI_Comm           mpi_comm)
   {
+    const unsigned int axis_id = static_cast<unsigned int>(axis);
+
     const auto &tria = dof_handler.get_triangulation();
 
     Vector<double> slice_index(tria.n_active_cells());

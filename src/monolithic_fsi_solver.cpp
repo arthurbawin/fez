@@ -2576,13 +2576,17 @@ void FSISolver<dim>::output_results()
                                    DataOutFaces<dim>::type_dof_data,
                                    data_component_interpretation_faces);
 
-    const dealii::Vector<double> &slice_index =
-      this->postproc_handler.get_slice_index();
+
+    if (this->param.postprocessing.enable_slicing)
+    {
+      const dealii::Vector<double> &slice_index =
+        this->postproc_handler.get_slice_index();
 
 
-    data_out_faces.add_data_vector(slice_index,
-                                   "slice_index",
-                                   DataOutFaces<dim>::type_cell_data);
+      data_out_faces.add_data_vector(slice_index,
+                                     "slice index",
+                                     DataOutFaces<dim>::type_cell_data);
+    }
 
     // Build patches on the current/moving mapping (important in ALE/FSI)
     data_out_faces.build_patches(*this->moving_mapping, 2);

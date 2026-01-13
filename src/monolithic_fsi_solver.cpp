@@ -14,9 +14,9 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <monolithic_fsi_solver.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
-#include <post_processing_tools.h>
 
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
@@ -2422,8 +2422,8 @@ void FSISolver<dim>::output_results()
   // ============================================================
   if (this->param.output.write_results &&
       (this->time_handler.current_time_iteration %
-         this->param.output.vtu_output_frequency ==
-       0 ||
+           this->param.output.vtu_output_frequency ==
+         0 ||
        this->time_handler.is_finished()))
   {
     //
@@ -2452,7 +2452,8 @@ void FSISolver<dim>::output_results()
       DataComponentInterpretation::component_is_scalar);
     for (unsigned int d = 0; d < dim; ++d)
       data_component_interpretation.push_back(
-        DataComponentInterpretation::component_is_part_of_vector); // mesh_position
+        DataComponentInterpretation::
+          component_is_part_of_vector); // mesh_position
     for (unsigned int d = 0; d < dim; ++d)
       data_component_interpretation.push_back(
         DataComponentInterpretation::component_is_part_of_vector); // lambda
@@ -2512,11 +2513,12 @@ void FSISolver<dim>::output_results()
 
     data_out.build_patches(*this->moving_mapping, 2);
 
-    data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
-                                        this->param.output.output_prefix,
-                                        this->time_handler.current_time_iteration,
-                                        this->mpi_communicator,
-                                        2);
+    data_out.write_vtu_with_pvtu_record(
+      this->param.output.output_dir,
+      this->param.output.output_prefix,
+      this->time_handler.current_time_iteration,
+      this->mpi_communicator,
+      2);
   }
 
 
@@ -2526,8 +2528,8 @@ void FSISolver<dim>::output_results()
   if (this->param.output.write_skin_results &&
       this->param.output.skin_boundary_id != numbers::invalid_unsigned_int &&
       (this->time_handler.current_time_iteration %
-         this->param.output.skin_vtu_output_frequency ==
-       0 ||
+           this->param.output.skin_vtu_output_frequency ==
+         0 ||
        this->time_handler.is_finished()))
   {
     //
@@ -2555,16 +2557,17 @@ void FSISolver<dim>::output_results()
       DataComponentInterpretation::component_is_scalar);
     for (unsigned int d = 0; d < dim; ++d)
       data_component_interpretation_faces.push_back(
-        DataComponentInterpretation::component_is_part_of_vector); // mesh_position
+        DataComponentInterpretation::
+          component_is_part_of_vector); // mesh_position
     for (unsigned int d = 0; d < dim; ++d)
       data_component_interpretation_faces.push_back(
         DataComponentInterpretation::component_is_part_of_vector); // lambda
 
     // Filter faces by boundary_id
-    PostProcessingTools::BoundaryDataOutFaces<dim>
-      data_out_faces(this->dof_handler,
-                     this->param.output.skin_boundary_id,
-                     /*surface_only=*/true);
+    PostProcessingTools::BoundaryDataOutFaces<dim> data_out_faces(
+      this->dof_handler,
+      this->param.output.skin_boundary_id,
+      /*surface_only=*/true);
 
     data_out_faces.attach_dof_handler(this->dof_handler);
 
@@ -2573,35 +2576,8 @@ void FSISolver<dim>::output_results()
                                    DataOutFaces<dim>::type_dof_data,
                                    data_component_interpretation_faces);
 
-    const unsigned int n_slices =
-    std::max(1u, this->param.postprocessing.number_of_slices);
-
-    // slicing_direction est une string "x|y|z"
-    const std::string &dir = this->param.postprocessing.slicing_direction;
-
-    // En 2D, on n'accepte pas "z"
-    if constexpr (dim == 2)
-      AssertThrow(dir == "x" || dir == "y",
-                  ExcMessage("slicing direction must be 'x' or 'y' in 2D."));
-    else
-      AssertThrow(dir == "x" || dir == "y" || dir == "z",
-                  ExcMessage("slicing direction must be 'x', 'y' or 'z' in 3D."));
-
-    const auto axis =
-      (dir == "x" ? PostProcessingTools::SliceAxis::x :
-      dir == "y" ? PostProcessingTools::SliceAxis::y :
-                    PostProcessingTools::SliceAxis::z);
-
-
-    const QGauss<dim - 1> face_quadrature(this->fe.degree + 1);
-
-    const dealii::Vector<float> slice_index =
-      PostProcessingTools::compute_slice_index_on_boundary<dim>(
-      this->dof_handler,
-      this->param.output.skin_boundary_id,
-      n_slices,
-      axis,
-      this->mpi_communicator);
+    const dealii::Vector<double> &slice_index =
+      this->postproc_handler.get_slice_index();
 
 
     data_out_faces.add_data_vector(slice_index,
@@ -2616,12 +2592,13 @@ void FSISolver<dim>::output_results()
 
     // Parallel-safe export (pvtu + vtu per rank)
 
-    
-    data_out_faces.write_vtu_with_pvtu_record(this->param.output.output_dir,
-                                              skin_prefix,
-                                              this->time_handler.current_time_iteration,
-                                              this->mpi_communicator,
-                                              2);
+
+    data_out_faces.write_vtu_with_pvtu_record(
+      this->param.output.output_dir,
+      skin_prefix,
+      this->time_handler.current_time_iteration,
+      this->mpi_communicator,
+      2);
   }
 }
 
@@ -2764,7 +2741,7 @@ void FSISolver<dim>::write_cylinder_position(const bool export_table)
 template <int dim>
 void FSISolver<dim>::solver_specific_post_processing()
 {
-  output_results();
+  // output_results();
 
   if (this->param.mms_param.enable)
   {
@@ -2798,13 +2775,17 @@ void FSISolver<dim>::solver_specific_post_processing()
       check_velocity_boundary();
   }
 
-  const bool export_force_table = this->param.postprocessing.write_total_force &&
+  const bool export_force_table =
+    this->param.postprocessing.write_total_force &&
     (this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % this->param.postprocessing.force_and_position_output_frequency) == 0));
+     ((this->time_handler.current_time_iteration %
+       this->param.postprocessing.force_and_position_output_frequency) == 0));
   compute_forces_lagrange_multiplier(export_force_table);
-  const bool export_position_table = this->param.postprocessing.write_body_position &&
+  const bool export_position_table =
+    this->param.postprocessing.write_body_position &&
     (this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % this->param.postprocessing.force_and_position_output_frequency) == 0));
+     ((this->time_handler.current_time_iteration %
+       this->param.postprocessing.force_and_position_output_frequency) == 0));
   write_cylinder_position(export_position_table);
 }
 

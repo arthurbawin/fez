@@ -16,6 +16,7 @@
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
+#include <post_processing_handler.h>
 #include <time_handler.h>
 #include <types.h>
 
@@ -137,7 +138,10 @@ public:
   /**
    *
    */
-  void         postprocess_solution();
+  void                  postprocess_solution();
+  void                  update_slices();
+  const Vector<double> &get_slices_index() const;
+
   virtual void solver_specific_post_processing() {}
 
   void compute_and_add_errors(const Mapping<dim>  &mapping,
@@ -219,6 +223,7 @@ protected:
 
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
+  PostProcessingHandler<dim>                             postproc_handler;
 };
 
 #endif

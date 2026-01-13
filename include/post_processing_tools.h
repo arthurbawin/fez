@@ -1,17 +1,15 @@
 #ifndef POST_PROCESSING_TOOLS_H
 #define POST_PROCESSING_TOOLS_H
 
-#include <deal.II/dofs/dof_handler.h>
-#include <deal.II/numerics/data_out_faces.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/point.h>
 #include <deal.II/base/quadrature.h>
 #include <deal.II/base/types.h>
-
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe.h>
 #include <deal.II/fe/mapping.h>
 #include <deal.II/lac/vector.h>
+#include <deal.II/numerics/data_out_faces.h>
 
 #include <limits>
 
@@ -25,15 +23,15 @@ namespace PostProcessingTools
     using FaceDescriptor = typename Base::FaceDescriptor;
     using cell_iterator  = typename Base::cell_iterator;
 
-    BoundaryDataOutFaces(const dealii::DoFHandler<dim> &dof_handler,
-                                 const dealii::types::boundary_id boundary_id,
-                                 const bool surface_only = true);
+    BoundaryDataOutFaces(const dealii::DoFHandler<dim>   &dof_handler,
+                         const dealii::types::boundary_id boundary_id,
+                         const bool                       surface_only = true);
 
     FaceDescriptor first_face() override;
     FaceDescriptor next_face(const FaceDescriptor &face) override;
 
   private:
-    const dealii::DoFHandler<dim> *dof_handler;
+    const dealii::DoFHandler<dim>   *dof_handler;
     const dealii::types::boundary_id boundary_id;
   };
 
@@ -44,16 +42,16 @@ namespace PostProcessingTools
     z = 2
   };
 
-  
+
   template <int dim>
-  dealii::Vector<float>
-  compute_slice_index_on_boundary(
-    const dealii::DoFHandler<dim> &      dof_handler,
-    const dealii::types::boundary_id     boundary_id,
-    const unsigned int                   n_slices,
-    const SliceAxis                      axis,
-    const MPI_Comm                       mpi_comm);
-  
-} // namespace PostProcessing
+  dealii::Vector<double>
+  compute_slice_index_on_boundary(const dealii::DoFHandler<dim>   &dof_handler,
+                                  const dealii::types::boundary_id boundary_id,
+                                  const unsigned int               n_slices,
+                                  const SliceAxis                  axis,
+                                  const MPI_Comm                   mpi_comm);
+
+
+} // namespace PostProcessingTools
 
 #endif // POST_PROCESSING_TOOLS_H

@@ -5,6 +5,7 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <navier_stokes_solver.h>
+#include <post_processing_handler.h>
 #include <utilities.h>
 
 template <int dim>
@@ -25,6 +26,7 @@ NavierStokesSolver<dim>::NavierStokesSolver(const ParameterReader<dim> &param,
   , fixed_mapping(new MappingFE<dim>(FE_SimplexP<dim>(1)))
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
+  , postproc_handler(param.postprocessing, param.output)
 {
   if (param.mms_param.enable)
   {
@@ -96,6 +98,7 @@ void NavierStokesSolver<dim>::run()
   reset();
   read_mesh(triangulation, param);
   setup_dofs();
+  postproc_handler.setup_slices(dof_handler, mpi_communicator);
 
   if (param.bc_data.enforce_zero_mean_pressure)
     create_zero_mean_pressure_constraints_data();

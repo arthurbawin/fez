@@ -152,16 +152,18 @@ namespace Parameters
                         Patterns::FileName(),
                         "Prefix for the output files.");
 
-      prm.declare_entry("VTU output frequency",
-                        "1",
-                        Patterns::Integer(1),
-                        "Frequency (in time steps) for the standard VTU export.");
+      prm.declare_entry(
+        "VTU output frequency",
+        "1",
+        Patterns::Integer(1),
+        "Frequency (in time steps) for the standard VTU export.");
 
       // --- Skin output ---
-      prm.declare_entry("vtu write skin results",
-                        "false",
-                        Patterns::Bool(),
-                        "Enable/disable skin (boundary-only) VTU output writing.");
+      prm.declare_entry(
+        "vtu write skin results",
+        "false",
+        Patterns::Bool(),
+        "Enable/disable skin (boundary-only) VTU output writing.");
 
       prm.declare_entry("skin boundary id",
                         "-1",
@@ -211,26 +213,30 @@ namespace Parameters
                         Patterns::Bool(),
                         "Write the total hydrodynamic force to a file.");
 
-      prm.declare_entry("write body position",
-                        "false",
-                        Patterns::Bool(),
-                        "Write the body position (or reference point position) to a file.");
+      prm.declare_entry(
+        "write body position",
+        "false",
+        Patterns::Bool(),
+        "Write the body position (or reference point position) to a file.");
 
-      prm.declare_entry("force and position output frequency",
-                        "1",
-                        Patterns::Integer(1),
-                        "Frequency (in time steps) for total force and position outputs.");
+      prm.declare_entry(
+        "force and position output frequency",
+        "1",
+        Patterns::Integer(1),
+        "Frequency (in time steps) for total force and position outputs.");
 
       // --- Slice-based post-processing ---
       prm.declare_entry("enable slicing",
                         "false",
                         Patterns::Bool(),
-                        "Enable slicing post-processing (forces per slice, optional slice VTU, etc.).");
+                        "Enable slicing post-processing (forces per slice, "
+                        "optional slice VTU, etc.).");
 
       prm.declare_entry("slicing boundary id",
                         "-1",
                         Patterns::Integer(-1),
-                        "Boundary id on which slicing is performed (typically the body/skin boundary). "
+                        "Boundary id on which slicing is performed (typically "
+                        "the body/skin boundary). "
                         "-1 disables slicing.");
 
       prm.declare_entry("slicing direction",
@@ -248,10 +254,11 @@ namespace Parameters
                         Patterns::Bool(),
                         "Write the force computed on each slice to a file.");
 
-      prm.declare_entry("force per slice output frequency",
-                        "1",
-                        Patterns::Integer(1),
-                        "Frequency (in time steps) for forces-per-slice output.");
+      prm.declare_entry(
+        "force per slice output frequency",
+        "1",
+        Patterns::Integer(1),
+        "Frequency (in time steps) for forces-per-slice output.");
 
       prm.declare_entry("write slice VTU",
                         "false",
@@ -273,21 +280,18 @@ namespace Parameters
 
       enable_slicing = prm.get_bool("enable slicing");
 
-      slicing_boundary_id_raw = prm.get_integer("slicing boundary id");
-      if (slicing_boundary_id_raw < 0)
+      slicing_boundary_id = prm.get_integer("slicing boundary id");
+      if (slicing_boundary_id < 0)
         slicing_boundary_id = numbers::invalid_unsigned_int;
-      else
-        slicing_boundary_id =
-          static_cast<types::boundary_id>(slicing_boundary_id_raw);
 
       slicing_direction = prm.get("slicing direction");
       number_of_slices  = prm.get_integer("number of slices");
 
-      write_force_per_slice         = prm.get_bool("write force per slice");
+      write_force_per_slice = prm.get_bool("write force per slice");
       force_per_slice_output_frequency =
         prm.get_integer("force per slice output frequency");
 
-      write_slice_vtu        = prm.get_bool("write slice VTU");
+      write_slice_vtu = prm.get_bool("write slice VTU");
     }
     prm.leave_subsection();
   }
@@ -340,8 +344,8 @@ namespace Parameters
       mesh_position_degree = prm.get_integer("Mesh position degree");
       no_slip_lagrange_mult_degree =
         prm.get_integer("Lagrange multiplier degree");
-      tracer_degree    = prm.get_integer("Tracer degree");
-      potential_degree = prm.get_integer("Potential degree");
+      tracer_degree      = prm.get_integer("Tracer degree");
+      potential_degree   = prm.get_integer("Potential degree");
       temperature_degree = prm.get_integer("Temperature degree");
     }
     prm.leave_subsection();

@@ -15,6 +15,8 @@ using namespace dealii;
 template <int dim>
 class CHNSSolver : public NavierStokesSolver<dim>
 {
+  using ScratchData = ScratchDataCHNS<dim>;
+
 public:
   /**
    * Constructor
@@ -54,7 +56,7 @@ public:
   /**
    * Get the FESystem of the derived solver
    */
-  virtual const FESystem<dim> &get_fe_system() const override { return fe; }
+  virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
 
   /**
    * Assemble the linearized Jacobian matrix at the current evaluation point
@@ -68,7 +70,7 @@ public:
    */
   void assemble_local_matrix(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchDataCHNS<dim>                                 &scratchData,
+    ScratchData                                          &scratchData,
     CopyData                                             &copy_data);
 
   /**
@@ -89,8 +91,8 @@ public:
    */
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
-                     ScratchDataCHNS<dim> &scratchData,
-                     CopyData             &copy_data);
+                     ScratchData &scratchData,
+                     CopyData    &copy_data);
 
   /**
    * See copy_local_to_global_matrix.
@@ -98,10 +100,10 @@ public:
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
 protected:
-  FESystem<dim> fe;
+  std::shared_ptr<FESystem<dim>> fe;
 
   // Non-owning pointer to base class fixed_mapping, used for clarity.
-  Mapping<dim> *mapping;
+  const Mapping<dim> *mapping;
 
   static constexpr ConstexprComponentOrderingCHNS<dim> const_ordering = {};
 

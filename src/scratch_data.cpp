@@ -1,6 +1,9 @@
 
 #include <scratch_data.h>
 
+/**
+ * Get the update flags for the FEValues, depending on the enabled features.
+ */
 static UpdateFlags get_cell_update_flags(const bool enable_pseudo_solid,
                                          const bool enable_lagrange_multiplier,
                                          const bool enable_cahn_hilliard)
@@ -25,6 +28,9 @@ static UpdateFlags get_cell_update_flags(const bool enable_pseudo_solid,
   return flags;
 }
 
+/**
+ * Get the update flags for the FEFaceValues.
+ */
 static UpdateFlags get_face_update_flags(const bool enable_pseudo_solid,
                                          const bool enable_lagrange_multiplier,
                                          const bool enable_cahn_hilliard)
@@ -50,55 +56,68 @@ static UpdateFlags get_face_update_flags(const bool enable_pseudo_solid,
   return flags;
 }
 
-template <int dim>
-ScratchData<dim>::ScratchData(const ComponentOrdering &ordering,
-                              const bool               enable_pseudo_solid,
-                              const bool             enable_lagrange_multiplier,
-                              const bool             enable_cahn_hilliard,
-                              const FESystem<dim>   &fe,
-                              const Mapping<dim>    &fixed_mapping,
-                              const Mapping<dim>    &moving_mapping,
-                              const Quadrature<dim> &cell_quadrature,
-                              const Quadrature<dim - 1>  &face_quadrature,
-                              const std::vector<double>  &bdf_coefficients,
-                              const ParameterReader<dim> &param)
-  : ordering(ordering)
+template <int dim, bool has_hp_capabilities>
+ScratchData<dim, has_hp_capabilities>::ScratchData(
+  const ComponentOrdering    &ordering,
+  const bool                  enable_pseudo_solid,
+  const bool                  enable_lagrange_multiplier,
+  const bool                  enable_cahn_hilliard,
+  const FESystem<dim>        &fe,
+  const Mapping<dim>         &fixed_mapping,
+  const Mapping<dim>         &moving_mapping,
+  const Quadrature<dim>      &cell_quadrature,
+  const Quadrature<dim - 1>  &face_quadrature,
+  const std::vector<double>  &bdf_coefficients,
+  const ParameterReader<dim> &param)
+  : use_quads(param.finite_elements.use_quads)
+  , ordering(ordering)
   , n_components(ordering.n_components)
   , enable_pseudo_solid(enable_pseudo_solid)
   , enable_lagrange_multiplier(enable_lagrange_multiplier)
   , enable_cahn_hilliard(enable_cahn_hilliard)
   , physical_properties(param.physical_properties)
   , cahn_hilliard_param(param.cahn_hilliard)
-  , fe_values(moving_mapping,
-              fe,
-              cell_quadrature,
-              get_cell_update_flags(enable_pseudo_solid,
-                                    enable_lagrange_multiplier,
-                                    enable_cahn_hilliard))
-  , fe_values_fixed(fixed_mapping,
-                    fe,
-                    cell_quadrature,
-                    get_cell_update_flags(enable_pseudo_solid,
-                                          enable_lagrange_multiplier,
-                                          enable_cahn_hilliard))
-  , fe_face_values(moving_mapping,
-                   fe,
-                   face_quadrature,
-                   get_face_update_flags(enable_pseudo_solid,
-                                         enable_lagrange_multiplier,
-                                         enable_cahn_hilliard))
-  , fe_face_values_fixed(fixed_mapping,
-                         fe,
-                         face_quadrature,
-                         get_face_update_flags(enable_pseudo_solid,
-                                               enable_lagrange_multiplier,
-                                               enable_cahn_hilliard))
+  , fe_values(std::make_unique<FEValues<dim>>(
+      moving_mapping,
+      fe,
+      cell_quadrature,
+      get_cell_update_flags(enable_pseudo_solid,
+                            enable_lagrange_multiplier,
+                            enable_cahn_hilliard)))
+  , fe_values_fixed(std::make_unique<FEValues<dim>>(
+      fixed_mapping,
+      fe,
+      cell_quadrature,
+      get_cell_update_flags(enable_pseudo_solid,
+                            enable_lagrange_multiplier,
+                            enable_cahn_hilliard)))
+  , fe_face_values(std::make_unique<FEFaceValues<dim>>(
+      moving_mapping,
+      fe,
+      face_quadrature,
+      get_face_update_flags(enable_pseudo_solid,
+                            enable_lagrange_multiplier,
+                            enable_cahn_hilliard)))
+  , fe_face_values_fixed(std::make_unique<FEFaceValues<dim>>(
+      fixed_mapping,
+      fe,
+      face_quadrature,
+      get_face_update_flags(enable_pseudo_solid,
+                            enable_lagrange_multiplier,
+                            enable_cahn_hilliard)))
   , n_q_points(cell_quadrature.size())
   , n_faces(fe.reference_cell().n_faces())
   , n_faces_q_points(face_quadrature.size())
   , dofs_per_cell(fe.dofs_per_cell)
   , bdf_coefficients(bdf_coefficients)
 {
+  if constexpr (has_hp_capabilities)
+    AssertThrow(
+      false,
+      ExcMessage(
+        "Trying to use ScratchData constructor without hp capabilities, "
+        "but this object was created with hp support."));
+
   initialize_navier_stokes();
 
   if (enable_pseudo_solid)
@@ -113,37 +132,171 @@ ScratchData<dim>::ScratchData(const ComponentOrdering &ordering,
   allocate();
 }
 
-template <int dim>
-ScratchData<dim>::ScratchData(const ScratchData &other)
-  : ordering(other.ordering)
+template <int dim, bool has_hp_capabilities>
+ScratchData<dim, has_hp_capabilities>::ScratchData(
+  const ComponentOrdering          &ordering,
+  const bool                        enable_pseudo_solid,
+  const bool                        enable_lagrange_multiplier,
+  const bool                        enable_cahn_hilliard,
+  const hp::FECollection<dim>      &fe_collection,
+  const hp::MappingCollection<dim> &fixed_mapping_collection,
+  const hp::MappingCollection<dim> &moving_mapping_collection,
+  const hp::QCollection<dim>       &cell_quadrature_collection,
+  const hp::QCollection<dim - 1>   &face_quadrature_collection,
+  const std::vector<double>        &bdf_coefficients,
+  const ParameterReader<dim>       &param)
+  : use_quads(param.finite_elements.use_quads)
+  , ordering(ordering)
+  , n_components(ordering.n_components)
+  , enable_pseudo_solid(enable_pseudo_solid)
+  , enable_lagrange_multiplier(enable_lagrange_multiplier)
+  , enable_cahn_hilliard(enable_cahn_hilliard)
+  , physical_properties(param.physical_properties)
+  , cahn_hilliard_param(param.cahn_hilliard)
+  , hp_fe_values(std::make_unique<hp::FEValues<dim>>(
+      moving_mapping_collection,
+      fe_collection,
+      cell_quadrature_collection,
+      get_cell_update_flags(enable_pseudo_solid,
+                            enable_lagrange_multiplier,
+                            enable_cahn_hilliard)))
+  , hp_fe_values_fixed(std::make_unique<hp::FEValues<dim>>(
+      fixed_mapping_collection,
+      fe_collection,
+      cell_quadrature_collection,
+      get_cell_update_flags(enable_pseudo_solid,
+                            enable_lagrange_multiplier,
+                            enable_cahn_hilliard)))
+  , hp_fe_face_values(std::make_unique<hp::FEFaceValues<dim>>(
+      moving_mapping_collection,
+      fe_collection,
+      face_quadrature_collection,
+      get_face_update_flags(enable_pseudo_solid,
+                            enable_lagrange_multiplier,
+                            enable_cahn_hilliard)))
+  , hp_fe_face_values_fixed(std::make_unique<hp::FEFaceValues<dim>>(
+      fixed_mapping_collection,
+      fe_collection,
+      face_quadrature_collection,
+      get_face_update_flags(enable_pseudo_solid,
+                            enable_lagrange_multiplier,
+                            enable_cahn_hilliard)))
+  , bdf_coefficients(bdf_coefficients)
+{
+  if constexpr (!has_hp_capabilities)
+    AssertThrow(false,
+                ExcMessage(
+                  "Trying to use ScratchData constructor with hp capabilities, "
+                  "but this object was not created with hp support."));
+
+  /**
+   * Set the number of faces and quadrature points.
+   * This ScratchData is for now limited to applications with a Lagrange
+   * multiplier in mind, where the mapping and quadratures are the same on all
+   * cells.
+   */
+  n_faces          = fe_collection[0].reference_cell().n_faces();
+  dofs_per_cell    = fe_collection.max_dofs_per_cell();
+  n_q_points       = cell_quadrature_collection[0].size();
+  n_faces_q_points = face_quadrature_collection[0].size();
+  for (const auto &fe : fe_collection)
+  {
+    AssertThrow(n_faces == fe.reference_cell().n_faces(),
+                ExcMessage(
+                  "When initializing the hp ScratchData, data  "
+                  "differs among the FESystems of the given FECollection."
+                  "The ScratchData with hp capabilities does not yet support "
+                  "FESystems associated with different reference cells or "
+                  "different dofs per cell."));
+  }
+  for (const auto &q : cell_quadrature_collection)
+  {
+    AssertThrow(n_q_points == q.size(),
+                ExcMessage("Data mismatch among cell quadratures"));
+  }
+  for (const auto &q : face_quadrature_collection)
+  {
+    AssertThrow(n_faces_q_points == q.size(),
+                ExcMessage("Data mismatch among face quadratures"));
+  }
+
+  initialize_navier_stokes();
+
+  if (enable_pseudo_solid)
+    initialize_pseudo_solid();
+
+  if (enable_lagrange_multiplier)
+    initialize_lagrange_multiplier();
+
+  if (enable_cahn_hilliard)
+    initialize_cahn_hilliard();
+
+  allocate();
+}
+
+template <int dim, bool has_hp_capabilities>
+ScratchData<dim, has_hp_capabilities>::ScratchData(const ScratchData &other)
+  : use_quads(other.use_quads)
+  , ordering(other.ordering)
   , n_components(other.n_components)
   , enable_pseudo_solid(other.enable_pseudo_solid)
   , enable_lagrange_multiplier(other.enable_lagrange_multiplier)
   , enable_cahn_hilliard(other.enable_cahn_hilliard)
   , physical_properties(other.physical_properties)
   , cahn_hilliard_param(other.cahn_hilliard_param)
-  , fe_values(other.fe_values.get_mapping(),
-              other.fe_values.get_fe(),
-              other.fe_values.get_quadrature(),
-              other.fe_values.get_update_flags())
-  , fe_values_fixed(other.fe_values_fixed.get_mapping(),
-                    other.fe_values_fixed.get_fe(),
-                    other.fe_values_fixed.get_quadrature(),
-                    other.fe_values_fixed.get_update_flags())
-  , fe_face_values(other.fe_face_values.get_mapping(),
-                   other.fe_face_values.get_fe(),
-                   other.fe_face_values.get_quadrature(),
-                   other.fe_face_values.get_update_flags())
-  , fe_face_values_fixed(other.fe_face_values_fixed.get_mapping(),
-                         other.fe_face_values_fixed.get_fe(),
-                         other.fe_face_values_fixed.get_quadrature(),
-                         other.fe_face_values_fixed.get_update_flags())
   , n_q_points(other.n_q_points)
   , n_faces(other.n_faces)
   , n_faces_q_points(other.n_faces_q_points)
   , dofs_per_cell(other.dofs_per_cell)
   , bdf_coefficients(other.bdf_coefficients)
 {
+  if constexpr (has_hp_capabilities)
+  {
+    hp_fe_values = std::make_unique<hp::FEValues<dim>>(
+      other.hp_fe_values->get_mapping_collection(),
+      other.hp_fe_values->get_fe_collection(),
+      other.hp_fe_values->get_quadrature_collection(),
+      other.hp_fe_values->get_update_flags());
+    hp_fe_values_fixed = std::make_unique<hp::FEValues<dim>>(
+      other.hp_fe_values_fixed->get_mapping_collection(),
+      other.hp_fe_values_fixed->get_fe_collection(),
+      other.hp_fe_values_fixed->get_quadrature_collection(),
+      other.hp_fe_values_fixed->get_update_flags());
+    hp_fe_face_values = std::make_unique<hp::FEFaceValues<dim>>(
+      other.hp_fe_face_values->get_mapping_collection(),
+      other.hp_fe_face_values->get_fe_collection(),
+      other.hp_fe_face_values->get_quadrature_collection(),
+      other.hp_fe_face_values->get_update_flags());
+    hp_fe_face_values_fixed = std::make_unique<hp::FEFaceValues<dim>>(
+      other.hp_fe_face_values_fixed->get_mapping_collection(),
+      other.hp_fe_face_values_fixed->get_fe_collection(),
+      other.hp_fe_face_values_fixed->get_quadrature_collection(),
+      other.hp_fe_face_values_fixed->get_update_flags());
+  }
+  else
+  {
+    fe_values =
+      std::make_unique<FEValues<dim>>(other.fe_values->get_mapping(),
+                                      other.fe_values->get_fe(),
+                                      other.fe_values->get_quadrature(),
+                                      other.fe_values->get_update_flags());
+    fe_values_fixed = std::make_unique<FEValues<dim>>(
+      other.fe_values_fixed->get_mapping(),
+      other.fe_values_fixed->get_fe(),
+      other.fe_values_fixed->get_quadrature(),
+      other.fe_values_fixed->get_update_flags());
+    fe_face_values = std::make_unique<FEFaceValues<dim>>(
+      other.fe_face_values->get_mapping(),
+      other.fe_face_values->get_fe(),
+      other.fe_face_values->get_quadrature(),
+      other.fe_face_values->get_update_flags());
+    fe_face_values_fixed = std::make_unique<FEFaceValues<dim>>(
+      other.fe_face_values_fixed->get_mapping(),
+      other.fe_face_values_fixed->get_fe(),
+      other.fe_face_values_fixed->get_quadrature(),
+      other.fe_face_values_fixed->get_update_flags());
+  }
+
   initialize_navier_stokes();
 
   if (enable_pseudo_solid)
@@ -158,15 +311,64 @@ ScratchData<dim>::ScratchData(const ScratchData &other)
   allocate();
 }
 
-template <int dim>
-void ScratchData<dim>::initialize_navier_stokes()
+template <int dim, bool has_hp_capabilities>
+const FEValues<dim> *ScratchData<dim, has_hp_capabilities>::reinit(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  const bool                                            fixed_mapping)
+{
+  if constexpr (!has_hp_capabilities)
+  {
+    auto &active_fe_values =
+      fixed_mapping ? this->fe_values_fixed : this->fe_values;
+    active_fe_values->reinit(cell);
+    return active_fe_values.get();
+  }
+  else
+  {
+    auto &active_hp_fe_values =
+      fixed_mapping ? this->hp_fe_values_fixed : this->hp_fe_values;
+    active_hp_fe_values->reinit(cell);
+    const auto &fe_values = active_hp_fe_values->get_present_fe_values();
+    AssertDimension(hp_fe_values->get_fe_collection()[cell->active_fe_index()]
+                      .n_dofs_per_cell(),
+                    fe_values.dofs_per_cell);
+    return &fe_values;
+  }
+}
+
+template <int dim, bool has_hp_capabilities>
+const FEFaceValues<dim> *ScratchData<dim, has_hp_capabilities>::reinit(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  const unsigned int                                    face_no,
+  const bool                                            fixed_mapping)
+{
+  if constexpr (!has_hp_capabilities)
+  {
+    auto &active_fe_face_values =
+      fixed_mapping ? this->fe_face_values_fixed : this->fe_face_values;
+    active_fe_face_values->reinit(cell, face_no);
+    return active_fe_face_values.get();
+  }
+  else
+  {
+    auto &active_hp_fe_face_values =
+      fixed_mapping ? this->hp_fe_face_values_fixed : this->hp_fe_face_values;
+    active_hp_fe_face_values->reinit(cell, face_no);
+    const auto &fe_face_values =
+      active_hp_fe_face_values->get_present_fe_values();
+    return &fe_face_values;
+  }
+}
+
+template <int dim, bool has_hp_capabilities>
+void ScratchData<dim, has_hp_capabilities>::initialize_navier_stokes()
 {
   velocity.first_vector_component = u_lower = ordering.u_lower;
   pressure.component = p_lower = ordering.p_lower;
 }
 
-template <int dim>
-void ScratchData<dim>::initialize_pseudo_solid()
+template <int dim, bool has_hp_capabilities>
+void ScratchData<dim, has_hp_capabilities>::initialize_pseudo_solid()
 {
   // Check if the given ordering allows to compute the requested features
   // FIXME: This should be checked at compile-time, but I'm not sure what's
@@ -179,8 +381,8 @@ void ScratchData<dim>::initialize_pseudo_solid()
   position.first_vector_component = x_lower = ordering.x_lower;
 }
 
-template <int dim>
-void ScratchData<dim>::initialize_lagrange_multiplier()
+template <int dim, bool has_hp_capabilities>
+void ScratchData<dim, has_hp_capabilities>::initialize_lagrange_multiplier()
 {
   AssertThrow(
     ordering.l_lower != numbers::invalid_unsigned_int,
@@ -191,8 +393,8 @@ void ScratchData<dim>::initialize_lagrange_multiplier()
   lambda.first_vector_component = ordering.l_lower;
 }
 
-template <int dim>
-void ScratchData<dim>::initialize_cahn_hilliard()
+template <int dim, bool has_hp_capabilities>
+void ScratchData<dim, has_hp_capabilities>::initialize_cahn_hilliard()
 {
   AssertThrow(
     ordering.phi_lower != numbers::invalid_unsigned_int &&
@@ -214,11 +416,11 @@ void ScratchData<dim>::initialize_cahn_hilliard()
   epsilon            = cahn_hilliard_param.epsilon_interface;
   sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
-  body_force = cahn_hilliard_param.body_force;
+  body_force            = cahn_hilliard_param.body_force;
 }
 
-template <int dim>
-void ScratchData<dim>::allocate()
+template <int dim, bool has_hp_capabilities>
+void ScratchData<dim, has_hp_capabilities>::allocate()
 {
   components.resize(dofs_per_cell);
   JxW_moving.resize(n_q_points);
@@ -245,7 +447,8 @@ void ScratchData<dim>::allocate()
 
   phi_u.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
   grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
-  sym_grad_phi_u.resize(n_q_points, std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
+  sym_grad_phi_u.resize(n_q_points,
+                        std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
   div_phi_u.resize(n_q_points, std::vector<double>(dofs_per_cell));
   phi_p.resize(n_q_points, std::vector<double>(dofs_per_cell));
 
@@ -354,5 +557,7 @@ void ScratchData<dim>::allocate()
 }
 
 // Explicit instantiations
-template class ScratchData<2>;
-template class ScratchData<3>;
+template class ScratchData<2, false>;
+template class ScratchData<2, true>;
+template class ScratchData<3, false>;
+template class ScratchData<3, true>;

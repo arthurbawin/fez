@@ -168,6 +168,10 @@ namespace Parameters
   {
     prm.enter_subsection("FiniteElements");
     {
+      prm.declare_entry("use quads",
+                        "false",
+                        Patterns::Bool(),
+                        "If true, use quads/hexes instead of simplices");
       prm.declare_entry("Velocity degree",
                         "2",
                         Patterns::Integer(),
@@ -206,6 +210,7 @@ namespace Parameters
   {
     prm.enter_subsection("FiniteElements");
     {
+      use_quads            = prm.get_bool("use quads");
       velocity_degree      = prm.get_integer("Velocity degree");
       pressure_degree      = prm.get_integer("Pressure degree");
       mesh_position_degree = prm.get_integer("Mesh position degree");
@@ -752,6 +757,10 @@ namespace Parameters
     prm.enter_subsection("Debug");
     {
       DECLARE_VERBOSITY_PARAM(prm, "quiet")
+      prm.declare_entry("write partition gmsh",
+                        "false",
+                        Patterns::Bool(),
+                        "Write the mesh partitions as a Gmsh .pos file.");
       prm.declare_entry("apply exact solution", "false", Patterns::Bool(), "");
       prm.declare_entry("compare jacobian matrix with fd",
                         "false",
@@ -782,7 +791,8 @@ namespace Parameters
     prm.enter_subsection("Debug");
     {
       READ_VERBOSITY_PARAM(prm)
-      apply_exact_solution = prm.get_bool("apply exact solution");
+      write_partition_pos_gmsh = prm.get_bool("write partition gmsh");
+      apply_exact_solution     = prm.get_bool("apply exact solution");
       compare_analytical_jacobian_with_fd =
         prm.get_bool("compare jacobian matrix with fd");
       analytical_jacobian_absolute_tolerance =

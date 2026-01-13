@@ -13,6 +13,7 @@
 #include <heat_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <post_processing_tools.h>
 #include <utilities.h>
 
 template <int dim>
@@ -589,6 +590,22 @@ void HeatSolver<dim>::output_results()
                                         time_handler.current_time_iteration,
                                         mpi_communicator,
                                         2);
+
+    // Output results on prescribed boundary
+    PostProcessingTools::DataOutFacesOnBoundary<dim> data_out_boundary(
+      triangulation, 0);
+    data_out_boundary.attach_dof_handler(dof_handler);
+    data_out_boundary.add_data_vector(present_solution,
+                                      solution_names,
+                                      DataOutFaces<dim>::type_dof_data,
+                                      data_component_interpretation);
+    data_out_boundary.build_patches(*mapping, 2);
+    data_out_boundary.write_vtu_with_pvtu_record(
+      param.output.output_dir,
+      param.output.output_prefix + "_bdr",
+      time_handler.current_time_iteration,
+      mpi_communicator,
+      2);
   }
 }
 
@@ -647,11 +664,12 @@ void HeatSolver<dim>::compute_recovery()
 {
   TimerOutput::Scope t(computing_timer, "Compute recovery");
 
-  ErrorEstimation::PatchHandler patch_handler(triangulation,
-                                   *mapping,
-                                   dof_handler,
-                                   param.finite_elements.temperature_degree + 1,
-                                   temperature_mask);
+  ErrorEstimation::PatchHandler patch_handler(
+    triangulation,
+    *mapping,
+    dof_handler,
+    param.finite_elements.temperature_degree + 1,
+    temperature_mask);
   ErrorEstimation::SolutionRecovery recovery(patch_handler,
                                              present_solution,
                                              fe,
@@ -666,7 +684,7 @@ void HeatSolver<dim>::postprocess_solution()
   if (param.mms_param.enable)
     compute_errors();
 
-  compute_recovery();
+  // compute_recovery();
 }
 
 // Explicit instantiation

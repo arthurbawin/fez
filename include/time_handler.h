@@ -5,6 +5,8 @@
 #include <deal.II/base/types.h>
 #include <parameters.h>
 
+using namespace dealii;
+
 /**
  * This class takes care of the time integration-related data:
  *

@@ -18,17 +18,32 @@ NavierStokesSolver<dim>::NavierStokesSolver(const ParameterReader<dim> &param,
                                      param.mms_param)
   , param(param)
   , with_moving_mesh(with_moving_mesh)
-  , quadrature(QGaussSimplex<dim>(4))
-  , error_quadrature(QWitherdenVincentSimplex<dim>((dim == 2) ? 6 : 5))
-  , face_quadrature(QGaussSimplex<dim - 1>(4))
-  , error_face_quadrature(QWitherdenVincentSimplex<dim - 1>((dim == 2) ? 6 : 5))
   , triangulation(mpi_communicator)
-  , fixed_mapping(new MappingFE<dim>(FE_SimplexP<dim>(1)))
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
 {
-  if (param.mms_param.enable)
+  if (param.finite_elements.use_quads)
   {
+    // Quadratures and mapping or quads/hexes
+    quadrature            = std::make_shared<QGauss<dim>>(4);
+    error_quadrature      = std::make_shared<QGauss<dim>>(4);
+    face_quadrature       = std::make_shared<QGauss<dim - 1>>(4);
+    error_face_quadrature = std::make_shared<QGauss<dim - 1>>(4);
+    fixed_mapping         = std::make_shared<MappingQ<dim>>(1);
+  }
+  else
+  {
+    // Quadratures and mapping for simplices
+    quadrature = std::make_shared<QGaussSimplex<dim>>(4);
+    error_quadrature =
+      std::make_shared<QWitherdenVincentSimplex<dim>>((dim == 2) ? 6 : 5);
+    face_quadrature = std::make_shared<QGaussSimplex<dim - 1>>(4);
+    error_face_quadrature =
+      std::make_shared<QWitherdenVincentSimplex<dim - 1>>((dim == 2) ? 6 : 5);
+    fixed_mapping = std::make_shared<MappingFE<dim>>(FE_SimplexP<dim>(1));
+  }
+
+  if (param.mms_param.enable)
     for (auto norm : param.mms_param.norms_to_compute)
     {
       error_handlers[norm]->create_entry("u");
@@ -36,7 +51,6 @@ NavierStokesSolver<dim>::NavierStokesSolver(const ParameterReader<dim> &param,
       if (with_moving_mesh)
         error_handlers[norm]->create_entry("x");
     }
-  }
 
   // Direct solver
   direct_solver_reuse =
@@ -223,7 +237,7 @@ void NavierStokesSolver<dim>::create_zero_mean_pressure_constraints_data()
     dof_handler,
     locally_relevant_dofs,
     *moving_mapping,
-    quadrature,
+    *quadrature,
     ordering->p_lower,
     constrained_pressure_dof,
     zero_mean_pressure_weights);
@@ -395,7 +409,7 @@ void NavierStokesSolver<dim>::set_exact_solution()
     present_solution        = local_evaluation_point;
     const double p_mean     = VectorTools::compute_mean_value(*moving_mapping,
                                                           dof_handler,
-                                                          quadrature,
+                                                          *quadrature,
                                                           present_solution,
                                                           ordering->p_lower);
     const double p_mms_mean = compute_global_mean_value(*exact_solution,
@@ -412,7 +426,7 @@ void NavierStokesSolver<dim>::set_exact_solution()
     present_solution     = local_evaluation_point;
     const double p_mean2 = VectorTools::compute_mean_value(*moving_mapping,
                                                            dof_handler,
-                                                           quadrature,
+                                                           *quadrature,
                                                            present_solution,
                                                            ordering->p_lower);
     pcout << "After  removing pressure: " << p_mean2 << std::endl;
@@ -507,7 +521,7 @@ void NavierStokesSolver<dim>::compute_and_add_errors(
                                                  present_solution,
                                                  exact_solution,
                                                  cellwise_errors,
-                                                 error_quadrature,
+                                                 *error_quadrature,
                                                  norm,
                                                  &comp_function);
     error_handlers.at(norm)->add_error(field_name, err, time);
@@ -546,7 +560,7 @@ void NavierStokesSolver<dim>::compute_errors()
   {
     // Mean pressure value
     const double p_mean = VectorTools::compute_mean_value(
-      *moving_mapping, dof_handler, quadrature, present_solution, p_lower);
+      *moving_mapping, dof_handler, *quadrature, present_solution, p_lower);
 
     AssertThrow(std::abs(p_mean) < 1e-10,
                 ExcMessage(

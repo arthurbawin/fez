@@ -4,6 +4,8 @@
 #include <deal.II/base/convergence_table.h>
 #include <parameters.h>
 
+using namespace dealii;
+
 /**
  * A thin wrapper to the ConvergenceTable for error computations.
  */
@@ -188,7 +190,6 @@ public:
   std::map<std::string, std::vector<std::pair<double, double>>> unsteady_errors;
 
   ConvergenceTable error_table;
-
 
   // Use vector of keys to maintain prescribed errors order
   std::vector<std::string>                       ordered_keys;

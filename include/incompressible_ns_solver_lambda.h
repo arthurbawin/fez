@@ -1,5 +1,5 @@
-#ifndef MONOLITHIC_FSI_SOLVER_H
-#define MONOLITHIC_FSI_SOLVER_H
+#ifndef INCOMPRESSIBLE_NS_SOLVER_LAMBDA_H
+#define INCOMPRESSIBLE_NS_SOLVER_LAMBDA_H
 
 #include <components_ordering.h>
 #include <copy_data.h>
@@ -13,6 +13,7 @@
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_fe_field.h>
+#include <deal.II/hp/fe_collection.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <generic_solver.h>
 #include <mumps_solver.h>
@@ -25,25 +26,40 @@
 using namespace dealii;
 
 /**
- * Derived class for the monolithic fluid-structure interaction solver.
- * It is a somewhat "niche" class, which treats a single obstacle for now.
+ * Variant of the incompressible NS solver allowing to prescribe weak
+ * no-slip boundary conditions with a Lagrange multiplier ("lambda");
+ *
+ * The Lagrange multiplier is defined on boundary entities of codimension 1,
+ * but FESystems can only consist of FE spaces defined on entities of the same
+ * dimension. Instead of defining lambda in the whole domain, we do as in
+ * deal.II's step 46, and use the hp capabilities to define two cell partitions,
+ * one with lambda, and one with a FENothing instead. A FENothing space does not
+ * contribute to the number of dofs on those cells, and thus doesn't add any
+ * additional dof to the global system. The only useless additional dofs are the
+ * non-boundary lambda dofs on the cells touching the prescribed boundary (that
+ * is, their interior dofs and those on non-boundary faces). Those dofs are
+ * constrained to zero.
  */
 template <int dim>
-class FSISolver : public NavierStokesSolver<dim>
+class NSSolverLambda : public NavierStokesSolver<dim>
 {
-  using ScratchData = ScratchDataFSI<dim>;
+protected:
+  static constexpr unsigned int n_hp_partitions         = 2;
+  static constexpr unsigned int index_fe_without_lambda = 0;
+  static constexpr unsigned int index_fe_with_lambda    = 1;
+
+  using ScratchData = ScratchDataIncompressibleNSLambda<dim>;
+  using CopyData    = MyCopyData<dim, n_hp_partitions>;
 
 public:
   /**
    * Constructor
    */
-  FSISolver(const ParameterReader<dim> &param);
+  NSSolverLambda(const ParameterReader<dim> &param);
 
-  virtual ~FSISolver() {}
+  virtual ~NSSolverLambda() {}
 
 public:
-  virtual void reset_solver_specific_data() override;
-
   /**
    * Create the AffineConstraints storing the lambda = 0
    * constraints everywhere, except on the boundary of interest
@@ -51,17 +67,10 @@ public:
    */
   void create_lagrange_multiplier_constraints();
 
-  void check_dofs(const AffineConstraints<double> &constraints) const;
-
-  /**
-   *
-   */
-  void create_position_lagrange_mult_coupling_data();
+  virtual void setup_dofs() override;
 
   virtual void create_solver_specific_constraints_data() override
   {
-    if (this->param.fsi.enable_coupling)
-      create_position_lagrange_mult_coupling_data();
     create_lagrange_multiplier_constraints();
   }
 
@@ -73,6 +82,10 @@ public:
     const bool                 remove_velocity_constraints,
     const bool                 remove_position_constraints) const;
 
+  // virtual void create_base_constraints(const bool homogeneous,
+  //                              AffineConstraints<double> &constraints)
+  //                              override;
+
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;
 
@@ -80,16 +93,6 @@ public:
    *
    */
   virtual void create_sparsity_pattern() override;
-
-  /**
-   *
-   */
-  void add_algebraic_position_coupling_to_matrix();
-
-  /**
-   *
-   */
-  void add_algebraic_position_coupling_to_rhs();
 
   /**
    *
@@ -168,30 +171,43 @@ public:
    */
   void write_cylinder_position(const bool export_table);
 
-  virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
+  virtual const FESystem<dim> &get_fe_system() const override
+  {
+    AssertThrow(
+      false, ExcMessage("FSI solver with FENothing does not have a FESystem"));
+    return *fe_with_lambda;
+  }
 
 protected:
-  std::shared_ptr<FESystem<dim>> fe;
+  enum
+  {
+    with_lambda_domain_id,
+    without_lambda_domain_id
+  };
+
+  static bool
+  cell_has_lambda(const typename DoFHandler<dim>::cell_iterator &cell)
+  {
+    return cell->material_id() == with_lambda_domain_id;
+  }
+
+  std::shared_ptr<FESystem<dim>>         fe_with_lambda;
+  std::shared_ptr<FESystem<dim>>         fe_without_lambda;
+  std::shared_ptr<hp::FECollection<dim>> fe;
+
+  hp::MappingCollection<dim> mapping_collection;
+  hp::QCollection<dim>       quadrature_collection;
+  hp::QCollection<dim - 1>   face_quadrature_collection;
 
   FEValuesExtractors::Vector lambda_extractor;
   ComponentMask              lambda_mask;
+  AffineConstraints<double>  lambda_constraints;
 
   /**
    * The id of the mesh boundary on which the weak no-slip condition
    * is enforced. Currently, this is limited to a single boundary.
    */
   types::boundary_id weak_no_slip_boundary_id = numbers::invalid_unsigned_int;
-
-  AffineConstraints<double> lambda_constraints;
-  IndexSet                  additional_relevant_dofs;
-
-  // Position-lambda constraints on the cylinder
-  // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
-  std::vector<std::vector<std::pair<unsigned int, double>>>
-                                                  position_lambda_coeffs;
-  std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
-
-  TableHandler cylinder_position_table;
 
 protected:
   /**
@@ -220,9 +236,7 @@ protected:
       for (unsigned int d = 0; d < dim; ++d)
         values[ordering.u_lower + d] = source_terms.fluid_source->value(p, d);
       values[ordering.p_lower] = source_terms.fluid_source->value(p, dim);
-      for (unsigned int d = 0; d < dim; ++d)
-        values[ordering.x_lower + d] =
-          source_terms.pseudosolid_source->value(p, d);
+      // No source term for Lagrange multiplier
     }
 
   protected:
@@ -258,8 +272,6 @@ protected:
         return mms.exact_velocity->value(p, component - ordering.u_lower);
       else if (ordering.is_pressure(component))
         return mms.exact_pressure->value(p);
-      else if (ordering.is_position(component))
-        return mms.exact_mesh_position->value(p, component - ordering.x_lower);
       else if (ordering.is_lambda(component))
         // For the exact Lagrange multiplier, call the function below.
         // It can only be called at quadrature nodes on faces, where
@@ -297,9 +309,6 @@ protected:
         return mms.exact_velocity->gradient(p, component - ordering.u_lower);
       else if (ordering.is_pressure(component))
         return mms.exact_pressure->gradient(p);
-      else if (ordering.is_position(component))
-        return mms.exact_mesh_position->gradient(p,
-                                                 component - ordering.x_lower);
       else if (ordering.is_lambda(component))
         return Tensor<1, dim>();
       else

@@ -5,6 +5,8 @@
 #include <deal.II/base/symmetric_tensor.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/numerics/data_out.h>
@@ -20,16 +22,30 @@
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param, true)
-  , fe(FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
-       dim,
-       FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
-       1,
-       FE_SimplexP<dim>(param.finite_elements.mesh_position_degree), // Position
-       dim,
-       FE_SimplexP<dim>(param.finite_elements
-                          .no_slip_lagrange_mult_degree), // Lagrange multiplier
-       dim)
 {
+  if (param.finite_elements.use_quads)
+    fe = std::make_shared<FESystem<dim>>(
+      FE_Q<dim>(param.finite_elements.velocity_degree), // Velocity
+      dim,
+      FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
+      1,
+      FE_Q<dim>(param.finite_elements.mesh_position_degree), // Position
+      dim,
+      FE_Q<dim>(param.finite_elements
+                  .no_slip_lagrange_mult_degree), // Lagrange multiplier
+      dim);
+  else
+    fe = std::make_shared<FESystem<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
+      dim,
+      FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
+      1,
+      FE_SimplexP<dim>(param.finite_elements.mesh_position_degree), // Position
+      dim,
+      FE_SimplexP<dim>(param.finite_elements
+                         .no_slip_lagrange_mult_degree), // Lagrange multiplier
+      dim);
+
   this->ordering = std::make_shared<ComponentOrderingFSI<dim>>();
 
   this->velocity_extractor =
@@ -40,10 +56,10 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
     FEValuesExtractors::Vector(this->ordering->x_lower);
   this->lambda_extractor = FEValuesExtractors::Vector(this->ordering->l_lower);
 
-  this->velocity_mask = fe.component_mask(this->velocity_extractor);
-  this->pressure_mask = fe.component_mask(this->pressure_extractor);
-  this->position_mask = fe.component_mask(this->position_extractor);
-  this->lambda_mask   = fe.component_mask(this->lambda_extractor);
+  this->velocity_mask = fe->component_mask(this->velocity_extractor);
+  this->pressure_mask = fe->component_mask(this->pressure_extractor);
+  this->position_mask = fe->component_mask(this->position_extractor);
+  this->lambda_mask   = fe->component_mask(this->lambda_extractor);
 
   // Set the boundary id on which a weak no slip boundary condition is applied.
   // It is allowed *not* to prescribe a weak no slip on any boundary, to verify
@@ -189,7 +205,7 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
   // There does not seem to be a 2-3 liner way to extract the locally
   // relevant dofs on a boundary for a given component (extract_dofs
   // returns owned dofs).
-  std::vector<types::global_dof_index> local_dofs(fe.n_dofs_per_cell());
+  std::vector<types::global_dof_index> local_dofs(fe->n_dofs_per_cell());
   for (const auto &cell : this->dof_handler.active_cell_iterators())
   {
     if (!(cell->is_locally_owned() || cell->is_ghost()))
@@ -198,7 +214,7 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
     for (unsigned int i = 0; i < local_dofs.size(); ++i)
     {
       types::global_dof_index dof  = local_dofs[i];
-      unsigned int            comp = fe.system_to_component_index(i).first;
+      unsigned int            comp = fe->system_to_component_index(i).first;
       if (this->ordering->is_lambda(comp))
         if (this->locally_relevant_dofs.is_element(dof))
           if (!relevant_boundary_dofs.is_element(dof))
@@ -318,11 +334,11 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
   std::vector<std::map<types::global_dof_index, double>> coeffs(dim);
 
   FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-                                         fe,
-                                         this->face_quadrature,
+                                         *fe,
+                                         *this->face_quadrature,
                                          update_values | update_JxW_values);
 
-  const unsigned int                   n_dofs_per_face = fe.n_dofs_per_face();
+  const unsigned int                   n_dofs_per_face = fe->n_dofs_per_face();
   std::vector<types::global_dof_index> face_dofs(n_dofs_per_face);
 
   for (const auto &cell : this->dof_handler.active_cell_iterators())
@@ -361,14 +377,14 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
         fe_face_values_fixed.reinit(cell, face);
         face->get_dof_indices(face_dofs);
 
-        for (unsigned int q = 0; q < this->face_quadrature.size(); ++q)
+        for (unsigned int q = 0; q < this->face_quadrature->size(); ++q)
         {
           const double JxW = fe_face_values_fixed.JxW(q);
 
           for (unsigned int i_dof = 0; i_dof < n_dofs_per_face; ++i_dof)
           {
             const unsigned int comp =
-              fe.face_system_to_component_index(i_dof, i_face).first;
+              fe->face_system_to_component_index(i_dof, i_face).first;
 
             // Here we need to account for ghost DoF (not only owned), which
             // contribute to the integral on this element
@@ -387,7 +403,7 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
               // Even though fe_face_values_fixed is a FEFaceValues, the dof
               // index given to shape_value is still a CELL dof index.
               const unsigned int i_cell_dof =
-                fe.face_to_cell_index(i_dof, i_face);
+                fe->face_to_cell_index(i_dof, i_face);
               const double phi_i =
                 fe_face_values_fixed.shape_value(i_cell_dof, q);
               coeffs[d][lambda_dof] +=
@@ -448,7 +464,7 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
       -1. / k *
       compute_boundary_volume(this->dof_handler,
                               *this->moving_mapping,
-                              this->face_quadrature,
+                              *this->face_quadrature,
                               weak_no_slip_boundary_id);
 
     for (unsigned int d = 0; d < dim; ++d)
@@ -579,7 +595,7 @@ void FSISolver<dim>::remove_cylinder_velocity_constraints(
   //   for (unsigned int i = 0; i < dofs_per_cell; ++i)
   //   {
   //     const unsigned int component      =
-  //     fe.system_to_component_index(i).first; const types::global_dof_index
+  //     fe->system_to_component_index(i).first; const types::global_dof_index
   //     dof = local_dof_indices[i];
 
   //     // Check that this is compatible with value already there, if any
@@ -1150,15 +1166,15 @@ void FSISolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchDataFSI<dim> scratch_data(*this->ordering,
-                                   fe,
-                                   *this->fixed_mapping,
-                                   *this->moving_mapping,
-                                   this->quadrature,
-                                   this->face_quadrature,
-                                   this->time_handler.bdf_coefficients,
-                                   this->param);
-  CopyData            copy_data(fe.n_dofs_per_cell());
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           *this->fixed_mapping,
+                           *this->moving_mapping,
+                           *this->quadrature,
+                           *this->face_quadrature,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
+  CopyData    copy_data(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -1186,7 +1202,7 @@ void FSISolver<dim>::assemble_matrix()
 template <int dim>
 void FSISolver<dim>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataFSI<dim>                                  &scratchData,
+  ScratchData                                          &scratchData,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -1488,19 +1504,19 @@ void FSISolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 template <int dim>
 void FSISolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchDataFSI<dim> scratch_data(*this->ordering,
-                                   fe,
-                                   *this->fixed_mapping,
-                                   *this->moving_mapping,
-                                   this->quadrature,
-                                   this->face_quadrature,
-                                   this->time_handler.bdf_coefficients,
-                                   this->param);
-  CopyData            copy_data(fe.n_dofs_per_cell());
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           *this->fixed_mapping,
+                           *this->moving_mapping,
+                           *this->quadrature,
+                           *this->face_quadrature,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
+  CopyData    copy_data(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
-    fe.n_dofs_per_cell(),
+    fe->n_dofs_per_cell(),
     *this,
     &FSISolver::assemble_local_matrix,
     &FSISolver::assemble_local_rhs,
@@ -1531,15 +1547,15 @@ void FSISolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchDataFSI<dim> scratch_data(*this->ordering,
-                                   fe,
-                                   *this->fixed_mapping,
-                                   *this->moving_mapping,
-                                   this->quadrature,
-                                   this->face_quadrature,
-                                   this->time_handler.bdf_coefficients,
-                                   this->param);
-  CopyData            copy_data(fe.n_dofs_per_cell());
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           *this->fixed_mapping,
+                           *this->moving_mapping,
+                           *this->quadrature,
+                           *this->face_quadrature,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
+  CopyData    copy_data(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -1559,7 +1575,7 @@ void FSISolver<dim>::assemble_rhs()
 template <int dim>
 void FSISolver<dim>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataFSI<dim>                                  &scratchData,
+  ScratchData                                          &scratchData,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -1712,7 +1728,7 @@ void FSISolver<dim>::assemble_local_rhs(
             const auto &present_l =
               scratchData.present_face_lambda_values[i_face][q];
 
-            for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
+            for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
             {
               double local_rhs_i = 0.;
 
@@ -1830,13 +1846,13 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
   lambda_integral_local = 0;
 
   FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                   fe,
-                                   this->face_quadrature,
+                                   *fe,
+                                   *this->face_quadrature,
                                    update_values | update_JxW_values);
 
   // Compute integral of lambda on owned boundary
-  const unsigned int n_faces_q_points = this->face_quadrature.size();
-  std::vector<types::global_dof_index> face_dofs(fe.n_dofs_per_face());
+  const unsigned int n_faces_q_points = this->face_quadrature->size();
+  std::vector<types::global_dof_index> face_dofs(fe->n_dofs_per_face());
 
   std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
 
@@ -1866,11 +1882,11 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
            */
           face->get_dof_indices(face_dofs);
 
-          for (unsigned int i_dof = 0; i_dof < fe.n_dofs_per_face(); ++i_dof)
+          for (unsigned int i_dof = 0; i_dof < fe->n_dofs_per_face(); ++i_dof)
             if (this->locally_owned_dofs.is_element(face_dofs[i_dof]))
             {
               const unsigned int comp =
-                fe.face_system_to_component_index(i_dof, i_face).first;
+                fe->face_system_to_component_index(i_dof, i_face).first;
               if (this->ordering->is_position(comp))
               {
                 const unsigned int d = comp - this->ordering->x_lower;
@@ -2000,18 +2016,18 @@ void FSISolver<dim>::check_velocity_boundary() const
   double li_local = 0;
 
   FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-                                         fe,
-                                         this->face_quadrature,
+                                         *fe,
+                                         *this->face_quadrature,
                                          update_values |
                                            update_quadrature_points |
                                            update_JxW_values);
   FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                   fe,
-                                   this->face_quadrature,
+                                   *fe,
+                                   *this->face_quadrature,
                                    update_values | update_quadrature_points |
                                      update_JxW_values);
 
-  const unsigned int n_faces_q_points = this->face_quadrature.size();
+  const unsigned int n_faces_q_points = this->face_quadrature->size();
 
   const auto &bdf_coefficients = this->time_handler.bdf_coefficients;
 
@@ -2101,18 +2117,18 @@ void FSISolver<dim>::check_manufactured_solution_boundary()
   const double mu = nu * rho;
 
   FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                   fe,
-                                   this->face_quadrature,
+                                   *fe,
+                                   *this->face_quadrature,
                                    update_values | update_quadrature_points |
                                      update_JxW_values | update_normal_vectors);
   FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-                                         fe,
-                                         this->face_quadrature,
+                                         *fe,
+                                         *this->face_quadrature,
                                          update_values |
                                            update_quadrature_points |
                                            update_JxW_values);
 
-  const unsigned int          n_faces_q_points = this->face_quadrature.size();
+  const unsigned int          n_faces_q_points = this->face_quadrature->size();
   Tensor<1, dim>              lambda_MMS;
   std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
 
@@ -2301,12 +2317,12 @@ void FSISolver<dim>::compute_lambda_error_on_boundary(
   const double mu = nu * rho;
 
   FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                   fe,
-                                   this->face_quadrature,
+                                   *fe,
+                                   *this->face_quadrature,
                                    update_values | update_quadrature_points |
                                      update_JxW_values | update_normal_vectors);
 
-  const unsigned int          n_faces_q_points = this->face_quadrature.size();
+  const unsigned int          n_faces_q_points = this->face_quadrature->size();
   std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
   Tensor<1, dim>              diff, exact;
 
@@ -2483,14 +2499,15 @@ void FSISolver<dim>::output_results()
     data_out.add_data_vector(subdomain, "subdomain");
 
     data_out.build_patches(*this->moving_mapping, 2);
-
-    // Export regular time step
-    data_out.write_vtu_with_pvtu_record(
+    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
       this->param.output.output_dir,
       this->param.output.output_prefix,
       this->time_handler.current_time_iteration,
       this->mpi_communicator,
       2);
+
+    this->visualization_times_and_names.emplace_back(
+      this->time_handler.current_time, pvtu_file);
   }
 }
 
@@ -2501,12 +2518,12 @@ void FSISolver<dim>::compute_forces(const bool export_table)
   lambda_integral_local = 0;
 
   FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                   fe,
-                                   this->face_quadrature,
+                                   *fe,
+                                   *this->face_quadrature,
                                    update_values | update_quadrature_points |
                                      update_JxW_values | update_normal_vectors);
 
-  const unsigned int          n_faces_q_points = this->face_quadrature.size();
+  const unsigned int          n_faces_q_points = this->face_quadrature->size();
   std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
 
   for (auto cell : this->dof_handler.active_cell_iterators())
@@ -2570,14 +2587,14 @@ void FSISolver<dim>::write_cylinder_position(const bool export_table)
   double         boundary_measure_local = 0.;
 
   FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-                                         fe,
-                                         this->face_quadrature,
+                                         *fe,
+                                         *this->face_quadrature,
                                          update_values |
                                            update_quadrature_points |
                                            update_JxW_values |
                                            update_normal_vectors);
 
-  const unsigned int          n_faces_q_points = this->face_quadrature.size();
+  const unsigned int          n_faces_q_points = this->face_quadrature->size();
   std::vector<Tensor<1, dim>> position_values(n_faces_q_points);
 
   for (auto cell : this->dof_handler.active_cell_iterators())

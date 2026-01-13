@@ -1,0 +1,147 @@
+
+#
+# Unsteady incompressible flow around a circular cylinder
+#
+
+#
+# Set the problem dimension
+#
+subsection Dimension
+  set dimension = 2
+end
+
+#
+# Specify if the summary of the elapsed time should be displayed at the
+# end of the simulation
+#
+subsection Timer
+  set enable timer = true
+end
+
+#
+# Output the velocity and pressure for visualization (.vtu),
+# and use "flow_cylinder" as file root. The files will be written in
+# the "results" folder, which must be created before running the solver.
+#
+subsection Output
+  set write results    = true
+  set output directory = results/
+  set output prefix    = flow_cylinder
+end
+
+#
+# Specify path to mesh file. Here a Gmsh mesh is read, but one could
+# also use the built-in deal.II meshing routines for simple geometries.
+#
+subsection Mesh
+  set mesh file = ./cylinder.msh
+end
+
+#
+# Set starting and end time, time step and time integration scheme
+#
+subsection Time integration
+  set verbosity = verbose
+  set dt               = 0.1
+  set t_initial        = 0
+  set t_end            = 1
+  set scheme           = BDF2
+  set bdf start method = BDF1
+end
+
+#
+# Parameters for the Newton solver.
+#
+subsection Nonlinear solver
+  set verbosity            = verbose
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+
+  # FIXME: This option is unused
+  #set analytic_jacobian    = true
+
+  subsection reassembly heuristic
+    set decrease tolerance = 0
+  end
+end
+
+#
+# Parameters for the linear solver at each Newton iteration.
+# FIXME: The "reuse" option was meant to denote a MUMPS solver
+# where the symbolic factorization is re-used from one solver. 
+#
+subsection Linear solver
+  set verbosity      = quiet
+  set method         = direct_mumps
+  set reuse          = true
+end
+
+#
+# Set the finite element space (here, Taylor-Hood P2-P1 elements).
+#
+subsection FiniteElements
+  set Velocity degree = 2
+  set Pressure degree = 1
+end
+
+#
+# Set the material properties of the fluid(s).
+#
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 1
+  end
+end
+
+#
+# Set initial velocity to (1,0).
+#
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0
+  end
+end
+
+#
+# Set the boundary conditions for the Navier-Stokes equations.
+#
+# On the inlet, the velocity is set to (1,0).
+# On the top and bottom, the normal velocity is zero (slip condition),
+# and on the cylinder a no slip condition is applied.
+# The outflow is left free (open boundary condition).
+#
+subsection Fluid boundary conditions
+  set number = 4
+  set fix pressure constant      = false
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id   = 4
+    set name = InnerBoundary
+    set type = no_slip
+  end
+  subsection boundary 1
+    set id   = 3
+    set name = NoFlux
+    set type = slip
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = Inlet
+    set type = input_function
+    subsection u
+      set Function expression = 1
+    end
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 3
+    set id   = 1
+    set name = Outlet
+    set type = outflow
+  end
+end

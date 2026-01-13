@@ -8,6 +8,7 @@
 #include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria_description.h>
+#include <grid_generator_simplex.h>
 #include <mesh.h>
 #include <parameter_reader.h>
 #include <parameters.h>
@@ -265,23 +266,27 @@ void create_holed_plate(Triangulation<dim> &tria,
                                    1,
                                    1.,
                                    4,
-                                   false);
+                                   true);
 
   tria.refine_global(refinement_level);
 
-  if constexpr (dim == 2)
+  // Use the boundary pattern obtained with "colorize = true"
+  mesh_param.id2name.insert({0, "x_min"});
+  mesh_param.id2name.insert({1, "x_max"});
+  mesh_param.id2name.insert({2, "y_min"});
+  mesh_param.id2name.insert({3, "y_max"});
+  mesh_param.id2name.insert({4, "hole"});
+  mesh_param.name2id.insert({"x_min", 0});
+  mesh_param.name2id.insert({"x_max", 1});
+  mesh_param.name2id.insert({"y_min", 2});
+  mesh_param.name2id.insert({"y_max", 3});
+  mesh_param.name2id.insert({"hole", 4});
+  if constexpr (dim == 3)
   {
-    mesh_param.id2name.insert({0, "OuterBoundary"});
-    mesh_param.id2name.insert({1, "InnerBoundary"});
-    mesh_param.name2id.insert({"OuterBoundary", 0});
-    mesh_param.name2id.insert({"InnerBoundary", 1});
-  }
-  else
-  {
-    mesh_param.id2name.insert({0, "OuterBoundary"});
-    mesh_param.id2name.insert({1, "InnerBoundary"});
-    mesh_param.name2id.insert({"OuterBoundary", 0});
-    mesh_param.name2id.insert({"InnerBoundary", 1});
+    mesh_param.id2name.insert({5, "z_min"});
+    mesh_param.id2name.insert({6, "z_max"});
+    mesh_param.name2id.insert({"z_min", 5});
+    mesh_param.name2id.insert({"z_max", 6});
   }
 
   if (convert_to_tets)
@@ -504,9 +509,9 @@ void print_mesh_info(
 }
 
 template <int dim, int spacedim>
-void print_partition_gmsh(
+void write_partition_gmsh(
   parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
-  const ParameterReader<dim>                            &param)
+  const ParameterReader<spacedim>                       &param)
 {
   MPI_Comm           comm = triangulation.get_mpi_communicator();
   const unsigned int rank = Utilities::MPI::this_mpi_process(comm);
@@ -522,8 +527,8 @@ void print_partition_gmsh(
     outfile << ((dim == 2) ? "ST(" : "SS(");
     for (unsigned int v = 0; v < cell->n_vertices(); ++v)
     {
-      const Point<dim> &p = cell->vertex(v);
-      if constexpr (dim == 2)
+      const Point<spacedim> &p = cell->vertex(v);
+      if constexpr (spacedim == 2)
         outfile << p[0] << "," << p[1] << ",0."
                 << ((v == cell->n_vertices() - 1) ? "" : ",");
       else
@@ -544,7 +549,7 @@ void print_partition_gmsh(
 template <int dim, int spacedim>
 void read_mesh(
   parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
-  ParameterReader<dim>                                  &param)
+  ParameterReader<spacedim>                             &param)
 {
   Triangulation<dim> serial_triangulation;
 
@@ -556,7 +561,7 @@ void read_mesh(
 
   if (use_deal_ii_mesh)
   {
-    const bool convert_to_simplices = true;
+    const bool convert_to_simplices = !param.finite_elements.use_quads;
 
     if (param.mesh.deal_ii_preset_mesh == "cube" ||
         param.mesh.use_deal_ii_cube_mesh ||
@@ -616,13 +621,10 @@ void read_mesh(
   }
 
   partition_and_create_parallel_mesh(serial_triangulation, triangulation);
-
-  print_partition_gmsh(triangulation, param);
-
+  if (param.debug.write_partition_pos_gmsh)
+    write_partition_gmsh(triangulation, param);
   print_mesh_info(serial_triangulation, triangulation, param);
-
   check_boundary_ids(serial_triangulation, param);
-
   check_boundary_conditions_compatibility(param);
 }
 
@@ -633,11 +635,3 @@ read_mesh(parallel::DistributedTriangulationBase<2> &triangulation,
 template void
 read_mesh(parallel::DistributedTriangulationBase<3> &triangulation,
           ParameterReader<3>                        &param);
-
-template void
-print_partition_gmsh(parallel::DistributedTriangulationBase<2> &triangulation,
-                     const ParameterReader<2>                  &param);
-
-template void
-print_partition_gmsh(parallel::DistributedTriangulationBase<3> &triangulation,
-                     const ParameterReader<3>                  &param);

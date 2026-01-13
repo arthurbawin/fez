@@ -4,14 +4,16 @@
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_renumbering.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
-#include <incompressible_ns_solver.h>
 #include <errors.h>
+#include <incompressible_ns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
 #include <scratch_data.h>
@@ -20,11 +22,20 @@
 template <int dim>
 NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param, false)
-  , fe(FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
-       dim,
-       FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
-       1)
 {
+  if (param.finite_elements.use_quads)
+    fe = std::make_shared<FESystem<dim>>(
+      FE_Q<dim>(param.finite_elements.velocity_degree), // Velocity
+      dim,
+      FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
+      1);
+  else
+    fe = std::make_shared<FESystem<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
+      dim,
+      FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
+      1);
+
   this->ordering = std::make_shared<ComponentOrderingNS<dim>>();
 
   this->velocity_extractor =
@@ -32,8 +43,8 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   this->pressure_extractor =
     FEValuesExtractors::Scalar(this->ordering->p_lower);
 
-  this->velocity_mask = fe.component_mask(this->velocity_extractor);
-  this->pressure_mask = fe.component_mask(this->pressure_extractor);
+  this->velocity_mask = fe->component_mask(this->velocity_extractor);
+  this->pressure_mask = fe->component_mask(this->pressure_extractor);
 
   /**
    * This solver uses a fixed mapping only.
@@ -147,15 +158,14 @@ void NSSolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchDataIncompressibleNS<dim> scratchData(
-    *this->ordering,
-    fe,
-    *mapping,
-    this->quadrature,
-    this->face_quadrature,
-    this->time_handler.bdf_coefficients,
-    this->param);
-  CopyData copyData(fe.n_dofs_per_cell());
+  ScratchData scratchData(*this->ordering,
+                          *fe,
+                          *mapping,
+                          *this->quadrature,
+                          *this->face_quadrature,
+                          this->time_handler.bdf_coefficients,
+                          this->param);
+  CopyData    copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -180,7 +190,7 @@ void NSSolver<dim>::assemble_matrix()
 template <int dim>
 void NSSolver<dim>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataIncompressibleNS<dim>                     &scratchData,
+  ScratchData                                          &scratchData,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -288,19 +298,18 @@ void NSSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 template <int dim>
 void NSSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchDataIncompressibleNS<dim> scratchData(
-    *this->ordering,
-    fe,
-    *mapping,
-    this->quadrature,
-    this->face_quadrature,
-    this->time_handler.bdf_coefficients,
-    this->param);
-  CopyData copyData(fe.n_dofs_per_cell());
+  ScratchData scratchData(*this->ordering,
+                          *fe,
+                          *mapping,
+                          *this->quadrature,
+                          *this->face_quadrature,
+                          this->time_handler.bdf_coefficients,
+                          this->param);
+  CopyData    copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
-    fe.n_dofs_per_cell(),
+    fe->n_dofs_per_cell(),
     *this,
     &NSSolver::assemble_local_matrix,
     &NSSolver::assemble_local_rhs,
@@ -327,15 +336,14 @@ void NSSolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchDataIncompressibleNS<dim> scratchData(
-    *this->ordering,
-    fe,
-    *mapping,
-    this->quadrature,
-    this->face_quadrature,
-    this->time_handler.bdf_coefficients,
-    this->param);
-  CopyData copyData(fe.n_dofs_per_cell());
+  ScratchData scratchData(*this->ordering,
+                          *fe,
+                          *mapping,
+                          *this->quadrature,
+                          *this->face_quadrature,
+                          this->time_handler.bdf_coefficients,
+                          this->param);
+  CopyData    copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -352,7 +360,7 @@ void NSSolver<dim>::assemble_rhs()
 template <int dim>
 void NSSolver<dim>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataIncompressibleNS<dim>                     &scratchData,
+  ScratchData                                          &scratchData,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -512,13 +520,15 @@ void NSSolver<dim>::output_results()
 
     data_out.build_patches(*mapping, 2);
 
-    // Export regular time step
-    data_out.write_vtu_with_pvtu_record(
+    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
       this->param.output.output_dir,
       this->param.output.output_prefix,
       this->time_handler.current_time_iteration,
       this->mpi_communicator,
       2);
+
+    this->visualization_times_and_names.emplace_back(
+      this->time_handler.current_time, pvtu_file);
   }
 }
 

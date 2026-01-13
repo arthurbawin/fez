@@ -4,6 +4,8 @@
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_renumbering.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/trilinos_solver.h>
@@ -20,15 +22,20 @@
 template <int dim>
 CHNSSolver<dim>::CHNSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param, false)
-  , fe(FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
-       dim,
-       FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
-       1,
-       FE_SimplexP<dim>(param.finite_elements.tracer_degree), // Tracer
-       1,
-       FE_SimplexP<dim>(param.finite_elements.potential_degree), // Potential
-       1)
 {
+  if (param.finite_elements.use_quads)
+    fe = std::make_shared<FESystem<dim>>(
+      FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+      FE_Q<dim>(param.finite_elements.pressure_degree),
+      FE_Q<dim>(param.finite_elements.tracer_degree),
+      FE_Q<dim>(param.finite_elements.potential_degree));
+  else
+    fe = std::make_shared<FESystem<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+      FE_SimplexP<dim>(param.finite_elements.pressure_degree),
+      FE_SimplexP<dim>(param.finite_elements.tracer_degree),
+      FE_SimplexP<dim>(param.finite_elements.potential_degree));
+
   this->ordering = std::make_shared<ComponentOrderingCHNS<dim>>();
 
   this->velocity_extractor =
@@ -38,10 +45,10 @@ CHNSSolver<dim>::CHNSSolver(const ParameterReader<dim> &param)
   tracer_extractor    = FEValuesExtractors::Scalar(this->ordering->phi_lower);
   potential_extractor = FEValuesExtractors::Scalar(this->ordering->mu_lower);
 
-  this->velocity_mask = fe.component_mask(this->velocity_extractor);
-  this->pressure_mask = fe.component_mask(this->pressure_extractor);
-  tracer_mask         = fe.component_mask(tracer_extractor);
-  potential_mask      = fe.component_mask(potential_extractor);
+  this->velocity_mask = fe->component_mask(this->velocity_extractor);
+  this->pressure_mask = fe->component_mask(this->pressure_extractor);
+  tracer_mask         = fe->component_mask(tracer_extractor);
+  potential_mask      = fe->component_mask(potential_extractor);
 
   /**
    * This solver uses a fixed mapping only.
@@ -285,14 +292,14 @@ void CHNSSolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchDataCHNS<dim> scratchData(*this->ordering,
-                                   fe,
-                                   *mapping,
-                                   this->quadrature,
-                                   this->face_quadrature,
-                                   this->time_handler.bdf_coefficients,
-                                   this->param);
-  CopyData             copyData(fe.n_dofs_per_cell());
+  ScratchData scratchData(*this->ordering,
+                          *fe,
+                          *mapping,
+                          *this->quadrature,
+                          *this->face_quadrature,
+                          this->time_handler.bdf_coefficients,
+                          this->param);
+  CopyData    copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -317,7 +324,7 @@ void CHNSSolver<dim>::assemble_matrix()
 template <int dim>
 void CHNSSolver<dim>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataCHNS<dim>                                 &scratch_data,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -398,15 +405,15 @@ void CHNSSolver<dim>::assemble_local_matrix(
       // const bool         i_is_phi = this->ordering->is_tracer(comp_i);
       // const bool         i_is_mu  = this->ordering->is_potential(comp_i);
 
-      const auto &phi_u_i        = phi_u[i];
-      const auto &grad_phi_u_i   = grad_phi_u[i];
-      const auto &sym_grad_phi_u_i   = sym_grad_phi_u[i];
-      const auto &div_phi_u_i    = div_phi_u[i];
-      const auto &phi_p_i        = phi_p[i];
-      const auto &phi_phi_i      = phi_phi[i];
-      const auto &grad_phi_phi_i = grad_phi_phi[i];
-      const auto &phi_mu_i       = phi_mu[i];
-      const auto &grad_phi_mu_i  = grad_phi_mu[i];
+      const auto &phi_u_i          = phi_u[i];
+      const auto &grad_phi_u_i     = grad_phi_u[i];
+      const auto &sym_grad_phi_u_i = sym_grad_phi_u[i];
+      const auto &div_phi_u_i      = div_phi_u[i];
+      const auto &phi_p_i          = phi_p[i];
+      const auto &phi_phi_i        = phi_phi[i];
+      const auto &grad_phi_phi_i   = grad_phi_phi[i];
+      const auto &phi_mu_i         = phi_mu[i];
+      const auto &grad_phi_mu_i    = grad_phi_mu[i];
 
       for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
       {
@@ -436,8 +443,7 @@ void CHNSSolver<dim>::assemble_local_matrix(
         /**
          * Momentum equation
          */
-        if (const_ordering.u_lower <= comp_i && comp_i <
-        const_ordering.u_upper)
+        if (const_ordering.u_lower <= comp_i && comp_i < const_ordering.u_upper)
         {
           if (const_ordering.u_lower <= comp_j &&
               comp_j < const_ordering.u_upper)
@@ -459,8 +465,9 @@ void CHNSSolver<dim>::assemble_local_matrix(
           }
           if (comp_j == const_ordering.phi_lower)
           {
-            local_matrix_ij += phi_u_i * phi_phi_j *
-            to_multiply_by_phi_u_i_phi_phi_j; local_matrix_ij +=
+            local_matrix_ij +=
+              phi_u_i * phi_phi_j * to_multiply_by_phi_u_i_phi_phi_j;
+            local_matrix_ij +=
               2. * detadphi * phi_phi_j *
               scalar_product(grad_phi_u_i, present_velocity_sym_gradients);
           }
@@ -477,8 +484,7 @@ void CHNSSolver<dim>::assemble_local_matrix(
          * Continuity equation
          */
         if (comp_i == const_ordering.p_lower &&
-            const_ordering.u_lower <= comp_j && comp_j <
-            const_ordering.u_upper)
+            const_ordering.u_lower <= comp_j && comp_j < const_ordering.u_upper)
         {
           // Continuity : variation w.r.t. u
           local_matrix_ij += -phi_p_i * div_phi_u_j;
@@ -553,18 +559,18 @@ void CHNSSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 template <int dim>
 void CHNSSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchDataCHNS<dim> scratchData(*this->ordering,
-                                   fe,
-                                   *mapping,
-                                   this->quadrature,
-                                   this->face_quadrature,
-                                   this->time_handler.bdf_coefficients,
-                                   this->param);
-  CopyData             copyData(fe.n_dofs_per_cell());
+  ScratchData scratchData(*this->ordering,
+                          *fe,
+                          *mapping,
+                          *this->quadrature,
+                          *this->face_quadrature,
+                          this->time_handler.bdf_coefficients,
+                          this->param);
+  CopyData    copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
-    fe.n_dofs_per_cell(),
+    fe->n_dofs_per_cell(),
     *this,
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
@@ -595,14 +601,14 @@ void CHNSSolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchDataCHNS<dim> scratchData(*this->ordering,
-                                   fe,
-                                   *mapping,
-                                   this->quadrature,
-                                   this->face_quadrature,
-                                   this->time_handler.bdf_coefficients,
-                                   this->param);
-  CopyData             copyData(fe.n_dofs_per_cell());
+  ScratchData scratchData(*this->ordering,
+                          *fe,
+                          *mapping,
+                          *this->quadrature,
+                          *this->face_quadrature,
+                          this->time_handler.bdf_coefficients,
+                          this->param);
+  CopyData    copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -619,7 +625,7 @@ void CHNSSolver<dim>::assemble_rhs()
 template <int dim>
 void CHNSSolver<dim>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataCHNS<dim>                                 &scratch_data,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();

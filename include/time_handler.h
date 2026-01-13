@@ -5,6 +5,8 @@
 #include <deal.II/base/types.h>
 #include <parameters.h>
 
+using namespace dealii;
+
 /**
  * This class takes care of the time integration-related data:
  *
@@ -53,6 +55,13 @@ public:
    * Rotate the computed time step i+1 to position i.
    */
   void advance(const ConditionalOStream &pcout);
+
+  /**
+   * Shift the BDF solutions by one (u^{n-1} becomes u^n, etc.)
+   */
+  template <typename VectorType>
+  void rotate_solutions(const VectorType        &present_solution,
+                        std::vector<VectorType> &previous_solutions) const;
 
   /**
    * Compute the approximation of the time derivative of the field associated to
@@ -106,6 +115,19 @@ public:
 };
 
 /* ---------------- Template functions ----------------- */
+
+template <typename VectorType>
+void TimeHandler::rotate_solutions(
+  const VectorType        &present_solution,
+  std::vector<VectorType> &previous_solutions) const
+{
+  if (!this->is_steady())
+  {
+    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
+      previous_solutions[j] = previous_solutions[j - 1];
+    previous_solutions[0] = present_solution;
+  }
+}
 
 template <typename VectorType>
 double TimeHandler::compute_time_derivative(

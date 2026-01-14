@@ -17,6 +17,8 @@
 #include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
+#include <deal.II/base/mpi.h>
+
 
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
@@ -2669,12 +2671,149 @@ void FSISolver<dim>::compute_forces_lagrange_multiplier(const bool export_table)
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
     this->pcout << "Computed forces: " << -lambda_integral << std::endl;
 
+
+  std::ofstream outfile(this->param.output.output_dir + "forces.txt");
+  this->forces_table.write_text(outfile);
+
+}
+
+template <int dim>
+void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
+  const bool export_table)
+{
+  // ------------------------------------------------------------
+  // 0) Récupère slice_index (indexé par active_cell_index)
+  // ------------------------------------------------------------
+  const dealii::Vector<double> &slice_index =
+    this->postproc_handler.get_slice_index();
+
+  // Nombre de slices = param (si tu veux)
+  const unsigned int n_slices =
+    std::max(1u, static_cast<unsigned int>(this->param.postprocessing.number_of_slices));
+
+  // ------------------------------------------------------------
+  // 1) FEFaceValues pour intégrer lambda sur la frontière
+  // ------------------------------------------------------------
+  dealii::FEFaceValues<dim> fe_face_values(*this->moving_mapping,
+                                          fe,
+                                          this->face_quadrature,
+                                          dealii::update_values |
+                                            dealii::update_JxW_values);
+
+  const unsigned int n_q = this->face_quadrature.size();
+  std::vector<dealii::Tensor<1, dim>> lambda_values(n_q);
+
+  // ------------------------------------------------------------
+  // 2) Accumulateurs par slice
+  // ------------------------------------------------------------
+  std::vector<dealii::Tensor<1, dim>> lambda_integral_slices_local(n_slices);
+  std::vector<dealii::Tensor<1, dim>> lambda_integral_slices(n_slices);
+
+  for (unsigned int k = 0; k < n_slices; ++k)
+  {
+    lambda_integral_slices_local[k] = 0.0;
+    lambda_integral_slices[k]       = 0.0;
+  }
+
+  bool warned_bad_index_local = false;
+
+  // ------------------------------------------------------------
+  // 3) Intégration face par face, slice = slice_index[cell]
+  // ------------------------------------------------------------
+  for (const auto &cell : this->dof_handler.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned())
+      continue;
+
+    // Slice id de la cellule
+    const auto cell_ai = cell->active_cell_index();
+    if (cell_ai >= slice_index.size())
+    {
+      if (!warned_bad_index_local &&
+          this->param.debug.verbosity == Parameters::Verbosity::verbose)
+      {
+        this->pcout << "[compute_slices_forces_lagrange_multiplier] "
+                    << "slice_index trop petit (active_cell_index="
+                    << cell_ai << ", size=" << slice_index.size()
+                    << "). Contributions ignorées." << std::endl;
+        warned_bad_index_local = true;
+      }
+      continue;
+    }
+
+    // IMPORTANT: slice_index est double -> on attend un entier stocké en double
+    const long long k_ll =
+      static_cast<long long>(std::llround(slice_index[cell_ai]));
+
+    if (k_ll < 0)
+      continue;
+
+    const unsigned int k = static_cast<unsigned int>(k_ll);
+
+    // Si ton postproc calcule plus de slices que le param, on ignore hors-range
+    if (k >= n_slices)
+      continue;
+
+    // Boucle faces boundary
+    for (unsigned int f = 0; f < cell->n_faces(); ++f)
+    {
+      const auto &face = cell->face(f);
+
+      if (!face->at_boundary() ||
+          face->boundary_id() != weak_no_slip_boundary_id)
+        continue;
+
+      fe_face_values.reinit(cell, f);
+
+      // lambda sur la face
+      fe_face_values[lambda_extractor].get_function_values(
+        this->present_solution, lambda_values);
+
+      for (unsigned int q = 0; q < n_q; ++q)
+        lambda_integral_slices_local[k] += lambda_values[q] * fe_face_values.JxW(q);
+    }
+  }
+
+  // ------------------------------------------------------------
+  // 4) Réduction MPI (que des doubles) -> SAFE
+  // ------------------------------------------------------------
+  for (unsigned int k = 0; k < n_slices; ++k)
+    for (unsigned int d = 0; d < dim; ++d)
+      lambda_integral_slices[k][d] =
+        dealii::Utilities::MPI::sum(lambda_integral_slices_local[k][d],
+                                    this->mpi_communicator);
+
+  // ------------------------------------------------------------
+  // 5) Stocke dans ta table dédiée (comme tu voulais: CDk/CLk)
+  // ------------------------------------------------------------
+  this->slices_forces_table.add_value("time", this->time_handler.current_time);
+
+  for (unsigned int k = 0; k < n_slices; ++k)
+  {
+    const double Fx = -lambda_integral_slices[k][0];
+    const double Fy = -lambda_integral_slices[k][1];
+
+    this->slices_forces_table.add_value("CD" + std::to_string(k), Fx);
+    this->slices_forces_table.add_value("CL" + std::to_string(k), Fy);
+
+    if constexpr (dim == 3)
+    {
+      const double Fz = -lambda_integral_slices[k][2];
+      this->slices_forces_table.add_value("CZ" + std::to_string(k), Fz);
+    }
+  }
+
+  // ------------------------------------------------------------
+  // 6) Export fichier
+  // ------------------------------------------------------------
   if (export_table && this->param.output.write_results && this->mpi_rank == 0)
   {
-    std::ofstream outfile(this->param.output.output_dir + "forces.txt");
-    this->forces_table.write_text(outfile);
+    std::ofstream outfile(this->param.output.output_dir +
+                          "slices_forces_lagrange_multiplier.txt");
+    this->slices_forces_table.write_text(outfile);
   }
 }
+
 
 template <int dim>
 void FSISolver<dim>::write_cylinder_position(const bool export_table)
@@ -2785,6 +2924,11 @@ void FSISolver<dim>::solver_specific_post_processing()
      ((this->time_handler.current_time_iteration %
        this->param.postprocessing.force_and_position_output_frequency) == 0));
   compute_forces_lagrange_multiplier(export_force_table);
+
+  const bool export_slices_force_table = this ->param.postprocessing.write_force_per_slice && (this->time_handler.is_steady()||((this->time_handler.current_time_iteration %
+       this->param.postprocessing.force_and_position_output_frequency) == 0));
+
+  compute_slices_forces_lagrange_multiplier(export_force_table);
   const bool export_position_table =
     this->param.postprocessing.write_body_position &&
     (this->time_handler.is_steady() ||

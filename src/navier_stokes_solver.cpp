@@ -8,16 +8,14 @@
 #include <navier_stokes_solver.h>
 #include <utilities.h>
 
-template <int dim>
-NavierStokesSolver<dim>::NavierStokesSolver(const ParameterReader<dim> &param,
-                                            const bool with_moving_mesh)
+template <int dim, bool with_moving_mesh>
+NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(const ParameterReader<dim> &param)
   : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,
                                      param.mms_param)
   , param(param)
-  , with_moving_mesh(with_moving_mesh)
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
@@ -48,7 +46,7 @@ NavierStokesSolver<dim>::NavierStokesSolver(const ParameterReader<dim> &param,
     {
       error_handlers[norm]->create_entry("u");
       error_handlers[norm]->create_entry("p");
-      if (with_moving_mesh)
+      if constexpr (with_moving_mesh)
         error_handlers[norm]->create_entry("x");
     }
 
@@ -57,8 +55,8 @@ NavierStokesSolver<dim>::NavierStokesSolver(const ParameterReader<dim> &param,
     std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::reset()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::reset()
 {
   // FIXME: This is not very clean: the derived class has the full parameters,
   // and the base class GenericSolver has a mesh and time param to be able to
@@ -88,13 +86,13 @@ void NavierStokesSolver<dim>::reset()
   reset_solver_specific_data();
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::set_time()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::set_time()
 {
   for (auto &[id, bc] : param.fluid_bc)
     bc.set_time(time_handler.current_time);
 
-  if (with_moving_mesh)
+  if constexpr (with_moving_mesh)
     for (auto &[id, bc] : param.pseudosolid_bc)
       bc.set_time(time_handler.current_time);
 
@@ -105,8 +103,8 @@ void NavierStokesSolver<dim>::set_time()
   set_solver_specific_time();
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::run()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::run()
 {
   reset();
   read_mesh(triangulation, param);
@@ -159,8 +157,8 @@ void NavierStokesSolver<dim>::run()
   finalize();
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::setup_dofs()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 {
   TimerOutput::Scope t(computing_timer, "Setup");
 
@@ -189,7 +187,7 @@ void NavierStokesSolver<dim>::setup_dofs()
   for (auto &previous_sol : previous_solutions)
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
-  if (with_moving_mesh)
+  if constexpr (with_moving_mesh)
   {
     // Initialize mesh position directly from the triangulation.
     // The parallel vector storing the mesh position is local_evaluation_point,
@@ -229,8 +227,8 @@ void NavierStokesSolver<dim>::setup_dofs()
     }
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::create_zero_mean_pressure_constraints_data()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::create_zero_mean_pressure_constraints_data()
 {
   BoundaryConditions::create_zero_mean_pressure_constraints_data(
     triangulation,
@@ -243,8 +241,8 @@ void NavierStokesSolver<dim>::create_zero_mean_pressure_constraints_data()
     zero_mean_pressure_weights);
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::create_base_constraints(
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
   const bool                 homogeneous,
   AffineConstraints<double> &constraints)
 {
@@ -255,7 +253,7 @@ void NavierStokesSolver<dim>::create_base_constraints(
    * If relevant, apply mesh boundary conditions first, as they affect
    * the evaluation of the fields on the moving mesh.
    */
-  if (with_moving_mesh)
+  if constexpr (with_moving_mesh)
   {
     BoundaryConditions::apply_mesh_position_boundary_conditions(
       homogeneous,
@@ -315,24 +313,24 @@ void NavierStokesSolver<dim>::create_base_constraints(
   // constraints.close();
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::create_zero_constraints()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::create_zero_constraints()
 {
   create_base_constraints(true, zero_constraints);
   create_solver_specific_zero_constraints();
   zero_constraints.close();
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::create_nonzero_constraints()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::create_nonzero_constraints()
 {
   create_base_constraints(false, nonzero_constraints);
   create_solver_specific_nonzero_constraints();
   nonzero_constraints.close();
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::set_initial_conditions()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
 {
   /**
    * Mesh position should be evaluated and updated *BEFORE* evaluating fields on
@@ -345,7 +343,7 @@ void NavierStokesSolver<dim>::set_initial_conditions()
       exact_solution.get() :
       param.initial_conditions.initial_velocity.get();
 
-  if (with_moving_mesh)
+  if constexpr (with_moving_mesh)
   {
     FixedMeshPosition<dim> fixed_mesh(ordering->x_lower,
                                       ordering->n_components);
@@ -376,10 +374,10 @@ void NavierStokesSolver<dim>::set_initial_conditions()
   time_handler.rotate_solutions(present_solution, previous_solutions);
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::set_exact_solution()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::set_exact_solution()
 {
-  if (with_moving_mesh)
+  if constexpr (with_moving_mesh)
   {
     // Update mesh position *BEFORE* evaluating fields on moving mapping.
     VectorTools::interpolate(*fixed_mapping,
@@ -438,12 +436,12 @@ void NavierStokesSolver<dim>::set_exact_solution()
   present_solution = local_evaluation_point;
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::update_boundary_conditions()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::update_boundary_conditions()
 {
   local_evaluation_point = present_solution;
 
-  if (with_moving_mesh)
+  if constexpr (with_moving_mesh)
   {
     // Create and apply the inhomogeneous constraints a first time
     // to apply mesh position boundary conditions.
@@ -465,8 +463,8 @@ void NavierStokesSolver<dim>::update_boundary_conditions()
   present_solution = local_evaluation_point;
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::solve_linear_system(
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system(
   const bool /*apply_inhomogeneous_constraints*/)
 {
   if (param.linear_solver.method ==
@@ -503,8 +501,8 @@ void NavierStokesSolver<dim>::solve_linear_system(
   }
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::compute_and_add_errors(
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::compute_and_add_errors(
   const Mapping<dim>                 &mapping,
   const Function<dim>                &exact_solution,
   Vector<double>                     &cellwise_errors,
@@ -529,8 +527,8 @@ void NavierStokesSolver<dim>::compute_and_add_errors(
 }
 
 
-template <int dim>
-void NavierStokesSolver<dim>::compute_errors()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
 {
   TimerOutput::Scope t(this->computing_timer, "Compute errors");
 
@@ -611,7 +609,7 @@ void NavierStokesSolver<dim>::compute_errors()
                          cellwise_errors,
                          pressure_comp_select,
                          "p");
-  if (with_moving_mesh)
+  if constexpr (with_moving_mesh)
   {
     // Error on mesh position
     const unsigned int                 x_lower = ordering->x_lower;
@@ -627,8 +625,8 @@ void NavierStokesSolver<dim>::compute_errors()
   compute_solver_specific_errors();
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::postprocess_solution()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 {
   output_results();
 
@@ -638,8 +636,8 @@ void NavierStokesSolver<dim>::postprocess_solution()
   solver_specific_post_processing();
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::finalize()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::finalize()
 {
   if (param.output.write_results)
   {
@@ -651,5 +649,7 @@ void NavierStokesSolver<dim>::finalize()
 }
 
 // Explicit instantiation
-template class NavierStokesSolver<2>;
-template class NavierStokesSolver<3>;
+template class NavierStokesSolver<2, false>;
+template class NavierStokesSolver<3, false>;
+template class NavierStokesSolver<2, true>;
+template class NavierStokesSolver<3, true>;

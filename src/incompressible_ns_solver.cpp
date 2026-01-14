@@ -21,7 +21,7 @@
 
 template <int dim>
 NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
-  : NavierStokesSolver<dim>(param, false)
+  : NavierStokesSolver<dim>(param)
 {
   if (param.finite_elements.use_quads)
     fe = std::make_shared<FESystem<dim>>(

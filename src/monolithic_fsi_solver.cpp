@@ -21,7 +21,7 @@
 
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
-  : NavierStokesSolver<dim>(param, true)
+  : NavierStokesSolver<dim, true>(param)
 {
   if (param.finite_elements.use_quads)
     fe = std::make_shared<FESystem<dim>>(

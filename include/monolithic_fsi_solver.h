@@ -29,7 +29,7 @@ using namespace dealii;
  * It is a somewhat "niche" class, which treats a single obstacle for now.
  */
 template <int dim>
-class FSISolver : public NavierStokesSolver<dim>
+class FSISolver : public NavierStokesSolver<dim, true>
 {
   using ScratchData = ScratchDataFSI<dim>;
 

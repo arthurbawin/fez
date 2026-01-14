@@ -41,7 +41,7 @@ using namespace dealii;
  * constrained to zero.
  */
 template <int dim>
-class NSSolverLambda : public NavierStokesSolver<dim>
+class NSSolverLambda : public NavierStokesSolver<dim, false>
 {
 protected:
   static constexpr unsigned int n_hp_partitions         = 2;

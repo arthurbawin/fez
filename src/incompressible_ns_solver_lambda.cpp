@@ -24,7 +24,7 @@
 
 template <int dim>
 NSSolverLambda<dim>::NSSolverLambda(const ParameterReader<dim> &param)
-  : NavierStokesSolver<dim>(param, /* moving_mesh = */ false)
+  : NavierStokesSolver<dim>(param)
 {
   if (param.finite_elements.use_quads)
   {

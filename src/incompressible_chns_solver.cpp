@@ -19,9 +19,9 @@
 #include <scratch_data.h>
 #include <utilities.h>
 
-template <int dim>
-CHNSSolver<dim>::CHNSSolver(const ParameterReader<dim> &param)
-  : NavierStokesSolver<dim>(param, false)
+template <int dim, bool with_moving_mesh>
+CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
+  : NavierStokesSolver<dim, with_moving_mesh>(param)
 {
   if (param.finite_elements.use_quads)
     fe = std::make_shared<FESystem<dim>>(
@@ -66,11 +66,11 @@ CHNSSolver<dim>::CHNSSolver(const ParameterReader<dim> &param)
   if (param.mms_param.enable)
   {
     // Assign the manufactured solution
-    this->exact_solution = std::make_shared<CHNSSolver<dim>::MMSSolution>(
+    this->exact_solution = std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSolution>(
       this->time_handler.current_time, *this->ordering, param.mms);
 
     // Create the MMS source term function and override source terms
-    this->source_terms = std::make_shared<CHNSSolver<dim>::MMSSourceTerm>(
+    this->source_terms = std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm>(
       this->time_handler.current_time, *this->ordering, param);
 
     // Create entry in error handler for tracer and potential
@@ -82,15 +82,15 @@ CHNSSolver<dim>::CHNSSolver(const ParameterReader<dim> &param)
   }
   else
   {
-    this->source_terms = std::make_shared<CHNSSolver<dim>::SourceTerm>(
+    this->source_terms = std::make_shared<CHNSSolver<dim, with_moving_mesh>::SourceTerm>(
       this->time_handler.current_time, *this->ordering, param.source_terms);
     this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
       this->ordering->n_components);
   }
 }
 
-template <int dim>
-void CHNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                                   Vector<double> &values) const
 {
   const double phi          = mms.exact_tracer->value(p);
@@ -155,8 +155,8 @@ void CHNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                        sigma_tilde_times_eps * lap_phi);
 }
 
-template <int dim>
-void CHNSSolver<dim>::create_solver_specific_zero_constraints()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_zero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
@@ -183,8 +183,8 @@ void CHNSSolver<dim>::create_solver_specific_zero_constraints()
   }
 }
 
-template <int dim>
-void CHNSSolver<dim>::create_solver_specific_nonzero_constraints()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_nonzero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
@@ -209,8 +209,8 @@ void CHNSSolver<dim>::create_solver_specific_nonzero_constraints()
   }
 }
 
-template <int dim>
-void CHNSSolver<dim>::set_solver_specific_initial_conditions()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_initial_conditions()
 {
   const Function<dim> *tracer_fun =
     this->param.initial_conditions.set_to_mms ?
@@ -222,8 +222,8 @@ void CHNSSolver<dim>::set_solver_specific_initial_conditions()
     *mapping, this->dof_handler, *tracer_fun, this->newton_update, tracer_mask);
 }
 
-template <int dim>
-void CHNSSolver<dim>::set_solver_specific_exact_solution()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_exact_solution()
 {
   // Set tracer and potential
   VectorTools::interpolate(*mapping,
@@ -238,8 +238,8 @@ void CHNSSolver<dim>::set_solver_specific_exact_solution()
                            potential_mask);
 }
 
-template <int dim>
-void CHNSSolver<dim>::create_sparsity_pattern()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
 {
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
 
@@ -285,8 +285,8 @@ void CHNSSolver<dim>::create_sparsity_pattern()
                              this->mpi_communicator);
 }
 
-template <int dim>
-void CHNSSolver<dim>::assemble_matrix()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
 
@@ -294,7 +294,8 @@ void CHNSSolver<dim>::assemble_matrix()
 
   ScratchData scratchData(*this->ordering,
                           *fe,
-                          *mapping,
+                          *this->fixed_mapping,
+                          *this->moving_mapping,
                           *this->quadrature,
                           *this->face_quadrature,
                           this->time_handler.bdf_coefficients,
@@ -321,8 +322,8 @@ void CHNSSolver<dim>::assemble_matrix()
   this->system_matrix.compress(VectorOperation::add);
 }
 
-template <int dim>
-void CHNSSolver<dim>::assemble_local_matrix(
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
@@ -545,8 +546,8 @@ void CHNSSolver<dim>::assemble_local_matrix(
   cell->get_dof_indices(copy_data.local_dof_indices);
 }
 
-template <int dim>
-void CHNSSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_matrix(const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
@@ -556,12 +557,13 @@ void CHNSSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
                                                     this->system_matrix);
 }
 
-template <int dim>
-void CHNSSolver<dim>::compare_analytical_matrix_with_fd()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
 {
   ScratchData scratchData(*this->ordering,
                           *fe,
-                          *mapping,
+                          *this->fixed_mapping,
+                          *this->moving_mapping,
                           *this->quadrature,
                           *this->face_quadrature,
                           this->time_handler.bdf_coefficients,
@@ -594,8 +596,8 @@ void CHNSSolver<dim>::compare_analytical_matrix_with_fd()
                 << errors.second << std::endl;
 }
 
-template <int dim>
-void CHNSSolver<dim>::assemble_rhs()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::assemble_rhs()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble RHS");
 
@@ -603,7 +605,8 @@ void CHNSSolver<dim>::assemble_rhs()
 
   ScratchData scratchData(*this->ordering,
                           *fe,
-                          *mapping,
+                          *this->fixed_mapping,
+                          *this->moving_mapping,
                           *this->quadrature,
                           *this->face_quadrature,
                           this->time_handler.bdf_coefficients,
@@ -622,8 +625,8 @@ void CHNSSolver<dim>::assemble_rhs()
   this->system_rhs.compress(VectorOperation::add);
 }
 
-template <int dim>
-void CHNSSolver<dim>::assemble_local_rhs(
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
@@ -801,8 +804,8 @@ void CHNSSolver<dim>::assemble_local_rhs(
   cell->get_dof_indices(copy_data.local_dof_indices);
 }
 
-template <int dim>
-void CHNSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_rhs(const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
@@ -812,8 +815,8 @@ void CHNSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
                                                     this->system_rhs);
 }
 
-template <int dim>
-void CHNSSolver<dim>::compute_solver_specific_errors()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::compute_solver_specific_errors()
 {
   const unsigned int n_active_cells = this->triangulation.n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);
@@ -835,8 +838,8 @@ void CHNSSolver<dim>::compute_solver_specific_errors()
                                "mu");
 }
 
-template <int dim>
-void CHNSSolver<dim>::output_results()
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::output_results()
 {
   TimerOutput::Scope t(this->computing_timer, "Write outputs");
 
@@ -881,5 +884,7 @@ void CHNSSolver<dim>::output_results()
 }
 
 // Explicit instantiation
-template class CHNSSolver<2>;
-template class CHNSSolver<3>;
+template class CHNSSolver<2, false>;
+template class CHNSSolver<3, false>;
+template class CHNSSolver<2, true>;
+template class CHNSSolver<3, true>;

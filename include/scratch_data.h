@@ -914,7 +914,7 @@ public:
  * Scratch data for the quasi-incompressible Cahn_hilliard Navier-Stokes solver
  * on fixed mesh.
  */
-template <int dim>
+template <int dim, bool with_moving_mesh = false>
 class ScratchDataCHNS : public ScratchData<dim>
 {
 public:
@@ -923,18 +923,19 @@ public:
    */
   ScratchDataCHNS(const ComponentOrdering    &ordering,
                   const FESystem<dim>        &fe,
-                  const Mapping<dim>         &mapping,
+                  const Mapping<dim>         &fixed_mapping,
+                  const Mapping<dim>         &moving_mapping,
                   const Quadrature<dim>      &cell_quadrature,
                   const Quadrature<dim - 1>  &face_quadrature,
                   const std::vector<double>  &bdf_coefficients,
                   const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
-                       /*enable_pseudo_solid = */ false,
+                       /*enable_pseudo_solid = */ with_moving_mesh,
                        /*enable_lagrange_multiplier = */ false,
                        /*enable_cahn_hilliard = */ true,
                        fe,
-                       mapping,
-                       mapping,
+                       fixed_mapping,
+                       moving_mapping,
                        cell_quadrature,
                        face_quadrature,
                        bdf_coefficients,

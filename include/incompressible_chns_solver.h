@@ -12,10 +12,10 @@ using namespace dealii;
  * Quasi-incompressible Cahn-Hilliard Navier-Stokes solver.
  * TODO: Add equations.
  */
-template <int dim>
-class CHNSSolver : public NavierStokesSolver<dim>
+template <int dim, bool with_moving_mesh = false>
+class CHNSSolver : public NavierStokesSolver<dim, with_moving_mesh>
 {
-  using ScratchData = ScratchDataCHNS<dim>;
+  using ScratchData = ScratchDataCHNS<dim, with_moving_mesh>;
 
 public:
   /**

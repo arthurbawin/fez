@@ -51,12 +51,11 @@ using namespace dealii;
  *   solvers, which is not ideal.
  *
  */
-template <int dim>
+template <int dim, bool with_moving_mesh = false>
 class NavierStokesSolver : public GenericSolver<LA::ParVectorType>
 {
 public:
-  NavierStokesSolver(const ParameterReader<dim> &param,
-                     const bool                  with_moving_mesh);
+  NavierStokesSolver(const ParameterReader<dim> &param);
 
   virtual ~NavierStokesSolver() {}
 
@@ -224,8 +223,6 @@ protected:
   std::shared_ptr<ComponentOrdering> ordering;
 
   ParameterReader<dim> param;
-
-  const bool with_moving_mesh;
 
   // Choose another quadrature rule for error computation
   std::shared_ptr<Quadrature<dim>>     quadrature;

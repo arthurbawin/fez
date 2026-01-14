@@ -51,11 +51,6 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   potential_mask      = fe->component_mask(potential_extractor);
 
   /**
-   * This solver uses a fixed mapping only.
-   */
-  mapping = this->fixed_mapping.get();
-
-  /**
    * Create the initial condition functions
    */
   this->param.initial_conditions.create_initial_velocity(
@@ -165,14 +160,14 @@ void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_zero_constraints(
      */
     if (bc.type == BoundaryConditions::Type::dirichlet_mms)
     {
-      VectorTools::interpolate_boundary_values(*mapping,
+      VectorTools::interpolate_boundary_values(*this->moving_mapping,
                                                this->dof_handler,
                                                id,
                                                Functions::ZeroFunction<dim>(
                                                  this->ordering->n_components),
                                                this->zero_constraints,
                                                tracer_mask);
-      VectorTools::interpolate_boundary_values(*mapping,
+      VectorTools::interpolate_boundary_values(*this->moving_mapping,
                                                this->dof_handler,
                                                id,
                                                Functions::ZeroFunction<dim>(
@@ -193,13 +188,13 @@ void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_nonzero_constrain
      */
     if (bc.type == BoundaryConditions::Type::dirichlet_mms)
     {
-      VectorTools::interpolate_boundary_values(*mapping,
+      VectorTools::interpolate_boundary_values(*this->moving_mapping,
                                                this->dof_handler,
                                                id,
                                                *this->exact_solution,
                                                this->nonzero_constraints,
                                                tracer_mask);
-      VectorTools::interpolate_boundary_values(*mapping,
+      VectorTools::interpolate_boundary_values(*this->moving_mapping,
                                                this->dof_handler,
                                                id,
                                                *this->exact_solution,
@@ -219,19 +214,19 @@ void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_initial_conditions()
 
   // Set tracer only
   VectorTools::interpolate(
-    *mapping, this->dof_handler, *tracer_fun, this->newton_update, tracer_mask);
+    *this->moving_mapping, this->dof_handler, *tracer_fun, this->newton_update, tracer_mask);
 }
 
 template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_exact_solution()
 {
   // Set tracer and potential
-  VectorTools::interpolate(*mapping,
+  VectorTools::interpolate(*this->moving_mapping,
                            this->dof_handler,
                            *this->exact_solution,
                            this->local_evaluation_point,
                            tracer_mask);
-  VectorTools::interpolate(*mapping,
+  VectorTools::interpolate(*this->moving_mapping,
                            this->dof_handler,
                            *this->exact_solution,
                            this->local_evaluation_point,
@@ -826,12 +821,12 @@ void CHNSSolver<dim, with_moving_mesh>::compute_solver_specific_errors()
   const ComponentSelectFunction<dim> potential_comp_select(
     this->ordering->mu_lower, this->ordering->n_components);
 
-  this->compute_and_add_errors(*mapping,
+  this->compute_and_add_errors(*this->moving_mapping,
                                *this->exact_solution,
                                cellwise_errors,
                                tracer_comp_select,
                                "phi");
-  this->compute_and_add_errors(*mapping,
+  this->compute_and_add_errors(*this->moving_mapping,
                                *this->exact_solution,
                                cellwise_errors,
                                potential_comp_select,
@@ -871,7 +866,7 @@ void CHNSSolver<dim, with_moving_mesh>::output_results()
       subdomain(i) = this->triangulation.locally_owned_subdomain();
     data_out.add_data_vector(subdomain, "subdomain");
 
-    data_out.build_patches(*mapping, 2);
+    data_out.build_patches(*this->moving_mapping, 2);
 
     // Export regular time step
     data_out.write_vtu_with_pvtu_record(

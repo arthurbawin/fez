@@ -150,7 +150,7 @@ public:
   }
 };
 
-template <int dim>
+template <int dim, bool with_moving_mesh = false>
 class ConstexprComponentOrderingCHNS
 {
 public:
@@ -161,10 +161,17 @@ public:
   static constexpr unsigned int u_upper      = dim;
   static constexpr unsigned int p_lower      = dim;
   static constexpr unsigned int p_upper      = dim + 1;
-  static constexpr unsigned int phi_lower    = dim + 1;
-  static constexpr unsigned int phi_upper    = dim + 2;
-  static constexpr unsigned int mu_lower     = dim + 2;
-  static constexpr unsigned int mu_upper     = dim + 3;
+  static constexpr unsigned int x_lower      = dim + 1;
+  static constexpr unsigned int x_upper =
+    with_moving_mesh ? 2 * dim + 1 : dim + 1;
+  static constexpr unsigned int phi_lower =
+    with_moving_mesh ? 2 * dim + 1 : dim + 1;
+  static constexpr unsigned int phi_upper =
+    with_moving_mesh ? 2 * dim + 2 : dim + 2;
+  static constexpr unsigned int mu_lower =
+    with_moving_mesh ? 2 * dim + 2 : dim + 2;
+  static constexpr unsigned int mu_upper =
+    with_moving_mesh ? 2 * dim + 3 : dim + 3;
 };
 
 #endif

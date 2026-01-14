@@ -102,10 +102,8 @@ public:
 protected:
   std::shared_ptr<FESystem<dim>> fe;
 
-  // Non-owning pointer to base class fixed_mapping, used for clarity.
-  const Mapping<dim> *mapping;
-
-  static constexpr ConstexprComponentOrderingCHNS<dim> const_ordering = {};
+  static constexpr ConstexprComponentOrderingCHNS<dim, with_moving_mesh>
+    const_ordering = {};
 
   FEValuesExtractors::Scalar tracer_extractor;
   FEValuesExtractors::Scalar potential_extractor;

@@ -39,7 +39,7 @@ struct PointEquality
     return a.distance(b) < 1e-14;
   }
 };
-  
+
 /**
  * Perform a dry run to read the run-time problem dimension set in the
  * "Dimension" block of the given parameter file.
@@ -286,6 +286,17 @@ double compute_boundary_volume(const DoFHandler<dim>     &dof_handler,
         }
   return Utilities::MPI::sum(I, dof_handler.get_communicator());
 }
+
+/**
+ * Rename temporary files containing the root "temporary_filename_prefix" to the
+ * root "final_filename_prefix", while maintaining the suffixes. This is used to
+ * overwrite the checkpoint save files, without risking to corrupt the previous
+ * files, see also deal.II step 83.
+ */
+void replace_temporary_files(const std::string directory,
+                             const std::string temporary_filename_prefix,
+                             const std::string final_filename_prefix,
+                             const MPI_Comm   &mpi_communicator);
 
 
 #endif

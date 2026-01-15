@@ -44,9 +44,21 @@ subsection Time integration
   set verbosity = verbose
   set dt               = 0.1
   set t_initial        = 0
-  set t_end            = 1
+  set t_end            = 2
   set scheme           = BDF2
   set bdf start method = BDF1
+end
+
+#
+# Write a checkpoint every 5 time steps.
+# The simulation can be restarted from one of these checkpoints
+# by setting "restart" to true if the run was interrupted.
+#
+subsection Checkpoint Restart
+  set enable checkpoint    = true
+  set restart              = false
+  set checkpoint file      = checkpoint
+  set checkpoint frequency = 5
 end
 
 #

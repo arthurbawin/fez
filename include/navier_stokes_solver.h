@@ -215,6 +215,25 @@ public:
   void finalize();
 
   /**
+   * Write the current state of the simulation to compressed save files. This
+   * method and the restart() are based on deal.II's step 83. The written data
+   * are the mesh, the current and previous solutions, and the content of the
+   * time handler. All other data (dof_handler, finite element spaces,
+   * constraints, etc.) can be recomputed when the simulation restarts. See also
+   * step 83 for a discussion on this topic.
+   *
+   * Depending on the derived solver, more data could be required to be saved,
+   * which would be done by adding a serialize() function.
+   */
+  void checkpoint();
+
+  /**
+   * Restart the simulation from saved checkpoint files, written by
+   * checkpoint().
+   */
+  void restart();
+
+  /**
    * Get the FESystem of the derived solver
    */
   virtual const FESystem<dim> &get_fe_system() const = 0;

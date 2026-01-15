@@ -567,6 +567,42 @@ namespace Parameters
   template class CahnHilliard<2>;
   template class CahnHilliard<3>;
 
+  void CheckpointRestart::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Checkpoint Restart");
+    {
+      prm.declare_entry("enable checkpoint",
+                        "false",
+                        Patterns::Bool(),
+                        "Save data periodically to allow restart?");
+      prm.declare_entry("restart",
+                        "false",
+                        Patterns::Bool(),
+                        "Restart simulation from given checkpoint file?");
+      prm.declare_entry("checkpoint file",
+                        "checkpoint",
+                        Patterns::Anything(),
+                        "Name of the file to write to and read from the checkpoint");
+      prm.declare_entry("checkpoint frequency",
+                        "10",
+                        Patterns::Integer(),
+                        "Write a checkpoint every N time steps");
+    }
+    prm.leave_subsection();
+  }
+
+  void CheckpointRestart::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Checkpoint Restart");
+    {
+      enable_checkpoint = prm.get_bool("enable checkpoint");
+      restart = prm.get_bool("restart");
+      filename = prm.get("checkpoint file");
+      checkpoint_frequency = prm.get_integer("checkpoint frequency");
+    }
+    prm.leave_subsection();
+  }
+
   void MMS::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Manufactured solution");

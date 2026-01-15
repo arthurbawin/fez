@@ -322,9 +322,16 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
   for (auto &previous_sol : this->previous_solutions)
   {
+    // Create a temporary, fully distributed copy of the previous solution to
+    // reapply after resizing. This is needed for checkpointing, because the
+    // previous solutions won't be zero when restarting.
+    LA::ParVectorType tmp_prev_sol(this->locally_owned_dofs,
+                                   this->mpi_communicator);
+    tmp_prev_sol = previous_sol;
     previous_sol.reinit(this->locally_owned_dofs,
                         this->locally_relevant_dofs,
                         this->mpi_communicator);
+    previous_sol = tmp_prev_sol;
   }
 
   //
@@ -1588,7 +1595,6 @@ void FSISolver<dim>::assemble_local_rhs(
                      this->previous_solutions,
                      this->source_terms,
                      this->exact_solution);
-  // scratchData.print(std::cout);
 
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;

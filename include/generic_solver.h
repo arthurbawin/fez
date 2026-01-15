@@ -45,7 +45,6 @@ public:
     , mesh_param(mesh_param)
     , time_param(time_param)
     , mms_param(mms_param)
-    , error_handler(mms_param, time_param)
   {
     // Disable timer if needed
     if (!timer_param.enable_timer)
@@ -230,8 +229,7 @@ protected:
   Parameters::TimeIntegration                                    time_param;
   Parameters::MMS                                                mms_param;
 
-  // Remove the single ErrorHandler once the deprecated solvers have been removed
-  ErrorHandler                                                   error_handler;
+  // An ErrorHandler for each error norm
   std::map<VectorTools::NormType, std::shared_ptr<ErrorHandler>> error_handlers;
 
   // The times and names of the pvtu files

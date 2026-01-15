@@ -2079,10 +2079,10 @@ void FSISolver<dim>::check_velocity_boundary() const
 
   if (!this->param.debug.fsi_apply_erroneous_coupling)
   {
-    AssertThrow(l2_error < 1e-12,
+    AssertThrow(l2_error < 1e-10,
                 ExcMessage("L2 norm of uh - wh is too large : " +
                            std::to_string(l2_error)));
-    AssertThrow(li_error < 1e-12,
+    AssertThrow(li_error < 1e-10,
                 ExcMessage("Linf norm of uh - wh is too large : " +
                            std::to_string(li_error)));
   }

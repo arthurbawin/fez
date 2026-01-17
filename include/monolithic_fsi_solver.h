@@ -173,6 +173,8 @@ public:
 protected:
   std::shared_ptr<FESystem<dim>> fe;
 
+  static constexpr ConstexprComponentOrderingFSI<dim> const_ordering = {};
+
   FEValuesExtractors::Vector lambda_extractor;
   ComponentMask              lambda_mask;
 
@@ -190,6 +192,12 @@ protected:
   std::vector<std::vector<std::pair<unsigned int, double>>>
                                                   position_lambda_coeffs;
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
+
+  // The master position dofs on this rank.
+  // All other position dofs on the cylinder on this rank are constrained
+  // to be equal to these ones.
+  bool                                     has_chunk_of_cylinder = false;
+  std::array<types::global_dof_index, dim> local_position_master_dofs;
 
   TableHandler cylinder_position_table;
 

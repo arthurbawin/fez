@@ -35,6 +35,7 @@ end
 subsection Linear solver
   set verbosity      = quiet
   set method         = direct_mumps
+  set reuse          = true
 end
 
 subsection FiniteElements

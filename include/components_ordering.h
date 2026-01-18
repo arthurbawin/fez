@@ -127,6 +127,23 @@ public:
   }
 };
 
+template <int dim>
+class ConstexprComponentOrderingFSI
+{
+public:
+  constexpr ConstexprComponentOrderingFSI() = default;
+
+  static constexpr unsigned int n_components = 3 * dim + 1;
+  static constexpr unsigned int u_lower      = 0;
+  static constexpr unsigned int u_upper      = dim;
+  static constexpr unsigned int p_lower      = dim;
+  static constexpr unsigned int p_upper      = dim + 1;
+  static constexpr unsigned int x_lower      = dim + 1;
+  static constexpr unsigned int x_upper      = 2 * dim + 1;
+  static constexpr unsigned int l_lower      = 2 * dim + 1;
+  static constexpr unsigned int l_upper      = 3 * dim + 1;
+};
+
 /**
  * Components ordering for the quasi-incompressible Cahn-Hilliard Navier-Stokes
  * solver without ALE.

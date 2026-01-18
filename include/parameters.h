@@ -348,6 +348,7 @@ namespace Parameters
     double    analytical_jacobian_relative_tolerance;
     bool      fsi_apply_erroneous_coupling;
     bool      fsi_check_mms_on_boundary;
+    unsigned int       fsi_coupling_option;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

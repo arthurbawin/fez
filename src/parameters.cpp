@@ -818,6 +818,10 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "");
+      prm.declare_entry("fsi_coupling_option",
+                        "1",
+                        Patterns::Integer(),
+                        "");
     }
     prm.leave_subsection();
   }
@@ -838,6 +842,7 @@ namespace Parameters
       fsi_apply_erroneous_coupling =
         prm.get_bool("fsi_apply_erroneous_coupling");
       fsi_check_mms_on_boundary = prm.get_bool("fsi_check_mms_on_boundary");
+      fsi_coupling_option = prm.get_integer("fsi_coupling_option");
     }
     prm.leave_subsection();
   }

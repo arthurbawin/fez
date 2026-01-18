@@ -161,6 +161,16 @@ void FSISolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
     values[ordering.l_lower + d] = 0.;
 }
 
+// template <int dim>
+// void FSISolver<dim>::reset_solver_specific_data()
+// {
+//   // Position - lambda constraints
+//   for (auto &vec : position_lambda_coeffs)
+//     vec.clear();
+//   position_lambda_coeffs.clear();
+//   coupled_position_dofs.clear();
+// }
+
 template <int dim>
 void FSISolver<dim>::reset_solver_specific_data()
 {
@@ -251,6 +261,266 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
  *
  *   FIXME: THERE IS ONLY ONE VECTOR ACTUALLY
  */
+
+
+// template <int dim>
+// void FSISolver<dim>::identify_master_slaves_position_on_weak_noslip(
+//   std::array<dealii::types::global_dof_index, dim> &master,
+//   std::array<std::vector<dealii::types::global_dof_index>, dim> &slaves) const
+// {
+//   using namespace dealii;
+
+//   for (unsigned int d = 0; d < dim; ++d)
+//   {
+//     master[d] = numbers::invalid_dof_index;
+//     slaves[d].clear();
+//   }
+
+//   // Nombre total de composantes du FE (FESystem)
+//   const unsigned int n_components = fe.n_components();
+
+//   for (unsigned int d = 0; d < dim; ++d)
+//   {
+//     // 1) Masque "uniquement la composante position d"
+//     ComponentMask one_comp_mask(n_components, false);
+
+//     const unsigned int comp = this->ordering->x_lower + d; // position component d
+//     AssertThrow(comp < n_components,
+//                 ExcMessage("Position component index out of range."));
+//     one_comp_mask.set(comp, true);
+
+//     // 2) DoFs sur la frontière pour cette composante
+//     IndexSet local =
+//       DoFTools::extract_boundary_dofs(this->dof_handler,
+//                                       one_comp_mask,
+//                                       {weak_no_slip_boundary_id});
+
+//     // Ne garder que les dofs possédés localement (un dof owned par un seul rank)
+//     local = local & this->locally_owned_dofs;
+
+//     // 3) Gather global de la liste d'indices
+//     const auto gathered =
+//       Utilities::MPI::all_gather(this->mpi_communicator, local.get_index_vector());
+
+//     std::vector<types::global_dof_index> all;
+//     for (const auto &v : gathered)
+//       all.insert(all.end(), v.begin(), v.end());
+
+//     std::sort(all.begin(), all.end());
+//     all.erase(std::unique(all.begin(), all.end()), all.end());
+
+//     // 4) Master = plus petit index global
+//     if (!all.empty())
+//     {
+//       master[d] = all.front();
+
+//       // 5) Slaves = le reste
+//       slaves[d].assign(all.begin() + 1, all.end());
+//     }
+//     else
+//     {
+//       master[d] = numbers::invalid_dof_index;
+//       slaves[d].clear();
+//     }
+//   }
+// }
+// template <int dim>
+// void FSISolver<dim>::make_global_master_position_dofs_relevant_everywhere()
+// {
+//   using namespace dealii;
+
+//   if (weak_no_slip_boundary_id == numbers::invalid_unsigned_int)
+//     return;
+
+//   const unsigned int n_effective_dim =
+//     (dim == 3 && this->param.fsi.fix_z_component ? 2u : dim);
+
+//   std::array<types::global_dof_index, dim> master;
+//   std::array<std::vector<types::global_dof_index>, dim> slaves;
+
+//   // Ton identifier GLOBAL (avec all_gather) : master[d] est unique globalement
+//   identify_master_slaves_position_on_weak_noslip(master, slaves);
+
+//   bool changed = false;
+
+//   for (unsigned int d = 0; d < n_effective_dim; ++d)
+//   {
+//     if (master[d] == numbers::invalid_dof_index)
+//       continue;
+
+//     if (!this->locally_relevant_dofs.is_element(master[d]))
+//     {
+//       this->locally_relevant_dofs.add_index(master[d]);
+//       changed = true;
+//     }
+//   }
+
+//   if (changed)
+//     this->locally_relevant_dofs.compress();
+// }
+
+// template <int dim>
+// void FSISolver<dim>::add_master_slave_constraints_on_weak_noslip(
+//   dealii::AffineConstraints<double> &constraints) const
+// {
+//   using namespace dealii;
+
+//   // Pas de weak no-slip => rien à faire
+//   if (weak_no_slip_boundary_id == numbers::invalid_unsigned_int)
+//     return;
+
+//   // Si tu forces z fixe via param.fsi.fix_z_component, on évite de contraindre z
+//   const unsigned int n_effective_dim =
+//     (dim == 3 && this->param.fsi.fix_z_component ? 2u : dim);
+
+//   std::array<types::global_dof_index, dim> master;
+//   std::array<std::vector<types::global_dof_index>, dim> slaves;
+
+//   // Fonction que tu as déjà dans ton fichier (elle fait un all_gather)
+//   identify_master_slaves_position_on_weak_noslip(master, slaves);
+
+//   for (unsigned int d = 0; d < n_effective_dim; ++d)
+//   {
+//     const auto master_dof = master[d];
+
+//     // Si aucun dof de cette composante sur la frontière (cas pathologique), skip
+//     if (master_dof == numbers::invalid_dof_index)
+//       continue;
+
+//     for (const auto slave_dof : slaves[d])
+//     {
+//       if (slave_dof == master_dof)
+//         continue;
+
+//       // On ajoute uniquement si le dof est "relevant" sur ce rank,
+//       // sinon AffineConstraints::add_line peut planter selon la config.
+//       if (!this->locally_relevant_dofs.is_element(slave_dof))
+//         continue;
+
+//       // On refuse un conflit silencieux
+//       AssertThrow(!constraints.is_constrained(slave_dof),
+//                   ExcMessage("Rigid-position slave dof is already constrained "
+//                              "(d=" +
+//                              std::to_string(d) + ", dof=" +
+//                              std::to_string(slave_dof) +
+//                              "). Remove cylinder position constraints first, "
+//                              "or avoid double constraints."));
+
+//       // Contrainte linéaire homogène : x_slave - 1*x_master = 0
+//       // -> x_slave = x_master
+//       constraints.add_line(slave_dof);
+//       constraints.add_entry(slave_dof, master_dof, 1.0);
+//       constraints.set_inhomogeneity(slave_dof, 0.0);
+//     }
+//   }
+// }
+
+// template <int dim>
+// void FSISolver<dim>::debug_test_rigid_master_slave_following(
+//   const dealii::AffineConstraints<double> &constraints,
+//   const std::array<double, dim> &amplitude,
+//   const double frequency_hz,
+//   const double tolerance) const
+// {
+//   using namespace dealii;
+
+//   if (weak_no_slip_boundary_id == numbers::invalid_unsigned_int)
+//   {
+//     if (this->mpi_rank == 0)
+//       std::cout << "[debug_test_rigid_master_slave_following] "
+//                 << "No weak_no_slip_boundary_id -> nothing to test.\n";
+//     return;
+//   }
+
+//   // Si tu bloques z via fix_z_component, on ne teste que x,y
+//   const unsigned int n_effective_dim =
+//     (dim == 3 && this->param.fsi.fix_z_component ? 2u : dim);
+
+//   // 1) Récupère master/slaves (tu as déjà cette fonction)
+//   std::array<types::global_dof_index, dim> master;
+//   std::array<std::vector<types::global_dof_index>, dim> slaves;
+//   identify_master_slaves_position_on_weak_noslip(master, slaves);
+
+//   // 2) Valeur cible imposée au master : A * sin(2*pi*f*t)
+//   const double t     = this->time_handler.current_time;
+//   const double omega = 2.0 * numbers::PI * frequency_hz;
+
+//   std::array<double, dim> target{};
+//   for (unsigned int d = 0; d < dim; ++d)
+//     target[d] = 0.0;
+
+//   for (unsigned int d = 0; d < n_effective_dim; ++d)
+//     target[d] = amplitude[d] * std::sin(omega * t);
+
+//   // 3) Vecteur test (ghosté) : important pour lire des dofs non-owned
+//   LA::ParVectorType x_test;
+//   x_test.reinit(this->locally_owned_dofs,
+//                 this->locally_relevant_dofs,
+//                 this->mpi_communicator);
+//   x_test = 0.0;
+
+//   // 4) Imposer la valeur au master (uniquement si owned par ce rank)
+//   for (unsigned int d = 0; d < n_effective_dim; ++d)
+//   {
+//     const auto m = master[d];
+//     if (m == numbers::invalid_dof_index)
+//       continue;
+
+//     if (this->locally_owned_dofs.is_element(m))
+//       x_test[m] = target[d];
+//   }
+//   x_test.compress(VectorOperation::insert);
+
+//   // 5) Appliquer les contraintes : doit propager master -> slaves
+//   constraints.distribute(x_test);
+
+//   // 6) Vérification : chaque slave doit valoir target[d]
+//   double max_err_local = 0.0;
+
+//   for (unsigned int d = 0; d < n_effective_dim; ++d)
+//   {
+//     // check master too (si relevant sur ce rank)
+//     const auto m = master[d];
+//     if (m != numbers::invalid_dof_index &&
+//         this->locally_relevant_dofs.is_element(m))
+//     {
+//       const double err_m = std::abs(x_test[m] - target[d]);
+//       max_err_local      = std::max(max_err_local, err_m);
+//     }
+
+//     for (const auto s : slaves[d])
+//       if (this->locally_relevant_dofs.is_element(s))
+//       {
+//         const double err_s = std::abs(x_test[s] - target[d]);
+//         max_err_local      = std::max(max_err_local, err_s);
+//       }
+//   }
+
+//   const double max_err =
+//     Utilities::MPI::max(max_err_local, this->mpi_communicator);
+
+//   if (this->mpi_rank == 0)
+//   {
+//     std::cout << "[debug_test_rigid_master_slave_following] t=" << t
+//               << " f=" << frequency_hz << "Hz"
+//               << " target=(";
+
+//     for (unsigned int d = 0; d < n_effective_dim; ++d)
+//       std::cout << target[d] << (d + 1 < n_effective_dim ? "," : "");
+//     std::cout << ") max_err=" << max_err
+//               << " tol=" << tolerance << std::endl;
+//   }
+
+//   AssertThrow(max_err <= tolerance,
+//               ExcMessage("Rigid master/slave test failed: max_err=" +
+//                          std::to_string(max_err) +
+//                          " > tol=" + std::to_string(tolerance) +
+//                          ". Either constraints were not added, or master is "
+//                          "constrained elsewhere, or dofs are not the expected ones."));
+// }
+
+
+
 template <int dim>
 void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
 {
@@ -293,6 +563,8 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
                                          gathered_dofs_flattened.end());
     this->locally_relevant_dofs.add_indices(additional_relevant_dofs);
     this->locally_relevant_dofs.compress();
+
+    // make_global_master_position_dofs_relevant_everywhere();
   }
 
   /**
@@ -1018,19 +1290,18 @@ void FSISolver<dim>::remove_cylinder_velocity_constraints(
 template <int dim>
 void FSISolver<dim>::create_solver_specific_zero_constraints()
 {
-  this->zero_constraints.close();
-
-  // Merge the zero lambda constraints
-  this->zero_constraints.merge(
-    lambda_constraints,
-    AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
-
   if constexpr (dim == 3)
   {
     /** FIXME: Instead of dim = 3, the test should be whether dofs
      * belong to multiple boundaries, but for now this only happens for the
      * 3D fsi test case.
      */
+    // add_master_slave_constraints_on_weak_noslip(this->zero_constraints);
+    this->zero_constraints.close();
+    // Merge the zero lambda constraints
+    this->zero_constraints.merge(
+      lambda_constraints,
+      AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
     if (this->param.fsi.enable_coupling)
     {
       /**
@@ -1049,6 +1320,7 @@ void FSISolver<dim>::create_solver_specific_zero_constraints()
        */
       this->pcout << "Removing zero constraints on cylinder" << std::endl;
       remove_cylinder_velocity_constraints(this->zero_constraints, true, true);
+
     }
     else if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
     {
@@ -1062,30 +1334,48 @@ template <int dim>
 void FSISolver<dim>::create_solver_specific_nonzero_constraints()
 {
   this->nonzero_constraints.close();
-
-  // Merge the zero lambda constraints
+  // Merge les contraintes lambda=0
   this->nonzero_constraints.merge(
     lambda_constraints,
-    AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
-
+    dealii::AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
   if constexpr (dim == 3)
   {
     if (this->param.fsi.enable_coupling)
     {
       this->pcout << "Removing nonzero constraints on cylinder" << std::endl;
       remove_cylinder_velocity_constraints(this->nonzero_constraints,
-                                           true,
-                                           true);
+                                           /*remove_velocity_constraints=*/true,
+                                           /*remove_position_constraints=*/true);
     }
     else if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
     {
-      // If boundary has a weakly enforced no-slip, remove velocity constraints.
       remove_cylinder_velocity_constraints(this->nonzero_constraints,
-                                           true,
-                                           false);
+                                           /*remove_velocity_constraints=*/true,
+                                           /*remove_position_constraints=*/false);
     }
   }
+
+  // // ✅ ICI: on ajoute les master/slave sur NONZERO, pas sur ZERO
+  // add_master_slave_constraints_on_weak_noslip(this->nonzero_constraints);
+
+  // // ✅ close AVANT le test (distribute() suppose généralement des contraintes "fermées")
+  // this->nonzero_constraints.close();
+
+  // // (Optionnel) test debug
+  // std::array<double, dim> A{};
+  // A.fill(0.0);
+  // A[0] = 1e-3;
+  // if constexpr (dim >= 2) A[1] = 1e-3;
+  // if constexpr (dim == 3) A[2] = 0.0;
+
+  // debug_test_rigid_master_slave_following(this->nonzero_constraints,
+  //                                         A,
+  //                                         /*frequency_hz=*/1.0,
+  //                                         /*tolerance=*/1e-12);
+
+
 }
+
 
 template <int dim>
 void FSISolver<dim>::create_sparsity_pattern()
@@ -2928,7 +3218,7 @@ void FSISolver<dim>::solver_specific_post_processing()
   const bool export_slices_force_table = this ->param.postprocessing.write_force_per_slice && (this->time_handler.is_steady()||((this->time_handler.current_time_iteration %
        this->param.postprocessing.force_and_position_output_frequency) == 0));
 
-  compute_slices_forces_lagrange_multiplier(export_force_table);
+  compute_slices_forces_lagrange_multiplier(export_slices_force_table);
   const bool export_position_table =
     this->param.postprocessing.write_body_position &&
     (this->time_handler.is_steady() ||

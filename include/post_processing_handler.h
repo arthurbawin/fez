@@ -76,20 +76,16 @@ public:
 
   const dealii::Vector<double> &get_slice_index() const
   {
+    if (pp_param.enable_slicing){
     AssertThrow(
       is_initialized,
       dealii::ExcMessage(
         "get_slice_index(): handler not initialized (call setup_slices())."));
 
-    // Si slices désactivées: au choix.
-    // Ici je force une erreur pour éviter des sorties incohérentes.
-    AssertThrow(pp_param.enable_slicing,
-                dealii::ExcMessage(
-                  "get_slice_index(): slices disabled (enable_slices=false)."));
-
     AssertThrow(slices_computed,
                 dealii::ExcMessage("get_slice_index(): slices not computed "
                                    "(setup_slices did not compute)."));
+    }
 
     return slice_index;
   }

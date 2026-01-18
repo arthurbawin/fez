@@ -61,6 +61,7 @@ public:
     if (this->param.fsi.enable_coupling)
       create_position_lagrange_mult_coupling_data();
     create_lagrange_multiplier_constraints();
+
   }
 
   /**
@@ -172,6 +173,34 @@ public:
    */
   void write_cylinder_position(const bool export_table);
 
+  /**
+   *
+   */
+  // void identify_master_slaves_position_on_weak_noslip(
+  // std::array<dealii::types::global_dof_index, dim> &master,
+  // std::array<std::vector<dealii::types::global_dof_index>, dim> &slaves) const;
+
+  // /**
+  //  *
+  //  */
+  // void make_global_master_position_dofs_relevant_everywhere();
+
+  // /**
+  //  *
+  //  */
+  // void add_master_slave_constraints_on_weak_noslip(
+  // dealii::AffineConstraints<double> &constraints) const;
+
+  // /** 
+  //  *
+  //  */
+  // void debug_test_rigid_master_slave_following(
+  // const dealii::AffineConstraints<double> &constraints,
+  // const std::array<double, dim> &amplitude,
+  // const double frequency_hz,
+  // const double tolerance = 1e-12) const;
+
+
   virtual const FESystem<dim> &get_fe_system() const override { return fe; }
 
 protected:
@@ -194,6 +223,12 @@ protected:
   std::vector<std::vector<std::pair<unsigned int, double>>>
                                                   position_lambda_coeffs;
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
+
+  // std::array<types::global_dof_index, dim> master_position_dof;
+  // bool has_master_position_dof = false;
+
+  // std::array<std::vector<dealii::types::global_dof_index>, dim> slave_position_dofs;
+  // bool has_slave_position_dof = false;
 
   TableHandler cylinder_position_table;
   TableHandler slices_forces_table;

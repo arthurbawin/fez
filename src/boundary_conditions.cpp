@@ -101,7 +101,7 @@ namespace BoundaryConditions
                       "none",
                       Patterns::Selection(
                         "none|fixed|coupled_to_fluid|no_flux|input_function|"
-                        "position_mms|position_flux_mms"),
+                        "position_mms|position_flux_mms|debugtest"),
                       "Type of pseudosolid boundary condition");
   }
 
@@ -124,6 +124,8 @@ namespace BoundaryConditions
       type = Type::position_mms;
     if (parsed_type == "position_flux_mms")
       type = Type::position_flux_mms;
+        if (parsed_type == "debugtest")
+      type = Type::debug_test;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Pseudosolid boundary condition for boundary " +

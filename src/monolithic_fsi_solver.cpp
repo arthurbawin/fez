@@ -3117,6 +3117,7 @@ void FSISolver<dim>::output_results()
 
     // Parallel-safe export (pvtu + vtu per rank)
 
+    const std::string skin_prefix = this->param.output.output_prefix + "_skin";
 
     const std::string skin_pvtu_file = data_out_faces.write_vtu_with_pvtu_record(
       this->param.output.output_dir,
@@ -3213,16 +3214,16 @@ void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
   const unsigned int n_slices =
     std::max(1u, static_cast<unsigned int>(this->param.postprocessing.number_of_slices));
 
-  // ------------------------------------------------------------
-  // 1) FEFaceValues pour intégrer lambda sur la frontière
-  // ------------------------------------------------------------
-  dealii::FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                          fe,
-                                          this->face_quadrature,
-                                          dealii::update_values |
-                                            dealii::update_JxW_values);
+  const UpdateFlags face_flags =
+  update_values | update_quadrature_points | update_normal_vectors | update_JxW_values;
 
-  const unsigned int n_q = this->face_quadrature.size();
+  dealii::FEFaceValues<dim> fe_face_values(*this->moving_mapping,
+                                          this->get_fe_system(),
+                                          *this->face_quadrature,
+                                          face_flags);
+
+
+  const unsigned int n_q = this->face_quadrature->size();
   std::vector<dealii::Tensor<1, dim>> lambda_values(n_q);
 
   // ------------------------------------------------------------

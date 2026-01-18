@@ -587,6 +587,9 @@ void NSSolver<dim>::output_results()
                                    data_component_interpretation_faces);
 
     data_out_faces.build_patches(*mapping, 2);
+    
+    
+    const std::string skin_prefix = this->param.output.output_prefix + "_skin";
 
     const std::string skin_pvtu_file = data_out_faces.write_vtu_with_pvtu_record(
       this->param.output.output_dir,
@@ -594,6 +597,10 @@ void NSSolver<dim>::output_results()
       this->time_handler.current_time_iteration,
       this->mpi_communicator,
       2);
+
+    this->visualization_times_and_names.emplace_back(this->time_handler.current_time,
+                                                    skin_pvtu_file);
+
 
     this->visualization_times_and_names.emplace_back(
       this->time_handler.current_time, skin_pvtu_file);

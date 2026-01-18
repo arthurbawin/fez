@@ -5,13 +5,14 @@
 #include <deal.II/numerics/vector_tools_common.h>
 #include <parsed_function_symengine.h>
 
-using namespace dealii;
-
 /**
- *
+ * This namespace contains the parameters used to control the various
+ * parts of the solvers : mesh, (non-)linear solver, time integration, etc.
  */
 namespace Parameters
 {
+  using namespace dealii;
+
   /**
    * Verbosity is set to "verbose" by default for all structures.
    */
@@ -119,6 +120,9 @@ namespace Parameters
 
   struct FiniteElements
   {
+    // If true, use hypercubes, otherwise use simplices (default).
+    bool use_quads;
+
     // Degree of the velocity interpolation
     unsigned int velocity_degree;
 
@@ -203,6 +207,8 @@ namespace Parameters
     bool         analytic_jacobian;
     Verbosity    verbosity;
 
+    double reassembly_decrease_tol;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -251,6 +257,7 @@ namespace Parameters
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
+    bool is_steady() const { return scheme == Scheme::stationary; }
   };
 
   template <int dim>
@@ -272,6 +279,20 @@ namespace Parameters
      * for manufactured solutions) which is not.
      */
     Tensor<1, dim> body_force;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  struct CheckpointRestart
+  {
+    bool enable_checkpoint;
+    // If true, restart simulation from the given checkpoint file
+    bool restart;
+    // Name of the file to write to/read when checkpointing/restarting resp.
+    std::string  filename;
+    // Write checkpoint every N time steps
+    unsigned int checkpoint_frequency;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -351,12 +372,14 @@ namespace Parameters
   struct Debug
   {
     Verbosity verbosity;
+    bool      write_partition_pos_gmsh;
     bool      apply_exact_solution;
     bool      compare_analytical_jacobian_with_fd;
     double    analytical_jacobian_absolute_tolerance;
     double    analytical_jacobian_relative_tolerance;
     bool      fsi_apply_erroneous_coupling;
     bool      fsi_check_mms_on_boundary;
+    unsigned int       fsi_coupling_option;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

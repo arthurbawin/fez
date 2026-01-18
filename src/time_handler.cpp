@@ -166,3 +166,15 @@ double TimeHandler::compute_time_derivative_at_quadrature_node(
   }
   DEAL_II_ASSERT_UNREACHABLE();
 }
+
+void TimeHandler::save() const
+{
+  // TODO
+  DEAL_II_NOT_IMPLEMENTED();
+}
+
+void TimeHandler::load()
+{
+  // TODO
+  DEAL_II_NOT_IMPLEMENTED();
+}

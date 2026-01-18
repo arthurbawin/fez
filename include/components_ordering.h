@@ -3,31 +3,42 @@
 
 #include <deal.II/base/types.h>
 
-using namespace dealii;
-
 /**
+ * A ComponentOrdering describes the lower and upper component indices for a
+ * given solver. For now, all solvers work in a monolithic fashion, solving
+ * their complete system of PDEs in a unique coupled system.
  *
+ * Each derived class must specify the [lower, upper) interval for its
+ * variables.
+ *
+ * FIXME: These orderings should be known at compile time.
  */
 class ComponentOrdering
 {
 public:
   ComponentOrdering() {}
 
-  static constexpr unsigned int invalid = numbers::invalid_unsigned_int;
+  static constexpr unsigned int invalid = dealii::numbers::invalid_unsigned_int;
 
   unsigned int n_components = invalid;
-  unsigned int u_lower      = invalid;
-  unsigned int u_upper      = invalid;
-  unsigned int p_lower      = invalid;
-  unsigned int p_upper      = invalid;
-  unsigned int x_lower      = invalid;
-  unsigned int x_upper      = invalid;
-  unsigned int l_lower      = invalid;
-  unsigned int l_upper      = invalid;
-  unsigned int phi_lower    = invalid;
-  unsigned int phi_upper    = invalid;
-  unsigned int mu_lower     = invalid;
-  unsigned int mu_upper     = invalid;
+  // Fluid velocity
+  unsigned int u_lower = invalid;
+  unsigned int u_upper = invalid;
+  // Pressure
+  unsigned int p_lower = invalid;
+  unsigned int p_upper = invalid;
+  // Mesh position
+  unsigned int x_lower = invalid;
+  unsigned int x_upper = invalid;
+  // Lagrange multiplier
+  unsigned int l_lower = invalid;
+  unsigned int l_upper = invalid;
+  // Cahn-Hilliard tracer
+  unsigned int phi_lower = invalid;
+  unsigned int phi_upper = invalid;
+  // Cahn-Hililard potential
+  unsigned int mu_lower = invalid;
+  unsigned int mu_upper = invalid;
 
   inline bool is_velocity(const unsigned int component) const
   {
@@ -74,6 +85,27 @@ public:
 };
 
 /**
+ * Components ordering for the incompressible Navier-Stokes solver with Lagrange
+ * multiplier.
+ */
+template <int dim>
+class ComponentOrderingNSLambda : public ComponentOrdering
+{
+public:
+  ComponentOrderingNSLambda()
+    : ComponentOrdering()
+  {
+    n_components = 2 * dim + 1;
+    u_lower      = 0;
+    u_upper      = dim;
+    p_lower      = dim;
+    p_upper      = dim + 1;
+    l_lower      = dim + 1;
+    l_upper      = 2 * dim + 1;
+  }
+};
+
+/**
  * Components ordering for the fluid-structure solver with ALE.
  */
 template <int dim>
@@ -93,6 +125,23 @@ public:
     l_lower      = 2 * dim + 1;
     l_upper      = 3 * dim + 1;
   }
+};
+
+template <int dim>
+class ConstexprComponentOrderingFSI
+{
+public:
+  constexpr ConstexprComponentOrderingFSI() = default;
+
+  static constexpr unsigned int n_components = 3 * dim + 1;
+  static constexpr unsigned int u_lower      = 0;
+  static constexpr unsigned int u_upper      = dim;
+  static constexpr unsigned int p_lower      = dim;
+  static constexpr unsigned int p_upper      = dim + 1;
+  static constexpr unsigned int x_lower      = dim + 1;
+  static constexpr unsigned int x_upper      = 2 * dim + 1;
+  static constexpr unsigned int l_lower      = 2 * dim + 1;
+  static constexpr unsigned int l_upper      = 3 * dim + 1;
 };
 
 /**
@@ -118,7 +167,7 @@ public:
   }
 };
 
-template <int dim>
+template <int dim, bool with_moving_mesh = false>
 class ConstexprComponentOrderingCHNS
 {
 public:
@@ -129,10 +178,17 @@ public:
   static constexpr unsigned int u_upper      = dim;
   static constexpr unsigned int p_lower      = dim;
   static constexpr unsigned int p_upper      = dim + 1;
-  static constexpr unsigned int phi_lower    = dim + 1;
-  static constexpr unsigned int phi_upper    = dim + 2;
-  static constexpr unsigned int mu_lower     = dim + 2;
-  static constexpr unsigned int mu_upper     = dim + 3;
+  static constexpr unsigned int x_lower      = dim + 1;
+  static constexpr unsigned int x_upper =
+    with_moving_mesh ? 2 * dim + 1 : dim + 1;
+  static constexpr unsigned int phi_lower =
+    with_moving_mesh ? 2 * dim + 1 : dim + 1;
+  static constexpr unsigned int phi_upper =
+    with_moving_mesh ? 2 * dim + 2 : dim + 2;
+  static constexpr unsigned int mu_lower =
+    with_moving_mesh ? 2 * dim + 2 : dim + 2;
+  static constexpr unsigned int mu_upper =
+    with_moving_mesh ? 2 * dim + 3 : dim + 3;
 };
 
 #endif

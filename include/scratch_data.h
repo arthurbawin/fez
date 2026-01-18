@@ -9,6 +9,9 @@
 #include <deal.II/fe/fe_update_flags.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping.h>
+#include <deal.II/hp/fe_values.h>
+#include <deal.II/hp/mapping_collection.h>
+#include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <parameter_reader.h>
 #include <types.h>
@@ -16,16 +19,34 @@
 using namespace dealii;
 
 /**
- * The scratch data are helper structures containing all sorts of quantities
- * that must be computed on each elements and faces during assembly, e.g.,
- * the current interpolated FE solution and its gradients, among many others.
+ * ScratchDatas are helper temporary structures containing all sorts of
+ * quantities that must be computed on each elements and faces during assembly,
+ * e.g., the current solution and its gradients interpolated at the quadrature
+ * nodes, the shape functions and their derivatives, among many others. See also
+ * the deal.II doc of meshworker/scratch_data.h and the run() functions in
+ * work_stream.h. A ScratchData is thus essentially a collection of FEValues and
+ * FEFaceValues, together with vectors of data used for assembly.
+ *
+ * This base class is a ScratchData common to all solvers, which can enable or
+ * disable the pre-computation of specific fields (see derived scratches below).
+ * By default, the Navier-Stokes related quantities are computed for all
+ * solvers. They are computed at the quadrature nodes located inside the mesh
+ * elements, and at those located on their faces if the element touches a
+ * boundary.
+ *
+ * This scratch has FEValues/FEFaceValues defined on both the fixed and moving
+ * mesh: only quantities used to assemble the pseudo-solid equation are
+ * evaluated on the fixed mesh, whereas *all* other fields are evaluated on the
+ * moving mesh. Of course, when the passed mapping representing the moving mesh
+ * is also the fixed mapping, then everything is evaluated on a unique fixed
+ * mesh.
+ *
+ * This class is templated to have hp capabilities. In that case,
+ * hp::FEValues/FEFaceValues are stored and the appropriate
+ * FEValues/FEFaceValues are selected on the current cell when the scratch is
+ * reinit'ed.
  */
-
-/**
- * This scratch data contains all the possible fields, and only allocates and
- * reinits depending on which flags are enabled
- */
-template <int dim>
+template <int dim, bool has_hp_capabilities = false>
 class ScratchData
 {
 public:
@@ -45,6 +66,21 @@ public:
               const ParameterReader<dim> &param);
 
   /**
+   * Constructor with hp capabilities
+   */
+  ScratchData(const ComponentOrdering          &ordering,
+              const bool                        enable_pseudo_solid,
+              const bool                        enable_lagrange_multiplier,
+              const bool                        enable_cahn_hilliard,
+              const hp::FECollection<dim>      &fe_collection,
+              const hp::MappingCollection<dim> &fixed_mapping_collection,
+              const hp::MappingCollection<dim> &moving_mapping_collection,
+              const hp::QCollection<dim>       &cell_quadrature_collection,
+              const hp::QCollection<dim - 1>   &face_quadrature_collection,
+              const std::vector<double>        &bdf_coefficients,
+              const ParameterReader<dim>       &param);
+
+  /**
    * Copy constructor
    */
   ScratchData(const ScratchData &other);
@@ -57,8 +93,23 @@ private:
   void initialize_lagrange_multiplier();
   void initialize_cahn_hilliard();
 
+  /**
+   * Reinit FEValues or FEFaceValues and return a reference to it.
+   * Adapted from the reinit routines in deal.II's meshworker/scratch_data.cc,
+   * for the hp case and with spacedim = dim.
+   */
+  const FEValues<dim> *
+  reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
+         const bool                                            fixed_mapping);
+
+  const FEFaceValues<dim> *
+  reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
+         const unsigned int                                    face_no,
+         const bool                                            fixed_mapping);
+
   template <typename VectorType>
   void reinit_navier_stokes_cell(
+    const FEValues<dim>                  &fe_values,
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
@@ -106,8 +157,9 @@ private:
 
   template <typename VectorType>
   void reinit_navier_stokes_face(
-    const unsigned int i_face,
-    const VectorType  &current_solution,
+    const unsigned int       i_face,
+    const FEFaceValues<dim> &fe_face_values,
+    const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
     const std::shared_ptr<Function<dim>> & /*source_terms*/,
     const std::shared_ptr<Function<dim>> &exact_solution)
@@ -141,6 +193,7 @@ private:
 
   template <typename VectorType>
   void reinit_pseudo_solid_cell(
+    const FEValues<dim>                  &fe_values_fixed,
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
@@ -154,8 +207,8 @@ private:
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
     {
-      fe_values[velocity].get_function_values(previous_solutions[i],
-                                              previous_velocity_values[i]);
+      // fe_values[velocity].get_function_values(previous_solutions[i],
+      //                                            previous_velocity_values[i]);
       fe_values_fixed[position].get_function_values(
         previous_solutions[i], previous_position_values[i]);
     }
@@ -214,6 +267,8 @@ private:
   template <typename VectorType>
   void reinit_pseudo_solid_face(
     const unsigned int             i_face,
+    const FEFaceValues<dim>       &fe_face_values,
+    const FEFaceValues<dim>       &fe_face_values_fixed,
     const VectorType              &current_solution,
     const std::vector<VectorType> &previous_solutions,
     const std::shared_ptr<Function<dim>> & /*source_terms*/,
@@ -242,64 +297,91 @@ private:
 
       if constexpr (dim == 2)
       {
-        switch (i_face)
-        {
-          case 0:
-            dxsids_array[0][0] = 1.;
-            dxsids_array[0][1] = 0.;
-            break;
-          case 1:
-            dxsids_array[0][0] = -1.;
-            dxsids_array[0][1] = 1.;
-            break;
-          case 2:
-            dxsids_array[0][0] = 0.;
-            dxsids_array[0][1] = -1.;
-            break;
-          default:
-            DEAL_II_ASSERT_UNREACHABLE();
-        }
+        if (use_quads)
+          switch (i_face)
+          {
+            case 0:
+              dxsids_array[0][0] = 0.;
+              dxsids_array[0][1] = 2.;
+              break;
+            case 1:
+              dxsids_array[0][0] = 0.;
+              dxsids_array[0][1] = 2.;
+              break;
+            case 2:
+              dxsids_array[0][0] = 2.;
+              dxsids_array[0][1] = 0.;
+              break;
+            case 3:
+              dxsids_array[0][0] = 2.;
+              dxsids_array[0][1] = 0.;
+              break;
+            default:
+              DEAL_II_ASSERT_UNREACHABLE();
+          }
+        else
+          switch (i_face)
+          {
+            case 0:
+              dxsids_array[0][0] = 1.;
+              dxsids_array[0][1] = 0.;
+              break;
+            case 1:
+              dxsids_array[0][0] = -1.;
+              dxsids_array[0][1] = 1.;
+              break;
+            case 2:
+              dxsids_array[0][0] = 0.;
+              dxsids_array[0][1] = -1.;
+              break;
+            default:
+              DEAL_II_ASSERT_UNREACHABLE();
+          }
       }
       else
       {
-        switch (i_face)
-        {
-          // Using dealii's face ordering
-          case 3: // Opposite to v0
-            dxsids_array[0][0] = -1.;
-            dxsids_array[1][0] = -1.;
-            dxsids_array[0][1] = 1.;
-            dxsids_array[1][1] = 0.;
-            dxsids_array[0][2] = 0.;
-            dxsids_array[1][2] = 1.;
-            break;
-          case 2: // Opposite to v1
-            dxsids_array[0][0] = 0.;
-            dxsids_array[1][0] = 0.;
-            dxsids_array[0][1] = 1.;
-            dxsids_array[1][1] = 0.;
-            dxsids_array[0][2] = 0.;
-            dxsids_array[1][2] = 1.;
-            break;
-          case 1: // Opposite to v2
-            dxsids_array[0][0] = 1.;
-            dxsids_array[1][0] = 0.;
-            dxsids_array[0][1] = 0.;
-            dxsids_array[1][1] = 0.;
-            dxsids_array[0][2] = 0.;
-            dxsids_array[1][2] = 1.;
-            break;
-          case 0: // Opposite to v3
-            dxsids_array[0][0] = 1.;
-            dxsids_array[1][0] = 0.;
-            dxsids_array[0][1] = 0.;
-            dxsids_array[1][1] = 1.;
-            dxsids_array[0][2] = 0.;
-            dxsids_array[1][2] = 0.;
-            break;
-          default:
-            DEAL_II_ASSERT_UNREACHABLE();
-        }
+        if (use_quads)
+          // TODO!
+          DEAL_II_NOT_IMPLEMENTED();
+        else
+          switch (i_face)
+          {
+            // Using dealii's face ordering
+            case 3: // Opposite to v0
+              dxsids_array[0][0] = -1.;
+              dxsids_array[1][0] = -1.;
+              dxsids_array[0][1] = 1.;
+              dxsids_array[1][1] = 0.;
+              dxsids_array[0][2] = 0.;
+              dxsids_array[1][2] = 1.;
+              break;
+            case 2: // Opposite to v1
+              dxsids_array[0][0] = 0.;
+              dxsids_array[1][0] = 0.;
+              dxsids_array[0][1] = 1.;
+              dxsids_array[1][1] = 0.;
+              dxsids_array[0][2] = 0.;
+              dxsids_array[1][2] = 1.;
+              break;
+            case 1: // Opposite to v2
+              dxsids_array[0][0] = 1.;
+              dxsids_array[1][0] = 0.;
+              dxsids_array[0][1] = 0.;
+              dxsids_array[1][1] = 0.;
+              dxsids_array[0][2] = 0.;
+              dxsids_array[1][2] = 1.;
+              break;
+            case 0: // Opposite to v3
+              dxsids_array[0][0] = 1.;
+              dxsids_array[1][0] = 0.;
+              dxsids_array[0][1] = 0.;
+              dxsids_array[1][1] = 1.;
+              dxsids_array[0][2] = 0.;
+              dxsids_array[1][2] = 0.;
+              break;
+            default:
+              DEAL_II_ASSERT_UNREACHABLE();
+          }
       }
 
       Tensor<2, dim - 1> G;
@@ -338,10 +420,14 @@ private:
                 for (unsigned int io = 0; io < dim; ++io)
                   res[di][dj] += G_inverse[di][im] * dxsids_array[im][in] *
                                  A[in][io] * dxsids_array[dj][io];
-        delta_dx[i_face][q][k] =
-          0.5 * trace(res); // Choose this if multiplying by JxW in the matrix
-        // delta_dx[i_face][q][k] = 0.5 * sqrt_det_G * trace(res); // Choose
-        // this if multiplying by W
+
+        // Choose this delta_dx if multiplying by JxW in the matrix
+        delta_dx[i_face][q][k] = 0.5 * trace(res);
+
+        // If instead the matrix term is multiplied only by the weight,
+        // use this delta_dx (this is the actual delta_dx, but the other
+        // is used to multiply only once the whole local matrix).
+        // delta_dx[i_face][q][k] = 0.5 * sqrt_det_G * trace(res);
       }
 
       // Face mesh velocity
@@ -358,8 +444,9 @@ private:
 
   template <typename VectorType>
   void reinit_lagrange_multiplier_face(
-    const unsigned int i_face,
-    const VectorType  &current_solution,
+    const unsigned int       i_face,
+    const FEFaceValues<dim> &fe_face_values,
+    const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
     const std::shared_ptr<Function<dim>> & /*source_terms*/,
     const std::shared_ptr<Function<dim>> & /*exact_solution*/)
@@ -374,6 +461,7 @@ private:
 
   template <typename VectorType>
   void reinit_cahn_hilliard_cell(
+    const FEValues<dim>                  &fe_values,
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
@@ -432,6 +520,10 @@ private:
   }
 
 public:
+  /**
+   * Reinit this ScratchData on the given cell.
+   * Default function to call when using a ScratchData.
+   */
   template <typename VectorType>
   void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
               const VectorType                     &current_solution,
@@ -439,27 +531,40 @@ public:
               const std::shared_ptr<Function<dim>> &source_terms,
               const std::shared_ptr<Function<dim>> &exact_solution)
   {
-    fe_values.reinit(cell);
+    /**
+     * Reinit the fe_values on moving mesh on the current cell, and possibly the
+     * fe_values on fixed mesh if enable_pseudo_solid is true.
+     *
+     * In the hp setting, these are the FEValues which are appropriate for the
+     * current cell, extracted from the hp::FEValues with
+     * get_present_fe_values().
+     */
+    active_fe_values = this->reinit(cell, false);
     if (enable_pseudo_solid)
-      fe_values_fixed.reinit(cell);
+      active_fe_values_fixed = this->reinit(cell, true);
 
-    for (const unsigned int i : fe_values.dof_indices())
-      components[i] = fe_values.get_fe().system_to_component_index(i).first;
+    dofs_per_cell = active_fe_values->dofs_per_cell;
+    for (const unsigned int i : active_fe_values->dof_indices())
+      components[i] =
+        active_fe_values->get_fe().system_to_component_index(i).first;
 
     /**
      * Volume contributions
      */
-    reinit_navier_stokes_cell(current_solution,
+    reinit_navier_stokes_cell(*active_fe_values,
+                              current_solution,
                               previous_solutions,
                               source_terms,
                               exact_solution);
     if (enable_pseudo_solid)
-      reinit_pseudo_solid_cell(current_solution,
+      reinit_pseudo_solid_cell(*active_fe_values_fixed,
+                               current_solution,
                                previous_solutions,
                                source_terms,
                                exact_solution);
     if (enable_cahn_hilliard)
-      reinit_cahn_hilliard_cell(current_solution,
+      reinit_cahn_hilliard_cell(*active_fe_values,
+                                current_solution,
                                 previous_solutions,
                                 source_terms,
                                 exact_solution);
@@ -475,23 +580,31 @@ public:
         {
           face_boundary_id[i_face] = face->boundary_id();
 
-          fe_face_values.reinit(cell, face);
+          /**
+           * Reinit the fe_face_values on moving (and possibly fixed) mesh,
+           * with the same remark as for cells regarding the hp setting.
+           */
+          active_fe_face_values = this->reinit(cell, i_face, false);
           if (enable_pseudo_solid)
-            fe_face_values_fixed.reinit(cell, face);
+            active_fe_face_values_fixed = this->reinit(cell, i_face, true);
 
           reinit_navier_stokes_face(i_face,
+                                    *active_fe_face_values,
                                     current_solution,
                                     previous_solutions,
                                     source_terms,
                                     exact_solution);
           if (enable_pseudo_solid)
             reinit_pseudo_solid_face(i_face,
+                                     *active_fe_face_values,
+                                     *active_fe_face_values_fixed,
                                      current_solution,
                                      previous_solutions,
                                      source_terms,
                                      exact_solution);
           if (enable_lagrange_multiplier)
             reinit_lagrange_multiplier_face(i_face,
+                                            *active_fe_face_values,
                                             current_solution,
                                             previous_solutions,
                                             source_terms,
@@ -501,6 +614,7 @@ public:
   }
 
 private:
+  const bool              use_quads;
   const ComponentOrdering ordering;
 
   unsigned int n_components;
@@ -518,17 +632,27 @@ private:
   Parameters::PhysicalProperties<dim> physical_properties;
   Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
-  FEValues<dim> fe_values;
-  FEValues<dim> fe_values_fixed;
+  // Non-owning pointers for active FEValues/FaceValues
+  const FEValues<dim>     *active_fe_values;
+  const FEValues<dim>     *active_fe_values_fixed;
+  const FEFaceValues<dim> *active_fe_face_values;
+  const FEFaceValues<dim> *active_fe_face_values_fixed;
 
-  FEFaceValues<dim> fe_face_values;
-  FEFaceValues<dim> fe_face_values_fixed;
+  std::unique_ptr<FEValues<dim>>     fe_values;
+  std::unique_ptr<FEValues<dim>>     fe_values_fixed;
+  std::unique_ptr<FEFaceValues<dim>> fe_face_values;
+  std::unique_ptr<FEFaceValues<dim>> fe_face_values_fixed;
+
+  std::unique_ptr<hp::FEValues<dim>>     hp_fe_values;
+  std::unique_ptr<hp::FEValues<dim>>     hp_fe_values_fixed;
+  std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values;
+  std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values_fixed;
 
 public:
-  const unsigned int n_q_points;
-  const unsigned int n_faces;
-  const unsigned int n_faces_q_points;
-  const unsigned int dofs_per_cell;
+  unsigned int n_q_points;
+  unsigned int n_faces;
+  unsigned int n_faces_q_points;
+  unsigned int dofs_per_cell;
 
   const std::vector<double> bdf_coefficients;
 
@@ -708,6 +832,46 @@ public:
 };
 
 /**
+ * hp Scratch data for the incompressible NS solver with Lagrange multiplier.
+ */
+template <int dim>
+class ScratchDataIncompressibleNSLambda : public ScratchData<dim, true>
+{
+public:
+  /**
+   * Constructor
+   */
+  ScratchDataIncompressibleNSLambda(
+    const ComponentOrdering          &ordering,
+    const hp::FECollection<dim>      &fe_collection,
+    const hp::MappingCollection<dim> &mapping_collection,
+    const hp::QCollection<dim>       &cell_quadrature_collection,
+    const hp::QCollection<dim - 1>   &face_quadrature_collection,
+    const std::vector<double>        &bdf_coefficients,
+    const ParameterReader<dim>       &param)
+    : ScratchData<dim, true>(ordering,
+                             /*enable_pseudo_solid = */ false,
+                             /*enable_lagrange_multiplier = */ true,
+                             /*enable_cahn_hilliard = */ false,
+                             fe_collection,
+                             mapping_collection,
+                             mapping_collection,
+                             cell_quadrature_collection,
+                             face_quadrature_collection,
+                             bdf_coefficients,
+                             param)
+  {}
+
+  /**
+   * Copy constructor
+   */
+  ScratchDataIncompressibleNSLambda(
+    const ScratchDataIncompressibleNSLambda &other)
+    : ScratchData<dim, true>(other)
+  {}
+};
+
+/**
  * Scratch data for the FSI solver on moving mesh.
  */
 template <int dim>
@@ -750,7 +914,7 @@ public:
  * Scratch data for the quasi-incompressible Cahn_hilliard Navier-Stokes solver
  * on fixed mesh.
  */
-template <int dim>
+template <int dim, bool with_moving_mesh = false>
 class ScratchDataCHNS : public ScratchData<dim>
 {
 public:
@@ -759,18 +923,19 @@ public:
    */
   ScratchDataCHNS(const ComponentOrdering    &ordering,
                   const FESystem<dim>        &fe,
-                  const Mapping<dim>         &mapping,
+                  const Mapping<dim>         &fixed_mapping,
+                  const Mapping<dim>         &moving_mapping,
                   const Quadrature<dim>      &cell_quadrature,
                   const Quadrature<dim - 1>  &face_quadrature,
                   const std::vector<double>  &bdf_coefficients,
                   const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
-                       /*enable_pseudo_solid = */ false,
+                       /*enable_pseudo_solid = */ with_moving_mesh,
                        /*enable_lagrange_multiplier = */ false,
                        /*enable_cahn_hilliard = */ true,
                        fe,
-                       mapping,
-                       mapping,
+                       fixed_mapping,
+                       moving_mapping,
                        cell_quadrature,
                        face_quadrature,
                        bdf_coefficients,

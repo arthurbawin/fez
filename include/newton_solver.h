@@ -34,6 +34,7 @@ public:
     double norm_residual = 0;
     double last_residual;
     bool   recompute_rhs = true;
+    bool   assemble      = false;
 
     auto       solver = this->solver;
     const bool verbose =
@@ -53,12 +54,14 @@ public:
 
       if (verbose)
       {
-        solver->pcout << "Newton iter. " << std::setw(2) << iter << ": "
-                      << std::scientific
-                      << std::setprecision(8)
-                      // << "incr. = "  << norm_increment << " "
-                      << "         nonlinear residual = " << norm_residual
-                      << std::endl;
+        solver->pcout
+          << "Newton iter. " << std::setw(2) << iter << ": " << std::scientific
+          << std::setprecision(8)
+          // << "incr. = "  << norm_increment << " "
+          << "         nonlinear residual = "
+          << norm_residual
+          // Print (M) if the matrix was assembled to obtain this residual norm
+          << (assemble ? "\t(M)" : "") << std::endl;
       }
 
       // Abort if residual is too high
@@ -75,22 +78,27 @@ public:
 
       if (norm_residual <= this->param.tolerance)
       {
-        if(verbose)
+        if (verbose)
           solver->pcout
             << "Stopping because residual is below prescribed tolerance ("
-            << std::setprecision(2) << this->param.tolerance << ")" << std::endl;
+            << std::setprecision(2) << this->param.tolerance << ")"
+            << std::endl;
         break;
       }
 
       // Assemble matrix and solve
-      solver->assemble_matrix();
+      assemble = this->reassembly_heuristic(norm_residual, last_residual, iter);
+      if (assemble)
+        solver->assemble_matrix();
       solver->solve_linear_system(first_step);
       // norm_increment = solver->newton_update.linfty_norm();
 
       if (this->param.enable_line_search)
       {
-        double       norm_ls_residual;
-        unsigned int ls_iter = 0;
+        double norm_ls_residual;
+        double last_ls_residual = last_residual;
+        last_residual           = norm_residual;
+        unsigned int ls_iter    = 0;
 
         for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
         {
@@ -102,7 +110,7 @@ public:
           solver->assemble_rhs(); // NL(u + alpha * du)
           norm_ls_residual = solver->system_rhs.l2_norm();
 
-          if(verbose)
+          if (verbose)
           {
             solver->pcout << "\tLine search with alpha = " << std::fixed
                           << std::setprecision(3) << alpha << std::scientific
@@ -113,32 +121,32 @@ public:
           // Exit if next residual is below tolerance
           if (norm_ls_residual <= this->param.tolerance)
           {
-            if(verbose)
+            if (verbose)
               solver->pcout << "Stopping because residual is below "
                                "prescribed tolerance ("
                             << std::setprecision(2) << this->param.tolerance
                             << ")" << std::endl;
-            last_residual = norm_ls_residual;
-            stop          = true;
+            // last_residual = norm_ls_residual;
+            stop = true;
             break;
           }
 
           // Accept step if an Armijo-like sufficient condition is satisfied,
           // exit line search and continue Newton iterations.
-          if (norm_ls_residual <= 0.1 * last_residual)
+          if (norm_ls_residual <= 0.1 * last_ls_residual)
           {
             // RHS was just computed, no need to recompute
             recompute_rhs = false;
-            last_residual = norm_ls_residual;
+            // last_residual = norm_ls_residual;
             norm_residual = norm_ls_residual;
             break;
           }
 
           // If residual increased, backtrack and exit
           // Do not reject first iteration
-          if (norm_ls_residual > last_residual && ls_iter > 0)
+          if (norm_ls_residual > last_ls_residual && ls_iter > 0)
           {
-            if(verbose)
+            if (verbose)
               solver->pcout << "\tRejecting last step and backtracking"
                             << std::endl;
             // RHS will need to be recomputed for backtracked solution
@@ -151,7 +159,9 @@ public:
             break;
           }
 
-          last_residual = norm_ls_residual;
+          // Residual decreased, but not enough to accept step or finish Newton
+          // solve. Continue with smaller alpha.
+          last_ls_residual = norm_ls_residual;
         }
       }
       else
@@ -161,19 +171,45 @@ public:
         solver->local_evaluation_point.add(1., solver->newton_update);
         solver->distribute_nonzero_constraints();
         solver->evaluation_point = solver->local_evaluation_point;
+        last_residual            = norm_residual;
       }
+
 
       solver->present_solution = solver->evaluation_point;
       ++iter;
 
-      if(iter > this->param.max_iterations)
+      if (iter > this->param.max_iterations)
         stop = true;
     }
 
-    if(iter > this->param.max_iterations && norm_residual > this->param.tolerance)
+    if (iter > this->param.max_iterations &&
+        norm_residual > this->param.tolerance)
     {
       throw std::runtime_error("Nonlinear solver did not converge");
     }
+  }
+
+private:
+  /**
+   * An heuristic to determine whether the matrix should be assembled
+   */
+  bool reassembly_heuristic(const double       current_residual_norm,
+                            const double       previous_residual_norm,
+                            const unsigned int current_iteration) const
+  {
+    const auto time_param = this->solver->get_time_parameters();
+
+    // Always (re)assemble if solving for steady state
+    if (time_param.is_steady())
+      return true;
+
+    // Assemble if, during the last solve, the residual norm did not decrease
+    // enough w.r.t. the previous residual norm
+    if (current_residual_norm >
+        this->param.reassembly_decrease_tol * previous_residual_norm)
+      return true;
+
+    return false;
   }
 };
 

@@ -395,6 +395,7 @@ namespace BoundaryConditions
         mms_normal_flux_boundaries.insert(bc.id);
         mms_position_flux_functions[bc.id] = &exact_mesh_position;
       }
+      // FIXME: Error if BC not handled?
     }
 
     // Add position nonzero flux constraints (tangential movement)

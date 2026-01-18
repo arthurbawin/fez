@@ -28,6 +28,7 @@ public:
   Parameters::PhysicalProperties<dim> physical_properties;
   Parameters::FSI                     fsi;
   Parameters::TimeIntegration         time_integration;
+  Parameters::CheckpointRestart       checkpoint_restart;
   Parameters::LinearSolver            linear_solver;
   Parameters::NonLinearSolver         nonlinear_solver;
   Parameters::CahnHilliard<dim>       cahn_hilliard;
@@ -78,6 +79,7 @@ public:
     physical_properties.declare_parameters(prm);
     fsi.declare_parameters(prm);
     time_integration.declare_parameters(prm);
+    checkpoint_restart.declare_parameters(prm);
     linear_solver.declare_parameters(prm);
     nonlinear_solver.declare_parameters(prm);
     initial_conditions.declare_parameters(prm);
@@ -112,6 +114,7 @@ public:
     physical_properties.read_parameters(prm);
     fsi.read_parameters(prm);
     time_integration.read_parameters(prm);
+    checkpoint_restart.read_parameters(prm);
     linear_solver.read_parameters(prm);
     nonlinear_solver.read_parameters(prm);
     initial_conditions.read_parameters(prm);

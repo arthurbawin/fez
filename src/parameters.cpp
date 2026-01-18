@@ -301,6 +301,10 @@ namespace Parameters
   {
     prm.enter_subsection("FiniteElements");
     {
+      prm.declare_entry("use quads",
+                        "false",
+                        Patterns::Bool(),
+                        "If true, use quads/hexes instead of simplices");
       prm.declare_entry("Velocity degree",
                         "2",
                         Patterns::Integer(),
@@ -339,6 +343,7 @@ namespace Parameters
   {
     prm.enter_subsection("FiniteElements");
     {
+      use_quads            = prm.get_bool("use quads");
       velocity_degree      = prm.get_integer("Velocity degree");
       pressure_degree      = prm.get_integer("Pressure degree");
       mesh_position_degree = prm.get_integer("Mesh position degree");
@@ -496,6 +501,16 @@ namespace Parameters
         "true",
         Patterns::Bool(),
         "Compute exact Jacobian matrix. If false, use finite differences.");
+      prm.enter_subsection("reassembly heuristic");
+      {
+        prm.declare_entry(
+          "decrease tolerance",
+          "0.",
+          Patterns::Double(),
+          "If the norm of the current residual is higher than this value times "
+          "the previous residual norm, reassemble the matrix.");
+      }
+      prm.leave_subsection();
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
     }
     prm.leave_subsection();
@@ -510,6 +525,11 @@ namespace Parameters
       max_iterations       = prm.get_integer("max_iterations");
       enable_line_search   = prm.get_bool("enable_line_search");
       analytic_jacobian    = prm.get_bool("analytic_jacobian");
+      prm.enter_subsection("reassembly heuristic");
+      {
+        reassembly_decrease_tol = prm.get_double("decrease tolerance");
+      }
+      prm.leave_subsection();
       READ_VERBOSITY_PARAM(prm);
     }
     prm.leave_subsection();
@@ -534,7 +554,7 @@ namespace Parameters
       prm.declare_entry("ilu fill level",
                         "0",
                         Patterns::Integer(),
-                        "Max lelve of fill-in for ILU preconditioner");
+                        "Max level of fill-in for ILU preconditioner");
       prm.declare_entry("renumber", "false", Patterns::Bool(), "");
       prm.declare_entry("reuse", "false", Patterns::Bool(), "");
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
@@ -679,6 +699,42 @@ namespace Parameters
 
   template class CahnHilliard<2>;
   template class CahnHilliard<3>;
+
+  void CheckpointRestart::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Checkpoint Restart");
+    {
+      prm.declare_entry("enable checkpoint",
+                        "false",
+                        Patterns::Bool(),
+                        "Save data periodically to allow restart?");
+      prm.declare_entry("restart",
+                        "false",
+                        Patterns::Bool(),
+                        "Restart simulation from given checkpoint file?");
+      prm.declare_entry("checkpoint file",
+                        "checkpoint",
+                        Patterns::Anything(),
+                        "Name of the file to write to and read from the checkpoint");
+      prm.declare_entry("checkpoint frequency",
+                        "10",
+                        Patterns::Integer(),
+                        "Write a checkpoint every N time steps");
+    }
+    prm.leave_subsection();
+  }
+
+  void CheckpointRestart::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Checkpoint Restart");
+    {
+      enable_checkpoint = prm.get_bool("enable checkpoint");
+      restart = prm.get_bool("restart");
+      filename = prm.get("checkpoint file");
+      checkpoint_frequency = prm.get_integer("checkpoint frequency");
+    }
+    prm.leave_subsection();
+  }
 
   void MMS::declare_parameters(ParameterHandler &prm)
   {
@@ -870,6 +926,10 @@ namespace Parameters
     prm.enter_subsection("Debug");
     {
       DECLARE_VERBOSITY_PARAM(prm, "quiet")
+      prm.declare_entry("write partition gmsh",
+                        "false",
+                        Patterns::Bool(),
+                        "Write the mesh partitions as a Gmsh .pos file.");
       prm.declare_entry("apply exact solution", "false", Patterns::Bool(), "");
       prm.declare_entry("compare jacobian matrix with fd",
                         "false",
@@ -891,6 +951,10 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "");
+      prm.declare_entry("fsi_coupling_option",
+                        "1",
+                        Patterns::Integer(),
+                        "");
     }
     prm.leave_subsection();
   }
@@ -900,7 +964,8 @@ namespace Parameters
     prm.enter_subsection("Debug");
     {
       READ_VERBOSITY_PARAM(prm)
-      apply_exact_solution = prm.get_bool("apply exact solution");
+      write_partition_pos_gmsh = prm.get_bool("write partition gmsh");
+      apply_exact_solution     = prm.get_bool("apply exact solution");
       compare_analytical_jacobian_with_fd =
         prm.get_bool("compare jacobian matrix with fd");
       analytical_jacobian_absolute_tolerance =
@@ -910,6 +975,7 @@ namespace Parameters
       fsi_apply_erroneous_coupling =
         prm.get_bool("fsi_apply_erroneous_coupling");
       fsi_check_mms_on_boundary = prm.get_bool("fsi_check_mms_on_boundary");
+      fsi_coupling_option = prm.get_integer("fsi_coupling_option");
     }
     prm.leave_subsection();
   }

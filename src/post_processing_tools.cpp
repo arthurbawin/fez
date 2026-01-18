@@ -4,6 +4,9 @@
 #include <deal.II/fe/fe_face.h>
 #include <deal.II/fe/fe_values.h>
 #include <post_processing_tools.h>
+#include <deal.II/grid/tria.h>
+#include <deal.II/numerics/data_out_faces.h>
+
 
 #include <algorithm>
 #include <cmath>
@@ -14,63 +17,76 @@ namespace PostProcessingTools
   using namespace dealii;
 
   template <int dim>
-  BoundaryDataOutFaces<dim>::BoundaryDataOutFaces(
-    const DoFHandler<dim>   &dof_handler_,
-    const types::boundary_id boundary_id_,
-    const bool               surface_only)
-    : Base(surface_only)
-    , dof_handler(&dof_handler_)
+  DataOutFacesOnBoundary<dim>::DataOutFacesOnBoundary(
+    const Triangulation<dim> &triangulation_,
+    const types::boundary_id  boundary_id_)
+    : DataOutFaces<dim>(/*surface_only=*/true)
+    , triangulation(triangulation_)
     , boundary_id(boundary_id_)
   {}
 
   template <int dim>
-  typename BoundaryDataOutFaces<dim>::FaceDescriptor
-  BoundaryDataOutFaces<dim>::first_face()
+  typename DataOutFacesOnBoundary<dim>::FaceDescriptor
+  DataOutFacesOnBoundary<dim>::first_face()
   {
-    for (auto cell = dof_handler->begin_active(); cell != dof_handler->end();
-         ++cell)
-    {
-      if (!cell->is_locally_owned())
-        continue;
+    for (const auto &cell : this->triangulation.active_cell_iterators())
+      if (cell->is_locally_owned())
+        for (const unsigned int f : cell->face_indices())
+        {
+          const auto &face = cell->face(f);
+          if (face->at_boundary() && face->boundary_id() == this->boundary_id)
+            return FaceDescriptor(cell, f);
+        }
 
-      for (const auto f : cell->face_indices())
-        if (cell->face(f)->at_boundary() &&
-            cell->face(f)->boundary_id() == boundary_id)
-          return FaceDescriptor(cell, f);
-    }
-
-    return FaceDescriptor(dof_handler->end(), 0U);
+    // Peut arriver en parallèle si toutes les faces de cette boundary_id
+    // sont possédées par d'autres ranks.
+    return FaceDescriptor();
   }
 
   template <int dim>
-  typename BoundaryDataOutFaces<dim>::FaceDescriptor
-  BoundaryDataOutFaces<dim>::next_face(const FaceDescriptor &face)
+  typename DataOutFacesOnBoundary<dim>::FaceDescriptor
+  DataOutFacesOnBoundary<dim>::next_face(const FaceDescriptor &old_face)
   {
-    cell_iterator cell = face.first;
-    unsigned int  f    = face.second;
+    FaceDescriptor face = old_face;
 
-    if (cell == dof_handler->end())
+    if (face.first == this->triangulation.end())
       return face;
 
+    Assert(face.first->is_locally_owned(), ExcInternalError());
+
     // 1) faces suivantes sur la même cellule
-    for (unsigned int ff = f + 1; ff < cell->n_faces(); ++ff)
-      if (cell->face(ff)->at_boundary() &&
-          cell->face(ff)->boundary_id() == boundary_id)
-        return FaceDescriptor(cell, ff);
-
-    // 2) cellules suivantes
-    for (++cell; cell != dof_handler->end(); ++cell)
+    for (unsigned int f = face.second + 1; f < face.first->n_faces(); ++f)
     {
-      if (!cell->is_locally_owned())
-        continue;
-
-      for (const auto ff : cell->face_indices())
-        if (cell->face(ff)->at_boundary() &&
-            cell->face(ff)->boundary_id() == boundary_id)
-          return FaceDescriptor(cell, ff);
+      const auto &face_iter = face.first->face(f);
+      if (face_iter->at_boundary() &&
+          face_iter->boundary_id() == this->boundary_id)
+      {
+        face.second = f;
+        return face;
+      }
     }
 
-    return FaceDescriptor(dof_handler->end(), 0U);
+    // 2) cellules suivantes
+    typename Triangulation<dim>::active_cell_iterator active_cell = face.first;
+    ++active_cell;
+
+    while (active_cell != this->triangulation.end())
+    {
+      if (active_cell->is_locally_owned())
+        for (const unsigned int f : active_cell->face_indices())
+          if (active_cell->face(f)->at_boundary() &&
+              active_cell->face(f)->boundary_id() == this->boundary_id)
+          {
+            face.first  = active_cell;
+            face.second = f;
+            return face;
+          }
+      ++active_cell;
+    }
+
+    face.first  = this->triangulation.end();
+    face.second = 0;
+    return face;
   }
 
   template <int dim>
@@ -189,6 +205,6 @@ namespace PostProcessingTools
 
 } // namespace PostProcessingTools
 
-// --------- explicit instantiation for BoundaryDataOutFaces ---------
-template class PostProcessingTools::BoundaryDataOutFaces<2>;
-template class PostProcessingTools::BoundaryDataOutFaces<3>;
+// --------- explicit instantiation for DataOutFacesOnBoundary ---------
+template class PostProcessingTools::DataOutFacesOnBoundary<2>;
+template class PostProcessingTools::DataOutFacesOnBoundary<3>;

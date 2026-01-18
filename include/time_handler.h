@@ -5,6 +5,8 @@
 #include <deal.II/base/types.h>
 #include <parameters.h>
 
+using namespace dealii;
+
 /**
  * This class takes care of the time integration-related data:
  *
@@ -55,6 +57,13 @@ public:
   void advance(const ConditionalOStream &pcout);
 
   /**
+   * Shift the BDF solutions by one (u^{n-1} becomes u^n, etc.)
+   */
+  template <typename VectorType>
+  void rotate_solutions(const VectorType        &present_solution,
+                        std::vector<VectorType> &previous_solutions) const;
+
+  /**
    * Compute the approximation of the time derivative of the field associated to
    * the index-th dof, e.g. the sum c_i * u^(n - i) where c_i are the BDF
    * coefficients. This only makes sense for nodal finite elements, for which
@@ -86,6 +95,23 @@ public:
     const Tensor<1, dim>                           &present_solution,
     const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const;
 
+  /**
+   * Save the time integration data to a file.
+   */
+  void save() const;
+
+  /**
+   * Load time integration data from existing file.
+   */
+  void load();
+
+  /**
+   * 
+   */
+  template <class Archive>
+  void
+  serialize(Archive &ar, const unsigned int version);
+
 public:
   Parameters::TimeIntegration time_parameters;
 
@@ -106,6 +132,19 @@ public:
 };
 
 /* ---------------- Template functions ----------------- */
+
+template <typename VectorType>
+void TimeHandler::rotate_solutions(
+  const VectorType        &present_solution,
+  std::vector<VectorType> &previous_solutions) const
+{
+  if (!this->is_steady())
+  {
+    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
+      previous_solutions[j] = previous_solutions[j - 1];
+    previous_solutions[0] = present_solution;
+  }
+}
 
 template <typename VectorType>
 double TimeHandler::compute_time_derivative(
@@ -144,6 +183,20 @@ Tensor<1, dim> TimeHandler::compute_time_derivative_at_quadrature_node(
     return value_dot;
   }
   DEAL_II_ASSERT_UNREACHABLE();
+}
+
+template <class Archive>
+void
+TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
+{
+  ar &initial_time;
+  ar &final_time;
+  ar &current_time;
+  ar &current_time_iteration;
+  ar &previous_times;
+  ar &current_dt;
+  ar &time_steps;
+  ar &bdf_coefficients;
 }
 
 #endif

@@ -294,7 +294,9 @@ namespace ErrorEstimation
       const Patch<dim> &patch = patches[i];
 
       bool         is_full_rank = false;
-      unsigned int rank, num_patch_increases = 0, max_patch_increases = 2;
+      unsigned int rank;
+      // unsigned int num_patch_increases = 0;
+      // unsigned int max_patch_increases = 2;
 
       do
       {

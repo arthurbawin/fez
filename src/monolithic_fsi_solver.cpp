@@ -98,6 +98,9 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
    * flag to change the scheme at runtime, but do not allow using the first,
    * inefficient coupling.
    */
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "Using coupling scheme : "
+                << this->param.debug.fsi_coupling_option << std::endl;
   AssertThrow(this->param.debug.fsi_coupling_option != 0,
               ExcMessage(
                 "This parameter file still uses the inefficient coupling "
@@ -199,9 +202,13 @@ void FSISolver<dim>::reset_solver_specific_data()
     vec.clear();
   position_lambda_coeffs.clear();
   coupled_position_dofs.clear();
-  has_chunk_of_cylinder = false;
+  has_chunk_of_cylinder           = false;
+  has_global_master_position_dofs = false;
   for (unsigned int d = 0; d < dim; ++d)
-    local_position_master_dofs[d] = numbers::invalid_unsigned_int;
+  {
+    local_position_master_dofs[d]  = numbers::invalid_unsigned_int;
+    global_position_master_dofs[d] = numbers::invalid_unsigned_int;
+  }
 }
 
 template <int dim>
@@ -658,6 +665,43 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
       for (unsigned int d = 0; d < dim; ++d)
         local_position_master_dofs[d] = index_vector[d];
     }
+  }
+  else if (this->param.debug.fsi_coupling_option == 2)
+  {
+    // Set local master position dofs (smallest on cylinder on this rank)
+    // Then set global master position dofs (smallest of all on cylinder)
+    const auto index_vector = local_position_dofs.get_index_vector();
+    if (index_vector.size() > 0)
+    {
+      has_chunk_of_cylinder = true;
+      AssertThrow(index_vector.size() >= dim,
+                  ExcMessage(
+                    "This partition has position dofs on the cylinder, but has "
+                    "less than dim position dofs, which should not happen. It "
+                    "should have n * dim position dofs on this boundary."));
+      for (unsigned int d = 0; d < dim; ++d)
+        local_position_master_dofs[d] = index_vector[d];
+    }
+
+    // The global master dofs are those on the lowest rank among the ranks on
+    // which the local position dofs is defined
+    const unsigned int candidate_rank =
+      has_chunk_of_cylinder ? this->mpi_rank :
+                              std::numeric_limits<unsigned int>::max();
+    const unsigned int owner_rank =
+      Utilities::MPI::min(candidate_rank, this->mpi_communicator);
+    has_global_master_position_dofs = (this->mpi_rank == owner_rank);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      global_position_master_dofs[d] = local_position_master_dofs[d];
+
+    if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+      this->pcout << "Global master is on rank " << owner_rank << std::endl;
+
+    Utilities::MPI::broadcast(global_position_master_dofs.data(),
+                              dim,
+                              owner_rank,
+                              this->mpi_communicator);
   }
 
   //
@@ -1576,6 +1620,43 @@ void FSISolver<dim>::create_sparsity_pattern()
       }
       break;
     }
+    case 2:
+    {
+      if (has_chunk_of_cylinder)
+      {
+        if (has_global_master_position_dofs)
+        {
+          // Add position-lambda couplings *only* for global master pos dofs
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            // Couple the global master position dof in dimension d to the
+            // lambda of same dimension (one-way coupling)
+            for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
+              dsp.add(global_position_master_dofs[d], lambda_dof);
+          }
+        }
+        else
+        {
+          // If this rank does not own the global master position dofs,
+          // couple its position dofs to it
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            // Couple the global master position dof in dimension d to the
+            // lambda of same dimension (one-way coupling)
+            dsp.add(local_position_master_dofs[d],
+                    global_position_master_dofs[d]);
+          }
+        }
+
+        // For all ranks with a piece of cylinder, couple the remaining owned
+        // position dofs to the local master dof On the rank with the global
+        // master, the local masters are also the global. This coupling is local
+        // to the partition (also a one-way coupling)
+        for (const auto &[position_dof, d] : coupled_position_dofs)
+          dsp.add(position_dof, local_position_master_dofs[d]);
+      }
+      break;
+    }
     default:
       DEAL_II_ASSERT_UNREACHABLE();
   }
@@ -2309,6 +2390,104 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                                     lambda_dof,
                                     -weight);
         }
+        // Set x_i - x_master = 0 for the other coupled position dofs
+        for (const auto &[pos_dof, d] : coupled_position_dofs)
+          if (this->locally_owned_dofs.is_element(pos_dof) &&
+              pos_dof != local_position_master_dofs[d])
+          {
+            for (auto it : position_row_entries.at(pos_dof))
+              this->system_matrix.set(pos_dof, it->column(), 0.0);
+
+            this->system_matrix.set(pos_dof, pos_dof, 1.);
+            this->system_matrix.set(pos_dof,
+                                    local_position_master_dofs[d],
+                                    -1.);
+          }
+      }
+      break;
+    }
+    case 2:
+    {
+      if (has_chunk_of_cylinder)
+      {
+        // Constrain matrix
+        // - Constrain the local master position dofs to the sum of lambda
+        // - Constrain each other coupled position dofs to the local master
+
+        if (has_global_master_position_dofs)
+        {
+          // Get the rows for the global master position dofs
+          std::map<types::global_dof_index,
+                   std::vector<LA::ConstMatrixIterator>>
+            master_position_row_entries;
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            std::vector<LA::ConstMatrixIterator> row_entries;
+            for (auto it =
+                   this->system_matrix.begin(global_position_master_dofs[d]);
+                 it != this->system_matrix.end(global_position_master_dofs[d]);
+                 ++it)
+              row_entries.push_back(it);
+            master_position_row_entries[global_position_master_dofs[d]] =
+              row_entries;
+          }
+
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            for (auto it :
+                 master_position_row_entries.at(global_position_master_dofs[d]))
+              this->system_matrix.set(global_position_master_dofs[d],
+                                      it->column(),
+                                      0.0);
+
+            // Set constraint row: x_master - sum_j c_j * lambda_j = 0
+            this->system_matrix.set(global_position_master_dofs[d],
+                                    global_position_master_dofs[d],
+                                    1.);
+            for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
+              this->system_matrix.set(global_position_master_dofs[d],
+                                      lambda_dof,
+                                      -weight);
+          }
+        }
+        else
+        {
+          // Get the rows for the local master position dofs
+          std::map<types::global_dof_index,
+                   std::vector<LA::ConstMatrixIterator>>
+            master_position_row_entries;
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            std::vector<LA::ConstMatrixIterator> row_entries;
+            for (auto it =
+                   this->system_matrix.begin(local_position_master_dofs[d]);
+                 it != this->system_matrix.end(local_position_master_dofs[d]);
+                 ++it)
+              row_entries.push_back(it);
+            master_position_row_entries[local_position_master_dofs[d]] =
+              row_entries;
+          }
+
+          // Constrain local to global
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            for (auto it :
+                 master_position_row_entries.at(local_position_master_dofs[d]))
+              this->system_matrix.set(local_position_master_dofs[d],
+                                      it->column(),
+                                      0.0);
+
+            this->system_matrix.set(local_position_master_dofs[d],
+                                    local_position_master_dofs[d],
+                                    1.);
+            this->system_matrix.set(local_position_master_dofs[d],
+                                    global_position_master_dofs[d],
+                                    -1.);
+          }
+        }
+
+        // In any case, set remaining pos dofs to local master
+        // On the rank with the global master, the local is also the global
         // Set x_i - x_master = 0 for the other coupled position dofs
         for (const auto &[pos_dof, d] : coupled_position_dofs)
           if (this->locally_owned_dofs.is_element(pos_dof) &&

@@ -120,6 +120,8 @@ private:
     const std::shared_ptr<Function<dim>> &source_terms,
     const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
+    const unsigned int n_comp_fe = fe_values.get_fe().n_components();
+
     fe_values[velocity].get_function_values(current_solution,
                                             present_velocity_values);
     fe_values[velocity].get_function_gradients(current_solution,
@@ -136,7 +138,11 @@ private:
       fe_values[velocity].get_function_values(previous_solutions[i],
                                               previous_velocity_values[i]);
 
-    // Source terms with layout u-v-(w-)p
+    // Source terms with layout u-v-(w)-p
+    Assert(source_terms != nullptr, ExcMessage("source_terms is null"));
+
+    const unsigned int n_comp_f = source_terms->n_components;
+
     source_terms->vector_value_list(fe_values.get_quadrature_points(),
                                     source_term_full_moving);
 
@@ -172,6 +178,9 @@ private:
     fe_face_values[velocity].get_function_values(
       current_solution, present_face_velocity_values[i_face]);
 
+    fe_face_values[velocity].get_function_gradients(
+      current_solution, present_face_velocity_gradients[i_face]);
+
     // Exact solution with layout u-v-(w-)p and its gradient
     exact_solution->vector_value_list(fe_face_values.get_quadrature_points(),
                                       exact_solution_full);
@@ -183,15 +192,170 @@ private:
       face_JxW_moving[i_face][q]     = fe_face_values.JxW(q);
       face_normals_moving[i_face][q] = fe_face_values.normal_vector(q);
 
+      present_face_velocity_sym_gradients[i_face][q] =
+        symmetrize(present_face_velocity_gradients[i_face][q]);
+
       for (int di = 0; di < dim; ++di)
         for (int dj = 0; dj < dim; ++dj)
           exact_face_velocity_gradients[i_face][q][di][dj] =
             grad_exact_solution_full[q][u_lower + di][dj];
+      exact_face_velocity_divergences[i_face][q] =
+        trace(exact_face_velocity_gradients[i_face][q]);
       exact_face_pressure_values[i_face][q] = exact_solution_full[q](p_lower);
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_u_face[i_face][q][k] = fe_face_values[velocity].value(k, q);
+        phi_u_face[i_face][q][k]      = fe_face_values[velocity].value(k, q);
+        phi_p_face[i_face][q][k]      = fe_face_values[pressure].value(k, q);
+        grad_phi_u_face[i_face][q][k] = fe_face_values[velocity].gradient(k, q);
+        sym_grad_phi_u_face[i_face][q][k] =
+          symmetrize(grad_phi_u_face[i_face][q][k]);
+        div_phi_u_face[i_face][q][k] =
+          fe_face_values[velocity].divergence(k, q);
+      }
+    }
+  }
+
+  template <typename VectorType>
+  void
+  reinit_compressible_cell(const FEValues<dim>           &fe_values,
+                           const VectorType              &current_solution,
+                           const std::vector<VectorType> &previous_solutions,
+                           const std::shared_ptr<Function<dim>> &source_terms,
+                           const std::shared_ptr<Function<dim>> &exact_solution)
+  {
+    // Present solutions
+    fe_values[temperature].get_function_values(current_solution,
+                                               present_temperature_values);
+    fe_values[temperature].get_function_gradients(
+      current_solution, present_temperature_gradients);
+    fe_values[pressure].get_function_values(current_solution,
+                                            present_pressure_values);
+    fe_values[pressure].get_function_gradients(current_solution,
+                                               present_pressure_gradients);
+
+    // Previous solutions
+    for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+    {
+      fe_values[pressure].get_function_values(previous_solutions[i],
+                                              previous_pressure_values[i]);
+      fe_values[temperature].get_function_values(
+        previous_solutions[i], previous_temperature_values[i]);
+    }
+
+    // Exact solution at cell quadrature points (layout u-v-(w-)p-T)
+    Assert(exact_solution != nullptr, ExcMessage("exact_solution is null"));
+    exact_solution->vector_value_list(fe_values.get_quadrature_points(),
+                                      exact_solution_full_cell);
+
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      // velocity u_ex
+      for (unsigned int d = 0; d < dim; ++d)
+        exact_velocity_values_cell[q][d] =
+          exact_solution_full_cell[q](u_lower + d);
+
+      // pressure p_ex
+      exact_pressure_values_cell[q] = exact_solution_full_cell[q](p_lower);
+
+      // temperature T_ex
+      exact_temperature_values_cell[q] = exact_solution_full_cell[q](t_lower);
+    }
+
+    // Get jacobian, shape functions and set source terms
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      source_term_temperature[q] = source_term_full_moving[q](t_lower);
+
+      const double p_star = present_pressure_values[q];
+      const double T_star = present_temperature_values[q];
+
+      const double p_tot = pressure_ref + p_star;
+      const double T_tot = temperature_ref + T_star;
+
+      present_pressure_absolute_values[q]    = p_tot;
+      present_temperature_absolute_values[q] = T_tot;
+
+      a_p[q] = alpha_r / (alpha_r * p_star + 1.0);
+      b_T[q] = beta_r / (beta_r * T_star + 1.0);
+
+      density[q] =
+        density_ref * ((alpha_r * p_star + 1.0) / (beta_r * T_star + 1.0));
+
+      for (unsigned int k = 0; k < dofs_per_cell; ++k)
+      {
+        grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
+        phi_T[q][k]      = fe_values[temperature].value(k, q);
+        grad_phi_T[q][k] = fe_values[temperature].gradient(k, q);
+      }
+    }
+  }
+
+  template <typename VectorType>
+  void reinit_compressible_face(
+    const unsigned int       i_face,
+    const FEFaceValues<dim> &fe_face_values,
+    const VectorType        &current_solution,
+    const std::vector<VectorType> & /*previous_solutions*/,
+    const std::shared_ptr<Function<dim>> & /*source_terms*/,
+    const std::shared_ptr<Function<dim>> &exact_solution)
+  {
+    fe_face_values[pressure].get_function_values(
+      current_solution, present_face_pressure_values[i_face]);
+
+    fe_face_values[temperature].get_function_values(
+      current_solution, present_face_temperature_values[i_face]);
+
+    fe_face_values[temperature].get_function_gradients(
+      current_solution, present_face_temperature_gradients[i_face]);
+
+    exact_solution->vector_gradient_list(fe_face_values.get_quadrature_points(),
+                                         grad_exact_solution_full);
+
+    const auto &quad_points = fe_face_values.get_quadrature_points();
+
+    // -----------------------------
+    // Pressure BC data (fluid side)
+    // -----------------------------
+    AssertThrow(param.fluid_bc.count(face_boundary_id[i_face]) > 0,
+                ExcMessage("Trying to get a boundary condition on a face that "
+                           "has no boundary condition defined."));
+    const auto &bc = param.fluid_bc.at(face_boundary_id[i_face]);
+
+    // -----------------------------
+    // Heat BC on this face
+    // -----------------------------
+    AssertThrow(param.heat_bc.count(face_boundary_id[i_face]) > 0,
+                ExcMessage("Trying to get a heat boundary condition on a face "
+                           "that has no heat boundary condition defined."));
+    const auto &bc_heat = param.heat_bc.at(face_boundary_id[i_face]);
+
+    for (unsigned int q = 0; q < n_faces_q_points; ++q)
+    {
+      present_face_velocity_divergence[i_face][q] =
+        trace(present_face_velocity_gradients[i_face][q]);
+
+      const double T_star = present_face_temperature_values[i_face][q];
+      const double T_tot  = temperature_ref + T_star;
+      present_face_temperature_absolute_values[i_face][q] = T_tot;
+
+      // Pressure data for fluid BC
+      if (bc.type == BoundaryConditions::Type::weak_pressure)
+        face_input_pressure_values[i_face][q] = bc.p->value(quad_points[q]);
+
+      // Heat flux data for thermal Neumann BC
+      if (bc_heat.type == BoundaryConditions::Type::heat_flux)
+        face_input_heat_flux_values[i_face][q] =
+          bc_heat.temperature->value(quad_points[q]);
+
+      exact_face_temperature_gradients[i_face][q] =
+        grad_exact_solution_full[q][t_lower];
+
+      for (unsigned int k = 0; k < dofs_per_cell; ++k)
+      {
+        phi_T_face[i_face][q][k] = fe_face_values[temperature].value(k, q);
+        grad_phi_T_face[i_face][q][k] =
+          fe_face_values[temperature].gradient(k, q);
       }
     }
   }
@@ -703,6 +867,14 @@ public:
                               previous_solutions,
                               source_terms,
                               exact_solution);
+
+    if (enable_compressible)
+      reinit_compressible_cell(*active_fe_values,
+                               current_solution,
+                               previous_solutions,
+                               source_terms,
+                               exact_solution);
+
     if (enable_pseudo_solid)
       reinit_pseudo_solid_cell(*active_fe_values_fixed,
                                *active_fe_values,
@@ -742,6 +914,13 @@ public:
                                     previous_solutions,
                                     source_terms,
                                     exact_solution);
+          if (enable_compressible)
+            reinit_compressible_face(i_face,
+                                     *active_fe_face_values,
+                                     current_solution,
+                                     previous_solutions,
+                                     source_terms,
+                                     exact_solution);
           if (enable_pseudo_solid)
             reinit_pseudo_solid_face(i_face,
                                      *active_fe_face_values_fixed,
@@ -763,9 +942,9 @@ public:
   }
 
 private:
-  const ParameterReader<dim> &param;
-  const bool                  use_quads;
-  const ComponentOrdering     ordering;
+  const ParameterReader<dim>&param;
+  const bool              use_quads;
+  const ComponentOrdering ordering;
 
   unsigned int n_components;
   unsigned int u_lower;
@@ -834,6 +1013,12 @@ public:
 
   // Current values on faces (each face, each quad node)
   std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
+  std::vector<std::vector<Tensor<2, dim>>> present_face_velocity_gradients;
+  std::vector<std::vector<SymmetricTensor<2, dim>>>
+                                   present_face_velocity_sym_gradients;
+  std::vector<std::vector<double>> present_face_velocity_divergence;
+
+  std::vector<std::vector<double>> present_face_pressure_values;
 
   // Shape functions in volume (each quad node and each dof)
   std::vector<std::vector<Tensor<1, dim>>>          phi_u;
@@ -844,16 +1029,28 @@ public:
 
   // Shape functions on faces (each face, quad node and dof)
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
+  std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_u_face;
+  std::vector<std::vector<std::vector<SymmetricTensor<2, dim>>>>
+                                                sym_grad_phi_u_face;
+  std::vector<std::vector<std::vector<double>>> div_phi_u_face;
+  std::vector<std::vector<std::vector<double>>> phi_p_face;
 
   // Source term in volume
   std::vector<Vector<double>> source_term_full_moving;
   std::vector<Tensor<1, dim>> source_term_velocity;
   std::vector<double>         source_term_pressure;
 
-  // Exact solution
+  // Exact solution (cell/volume quadrature points)
+  std::vector<Vector<double>> exact_solution_full_cell;
+  std::vector<Tensor<1, dim>> exact_velocity_values_cell;
+  std::vector<double>         exact_pressure_values_cell;
+  std::vector<double>         exact_temperature_values_cell;
+
+  // Exact solution (faces)
   std::vector<Vector<double>>              exact_solution_full;
   std::vector<std::vector<Tensor<1, dim>>> grad_exact_solution_full;
   std::vector<std::vector<Tensor<2, dim>>> exact_face_velocity_gradients;
+  std::vector<std::vector<double>>         exact_face_velocity_divergences;
   std::vector<std::vector<double>>         exact_face_pressure_values;
 #if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
   std::vector<std::vector<Tensor<1, dim>>> exact_face_velocity_values;
@@ -865,20 +1062,49 @@ public:
    * Compressible NS
    */
   FEValuesExtractors::Scalar temperature;
+  double thermal_conductivity;
+  double gas_constant;
+  double dynamic_viscosity_fluid;
+  double heat_capacity_at_constant_pressure;
+  double density_ref;
+  double pressure_ref;
+  double temperature_ref;
+  double alpha_r;
+  double beta_r;
+
+  std::vector<std::vector<double>> face_input_pressure_values;
+
+  std::vector<std::vector<double>> face_input_heat_flux_values;
 
   // Variable density, also used by CHNS models
   std::vector<double> density;
+  std::vector<double> a_p; // alpha_r/(alpha_r p* + 1)
+  std::vector<double> b_T; // beta_r /(beta_r  T* + 1)
 
   std::vector<std::vector<double>> previous_pressure_values;
-  std::vector<double>              temperature_values;
-  std::vector<Tensor<1, dim>>      temperature_gradients;
+  std::vector<Tensor<1, dim>>      present_pressure_gradients;
+  std::vector<double>              present_temperature_values;
+  std::vector<Tensor<1, dim>>      present_temperature_gradients;
   std::vector<std::vector<double>> previous_temperature_values;
 
-  std::vector<std::vector<double>>         phi_t;
-  std::vector<std::vector<Tensor<1, dim>>> grad_phi_t;
+  // Thermodynamic fields: p = p^* + p_ref, T = T^* + T_ref
+  std::vector<double> present_pressure_absolute_values;
+  std::vector<double> present_temperature_absolute_values;
+
+  std::vector<std::vector<Tensor<1, dim>>> grad_phi_p;
+
+  std::vector<std::vector<double>>         phi_T;
+  std::vector<std::vector<Tensor<1, dim>>> grad_phi_T;
 
   std::vector<double> source_term_temperature;
 
+  // Temperature fields on faces (T = T^* + T_ref for absolute values)
+  std::vector<std::vector<double>> present_face_temperature_values;
+  std::vector<std::vector<double>> present_face_temperature_absolute_values;
+  std::vector<std::vector<Tensor<1, dim>>> exact_face_temperature_gradients;
+  std::vector<std::vector<std::vector<double>>>         phi_T_face;
+  std::vector<std::vector<std::vector<Tensor<1, dim>>>> grad_phi_T_face;
+  std::vector<std::vector<Tensor<1, dim>>> present_face_temperature_gradients;
   /**
    * Pseudo-solid and ALE
    */

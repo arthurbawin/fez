@@ -1,3 +1,4 @@
+add_subdirectory(compressible_ns)
 add_subdirectory(incompressible_ns)
 add_subdirectory(incompressible_ns_lambda)
 add_subdirectory(monolithic_fsi)

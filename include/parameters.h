@@ -257,7 +257,7 @@ namespace Parameters
     unsigned int tracer_degree;
     unsigned int potential_degree;
 
-    // Degree of the temperature for the heat equation
+    // Degree of the temperature for the heat equation and energy equation 
     unsigned int temperature_degree;
 
     struct QuadratureRule
@@ -281,9 +281,20 @@ namespace Parameters
 
   struct Fluid
   {
+    // If using the incompressible Navier-Stokes solver, this is the constant fluid density.
+    // If using the compressible Navier-Stokes solver, this is the reference density.
     double density;
     double kinematic_viscosity;
-    double dynamic_viscosity;
+    double dynamic_viscosity_fluid;
+    double thermal_conductivity;
+    double heat_capacity_at_constant_pressure;
+    double gas_constant;
+    // Reference pressure and temperature represent the conditions around which
+    // the equations are linearized in the compressible solver, and are used to
+    // compute the alpha_r and beta_r coefficients. p = p_ref + p^*   and   T =
+    // T_ref + T^*
+    double pressure_ref;
+    double temperature_ref;
 
     void declare_parameters(ParameterHandler &prm, unsigned int index);
     void read_parameters(ParameterHandler &prm, unsigned int index);

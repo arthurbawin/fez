@@ -308,6 +308,7 @@ void TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
   ar &time_steps;
   ar &bdf_coefficients;
   ar &with_adaptive_timestep;
+  ar &scheme;
 }
 
 #endif

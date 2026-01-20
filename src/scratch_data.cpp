@@ -464,7 +464,13 @@ void ScratchData<dim, has_hp_capabilities>::initialize_compressible()
       "Cannot create ScratchData with compressible data because solver does "
       "not have a temperature variable(s)."));
 
-  // TODO : Initialize e.g. state functions data if applicable
+  temperature.component = t_lower = ordering.t_lower;
+
+  density_ref     = physical_properties.fluids[0].density;
+  pressure_ref    = physical_properties.fluids[0].pressure_ref;
+  temperature_ref = physical_properties.fluids[0].temperature_ref;
+  alpha_r         = 1.0 / pressure_ref;
+  beta_r          = 1.0 / temperature_ref;
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -492,6 +498,14 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
   present_face_velocity_values.resize(
     n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+  present_face_velocity_gradients.resize(
+    n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
+  present_face_velocity_sym_gradients.resize(
+    n_faces, std::vector<SymmetricTensor<2, dim>>(n_faces_q_points));
+  present_face_velocity_divergence.resize(
+    n_faces, std::vector<double>(n_faces_q_points));
+  present_face_pressure_values.resize(
+    n_faces, std::vector<double>(n_faces_q_points));
 
 #if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
   face_velocity_source_term.resize(
@@ -510,15 +524,40 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
                       n_faces_q_points,
                       std::vector<Tensor<1, dim>>(dofs_per_cell)));
 
+  phi_p_face.resize(n_faces,
+                    std::vector<std::vector<double>>(
+                      n_faces_q_points, std::vector<double>(dofs_per_cell)));
+
+  grad_phi_u_face.resize(n_faces,
+                         std::vector<std::vector<Tensor<2, dim>>>(
+                           n_faces_q_points,
+                           std::vector<Tensor<2, dim>>(dofs_per_cell)));
+  sym_grad_phi_u_face.resize(
+    n_faces,
+    std::vector<std::vector<SymmetricTensor<2, dim>>>(
+      n_faces_q_points, std::vector<SymmetricTensor<2, dim>>(dofs_per_cell)));
+
+  div_phi_u_face.resize(n_faces,
+                        std::vector<std::vector<double>>(n_faces_q_points,
+                                                         std::vector<double>(
+                                                           dofs_per_cell)));
+
   source_term_full_moving.resize(n_q_points, Vector<double>(n_components));
   source_term_velocity.resize(n_q_points);
   source_term_pressure.resize(n_q_points);
+
+  exact_solution_full_cell.resize(n_q_points, Vector<double>(n_components));
+  exact_velocity_values_cell.resize(n_q_points);
+  exact_pressure_values_cell.resize(n_q_points);
+  exact_temperature_values_cell.resize(n_q_points);
 
   exact_solution_full.resize(n_faces_q_points, Vector<double>(n_components));
   grad_exact_solution_full.resize(n_faces_q_points,
                                   std::vector<Tensor<1, dim>>(n_components));
   exact_face_velocity_gradients.resize(
     n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
+  exact_face_velocity_divergences.resize(n_faces,
+                                         std::vector<double>(n_faces_q_points));
   exact_face_pressure_values.resize(n_faces,
                                     std::vector<double>(n_faces_q_points));
 
@@ -631,9 +670,52 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
   if (enable_compressible)
   {
-    AssertThrow(false,
-                ExcMessage(
-                  "Vectors for compressible scratch should be allocated (-:"));
+    present_pressure_gradients.resize(n_q_points);
+    present_pressure_absolute_values.resize(n_q_points);
+    previous_pressure_values.resize(bdf_coefficients.size() - 1,
+                                    std::vector<double>(n_q_points));
+
+    present_temperature_values.resize(n_q_points);
+    present_temperature_absolute_values.resize(n_q_points);
+    present_temperature_gradients.resize(n_q_points);
+    previous_temperature_values.resize(bdf_coefficients.size() - 1,
+                                       std::vector<double>(n_q_points));
+
+    grad_phi_p.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
+
+    phi_T.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    grad_phi_T.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
+
+    source_term_temperature.resize(n_q_points);
+
+    present_face_temperature_values.resize(
+      n_faces, std::vector<double>(n_faces_q_points));
+    present_face_temperature_gradients.resize(
+      n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+    present_face_temperature_absolute_values.resize(
+      n_faces, std::vector<double>(n_faces_q_points));
+    exact_face_temperature_gradients.resize(
+      n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+
+    face_input_pressure_values.resize(n_faces,
+                                      std::vector<double>(n_faces_q_points));
+
+    face_input_heat_flux_values.resize(n_faces,
+                                       std::vector<double>(n_faces_q_points));
+
+    phi_T_face.resize(n_faces,
+                      std::vector<std::vector<double>>(
+                        n_faces_q_points, std::vector<double>(dofs_per_cell)));
+
+    grad_phi_T_face.resize(n_faces,
+                           std::vector<std::vector<Tensor<1, dim>>>(
+                             n_faces_q_points,
+                             std::vector<Tensor<1, dim>>(dofs_per_cell)));
+
+    density.resize(n_q_points);
+
+    a_p.resize(n_q_points);
+    b_T.resize(n_q_points);
   }
 }
 

@@ -47,13 +47,21 @@ namespace BoundaryConditions
     weak_no_slip,       // Check that lagrange mult is defined, couple
     slip,               // Enforce no_flux
 
+    // Pressure
+    weak_pressure,      // Impose -p*n weakly via surface integral (traction)
+    dirichlet_pressure, // Impose p strongly via interpolation constraint
+
     // These boundary conditions are for flow verification purposes:
     // Set velocity to prescribed manufactured solution
     velocity_mms,
     // Set both the normal and tangential flux to u dot n/t = u_mms dot n/t
     velocity_flux_mms,
+    pressure_mms,
     // Set (-pI + nu*grad(u)) \cdot n = (-p_mmsI + nu*grad(u_mms)) \cdot n
     open_mms,
+
+    // Heat
+    heat_flux, // -k delta(T) * n = q_n
 
     // Pseudo_solid
     fixed, // Enforce 0 displacement. Default when no BC is prescribed?
@@ -113,6 +121,7 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> u;
     std::shared_ptr<Functions::ParsedFunction<dim>> v;
     std::shared_ptr<Functions::ParsedFunction<dim>> w;
+    std::shared_ptr<Functions::ParsedFunction<dim>> p;
 
     // Tolerance on no slip enforcement with a Lagrange multiplier
     double weak_no_slip_tolerance;
@@ -129,6 +138,7 @@ namespace BoundaryConditions
       u = std::make_shared<Functions::ParsedFunction<dim>>();
       v = std::make_shared<Functions::ParsedFunction<dim>>();
       w = std::make_shared<Functions::ParsedFunction<dim>>();
+      p = std::make_shared<Functions::ParsedFunction<dim>>();
       angular_velocity =
         std::make_shared<Functions::ParsedFunction<dim>>((dim == 2) ? 1 : dim);
     };
@@ -138,6 +148,7 @@ namespace BoundaryConditions
       u->set_time(new_time);
       v->set_time(new_time);
       w->set_time(new_time);
+      p->set_time(new_time);
       angular_velocity->set_time(new_time);
     }
 
@@ -246,6 +257,25 @@ namespace BoundaryConditions
     const Function<dim>       &exact_solution,
     const Function<dim>       &exact_velocity,
     AffineConstraints<double> &constraints);
+
+
+  /**
+   *
+   *
+   */
+
+  template <int dim>
+  void apply_pressure_boundary_conditions(
+    const bool             homogeneous,
+    const unsigned int     p_lower,
+    const unsigned int     n_components,
+    const DoFHandler<dim> &dof_handler,
+    const Mapping<dim>    &mapping,
+    const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>>
+                              &fluid_bc,
+    const Function<dim>       &exact_solution,
+    AffineConstraints<double> &constraints);
+
 
   /**
    *
@@ -416,6 +446,31 @@ public:
     return 0.;
   }
 };
+
+template <int dim>
+class ComponentwiseFlowPressure : public Function<dim>
+{
+public:
+  const unsigned int                    p_lower;
+  const Functions::ParsedFunction<dim> &p_fun;
+
+  ComponentwiseFlowPressure(const unsigned int                    p_lower,
+                            const unsigned int                    n_components,
+                            const Functions::ParsedFunction<dim> &p_fun)
+    : Function<dim>(n_components)
+    , p_lower(p_lower)
+    , p_fun(p_fun)
+  {}
+
+  virtual double value(const Point<dim>  &p,
+                       const unsigned int component = 0) const override
+  {
+    if (component == p_lower)
+      return p_fun.value(p);
+    return 0.0;
+  }
+};
+
 
 /**
  * This function is meant to represent the spatial identity function,

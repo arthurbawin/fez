@@ -13,6 +13,7 @@
 #include <solver_info.h>
 #include <utilities.h>
 
+
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
@@ -164,7 +165,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   if (param.bc_data.enforce_zero_mean_pressure)
     create_zero_mean_pressure_constraints_data();
   create_solver_specific_constraints_data();
-
+  
   create_zero_constraints();
   create_nonzero_constraints();
   create_sparsity_pattern();
@@ -484,6 +485,14 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
       constrained_pressure_dof,
       zero_mean_pressure_weights);
 
+  BoundaryConditions::apply_pressure_boundary_conditions(homogeneous,
+                                                         ordering->p_lower,
+                                                         ordering->n_components,
+                                                         dof_handler,
+                                                         *moving_mapping,
+                                                         param.fluid_bc,
+                                                         *exact_solution,
+                                                         constraints);
   /**
    * Do not close the constraints here, as derived solvers may need
    * to add boundary conditions on their own fields (e.g., Cahn Hilliard)
@@ -971,20 +980,36 @@ void NavierStokesSolver<dim, with_moving_mesh>::load(
   ar &present_solution;
   present_solution.update_ghost_values();
 
-  unsigned int n_previous_solutions;
-  ar          &n_previous_solutions;
+  unsigned int n_previous_solutions_in_checkpoint;
+  ar          &n_previous_solutions_in_checkpoint;
 
-  AssertThrow(
-    n_previous_solutions == previous_solutions.size(),
-    ExcMessage("The number of previous solutions to read from checkpointed "
-               "data does not match the number of previous solutions used for "
-               "the current simulation. This probably indicates that you "
-               "changed the time integration method, which is not supported."));
-
-  for (auto &previous_solution : previous_solutions)
+  // Allow restarting an unsteady simulation from a stationary checkpoint: the
+  // stationary checkpoint contains no previous solutions, so the present
+  // (steady) solution is duplicated into all slots of the unsteady previous
+  // solutions array to serve as the initial condition for the unsteady run.
+  if (n_previous_solutions_in_checkpoint == 0 && !time_handler.is_steady())
   {
-    ar &previous_solution;
-    previous_solution.update_ghost_values();
+    for (auto &previous_solution : previous_solutions)
+    {
+      previous_solution = present_solution;
+      previous_solution.update_ghost_values();
+    }
+  }
+  else
+  {
+    AssertThrow(n_previous_solutions_in_checkpoint == previous_solutions.size(),
+                ExcMessage(
+                  "The number of previous solutions to read from checkpointed "
+                  "data does not match the number of previous solutions used "
+                  "for the current simulation. This probably indicates that "
+                  "you changed the time integration method, which is not "
+                  "supported."));
+
+    for (auto &previous_solution : previous_solutions)
+    {
+      ar &previous_solution;
+      previous_solution.update_ghost_values();
+    }
   }
 
   local_evaluation_point = present_solution;

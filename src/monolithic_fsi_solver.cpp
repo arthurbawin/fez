@@ -126,7 +126,13 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
 
     // Create entry in error handler for Lagrange multiplier
     for (auto norm : this->param.mms_param.norms_to_compute)
+    {
       this->error_handlers[norm]->create_entry("l");
+      if (this->param.fsi.compute_error_on_forces)
+        for (unsigned int d = 0; d < dim; ++d)
+          this->error_handlers[norm]->create_entry("F_comp" +
+                                                   std::to_string(d));
+    }
   }
   else
   {
@@ -2819,6 +2825,16 @@ void FSISolver<dim>::compute_solver_specific_errors()
       handler->add_error("l", l2_l, t);
     if (norm == VectorTools::Linfty_norm)
       handler->add_error("l", li_l, t);
+
+    if (this->param.fsi.compute_error_on_forces)
+    {
+      // The error on the forces is |F_h - F_exact|, there is no need to
+      // distinguish between L^p norms.
+      for (unsigned int d = 0; d < dim; ++d)
+        handler->add_error("F_comp" + std::to_string(d),
+                           error_on_integral[d],
+                           t);
+    }
   }
 }
 

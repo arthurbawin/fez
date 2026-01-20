@@ -8,10 +8,26 @@
 
 using namespace dealii;
 
+//TODO
 /**
  * Compressible Navier-Stokes solver.
- * TODO : Add equations and model.
+ * Solves the nonstabilized compressible Navier-Stokes equations:
+ * 
+ * div(u) + alpha_r/(alpha_r p^* +1) (dp^*dt + u dot grad(p^*)) - beta_r/beta_r T^* + 1 (dT^*dt + u dot grad(T^*)) = 0
+ * 
+ * rho (dudt + u dot grad(u)) + grad(p^*) - div(mu(grad(u) + grad(u)^T) - 2/3 mu I grad(u)) - f = 0
+ *
+ * rho c_p (dT^*dt + u dot grad(T^*)) - dp^*dt - u dot grad(p^*) + grad(k grad(T^*)) - 2 mu d:d + 2/3 mu (grad(u))^2 - r_s =0 
+ * 
+ * State equation for perfect gas:
+ *                  rho = 1/R p_r/T_R (alpha_r p^* + 1)/(beta_r T^* + 1)
+ * 
+ *      where beta_r = 1/T_r  and   alpha_r = 1/p_r
+ * 
+ * 
+ * 
  */
+
 template <int dim>
 class CompressibleNSSolver : public NavierStokesSolver<dim>
 {

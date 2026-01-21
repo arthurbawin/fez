@@ -133,6 +133,8 @@ protected:
       , n_components(ordering.n_components)
       , u_lower(ordering.u_lower)
       , p_lower(ordering.p_lower)
+      // FIXME: À compléter pour T_lower ?
+      // , t_lower(ordering.t_lower)
       , mms(mms)
     {}
 
@@ -173,9 +175,12 @@ protected:
       Assert(component < n_components, ExcMessage("Component mismatch"));
       if (component < dim)
         return mms.exact_velocity->gradient(p, component);
-      else
+      else if (component == dim)
         return mms.exact_pressure->gradient(p);
-      // FIXME: A completer pour T
+      else if (component == dim +1)
+        return mms.exact_temperature->gradient(p);
+      else
+        DEAL_II_ASSERT_UNREACHABLE();
     }
 
   protected:

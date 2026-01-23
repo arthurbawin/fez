@@ -528,6 +528,9 @@ public:
     // The numbers of quadrature points used to reinit this data
     unsigned int cell_n_q_points = numbers::invalid_unsigned_int;
     unsigned int face_n_q_points = numbers::invalid_unsigned_int;
+
+    // A pointer to the stored data that overrides this internal data
+    mutable std::shared_ptr<InternalData> matching_stored_data;
   };
 
 protected:
@@ -713,16 +716,25 @@ private:
   const hp::QCollection<dim> quadrature_collection;
   const hp::QCollection<dim-1> face_quadrature_collection;
 
+public:
+  mutable unsigned int n_realloc_cell_data = 0;
+  mutable unsigned int n_realloc_face_data = 0;
+  mutable unsigned int n_kept_cell_data = 0;
+  mutable unsigned int n_kept_face_data = 0;
+
+private:
   void
   create_data_collection();
 
   void recreate_stored_internal_data_cell(
     const Quadrature<dim> &quadrature,
-    const unsigned int fe_index) const;
+    const unsigned int fe_index,
+    const UpdateFlags update_flags) const;
 
   void recreate_stored_internal_data_face(
     const Quadrature<dim-1> &face_quadrature,
-    const unsigned int fe_index) const;
+    const unsigned int fe_index,
+    const UpdateFlags update_flags) const;
 
   // Declare other MappingFEFieldHp2 classes friends.
   template <int, int, class>

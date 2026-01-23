@@ -334,11 +334,6 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::MappingFEFieldHp2(
               update_values)
 
   , hp_capabilities_enabled(this->euler_dof_handler->has_hp_capabilities())
-  // , hp_fe_values(std::make_unique<hp::FEValues<dim, spacedim>>(
-  //     mapping_collection,
-  //     this->euler_dof_handler->get_fe_collection(),
-  //     cell_quadrature_collection,
-  //     update_values))
   , quadrature_collection(cell_quadrature_collection)
   , face_quadrature_collection(face_quadrature_collection)
 {
@@ -364,7 +359,10 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::MappingFEFieldHp2(
       nodal_quadrature_collection,
       update_values);  
 
-  this->create_data_collection();
+  const unsigned int n_partitions = this->euler_dof_handler->get_fe_collection().size();
+  data_collection_for_cells.resize(n_partitions, nullptr);
+  data_collection_for_faces.resize(n_partitions, nullptr);
+  // this->create_data_collection();
 }
 
 template <int dim, int spacedim, typename VectorType>
@@ -476,116 +474,123 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::MappingFEFieldHp2(
   , face_quadrature_collection(mapping.face_quadrature_collection)
 {
   // std::cout << "Creating a MappingFEField with hp capabilities" << std::endl;
-  this->create_data_collection();
+  const unsigned int n_partitions = this->euler_dof_handler->get_fe_collection().size();
+  data_collection_for_cells.resize(n_partitions, nullptr);
+  data_collection_for_faces.resize(n_partitions, nullptr);
+  // this->create_data_collection();
 }
 
 template <int dim, int spacedim, typename VectorType>
 void MappingFEFieldHp2<dim, spacedim, VectorType>::create_data_collection()
 {
-#if defined(DEBUG_PRINTS)
-  std::cout << "Entering create_data_collection" << std::endl;
-#endif
+// #if defined(DEBUG_PRINTS)
+//   std::cout << "Entering create_data_collection" << std::endl;
+// #endif
 
-  Assert(euler_dof_handler->has_hp_capabilities(),
-         ExcMessage("This function is intended for an hp context."));
+//   Assert(euler_dof_handler->has_hp_capabilities(),
+//          ExcMessage("This function is intended for an hp context."));
 
-  /**
-   * For now this is a quick fix: only allow identical mappings and quadratures
-   * in the collection.
-   */
-  AssertThrow(quadrature_collection[0].size() ==
-                quadrature_collection[1].size(),
-              ExcMessage(
-                "Can only create a MappingFEField with hp capabilities if the "
-                "quadrature rules in the collection are identical."));
+//   /**
+//    * For now this is a quick fix: only allow identical mappings and quadratures
+//    * in the collection.
+//    */
+//   AssertThrow(quadrature_collection[0].size() ==
+//                 quadrature_collection[1].size(),
+//               ExcMessage(
+//                 "Can only create a MappingFEField with hp capabilities if the "
+//                 "quadrature rules in the collection are identical."));
 
-  AssertThrow(face_quadrature_collection[0].size() ==
-                face_quadrature_collection[1].size(),
-              ExcMessage(
-                "Can only create a MappingFEField with hp capabilities if the "
-                "quadrature rules in the collection are identical."));
+//   AssertThrow(face_quadrature_collection[0].size() ==
+//                 face_quadrature_collection[1].size(),
+//               ExcMessage(
+//                 "Can only create a MappingFEField with hp capabilities if the "
+//                 "quadrature rules in the collection are identical."));
 
-  const auto &quadrature      = quadrature_collection[0];
-  const auto &face_quadrature = face_quadrature_collection[0];
+//   const auto &quadrature      = quadrature_collection[0];
+//   const auto &face_quadrature = face_quadrature_collection[0];
 
-  /**
-   * For each active fe index, create an internal data where all quantities
-   * are pre-computed.
-   */
-  for (const auto &fe : euler_dof_handler->get_fe_collection())
-  {
-    /**
-     * Create the data that will be used for fill_fe_values
-     */
-    std::shared_ptr<InternalData> cell_data_ptr =
-      std::make_shared<InternalData>(fe, fe_mask);
-    cell_data_ptr->reinit(requires_update_flags(UpdateFlags::update_mapping),
-                          quadrature);
+//   data_collection_for_cells.clear();
+//   data_collection_for_faces.clear();
 
-    cell_data_ptr->cell_n_q_points = quadrature.size();
-    cell_data_ptr->face_n_q_points = face_quadrature.size();
+//   /**
+//    * For each active fe index, create an internal data where all quantities
+//    * are pre-computed.
+//    */
+//   for (const auto &fe : euler_dof_handler->get_fe_collection())
+//   {
+//     /**
+//      * Create the data that will be used for fill_fe_values
+//      */
+//     std::shared_ptr<InternalData> cell_data_ptr =
+//       std::make_shared<InternalData>(fe, fe_mask);
+//     cell_data_ptr->reinit(requires_update_flags(UpdateFlags::update_mapping),
+//                           quadrature);
 
-    data_collection_for_cells.push_back(cell_data_ptr);
+//     cell_data_ptr->cell_n_q_points = quadrature.size();
+//     cell_data_ptr->face_n_q_points = face_quadrature.size();
 
-#if defined(DEBUG_PRINTS)
-    std::cout << "Initial data : cell_quad_nodes           =  "
-              << cell_data_ptr->cell_n_q_points << std::endl;
-    std::cout << "Initial data : face_quad_nodes           =  "
-              << cell_data_ptr->face_n_q_points << std::endl;
-    std::cout << "Initial data : data.contravariant.size() =  "
-              << cell_data_ptr->contravariant.size() << std::endl;
-    std::cout << "Initial data : n_shape_functions         =  "
-              << cell_data_ptr->n_shape_functions << std::endl;
-    std::cout << "Initial data : data.shape_values.size()  =  "
-              << cell_data_ptr->shape_values.size() << std::endl;
-    std::cout << "Initial data : data.derivative.size()    =  "
-              << cell_data_ptr->shape_derivatives.size() << std::endl;
-#endif
+//     data_collection_for_cells.push_back(cell_data_ptr);
 
-    /**
-     * Create the data that will be used for fill_fe_face_values,
-     * and that is initialized with a QProjector<dim> quadrature
-     */
-    std::shared_ptr<InternalData> face_data_ptr =
-      std::make_shared<InternalData>(fe, fe_mask);
-    const Quadrature<dim> q(
-      QProjector<dim>::project_to_all_faces(reference_cell, face_quadrature));
-    face_data_ptr->reinit(requires_update_flags(UpdateFlags::update_mapping),
-                          q);
+// #if defined(DEBUG_PRINTS)
+//     std::cout << "Initial data : cell_quad_nodes           =  "
+//               << cell_data_ptr->cell_n_q_points << std::endl;
+//     std::cout << "Initial data : face_quad_nodes           =  "
+//               << cell_data_ptr->face_n_q_points << std::endl;
+//     std::cout << "Initial data : data.contravariant.size() =  "
+//               << cell_data_ptr->contravariant.size() << std::endl;
+//     std::cout << "Initial data : n_shape_functions         =  "
+//               << cell_data_ptr->n_shape_functions << std::endl;
+//     std::cout << "Initial data : data.shape_values.size()  =  "
+//               << cell_data_ptr->shape_values.size() << std::endl;
+//     std::cout << "Initial data : data.derivative.size()    =  "
+//               << cell_data_ptr->shape_derivatives.size() << std::endl;
+// #endif
 
-    // Also precompute on faces
-    this->compute_face_data(face_quadrature.size(), *face_data_ptr);
+//     /**
+//      * Create the data that will be used for fill_fe_face_values,
+//      * and that is initialized with a QProjector<dim> quadrature
+//      */
+//     std::shared_ptr<InternalData> face_data_ptr =
+//       std::make_shared<InternalData>(fe, fe_mask);
+//     const Quadrature<dim> q(
+//       QProjector<dim>::project_to_all_faces(reference_cell, face_quadrature));
+//     face_data_ptr->reinit(requires_update_flags(UpdateFlags::update_mapping),
+//                           q);
 
-    face_data_ptr->cell_n_q_points = q.size();
-    face_data_ptr->face_n_q_points = face_quadrature.size();
+//     // Also precompute on faces
+//     this->compute_face_data(face_quadrature.size(), *face_data_ptr);
 
-    data_collection_for_faces.push_back(face_data_ptr);
+//     face_data_ptr->cell_n_q_points = q.size();
+//     face_data_ptr->face_n_q_points = face_quadrature.size();
 
-#if defined(DEBUG_PRINTS)
-    std::cout << "Initial data : cell_quad_nodes           =  "
-              << face_data_ptr->cell_n_q_points << std::endl;
-    std::cout << "Initial data : face_quad_nodes           =  "
-              << face_data_ptr->face_n_q_points << std::endl;
-    std::cout << "Initial data : data.contravariant.size() =  "
-              << face_data_ptr->contravariant.size() << std::endl;
-    std::cout << "Initial data : n_shape_functions         =  "
-              << face_data_ptr->n_shape_functions << std::endl;
-    std::cout << "Initial data : data.shape_values.size()  =  "
-              << face_data_ptr->shape_values.size() << std::endl;
-    std::cout << "Initial data : data.derivative.size()    =  "
-              << face_data_ptr->shape_derivatives.size() << std::endl;
-#endif
-  }
+//     data_collection_for_faces.push_back(face_data_ptr);
 
-#if defined(DEBUG_PRINTS)
-  std::cout << "Leaving create_data_collection" << std::endl;
-#endif
+// #if defined(DEBUG_PRINTS)
+//     std::cout << "Initial data : cell_quad_nodes           =  "
+//               << face_data_ptr->cell_n_q_points << std::endl;
+//     std::cout << "Initial data : face_quad_nodes           =  "
+//               << face_data_ptr->face_n_q_points << std::endl;
+//     std::cout << "Initial data : data.contravariant.size() =  "
+//               << face_data_ptr->contravariant.size() << std::endl;
+//     std::cout << "Initial data : n_shape_functions         =  "
+//               << face_data_ptr->n_shape_functions << std::endl;
+//     std::cout << "Initial data : data.shape_values.size()  =  "
+//               << face_data_ptr->shape_values.size() << std::endl;
+//     std::cout << "Initial data : data.derivative.size()    =  "
+//               << face_data_ptr->shape_derivatives.size() << std::endl;
+// #endif
+//   }
+
+// #if defined(DEBUG_PRINTS)
+//   std::cout << "Leaving create_data_collection" << std::endl;
+// #endif
 }
 
 template <int dim, int spacedim, typename VectorType>
 void MappingFEFieldHp2<dim, spacedim, VectorType>::
   recreate_stored_internal_data_cell(const Quadrature<dim> &quadrature,
-                                     const unsigned int     fe_index) const
+                                     const unsigned int     fe_index,
+                                     const UpdateFlags update_flags) const
 {
 #if defined(DEBUG_PRINTS)
   std::cout << "Entering recreate on cell" << std::endl;
@@ -594,14 +599,14 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::
   Assert(euler_dof_handler->has_hp_capabilities(),
          ExcMessage("This function is intended for an hp context."));
 
-  // std::shared_ptr<typename Mapping<dim, spacedim>::InternalDataBase>
-  // data_ptr =
   std::shared_ptr<InternalData> &data_ptr = data_collection_for_cells[fe_index];
   data_ptr = std::make_shared<InternalData>(euler_dof_handler->get_fe(fe_index),
                                             fe_mask);
-  data_ptr->reinit(requires_update_flags(UpdateFlags::update_mapping),
+  // data_ptr->reinit(requires_update_flags(UpdateFlags::update_mapping),
+  data_ptr->reinit(requires_update_flags(update_flags),
                    quadrature);
   data_ptr->cell_n_q_points = quadrature.size();
+  data_ptr->face_n_q_points = numbers::invalid_unsigned_int;
 
 #if defined(DEBUG_PRINTS)
   std::cout << "Recreated data (cell) at " << fe_index << " with "
@@ -613,7 +618,8 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::
 template <int dim, int spacedim, typename VectorType>
 void MappingFEFieldHp2<dim, spacedim, VectorType>::
   recreate_stored_internal_data_face(const Quadrature<dim - 1> &face_quadrature,
-                                     const unsigned int         fe_index) const
+                                     const unsigned int         fe_index,
+                                     const UpdateFlags update_flags) const
 {
 #if defined(DEBUG_PRINTS)
   std::cout << "Entering recreate on face" << std::endl;
@@ -628,7 +634,8 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::
 
   const Quadrature<dim> q(
     QProjector<dim>::project_to_all_faces(reference_cell, face_quadrature));
-  data_ptr->reinit(requires_update_flags(UpdateFlags::update_mapping), q);
+  // data_ptr->reinit(requires_update_flags(UpdateFlags::update_mapping), q);
+  data_ptr->reinit(requires_update_flags(update_flags), q);
   this->compute_face_data(face_quadrature.size(), *data_ptr);
 
   data_ptr->cell_n_q_points = q.size();
@@ -1045,7 +1052,11 @@ namespace internal
       {
         AssertDimension(data.covariant.size(), data.contravariant.size());
         for (unsigned int point = 0; point < data.contravariant.size(); ++point)
+        {
+          // std::cout << "Assigning covariant from : " << data.contravariant[point] << std::endl; 
           data.covariant[point] = (data.contravariant[point]).covariant_form();
+          // std::cout << "Covariant form           : " << data.covariant[point] << std::endl; 
+        }
       }
 
       if (update_flags & update_volume_elements)
@@ -1743,9 +1754,18 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::fill_fe_values(
             << " points" << std::endl;
 #endif
 
-  if (n_q_points != this->data_collection_for_cells[fe_index]->cell_n_q_points)
+  bool recreate = false;
+  if (this->data_collection_for_cells[fe_index] == nullptr)
+    recreate = true;
+  else if (n_q_points != this->data_collection_for_cells[fe_index]->cell_n_q_points)
+    recreate = true;
+  else if (this->data_collection_for_cells[fe_index]->update_each != given_data.update_each)
+    recreate = true;
+
+  if (recreate)
   {
-    this->recreate_stored_internal_data_cell(quadrature, fe_index);
+    this->recreate_stored_internal_data_cell(quadrature, fe_index, given_data.update_each);
+    n_realloc_cell_data++;
 
 #if defined(DEBUG_PRINTS)
     std::cout << "After recreate data at " << fe_index << " has "
@@ -1753,8 +1773,19 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::fill_fe_values(
               << " points" << std::endl;
 #endif
   }
+  else
+  {
+    n_kept_cell_data++;
+  }
 
   InternalData &data = *this->data_collection_for_cells[fe_index];
+
+  // Set to re-route the given internal data to the stored data above.
+  // This should be faster than copying all the mutable values of data into given_data
+  // (covariant, contravariant, etc).
+  given_data.matching_stored_data = this->data_collection_for_cells[fe_index];
+  // When needed (in transform() functions), re-route the stored data to itself
+  data.matching_stored_data = this->data_collection_for_cells[fe_index];
 
 #if defined(DEBUG_PRINTS)
   std::cout << "Data (cell) : " << std::endl;
@@ -1985,9 +2016,18 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::fill_fe_face_values(
             << " points" << std::endl;
 #endif
 
-  if (n_q_points != this->data_collection_for_faces[fe_index]->face_n_q_points)
+  bool recreate = false;
+  if (this->data_collection_for_faces[fe_index] == nullptr)
+    recreate = true;
+  else if (n_q_points != this->data_collection_for_faces[fe_index]->face_n_q_points)
+    recreate = true;
+  else if (this->data_collection_for_faces[fe_index]->update_each != given_data.update_each)
+    recreate = true;
+
+  if (recreate)
   {
-    this->recreate_stored_internal_data_face(quadrature[0], fe_index);
+    this->recreate_stored_internal_data_face(quadrature[0], fe_index, given_data.update_each);
+    n_realloc_face_data++;
 
 #if defined(DEBUG_PRINTS)
     std::cout << "After recreate data at " << fe_index << " has "
@@ -1997,7 +2037,7 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::fill_fe_face_values(
   }
   else
   {
-    this->recreate_stored_internal_data_face(quadrature[0], fe_index);
+    n_kept_face_data++;
 
 #if defined(DEBUG_PRINTS)
     std::cout << "Not needing a reinit " << std::endl;
@@ -2014,6 +2054,14 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::fill_fe_face_values(
   InternalData &data = *this->data_collection_for_faces[fe_index];
   // Override the update flags of the stored data with those of the given data
   data.update_each = given_data.update_each;
+
+  // Set to re-route the given internal data to the stored data above.
+  // This should be faster than copying all the mutable values of data into given_data
+  // (covariant, contravariant, etc).
+  given_data.matching_stored_data = this->data_collection_for_faces[fe_index];
+  // When needed (in transform() functions), re-route the stored data to itself
+  // Needed for maybe_compute_face_data, which needs to transform vectors
+  data.matching_stored_data = this->data_collection_for_faces[fe_index];
 
   AssertDimension(n_q_points, data.face_n_q_points);
 
@@ -2048,13 +2096,13 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::fill_fe_subface_values(
   internal::FEValuesImplementation::MappingRelatedData<dim, spacedim>
     &output_data) const
 {
+  Assert(false, ExcMessage("Modify for subface values"));
+
   // convert data object to internal data for this class. fails with an
   // exception if that is not possible
   Assert(dynamic_cast<const InternalData *>(&internal_data) != nullptr,
          ExcInternalError());
   const InternalData &data = static_cast<const InternalData &>(internal_data);
-
-  Assert(false, ExcMessage("Modify for subface values"));
 
   update_internal_dofs(cell, data);
 
@@ -2270,9 +2318,9 @@ namespace internal
       {
         case mapping_contravariant:
         {
-          std::cout << "Transforming contravariant:" << std::endl;
-          for (auto &val : data.contravariant)
-            std::cout << val << std::endl;
+          // std::cout << "Transforming contravariant:" << std::endl;
+          // for (auto &val : data.contravariant)
+          //   std::cout << val << std::endl;
           Assert(data.update_each & update_contravariant_transformation,
                  typename FEValuesBase<dim>::ExcAccessToUninitializedField(
                    "update_contravariant_transformation"));
@@ -2280,8 +2328,8 @@ namespace internal
           for (unsigned int i = 0; i < output.size(); ++i)
           {
             output[i] = apply_transformation(data.contravariant[i], input[i]);
-          std::cout << output[i] << std::endl;
-        }
+            // std::cout << output[i] << std::endl;
+          }
 
 
           return;
@@ -2310,12 +2358,19 @@ namespace internal
         // rather than DerivativeForm
         case mapping_covariant:
         {
-          Assert(data.update_each & update_contravariant_transformation,
+          // std::cout << "Transforming covariant:" << std::endl;
+          // for (auto &val : data.covariant)
+          //   std::cout << val << std::endl;
+          // Assert(data.update_each & update_contravariant_transformation,
+          Assert(data.update_each & update_covariant_transformation,
                  typename FEValuesBase<dim>::ExcAccessToUninitializedField(
-                   "update_contravariant_transformation"));
+                   "update_covariant_transformation"));
 
           for (unsigned int i = 0; i < output.size(); ++i)
+          {
             output[i] = apply_transformation(data.covariant[i], input[i]);
+            // std::cout << output[i] << std::endl;
+          }
 
           return;
         }
@@ -2348,9 +2403,9 @@ namespace internal
       {
         case mapping_covariant:
         {
-          Assert(data.update_each & update_contravariant_transformation,
+          Assert(data.update_each & update_covariant_transformation,
                  typename FEValuesBase<dim>::ExcAccessToUninitializedField(
-                   "update_contravariant_transformation"));
+                   "update_covariant_transformation"));
 
           for (unsigned int i = 0; i < output.size(); ++i)
             output[i] = apply_transformation(data.covariant[i], input[i]);
@@ -2373,13 +2428,30 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::transform(
   const typename Mapping<dim, spacedim>::InternalDataBase &mapping_data,
   const ArrayView<Tensor<1, spacedim>>                    &output) const
 {
-  std::cout << "In transform 1" << std::endl;
   AssertDimension(input.size(), output.size());
+
+  // Start by casting the given data to an InternalData if possible
+  Assert((dynamic_cast<
+                const typename dealii::
+                  MappingFEFieldHp2<dim, spacedim, VectorType>::InternalData *>(
+                &mapping_data) != nullptr),
+             ExcInternalError());
+  const typename dealii::MappingFEFieldHp2<dim, spacedim, VectorType>::
+    InternalData &given_data = static_cast<
+      const typename dealii::MappingFEFieldHp2<dim, spacedim, VectorType>::
+        InternalData &>(mapping_data);
+  // The given data is re-routed to a stored data for this hp partition
+  // Check that this stored data is valid
+  Assert(given_data.matching_stored_data != nullptr, ExcInternalError());
+  Assert(dynamic_cast<const InternalData *>(given_data.matching_stored_data.get()) != nullptr,
+         ExcInternalError());
+  const InternalData &matching_stored_data =
+    static_cast<const InternalData &>(*given_data.matching_stored_data);
 
   internal::MappingFEFieldHp2Implementation::
     transform_fields<dim, spacedim, 1, VectorType>(input,
                                                    mapping_kind,
-                                                   mapping_data,
+                                                   matching_stored_data,
                                                    output);
 }
 
@@ -2392,6 +2464,7 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::transform(
   const typename Mapping<dim, spacedim>::InternalDataBase &mapping_data,
   const ArrayView<Tensor<2, spacedim>>                    &output) const
 {
+  AssertThrow(false, ExcMessage("Modify transform function for hp"));
   std::cout << "In transform 2" << std::endl;
   AssertDimension(input.size(), output.size());
 
@@ -2411,6 +2484,7 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::transform(
   const typename Mapping<dim, spacedim>::InternalDataBase &mapping_data,
   const ArrayView<Tensor<2, spacedim>>                    &output) const
 {
+  AssertThrow(false, ExcMessage("Modify transform function for hp"));
   std::cout << "In transform 3" << std::endl;
   (void)input;
   (void)output;
@@ -2429,6 +2503,7 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::transform(
   const typename Mapping<dim, spacedim>::InternalDataBase &mapping_data,
   const ArrayView<Tensor<3, spacedim>>                    &output) const
 {
+  AssertThrow(false, ExcMessage("Modify transform function for hp"));
   std::cout << "In transform 4" << std::endl;
   AssertDimension(input.size(), output.size());
   Assert(dynamic_cast<const InternalData *>(&mapping_data) != nullptr,
@@ -2464,6 +2539,7 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::transform(
   const typename Mapping<dim, spacedim>::InternalDataBase &mapping_data,
   const ArrayView<Tensor<3, spacedim>>                    &output) const
 {
+  AssertThrow(false, ExcMessage("Modify transform function for hp"));
   std::cout << "In transform 5" << std::endl;
   (void)input;
   (void)output;

@@ -115,20 +115,44 @@ FE_SimplexP_3D_hp<dim, spacedim>::hp_line_dof_identities(
 
       std::vector<std::pair<unsigned int, unsigned int>> identities;
 
-      for (unsigned int i = 0; i < this->degree - 1; ++i)
-        for (unsigned int j = 0; j < fe_p_other->degree - 1; ++j)
-          if (std::fabs(this->unit_support_points[i + 3][0] -
-                        fe_p_other->unit_support_points[i + 3][0]) < 1e-14)
-            identities.emplace_back(i, j);
-          else
-            {
-              // If nodes are not located in the same place, we have to
-              // interpolate. This is then not handled through the
-              // current function, but via interpolation matrices that
-              // result in constraints, rather than identities. Since
-              // that happens in a different function, there is nothing
-              // for us to do here.
-            }
+      if constexpr (dim == 2)
+      {
+        for (unsigned int i = 0; i < this->degree - 1; ++i)
+          for (unsigned int j = 0; j < fe_p_other->degree - 1; ++j)
+            if (std::fabs(this->unit_support_points[i + 3][0] -
+                          fe_p_other->unit_support_points[i + 3][0]) < 1e-14)
+              identities.emplace_back(i, j);
+            else
+              {
+                // If nodes are not located in the same place, we have to
+                // interpolate. This is then not handled through the
+                // current function, but via interpolation matrices that
+                // result in constraints, rather than identities. Since
+                // that happens in a different function, there is nothing
+                // for us to do here.
+              }
+      }
+      else
+      {
+        for (unsigned int i = 0; i < this->degree - 1; ++i)
+          for (unsigned int j = 0; j < fe_p_other->degree - 1; ++j)
+            if (std::fabs(this->unit_support_points[i + 4][0] -
+                          fe_p_other->unit_support_points[i + 4][0]) < 1e-14 &&
+                std::fabs(this->unit_support_points[i + 4][1] -
+                          fe_p_other->unit_support_points[i + 4][1]) < 1e-14 &&
+                std::fabs(this->unit_support_points[i + 4][2] -
+                          fe_p_other->unit_support_points[i + 4][2]) < 1e-14)
+              identities.emplace_back(i, j);
+            else
+              {
+                // If nodes are not located in the same place, we have to
+                // interpolate. This is then not handled through the
+                // current function, but via interpolation matrices that
+                // result in constraints, rather than identities. Since
+                // that happens in a different function, there is nothing
+                // for us to do here.
+              }
+      }
 
       return identities;
     }

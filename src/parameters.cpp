@@ -232,6 +232,22 @@ namespace Parameters
                         "1",
                         Patterns::Double(),
                         "Fluid kinematic viscosity");
+      prm.declare_entry("thermal conductivity", 
+                        "1", 
+                        Patterns::Double(), 
+                        "Fluid thermal conductivity");
+      prm.declare_entry("heat capacity at constant pressure", 
+                        "1",
+                        Patterns::Double(),
+                        "Fluid heat capacity at constant pressure");
+      prm.declare_entry("pressure reference", 
+                        "1",
+                        Patterns::Double(),
+                        "Fluide pressure reference");
+      prm.declare_entry("temperature reference", 
+                        "1",
+                        Patterns::Double(),
+                        "Fluide temperature reference");
     }
     prm.leave_subsection();
   }
@@ -240,8 +256,12 @@ namespace Parameters
   {
     prm.enter_subsection("Fluid " + std::to_string(index));
     {
-      density             = prm.get_double("density");
-      kinematic_viscosity = prm.get_double("kinematic viscosity");
+      density                            = prm.get_double("density");
+      kinematic_viscosity                = prm.get_double("kinematic viscosity");
+      thermal_conductivity               = prm.get_double("thermal conductivity");
+      heat_capacity_at_constant_pressure = prm.get_double("heat capacity at constant pressure");
+      pressure_ref                       = prm.get_double("pressure reference"); 
+      temperature_ref                    = prm.get_double("temperature reference");
     }
     prm.leave_subsection();
   }

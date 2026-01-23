@@ -110,7 +110,7 @@ namespace Parameters
     unsigned int tracer_degree;
     unsigned int potential_degree;
 
-    // Degree of the temperature for the heat equation
+    // Degree of the temperature for the heat equation and compressible
     unsigned int temperature_degree;
 
     void declare_parameters(ParameterHandler &prm);
@@ -119,8 +119,15 @@ namespace Parameters
 
   struct Fluid
   {
+    // Density used by incompressible solver; in compressible it is a state equation
     double density;
     double kinematic_viscosity;
+
+    double thermal_conductivity;
+    double heat_capacity_at_constant_pressure;
+
+    double pressure_ref;
+    double temperature_ref;
 
     void declare_parameters(ParameterHandler &prm, unsigned int index);
     void read_parameters(ParameterHandler &prm, unsigned int index);

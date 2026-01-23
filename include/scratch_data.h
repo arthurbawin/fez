@@ -195,6 +195,71 @@ private:
   }
 
   template <typename VectorType>
+  void reinit_compressible_cell(
+    const FEValues<dim>                  &fe_values,
+    const VectorType                     &current_solution,
+    const std::vector<VectorType>        &previous_solutions,
+    const std::shared_ptr<Function<dim>> &source_terms,
+    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+  {
+    fe_values[temperature].get_function_values(current_solution,
+                                              present_temperature_values);
+    fe_values[temperature].get_function_gradients(current_solution,
+                                                 present_temperature_gradients);   
+    
+    fe_values[pressure].get_function_values(current_solution,
+                                            present_pressure_values);
+    fe_values[pressure].get_function_gradients(current_solution,
+                                                present_pressure_gradients);
+    
+    // Previous solutions
+    for (unsigned int i=0; i < previous_solutions.size(); ++i)
+    {
+      fe_values[pressure].get_function_values(previous_solutions[i],
+                                              previous_pressure_values[i]);  
+      fe_values[temperature].get_function_values(previous_solutions[i],
+                                                 previous_temperature_values[i]); 
+    } 
+                                                 
+    //Source terms with layout u-v-(w-)p-T
+    source_terms->vector_value_list(fe_values.get_quadrature_points(),
+                                    source_term_full_moving);
+                  
+    // Get jacobian, shape functions and set source terms
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      source_term_temperature[q] = source_term_full_moving[q](t_lower);
+
+      for (unsigned int k = 0; k < dofs_per_cell; ++k)
+      {
+        phi_t[q][k]          = fe_values[temperature].value(k, q);
+        grad_phi_t[q][k]     = fe_values[temperature].gradient(k, q);
+      }
+    }
+  }
+
+  template <typename VectorType >
+  void reinit_compressible_face(
+    const unsigned int       i_face,
+    const FEFaceValues<dim> &fe_face_values,
+    const VectorType        &current_solution,
+    const std::vector<VectorType> & /*previous_solutions*/,
+    const std::shared_ptr<Function<dim>> & /*source_terms*/,
+    const std::shared_ptr<Function<dim>> &exact_solution)
+  {
+    fe_face_values[temperature].get_function_values(
+      current_solution, present_face_temperature_values[i_face]);
+
+    for (unsigned int q = 0; q < n_faces_q_points; ++q)
+    {
+      for (unsigned int k = 0; k < dofs_per_cell; ++k)
+      {
+        phi_t_face[i_face][q][k] = fe_face_values[temperature].value(k,q);
+      }
+    }
+  }
+
+  template <typename VectorType>
   void reinit_pseudo_solid_cell(
     const FEValues<dim>                  &fe_values_fixed,
     const VectorType                     &current_solution,
@@ -559,6 +624,14 @@ public:
                               previous_solutions,
                               source_terms,
                               exact_solution);
+
+    if (enable_compressible)
+      reinit_compressible_cell(*active_fe_values,
+                                current_solution,
+                                previous_solutions,
+                                source_terms,
+                                exact_solution);
+
     if (enable_pseudo_solid)
       reinit_pseudo_solid_cell(*active_fe_values_fixed,
                                current_solution,
@@ -597,6 +670,13 @@ public:
                                     previous_solutions,
                                     source_terms,
                                     exact_solution);
+          if (enable_compressible)
+            reinit_compressible_face(i_face,
+                                      *active_fe_face_values,
+                                      current_solution,
+                                      previous_solutions,
+                                      source_terms,
+                                      exact_solution);
           if (enable_pseudo_solid)
             reinit_pseudo_solid_face(i_face,
                                      *active_fe_face_values,
@@ -716,14 +796,18 @@ public:
   std::vector<double> density;
 
   std::vector<std::vector<double>> previous_pressure_values;
-  std::vector<double>              temperature_values;
-  std::vector<Tensor<1, dim>>      temperature_gradients;
+  std::vector<Tensor<1, dim>>      present_pressure_gradients;
+  std::vector<double>              present_temperature_values;
+  std::vector<Tensor<1, dim>>      present_temperature_gradients;
   std::vector<std::vector<double>> previous_temperature_values;
-
+  
   std::vector<std::vector<double>>         phi_t;
   std::vector<std::vector<Tensor<1, dim>>> grad_phi_t;
 
   std::vector<double> source_term_temperature;
+
+  std::vector<std::vector<double>> present_face_temperature_values;
+  std::vector<std::vector<std::vector<double>>> phi_t_face;
 
   /**
    * Pseudo-solid and ALE

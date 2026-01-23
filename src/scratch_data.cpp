@@ -461,6 +461,9 @@ void ScratchData<dim, has_hp_capabilities>::initialize_compressible()
       "not have a temperature variable(s)."));
 
   // TODO : Initialize e.g. state functions data if applicable
+  t_lower = ordering.t_lower;
+
+  thermal conductivity    = physical_properties.fluids[0]
 }
 
 template <int dim, bool has_hp_capabilities>

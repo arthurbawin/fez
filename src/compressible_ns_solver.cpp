@@ -95,8 +95,8 @@ template <int dim>
 void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                                 Vector<double>   &values) const
 {
-  AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
-  // const double nu = physical_properties.fluids[0].kinematic_viscosity;
+  //AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
+  const double nu = physical_properties.fluids[0].kinematic_viscosity;
 
   // Tensor<1, dim> u, dudt_eulerian;
   // for (unsigned int d = 0; d < dim; ++d)

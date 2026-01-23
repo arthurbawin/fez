@@ -133,8 +133,7 @@ protected:
       , n_components(ordering.n_components)
       , u_lower(ordering.u_lower)
       , p_lower(ordering.p_lower)
-      // FIXME: À compléter pour T_lower ?
-      // , t_lower(ordering.t_lower)
+      , t_lower(ordering.t_lower)
       , mms(mms)
     {}
 
@@ -165,7 +164,7 @@ protected:
       for (unsigned int d = 0; d < dim; ++d)
         values[u_lower + d] = mms.exact_velocity->value(p, d);
       values[p_lower] = mms.exact_pressure->value(p);
-      // FIXME: A completer pour T
+      values[t_lower] = mms.exact_temperature->value(p);
     }
 
     virtual Tensor<1, dim>
@@ -187,6 +186,7 @@ protected:
     const unsigned int n_components;
     const unsigned int u_lower;
     const unsigned int p_lower;
+    const unsigned int t_lower;
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
@@ -208,6 +208,7 @@ protected:
       , n_components(ordering.n_components)
       , u_lower(ordering.u_lower)
       , p_lower(ordering.p_lower)
+      , t_lower(ordering.t_lower)
       , physical_properties(physical_properties)
       , mms(mms)
     {}
@@ -229,6 +230,7 @@ protected:
     const unsigned int                         n_components;
     const unsigned int                         u_lower;
     const unsigned int                         p_lower;
+    const unsigned int                         t_lower;  
     const Parameters::PhysicalProperties<dim> &physical_properties;
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;

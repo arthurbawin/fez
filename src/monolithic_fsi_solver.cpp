@@ -248,11 +248,20 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
     // Print number of owned and constrained lambda dofs
     IndexSet lambda_dofs =
       DoFTools::extract_dofs(this->dof_handler, lambda_mask);
+    unsigned int constrained_owned_dofs   = 0;
     unsigned int unconstrained_owned_dofs = 0;
     for (const auto &dof : lambda_dofs)
+    {
       if (!lambda_constraints.is_constrained(dof))
         unconstrained_owned_dofs++;
+      else
+        constrained_owned_dofs++;
+    }
 
+    const unsigned int total_constrained_owned_dofs =
+      Utilities::MPI::sum(constrained_owned_dofs, this->mpi_communicator);
+    std::cout << total_constrained_owned_dofs
+              << " constrained owned lambda dofs" << std::endl;
     const unsigned int total_unconstrained_owned_dofs =
       Utilities::MPI::sum(unconstrained_owned_dofs, this->mpi_communicator);
     std::cout << total_unconstrained_owned_dofs
@@ -1249,8 +1258,8 @@ void FSISolver<dim>::create_sparsity_pattern()
 
   {
     // Manually add the lambda coupling on the relevant boundary faces
-    const unsigned int n_dofs_per_face = fe->n_dofs_per_face();
-    std::vector<types::global_dof_index> face_dofs(n_dofs_per_face);
+    const unsigned int n_dofs_per_cell = fe->n_dofs_per_cell();
+    std::vector<types::global_dof_index> cell_dofs(n_dofs_per_cell);
     for (const auto &cell : this->dof_handler.active_cell_iterators())
       for (const auto i_face : cell->face_indices())
       {
@@ -1258,39 +1267,46 @@ void FSISolver<dim>::create_sparsity_pattern()
         if (!(face->at_boundary() &&
               face->boundary_id() == weak_no_slip_boundary_id))
           continue;
-        face->get_dof_indices(face_dofs);
-        for (unsigned int i_dof = 0; i_dof < n_dofs_per_face; ++i_dof)
+
+        // Add coupling based on cell, rather than based on faces.
+        // This is because in the assembly, we loop on the cell dofs
+        // even for face terms, as the FEFaceValues functions run from
+        // 0 to n_dofs_per_cell even on faces.
+        cell->get_dof_indices(cell_dofs);
+        // face->get_dof_indices(face_dofs);
+
+        for (unsigned int i_dof = 0; i_dof < n_dofs_per_cell; ++i_dof)
         {
           const unsigned int comp_i =
-            fe->face_system_to_component_index(i_dof, i_face).first;
+            fe->system_to_component_index(i_dof).first;
           const unsigned int d_i = comp_i - this->ordering->l_lower;
 
           if (this->ordering->is_lambda(comp_i))
-            for (unsigned int j_dof = 0; j_dof < n_dofs_per_face; ++j_dof)
+            for (unsigned int j_dof = 0; j_dof < n_dofs_per_cell; ++j_dof)
             {
               const unsigned int comp_j =
-                fe->face_system_to_component_index(j_dof, i_face).first;
+                fe->system_to_component_index(j_dof).first;
 
               // Lambda couples to u and x on faces where no-slip is enforced
               // weakly
               if (this->ordering->is_velocity(comp_j))
               {
                 const unsigned int d_j = comp_j - this->ordering->u_lower;
-                if (d_i == d_j)
+                // if (d_i == d_j)
                 {
                   // Lambda couples to u and vice versa
-                  dsp.add(face_dofs[i_dof], face_dofs[j_dof]);
-                  dsp.add(face_dofs[j_dof], face_dofs[i_dof]);
+                  dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
+                  dsp.add(cell_dofs[j_dof], cell_dofs[i_dof]);
                 }
               }
               if (this->ordering->is_position(comp_j))
               {
                 const unsigned int d_j = comp_j - this->ordering->x_lower;
-                if (d_i == d_j)
+                // if (d_i == d_j)
                   // In the PDEs, lambda couples to x, but x does not couple to
                   // lambda. The x - lambda boundary coupling is applied
                   // directly in the add_algebraic_position_coupling routines.
-                  dsp.add(face_dofs[i_dof], face_dofs[j_dof]);
+                  dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
               }
             }
         }
@@ -1386,7 +1402,8 @@ void FSISolver<dim>::create_sparsity_pattern()
 
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
     this->pcout << "Matrix has " << this->system_matrix.n_nonzero_elements()
-                << " nnz" << std::endl;
+                << " nnz and size " << this->system_matrix.m()
+                << " x " << this->system_matrix.n() << std::endl;
 }
 
 template <int dim>

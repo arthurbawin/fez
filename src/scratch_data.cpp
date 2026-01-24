@@ -469,7 +469,7 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
   components.resize(dofs_per_cell);
   JxW_moving.resize(n_q_points);
   JxW_fixed.resize(n_q_points);
-  face_boundary_id.resize(n_faces);
+  face_boundary_id.resize(n_faces, numbers::invalid_unsigned_int);
   face_JxW_moving.resize(n_faces, std::vector<double>(n_faces_q_points));
   face_JxW_fixed.resize(n_faces, std::vector<double>(n_faces_q_points));
   face_normals_moving.resize(n_faces,

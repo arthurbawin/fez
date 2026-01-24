@@ -975,6 +975,48 @@ public:
 };
 
 /**
+ * hp Scratch data for the FSI solver.
+ */
+template <int dim>
+class ScratchDataFSI_hp : public ScratchData<dim, true>
+{
+public:
+  /**
+   * Constructor
+   */
+  ScratchDataFSI_hp(
+    const ComponentOrdering          &ordering,
+    const hp::FECollection<dim>      &fe_collection,
+    const hp::MappingCollection<dim> &fixed_mapping_collection,
+    const hp::MappingCollection<dim> &moving_mapping_collection,
+    const hp::QCollection<dim>       &cell_quadrature_collection,
+    const hp::QCollection<dim - 1>   &face_quadrature_collection,
+    const std::vector<double>        &bdf_coefficients,
+    const ParameterReader<dim>       &param)
+    : ScratchData<dim, true>(ordering,
+                             /*enable_pseudo_solid = */ true,
+                             /*enable_lagrange_multiplier = */ true,
+                             /*enable_cahn_hilliard = */ false,
+                             /*enable_compressible = */ false,
+                             fe_collection,
+                             fixed_mapping_collection,
+                             moving_mapping_collection,
+                             cell_quadrature_collection,
+                             face_quadrature_collection,
+                             bdf_coefficients,
+                             param)
+  {}
+
+  /**
+   * Copy constructor
+   */
+  ScratchDataFSI_hp(
+    const ScratchDataFSI_hp &other)
+    : ScratchData<dim, true>(other)
+  {}
+};
+
+/**
  * Scratch data for the quasi-incompressible Cahn_hilliard Navier-Stokes solver
  * on fixed mesh.
  */

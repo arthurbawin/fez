@@ -6,10 +6,10 @@
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_nothing.h>
-#include <deal.II/grid/reference_cell.h>
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/grid/reference_cell.h>
 #include <deal.II/hp/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/numerics/data_out.h>
@@ -34,7 +34,8 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
       FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,      // Velocity
       FE_Q<dim>(param.finite_elements.pressure_degree),            // Pressure
       FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim, // Position
-      FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^ dim); // Lagrange multiplier
+      FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
+        dim); // Lagrange multiplier
     fe_without_lambda = std::make_shared<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
       FE_Q<dim>(param.finite_elements.pressure_degree),
@@ -43,16 +44,41 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
   }
   else
   {
-    fe_with_lambda = std::make_shared<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.velocity_degree), dim, // Velocity
-      FE_SimplexP<dim>(param.finite_elements.pressure_degree), 1,       // Pressure
-      FE_SimplexP<dim>(param.finite_elements.mesh_position_degree), dim, // Position
-      FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree), dim); // Lagrange multiplier
-    fe_without_lambda = std::make_shared<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.velocity_degree), dim,
-      FE_SimplexP<dim>(param.finite_elements.pressure_degree), 1,
-      FE_SimplexP<dim>(param.finite_elements.mesh_position_degree), dim,
-      FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()), dim);
+    if constexpr (dim == 2)
+    {
+      fe_with_lambda = std::make_shared<FESystem<dim>>(
+        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+          dim,                                                   // Velocity
+        FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
+        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^
+          dim, // Position
+        FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
+          dim); // Lagrange multiplier
+      fe_without_lambda = std::make_shared<FESystem<dim>>(
+        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FE_SimplexP<dim>(param.finite_elements.pressure_degree),
+        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+        FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
+    }
+    else
+    {
+      fe_with_lambda = std::make_shared<FESystem<dim>>(
+        FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^
+          dim, // Velocity
+        FE_SimplexP_3D_hp<dim>(
+          param.finite_elements.pressure_degree), // Pressure
+        FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
+          dim, // Position
+        FE_SimplexP_3D_hp<dim>(
+          param.finite_elements.no_slip_lagrange_mult_degree) ^
+          dim); // Lagrange multiplier
+      fe_without_lambda = std::make_shared<FESystem<dim>>(
+        FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree) ^ dim,
+        FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
+          dim,
+        FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
+    }
   }
 
   fe = std::make_shared<hp::FECollection<dim>>();
@@ -238,10 +264,10 @@ void FSISolverLessLambda<dim>::setup_dofs()
   // Mark the cells on which the Lagrange multiplier is defined
   // FIXME: MUST ALSO TAG CELLS WHO ONLY HAVE AN EDGE ON THE BOUNDARY, BUT NO
   // FACES
-  AssertThrow(dim == 2,
-              ExcMessage(
-                "Must update the cell tagging in 3D so that cells with only an "
-                "edge on the boundary do have lambda defined."));
+  // AssertThrow(dim == 2,
+  //             ExcMessage(
+  //               "Must update the cell tagging in 3D so that cells with only
+  //               an " "edge on the boundary do have lambda defined."));
   for (const auto &cell : this->dof_handler.active_cell_iterators())
   {
     cell->set_material_id(without_lambda_domain_id);
@@ -296,7 +322,8 @@ void FSISolverLessLambda<dim>::setup_dofs()
   // Use interpolate instead
   VectorTools::interpolate(fixed_mapping_collection,
                            this->dof_handler,
-                           FixedMeshPosition<dim>(this->ordering->x_lower, this->ordering->n_components),
+                           FixedMeshPosition<dim>(this->ordering->x_lower,
+                                                  this->ordering->n_components),
                            this->local_evaluation_point,
                            this->position_mask);
   // VectorTools::get_position_vector(*fixed_mapping,
@@ -307,9 +334,10 @@ void FSISolverLessLambda<dim>::setup_dofs()
   this->evaluation_point = this->local_evaluation_point;
 
   // Also store them in initial_positions, for postprocessing:
-  this->initial_positions = DoFTools::map_dofs_to_support_points(fixed_mapping_collection,
-                                       this->dof_handler,
-                                       this->position_mask);
+  this->initial_positions =
+    DoFTools::map_dofs_to_support_points(fixed_mapping_collection,
+                                         this->dof_handler,
+                                         this->position_mask);
 
   // Create the solution-dependent mapping
   this->moving_mapping =
@@ -429,17 +457,18 @@ void FSISolverLessLambda<dim>::create_lagrange_multiplier_constraints()
       std::ofstream outfile(this->param.output.output_dir +
                             "constrained_lambda_dofs_proc" +
                             std::to_string(this->mpi_rank) + ".pos");
-      outfile << "View \"constrained_lambda_dofs_proc" << this->mpi_rank <<
-      "\"{"
-              << std::endl;
+      outfile << "View \"constrained_lambda_dofs_proc" << this->mpi_rank
+              << "\"{" << std::endl;
       for (const auto dof : lambda_dofs)
         if (lambda_constraints.is_constrained(dof))
         {
           const Point<dim> &pt = support_points.at(dof);
-          if constexpr(dim == 2)
-          outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};" << std::endl;
+          if constexpr (dim == 2)
+            outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
+                    << std::endl;
           else
-          outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};" << std::endl;
+            outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+                    << std::endl;
         }
       outfile << "};" << std::endl;
       outfile.close();
@@ -628,18 +657,10 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
   //
   std::vector<std::map<types::global_dof_index, double>> coeffs(dim);
 
-  // FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-  //                                        *fe,
-  //                                        *this->face_quadrature,
-  //                                        update_values | update_JxW_values);
-
   hp::FEFaceValues hp_fe_face_values_fixed(fixed_mapping_collection,
-    *fe,
-    face_quadrature_collection,
-    update_values | update_JxW_values);
-
-  // const unsigned int                   n_dofs_per_face = fe->n_dofs_per_face();
-  // std::vector<types::global_dof_index> face_dofs(n_dofs_per_face);
+                                           *fe,
+                                           face_quadrature_collection,
+                                           update_values | update_JxW_values);
 
   for (const auto &cell : this->dof_handler.active_cell_iterators())
   {
@@ -679,10 +700,11 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
         hp_fe_face_values_fixed.reinit(cell, face);
         // fe_face_values_fixed.reinit(cell, face);
 
-        const FEFaceValues<dim> &fe_face_values_fixed = hp_fe_face_values_fixed.get_present_fe_values();
+        const FEFaceValues<dim> &fe_face_values_fixed =
+          hp_fe_face_values_fixed.get_present_fe_values();
         const FESystem<dim> &active_fe = fe_face_values_fixed.get_fe();
 
-        const unsigned int                   n_dofs_per_face = active_fe.n_dofs_per_face();
+        const unsigned int n_dofs_per_face = active_fe.n_dofs_per_face();
         std::vector<types::global_dof_index> face_dofs(n_dofs_per_face);
 
         face->get_dof_indices(face_dofs, fe_index);
@@ -776,31 +798,6 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
                               moving_mapping_collection,
                               face_quadrature_collection,
                               weak_no_slip_boundary_id);
-
-    // //////////////////////////////////////////////////////////////////////////////
-    // {
-    //   double I = 0.;
-
-    //   hp::FEFaceValues<dim> hp_fe_face_values(moving_mapping_collection,
-    //                                           this->dof_handler.get_fe_collection(),
-    //                                           face_quadrature_collection,
-    //                                           update_JxW_values);
-
-    //   for (const auto &cell : dof_handler.active_cell_iterators())
-    //     if (cell->is_locally_owned())
-    //       for (unsigned int f = 0; f < cell->n_faces(); ++f)
-    //         if (cell->face(f)->at_boundary() &&
-    //             cell->face(f)->boundary_id() == weak_no_slip_boundary_id)
-    //         {
-    //           hp_fe_face_values.reinit(cell, f);
-    //           const FEFaceValues<dim> &fe_face_values =
-    //             hp_fe_face_values.get_present_fe_values();
-    //           for (unsigned int q = 0; q < face_quadrature.size(); ++q)
-    //             I += fe_face_values.JxW(q);
-    //         }
-    //   return Utilities::MPI::sum(I, dof_handler.get_communicator());
-    // }
-    // //////////////////////////////////////////////////////////////////////////////
 
     for (unsigned int d = 0; d < dim; ++d)
     {
@@ -908,279 +905,6 @@ void FSISolverLessLambda<dim>::remove_cylinder_velocity_constraints(
           relevant_boundary_position_dofs.add_index(dof);
   }
 
-  // ///////////////////////////////////////////////////////////////////////////
-  // // Get the support points for the relevant dofs
-  // std::map<types::global_dof_index, Point<dim>> support_points =
-  //   DoFTools::map_dofs_to_support_points(*this->fixed_mapping,
-  //                                        this->dof_handler);
-
-  // /**
-  //  * For debug: Create a dof to component map (relevant dofs only,
-  //  * because looping over owned and ghost cells)
-  //  */
-  // const types::global_dof_index n_dofs        = this->dof_handler.n_dofs();
-  // const unsigned int            dofs_per_cell = fe.dofs_per_cell;
-
-  // std::vector<int>                     dof_to_component(n_dofs, -1);
-  // std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-
-  // for (const auto &cell : this->dof_handler.active_cell_iterators())
-  // {
-  //   cell->get_dof_indices(local_dof_indices);
-  //   for (unsigned int i = 0; i < dofs_per_cell; ++i)
-  //   {
-  //     const unsigned int component      =
-  //     fe->system_to_component_index(i).first; const types::global_dof_index
-  //     dof = local_dof_indices[i];
-
-  //     // Check that this is compatible with value already there, if any
-  //     AssertThrow(dof_to_component[dof] == -1 ||
-  //                   dof_to_component[dof] == component,
-  //                 ExcMessage("Mismatch in dof component"));
-
-  //     dof_to_component[dof] = component;
-  //   }
-  // }
-
-  // /**
-  //  * Print owned, ghost and relevant boundary VELOCITY dofs
-  //  */
-  // {
-  //   // Print owned velocity dofs
-  //   std::ofstream outfile(this->param.output.output_dir +
-  //                         "owned_velocity_dofs_proc" +
-  //                         std::to_string(this->mpi_rank) + ".pos");
-  //   outfile << "View \"owned_velocity_dofs_proc" << this->mpi_rank << "\"{"
-  //           << std::endl;
-  //   for (const auto dof : this->locally_owned_dofs)
-  //   {
-  //     if (this->ordering->is_velocity(dof_to_component[dof]))
-  //     {
-  //       const Point<dim> &pt = support_points.at(dof);
-  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-  //               << std::endl;
-  //     }
-  //   }
-  //   outfile << "};" << std::endl;
-  //   outfile.close();
-  // }
-  // {
-  //   // Print ghost velocity dofs
-  //   std::ofstream outfile(this->param.output.output_dir +
-  //                         "ghost_velocity_dofs_proc" +
-  //                         std::to_string(this->mpi_rank) + ".pos");
-  //   outfile << "View \"ghost_velocity_dofs_proc" << this->mpi_rank << "\"{"
-  //           << std::endl;
-  //   for (const auto dof : this->locally_relevant_dofs)
-  //   {
-  //     if (this->locally_owned_dofs.is_element(dof))
-  //       continue;
-
-  //     if (this->ordering->is_velocity(dof_to_component[dof]))
-  //     {
-  //       const Point<dim> &pt = support_points.at(dof);
-  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-  //               << std::endl;
-  //     }
-  //   }
-  //   outfile << "};" << std::endl;
-  //   outfile.close();
-  // }
-  // {
-  //   // Print relevant boundary velocity dofs from extraction
-  //   std::ofstream outfile(this->param.output.output_dir +
-  //                         "extracted_velocity_dofs_proc" +
-  //                         std::to_string(this->mpi_rank) + ".pos");
-  //   outfile << "View \"extracted_velocity_dofs_proc" << this->mpi_rank <<
-  //   "\"{"
-  //           << std::endl;
-  //   for (const auto dof : relevant_boundary_velocity_dofs)
-  //   {
-  //     if (this->ordering->is_velocity(dof_to_component[dof]))
-  //     {
-  //       const Point<dim> &pt = support_points.at(dof);
-  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-  //               << std::endl;
-  //     }
-  //   }
-  //   outfile << "};" << std::endl;
-  //   outfile.close();
-  // }
-  // /**
-  //  * Print owned, ghost and relevant boundary POSITION dofs
-  //  */
-  // {
-  //   // Print owned position dofs
-  //   std::ofstream outfile(this->param.output.output_dir +
-  //                         "owned_position_dofs_proc" +
-  //                         std::to_string(this->mpi_rank) + ".pos");
-  //   outfile << "View \"owned_position_dofs_proc" << this->mpi_rank << "\"{"
-  //           << std::endl;
-  //   for (const auto dof : this->locally_owned_dofs)
-  //   {
-  //     if (this->ordering->is_position(dof_to_component[dof]))
-  //     {
-  //       const Point<dim> &pt = support_points.at(dof);
-  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-  //               << std::endl;
-  //     }
-  //   }
-  //   outfile << "};" << std::endl;
-  //   outfile.close();
-  // }
-  // {
-  //   // Print ghost position dofs
-  //   std::ofstream outfile(this->param.output.output_dir +
-  //                         "ghost_position_dofs_proc" +
-  //                         std::to_string(this->mpi_rank) + ".pos");
-  //   outfile << "View \"ghost_position_dofs_proc" << this->mpi_rank << "\"{"
-  //           << std::endl;
-  //   for (const auto dof : this->locally_relevant_dofs)
-  //   {
-  //     if (this->locally_owned_dofs.is_element(dof))
-  //       continue;
-
-  //     if (this->ordering->is_position(dof_to_component[dof]))
-  //     {
-  //       const Point<dim> &pt = support_points.at(dof);
-  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-  //               << std::endl;
-  //     }
-  //   }
-  //   outfile << "};" << std::endl;
-  //   outfile.close();
-  // }
-  // {
-  //   // Print relevant boundary position dofs from extraction
-  //   std::ofstream outfile(this->param.output.output_dir +
-  //                         "extracted_position_dofs_proc" +
-  //                         std::to_string(this->mpi_rank) + ".pos");
-  //   outfile << "View \"extracted_position_dofs_proc" << this->mpi_rank <<
-  //   "\"{"
-  //           << std::endl;
-  //   for (const auto dof : relevant_boundary_position_dofs)
-  //   {
-  //     if (this->ordering->is_position(dof_to_component[dof]))
-  //     {
-  //       const Point<dim> &pt = support_points.at(dof);
-  //       outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-  //               << std::endl;
-  //     }
-  //   }
-  //   outfile << "};" << std::endl;
-  //   outfile.close();
-  // }
-  // {
-  //   // Print the COUPLED POSITION DOFS on this partition
-  //   std::ofstream outfile(this->param.output.output_dir +
-  //                         "coupled_position_dofs_proc" +
-  //                         std::to_string(this->mpi_rank) + ".pos");
-  //   outfile << "View \"coupled_position_dofs_proc" << this->mpi_rank << "\"{"
-  //           << std::endl;
-  //   for (const auto &[dof, dimension] : coupled_position_dofs)
-  //   {
-  //     const Point<dim> &pt = support_points.at(dof);
-  //     outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-  //             << std::endl;
-  //   }
-  //   outfile << "};" << std::endl;
-  //   outfile.close();
-  // }
-  // MPI_Barrier(this->mpi_communicator);
-  // {
-  //   // Check that all coupled position dofs are indeed relevant on the
-  //   // boundary and vice versa
-  //   for (const auto &[pos_dof, d] : coupled_position_dofs)
-  //   {
-  //     AssertThrow(relevant_boundary_position_dofs.is_element(pos_dof),
-  //                 ExcMessage("A coupled position dof was not extracted"));
-  //   }
-  //   for (const auto &pos_dof : relevant_boundary_position_dofs)
-  //   {
-  //     AssertThrow(coupled_position_dofs.count(pos_dof) > 0,
-  //                 ExcMessage(
-  //                   "An extract position dof is not in the coupled map"));
-  //   }
-  // }
-
-  // const auto og_relevant =
-  //   DoFTools::extract_locally_relevant_dofs(this->dof_handler);
-
-  // Print
-  // for (unsigned int r = 0; r < this->mpi_size; ++r)
-  // {
-  //   MPI_Barrier(this->mpi_communicator);
-  //   if (r == this->mpi_rank)
-  //   {
-  //     std::cout << "In remove : Rank " << this->mpi_rank << " has "
-  //               << this->locally_relevant_dofs.n_elements() << " relevant and
-  //               "
-  //               << additional_relevant_dofs.n_elements()
-  //               << " additional and og has " << og_relevant.n_elements()
-  //               << std::endl;
-
-  //     for (unsigned int i = 0; i < n_dofs; ++i)
-  //     {
-  //       // Support points are defined only for relevant dofs
-  //       if (!this->locally_relevant_dofs.is_element(i))
-  //         continue;
-
-  //       // Support points are not defined for the additional ghost lambda
-  //       dofs if (additional_relevant_dofs.is_element(i))
-  //         continue;
-
-  //       if (!og_relevant.is_element(i))
-  //       {
-  //         std::cout << "B: Rank " << r << " : dof " << i
-  //                   << " is component : " << dof_to_component[i]
-  //                   << " is owned       : "
-  //                   << this->locally_owned_dofs.is_element(i)
-  //                   << " is relevant    : "
-  //                   << this->locally_relevant_dofs.is_element(i)
-  //                   << " is og relevant : " << og_relevant.is_element(i)
-  //                   << " is additional  : "
-  //                   << additional_relevant_dofs.is_element(i) << std::endl;
-  //         AssertThrow(false,
-  //                     ExcMessage("Dof is not additional but not og
-  //                     relevant"));
-  //       }
-
-  //       if (relevant_boundary_velocity_dofs.is_element(i) ||
-  //           relevant_boundary_position_dofs.is_element(i))
-  //       {
-  //         std::cout << "B: Rank " << r << " : dof " << i << " at "
-  //                   << support_points.at(i)
-  //                   << " is component : " << dof_to_component[i]
-  //                   << " is owned : " <<
-  //                   this->locally_owned_dofs.is_element(i)
-  //                   << " is relevant : "
-  //                   << this->locally_relevant_dofs.is_element(i)
-  //                   << " is constrained : " << constraints.is_constrained(i)
-  //                   << std::endl;
-
-  //         // Faces are at z = 0 and z = 0.5
-  //         if (constraints.is_constrained(i))
-  //         {
-  //           const double z = support_points.at(i)[2];
-  //           AssertThrow(std::abs(z) < 1e-10 || std::abs(z - 0.5) < 1e-10,
-  //                       ExcMessage("Unexpected constrained dof"));
-  //         }
-  //       }
-  //       else
-  //         std::cout << "B: Rank " << r << " : dof " << i << " at "
-  //                   << support_points.at(i)
-  //                   << " is component : " << dof_to_component[i]
-  //                   << " is owned : " <<
-  //                   this->locally_owned_dofs.is_element(i)
-  //                   << " is relevant : "
-  //                   << this->locally_relevant_dofs.is_element(i)
-  //                   << " is constrained : " << constraints.is_constrained(i)
-  //                   << " (not u/x or not on boundary)" << std::endl;
-  //     }
-  //   }
-  // }
-  ///////////////////////////////////////////////////////////////////////////
-
   // Check consistency of constraints for RELEVANT (not active) dofs before
   // removing
   {
@@ -1232,93 +956,6 @@ void FSISolverLessLambda<dim>::remove_cylinder_velocity_constraints(
     constraints.clear();
     constraints = std::move(filtered);
   }
-
-  // {
-  //   // This does not work:
-
-  //   // IndexSet local_lines = zero_constraints.get_local_lines();
-  //   // local_lines.compress();
-  //   // this->pcout << local_lines.n_intervals() << std::endl;
-  //   // this->pcout << local_lines.n_elements() << std::endl;
-  //   // this->pcout << local_lines.size() << std::endl;
-  //   // this->pcout << weak_velocity_dofs.n_intervals() << std::endl;
-  //   // this->pcout << weak_velocity_dofs.n_elements() << std::endl;
-  //   // this->pcout << weak_velocity_dofs.size() << std::endl;
-  //   // local_lines.get_view(weak_velocity_dofs);
-
-  //   IndexSet velocity_to_keep = this->locally_relevant_dofs;
-  //   velocity_to_keep.subtract_set(relevant_boundary_velocity_dofs);
-  //   IndexSet position_to_keep = this->locally_relevant_dofs;
-  //   position_to_keep.subtract_set(relevant_boundary_position_dofs);
-  //   IndexSet to_keep = velocity_to_keep;
-  //   to_keep.add_indices(position_to_keep.begin(), position_to_keep.end());
-
-  //   auto tmp_constraints = constraints.get_view(to_keep);
-  //   constraints.reinit(this->locally_owned_dofs,
-  //   this->locally_relevant_dofs); constraints.close();
-  //   constraints.merge(tmp_constraints);
-  // }
-
-  // {
-  //   // This does not work either: (test for velocity only)
-  //   // Keep everything (relevant) but the relevant boundary dofs
-  //   IndexSet to_keep = this->locally_relevant_dofs;
-  //   to_keep.subtract_set(relevant_boundary_velocity_dofs);
-  //   AffineConstraints<double> tmp;
-  //   tmp.copy_from(constraints);
-
-  //   constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
-  //   constraints.add_selected_constraints(tmp, to_keep);
-  //   constraints.close();
-  // }
-
-  ///////////////////////////////////////////////////////////////////////////
-  // Print the relevant dofs after removing the constraints.
-  // No relevant velocity dof on the boundary should be constrained
-  // for (unsigned int r = 0; r < this->mpi_size; ++r)
-  // {
-  //   MPI_Barrier(this->mpi_communicator);
-  //   if (r == this->mpi_rank)
-  //     for (unsigned int i = 0; i < n_dofs; ++i)
-  //     {
-  //       // Support points are defined only for relevant dofs
-  //       if (!this->locally_relevant_dofs.is_element(i))
-  //         continue;
-
-  //       // Support points are not defined for the additional ghost lambda
-  //       dofs if (additional_relevant_dofs.is_element(i))
-  //         continue;
-
-  //       if (relevant_boundary_velocity_dofs.is_element(i) ||
-  //           relevant_boundary_position_dofs.is_element(i))
-  //       {
-  //         std::cout << "A: Rank " << r << " : dof " << i << " at "
-  //                   << support_points.at(i)
-  //                   << " is component : " << dof_to_component[i]
-  //                   << " is owned : " <<
-  //                   this->locally_owned_dofs.is_element(i)
-  //                   << " is relevant : "
-  //                   << this->locally_relevant_dofs.is_element(i)
-  //                   << " is constrained : " << constraints.is_constrained(i)
-  //                   << std::endl;
-  //         AssertThrow(!constraints.is_constrained(i),
-  //                     ExcMessage("Constrained dof remains"));
-  //       }
-  //       else
-  //       {
-  //         std::cout << "A: Rank " << r << " : dof " << i << " at "
-  //                   << support_points.at(i)
-  //                   << " is component : " << dof_to_component[i]
-  //                   << " is owned : " <<
-  //                   this->locally_owned_dofs.is_element(i)
-  //                   << " is relevant : "
-  //                   << this->locally_relevant_dofs.is_element(i)
-  //                   << " is constrained : " << constraints.is_constrained(i)
-  //                   << " (not u/x or not on boundary)" << std::endl;
-  //       }
-  //     }
-  // }
-  ///////////////////////////////////////////////////////////////////////////
 
   // Check consistency of constraints for RELEVANT (not active) dofs after
   // removing
@@ -1489,8 +1126,8 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
         // This is because in the assembly, we loop on the cell dofs
         // even for face terms, as the FEFaceValues functions run from
         // 0 to n_dofs_per_cell even on faces.
-        const unsigned int fe_index = cell->active_fe_index();
-        const auto &active_fe = this->dof_handler.get_fe(fe_index);
+        const unsigned int fe_index        = cell->active_fe_index();
+        const auto        &active_fe       = this->dof_handler.get_fe(fe_index);
         const unsigned int n_dofs_per_cell = active_fe.n_dofs_per_cell();
         cell_dofs.resize(n_dofs_per_cell);
         cell->get_dof_indices(cell_dofs);
@@ -1499,7 +1136,6 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
         {
           const unsigned int comp_i =
             active_fe.system_to_component_index(i_dof).first;
-          const unsigned int d_i = comp_i - this->ordering->l_lower;
 
           if (this->ordering->is_lambda(comp_i))
             for (unsigned int j_dof = 0; j_dof < n_dofs_per_cell; ++j_dof)
@@ -1511,22 +1147,16 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
               // weakly
               if (this->ordering->is_velocity(comp_j))
               {
-                const unsigned int d_j = comp_j - this->ordering->u_lower;
-                // if (d_i == d_j)
-                {
-                  // Lambda couples to u and vice versa
-                  dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
-                  dsp.add(cell_dofs[j_dof], cell_dofs[i_dof]);
-                }
+                // Lambda couples to u and vice versa
+                dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
+                dsp.add(cell_dofs[j_dof], cell_dofs[i_dof]);
               }
               if (this->ordering->is_position(comp_j))
               {
-                const unsigned int d_j = comp_j - this->ordering->x_lower;
-                // if (d_i == d_j)
-                  // In the PDEs, lambda couples to x, but x does not couple to
-                  // lambda. The x - lambda boundary coupling is applied
-                  // directly in the add_algebraic_position_coupling routines.
-                  dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
+                // In the PDEs, lambda couples to x, but x does not couple to
+                // lambda. The x - lambda boundary coupling is applied
+                // directly in the add_algebraic_position_coupling routines.
+                dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
               }
             }
         }
@@ -1622,8 +1252,8 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
 
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
     this->pcout << "Matrix has " << this->system_matrix.n_nonzero_elements()
-                << " nnz and size " << this->system_matrix.m()
-                << " x " << this->system_matrix.n() << std::endl;
+                << " nnz and size " << this->system_matrix.m() << " x "
+                << this->system_matrix.n() << std::endl;
 }
 
 template <int dim>
@@ -1683,11 +1313,11 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
                       this->source_terms,
                       this->exact_solution);
 
-  const unsigned int fe_index          = cell->active_fe_index();
+  const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
-  auto &local_matrix = copy_data.matrices[fe_index];
-  auto              &local_dof_indices = copy_data.local_dof_indices[fe_index];
-  local_matrix       = 0;
+  auto &local_matrix             = copy_data.matrices[fe_index];
+  auto &local_dof_indices        = copy_data.local_dof_indices[fe_index];
+  local_matrix                   = 0;
 
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
@@ -1868,6 +1498,9 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
+        // std::ofstream outfile("scratch_fsi_solver.txt");
+        // scratch_data.print(cell, outfile);
+        // AssertThrow(false, ExcMessage("Exiting"));
         // std::cout << "Assembling on face" << std::endl;
         for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
         {
@@ -1888,7 +1521,6 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
 
           for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
           {
-            const unsigned int glo_i = local_dof_indices[i];
             const unsigned int comp_i = scratch_data.components[i];
             const bool         i_is_u = const_ordering.u_lower <= comp_i &&
                                 comp_i < const_ordering.u_upper;
@@ -1902,7 +1534,6 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
 
             for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
             {
-              const unsigned int glo_j = local_dof_indices[i];
               const unsigned int comp_j = scratch_data.components[j];
               const bool         j_is_u = const_ordering.u_lower <= comp_j &&
                                   comp_j < const_ordering.u_upper;
@@ -1926,25 +1557,21 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
 
               if (i_is_u && j_is_x)
               {
-                // std::cout << "u - x : " << glo_i << " - " << glo_j << std::endl;
                 local_matrix_ij += -lambda_dot_phi_u_i * delta_dx_j;
               }
 
               if (i_is_u && j_is_l)
               {
-                // std::cout << "u - l : " << glo_i << " - " << glo_j << std::endl;
                 local_matrix_ij += -phi_l_j * phi_u_i;
               }
 
               if (i_is_l && j_is_u)
               {
-                // std::cout << "l - u : " << glo_i << " - " << glo_j << std::endl;
                 local_matrix_ij += -phi_u_j * phi_l_i;
               }
 
               if (i_is_l && j_is_x)
               {
-                // std::cout << "l - x : " << glo_i << " - " << glo_j << std::endl;
                 local_matrix_ij +=
                   phi_l_i * (bdf_c0 * phi_x_j + u_ale * delta_dx_j);
               }
@@ -1968,10 +1595,8 @@ void FSISolverLessLambda<dim>::copy_local_to_global_matrix(
     return;
 
   const auto i = copy_data.last_active_fe_index;
-    this->zero_constraints.distribute_local_to_global(
-      copy_data.matrices[i],
-      copy_data.local_dof_indices[i],
-      this->system_matrix);
+  this->zero_constraints.distribute_local_to_global(
+    copy_data.matrices[i], copy_data.local_dof_indices[i], this->system_matrix);
 }
 
 template <int dim>
@@ -2008,10 +1633,13 @@ void FSISolverLessLambda<dim>::compare_analytical_matrix_with_fd()
   //             << errors.first << std::endl;
 
   // // Only print relative error if absolute is too large
-  // if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
+  // if (errors.first >
+  // this->param.debug.analytical_jacobian_absolute_tolerance)
   //   this->pcout << "Max relative error analytical vs fd matrix is "
   //               << errors.second << std::endl;
 }
+
+std::ofstream outfile("scratch_fsi.txt");
 
 template <int dim>
 void FSISolverLessLambda<dim>::assemble_rhs()
@@ -2062,11 +1690,11 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
                       this->source_terms,
                       this->exact_solution);
 
-  const unsigned int fe_index          = cell->active_fe_index();
+  const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
-  auto              &local_rhs         = copy_data.vectors[fe_index];
-  auto              &local_dof_indices = copy_data.local_dof_indices[fe_index];
-  local_rhs       = 0;
+  auto &local_rhs                = copy_data.vectors[fe_index];
+  auto &local_dof_indices        = copy_data.local_dof_indices[fe_index];
+  local_rhs                      = 0;
 
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
@@ -2201,11 +1829,13 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
         // Lagrange multiplier for no-slip
         //
         if (face->boundary_id() == weak_no_slip_boundary_id)
+        {
+          // scratch_data.print(cell, outfile);
           for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
-            std::ofstream outfile("scratch_fsi_solver.txt");
-            scratch_data.print(cell, outfile);
-            AssertThrow(false, ExcMessage("Exiting"));
+            // std::ofstream outfile("scratch_fsi_solver.txt");
+            // scratch_data.print(cell, outfile);
+            // AssertThrow(false, ExcMessage("Exiting"));
             //
             // Flow related data (no-slip)
             //
@@ -2240,6 +1870,7 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
               local_rhs(i) += local_rhs_i;
             }
           }
+        }
 
         /**
          * Open boundary condition with prescribed manufactured solution.
@@ -2283,7 +1914,7 @@ void FSISolverLessLambda<dim>::copy_local_to_global_rhs(
 
   const auto i = copy_data.last_active_fe_index;
   this->zero_constraints.distribute_local_to_global(
-      copy_data.vectors[i], copy_data.local_dof_indices[i], this->system_rhs);
+    copy_data.vectors[i], copy_data.local_dof_indices[i], this->system_rhs);
 }
 
 template <int dim>
@@ -2503,17 +2134,22 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_rhs()
 template <int dim>
 void FSISolverLessLambda<dim>::compare_forces_and_position_on_obstacle() const
 {
-  AssertThrow(face_quadrature_collection.size() == 2, ExcMessage("Assuming a face quadrature collection with exactly 2 entries."));
-  AssertThrow(face_quadrature_collection[0].size() == face_quadrature_collection[1].size(),
-    ExcMessage("Assuming the same two copies of the same face quadrature."));
+  AssertThrow(
+    face_quadrature_collection.size() == 2,
+    ExcMessage(
+      "Assuming a face quadrature collection with exactly 2 entries."));
+  AssertThrow(face_quadrature_collection[0].size() ==
+                face_quadrature_collection[1].size(),
+              ExcMessage(
+                "Assuming the same two copies of the same face quadrature."));
 
   Tensor<1, dim> lambda_integral, lambda_integral_local;
   lambda_integral_local = 0;
 
- hp::FEFaceValues<dim> hp_fe_face_values(moving_mapping_collection,
-                                   *fe,
-                                   face_quadrature_collection,
-                                   update_values | update_JxW_values);
+  hp::FEFaceValues<dim> hp_fe_face_values(moving_mapping_collection,
+                                          *fe,
+                                          face_quadrature_collection,
+                                          update_values | update_JxW_values);
 
   // Compute integral of lambda on owned boundary
   const unsigned int n_faces_q_points = face_quadrature_collection[0].size();
@@ -2534,9 +2170,10 @@ void FSISolverLessLambda<dim>::compare_forces_and_position_on_obstacle() const
         {
           const unsigned int fe_index = cell->active_fe_index();
           hp_fe_face_values.reinit(cell, i_face);
-          const FEFaceValues<dim> &fe_face_values = hp_fe_face_values.get_present_fe_values();
-          const FESystem<dim> &active_fe = fe_face_values.get_fe();
-          const unsigned int                   n_dofs_per_face = active_fe.n_dofs_per_face();
+          const FEFaceValues<dim> &fe_face_values =
+            hp_fe_face_values.get_present_fe_values();
+          const FESystem<dim> &active_fe       = fe_face_values.get_fe();
+          const unsigned int   n_dofs_per_face = active_fe.n_dofs_per_face();
           face_dofs.resize(n_dofs_per_face);
 
           // Increment lambda integral
@@ -2681,94 +2318,103 @@ void FSISolverLessLambda<dim>::compare_forces_and_position_on_obstacle() const
 template <int dim>
 void FSISolverLessLambda<dim>::check_velocity_boundary() const
 {
-  // // Check difference between uh and dxhdt
-  // double l2_local = 0;
-  // double li_local = 0;
+  // Assumes the same number of quadrature points in the collection
+  AssertDimension(face_quadrature_collection[0].size(),
+                  face_quadrature_collection[1].size());
 
-  // FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-  //                                        *fe,
-  //                                        *this->face_quadrature,
-  //                                        update_values |
-  //                                          update_quadrature_points |
-  //                                          update_JxW_values);
-  // FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-  //                                  *fe,
-  //                                  *this->face_quadrature,
-  //                                  update_values | update_quadrature_points |
-  //                                    update_JxW_values);
+  // Check difference between uh and dxhdt
+  double l2_local = 0;
+  double li_local = 0;
 
-  // const unsigned int n_faces_q_points = this->face_quadrature->size();
+  hp::FEFaceValues<dim> hp_fe_face_values_fixed(fixed_mapping_collection,
+                                                *fe,
+                                                face_quadrature_collection,
+                                                update_values |
+                                                  update_quadrature_points |
+                                                  update_JxW_values);
+  hp::FEFaceValues<dim> hp_fe_face_values(moving_mapping_collection,
+                                          *fe,
+                                          face_quadrature_collection,
+                                          update_values |
+                                            update_quadrature_points |
+                                            update_JxW_values);
 
-  // const auto &bdf_coefficients = this->time_handler.bdf_coefficients;
+  const unsigned int n_faces_q_points = face_quadrature_collection[0].size();
 
-  // std::vector<std::vector<Tensor<1, dim>>> position_values(
-  //   bdf_coefficients.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
-  // std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
-  // std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
-  // Tensor<1, dim>              diff;
+  const auto &bdf_coefficients = this->time_handler.bdf_coefficients;
 
-  // for (auto cell : this->dof_handler.active_cell_iterators())
-  // {
-  //   if (!cell->is_locally_owned())
-  //     continue;
+  std::vector<std::vector<Tensor<1, dim>>> position_values(
+    bdf_coefficients.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
+  std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
+  std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
+  Tensor<1, dim>              diff;
 
-  //   for (const auto i_face : cell->face_indices())
-  //   {
-  //     const auto &face = cell->face(i_face);
+  for (auto cell : this->dof_handler.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned())
+      continue;
 
-  //     if (face->at_boundary() &&
-  //         face->boundary_id() == weak_no_slip_boundary_id)
-  //     {
-  //       fe_face_values_fixed.reinit(cell, i_face);
-  //       fe_face_values.reinit(cell, i_face);
+    for (const auto i_face : cell->face_indices())
+    {
+      const auto &face = cell->face(i_face);
 
-  //       // Get current and previous FE solution values on the face
-  //       fe_face_values[this->velocity_extractor].get_function_values(
-  //         this->present_solution, fluid_velocity_values);
-  //       fe_face_values_fixed[this->position_extractor].get_function_values(
-  //         this->present_solution, position_values[0]);
-  //       for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
-  //         fe_face_values_fixed[this->position_extractor].get_function_values(
-  //           this->previous_solutions[iBDF - 1], position_values[iBDF]);
+      if (face->at_boundary() &&
+          face->boundary_id() == weak_no_slip_boundary_id)
+      {
+        const unsigned int fe_index = cell->active_fe_index();
+        hp_fe_face_values_fixed.reinit(cell, i_face);
+        hp_fe_face_values.reinit(cell, i_face);
+        const auto &fe_face_values_fixed =
+          hp_fe_face_values_fixed.get_present_fe_values();
+        const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
 
-  //       for (unsigned int q = 0; q < n_faces_q_points; ++q)
-  //       {
-  //         // Compute FE mesh velocity at node
-  //         mesh_velocity_values[q] = 0;
-  //         for (unsigned int iBDF = 0; iBDF < bdf_coefficients.size(); ++iBDF)
-  //           mesh_velocity_values[q] +=
-  //             bdf_coefficients[iBDF] * position_values[iBDF][q];
+        // Get current and previous FE solution values on the face
+        fe_face_values[this->velocity_extractor].get_function_values(
+          this->present_solution, fluid_velocity_values);
+        fe_face_values_fixed[this->position_extractor].get_function_values(
+          this->present_solution, position_values[0]);
+        for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
+          fe_face_values_fixed[this->position_extractor].get_function_values(
+            this->previous_solutions[iBDF - 1], position_values[iBDF]);
 
-  //         diff = mesh_velocity_values[q] - fluid_velocity_values[q];
+        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        {
+          // Compute FE mesh velocity at node
+          mesh_velocity_values[q] = 0;
+          for (unsigned int iBDF = 0; iBDF < bdf_coefficients.size(); ++iBDF)
+            mesh_velocity_values[q] +=
+              bdf_coefficients[iBDF] * position_values[iBDF][q];
 
-  //         // u_h - w_h
-  //         l2_local += diff * diff * fe_face_values_fixed.JxW(q);
-  //         li_local = std::max(li_local, std::abs(diff.norm()));
-  //       }
-  //     }
-  //   }
-  // }
+          diff = mesh_velocity_values[q] - fluid_velocity_values[q];
 
-  // const double l2_error =
-  //   std::sqrt(Utilities::MPI::sum(l2_local, this->mpi_communicator));
-  // const double li_error = Utilities::MPI::max(li_local, this->mpi_communicator);
+          // u_h - w_h
+          l2_local += diff * diff * fe_face_values_fixed.JxW(q);
+          li_local = std::max(li_local, std::abs(diff.norm()));
+        }
+      }
+    }
+  }
 
-  // if (this->param.fsi.verbosity == Parameters::Verbosity::verbose)
-  // {
-  //   this->pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
-  //   this->pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
-  //   this->pcout << "||uh - wh||_Li = " << li_error << std::endl;
-  // }
+  const double l2_error =
+    std::sqrt(Utilities::MPI::sum(l2_local, this->mpi_communicator));
+  const double li_error = Utilities::MPI::max(li_local, this->mpi_communicator);
 
-  // if (!this->param.debug.fsi_apply_erroneous_coupling)
-  // {
-  //   AssertThrow(l2_error < 1e-12,
-  //               ExcMessage("L2 norm of uh - wh is too large : " +
-  //                          std::to_string(l2_error)));
-  //   AssertThrow(li_error < 1e-12,
-  //               ExcMessage("Linf norm of uh - wh is too large : " +
-  //                          std::to_string(li_error)));
-  // }
+  if (this->param.fsi.verbosity == Parameters::Verbosity::verbose)
+  {
+    this->pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
+    this->pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
+    this->pcout << "||uh - wh||_Li = " << li_error << std::endl;
+  }
+
+  if (!this->param.debug.fsi_apply_erroneous_coupling)
+  {
+    AssertThrow(l2_error < 1e-12,
+                ExcMessage("L2 norm of uh - wh is too large : " +
+                           std::to_string(l2_error)));
+    AssertThrow(li_error < 1e-12,
+                ExcMessage("Linf norm of uh - wh is too large : " +
+                           std::to_string(li_error)));
+  }
 }
 
 template <int dim>
@@ -2798,8 +2444,8 @@ void FSISolverLessLambda<dim>::check_manufactured_solution_boundary()
   //                                          update_quadrature_points |
   //                                          update_JxW_values);
 
-  // const unsigned int          n_faces_q_points = this->face_quadrature->size();
-  // Tensor<1, dim>              lambda_MMS;
+  // const unsigned int          n_faces_q_points =
+  // this->face_quadrature->size(); Tensor<1, dim>              lambda_MMS;
   // std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
 
   // //
@@ -2825,7 +2471,8 @@ void FSISolverLessLambda<dim>::check_manufactured_solution_boundary()
   //       for (unsigned int q = 0; q < n_faces_q_points; ++q)
   //       {
   //         const Point<dim> &qpoint = fe_face_values.quadrature_point(q);
-  //         const auto        normal_to_solid = -fe_face_values.normal_vector(q);
+  //         const auto        normal_to_solid =
+  //         -fe_face_values.normal_vector(q);
 
   //         const double p_MMS =
   //           this->exact_solution->value(qpoint, this->ordering->p_lower);
@@ -2840,13 +2487,15 @@ void FSISolverLessLambda<dim>::check_manufactured_solution_boundary()
   //         lambdaMMS_integral_local += lambda_MMS * fe_face_values.JxW(q);
 
   //         /**
-  //          * This is int lambda := int sigma(u_MMS, p_MMS) cdot normal_to_fluid
-  //          *                                                   -normal_to_solid
+  //          * This is int lambda := int sigma(u_MMS, p_MMS) cdot
+  //          normal_to_fluid
+  //          * -normal_to_solid
   //          */
   //         lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
 
   //         // Increment integral of p * n_solid
-  //         pns_integral_local += p_MMS * normal_to_solid * fe_face_values.JxW(q);
+  //         pns_integral_local += p_MMS * normal_to_solid *
+  //         fe_face_values.JxW(q);
   //       }
   //     }
   //   }
@@ -2855,7 +2504,8 @@ void FSISolverLessLambda<dim>::check_manufactured_solution_boundary()
   // for (unsigned int d = 0; d < dim; ++d)
   // {
   //   lambdaMMS_integral[d] =
-  //     Utilities::MPI::sum(lambdaMMS_integral_local[d], this->mpi_communicator);
+  //     Utilities::MPI::sum(lambdaMMS_integral_local[d],
+  //     this->mpi_communicator);
   //   lambda_integral[d] =
   //     Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
   // }
@@ -2870,7 +2520,8 @@ void FSISolverLessLambda<dim>::check_manufactured_solution_boundary()
   // // const Tensor<1, dim> ref_pns =
   // //   -param.fsi.spring_constant * translation *
   // //   std::static_pointer_cast<FSISolverLessLambda<dim>::MMSSolution>(
-  // //     exact_solution)->mms.exact_mesh_position->time_function->value(this->time_handler.current_time);
+  // //
+  // exact_solution)->mms.exact_mesh_position->time_function->value(this->time_handler.current_time);
   // // const double err_pns = (ref_pns - pns_integral).norm();
   // const double err_pns = -1.;
 
@@ -2899,7 +2550,8 @@ void FSISolverLessLambda<dim>::check_manufactured_solution_boundary()
 
   //         for (unsigned int d = 0; d < dim; ++d)
   //           x_MMS[d] = this->exact_solution->value(qpoint_fixed,
-  //                                                  this->ordering->x_lower + d);
+  //                                                  this->ordering->x_lower +
+  //                                                  d);
 
   //         const Tensor<1, dim> ref =
   //           -1. / this->param.fsi.spring_constant * lambdaMMS_integral;
@@ -2940,7 +2592,8 @@ void FSISolverLessLambda<dim>::check_manufactured_solution_boundary()
   // //         }
 
   // //         const double err = (u_MMS - w_MMS).norm();
-  // //         // std::cout << "u_MMS & w_MMS at quad node are " << u_MMS << " ,
+  // //         // std::cout << "u_MMS & w_MMS at quad node are " << u_MMS << "
+  // ,
   // //         "
   // //         << w_MMS << " - norm diff = " << err << std::endl; max_u_error =
   // //         std::max(max_u_error, err);
@@ -2954,8 +2607,9 @@ void FSISolverLessLambda<dim>::check_manufactured_solution_boundary()
   // this->pcout << std::endl;
   // this->pcout << "Checking manufactured solution for k = "
   //             << this->param.fsi.spring_constant << " :" << std::endl;
-  // this->pcout << "integral lambda         = " << lambda_integral << std::endl;
-  // this->pcout << "integral lambdaMMS      = " << lambdaMMS_integral
+  // this->pcout << "integral lambda         = " << lambda_integral <<
+  // std::endl; this->pcout << "integral lambdaMMS      = " <<
+  // lambdaMMS_integral
   //             << std::endl;
   // this->pcout << "integral pMMS * n_solid = " << pns_integral << std::endl;
   // this->pcout << "reference: -k*d*f(t)    = " << ref_pns
@@ -2993,9 +2647,9 @@ void FSISolverLessLambda<dim>::compute_lambda_error_on_boundary(
   //                                  update_values | update_quadrature_points |
   //                                    update_JxW_values | update_normal_vectors);
 
-  // const unsigned int          n_faces_q_points = this->face_quadrature->size();
-  // std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
-  // Tensor<1, dim>              diff, exact;
+  // const unsigned int          n_faces_q_points =
+  // this->face_quadrature->size(); std::vector<Tensor<1, dim>>
+  // lambda_values(n_faces_q_points); Tensor<1, dim>              diff, exact;
 
   // // std::ofstream out("normals.pos");
   // // out << "View \"normals\" {\n";
@@ -3021,9 +2675,10 @@ void FSISolverLessLambda<dim>::compute_lambda_error_on_boundary(
   //       // Evaluate exact solution at quadrature points
   //       for (unsigned int q = 0; q < n_faces_q_points; ++q)
   //       {
-  //         const Point<dim> &qpoint         = fe_face_values.quadrature_point(q);
-  //         const auto        normal_to_mesh = fe_face_values.normal_vector(q);
-  //         const auto        normal_to_solid = -normal_to_mesh;
+  //         const Point<dim> &qpoint         =
+  //         fe_face_values.quadrature_point(q); const auto normal_to_mesh =
+  //         fe_face_values.normal_vector(q); const auto        normal_to_solid
+  //         = -normal_to_mesh;
 
   //         // Careful:
   //         // int lambda := int sigma(u_MMS, p_MMS) cdot  normal_to_fluid
@@ -3035,7 +2690,8 @@ void FSISolverLessLambda<dim>::compute_lambda_error_on_boundary(
   //         // Got to take the consistent normal to compare int lambda_h with
   //         // solution.
   //         //
-  //         // Solution<dim> computes lambda_exact = - sigma cdot ns, where n is
+  //         // Solution<dim> computes lambda_exact = - sigma cdot ns, where n
+  //         is
   //         // expected to be the normal to the SOLID.
 
   //         // out << "VP(" << qpoint[0] << "," << qpoint[1] << "," << 0. <<
@@ -3211,8 +2867,9 @@ void FSISolverLessLambda<dim>::compute_forces(const bool export_table)
   //                                  update_values | update_quadrature_points |
   //                                    update_JxW_values | update_normal_vectors);
 
-  // const unsigned int          n_faces_q_points = this->face_quadrature->size();
-  // std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
+  // const unsigned int          n_faces_q_points =
+  // this->face_quadrature->size(); std::vector<Tensor<1, dim>>
+  // lambda_values(n_faces_q_points);
 
   // for (auto cell : this->dof_handler.active_cell_iterators())
   // {
@@ -3261,7 +2918,8 @@ void FSISolverLessLambda<dim>::compute_forces(const bool export_table)
   // if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
   //   this->pcout << "Computed forces: " << -lambda_integral << std::endl;
 
-  // if (export_table && this->param.output.write_results && this->mpi_rank == 0)
+  // if (export_table && this->param.output.write_results && this->mpi_rank ==
+  // 0)
   // {
   //   std::ofstream outfile(this->param.output.output_dir + "forces.txt");
   //   this->forces_table.write_text(outfile);
@@ -3282,8 +2940,9 @@ void FSISolverLessLambda<dim>::write_cylinder_position(const bool export_table)
   //                                          update_JxW_values |
   //                                          update_normal_vectors);
 
-  // const unsigned int          n_faces_q_points = this->face_quadrature->size();
-  // std::vector<Tensor<1, dim>> position_values(n_faces_q_points);
+  // const unsigned int          n_faces_q_points =
+  // this->face_quadrature->size(); std::vector<Tensor<1, dim>>
+  // position_values(n_faces_q_points);
 
   // for (auto cell : this->dof_handler.active_cell_iterators())
   // {
@@ -3318,7 +2977,8 @@ void FSISolverLessLambda<dim>::write_cylinder_position(const bool export_table)
   // for (unsigned int d = 0; d < dim; ++d)
   //   average_position[d] =
   //     1. / boundary_measure *
-  //     Utilities::MPI::sum(position_integral_local[d], this->mpi_communicator);
+  //     Utilities::MPI::sum(position_integral_local[d],
+  //     this->mpi_communicator);
 
   // cylinder_position_table.add_value("time", this->time_handler.current_time);
   // cylinder_position_table.add_value("xc", average_position[0]);
@@ -3326,7 +2986,8 @@ void FSISolverLessLambda<dim>::write_cylinder_position(const bool export_table)
   // if constexpr (dim == 3)
   //   cylinder_position_table.add_value("zc", average_position[2]);
 
-  // if (export_table && this->param.output.write_results && this->mpi_rank == 0)
+  // if (export_table && this->param.output.write_results && this->mpi_rank ==
+  // 0)
   // {
   //   std::ofstream outfile(this->param.output.output_dir +
   //                         "cylinder_center.txt");

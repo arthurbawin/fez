@@ -11,6 +11,7 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/grid/reference_cell.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
@@ -47,7 +48,7 @@ NSSolverLambda<dim>::NSSolverLambda(const ParameterReader<dim> &param)
     fe_without_lambda = std::make_shared<FESystem<dim>>(
       FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
       FE_SimplexP<dim>(param.finite_elements.pressure_degree),
-      FE_Nothing<dim>() ^ dim);
+      FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
   }
 
   fe = std::make_shared<hp::FECollection<dim>>();
@@ -309,15 +310,18 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
       std::ofstream outfile(this->param.output.output_dir +
                             "constrained_lambda_dofs_proc" +
                             std::to_string(this->mpi_rank) + ".pos");
-      outfile << "View \"constrained_lambda_dofs_proc" << this->mpi_rank <<
-      "\"{"
-              << std::endl;
+      outfile << "View \"constrained_lambda_dofs_proc" << this->mpi_rank
+              << "\"{" << std::endl;
       for (const auto dof : lambda_dofs)
         if (lambda_constraints.is_constrained(dof))
         {
           const Point<dim> &pt = support_points.at(dof);
-          outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-                  << std::endl;
+          if constexpr (dim == 2)
+            outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
+                    << std::endl;
+          else
+            outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
+                    << std::endl;
         }
       outfile << "};" << std::endl;
       outfile.close();
@@ -577,7 +581,7 @@ void NSSolverLambda<dim>::assemble_matrix()
                            face_quadrature_collection,
                            this->time_handler.bdf_coefficients,
                            this->param);
-  CopyData copy_data(*fe);
+  CopyData    copy_data(*fe);
 
   WorkStream::run(this->dof_handler.begin_active(),
                   this->dof_handler.end(),
@@ -607,12 +611,12 @@ void NSSolverLambda<dim>::assemble_local_matrix(
                      this->source_terms,
                      this->exact_solution);
 
-  const unsigned int fe_index          = cell->active_fe_index();
+  const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
-  auto &local_matrix = copy_data.matrices[fe_index];
-  auto              &local_dof_indices = copy_data.local_dof_indices[fe_index];
+  auto &local_matrix             = copy_data.matrices[fe_index];
+  auto &local_dof_indices        = copy_data.local_dof_indices[fe_index];
 
-  local_matrix       = 0;
+  local_matrix = 0;
 
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
@@ -645,7 +649,7 @@ void NSSolverLambda<dim>::assemble_local_matrix(
         const bool         j_is_u = this->ordering->is_velocity(comp_j);
         const bool         j_is_p = this->ordering->is_pressure(comp_j);
 
-        bool   assemble             = false;
+        bool   assemble        = false;
         double local_matrix_ij = 0.;
 
         if (i_is_u && j_is_u)
@@ -656,11 +660,10 @@ void NSSolverLambda<dim>::assemble_local_matrix(
           local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
           // Convection
           local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
-                                   present_velocity_gradients * phi_u[j]) *
-                                  phi_u[i];
+                              present_velocity_gradients * phi_u[j]) *
+                             phi_u[i];
           // Diffusion
-          local_matrix_ij +=
-            nu * scalar_product(grad_phi_u[j], grad_phi_u[i]);
+          local_matrix_ij += nu * scalar_product(grad_phi_u[j], grad_phi_u[i]);
         }
 
         if (i_is_u && j_is_p)
@@ -702,8 +705,7 @@ void NSSolverLambda<dim>::assemble_local_matrix(
       {
         for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
         {
-          const double face_JxW_moving =
-          scratchData.face_JxW_moving[i_face][q];
+          const double face_JxW_moving = scratchData.face_JxW_moving[i_face][q];
 
           const auto &phi_u = scratchData.phi_u_face[i_face][q];
           const auto &phi_l = scratchData.phi_l_face[i_face][q];
@@ -724,7 +726,7 @@ void NSSolverLambda<dim>::assemble_local_matrix(
 
               if (i_is_u && j_is_l)
                 local_matrix_ij += -(phi_l[j] * phi_u[i]);
-              
+
               if (i_is_l && j_is_u)
                 local_matrix_ij += -phi_u[j] * phi_l[i];
 
@@ -746,10 +748,8 @@ void NSSolverLambda<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
     return;
 
   const auto i = copy_data.last_active_fe_index;
-    this->zero_constraints.distribute_local_to_global(
-      copy_data.matrices[i],
-      copy_data.local_dof_indices[i],
-      this->system_matrix);
+  this->zero_constraints.distribute_local_to_global(
+    copy_data.matrices[i], copy_data.local_dof_indices[i], this->system_matrix);
 }
 
 template <int dim>
@@ -805,8 +805,8 @@ void NSSolverLambda<dim>::assemble_rhs()
                            quadrature_collection,
                            face_quadrature_collection,
                            this->time_handler.bdf_coefficients,
-                           this->param);  
-  CopyData copy_data(*fe);
+                           this->param);
+  CopyData    copy_data(*fe);
 
   WorkStream::run(this->dof_handler.begin_active(),
                   this->dof_handler.end(),
@@ -836,10 +836,10 @@ void NSSolverLambda<dim>::assemble_local_rhs(
                      this->source_terms,
                      this->exact_solution);
 
-  const unsigned int fe_index          = cell->active_fe_index();
+  const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
-  auto              &local_rhs         = copy_data.vectors[fe_index];
-  auto              &local_dof_indices = copy_data.local_dof_indices[fe_index];
+  auto &local_rhs                = copy_data.vectors[fe_index];
+  auto &local_dof_indices        = copy_data.local_dof_indices[fe_index];
 
   local_rhs = 0;
 
@@ -990,7 +990,7 @@ void NSSolverLambda<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 
   const auto i = copy_data.last_active_fe_index;
   this->zero_constraints.distribute_local_to_global(
-      copy_data.vectors[i], copy_data.local_dof_indices[i], this->system_rhs);
+    copy_data.vectors[i], copy_data.local_dof_indices[i], this->system_rhs);
 }
 
 /**

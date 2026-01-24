@@ -146,7 +146,7 @@ private:
       for (int d = 0; d < dim; ++d)
         source_term_velocity[q][d] = source_term_full_moving[q](u_lower + d);
       source_term_pressure[q] = source_term_full_moving[q](p_lower);
-
+      
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
         phi_u[q][k]          = fe_values[velocity].value(k, q);
@@ -154,6 +154,8 @@ private:
         sym_grad_phi_u[q][k] = symmetrize(grad_phi_u[q][k]);
         div_phi_u[q][k]      = fe_values[velocity].divergence(k, q);
         phi_p[q][k]          = fe_values[pressure].value(k, q);
+        if (enable_compressible)
+          grad_phi_p[q][k]     = fe_values[pressure].gradient(k, q);
       }
     }
   }
@@ -207,8 +209,6 @@ private:
     fe_values[temperature].get_function_gradients(current_solution,
                                                  present_temperature_gradients);   
     
-    fe_values[pressure].get_function_values(current_solution,
-                                            present_pressure_values);
     fe_values[pressure].get_function_gradients(current_solution,
                                                 present_pressure_gradients);
     
@@ -800,6 +800,8 @@ public:
   std::vector<double>              present_temperature_values;
   std::vector<Tensor<1, dim>>      present_temperature_gradients;
   std::vector<std::vector<double>> previous_temperature_values;
+
+  std::vector<std::vector<Tensor<1, dim>>> grad_phi_p;
   
   std::vector<std::vector<double>>         phi_t;
   std::vector<std::vector<Tensor<1, dim>>> grad_phi_t;

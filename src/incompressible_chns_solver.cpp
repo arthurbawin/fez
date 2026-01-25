@@ -50,6 +50,11 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   tracer_mask         = fe->component_mask(tracer_extractor);
   potential_mask      = fe->component_mask(potential_extractor);
 
+  this->field_names_and_masks["velocity"] = this->velocity_mask;
+  this->field_names_and_masks["pressure"] = this->pressure_mask;
+  this->field_names_and_masks["tracer"] = this->tracer_mask;
+  this->field_names_and_masks["potential"] = this->potential_mask;
+
   /**
    * Create the initial condition functions
    */
@@ -58,12 +63,12 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   this->param.initial_conditions.create_initial_chns_tracer(
     this->ordering->phi_lower, this->ordering->n_components);
 
+  // Assign the exact solution
+  this->exact_solution = std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSolution>(
+    this->time_handler.current_time, *this->ordering, param.mms);
+
   if (param.mms_param.enable)
   {
-    // Assign the manufactured solution
-    this->exact_solution = std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSolution>(
-      this->time_handler.current_time, *this->ordering, param.mms);
-
     // Create the MMS source term function and override source terms
     this->source_terms = std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm>(
       this->time_handler.current_time, *this->ordering, param);
@@ -79,8 +84,6 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   {
     this->source_terms = std::make_shared<CHNSSolver<dim, with_moving_mesh>::SourceTerm>(
       this->time_handler.current_time, *this->ordering, param.source_terms);
-    this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
-      this->ordering->n_components);
   }
 }
 
@@ -869,12 +872,15 @@ void CHNSSolver<dim, with_moving_mesh>::output_results()
     data_out.build_patches(*this->moving_mapping, 2);
 
     // Export regular time step
-    data_out.write_vtu_with_pvtu_record(
+    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
       this->param.output.output_dir,
       this->param.output.output_prefix,
       this->time_handler.current_time_iteration,
       this->mpi_communicator,
       2);
+
+    this->visualization_times_and_names.emplace_back(
+      this->time_handler.current_time, pvtu_file);
   }
 }
 

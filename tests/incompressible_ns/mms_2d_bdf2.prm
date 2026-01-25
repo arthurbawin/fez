@@ -81,6 +81,15 @@ subsection Fluid boundary conditions
   end
 end
 
+subsection Exact solution
+  subsection exact velocity
+    set Function expression = (x*y + y^2) * cos(t); (x*y + x^2) * 1/(1 + t^2) 
+  end
+  subsection exact pressure
+    set Function expression = x + y
+  end
+end
+
 subsection Manufactured solution
   set enable            = true
   set type              = time
@@ -96,13 +105,6 @@ subsection Manufactured solution
     set use spatial mesh     = true
     set spatial mesh index   = 1
     set time step reduction  = 0.5
-  end
-
-  subsection exact velocity
-    set Function expression = (x*y + y^2) * cos(t); (x*y + x^2) * 1/(1 + t^2) 
-  end
-  subsection exact pressure
-    set Function expression = x + y
   end
 end
 

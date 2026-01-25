@@ -32,7 +32,13 @@ namespace ManufacturedSolutions
   class ParsedFunctionSDBase;
 
   /**
+   * This class parses and handles the exact solution for the various fields.
+   * These solutions are typically used to run convergence studies through the
+   * method of manufactured solutions (MMS), but an exact solution for one or
+   * more fields can also be imposed while solving for the remaining variables.
    *
+   * In the parameter file, exact solutions are set in the Exact solution
+   * subsection.
    */
   template <int dim>
   class ManufacturedSolution
@@ -61,13 +67,18 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> exact_potential;
     std::shared_ptr<MMSFunction<dim>> exact_temperature;
 
+    std::map<std::string, std::shared_ptr<MMSFunction<dim>>> exact_solution;
+
+    // If true, the field is specified instead of being solved for
+    std::map<std::string, bool> set_field_as_solution;
+
   private:
-    PresetMMS preset_velocity_type;
-    PresetMMS preset_pressure_type;
-    PresetMMS preset_mesh_position_type;
-    PresetMMS preset_tracer_type;
-    PresetMMS preset_potential_type;
-    PresetMMS preset_temperature_type;
+    PresetMMS preset_velocity_type      = PresetMMS::none;
+    PresetMMS preset_pressure_type      = PresetMMS::none;
+    PresetMMS preset_mesh_position_type = PresetMMS::none;
+    PresetMMS preset_tracer_type        = PresetMMS::none;
+    PresetMMS preset_potential_type     = PresetMMS::none;
+    PresetMMS preset_temperature_type   = PresetMMS::none;
   };
 
   /**

@@ -105,26 +105,8 @@ subsection Pseudosolid boundary conditions
   end
 end
 
-subsection Manufactured solution
-  set enable            = true
-  set type              = spacetime
-  set convergence steps = 2
-
-  subsection Space convergence
-    set use dealii cube mesh        = false
-    set use dealii holed plate mesh = false
-    set mesh prefix          = ../../mms_meshes/holed
-    set norms to compute = L2_norm, Linfty_norm
-  end
-
-  subsection Time convergence
-    set norm                 = Linfty
-    set use spatial mesh     = true
-    set spatial mesh index   = 2
-    set time step reduction  = 0.5
-  end
-
-  subsection exact velocity
+subsection Exact solution
+    subsection exact velocity
     set Function constants  = translation_x=0.1, translation_y=0.05
     set Function expression = translation_x * pi * cos(2.*pi*t); translation_y * pi * cos(2.*pi*t)
   end
@@ -158,6 +140,26 @@ subsection Manufactured solution
     subsection time component
       set Function expression = 0.5 * sin(2.*pi*t)
     end
+  end
+end
+
+subsection Manufactured solution
+  set enable            = true
+  set type              = spacetime
+  set convergence steps = 2
+
+  subsection Space convergence
+    set use dealii cube mesh        = false
+    set use dealii holed plate mesh = false
+    set mesh prefix          = ../../mms_meshes/holed
+    set norms to compute = L2_norm, Linfty_norm
+  end
+
+  subsection Time convergence
+    set norm                 = Linfty
+    set use spatial mesh     = true
+    set spatial mesh index   = 2
+    set time step reduction  = 0.5
   end
 end
 

@@ -54,6 +54,10 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
   this->position_mask = fe->component_mask(this->position_extractor);
   this->lambda_mask   = fe->component_mask(this->lambda_extractor);
 
+  this->field_names_and_masks["velocity"] = this->velocity_mask;
+  this->field_names_and_masks["pressure"] = this->pressure_mask;
+  this->field_names_and_masks["mesh position"] = this->position_mask;
+
   // Set the boundary id on which a weak no slip boundary condition is applied.
   // It is allowed *not* to prescribe a weak no slip on any boundary, to verify
   // that the solver produces the expected flow in the decoupled case.

@@ -46,6 +46,9 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   this->velocity_mask = fe->component_mask(this->velocity_extractor);
   this->pressure_mask = fe->component_mask(this->pressure_extractor);
 
+  this->field_names_and_masks["velocity"] = this->velocity_mask;
+  this->field_names_and_masks["pressure"] = this->pressure_mask;
+
   /**
    * This solver uses a fixed mapping only.
    */
@@ -57,12 +60,12 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   this->param.initial_conditions.create_initial_velocity(
     this->ordering->u_lower, this->ordering->n_components);
 
+  // Assign the exact solution
+  this->exact_solution = std::make_shared<NSSolver<dim>::MMSSolution>(
+    this->time_handler.current_time, *this->ordering, param.mms);
+
   if (param.mms_param.enable)
   {
-    // Assign the manufactured solution
-    this->exact_solution = std::make_shared<NSSolver<dim>::MMSSolution>(
-      this->time_handler.current_time, *this->ordering, param.mms);
-
     if (param.mms_param.force_source_term)
     {
       // Use the provided source term instead of the source term computed from
@@ -83,8 +86,6 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   else
   {
     this->source_terms   = param.source_terms.fluid_source;
-    this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
-      this->ordering->n_components);
   }
 }
 

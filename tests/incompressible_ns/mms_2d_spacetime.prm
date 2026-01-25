@@ -81,6 +81,15 @@ subsection Fluid boundary conditions
   end
 end
 
+subsection Exact solution
+  subsection exact velocity
+    set Function expression =sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * cos(t); cos(pi*x)*sin(pi*x)*sin(pi*y)*sin(pi*y) * 1/(1 + t^2)
+  end
+  subsection exact pressure
+    set Function expression = sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * sin(t)
+  end
+end
+
 subsection Manufactured solution
   set enable            = true
   set type              = spacetime
@@ -96,13 +105,6 @@ subsection Manufactured solution
     set use spatial mesh     = true
     set spatial mesh index   = 1
     set time step reduction  = 0.5
-  end
-
-  subsection exact velocity
-    set Function expression =sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * cos(t); cos(pi*x)*sin(pi*x)*sin(pi*y)*sin(pi*y) * 1/(1 + t^2)
-  end
-  subsection exact pressure
-    set Function expression = sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * sin(t)
   end
 end
 

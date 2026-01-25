@@ -338,11 +338,11 @@ namespace BoundaryConditions
       dof_handler.get_fe().component_mask(position);
 
     Functions::ZeroFunction<dim> zero_fun(n_components);
-    FixedMeshPosition<dim> fixed_mesh(x_lower, n_components);
-    const Function<dim> *fun_ptr;
+    FixedMeshPosition<dim>       fixed_mesh(x_lower, n_components);
+    const Function<dim>         *fun_ptr;
 
-    FixedMeshPosition<dim>                              fixed_mesh_for_flux(0, dim);
-    std::set<types::boundary_id>                        normal_flux_boundaries;
+    FixedMeshPosition<dim>       fixed_mesh_for_flux(0, dim);
+    std::set<types::boundary_id> normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *> position_flux_functions;
     std::set<types::boundary_id> mms_normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *>
@@ -351,21 +351,17 @@ namespace BoundaryConditions
     {
       if (bc.type == BoundaryConditions::Type::fixed)
       {
-        if(homogeneous)
+        if (homogeneous)
           fun_ptr = &zero_fun;
         else
           fun_ptr = &fixed_mesh;
-        VectorTools::interpolate_boundary_values(mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 *fun_ptr,
-                                                 constraints,
-                                                 position_mask);
+        VectorTools::interpolate_boundary_values(
+          mapping, dof_handler, bc.id, *fun_ptr, constraints, position_mask);
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
         // TODO: Prescribed but non-fixed mesh position?
-        if(!homogeneous)
+        if (!homogeneous)
           DEAL_II_NOT_IMPLEMENTED();
 
         VectorTools::interpolate_boundary_values(mapping,
@@ -440,9 +436,8 @@ namespace BoundaryConditions
         DoFTools::extract_dofs(dof_handler, pressure_mask);
 
       // Get support points for locally relevant DoFs
-      std::map<types::global_dof_index, Point<dim>> support_points = 
-      DoFTools::map_dofs_to_support_points(mapping,
-                                           dof_handler);
+      std::map<types::global_dof_index, Point<dim>> support_points =
+        DoFTools::map_dofs_to_support_points(mapping, dof_handler);
 
       double local_min_dist             = std::numeric_limits<double>::max();
       types::global_dof_index local_dof = numbers::invalid_dof_index;
@@ -488,27 +483,32 @@ namespace BoundaryConditions
     // Constrain that DoF if owned or ghosted
     if (locally_relevant_dofs.is_element(constrained_pressure_dof))
     {
-      constraints.add_line(constrained_pressure_dof);
-      if (set_to_zero)
-        constraints.constrain_dof_to_zero(constrained_pressure_dof);
-      else
+      if (constraints.can_store_line(constrained_pressure_dof) &&
+          !constraints.is_constrained(constrained_pressure_dof))
       {
-        const double pAnalytic =
-          exact_solution.value(constrained_pressure_support_point, p_lower);
-        constraints.set_inhomogeneity(constrained_pressure_dof, pAnalytic);
+        constraints.add_line(constrained_pressure_dof);
+        if (set_to_zero)
+          constraints.constrain_dof_to_zero(constrained_pressure_dof);
+        else
+        {
+          const double pAnalytic =
+            exact_solution.value(constrained_pressure_support_point, p_lower);
+          constraints.set_inhomogeneity(constrained_pressure_dof, pAnalytic);
+        }
       }
     }
   }
 
   template <int dim>
   void create_zero_mean_pressure_constraints_data(
-    const Triangulation<dim> &tria,
-    const DoFHandler<dim>    &dof_handler,
-    IndexSet                 &locally_relevant_dofs,
-    const Mapping<dim>       &mapping,
-    const Quadrature<dim>    &quadrature,
-    const unsigned int        p_lower,
-    types::global_dof_index  &constrained_pressure_dof,
+    const Triangulation<dim>   &tria,
+    const DoFHandler<dim>      &dof_handler,
+    IndexSet                   &locally_relevant_dofs,
+    std::vector<unsigned char> &dofs_to_component,
+    const Mapping<dim>         &mapping,
+    const Quadrature<dim>      &quadrature,
+    const unsigned int          p_lower,
+    types::global_dof_index    &constrained_pressure_dof,
     std::vector<std::pair<types::global_dof_index, double>> &constraint_weights)
   {
     const FEValuesExtractors::Scalar pressure(p_lower);
@@ -544,6 +544,16 @@ namespace BoundaryConditions
     locally_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
                                       gathered_dofs_flattened.end());
     locally_relevant_dofs.compress();
+
+    // If the dofs_to_component map was not created, create it and specify that
+    // the added non-local dofs are pressure dofs
+    if (dofs_to_component.empty())
+      fill_dofs_to_component(dof_handler,
+                             locally_relevant_dofs,
+                             dofs_to_component);
+    AssertDimension(dofs_to_component.size(), locally_relevant_dofs.n_elements());
+    for (const auto dof : gathered_dofs_flattened)
+      dofs_to_component[locally_relevant_dofs.index_within_set(dof)] = p_lower;
 
     //
     // Compute integral of p over partition

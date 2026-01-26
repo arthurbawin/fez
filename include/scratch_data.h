@@ -138,6 +138,8 @@ private:
 
       present_velocity_sym_gradients[q] =
         symmetrize(present_velocity_gradients[q]);
+      // 0.5 *
+      // scalar_product(present_velocity_gradients[q],transpose(present_velocity_gradients[q]));
       present_velocity_divergence[q] = trace(present_velocity_gradients[q]);
 
       for (int d = 0; d < dim; ++d)
@@ -194,6 +196,7 @@ private:
   template <typename VectorType>
   void reinit_pseudo_solid_cell(
     const FEValues<dim>                  &fe_values_fixed,
+    const FEValues<dim>                  &fe_values_moving,
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
@@ -257,9 +260,10 @@ private:
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_x[q][k]      = fe_values_fixed[position].value(k, q);
-        grad_phi_x[q][k] = fe_values_fixed[position].gradient(k, q);
-        div_phi_x[q][k]  = fe_values_fixed[position].divergence(k, q);
+        phi_x[q][k]             = fe_values_fixed[position].value(k, q);
+        grad_phi_x[q][k]        = fe_values_fixed[position].gradient(k, q);
+        div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
+        grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
       }
     }
   }
@@ -508,6 +512,13 @@ private:
                           potential_gradients[q];
       velocity_dot_tracer_gradient[q] =
         present_velocity_values[q] * tracer_gradients[q];
+      // ALE-safe: u_conv = u - w, with w=0 if no moving mesh
+      Tensor<1, dim> w;
+      if (enable_pseudo_solid) // ou enable_moving_mesh, selon ton nom
+        w = present_mesh_velocity_values[q];
+
+      u_conv_dot_tracer_gradient[q] =
+        (present_velocity_values[q] - w) * tracer_gradients[q];
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -558,6 +569,7 @@ public:
                               exact_solution);
     if (enable_pseudo_solid)
       reinit_pseudo_solid_cell(*active_fe_values_fixed,
+                               *active_fe_values,
                                current_solution,
                                previous_solutions,
                                source_terms,
@@ -725,6 +737,7 @@ public:
   // Shape functions and gradients for each quad node and each dof
   std::vector<std::vector<Tensor<1, dim>>> phi_x;
   std::vector<std::vector<Tensor<2, dim>>> grad_phi_x;
+  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x_moving;
   std::vector<std::vector<double>>         div_phi_x;
 
   // Shape functions on faces for relevant faces, each quad node and each dof
@@ -781,9 +794,9 @@ public:
   std::vector<Tensor<1, dim>>      potential_gradients;
   std::vector<std::vector<double>> previous_tracer_values;
 
-  std::vector<Tensor<1, dim>> diffusive_flux;
-  std::vector<double>         velocity_dot_tracer_gradient;
-
+  std::vector<Tensor<1, dim>>              diffusive_flux;
+  std::vector<double>                      velocity_dot_tracer_gradient;
+  std::vector<double>                      u_conv_dot_tracer_gradient;
   std::vector<std::vector<double>>         shape_phi;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
   std::vector<std::vector<double>>         shape_mu;

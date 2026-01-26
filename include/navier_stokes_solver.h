@@ -91,6 +91,13 @@ public:
   virtual void setup_dofs();
 
   /**
+   * Reinitialize the ghosted parallel vectors.
+   * This should be called whenever additional ghost dofs are explicitly added
+   * to the vector of locally relevant dofs.
+   */
+  void reinit_vectors();
+
+  /**
    * Create the data needed to enforce zero-mean pressure.
    *
    * Note that, as it is done for now, enforcing zero-mean is an expensive
@@ -215,6 +222,25 @@ public:
   void finalize();
 
   /**
+   * Write the current state of the simulation to compressed save files. This
+   * method and the restart() are based on deal.II's step 83. The written data
+   * are the mesh, the current and previous solutions, and the content of the
+   * time handler. All other data (dof_handler, finite element spaces,
+   * constraints, etc.) can be recomputed when the simulation restarts. See also
+   * step 83 for a discussion on this topic.
+   *
+   * Depending on the derived solver, more data could be required to be saved,
+   * which would be done by adding a serialize() function.
+   */
+  void checkpoint();
+
+  /**
+   * Restart the simulation from saved checkpoint files, written by
+   * checkpoint().
+   */
+  void restart();
+
+  /**
    * Get the FESystem of the derived solver
    */
   virtual const FESystem<dim> &get_fe_system() const = 0;
@@ -236,6 +262,8 @@ protected:
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler;
 
+  std::vector<unsigned char> dofs_to_component;
+
   FEValuesExtractors::Vector velocity_extractor;
   FEValuesExtractors::Scalar pressure_extractor;
   FEValuesExtractors::Vector position_extractor;
@@ -243,6 +271,9 @@ protected:
   ComponentMask velocity_mask;
   ComponentMask pressure_mask;
   ComponentMask position_mask;
+
+  // The field names and component mask for each field handled by this solver
+  std::map<std::string, ComponentMask> field_names_and_masks;
 
   Table<2, DoFTools::Coupling> coupling_table;
 

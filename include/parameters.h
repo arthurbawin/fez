@@ -253,6 +253,20 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
+  struct CheckpointRestart
+  {
+    bool enable_checkpoint;
+    // If true, restart simulation from the given checkpoint file
+    bool restart;
+    // Name of the file to write to/read when checkpointing/restarting resp.
+    std::string  filename;
+    // Write checkpoint every N time steps
+    unsigned int checkpoint_frequency;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
   struct MMS
   {
     bool enable;
@@ -334,6 +348,7 @@ namespace Parameters
     double    analytical_jacobian_relative_tolerance;
     bool      fsi_apply_erroneous_coupling;
     bool      fsi_check_mms_on_boundary;
+    unsigned int       fsi_coupling_option;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

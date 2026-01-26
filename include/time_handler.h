@@ -95,6 +95,23 @@ public:
     const Tensor<1, dim>                           &present_solution,
     const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const;
 
+  /**
+   * Save the time integration data to a file.
+   */
+  void save() const;
+
+  /**
+   * Load time integration data from existing file.
+   */
+  void load();
+
+  /**
+   * 
+   */
+  template <class Archive>
+  void
+  serialize(Archive &ar, const unsigned int version);
+
 public:
   Parameters::TimeIntegration time_parameters;
 
@@ -166,6 +183,20 @@ Tensor<1, dim> TimeHandler::compute_time_derivative_at_quadrature_node(
     return value_dot;
   }
   DEAL_II_ASSERT_UNREACHABLE();
+}
+
+template <class Archive>
+void
+TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
+{
+  ar &initial_time;
+  ar &final_time;
+  ar &current_time;
+  ar &current_time_iteration;
+  ar &previous_times;
+  ar &current_dt;
+  ar &time_steps;
+  ar &bdf_coefficients;
 }
 
 #endif

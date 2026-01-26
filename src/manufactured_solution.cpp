@@ -218,29 +218,35 @@ namespace ManufacturedSolutions
     std::shared_ptr<ParsedFunctionSDBase<dim>> dummy_vector_fun =
       std::make_shared<ParsedFunctionSDBase<dim>>(dim);
 
-    prm.enter_subsection("Manufactured solution");
+    prm.enter_subsection("Exact solution");
     {
       prm.enter_subsection("exact velocity");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_vector_fun->declare_parameters(prm, dim);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact pressure");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact mesh displacement");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_vector_fun->declare_parameters(prm, dim);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact cahn hilliard tracer");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact cahn hilliard potential");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact temperature");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
@@ -271,39 +277,45 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> preset_potential;
     std::shared_ptr<MMSFunction<dim>> preset_temperature;
 
-    prm.enter_subsection("Manufactured solution");
+    prm.enter_subsection("Exact solution");
     {
       prm.enter_subsection("exact velocity");
+      set_field_as_solution["velocity"] = prm.get_bool("as solution");
       sym_velocity->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_velocity_type,
                                          preset_velocity);
       prm.leave_subsection();
       prm.enter_subsection("exact pressure");
+      set_field_as_solution["pressure"] = prm.get_bool("as solution");
       sym_pressure->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_pressure_type,
                                          preset_pressure);
       prm.leave_subsection();
       prm.enter_subsection("exact mesh displacement");
+      set_field_as_solution["mesh position"] = prm.get_bool("as solution");
       sym_mesh_position->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_mesh_position_type,
                                          preset_mesh_position);
       prm.leave_subsection();
       prm.enter_subsection("exact cahn hilliard tracer");
+      set_field_as_solution["tracer"] = prm.get_bool("as solution");
       sym_tracer->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_tracer_type,
                                          preset_tracer);
       prm.leave_subsection();
       prm.enter_subsection("exact cahn hilliard potential");
+      set_field_as_solution["potential"] = prm.get_bool("as solution");
       sym_potential->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_potential_type,
                                          preset_potential);
       prm.leave_subsection();
       prm.enter_subsection("exact temperature");
+      set_field_as_solution["temperature"] = prm.get_bool("as solution");
       sym_temperature->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_temperature_type,
@@ -324,12 +336,19 @@ namespace ManufacturedSolutions
                             preset_mesh_position;
     exact_tracer =
       (preset_tracer_type == PresetMMS::none) ? sym_tracer : preset_tracer;
-    exact_potential = (preset_potential_type == PresetMMS::none) ?
-                        sym_potential :
-                        preset_potential;
+    exact_potential   = (preset_potential_type == PresetMMS::none) ?
+                          sym_potential :
+                          preset_potential;
     exact_temperature = (preset_temperature_type == PresetMMS::none) ?
-                        sym_temperature :
-                        preset_temperature;
+                          sym_temperature :
+                          preset_temperature;
+
+    exact_solution["velocity"]      = exact_velocity;
+    exact_solution["pressure"]      = exact_pressure;
+    exact_solution["mesh position"] = exact_mesh_position;
+    exact_solution["pressure"]      = exact_tracer;
+    exact_solution["potential"]     = exact_potential;
+    exact_solution["temperature"]   = exact_temperature;
   }
 
   // Explicit instantiation

@@ -136,26 +136,7 @@ subsection Pseudosolid boundary conditions
   end
 end
 
-subsection Manufactured solution
-  set enable                 = true
-  set type                   = spacetime
-  set convergence steps      = 2
-  set subtract mean pressure = false
-
-  subsection Space convergence
-    set use dealii cube mesh        = false
-    set use dealii holed plate mesh = false
-    set mesh prefix          = ../../mms_meshes/holed_with_one_physical_per_boundary
-    set norms to compute = L2_norm, Linfty_norm
-  end
-
-  subsection Time convergence
-    set norm                 = Linfty
-    set use spatial mesh     = true
-    set spatial mesh index   = 2
-    set time step reduction  = 0.5
-  end
-
+subsection Exact solution
   subsection exact velocity
     subsection space component
       set preset = moving radial kernel
@@ -200,6 +181,27 @@ subsection Manufactured solution
     subsection time component
       set Function expression = 0.5 * sin(2.*pi*t)
     end
+  end
+end
+
+subsection Manufactured solution
+  set enable                 = true
+  set type                   = spacetime
+  set convergence steps      = 2
+  set subtract mean pressure = false
+
+  subsection Space convergence
+    set use dealii cube mesh        = false
+    set use dealii holed plate mesh = false
+    set mesh prefix          = ../../mms_meshes/holed_with_one_physical_per_boundary
+    set norms to compute = L2_norm, Linfty_norm
+  end
+
+  subsection Time convergence
+    set norm                 = Linfty
+    set use spatial mesh     = true
+    set spatial mesh index   = 2
+    set time step reduction  = 0.5
   end
 end
 

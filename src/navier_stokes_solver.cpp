@@ -1,5 +1,8 @@
 
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/solution_transfer.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
@@ -9,7 +12,8 @@
 #include <utilities.h>
 
 template <int dim, bool with_moving_mesh>
-NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(const ParameterReader<dim> &param)
+NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
+  const ParameterReader<dim> &param)
   : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
                                      param.timer,
                                      param.mesh,
@@ -69,6 +73,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
   // Mesh
   triangulation.clear();
 
+  dofs_to_component.clear();
+
   // Direct solver
   direct_solver_reuse =
     std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
@@ -107,8 +113,21 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::run()
 {
   reset();
-  read_mesh(triangulation, param);
-  setup_dofs();
+
+  /**
+   * If starting from zero, read the mesh the setup the dof_handler and vectors.
+   * If restarting, setup_dofs() is called in the restart() function, after
+   * loading the mesh.
+   */
+  if (!param.checkpoint_restart.restart)
+  {
+    read_mesh(triangulation, param);
+    setup_dofs();
+  }
+  else
+  {
+    restart();
+  }
 
   if (param.bc_data.enforce_zero_mean_pressure)
     create_zero_mean_pressure_constraints_data();
@@ -117,7 +136,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   create_zero_constraints();
   create_nonzero_constraints();
   create_sparsity_pattern();
-  set_initial_conditions();
+
+  if (!param.checkpoint_restart.restart)
+    set_initial_conditions();
   output_results();
 
   while (!time_handler.is_finished())
@@ -152,6 +173,22 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
 
     postprocess_solution();
     time_handler.rotate_solutions(present_solution, previous_solutions);
+
+    if (param.checkpoint_restart.enable_checkpoint &&
+        (time_handler.current_time_iteration %
+           param.checkpoint_restart.checkpoint_frequency ==
+         0))
+    {
+      /**
+       * Write checkpoint.
+       * Checkpoint is written *after* the solutions were rotated, which amounts
+       * to writing the current solution twice... For some applications or
+       * postprocessing, maybe it would be useful to checkpoint before rotating,
+       * to actually save the last N solutions. In that case, the solutions
+       * would need to be rotated right after restart().
+       */
+      checkpoint();
+    }
   }
 
   finalize();
@@ -200,10 +237,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
     evaluation_point = local_evaluation_point;
 
     // Also store them in initial_positions, for postprocessing:
-    DoFTools::map_dofs_to_support_points(*fixed_mapping,
-                                         dof_handler,
-                                         initial_positions,
-                                         position_mask);
+    initial_positions = DoFTools::map_dofs_to_support_points(*fixed_mapping,
+                                                             dof_handler,
+                                                             position_mask);
 
     // Create the solution-dependent mapping
     moving_mapping =
@@ -228,17 +264,49 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 }
 
 template <int dim, bool with_moving_mesh>
-void NavierStokesSolver<dim, with_moving_mesh>::create_zero_mean_pressure_constraints_data()
+void NavierStokesSolver<dim, with_moving_mesh>::reinit_vectors()
+{
+  present_solution.reinit(locally_owned_dofs,
+                          locally_relevant_dofs,
+                          mpi_communicator);
+  evaluation_point.reinit(locally_owned_dofs,
+                          locally_relevant_dofs,
+                          mpi_communicator);
+  present_solution = local_evaluation_point;
+  evaluation_point = local_evaluation_point;
+
+  for (auto &previous_sol : previous_solutions)
+  {
+    // Create a temporary, fully distributed copy of the previous solution to
+    // reapply after resizing. This is needed for checkpointing, because the
+    // previous solutions won't be zero when restarting.
+    LA::ParVectorType tmp_prev_sol(locally_owned_dofs, mpi_communicator);
+    tmp_prev_sol = previous_sol;
+    previous_sol.reinit(locally_owned_dofs,
+                        locally_relevant_dofs,
+                        mpi_communicator);
+    previous_sol = tmp_prev_sol;
+  }
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+  create_zero_mean_pressure_constraints_data()
 {
   BoundaryConditions::create_zero_mean_pressure_constraints_data(
     triangulation,
     dof_handler,
     locally_relevant_dofs,
+    dofs_to_component,
     *moving_mapping,
     *quadrature,
     ordering->p_lower,
     constrained_pressure_dof,
     zero_mean_pressure_weights);
+
+  // The mean pressure constraint added pressure ghost dofs,
+  // reinit vectors
+  reinit_vectors();
 }
 
 template <int dim, bool with_moving_mesh>
@@ -248,6 +316,37 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
 {
   constraints.clear();
   constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
+
+  /**
+   * Set whole field from exact solution if required, and add the associated
+   * constraints for the volume and boundary dofs.
+   *
+   * Do this before applying other constraints (e.g., fluxes).
+   */
+  for (const auto &[field_name, mask] : field_names_and_masks)
+  {
+    if (param.mms.set_field_as_solution.at(field_name))
+    {
+      /**
+       * Setting mesh position first is already accounted for in
+       * update_boundary_conditions(). During the second run, the moving mapping
+       * has been updated with the exact position at the current time, and the
+       * other fields can be constrained based on the exact solution evaluated
+       * on the moving mapping.
+       */
+      BoundaryConditions::apply_field_as_solution_on_volume_and_boundaries(
+        dof_handler,
+        field_name == "mesh position" ? *fixed_mapping : *moving_mapping,
+        *exact_solution,
+        evaluation_point,
+        local_evaluation_point,
+        locally_relevant_dofs,
+        dofs_to_component,
+        mask,
+        homogeneous,
+        constraints);
+    }
+  }
 
   /**
    * If relevant, apply mesh boundary conditions first, as they affect
@@ -646,6 +745,93 @@ void NavierStokesSolver<dim, with_moving_mesh>::finalize()
                              param.output.output_prefix + ".pvd");
     DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
   }
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
+{
+  TimerOutput::Scope t(computing_timer, "Write checkpoint");
+
+  pcout << std::endl;
+  pcout << "--- Writing checkpoint... ---" << std::endl << std::endl;
+
+  const std::string checkpoint_prefix =
+    param.output.output_dir + param.checkpoint_restart.filename;
+  const std::string tmp_checkpoint_prefix =
+    param.output.output_dir + "tmp." + param.checkpoint_restart.filename;
+
+  {
+    // Save the time handler data
+    std::ofstream checkpoint_file(tmp_checkpoint_prefix + ".timeinfo");
+    AssertThrow(checkpoint_file,
+                ExcMessage("Could not write to the checkpoint file."));
+    boost::archive::text_oarchive archive(checkpoint_file);
+    archive << time_handler;
+  }
+
+  /**
+   * Prepare to write the present and previous solutions
+   */
+  std::vector<const LA::ParVectorType *> vectors_to_checkpoint;
+  vectors_to_checkpoint.emplace_back(&present_solution);
+  for (const auto &sol : previous_solutions)
+    vectors_to_checkpoint.emplace_back(&sol);
+
+  SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
+  solution_transfer.prepare_for_serialization(vectors_to_checkpoint);
+  triangulation.save(tmp_checkpoint_prefix);
+
+  replace_temporary_files(param.output.output_dir,
+                          "tmp." + param.checkpoint_restart.filename,
+                          param.checkpoint_restart.filename,
+                          mpi_communicator);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::restart()
+{
+  pcout << std::endl;
+  pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
+
+  const std::string checkpoint_prefix =
+    param.output.output_dir + param.checkpoint_restart.filename;
+
+  {
+    std::ifstream checkpoint_file(checkpoint_prefix + ".timeinfo");
+    AssertThrow(checkpoint_file,
+                ExcMessage("Could not read from the checkpoint file."));
+    boost::archive::text_iarchive archive(checkpoint_file);
+    archive >> time_handler;
+  }
+
+  triangulation.load(checkpoint_prefix);
+
+  // Setup the dofhandler and parallel vectors here
+  setup_dofs();
+
+  // SolutionTransfer deserializes to a vector of ptrs to fully distributed
+  // vectors (without ghosts), but the present and previous solutions have
+  // ghosts
+  const unsigned int             n_vec = time_handler.n_previous_solutions + 1;
+  std::vector<LA::ParVectorType> vectors_to_read(n_vec);
+  std::vector<LA::ParVectorType *> ptrs_to_vectors_to_read(n_vec);
+  for (unsigned int i = 0; i < n_vec; ++i)
+  {
+    vectors_to_read[i].reinit(locally_owned_dofs,
+                              mpi_communicator); // <==================
+    ptrs_to_vectors_to_read[i] = &vectors_to_read[i];
+  }
+
+  SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
+  solution_transfer.deserialize(ptrs_to_vectors_to_read);
+
+  // Assign the fully distr. vectors to the existing ghosted ones
+  present_solution = vectors_to_read[0];
+  for (unsigned int i = 0; i < time_handler.n_previous_solutions; ++i)
+    previous_solutions[i] = vectors_to_read[i + 1];
+
+  local_evaluation_point = present_solution;
+  evaluation_point       = present_solution;
 }
 
 // Explicit instantiation

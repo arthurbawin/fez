@@ -91,6 +91,17 @@ subsection Fluid boundary conditions
   end
 end
 
+subsection Exact solution
+    # Divergence-free velocity field
+  subsection exact velocity
+    set Function expression = cos(t) * sin(pi*x)*cos(pi*y)*cos(pi*z); 1/(1 + t^2) * cos(pi*x)*sin(pi*y)*cos(pi*z); sin(t) * (-2.)*cos(pi*x)*cos(pi*y)*sin(pi*z)
+  end
+
+  subsection exact pressure
+    set Function expression = cos(t)*cos(pi*x)*sin(pi*y)*cos(pi*z)
+  end
+end
+
 subsection Manufactured solution
   set enable            = true
   set type              = spacetime
@@ -107,14 +118,5 @@ subsection Manufactured solution
     set use spatial mesh    = true
     set spatial mesh index  = 0
     set time step reduction = 0.5
-  end
-
-  # Divergence-free velocity field
-  subsection exact velocity
-    set Function expression = cos(t) * sin(pi*x)*cos(pi*y)*cos(pi*z); 1/(1 + t^2) * cos(pi*x)*sin(pi*y)*cos(pi*z); sin(t) * (-2.)*cos(pi*x)*cos(pi*y)*sin(pi*z)
-  end
-
-  subsection exact pressure
-    set Function expression = cos(t)*cos(pi*x)*sin(pi*y)*cos(pi*z)
   end
 end

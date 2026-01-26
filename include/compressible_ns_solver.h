@@ -23,6 +23,7 @@ using namespace dealii;
  *                  rho = 1/R p_r/T_R (alpha_r p^* + 1)/(beta_r T^* + 1)
  * 
  *      where beta_r = 1/T_r  and   alpha_r = 1/p_r
+ *             p = p_ref + p^*   and   T = T_ref + T^*               
  * 
  * 
  * 

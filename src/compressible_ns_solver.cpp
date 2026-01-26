@@ -95,30 +95,79 @@ template <int dim>
 void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                                 Vector<double>   &values) const
 {
-  //AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
-  const double nu = physical_properties.fluids[0].kinematic_viscosity;
+  // AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
+  const double mu = physical_properties.fluids[0].kinematic_viscosity;
+  const double k = physical_properties.fluids[0].thermal_conductivity;
+  const double R = physical_properties.fluids[0].gas_constant;
+  const double cp = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
+  const double p_ref = physical_properties.fluids[0].pressure_ref;
+  const double T_ref = physical_properties.fluids[0].temperature_ref;
 
-  // Tensor<1, dim> u, dudt_eulerian;
-  // for (unsigned int d = 0; d < dim; ++d)
-  // {
-  //   dudt_eulerian[d] = mms.exact_velocity->time_derivative(p, d);
-  //   u[d]             = mms.exact_velocity->value(p, d);
-  // }
+  Tensor<1, dim> u, dudt_eulerian;
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    dudt_eulerian[d] = mms.exact_velocity->time_derivative(p, d);
+    u[d]             = mms.exact_velocity->value(p, d);
+  }
 
-  // // Use convention (grad_u)_ij := dvj/dxi
-  // Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
-  // Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
-  // Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
-  // Tensor<1, dim> uDotGradu = u * grad_u;
+  const double p_ex = mms.exact_pressure->value(p);
+  const double dpdt_ex = mms.exact_pressure->time_derivative(p);
 
-  // // Navier-Stokes momentum (velocity) source term
-  // Tensor<1, dim> f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
-  // for (unsigned int d = 0; d < dim; ++d)
-  //   values[u_lower + d] = f[d];
+  const double T_ex = mms.exact_temperature->value(p);
+  const double dTdt_ex = mms.exact_temperature->time_derivative(p);
 
-  // // Mass conservation (pressure) source term,
-  // // for - div(u) + f = 0 -> f = div(u_mms).
-  // values[p_lower] = mms.exact_velocity->divergence(p);
+  // Use convention (grad_u)_ij := dvj/dxi
+  Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
+  double div_u             = trace(grad_u);
+  Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> grad_T    = mms.exact_temperature->gradient(p);
+  double lap_T             = mms.exact_temperature->laplacian(p); //Vérifier
+  Tensor<1, dim> uDotGradu = u * grad_u;
+  double uDotGradp         = u * grad_p;
+  double uDotGradT         = u * grad_T;
+  Tensor<1, dim> gradDivu  = mms.exact_velocity->gradient_divergence(p); //Vérifier 
+
+  double alpha_r = 1.0 / p_ref;
+  double beta_r = 1.0 / T_ref;
+
+  double a = alpha_r / (alpha_r * p_ex + 1.0);
+  double b = beta_r / (beta_r * T_ex + 1.0);
+
+  const double rho_ref = p_ref / (R * T_ref);
+  double rho = rho_ref * (alpha_r * p_ex + 1.0) / (beta_r * T_ex + 1.0);
+
+  // Navier-Stokes momentum (velocity) source term
+  Tensor<1, dim> f;
+  for (unsigned int d = 0; d < dim; ++d)
+    f[d] = (rho * (dudt_eulerian[d] + uDotGradu[d]) + grad_p[d] - mu * (lap_u[d] + (1.0/3.0) * gradDivu[d]));
+
+  for (unsigned int d = 0; d < dim; ++d)
+    values[u_lower + d] = f[d];
+
+  // Mass conservation (pressure) source term,
+  // for div(u) + alpha_r/(alpha_r p^* + 1)[dp^*dt + u dot gradp^*] - beta_r/(beta_r T^* + 1)[dT^*dt + u dot gradT^*] - f = 0 
+  // -> f = div(u_mms) + alpha_r/(alpha_r p^*_mms + 1)[dp^*_mmsdt + u_mms dot gradp^_mms*] - beta_r/(beta_r T^*_mms + 1)[dT^_mms*dt + u_mms dot gradT^*_mms]
+  double source_mass = div_u + a * (dpdt_ex + uDotGradp) - b * (dTdt_ex + uDotGradT);
+  values[p_lower] = source_mass;
+
+  // Energy equation (temperature) source term
+  Tensor<2, dim> D;
+  for (unsigned int i = 0; i < dim; ++i)
+    for (unsigned int j = 0; j < dim; ++j)
+      D[i][j] = 0.5 * (grad_u[i][j] + grad_u[j][i]);
+
+  double DdotD = 0;
+  for (unsigned int i = 0; i < dim; ++i)
+    for (unsigned int j = 0; j < dim; ++j)
+      DdotD += D[i][j] * D[i][j];
+  
+  double source_energy = rho * cp * (dTdt_ex + uDotGradT) 
+                        - (dpdt_ex + uDotGradp)
+                        + k * lap_T
+                        - (2.0 * mu * DdotD - (2.0/3.0) * mu * div_u * div_u);
+  
+  values[t_lower] = source_energy;
 }
 
 template <int dim>

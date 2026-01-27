@@ -95,30 +95,70 @@ template <int dim>
 void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                                 Vector<double>   &values) const
 {
-  //AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
-  const double nu = physical_properties.fluids[0].kinematic_viscosity;
+  // AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
+  const double mu = physical_properties.fluids[0].kinematic_viscosity;
+  const double k = physical_properties.fluids[0].thermal_conductivity;
+  const double R = physical_properties.fluids[0].gas_constant;
+  const double cp = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
+  const double p_ref = physical_properties.fluids[0].pressure_ref;
+  const double T_ref = physical_properties.fluids[0].temperature_ref;
 
-  // Tensor<1, dim> u, dudt_eulerian;
-  // for (unsigned int d = 0; d < dim; ++d)
-  // {
-  //   dudt_eulerian[d] = mms.exact_velocity->time_derivative(p, d);
-  //   u[d]             = mms.exact_velocity->value(p, d);
-  // }
+  Tensor<1, dim> u, dudt_eulerian;
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    dudt_eulerian[d] = mms.exact_velocity->time_derivative(p, d);
+    u[d]             = mms.exact_velocity->value(p, d);
+  }
 
-  // // Use convention (grad_u)_ij := dvj/dxi
-  // Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
-  // Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
-  // Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
-  // Tensor<1, dim> uDotGradu = u * grad_u;
+  const double p_ex = mms.exact_pressure->value(p);
+  const double dpdt_ex = mms.exact_pressure->time_derivative(p);
 
-  // // Navier-Stokes momentum (velocity) source term
-  // Tensor<1, dim> f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
-  // for (unsigned int d = 0; d < dim; ++d)
-  //   values[u_lower + d] = f[d];
+  const double T_ex = mms.exact_temperature->value(p);
+  const double dTdt_ex = mms.exact_temperature->time_derivative(p);
 
-  // // Mass conservation (pressure) source term,
-  // // for - div(u) + f = 0 -> f = div(u_mms).
-  // values[p_lower] = mms.exact_velocity->divergence(p);
+  // Use convention (grad_u)_ij := dvj/dxi
+  Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
+  double div_u             = trace(grad_u);
+  Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> grad_T    = mms.exact_temperature->gradient(p);
+  double lap_T             = mms.exact_temperature->laplacian(p); //Vérifier
+  Tensor<1, dim> uDotGradu = u * grad_u;
+  double uDotGradp         = u * grad_p;
+  double uDotGradT         = u * grad_T;
+  Tensor<1, dim> gradDivu  = mms.exact_velocity->gradient_divergence(p); //Vérifier 
+
+  double alpha_r = 1.0 / p_ref;
+  double beta_r = 1.0 / T_ref;
+
+  double a = alpha_r / (alpha_r * p_ex + 1.0);
+  double b = beta_r / (beta_r * T_ex + 1.0);
+
+  const double rho_ref = p_ref / (R * T_ref);
+  double rho = rho_ref * (alpha_r * p_ex + 1.0) / (beta_r * T_ex + 1.0);
+
+  // Navier-Stokes momentum (velocity) source term
+  Tensor<1, dim> f = (rho * (dudt_eulerian + uDotGradu) + grad_p - mu * lap_u + (1.0/3.0) * gradDivu);
+
+  for (unsigned int d = 0; d < dim; ++d)
+    values[u_lower + d] = f[d];
+
+  // Mass conservation (pressure) source term,
+  // for div(u) + alpha_r/(alpha_r p^* + 1)[dp^*dt + u dot gradp^*] - beta_r/(beta_r T^* + 1)[dT^*dt + u dot gradT^*] - f = 0 
+  // -> f = div(u_mms) + alpha_r/(alpha_r p^*_mms + 1)[dp^*_mmsdt + u_mms dot gradp^_mms*] - beta_r/(beta_r T^*_mms + 1)[dT^_mms*dt + u_mms dot gradT^*_mms]
+  double source_mass = div_u + a * (dpdt_ex + uDotGradp) - b * (dTdt_ex + uDotGradT);
+  values[p_lower] = source_mass;
+
+  // Energy equation (temperature) source term
+  Tensor<2, dim> D = symmetrize(grad_u);
+  const double DddotD = scalar_product(D, D);
+  
+  double source_energy = rho * cp * (dTdt_ex + uDotGradT) 
+                        - (dpdt_ex + uDotGradp)
+                        + k * lap_T
+                        - (2.0 * mu * DddotD - (2.0/3.0) * mu * div_u * div_u);
+  
+  values[t_lower] = source_energy;
 }
 
 template <int dim>
@@ -132,7 +172,16 @@ void CompressibleNSSolver<dim>::set_solver_specific_initial_conditions()
   // Set temperature
   VectorTools::interpolate(
     *mapping, this->dof_handler, *temperature_fun, this->newton_update, temperature_mask);
+
+  // Set pressure
   // AssertThrow(false, ExcMessage("Add initial condition for pressure"));
+  const Function<dim> *pressure_fun =
+    this->param.initial_conditions.set_to_mms ?
+      this->exact_solution.get() :
+      this->param.initial_conditions.initial_pressure.get();
+  
+  VectorTools::interpolate(
+    *mapping, this->dof_handler, *pressure_fun, this->newton_update, this->pressure_mask);
 }
 
 template <int dim>
@@ -144,6 +193,13 @@ void CompressibleNSSolver<dim>::set_solver_specific_exact_solution()
                            *this->exact_solution,
                            this->local_evaluation_point,
                            temperature_mask);
+
+  // Set pressure
+  VectorTools::interpolate(*mapping,
+                           this->dof_handler,
+                           *this->exact_solution,
+                           this->local_evaluation_point,
+                           this->pressure_mask);
 }
 
 template <int dim>
@@ -224,8 +280,18 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
 
-  const double nu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity;
+  const double mu =
+    this->param.physical_properties.fluids[0].kinematic_viscosity; // Changer pour mu (viscosite dynamique)
+  const double k =
+    this->param.physical_properties.fluids[0].thermal_conductivity;
+  const double R =
+    this->param.physical_properties.fluids[0].gas_constant;
+  const double cp =
+    this->param.physical_properties.fluids[0].heat_capacity_at_constant_pressure;
+  const double p_ref =
+    this->param.physical_properties.fluids[0].pressure_ref;
+  const double T_ref =
+    this->param.physical_properties.fluids[0].temperature_ref;
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
@@ -237,23 +303,36 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
     const auto &grad_phi_u = scratchData.grad_phi_u[q];
     const auto &div_phi_u  = scratchData.div_phi_u[q];
     const auto &phi_p      = scratchData.phi_p[q];
+    const auto &grad_phi_p = scratchData.grad_phi_p[q];
+    const auto &phi_t      = scratchData.phi_t[q];
+    const auto &grad_phi_t = scratchData.grad_phi_t[q];
 
     const auto &present_velocity_values =
       scratchData.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratchData.present_velocity_gradients[q];
+    const auto &present_pressure_values =
+      scratchData.present_pressure_values[q];
+    const auto &present_pressure_gradients =
+      scratchData.present_pressure_gradients[q];
+    const auto &present_temperature_values =
+      scratchData.present_temperature_values[q];
+    const auto &present_temperature_gradients =
+      scratchData.present_temperature_gradients[q];
 
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
     {
       const unsigned int component_i = scratchData.components[i];
       const bool         i_is_u      = this->ordering->is_velocity(component_i);
       const bool         i_is_p      = this->ordering->is_pressure(component_i);
+      const bool         i_is_t      = this->ordering->is_temperature(component_i);
 
       for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
       {
         const unsigned int component_j = scratchData.components[j];
         const bool         j_is_u = this->ordering->is_velocity(component_j);
         const bool         j_is_p = this->ordering->is_pressure(component_j);
+        const bool         j_is_t = this->ordering->is_temperature(component_j);
 
         bool   assemble        = false;
         double local_matrix_ij = 0.;

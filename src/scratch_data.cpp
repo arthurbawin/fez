@@ -461,9 +461,7 @@ void ScratchData<dim, has_hp_capabilities>::initialize_compressible()
       "not have a temperature variable(s)."));
 
   // TODO : Initialize e.g. state functions data if applicable
-  t_lower = ordering.t_lower;
-
-  thermal conductivity    = physical_properties.fluids[0]
+  temperature.component = t_lower = ordering.t_lower;
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -604,9 +602,30 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
   if (enable_compressible)
   {
-    AssertThrow(false,
-                ExcMessage(
-                  "Vectors for compressible scratch should be allocated (-:"));
+    present_pressure_gradients.resize(n_q_points);
+    previous_pressure_values.resize(bdf_coefficients.size()-1,
+                                      std::vector<double>(n_q_points));
+
+    present_temperature_values.resize(n_q_points);
+    present_temperature_gradients.resize(n_q_points);
+    previous_temperature_values.resize(bdf_coefficients.size() - 1,
+                                       std::vector<double>(n_q_points));
+
+    grad_phi_p.resize(n_q_points,
+                      std::vector<Tensor<1, dim>>(dofs_per_cell));
+    
+    phi_t.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    grad_phi_t.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
+
+    source_term_temperature.resize(n_q_points);
+
+    present_face_temperature_values.resize(
+      n_faces, std::vector<double>(n_faces_q_points));
+    
+    phi_t_face.resize(n_faces,
+                      std::vector<std::vector<double>>(
+                        n_faces_q_points,
+                        std::vector<double>(dofs_per_cell)));
   }
 }
 

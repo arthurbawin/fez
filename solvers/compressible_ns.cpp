@@ -36,7 +36,8 @@ int main(int argc, char *argv[])
 
       prm.parse_input(parameter_file);
       param.read(prm);
-
+      
+      // compressibleNavierStokesSolver<2> problem(param);
       CompressibleNSSolver<2> problem(param);
       if(param.mms_param.enable)
         problem.run_convergence_loop<2>();
@@ -52,6 +53,7 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
+      // compressibleNavierStokesSolver<3> problem(param);
       CompressibleNSSolver<3> problem(param);
       if(param.mms_param.enable)
         problem.run_convergence_loop<3>();

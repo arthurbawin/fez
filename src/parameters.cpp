@@ -232,6 +232,14 @@ namespace Parameters
                         "1",
                         Patterns::Double(),
                         "Fluid kinematic viscosity");
+      prm.declare_entry("dynamic viscosity",
+                        "1",
+                        Patterns::Double(),
+                        "Fluid dynamic viscosity");
+      prm.declare_entry("gas constant",
+                        "287",
+                        Patterns::Double(),
+                        "Specific gas constant");
       prm.declare_entry("thermal conductivity", 
                         "1", 
                         Patterns::Double(), 
@@ -258,6 +266,8 @@ namespace Parameters
     {
       density                            = prm.get_double("density");
       kinematic_viscosity                = prm.get_double("kinematic viscosity");
+      dynamic_viscosity                  = prm.get_double("dynamic viscosity");
+      gas_constant                       = prm.get_double("gas constant");
       thermal_conductivity               = prm.get_double("thermal conductivity");
       heat_capacity_at_constant_pressure = prm.get_double("heat capacity at constant pressure");
       pressure_ref                       = prm.get_double("pressure reference"); 

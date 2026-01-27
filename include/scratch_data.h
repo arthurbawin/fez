@@ -230,10 +230,18 @@ private:
     {
       source_term_temperature[q] = source_term_full_moving[q](t_lower);
 
+      const double pressure = present_pressure_values[q];
+      const double temperature = present_temperature_values[q];
+
+      a_p[q] = alpha_r / (alpha_r * pressure + 1);
+      b_T[q] = beta_r / (beta_r * temperature + 1);
+
+      density[q] = (pressure_ref / (gas_constant * temperature_ref)) * ((alpha_r * pressure + 1) / (beta_r * temperature + 1));
+
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_t[q][k]          = fe_values[temperature].value(k, q);
-        grad_phi_t[q][k]     = fe_values[temperature].gradient(k, q);
+        phi_T[q][k]          = fe_values[temperature].value(k, q);
+        grad_phi_T[q][k]     = fe_values[temperature].gradient(k, q);
       }
     }
   }
@@ -254,7 +262,7 @@ private:
     {
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_t_face[i_face][q][k] = fe_face_values[temperature].value(k,q);
+        phi_T_face[i_face][q][k] = fe_face_values[temperature].value(k,q);
       }
     }
   }
@@ -791,9 +799,18 @@ public:
    * Compressible NS
    */
   FEValuesExtractors::Scalar temperature;
+  double thermal_conductivity;
+  double gas_constant;
+  double heat_capacity_at_constant_pressure;
+  double pressure_ref;
+  double temperature_ref;
+  double alpha_r;
+  double beta_r;
 
   // Variable density, also used by CHNS models
   std::vector<double> density;
+  std::vector<double> a_p;  // alpha_r/(alpha_r p* + 1)
+  std::vector<double> b_T;  // beta_r /(beta_r  T* + 1)
 
   std::vector<std::vector<double>> previous_pressure_values;
   std::vector<Tensor<1, dim>>      present_pressure_gradients;
@@ -803,13 +820,13 @@ public:
 
   std::vector<std::vector<Tensor<1, dim>>> grad_phi_p;
   
-  std::vector<std::vector<double>>         phi_t;
-  std::vector<std::vector<Tensor<1, dim>>> grad_phi_t;
+  std::vector<std::vector<double>>         phi_T;
+  std::vector<std::vector<Tensor<1, dim>>> grad_phi_T;
 
   std::vector<double> source_term_temperature;
 
   std::vector<std::vector<double>> present_face_temperature_values;
-  std::vector<std::vector<std::vector<double>>> phi_t_face;
+  std::vector<std::vector<std::vector<double>>> phi_T_face;
 
   /**
    * Pseudo-solid and ALE

@@ -96,7 +96,7 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                                 Vector<double>   &values) const
 {
   // AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
-  const double mu = physical_properties.fluids[0].kinematic_viscosity;
+  const double mu = physical_properties.fluids[0].dynamic_viscosity;
   const double k = physical_properties.fluids[0].thermal_conductivity;
   const double R = physical_properties.fluids[0].gas_constant;
   const double cp = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
@@ -119,26 +119,26 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   // Use convention (grad_u)_ij := dvj/dxi
   Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
   Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
-  double div_u             = trace(grad_u);
+  double div_u             = mms.exact_velocity->divergence(p);
   Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
   Tensor<1, dim> grad_T    = mms.exact_temperature->gradient(p);
-  double lap_T             = mms.exact_temperature->laplacian(p); //Vérifier
-  Tensor<1, dim> uDotGradu = u * grad_u;
-  double uDotGradp         = u * grad_p;
-  double uDotGradT         = u * grad_T;
-  Tensor<1, dim> gradDivu  = mms.exact_velocity->gradient_divergence(p); //Vérifier 
+  double lap_T             = mms.exact_temperature->laplacian(p); 
+  Tensor<1, dim> uDotGrad_u = u * grad_u;
+  double uDotGrad_p         = u * grad_p;
+  double uDotGrad_T         = u * grad_T;
+  Tensor<1, dim> gradDiv_u  = mms.exact_velocity->grad_div(p);
 
   double alpha_r = 1.0 / p_ref;
   double beta_r = 1.0 / T_ref;
 
-  double a = alpha_r / (alpha_r * p_ex + 1.0);
-  double b = beta_r / (beta_r * T_ex + 1.0);
+  const double a_p = alpha_r / (alpha_r * p_ex + 1.0);
+  const double b_T = beta_r / (beta_r * T_ex + 1.0);
 
   const double rho_ref = p_ref / (R * T_ref);
   double rho = rho_ref * (alpha_r * p_ex + 1.0) / (beta_r * T_ex + 1.0);
 
   // Navier-Stokes momentum (velocity) source term
-  Tensor<1, dim> f = (rho * (dudt_eulerian + uDotGradu) + grad_p - mu * lap_u + (1.0/3.0) * gradDivu);
+  Tensor<1, dim> f = (rho * (dudt_eulerian + uDotGrad_u) + grad_p - mu * lap_u + (1.0/3.0) * gradDiv_u);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
@@ -146,15 +146,15 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   // Mass conservation (pressure) source term,
   // for div(u) + alpha_r/(alpha_r p^* + 1)[dp^*dt + u dot gradp^*] - beta_r/(beta_r T^* + 1)[dT^*dt + u dot gradT^*] - f = 0 
   // -> f = div(u_mms) + alpha_r/(alpha_r p^*_mms + 1)[dp^*_mmsdt + u_mms dot gradp^_mms*] - beta_r/(beta_r T^*_mms + 1)[dT^_mms*dt + u_mms dot gradT^*_mms]
-  double source_mass = div_u + a * (dpdt_ex + uDotGradp) - b * (dTdt_ex + uDotGradT);
+  double source_mass = div_u + a * (dpdt_ex + uDotGrad_p) - b * (dTdt_ex + uDotGrad_T);
   values[p_lower] = source_mass;
 
   // Energy equation (temperature) source term
   Tensor<2, dim> D = symmetrize(grad_u);
   const double DddotD = scalar_product(D, D);
   
-  double source_energy = rho * cp * (dTdt_ex + uDotGradT) 
-                        - (dpdt_ex + uDotGradp)
+  double source_energy = rho * cp * (dTdt_ex + uDotGrad_T) 
+                        - (dpdt_ex + uDotGrad_p)
                         + k * lap_T
                         - (2.0 * mu * DddotD - (2.0/3.0) * mu * div_u * div_u);
   
@@ -281,10 +281,10 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   local_matrix       = 0;
 
   const double mu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity; // Changer pour mu (viscosite dynamique)
+    this->param.physical_properties.fluids[0].dynamic_viscosity; 
   const double k =
     this->param.physical_properties.fluids[0].thermal_conductivity;
-  const double R =
+  const double R_gas =
     this->param.physical_properties.fluids[0].gas_constant;
   const double cp =
     this->param.physical_properties.fluids[0].heat_capacity_at_constant_pressure;
@@ -473,9 +473,23 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;
 
-  const double nu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity;
-
+  const double mu =
+    this->param.physical_properties.fluids[0].dynamic_viscosity;
+  const double k =
+    this->param.physical_properties.fluids[0].thermal_conductivity;
+  const double cp =
+    this->param.physical_properties.fluids[0].heat_capacity_at_constant_pressure;
+  const double R_gas =
+    this->param.physical_properties.fluids[0].gas_constant;
+  const double p_ref =
+    this->param.physical_properties.fluids[0].pressure_ref;
+  const double T_ref =
+    this->param.physical_properties.fluids[0].temperature_ref;
+  
+  const double alpha_r = 1 / p_ref;
+  const double beta_r  = 1 / T_ref; 
+  const double rho_ref = p_ref / (R_gas * T_ref);
+  
   //
   // Volume contributions
   //
@@ -489,43 +503,69 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
       scratchData.present_velocity_gradients[q];
     const auto &present_pressure_values =
       scratchData.present_pressure_values[q];
-    const auto  &source_term_velocity = scratchData.source_term_velocity[q];
-    const auto  &source_term_pressure = scratchData.source_term_pressure[q];
+    const auto &present_pressure_gradients =
+      scratchData.present_pressure_gradients[q];
+    const auto  &source_term_velocity    = scratchData.source_term_velocity[q];
+    const auto  &source_term_pressure    = scratchData.source_term_pressure[q];
+    const auto  &source_term_temperature = scratchData.source_term_temperature[q]; 
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
+    Tensor<2, dim> D = symmetrize(grad_u);
+    const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
+    const auto &present_temperature_values =
+      scratchData.present_temperature_values[q];
+    const auto &present_temperature_gradients =
+      scratchData present_temperature_gradients[q];
 
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, present_velocity_values, scratchData.previous_velocity_values);
+    
+    const double dpdt =
+        this->time_handler.compute_time_derivative_at_quadrature_node(
+          q, present_pressure_values, scratchData.previous_pressure_values);
+
+    const double dTdt =
+        this->time_handler.compute_time_derivative_at_quadrature_node(
+          q, present_temperature_values, scratchData.previous_temperature_values);
 
     const auto &phi_p      = scratchData.phi_p[q];
     const auto &phi_u      = scratchData.phi_u[q];
+    const auto &phi_T      = scratchData.phi_T[q];
     const auto &grad_phi_u = scratchData.grad_phi_u[q];
     const auto &div_phi_u  = scratchData.div_phi_u[q];
+    const auto &grad_phi_p = scratchData.grad_phi_p[q];
+    const auto &grad_phi_T = scratchData.grad_phi_T[q];
 
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
     {
       double local_rhs_i = -(
-        // Transient
-        dudt * phi_u[i]
-
-        // Convection
-        + (present_velocity_gradients * present_velocity_values) * phi_u[i]
-
-        // Diffusion
-        + nu * scalar_product(present_velocity_gradients, grad_phi_u[i])
-
-        // Pressure gradient
-        - div_phi_u[i] * present_pressure_values
-
-        // Momentum source term
-        + source_term_velocity * phi_u[i]
-
         // Continuity
-        - present_velocity_divergence * phi_p[i]
+        present_velocity_divergence * phi_p[i]
+        + (alpha_r / (alpha_r * present_pressure_values + 1)) * dpdt * phi_p[i]
+        + (alpha_r / (alpha_r * present_pressure_values + 1)) * present_velocity_values * present_pressure_gradients  * phi_p[i]
+        - (beta_r / (beta_r * present_temperature_values + 1)) * dTdt * phi_p[i]
+        - (beta_r / (beta_r * present_temperature_values + 1)) * present_velocity_values * present_temperature_gradients * phi_p[i]
+        - source_term_pressure * phi_p[i]
 
-        // Pressure source term
-        + source_term_pressure * phi_p[i]);
+        // Momentum
+        + rho_ref * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * dudt * phi_u[i]
+        + rho_ref * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * present_velocity_gradients * present_velocity_values * phi_u[i] 
+        - present_pressure_values * div_phi_u[i]
+        + scalar_product(2 * mu * D - 2/3 * mu * present_velocity_divergence * identity_tensor, grad_phi_u[i])
+        - source_term_velocity * phi_u[i]
+
+        // Energy
+        + rho_ref * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * cp * dTdt * phi_T[i]
+        + rho_ref * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * cp * present_velocity_values * present_temperature_gradients * phi_T[i]
+        - dpdt * phi_T[i]
+        - present_velocity_values * present_pressure_gradients * phi_T[i]
+        - k * present_temperature_gradients * grad_phi_T[i]
+        - 2 * mu * scalar_product(D:D) * phi_T[i]
+        + 2/3 * mu * present_velocity_divergence * present_velocity_divergence * phi_T[i]
+        - source_term_temperature * phi_T[i]
+
+      );
 
       local_rhs_i *= JxW;
       local_rhs(i) += local_rhs_i;
@@ -533,9 +573,13 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   }
 
   //
-  // Face contributions
+  // Face contributions TODO
   //
   if (cell->at_boundary())
+    AssertThrow(
+      false,
+      ExcMessage(
+        "Face contributions not implemented yet"));
     for (const auto i_face : cell->face_indices())
     {
       const auto &face = cell->face(i_face);
@@ -557,9 +601,10 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
 
             // This is an open boundary condition, not a traction,
             // involving only grad_u_exact and not the symmetric gradient.
-            const auto sigma_dot_n = -p_exact * n + nu * grad_u_exact * n;
+            const auto sigma_dot_n = -p_exact * n + mu * grad_u_exact * n;
 
             const auto &phi_u_face = scratchData.phi_u_face[i_face][q];
+            const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
 
             for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
             {

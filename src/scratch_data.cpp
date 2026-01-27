@@ -462,6 +462,19 @@ void ScratchData<dim, has_hp_capabilities>::initialize_compressible()
 
   // TODO : Initialize e.g. state functions data if applicable
   temperature.component = t_lower = ordering.t_lower;
+
+  AssertThrow(physical_properties.fluids.size() > 0,
+              ExcMessage(
+                "No fluid defined in physical properties"));
+          
+  const double thermal_conductivity               = physical_properties.fluids[0].thermal_conductivity;
+  const double heat_capacity_at_constant_pressure = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
+  const double dynamic_viscosity                  = physical_properties.fluids[0].dynamic_viscosity;
+  const double gas_constant                       = physical_properties.fluids[0].gas_constant;
+  const double pressure_ref                       = physical_properties.fluids[0].pressure_ref;
+  const double temperature_ref                    = physical_properties.fluids[0].temperature_ref;
+  alpha_r                                         = 1 / pressure_ref;
+  beta_r                                          = 1 / temperature_ref;
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -614,18 +627,23 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     grad_phi_p.resize(n_q_points,
                       std::vector<Tensor<1, dim>>(dofs_per_cell));
     
-    phi_t.resize(n_q_points, std::vector<double>(dofs_per_cell));
-    grad_phi_t.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
+    phi_T.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    grad_phi_T.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
 
     source_term_temperature.resize(n_q_points);
 
     present_face_temperature_values.resize(
       n_faces, std::vector<double>(n_faces_q_points));
     
-    phi_t_face.resize(n_faces,
+    phi_T_face.resize(n_faces,
                       std::vector<std::vector<double>>(
                         n_faces_q_points,
                         std::vector<double>(dofs_per_cell)));
+    
+    density.resize(n_q_points);
+
+    a_p.resize(n_q_points);
+    b_T.resize(n_q_points);
   }
 }
 

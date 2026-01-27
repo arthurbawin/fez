@@ -181,7 +181,16 @@ void CompressibleNSSolver<dim>::set_solver_specific_initial_conditions()
   // Set temperature
   VectorTools::interpolate(
     *mapping, this->dof_handler, *temperature_fun, this->newton_update, temperature_mask);
+
+  // Set pressure
   // AssertThrow(false, ExcMessage("Add initial condition for pressure"));
+  const Function<dim> *pressure_fun =
+    this->param.initial_conditions.set_to_mms ?
+      this->exact_solution.get() :
+      this->param.initial_conditions.initial_pressure.get();
+  
+  VectorTools::interpolate(
+    *mapping, this->dof_handler, *pressure_fun, this->newton_update, this->pressure_mask);
 }
 
 template <int dim>
@@ -193,6 +202,13 @@ void CompressibleNSSolver<dim>::set_solver_specific_exact_solution()
                            *this->exact_solution,
                            this->local_evaluation_point,
                            temperature_mask);
+
+  // Set pressure
+  VectorTools::interpolate(*mapping,
+                           this->dof_handler,
+                           *this->exact_solution,
+                           this->local_evaluation_point,
+                           this->pressure_mask);
 }
 
 template <int dim>
@@ -273,8 +289,18 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
 
-  const double nu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity;
+  const double mu =
+    this->param.physical_properties.fluids[0].kinematic_viscosity; // Changer pour mu (viscosite dynamique)
+  const double k =
+    this->param.physical_properties.fluids[0].thermal_conductivity;
+  const double R =
+    this->param.physical_properties.fluids[0].gas_constant;
+  const double cp =
+    this->param.physical_properties.fluids[0].heat_capacity_at_constant_pressure;
+  const double p_ref =
+    this->param.physical_properties.fluids[0].pressure_ref;
+  const double T_ref =
+    this->param.physical_properties.fluids[0].temperature_ref;
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
@@ -286,23 +312,36 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
     const auto &grad_phi_u = scratchData.grad_phi_u[q];
     const auto &div_phi_u  = scratchData.div_phi_u[q];
     const auto &phi_p      = scratchData.phi_p[q];
+    const auto &grad_phi_p = scratchData.grad_phi_p[q];
+    const auto &phi_t      = scratchData.phi_t[q];
+    const auto &grad_phi_t = scratchData.grad_phi_t[q];
 
     const auto &present_velocity_values =
       scratchData.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratchData.present_velocity_gradients[q];
+    const auto &present_pressure_values =
+      scratchData.present_pressure_values[q];
+    const auto &present_pressure_gradients =
+      scratchData.present_pressure_gradients[q];
+    const auto &present_temperature_values =
+      scratchData.present_temperature_values[q];
+    const auto &present_temperature_gradients =
+      scratchData.present_temperature_gradients[q];
 
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
     {
       const unsigned int component_i = scratchData.components[i];
       const bool         i_is_u      = this->ordering->is_velocity(component_i);
       const bool         i_is_p      = this->ordering->is_pressure(component_i);
+      const bool         i_is_t      = this->ordering->is_temperature(component_i);
 
       for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
       {
         const unsigned int component_j = scratchData.components[j];
         const bool         j_is_u = this->ordering->is_velocity(component_j);
         const bool         j_is_p = this->ordering->is_pressure(component_j);
+        const bool         j_is_t = this->ordering->is_temperature(component_j);
 
         bool   assemble        = false;
         double local_matrix_ij = 0.;

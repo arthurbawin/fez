@@ -138,9 +138,7 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   double rho = rho_ref * (alpha_r * p_ex + 1.0) / (beta_r * T_ex + 1.0);
 
   // Navier-Stokes momentum (velocity) source term
-  Tensor<1, dim> f;
-  for (unsigned int d = 0; d < dim; ++d)
-    f[d] = (rho * (dudt_eulerian[d] + uDotGradu[d]) + grad_p[d] - mu * (lap_u[d] + (1.0/3.0) * gradDivu[d]));
+  Tensor<1, dim> f = (rho * (dudt_eulerian + uDotGradu) + grad_p - mu * lap_u + (1.0/3.0) * gradDivu);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
@@ -152,20 +150,13 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   values[p_lower] = source_mass;
 
   // Energy equation (temperature) source term
-  Tensor<2, dim> D;
-  for (unsigned int i = 0; i < dim; ++i)
-    for (unsigned int j = 0; j < dim; ++j)
-      D[i][j] = 0.5 * (grad_u[i][j] + grad_u[j][i]);
-
-  double DdotD = 0;
-  for (unsigned int i = 0; i < dim; ++i)
-    for (unsigned int j = 0; j < dim; ++j)
-      DdotD += D[i][j] * D[i][j];
+  Tensor<2, dim> D = symmetrize(grad_u);
+  const double DddotD = scalar_product(D, D);
   
   double source_energy = rho * cp * (dTdt_ex + uDotGradT) 
                         - (dpdt_ex + uDotGradp)
                         + k * lap_T
-                        - (2.0 * mu * DdotD - (2.0/3.0) * mu * div_u * div_u);
+                        - (2.0 * mu * DddotD - (2.0/3.0) * mu * div_u * div_u);
   
   values[t_lower] = source_energy;
 }

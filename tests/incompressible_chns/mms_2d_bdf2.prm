@@ -124,6 +124,21 @@ subsection CahnHilliard boundary conditions
   end
 end
 
+subsection Exact solution
+  subsection exact velocity
+    set Function expression = x*y^2; x^2*y
+  end
+  subsection exact pressure
+    set Function expression = (x + y)^2
+  end
+  subsection exact cahn hilliard tracer
+    set Function expression = (x + y)^3 * sin(t)
+  end
+  subsection exact cahn hilliard potential
+    set Function expression = (x + y)^4 * t^3
+  end
+end
+
 subsection Manufactured solution
   set enable                 = true
   set type                   = spacetime
@@ -139,19 +154,6 @@ subsection Manufactured solution
     set use spatial mesh     = true
     set spatial mesh index   = 1
     set time step reduction  = 0.5
-  end
-
-  subsection exact velocity
-    set Function expression = x*y^2; x^2*y
-  end
-  subsection exact pressure
-    set Function expression = (x + y)^2
-  end
-  subsection exact cahn hilliard tracer
-    set Function expression = (x + y)^3 * sin(t)
-  end
-  subsection exact cahn hilliard potential
-    set Function expression = (x + y)^4 * t^3
   end
 end
 

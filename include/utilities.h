@@ -298,5 +298,15 @@ void replace_temporary_files(const std::string directory,
                              const std::string final_filename_prefix,
                              const MPI_Comm   &mpi_communicator);
 
+/**
+ * Fill the vector dofs_to_component, which contains for each relevant dof its
+ * component index, similarly to what is done in
+ * DoFTools::internal::get_component_association.
+ */
+template <int dim>
+void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,
+                            const IndexSet             &locally_relevant_dofs,
+                            std::vector<unsigned char> &dofs_to_component);
+
 
 #endif

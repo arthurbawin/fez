@@ -1,6 +1,10 @@
 
 #include <boundary_conditions.h>
 #include <deal.II/grid/grid_tools_geometry.h>
+#include <deal.II/base/utilities.h>
+#include <deal.II/base/exceptions.h>
+#include <mpi.h>
+#include <sstream>
 
 namespace BoundaryConditions
 {
@@ -225,101 +229,167 @@ namespace BoundaryConditions
                               &fluid_bc,
     const Function<dim>       &exact_solution,
     const Function<dim>       &exact_velocity,
-    AffineConstraints<double> &constraints)
+    AffineConstraints<double> &constraints,
+    unsigned int rank)
   {
     const FEValuesExtractors::Vector velocity(u_lower);
-    const ComponentMask              velocity_mask =
-      dof_handler.get_fe().component_mask(velocity);
+    const ComponentMask velocity_mask = dof_handler.get_fe().component_mask(velocity);
+
+
 
     std::set<types::boundary_id> no_flux_boundaries;
     std::set<types::boundary_id> velocity_normal_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *>
-                                 velocity_normal_flux_functions;
+    std::map<types::boundary_id, const Function<dim> *> velocity_normal_flux_functions;
     std::set<types::boundary_id> velocity_tangential_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *>
-      velocity_tangential_flux_functions;
+    std::map<types::boundary_id, const Function<dim> *> velocity_tangential_flux_functions;
+
+    // Compteurs utiles
+    unsigned int n_no_slip = 0;
+    unsigned int n_input_function = 0;
+    unsigned int n_velocity_mms = 0;
+    unsigned int n_slip = 0;
+    unsigned int n_velocity_flux_mms = 0;
+
 
     for (const auto &[id, bc] : fluid_bc)
     {
+
+
       if (bc.type == BoundaryConditions::Type::no_slip)
       {
+        ++n_no_slip;
+
         VectorTools::interpolate_boundary_values(mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 constraints,
-                                                 velocity_mask);
+                                                dof_handler,
+                                                bc.id,
+                                                Functions::ZeroFunction<dim>(n_components),
+                                                constraints,
+                                                velocity_mask);
       }
+
       if (bc.type == BoundaryConditions::Type::input_function)
       {
+        ++n_input_function;
+
         if (homogeneous)
+        {
+
           VectorTools::interpolate_boundary_values(mapping,
-                                                   dof_handler,
-                                                   bc.id,
-                                                   Functions::ZeroFunction<dim>(
-                                                     n_components),
-                                                   constraints,
-                                                   velocity_mask);
+                                                  dof_handler,
+                                                  bc.id,
+                                                  Functions::ZeroFunction<dim>(n_components),
+                                                  constraints,
+                                                  velocity_mask);
+        }
         else
-          VectorTools::interpolate_boundary_values(
-            mapping,
-            dof_handler,
-            bc.id,
-            ComponentwiseFlowVelocity<dim>(
-              u_lower, n_components, bc.u, bc.v, bc.w),
-            constraints,
-            velocity_mask);
+        {
+          VectorTools::interpolate_boundary_values(mapping,
+                                                  dof_handler,
+                                                  bc.id,
+                                                  ComponentwiseFlowVelocity<dim>(u_lower,
+                                                                                  n_components,
+                                                                                  bc.u,
+                                                                                  bc.v,
+                                                                                  bc.w),
+                                                  constraints,
+                                                  velocity_mask);
+        }
       }
+
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
+        ++n_velocity_mms;
+
         if (homogeneous)
+        {
+
           VectorTools::interpolate_boundary_values(mapping,
-                                                   dof_handler,
-                                                   bc.id,
-                                                   Functions::ZeroFunction<dim>(
-                                                     n_components),
-                                                   constraints,
-                                                   velocity_mask);
+                                                  dof_handler,
+                                                  bc.id,
+                                                  Functions::ZeroFunction<dim>(n_components),
+                                                  constraints,
+                                                  velocity_mask);
+        }
         else
+        {
           VectorTools::interpolate_boundary_values(mapping,
-                                                   dof_handler,
-                                                   bc.id,
-                                                   exact_solution,
-                                                   constraints,
-                                                   velocity_mask);
+                                                  dof_handler,
+                                                  bc.id,
+                                                  exact_solution,
+                                                  constraints,
+                                                  velocity_mask);
+        }
+
+
       }
+
       if (bc.type == BoundaryConditions::Type::slip)
+      {
+        ++n_slip;
         no_flux_boundaries.insert(bc.id);
+      }
+
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
+        ++n_velocity_flux_mms;
+
         // Enforce both the normal and tangential flux to be well-posed
         velocity_normal_flux_boundaries.insert(bc.id);
         velocity_normal_flux_functions[bc.id] = &exact_velocity;
+
         velocity_tangential_flux_boundaries.insert(bc.id);
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
     }
+    auto comm = dof_handler.get_mpi_communicator();
 
-    // Add no velocity flux constraints
-    VectorTools::compute_no_normal_flux_constraints(
-      dof_handler, u_lower, no_flux_boundaries, constraints, mapping);
-    // Add nonzero normal flux velocity constraints
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_normal_flux_boundaries,
-      velocity_normal_flux_functions,
-      constraints,
-      mapping);
-    // Add nonzero tangential flux velocity constraints
-    VectorTools::compute_nonzero_tangential_flux_constraints(
-      dof_handler,
-      u_lower,
-      velocity_tangential_flux_boundaries,
-      velocity_tangential_flux_functions,
-      constraints,
-      mapping);
+    // 1) Vérifier que no_flux_boundaries est identique (via hash simple)
+    auto hash_set = [&](const std::set<types::boundary_id> &s) -> unsigned long long {
+      unsigned long long h = 1469598103934665603ULL; // FNV offset
+      for (auto id : s) {
+        h ^= static_cast<unsigned long long>(id + 0x9e3779b97f4a7c15ULL);
+        h *= 1099511628211ULL;
+      }
+      return h;
+    };
+
+    unsigned long long h_local = hash_set(no_flux_boundaries);
+    unsigned long long h_min   = Utilities::MPI::min(h_local, comm);
+    unsigned long long h_max   = Utilities::MPI::max(h_local, comm);
+
+    if (h_min != h_max)
+    {
+      std::ostringstream oss;
+      oss << "[rank " << rank << "] ERROR: no_flux_boundaries differs across ranks. Local set: ";
+      for (auto id : no_flux_boundaries) oss << id << " ";
+      std::cerr << oss.str() << std::endl;
+
+      AssertThrow(false, ExcMessage("MPI inconsistency in no_flux_boundaries"));
+    }
+
+    // 2) Barrière + appel
+    MPI_Barrier(comm);
+    VectorTools::compute_no_normal_flux_constraints(dof_handler,
+                                                    u_lower,
+                                                    no_flux_boundaries,
+                                                    constraints,
+                                                    mapping,
+                                                    /*use_manifold_for_normal=*/false);
+    MPI_Barrier(comm);
+
+    VectorTools::compute_nonzero_normal_flux_constraints(dof_handler,
+                                                        u_lower,
+                                                        velocity_normal_flux_boundaries,
+                                                        velocity_normal_flux_functions,
+                                                        constraints,
+                                                        mapping);
+
+    VectorTools::compute_nonzero_tangential_flux_constraints(dof_handler,
+                                                            u_lower,
+                                                            velocity_tangential_flux_boundaries,
+                                                            velocity_tangential_flux_functions,
+                                                            constraints,
+                                                            mapping);
   }
 
   template <int dim>

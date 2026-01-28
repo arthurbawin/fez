@@ -10,7 +10,8 @@ namespace BoundaryConditions
     const std::map<types::boundary_id, FluidBC<2>> &,
     const Function<2> &,
     const Function<2> &,
-    AffineConstraints<double> &);
+    AffineConstraints<double> &,
+    unsigned int);
 
   template void apply_velocity_boundary_conditions(
     const bool,
@@ -21,7 +22,8 @@ namespace BoundaryConditions
     const std::map<types::boundary_id, FluidBC<3>> &,
     const Function<3> &,
     const Function<3> &,
-    AffineConstraints<double> &);
+    AffineConstraints<double> &,
+    unsigned int);
 
   template void apply_mesh_position_boundary_conditions(
     const bool,

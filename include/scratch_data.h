@@ -138,6 +138,8 @@ private:
 
       present_velocity_sym_gradients[q] =
         symmetrize(present_velocity_gradients[q]);
+      // 0.5 *
+      // scalar_product(present_velocity_gradients[q],transpose(present_velocity_gradients[q]));
       present_velocity_divergence[q] = trace(present_velocity_gradients[q]);
 
       for (int d = 0; d < dim; ++d)
@@ -202,13 +204,8 @@ private:
   {
     fe_values_fixed[position].get_function_values(current_solution,
                                                   present_position_values);
-    fe_values_moving[position].get_function_values(current_solution,
-                                                  present_position_values);
     fe_values_fixed[position].get_function_gradients(
       current_solution, present_position_gradients);
-
-    fe_values_moving[position].get_function_gradients(
-                                      current_solution, present_position_gradients);
 
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
@@ -216,8 +213,6 @@ private:
       // fe_values[velocity].get_function_values(previous_solutions[i],
       //                                            previous_velocity_values[i]);
       fe_values_fixed[position].get_function_values(
-        previous_solutions[i], previous_position_values[i]);
-      fe_values_moving[position].get_function_values(
         previous_solutions[i], previous_position_values[i]);
     }
 
@@ -235,9 +230,6 @@ private:
 
     const auto &fixed_quadrature_points =
       fe_values_fixed.get_quadrature_points();
-
-    const auto &moving_quadrature_points = 
-      fe_values_moving.get_quadrature_points();
 
     // Source terms on fixed mapping for x
     source_terms->vector_value_list(fixed_quadrature_points,
@@ -268,9 +260,9 @@ private:
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_x[q][k]      = fe_values_fixed[position].value(k, q);
-        grad_phi_x[q][k] = fe_values_fixed[position].gradient(k, q);
-        div_phi_x[q][k]  = fe_values_fixed[position].divergence(k, q);
+        phi_x[q][k]             = fe_values_fixed[position].value(k, q);
+        grad_phi_x[q][k]        = fe_values_fixed[position].gradient(k, q);
+        div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
         grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
       }
     }
@@ -520,6 +512,13 @@ private:
                           potential_gradients[q];
       velocity_dot_tracer_gradient[q] =
         present_velocity_values[q] * tracer_gradients[q];
+      // ALE-safe: u_conv = u - w, with w=0 if no moving mesh
+      Tensor<1, dim> w;
+      if (enable_pseudo_solid) // ou enable_moving_mesh, selon ton nom
+        w = present_mesh_velocity_values[q];
+
+      u_conv_dot_tracer_gradient[q] =
+        (present_velocity_values[q] - w) * tracer_gradients[q];
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -554,8 +553,6 @@ public:
     active_fe_values = this->reinit(cell, false);
     if (enable_pseudo_solid)
       active_fe_values_fixed = this->reinit(cell, true);
-      active_fe_values_moving = this->reinit(cell, true);
-      
 
     dofs_per_cell = active_fe_values->dofs_per_cell;
     for (const unsigned int i : active_fe_values->dof_indices())
@@ -572,7 +569,7 @@ public:
                               exact_solution);
     if (enable_pseudo_solid)
       reinit_pseudo_solid_cell(*active_fe_values_fixed,
-                              *active_fe_values_moving,
+                               *active_fe_values,
                                current_solution,
                                previous_solutions,
                                source_terms,
@@ -650,7 +647,6 @@ private:
   // Non-owning pointers for active FEValues/FaceValues
   const FEValues<dim>     *active_fe_values;
   const FEValues<dim>     *active_fe_values_fixed;
-  const FEValues<dim>     *active_fe_values_moving;
   const FEFaceValues<dim> *active_fe_face_values;
   const FEFaceValues<dim> *active_fe_face_values_fixed;
 
@@ -747,7 +743,6 @@ public:
   // Shape functions on faces for relevant faces, each quad node and each dof
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_x_face;
   std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_x_face;
-  std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_x_face_moving;
 
   std::vector<Vector<double>> source_term_full_fixed;
   std::vector<Tensor<1, dim>> source_term_position;
@@ -799,9 +794,9 @@ public:
   std::vector<Tensor<1, dim>>      potential_gradients;
   std::vector<std::vector<double>> previous_tracer_values;
 
-  std::vector<Tensor<1, dim>> diffusive_flux;
-  std::vector<double>         velocity_dot_tracer_gradient;
-
+  std::vector<Tensor<1, dim>>              diffusive_flux;
+  std::vector<double>                      velocity_dot_tracer_gradient;
+  std::vector<double>                      u_conv_dot_tracer_gradient;
   std::vector<std::vector<double>>         shape_phi;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
   std::vector<std::vector<double>>         shape_mu;

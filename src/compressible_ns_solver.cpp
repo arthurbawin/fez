@@ -293,28 +293,43 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   const double T_ref =
     this->param.physical_properties.fluids[0].temperature_ref;
 
+  const double alpha_r = 1 / p_ref;
+  const double beta_r = 1/ T_ref;
+  const double rho_ref = p_ref / (R_gas * T_ref);
+
+  const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
+
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
   for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
   {
     const double JxW = scratchData.JxW_moving[q];
 
-    const auto &phi_u      = scratchData.phi_u[q];
-    const auto &grad_phi_u = scratchData.grad_phi_u[q];
-    const auto &div_phi_u  = scratchData.div_phi_u[q];
-    const auto &phi_p      = scratchData.phi_p[q];
-    const auto &grad_phi_p = scratchData.grad_phi_p[q];
-    const auto &phi_t      = scratchData.phi_t[q];
-    const auto &grad_phi_t = scratchData.grad_phi_t[q];
+    const auto &phi_u          = scratchData.phi_u[q];
+    const auto &grad_phi_u     = scratchData.grad_phi_u[q];
+    const auto &sym_grad_phi_u = scratchData.sym_grad_phi_u[q];
+    const auto &div_phi_u      = scratchData.div_phi_u[q];
+    const auto &phi_p          = scratchData.phi_p[q];
+    const auto &grad_phi_p     = scratchData.grad_phi_p[q];
+    const auto &phi_T          = scratchData.phi_T[q];
+    const auto &grad_phi_T     = scratchData.grad_phi_T[q];
 
+    const auto &previous_velocity_values =
+      scratchData.previous_velocity_values[q];
     const auto &present_velocity_values =
       scratchData.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratchData.present_velocity_gradients[q];
+    const auto &present_velocity_sym_gradients =
+      scratchData.present_velocity_sym_gradients[q];
+    const auto &previous_pressure_values =
+      scratchData.previous_pressure_values[q];
     const auto &present_pressure_values =
       scratchData.present_pressure_values[q];
     const auto &present_pressure_gradients =
       scratchData.present_pressure_gradients[q];
+    const auto &previous_temperature_values =
+      scratchData.previous_temperature_values[q];
     const auto &present_temperature_values =
       scratchData.present_temperature_values[q];
     const auto &present_temperature_gradients =
@@ -325,14 +340,14 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
       const unsigned int component_i = scratchData.components[i];
       const bool         i_is_u      = this->ordering->is_velocity(component_i);
       const bool         i_is_p      = this->ordering->is_pressure(component_i);
-      const bool         i_is_t      = this->ordering->is_temperature(component_i);
+      const bool         i_is_T      = this->ordering->is_temperature(component_i);
 
       for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
       {
         const unsigned int component_j = scratchData.components[j];
         const bool         j_is_u = this->ordering->is_velocity(component_j);
         const bool         j_is_p = this->ordering->is_pressure(component_j);
-        const bool         j_is_t = this->ordering->is_temperature(component_j);
+        const bool         j_is_T = this->ordering->is_temperature(component_j);
 
         bool   assemble        = false;
         double local_matrix_ij = 0.;
@@ -341,32 +356,85 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
         {
           assemble = true;
 
-          // Time-dependent
-          local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
-
-          // Convection
-          local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
-                              present_velocity_gradients * phi_u[j]) *
-                             phi_u[i];
-
-          // Diffusion
-          local_matrix_ij += nu * scalar_product(grad_phi_u[i], grad_phi_u[j]);
+          local_matrix_ij += bdf_c0 * rho_ref * phi_u[i] * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * phi_u[j];
+          local_matrix_ij += rho_ref * phi_u[i] * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * (grad_phi_u[j] * present_velocity_values + present_velocity_gradients * phi_u[j]);
+          local_matrix_ij += mu * scalar_product(grad_phi_u[j] + sym_grad_phi_u[j] , grad_phi_u[i]); 
+          local_matrix_ij += - 2/3 * mu * div_phi_u[j] * div_phi_u[i];
         }
 
         if (i_is_u && j_is_p)
         {
           assemble = true;
 
-          // Pressure gradient
-          local_matrix_ij += -div_phi_u[i] * phi_p[j];
+          //  local_matrix_ij += bdf_c0 * rho_ref * phi_u[i] * (alpha_r / (beta_r * present_temperature_values + 1)) * phi_p[j];
+          local_matrix_ij += rho_ref * phi_u[i] * (alpha_r / (beta_r * present_temperature_values + 1)) * phi_p[j] * present_velocity_gradients * present_velocity_values;
+          local_matrix_ij += - phi_p[j] * div_phi_u[i];
+        }
+
+        if (i_is_u && j_is_T)
+        {
+          assemble = true;
+
+          // local_matrix_ij += - bdf_c0 * rho_ref * phi_u[i] * beta_r * ((alpha_r * present_pressure_values + 1)/ ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1))) * phi_T[j];
+          local_matrix_ij += - rho_ref * phi_u[i] * beta_r * ((alpha_r * present_pressure_values + 1)/ ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1))) * phi_T[j] * present_velocity_gradients * present_velocity_values;
         }
 
         if (i_is_p && j_is_u)
         {
           assemble = true;
 
-          // Continuity : variation w.r.t. u
-          local_matrix_ij += -phi_p[i] * div_phi_u[j];
+          local_matrix_ij += phi_p[i] * div_phi_u[j];
+          local_matrix_ij += phi_p[i] * alpha_r / (alpha_r * present_pressure_values + 1) * phi_u[j] * present_pressure_gradients;
+          local_matrix_ij += - phi_p[i] * beta_r/(beta_r * present_temperature_values + 1) * phi_u[j] * present_temperature_gradients;
+        }
+
+        if (i_is_p && j_is_p)
+        {
+          // local_matrix_ij += bdf_c0 * phi_p[i] * (- alpha_r * alpha_r) / ((alpha_r * present_pressure_values + 1) * (alpha_r * present_pressure_values + 1)) * phi_p[j];
+          // local_matrix_ij += phi_p[i] * alpha_r / (alpha_r * present_pressure_values + 1) * phi_p[j];
+          local_matrix_ij += phi_p[i] * (- alpha_r * alpha_r) / ((alpha_r * present_pressure_values + 1) * (alpha_r * present_pressure_values + 1)) * phi_p[j] * present_velocity_values * present_pressure_gradients;
+          local_matrix_ij += phi_p[i] * alpha_r / (alpha_r * present_pressure_values + 1) * present_velocity_values * grad_phi_p[j];
+        }
+
+        if (i_is_p && j_is_T)
+        {
+          assemble = true;
+
+          // local_matrix_ij += - bdf_c0 * phi_p[i] * (- beta_r * beta_r) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1)) * phi_T[j];
+          // local_matrix_ij += - phi_p[i] * beta_r / (beta_r * present_temperature_values + 1) * phi_T[j];
+          local_matrix_ij +=  phi_p[i] * (beta_r * beta_r) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1)) * phi_T[j];
+          local_matrix_ij += - phi_p[i] * beta_r / (beta_r * present_temperature_values + 1) * present_velocity_values * grad_phi_T[j];
+        }
+
+        if (i_is_T && j_is_u)
+        {
+          assemble = true;
+
+          local_matrix_ij += phi_T[i] * rho_ref * cp * (alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1) * phi_u[j] * present_temperature_gradients;
+          local_matrix_ij += - phi_T[i] * phi_u[j] * present_pressure_gradients;
+          local_matrix_ij += phi_T[i] * -4 * mu * scalar_product(1/2 * (present_velocity_gradients + present_velocity_sym_gradients), 1/2 * (grad_phi_u + sym_grad_phi_u[j]));
+          local_matrix_ij += phi_T[i] * 4/3 * mu * present_velocity_gradients * div_phi_u[j]; 
+        }
+
+        if (i_is_T && j_is_p)
+        {
+          assemble = true;
+
+          //local_matrix_ij += phi_T[i] * rho_ref * cp * alpha_r / (beta_r * present_temperature_values + 1) * phi_p[j];
+          local_matrix_ij += phi_T[i] * rho_ref * cp * * alpha_r / (beta_r * present_temperature_values + 1) * phi_p[j] * present_velocity_values * present_temperature_gradients;
+          //local_matrix_ij += - phi_T[i] * phi_p[j];
+          local_matrix_ij += - phi_T[i] * present_velocity_values * grad_phi_p[j];
+        }
+
+        if (i_is_T && j_is_T)
+        {
+          assemble = true;
+
+          //local_matrix_ij += - phi_T[i] * rho_ref * cp * (alpha_r * present_pressure_values + 1) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1)) * beta_r * phi_T[j];
+          //local_matrix_ij += phi_T[i] * rho_ref * cp * (alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1) * phi_T[j];
+          local_matrix_ij += - phi_T[i] * rho_ref * cp * beta_r * (alpha_r * present_pressure_values + 1) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1)) * phi_T[j] * present_velocity_values * present_temperature_gradients;
+          local_matrix_ij += phi_T[i] * rho_ref * cp  * (alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1) * present_velocity_values * grad_phi_T[j];
+          local_matrix_ij += -k * grad_phi_T[i] * grad_phi_T[j];
         }
 
         if (assemble)

@@ -116,13 +116,13 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   const double T_ex = mms.exact_temperature->value(p);
   const double dTdt_ex = mms.exact_temperature->time_derivative(p);
 
-  // Use convention (grad_u)_ij := dvj/dxi
-  Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
-  Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
-  double div_u             = mms.exact_velocity->divergence(p);
-  Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
-  Tensor<1, dim> grad_T    = mms.exact_temperature->gradient(p);
-  double lap_T             = mms.exact_temperature->laplacian(p); 
+  // Use conventpresent_velocity_gradients)_ij := dvj/dxi
+  Tensor<2, dim> grad_u     = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<1, dim> lap_u      = mms.exact_velocity->vector_laplacian(p);
+  double div_u              = mms.exact_velocity->divergence(p);
+  Tensor<1, dim> grad_p     = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> grad_T     = mms.exact_temperature->gradient(p);
+  double lap_T              = mms.exact_temperature->laplacian(p); 
   Tensor<1, dim> uDotGrad_u = u * grad_u;
   double uDotGrad_p         = u * grad_p;
   double uDotGrad_T         = u * grad_T;
@@ -146,7 +146,7 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   // Mass conservation (pressure) source term,
   // for div(u) + alpha_r/(alpha_r p^* + 1)[dp^*dt + u dot gradp^*] - beta_r/(beta_r T^* + 1)[dT^*dt + u dot gradT^*] - f = 0 
   // -> f = div(u_mms) + alpha_r/(alpha_r p^*_mms + 1)[dp^*_mmsdt + u_mms dot gradp^_mms*] - beta_r/(beta_r T^*_mms + 1)[dT^_mms*dt + u_mms dot gradT^*_mms]
-  double source_mass = div_u + a * (dpdt_ex + uDotGrad_p) - b * (dTdt_ex + uDotGrad_T);
+  double source_mass = div_u + a_p * (dpdt_ex + uDotGrad_p) - b_T * (dTdt_ex + uDotGrad_T);
   values[p_lower] = source_mass;
 
   // Energy equation (temperature) source term
@@ -293,8 +293,8 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   const double T_ref =
     this->param.physical_properties.fluids[0].temperature_ref;
 
-  const double alpha_r = 1 / p_ref;
-  const double beta_r = 1/ T_ref;
+  const double alpha_r = 1.0 / p_ref;
+  const double beta_r = 1.0 / T_ref;
   const double rho_ref = p_ref / (R_gas * T_ref);
 
   const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
@@ -314,26 +314,34 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
     const auto &phi_T          = scratchData.phi_T[q];
     const auto &grad_phi_T     = scratchData.grad_phi_T[q];
 
-    const auto &previous_velocity_values =
-      scratchData.previous_velocity_values[q];
     const auto &present_velocity_values =
       scratchData.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratchData.present_velocity_gradients[q];
+    const auto &present_velocity_divergence =
+      scratchData.present_velocity_divergence[q];
     const auto &present_velocity_sym_gradients =
       scratchData.present_velocity_sym_gradients[q];
-    const auto &previous_pressure_values =
-      scratchData.previous_pressure_values[q];
     const auto &present_pressure_values =
       scratchData.present_pressure_values[q];
     const auto &present_pressure_gradients =
       scratchData.present_pressure_gradients[q];
-    const auto &previous_temperature_values =
-      scratchData.previous_temperature_values[q];
     const auto &present_temperature_values =
       scratchData.present_temperature_values[q];
     const auto &present_temperature_gradients =
       scratchData.present_temperature_gradients[q];
+
+    const Tensor<1, dim> dudt =
+      this->time_handler.compute_time_derivative_at_quadrature_node(
+        q, present_velocity_values, scratchData.previous_velocity_values);
+
+    const double dpdt =
+        this->time_handler.compute_time_derivative_at_quadrature_node(
+          q, present_pressure_values, scratchData.previous_pressure_values);
+
+    const double dTdt =
+        this->time_handler.compute_time_derivative_at_quadrature_node(
+          q, present_temperature_values, scratchData.previous_temperature_values);
 
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
     {
@@ -356,18 +364,18 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
         {
           assemble = true;
 
-          local_matrix_ij += bdf_c0 * rho_ref * phi_u[i] * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * phi_u[j];
-          local_matrix_ij += rho_ref * phi_u[i] * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * (grad_phi_u[j] * present_velocity_values + present_velocity_gradients * phi_u[j]);
-          local_matrix_ij += mu * scalar_product(grad_phi_u[j] + sym_grad_phi_u[j] , grad_phi_u[i]); 
-          local_matrix_ij += - 2/3 * mu * div_phi_u[j] * div_phi_u[i];
+          local_matrix_ij += rho_ref * phi_u[i] * ((alpha_r * present_pressure_values + 1.0) / (beta_r * present_temperature_values + 1.0)) * bdf_c0 * phi_u[j];
+          local_matrix_ij += rho_ref * phi_u[i] * ((alpha_r * present_pressure_values + 1.0) / (beta_r * present_temperature_values + 1.0)) * (grad_phi_u[j] * present_velocity_values + present_velocity_gradients * phi_u[j]);
+          local_matrix_ij += 2.0 * mu * scalar_product(sym_grad_phi_u[j] , grad_phi_u[i]); 
+          local_matrix_ij += - 2.0/3.0 * mu * div_phi_u[j] * div_phi_u[i];
         }
 
         if (i_is_u && j_is_p)
         {
           assemble = true;
 
-          //  local_matrix_ij += bdf_c0 * rho_ref * phi_u[i] * (alpha_r / (beta_r * present_temperature_values + 1)) * phi_p[j];
-          local_matrix_ij += rho_ref * phi_u[i] * (alpha_r / (beta_r * present_temperature_values + 1)) * phi_p[j] * present_velocity_gradients * present_velocity_values;
+          local_matrix_ij += rho_ref * phi_u[i] * (alpha_r / (beta_r * present_temperature_values + 1.0)) * dudt * phi_p[j];
+          local_matrix_ij += rho_ref * phi_u[i] * (alpha_r / (beta_r * present_temperature_values + 1.0)) * phi_p[j] * (present_velocity_gradients * present_velocity_values);
           local_matrix_ij += - phi_p[j] * div_phi_u[i];
         }
 
@@ -375,8 +383,8 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
         {
           assemble = true;
 
-          // local_matrix_ij += - bdf_c0 * rho_ref * phi_u[i] * beta_r * ((alpha_r * present_pressure_values + 1)/ ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1))) * phi_T[j];
-          local_matrix_ij += - rho_ref * phi_u[i] * beta_r * ((alpha_r * present_pressure_values + 1)/ ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1))) * phi_T[j] * present_velocity_gradients * present_velocity_values;
+          local_matrix_ij += - rho_ref * phi_u[i] * beta_r * ((alpha_r * present_pressure_values + 1.0)/ ((beta_r * present_temperature_values + 1.0) * (beta_r * present_temperature_values + 1.0))) * dudt * phi_T[j];
+          local_matrix_ij += - rho_ref * phi_u[i] * beta_r * ((alpha_r * present_pressure_values + 1.0)/ ((beta_r * present_temperature_values + 1.0) * (beta_r * present_temperature_values + 1.0))) * phi_T[j] * (present_velocity_gradients * present_velocity_values);
         }
 
         if (i_is_p && j_is_u)
@@ -384,15 +392,17 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
           assemble = true;
 
           local_matrix_ij += phi_p[i] * div_phi_u[j];
-          local_matrix_ij += phi_p[i] * alpha_r / (alpha_r * present_pressure_values + 1) * phi_u[j] * present_pressure_gradients;
-          local_matrix_ij += - phi_p[i] * beta_r/(beta_r * present_temperature_values + 1) * phi_u[j] * present_temperature_gradients;
+          local_matrix_ij += phi_p[i] * alpha_r / (alpha_r * present_pressure_values + 1.0) * phi_u[j] * present_pressure_gradients;
+          local_matrix_ij += - phi_p[i] * beta_r/(beta_r * present_temperature_values + 1.0) * phi_u[j] * present_temperature_gradients;
         }
 
         if (i_is_p && j_is_p)
         {
-          // local_matrix_ij += bdf_c0 * phi_p[i] * (- alpha_r * alpha_r) / ((alpha_r * present_pressure_values + 1) * (alpha_r * present_pressure_values + 1)) * phi_p[j];
-          // local_matrix_ij += phi_p[i] * alpha_r / (alpha_r * present_pressure_values + 1) * phi_p[j];
-          local_matrix_ij += phi_p[i] * (- alpha_r * alpha_r) / ((alpha_r * present_pressure_values + 1) * (alpha_r * present_pressure_values + 1)) * phi_p[j] * present_velocity_values * present_pressure_gradients;
+          assemble = true;
+
+          local_matrix_ij += phi_p[i] * (- alpha_r * alpha_r) / ((alpha_r * present_pressure_values + 1.0) * (alpha_r * present_pressure_values + 1.0)) * dpdt * phi_p[j];
+          local_matrix_ij += phi_p[i] * alpha_r / (alpha_r * present_pressure_values + 1) * bdf_c0 * phi_p[j];
+          local_matrix_ij += phi_p[i] * (- alpha_r * alpha_r) / ((alpha_r * present_pressure_values + 1.0) * (alpha_r * present_pressure_values + 1.0)) * phi_p[j] * present_velocity_values * present_pressure_gradients;
           local_matrix_ij += phi_p[i] * alpha_r / (alpha_r * present_pressure_values + 1) * present_velocity_values * grad_phi_p[j];
         }
 
@@ -400,9 +410,9 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
         {
           assemble = true;
 
-          // local_matrix_ij += - bdf_c0 * phi_p[i] * (- beta_r * beta_r) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1)) * phi_T[j];
-          // local_matrix_ij += - phi_p[i] * beta_r / (beta_r * present_temperature_values + 1) * phi_T[j];
-          local_matrix_ij +=  phi_p[i] * (beta_r * beta_r) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1)) * phi_T[j];
+          local_matrix_ij += - phi_p[i] * (- beta_r * beta_r) / ((beta_r * present_temperature_values + 1.0) * (beta_r * present_temperature_values + 1.0)) * dTdt * phi_T[j];
+          local_matrix_ij += - phi_p[i] * beta_r / (beta_r * present_temperature_values + 1) * bdf_c0 * phi_T[j];
+          local_matrix_ij +=  phi_p[i] * (beta_r * beta_r) / ((beta_r * present_temperature_values + 1.0) * (beta_r * present_temperature_values + 1.0)) * present_velocity_values * present_temperature_gradients * phi_T[j];
           local_matrix_ij += - phi_p[i] * beta_r / (beta_r * present_temperature_values + 1) * present_velocity_values * grad_phi_T[j];
         }
 
@@ -410,19 +420,19 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
         {
           assemble = true;
 
-          local_matrix_ij += phi_T[i] * rho_ref * cp * (alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1) * phi_u[j] * present_temperature_gradients;
+          local_matrix_ij += phi_T[i] * rho_ref * cp * (alpha_r * present_pressure_values + 1.0) / (beta_r * present_temperature_values + 1.0) * phi_u[j] * present_temperature_gradients;
           local_matrix_ij += - phi_T[i] * phi_u[j] * present_pressure_gradients;
-          local_matrix_ij += phi_T[i] * -4 * mu * scalar_product(1/2 * (present_velocity_gradients + present_velocity_sym_gradients), 1/2 * (grad_phi_u + sym_grad_phi_u[j]));
-          local_matrix_ij += phi_T[i] * 4/3 * mu * present_velocity_gradients * div_phi_u[j]; 
+          local_matrix_ij += phi_T[i] * 4.0 * mu * scalar_product(present_velocity_sym_gradients, sym_grad_phi_u[j]);
+          local_matrix_ij += phi_T[i] * 4.0/3.0 * mu * present_velocity_divergence * div_phi_u[j]; 
         }
 
         if (i_is_T && j_is_p)
         {
           assemble = true;
 
-          //local_matrix_ij += phi_T[i] * rho_ref * cp * alpha_r / (beta_r * present_temperature_values + 1) * phi_p[j];
-          local_matrix_ij += phi_T[i] * rho_ref * cp * * alpha_r / (beta_r * present_temperature_values + 1) * phi_p[j] * present_velocity_values * present_temperature_gradients;
-          //local_matrix_ij += - phi_T[i] * phi_p[j];
+          local_matrix_ij += phi_T[i] * rho_ref * cp * alpha_r / (beta_r * present_temperature_values + 1.0) * dTdt * phi_p[j];
+          local_matrix_ij += phi_T[i] * rho_ref * cp * alpha_r / (beta_r * present_temperature_values + 1.0) * phi_p[j] * present_velocity_values * present_temperature_gradients;
+          local_matrix_ij += - phi_T[i] * bdf_c0 * phi_p[j];
           local_matrix_ij += - phi_T[i] * present_velocity_values * grad_phi_p[j];
         }
 
@@ -430,10 +440,10 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
         {
           assemble = true;
 
-          //local_matrix_ij += - phi_T[i] * rho_ref * cp * (alpha_r * present_pressure_values + 1) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1)) * beta_r * phi_T[j];
-          //local_matrix_ij += phi_T[i] * rho_ref * cp * (alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1) * phi_T[j];
-          local_matrix_ij += - phi_T[i] * rho_ref * cp * beta_r * (alpha_r * present_pressure_values + 1) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1)) * phi_T[j] * present_velocity_values * present_temperature_gradients;
-          local_matrix_ij += phi_T[i] * rho_ref * cp  * (alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1) * present_velocity_values * grad_phi_T[j];
+          local_matrix_ij += - phi_T[i] * rho_ref * cp * (alpha_r * present_pressure_values + 1.0) / ((beta_r * present_temperature_values + 1.0) * (beta_r * present_temperature_values + 1.0)) * beta_r * dTdt * phi_T[j];
+          local_matrix_ij += phi_T[i] * rho_ref * cp * (alpha_r * present_pressure_values + 1.0) / (beta_r * present_temperature_values + 1.0) * bdf_c0 * phi_T[j];
+          local_matrix_ij += - phi_T[i] * rho_ref * cp * beta_r * (alpha_r * present_pressure_values + 1.0) / ((beta_r * present_temperature_values + 1.0) * (beta_r * present_temperature_values + 1.0)) * phi_T[j] * present_velocity_values * present_temperature_gradients;
+          local_matrix_ij += phi_T[i] * rho_ref * cp  * (alpha_r * present_pressure_values + 1.0) / (beta_r * present_temperature_values + 1.0) * present_velocity_values * grad_phi_T[j];
           local_matrix_ij += -k * grad_phi_T[i] * grad_phi_T[j];
         }
 
@@ -554,8 +564,8 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   const double T_ref =
     this->param.physical_properties.fluids[0].temperature_ref;
   
-  const double alpha_r = 1 / p_ref;
-  const double beta_r  = 1 / T_ref; 
+  const double alpha_r = 1.0 / p_ref;
+  const double beta_r  = 1.0 / T_ref; 
   const double rho_ref = p_ref / (R_gas * T_ref);
   
   //
@@ -578,12 +588,12 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
     const auto  &source_term_temperature = scratchData.source_term_temperature[q]; 
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
-    Tensor<2, dim> D = symmetrize(grad_u);
+    const auto &D = scratchData.present_velocity_sym_gradients[q];
     const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
     const auto &present_temperature_values =
       scratchData.present_temperature_values[q];
     const auto &present_temperature_gradients =
-      scratchData present_temperature_gradients[q];
+      scratchData.present_temperature_gradients[q];
 
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
@@ -610,27 +620,27 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
       double local_rhs_i = -(
         // Continuity
         present_velocity_divergence * phi_p[i]
-        + (alpha_r / (alpha_r * present_pressure_values + 1)) * dpdt * phi_p[i]
-        + (alpha_r / (alpha_r * present_pressure_values + 1)) * present_velocity_values * present_pressure_gradients  * phi_p[i]
-        - (beta_r / (beta_r * present_temperature_values + 1)) * dTdt * phi_p[i]
-        - (beta_r / (beta_r * present_temperature_values + 1)) * present_velocity_values * present_temperature_gradients * phi_p[i]
+        + (alpha_r / (alpha_r * present_pressure_values + 1.0)) * dpdt * phi_p[i]
+        + (alpha_r / (alpha_r * present_pressure_values + 1.0)) * present_velocity_values * present_pressure_gradients  * phi_p[i]
+        - (beta_r / (beta_r * present_temperature_values + 1.0)) * dTdt * phi_p[i]
+        - (beta_r / (beta_r * present_temperature_values + 1.0)) * present_velocity_values * present_temperature_gradients * phi_p[i]
         - source_term_pressure * phi_p[i]
 
         // Momentum
-        + rho_ref * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * dudt * phi_u[i]
-        + rho_ref * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * present_velocity_gradients * present_velocity_values * phi_u[i] 
+        + rho_ref * ((alpha_r * present_pressure_values + 1.0) / (beta_r * present_temperature_values + 1.0)) * dudt * phi_u[i]
+        + rho_ref * ((alpha_r * present_pressure_values + 1.0) / (beta_r * present_temperature_values + 1.0)) * present_velocity_gradients * present_velocity_values * phi_u[i] 
         - present_pressure_values * div_phi_u[i]
-        + scalar_product(2 * mu * D - 2/3 * mu * present_velocity_divergence * identity_tensor, grad_phi_u[i])
+        + scalar_product(2 * mu * D - 2.0/3.0 * mu * present_velocity_divergence * identity_tensor, grad_phi_u[i])
         - source_term_velocity * phi_u[i]
 
         // Energy
-        + rho_ref * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * cp * dTdt * phi_T[i]
-        + rho_ref * ((alpha_r * present_pressure_values + 1) / (beta_r * present_temperature_values + 1)) * cp * present_velocity_values * present_temperature_gradients * phi_T[i]
+        + rho_ref * ((alpha_r * present_pressure_values + 1.0) / (beta_r * present_temperature_values + 1.0)) * cp * dTdt * phi_T[i]
+        + rho_ref * ((alpha_r * present_pressure_values + 1.0) / (beta_r * present_temperature_values + 1.0)) * cp * present_velocity_values * present_temperature_gradients * phi_T[i]
         - dpdt * phi_T[i]
         - present_velocity_values * present_pressure_gradients * phi_T[i]
         - k * present_temperature_gradients * grad_phi_T[i]
-        - 2 * mu * scalar_product(D:D) * phi_T[i]
-        + 2/3 * mu * present_velocity_divergence * present_velocity_divergence * phi_T[i]
+        - 2.0 * mu * scalar_product(D,D) * phi_T[i]
+        + 2.0/3.0 * mu * present_velocity_divergence * present_velocity_divergence * phi_T[i]
         - source_term_temperature * phi_T[i]
 
       );
@@ -644,44 +654,46 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   // Face contributions TODO
   //
   if (cell->at_boundary())
+  {
     AssertThrow(
       false,
       ExcMessage(
         "Face contributions not implemented yet"));
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-      if (face->at_boundary())
-      {
-        // Open boundary condition with prescribed manufactured solution
-        if (this->param.fluid_bc.at(scratchData.face_boundary_id[i_face])
-              .type == BoundaryConditions::Type::open_mms)
-        {
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-          {
-            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-            const auto  &n        = scratchData.face_normals_moving[i_face][q];
-
-            const auto &grad_u_exact =
-              scratchData.exact_face_velocity_gradients[i_face][q];
-            const double p_exact =
-              scratchData.exact_face_pressure_values[i_face][q];
-
-            // This is an open boundary condition, not a traction,
-            // involving only grad_u_exact and not the symmetric gradient.
-            const auto sigma_dot_n = -p_exact * n + mu * grad_u_exact * n;
-
-            const auto &phi_u_face = scratchData.phi_u_face[i_face][q];
-            const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
-
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-            {
-              local_rhs(i) -= -phi_u_face[i] * sigma_dot_n * face_JxW;
-            }
-          }
-        }
-      }
-    }
+  }
+    //for (const auto i_face : cell->face_indices())
+    //{
+    //  const auto &face = cell->face(i_face);
+    //  if (face->at_boundary())
+    //  {
+    //    // Open boundary condition with prescribed manufactured solution
+    //    if (this->param.fluid_bc.at(scratchData.face_boundary_id[i_face])
+    //          .type == BoundaryConditions::Type::open_mms)
+    //    {
+    //      for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+    //      {
+    //        const double face_JxW = scratchData.face_JxW_moving[i_face][q];
+    //        const auto  &n        = scratchData.face_normals_moving[i_face][q];
+//
+    //        const apresent_velocity_gradients_exact =
+    //          scratchData.exact_face_velocity_gradients[i_face][q];
+    //        const double p_exact =
+    //          scratchData.exact_face_pressure_values[i_face][q];
+//
+    //        // This is an open boundary condition, not a traction,
+    //        // involving present_velocity_gradients_exact and not the symmetric gradient.
+    //        const auto sigma_dot_n = -p_exact * n + present_velocity_gradients_exact * n;
+//
+    //        const auto &phi_u_face = scratchData.phi_u_face[i_face][q];
+    //        const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
+//
+    //        for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    //        {
+    //          local_rhs(i) -= -phi_u_face[i] * sigma_dot_n * face_JxW;
+    //        }
+    //      }
+    //    }
+    //  }
+    //}
 
   cell->get_dof_indices(copy_data.local_dof_indices);
 }

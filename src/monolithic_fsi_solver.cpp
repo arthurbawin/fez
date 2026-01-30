@@ -3209,6 +3209,65 @@ void FSISolver<dim>::output_results()
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
 
+    // ------------------------------------------------------------
+    // Export Lamé coefficients (cell data): lame_mu, lame_lambda
+    // ------------------------------------------------------------
+    Vector<float> lame_mu_cell(this->triangulation.n_active_cells());
+    Vector<float> lame_lambda_cell(this->triangulation.n_active_cells());
+
+    // On veut être cohérent avec le pseudo-solide : intégration sur le FIXED mapping
+    FEValues<dim> fe_values_fixed(*this->fixed_mapping,
+                                  *fe,
+                                  *this->quadrature,
+                                  update_quadrature_points | update_JxW_values);
+
+    const auto &mu_fun = this->param.physical_properties.pseudosolids[0].lame_mu_fun;
+    const auto &la_fun = this->param.physical_properties.pseudosolids[0].lame_lambda_fun;
+
+    AssertThrow(mu_fun, ExcMessage("lame_mu_fun is null"));
+    AssertThrow(la_fun, ExcMessage("lame_lambda_fun is null"));
+    for (const auto &cell : this->dof_handler.active_cell_iterators())
+    {
+      // Important : en parallèle, on ne remplit que les cellules owned
+      if (!cell->is_locally_owned())
+        continue;
+
+      fe_values_fixed.reinit(cell);
+
+      double mu_avg = 0.0;
+      double la_avg = 0.0;
+      double w_sum  = 0.0;
+
+      for (unsigned int q = 0; q < fe_values_fixed.n_quadrature_points; ++q)
+      {
+        const Point<dim> &xq = fe_values_fixed.quadrature_point(q);
+        const double      w  = fe_values_fixed.JxW(q);
+
+        mu_avg += mu_fun->value(xq, 0) * w;
+        la_avg += la_fun->value(xq, 0) * w;
+        w_sum  += w;
+      }
+
+      if (w_sum > 0.0)
+      {
+        mu_avg /= w_sum;
+        la_avg /= w_sum;
+      }
+
+      const unsigned int idx = cell->active_cell_index();
+      lame_mu_cell[idx]     = static_cast<float>(mu_avg);
+      lame_lambda_cell[idx] = static_cast<float>(la_avg);
+    }
+
+    // Ajout dans le VTU comme "cell data"
+    data_out.add_data_vector(lame_mu_cell,
+                            "lame_mu",
+                            DataOut<dim>::type_cell_data);
+
+    data_out.add_data_vector(lame_lambda_cell,
+                            "lame_lambda",
+                            DataOut<dim>::type_cell_data);
+
     //
     // Partition
     //

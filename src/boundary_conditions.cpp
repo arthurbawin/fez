@@ -5,6 +5,8 @@
 #include <deal.II/base/exceptions.h>
 #include <mpi.h>
 #include <sstream>
+#include <deal.II/fe/mapping_q1.h>
+
 
 namespace BoundaryConditions
 {
@@ -238,6 +240,7 @@ namespace BoundaryConditions
 
 
     std::set<types::boundary_id> no_flux_boundaries;
+    std::set<types::boundary_id> outflow_boundaries;
     std::set<types::boundary_id> velocity_normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *> velocity_normal_flux_functions;
     std::set<types::boundary_id> velocity_tangential_flux_boundaries;
@@ -249,6 +252,7 @@ namespace BoundaryConditions
     unsigned int n_velocity_mms = 0;
     unsigned int n_slip = 0;
     unsigned int n_velocity_flux_mms = 0;
+    unsigned int n_outflow = 0 ; 
 
 
     for (const auto &[id, bc] : fluid_bc)
@@ -329,6 +333,13 @@ namespace BoundaryConditions
         no_flux_boundaries.insert(bc.id);
       }
 
+      if (bc.type == BoundaryConditions::Type::outflow)
+      {
+        ++n_outflow;
+        outflow_boundaries.insert(bc.id);
+
+      }
+
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
         ++n_velocity_flux_mms;
@@ -377,19 +388,27 @@ namespace BoundaryConditions
                                                     /*use_manifold_for_normal=*/false);
     MPI_Barrier(comm);
 
+    VectorTools::compute_normal_flux_constraints(dof_handler,
+                                                    u_lower,
+                                                    outflow_boundaries,
+                                                    constraints,
+                                                    mapping,
+                                                    /*use_manifold_for_normal=*/false);
+
     VectorTools::compute_nonzero_normal_flux_constraints(dof_handler,
                                                         u_lower,
                                                         velocity_normal_flux_boundaries,
                                                         velocity_normal_flux_functions,
                                                         constraints,
-                                                        mapping);
+                                                        mapping,/*use_manifold_for_normal=*/false);
 
     VectorTools::compute_nonzero_tangential_flux_constraints(dof_handler,
                                                             u_lower,
                                                             velocity_tangential_flux_boundaries,
                                                             velocity_tangential_flux_functions,
                                                             constraints,
-                                                            mapping);
+                                                            mapping,
+                                                            /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>
@@ -405,6 +424,7 @@ namespace BoundaryConditions
     const Function<dim>       &exact_mesh_position,
     AffineConstraints<double> &constraints)
   {
+
     const FEValuesExtractors::Vector position(x_lower);
     const ComponentMask              position_mask =
       dof_handler.get_fe().component_mask(position);
@@ -475,7 +495,8 @@ namespace BoundaryConditions
       normal_flux_boundaries,
       position_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      false);
 
     // Add position nonzero flux constraints from manufactured solution
     // (tangential movement)
@@ -485,7 +506,8 @@ namespace BoundaryConditions
       mms_normal_flux_boundaries,
       mms_position_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      false);
   }
 
   template <int dim>

@@ -122,7 +122,7 @@ namespace Parameters
     // Density used by incompressible solver; in compressible it is a state equation
     double density;
     double kinematic_viscosity;
-    double dynamic_viscosity;
+    double dynamic_viscosity_fluid;
     double thermal_conductivity;
     double heat_capacity_at_constant_pressure;
     double gas_constant;

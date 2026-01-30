@@ -467,14 +467,14 @@ void ScratchData<dim, has_hp_capabilities>::initialize_compressible()
               ExcMessage(
                 "No fluid defined in physical properties"));
           
-  const double thermal_conductivity               = physical_properties.fluids[0].thermal_conductivity;
-  const double heat_capacity_at_constant_pressure = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
-  const double dynamic_viscosity                  = physical_properties.fluids[0].dynamic_viscosity;
-  const double gas_constant                       = physical_properties.fluids[0].gas_constant;
-  const double pressure_ref                       = physical_properties.fluids[0].pressure_ref;
-  const double temperature_ref                    = physical_properties.fluids[0].temperature_ref;
-  alpha_r                                         = 1 / pressure_ref;
-  beta_r                                          = 1 / temperature_ref;
+  thermal_conductivity               = physical_properties.fluids[0].thermal_conductivity;
+  heat_capacity_at_constant_pressure = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
+  dynamic_viscosity_fluid            = physical_properties.fluids[0].dynamic_viscosity_fluid;
+  gas_constant                       = physical_properties.fluids[0].gas_constant;
+  pressure_ref                       = physical_properties.fluids[0].pressure_ref;
+  temperature_ref                    = physical_properties.fluids[0].temperature_ref;
+  alpha_r                            = 1.0 / pressure_ref;
+  beta_r                             = 1.0 / temperature_ref;
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -616,10 +616,12 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
   if (enable_compressible)
   {
     present_pressure_gradients.resize(n_q_points);
+    present_pressure_absolute_values.resize(n_q_points);
     previous_pressure_values.resize(bdf_coefficients.size()-1,
                                       std::vector<double>(n_q_points));
 
     present_temperature_values.resize(n_q_points);
+    present_temperature_absolute_values.resize(n_q_points);
     present_temperature_gradients.resize(n_q_points);
     previous_temperature_values.resize(bdf_coefficients.size() - 1,
                                        std::vector<double>(n_q_points));
@@ -633,6 +635,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     source_term_temperature.resize(n_q_points);
 
     present_face_temperature_values.resize(
+      n_faces, std::vector<double>(n_faces_q_points));
+    present_face_temperature_absolute_values.resize(
       n_faces, std::vector<double>(n_faces_q_points));
     
     phi_T_face.resize(n_faces,

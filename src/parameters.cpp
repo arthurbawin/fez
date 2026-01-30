@@ -266,7 +266,7 @@ namespace Parameters
     {
       density                            = prm.get_double("density");
       kinematic_viscosity                = prm.get_double("kinematic viscosity");
-      dynamic_viscosity                  = prm.get_double("dynamic viscosity");
+      dynamic_viscosity_fluid            = prm.get_double("dynamic viscosity");
       gas_constant                       = prm.get_double("gas constant");
       thermal_conductivity               = prm.get_double("thermal conductivity");
       heat_capacity_at_constant_pressure = prm.get_double("heat capacity at constant pressure");

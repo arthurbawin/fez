@@ -230,13 +230,19 @@ private:
     {
       source_term_temperature[q] = source_term_full_moving[q](t_lower);
 
-      const double pressure = present_pressure_values[q];
-      const double temperature = present_temperature_values[q];
+      const double p_star = present_pressure_values[q];
+      const double T_star = present_temperature_values[q];
 
-      a_p[q] = alpha_r / (alpha_r * pressure + 1);
-      b_T[q] = beta_r / (beta_r * temperature + 1);
+      const double p_tot = pressure_ref + p_star;
+      const double T_tot = temperature_ref + T_star;
 
-      density[q] = (pressure_ref / (gas_constant * temperature_ref)) * ((alpha_r * pressure + 1) / (beta_r * temperature + 1));
+      present_pressure_absolute_values[q] = p_tot;
+      present_temperature_absolute_values[q] = T_tot;
+
+      a_p[q] = alpha_r / (alpha_r * p_star + 1.0);
+      b_T[q] = beta_r / (beta_r * T_star + 1.0);
+
+      density[q] = (pressure_ref / (gas_constant * temperature_ref)) * ((alpha_r * p_star + 1.0) / (beta_r * T_star + 1));
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -260,6 +266,10 @@ private:
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
+      const double T_star = present_face_temperature_values[i_face][q];
+      const double T_tot = temperature_ref + T_star;
+      present_face_temperature_absolute_values[i_face][q] = T_tot;
+
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
         phi_T_face[i_face][q][k] = fe_face_values[temperature].value(k,q);
@@ -801,6 +811,7 @@ public:
   FEValuesExtractors::Scalar temperature;
   double thermal_conductivity;
   double gas_constant;
+  double dynamic_viscosity_fluid;
   double heat_capacity_at_constant_pressure;
   double pressure_ref;
   double temperature_ref;
@@ -818,6 +829,10 @@ public:
   std::vector<Tensor<1, dim>>      present_temperature_gradients;
   std::vector<std::vector<double>> previous_temperature_values;
 
+  // Thermodynamic fields: p = p^* + p_ref, T = T^* + T_ref
+  std::vector<double> present_pressure_absolute_values;
+  std::vector<double> present_temperature_absolute_values;
+
   std::vector<std::vector<Tensor<1, dim>>> grad_phi_p;
   
   std::vector<std::vector<double>>         phi_T;
@@ -826,6 +841,7 @@ public:
   std::vector<double> source_term_temperature;
 
   std::vector<std::vector<double>> present_face_temperature_values;
+  std::vector<std::vector<double>> present_face_temperature_absolute_values;
   std::vector<std::vector<std::vector<double>>> phi_T_face;
 
   /**

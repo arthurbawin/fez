@@ -120,7 +120,7 @@ FE_SimplexP_3D_hp<dim, spacedim>::hp_line_dof_identities(
         for (unsigned int i = 0; i < this->degree - 1; ++i)
           for (unsigned int j = 0; j < fe_p_other->degree - 1; ++j)
             if (std::fabs(this->unit_support_points[i + 3][0] -
-                          fe_p_other->unit_support_points[i + 3][0]) < 1e-14)
+                          fe_p_other->unit_support_points[j + 3][0]) < 1e-14)
               identities.emplace_back(i, j);
             else
               {
@@ -228,6 +228,10 @@ FE_SimplexP_3D_hp<dim, spacedim>::hp_quad_dof_identities(
   const FiniteElement<dim, spacedim> &fe_other,
   const unsigned int) const
 {
+  // FIXME: These identities should be implemented to use P3 elements on tets.
+  // But this function is called in a threaded environment, and it seems that
+  // AssertThrow() does not throw in this setting, which is very odd.
+
   return std::vector<std::pair<unsigned int, unsigned int>>();
   
   // // we can presently only compute these identities if both FEs are FE_Qs or

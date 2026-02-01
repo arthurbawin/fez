@@ -24,7 +24,7 @@ namespace ManufacturedSolutions
         "none",
         Patterns::Selection(
           "none|time_dependent_vector|rigid_motion_kernel|moving radial kernel|"
-          "normal_radial_kernel"),
+          "normal_radial_kernel|vector radial kernel|vector one minus radial kernel"),
         "");
 
       //
@@ -36,6 +36,44 @@ namespace ManufacturedSolutions
                           default_point,
                           Patterns::List(Patterns::Double(), dim, dim, ","),
                           "Constant vector");
+      }
+      prm.leave_subsection();
+
+      //
+      // Vector-valued radial kernel
+      //
+      prm.enter_subsection("vector radial kernel");
+      {
+        prm.declare_entry("V",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Constant vector");
+        prm.declare_entry("r0", "0.1", Patterns::Double(), "R0");
+        prm.declare_entry("r1", "0.2", Patterns::Double(), "R1");
+        prm.declare_entry("center",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Center of the kernel");
+        prm.declare_entry("cylindrical", "false", Patterns::Bool(), "");
+      }
+      prm.leave_subsection();
+
+      //
+      // Vector-valued (1 - radial kernel)
+      //
+      prm.enter_subsection("vector one minus radial kernel");
+      {
+        prm.declare_entry("V",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Constant vector");
+        prm.declare_entry("r0", "0.1", Patterns::Double(), "R0");
+        prm.declare_entry("r1", "0.2", Patterns::Double(), "R1");
+        prm.declare_entry("center",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Center of the kernel");
+        prm.declare_entry("cylindrical", "false", Patterns::Bool(), "");
       }
       prm.leave_subsection();
 
@@ -146,6 +184,10 @@ namespace ManufacturedSolutions
         preset_field_mms = PresetMMS::moving_radial_kernel;
       else if (parsed_preset == "normal_radial_kernel")
         preset_field_mms = PresetMMS::normal_radial_kernel;
+      else if (parsed_preset == "vector radial kernel")
+        preset_field_mms = PresetMMS::vector_radial_kernel;
+      else if (parsed_preset == "vector one minus radial kernel")
+        preset_field_mms = PresetMMS::vector_one_minus_radial_kernel;
       else
         AssertThrow(false, ExcMessage("Unknown preset MMS: " + parsed_preset));
 
@@ -158,6 +200,32 @@ namespace ManufacturedSolutions
           preset_mms =
             std::make_shared<TimeDependentVector<dim>>(time_function,
                                                        constant_vector);
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("vector radial kernel");
+      {
+        const Tensor<1, dim> V  = parse_rank_1_tensor<dim>(prm.get("V"));
+        const double         r0 = prm.get_double("r0");
+        const double         r1 = prm.get_double("r1");
+        const Point<dim> center(parse_rank_1_tensor<dim>(prm.get("center")));
+        const bool       cylindrical = prm.get_bool("cylindrical");
+        if (preset_field_mms == PresetMMS::vector_radial_kernel)
+          preset_mms = std::make_shared<VectorRadialKernel<dim>>(
+            time_function, center, r0, r1, V, cylindrical);
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("vector one minus radial kernel");
+      {
+        const Tensor<1, dim> V  = parse_rank_1_tensor<dim>(prm.get("V"));
+        const double         r0 = prm.get_double("r0");
+        const double         r1 = prm.get_double("r1");
+        const Point<dim> center(parse_rank_1_tensor<dim>(prm.get("center")));
+        const bool       cylindrical = prm.get_bool("cylindrical");
+        if (preset_field_mms == PresetMMS::vector_one_minus_radial_kernel)
+          preset_mms = std::make_shared<VectorOneMinusRadialKernel<dim>>(
+            time_function, center, r0, r1, V, cylindrical);
       }
       prm.leave_subsection();
 

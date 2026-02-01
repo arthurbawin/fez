@@ -293,6 +293,12 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::
   create_zero_mean_pressure_constraints_data()
 {
+  // Not yet implemented in hp context
+  AssertThrow(!dof_handler.has_hp_capabilities(),
+              ExcMessage(
+                "The create_zero_mean_pressure_constraints_data() function has "
+                "not yet been implemented for the hp case."));
+
   BoundaryConditions::create_zero_mean_pressure_constraints_data(
     triangulation,
     dof_handler,
@@ -305,7 +311,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::
     zero_mean_pressure_weights);
 
   // The mean pressure constraint added pressure ghost dofs,
-  // reinit vectors
+  // so parallel vectors should be reinitialized to account for them.
   reinit_vectors();
 }
 

@@ -119,6 +119,106 @@ namespace ManufacturedSolutions
              (dij / r - d[comp_i] * d[comp_j] / (r * r * r));
   }
 
+  /**
+   * VectorRadialKernel
+   */
+  template <int dim>
+  double VectorRadialKernel<dim>::value(const Point<dim>  &p,
+                                        const unsigned int component) const
+  {
+    return V[component] * time_function->value(p) *
+           kernel_fun(p, center, R0, R1, cylindrical);
+  }
+
+  template <int dim>
+  double
+  VectorRadialKernel<dim>::time_derivative(const Point<dim>  &p,
+                                           const unsigned int component) const
+  {
+    return V[component] * time_function->time_derivative(p) *
+           kernel_fun(p, center, R0, R1, cylindrical);
+  }
+
+  template <int dim>
+  Tensor<1, dim>
+  VectorRadialKernel<dim>::gradient(const Point<dim>  &p,
+                                    const unsigned int component) const
+  {
+    Tensor<1, dim> grad;
+    for (unsigned int d = 0; d < dim; ++d)
+      grad[d] = V[component] * time_function->value(p) *
+                dxi_kernel(p, center, R0, R1, d, cylindrical);
+    return grad;
+  }
+
+  template <int dim>
+  SymmetricTensor<2, dim>
+  VectorRadialKernel<dim>::hessian(const Point<dim>  &p,
+                                   const unsigned int component) const
+  {
+    SymmetricTensor<2, dim> hess;
+    for (unsigned int di = 0; di < dim; ++di)
+      for (unsigned int dj = di; dj < dim; ++dj)
+        hess[di][dj] = d2xij_kernel(p, center, R0, R1, di, dj, cylindrical);
+    hess *= V[component] * time_function->value(p);
+    return hess;
+  }
+
+  template class VectorRadialKernel<2>;
+  template class VectorRadialKernel<3>;
+
+  /**
+   * VectorOneMinusRadialKernel
+   */
+  template <int dim>
+  double
+  VectorOneMinusRadialKernel<dim>::value(const Point<dim>  &p,
+                                         const unsigned int component) const
+  {
+    return V[component] * time_function->value(p) *
+           (1. - kernel_fun(p, center, R0, R1, cylindrical));
+  }
+
+  template <int dim>
+  double VectorOneMinusRadialKernel<dim>::time_derivative(
+    const Point<dim>  &p,
+    const unsigned int component) const
+  {
+    return V[component] * time_function->time_derivative(p) *
+           (1. - kernel_fun(p, center, R0, R1, cylindrical));
+  }
+
+  template <int dim>
+  Tensor<1, dim>
+  VectorOneMinusRadialKernel<dim>::gradient(const Point<dim>  &p,
+                                            const unsigned int component) const
+  {
+    Tensor<1, dim> grad;
+    for (unsigned int d = 0; d < dim; ++d)
+      grad[d] = -V[component] * time_function->value(p) *
+                dxi_kernel(p, center, R0, R1, d, cylindrical);
+    return grad;
+  }
+
+  template <int dim>
+  SymmetricTensor<2, dim>
+  VectorOneMinusRadialKernel<dim>::hessian(const Point<dim>  &p,
+                                           const unsigned int component) const
+  {
+    SymmetricTensor<2, dim> hess;
+    for (unsigned int di = 0; di < dim; ++di)
+      for (unsigned int dj = di; dj < dim; ++dj)
+        hess[di][dj] = -d2xij_kernel(p, center, R0, R1, di, dj, cylindrical);
+    hess *= V[component] * time_function->value(p);
+    return hess;
+  }
+
+  template class VectorOneMinusRadialKernel<2>;
+  template class VectorOneMinusRadialKernel<3>;
+
+  /**
+   * PositionRadialKernel
+   */
   template <int dim>
   double PositionRadialKernel<dim>::value(const Point<dim>  &p,
                                           const unsigned int component) const
@@ -167,6 +267,9 @@ namespace ManufacturedSolutions
   template class PositionRadialKernel<2>;
   template class PositionRadialKernel<3>;
 
+  /**
+   * MovingRadialKernel
+   */
   template <int dim>
   double MovingRadialKernel<dim>::value(const Point<dim>  &p,
                                         const unsigned int component) const
@@ -243,9 +346,9 @@ namespace ManufacturedSolutions
     // Hess(r) = 1/r * (I - x^T*x/r^2)
     Tensor<2, dim> drdxx =
       (unit_symmetric_tensor<dim>() - outer_product(xrel, xrel) / (r * r)) / r;
-      
-    if constexpr(dim == 3)
-      if(cylindrical)
+
+    if constexpr (dim == 3)
+      if (cylindrical)
         // If cylindrical kernel aligned with z, the hessian does not involve
         // z entries. Zero them out. Tensor is symmetric, so only need to zero
         // one non-diagonal entry.
@@ -263,6 +366,9 @@ namespace ManufacturedSolutions
   template class MovingRadialKernel<2>;
   template class MovingRadialKernel<3>;
 
+  /**
+   * NormalRadialKernel
+   */
   template <int dim>
   double NormalRadialKernel<dim>::value(const Point<dim> &p,
                                         const unsigned int /*component*/) const

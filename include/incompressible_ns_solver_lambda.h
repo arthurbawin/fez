@@ -237,12 +237,13 @@ protected:
   hp::MappingCollection<dim> mapping_collection;
   hp::QCollection<dim>       quadrature_collection;
   hp::QCollection<dim - 1>   face_quadrature_collection;
+  hp::QCollection<dim - 1>   error_face_quadrature_collection;
 
   FEValuesExtractors::Vector lambda_extractor;
   ComponentMask              lambda_mask;
   AffineConstraints<double>  lambda_constraints;
 
-  std::vector<std::pair<types::global_dof_index, types::global_dof_index>>
+  std::set<std::pair<types::global_dof_index, types::global_dof_index>>
     hp_dof_identities;
 
   /**

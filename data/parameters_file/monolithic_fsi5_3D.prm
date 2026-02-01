@@ -1,0 +1,209 @@
+subsection Dimension
+  set dimension = 3
+end
+
+subsection Timer
+ set enable timer = true
+end
+
+subsection Output
+  set output directory = /home/joan2810/scratch/monolithic_fsi5/
+  set output prefix    = solution
+
+  set vtu write results    = true
+  set VTU output frequency = 10
+
+  set vtu write skin results = true
+  set skin boundary id = 8
+  set Skin VTU output frequency = 10
+end
+
+subsection PostProcessing
+  set write total force = true
+  set write body position = true
+  set force and position output frequency = 1
+  set write force per slice = true
+
+  set enable slicing = true
+  set slicing boundary id = 8
+  set slicing direction = z
+  set number of slices = 4
+end
+
+subsection Mesh
+  set mesh file = ../data/meshes/cyl_not_confined3D_fine4_2D.msh
+end
+
+subsection Time integration
+  set dt        = 0.01
+  set t_initial = 0
+  set t_end     = 200
+  set scheme    = BDF2
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+
+  # ------------------------------------------------------------
+  # Ajout requis par parameters.cpp :
+  # reassembly heuristic / decrease tolerance
+  # Si ||R_k|| > (decrease tolerance) * ||R_{k-1}|| -> reassemble
+  # Ici: 1e-1 = 0.1
+  # ------------------------------------------------------------
+  subsection reassembly heuristic
+    set decrease tolerance = 0.1
+  end
+end
+
+subsection Linear solver
+  set verbosity      = quiet
+  set method         = direct_mumps
+  set reuse          = true
+end
+
+subsection FiniteElements
+  set Velocity degree            = 2
+  set Pressure degree            = 1
+  set Mesh position degree       = 2
+  set Lagrange multiplier degree = 2
+end
+
+subsection Physical properties
+  set number of fluids = 1
+
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 0.003333333333
+  end
+
+  set number of pseudosolids = 1
+
+  subsection Pseudosolid 0
+    subsection lame lambda
+      set Function expression = (0.4/(((sqrt((x-60.0)*(x-60.0)+(y-80.0)*(y-80.0))-0.5)/178.3854)*((sqrt((x-60.0)*(x-60.0)+(y-80.0)*(y-80.0))-0.5)/178.3854)+0.05))
+    end
+
+    subsection lame mu
+      set Function expression = (0.4/(((sqrt((x-60.0)*(x-60.0)+(y-80.0)*(y-80.0))-0.5)/178.3854)*((sqrt((x-60.0)*(x-60.0)+(y-80.0)*(y-80.0))-0.5)/178.3854)+0.05))
+    end
+  end
+end
+
+subsection FSI
+  set enable coupling = true
+  set spring constant = 0.196349541 
+  set cylinder radius = 0.5
+  set cylinder length = 2
+end
+
+subsection Debug
+  set fsi_coupling_option = 2
+end
+
+# ------------------------------------------------------------
+# Ajout requis par parameters.cpp : Checkpoint Restart
+# ------------------------------------------------------------
+subsection Checkpoint Restart
+  set enable checkpoint = true
+  set restart           = false
+  set checkpoint frequency = 20
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 7
+  subsection boundary 0
+    set id   = 7
+    set name = Back
+    set type = slip
+  end
+  subsection boundary 1
+    set id   = 6
+    set name = Front
+    set type = slip
+  end
+  subsection boundary 2
+    set id   = 5
+    set name = Bottom
+    set type = slip
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = Top
+    set type = slip
+  end
+  subsection boundary 4
+    set id   = 2
+    set name = Inlet
+    set type = input_function
+
+    subsection u
+      set Function expression = 1
+    end
+    subsection v
+      set Function expression = 0
+    end
+    subsection w
+      set Function expression = 0
+    end
+  end
+  subsection boundary 5
+    set id   = 3
+    set name = Outlet
+    set type = outflow
+
+  end
+  subsection boundary 6
+    set id   = 8
+    set name = InnerBoundary
+    set type = weak_no_slip
+  end
+end
+
+subsection Pseudosolid boundary conditions
+  set number = 7
+  subsection boundary 0
+    set id   = 7
+    set name = Back
+    set type = no_flux
+  end
+  subsection boundary 1
+    set id   = 6
+    set name = Front
+    set type = no_flux
+  end
+  subsection boundary 2
+    set id   = 5
+    set name = Bottom
+    set type = no_flux
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = Top
+    set type = no_flux
+  end
+  subsection boundary 4
+    set id   = 2
+    set name = Inlet
+    set type = no_flux
+  end
+  subsection boundary 5
+    set id   = 3
+    set name = Outlet
+    set type = no_flux
+  end
+  subsection boundary 6
+    set id   = 8
+    set name = InnerBoundary
+    set type = coupled_to_fluid
+  end
+end

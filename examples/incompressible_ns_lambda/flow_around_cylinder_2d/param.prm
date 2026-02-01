@@ -136,7 +136,3 @@ subsection Fluid boundary conditions
     set type = outflow
   end
 end
-
-subsection Debug
-  set verbosity = verbose
-end

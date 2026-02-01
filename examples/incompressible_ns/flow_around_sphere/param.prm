@@ -10,38 +10,25 @@ end
 subsection Output
   set write results    = true
   set output directory = results/
-  set output prefix    = flow_cylinder
+  set output prefix    = flow_around_sphere
 end
 
 subsection Mesh
-  set mesh file = ./cylinder.msh
+  set mesh file = sphere.msh
 end
 
 subsection Time integration
-  set verbosity        = verbose
-  set dt               = 0.1
-  set t_initial        = 0
-  set t_end            = 0.1
+  #set verbosity        = quiet
   set scheme           = stationary
 end
 
-subsection Checkpoint Restart
-  set enable checkpoint    = false
-  set restart              = false
-  set checkpoint file      = checkpoint
-  set checkpoint frequency = 10
-end
-
 subsection Nonlinear solver
+  #set verbosity            = quiet
   set tolerance            = 1e-10
   set divergence_tolerance = 1e+4
-  set max_iterations       = 50
+  set max_iterations       = 20
   set enable_line_search   = false
   set analytic_jacobian    = true
-
-  subsection reassembly heuristic
-    set decrease tolerance = 0 #0.1
-  end
 end
 
 subsection Linear solver
@@ -51,27 +38,15 @@ subsection Linear solver
 end
 
 subsection FiniteElements
-  set use quads                  = false
   set Velocity degree            = 2
   set Pressure degree            = 1
-  set Lagrange multiplier degree = 2
 end
 
 subsection Physical properties
   set number of fluids = 1
   subsection Fluid 0
     set density             = 1
-    set kinematic viscosity = 1
-  end
-
-  set number of pseudosolids = 1
-  subsection Pseudosolid 0
-    subsection lame lambda
-      set Function expression = 1
-    end
-    subsection lame mu
-      set Function expression = 1
-    end
+    set kinematic viscosity = 10
   end
 end
 
@@ -83,31 +58,37 @@ end
 
 subsection Fluid boundary conditions
   set number = 7
+  set fix pressure constant      = false
+  set enforce zero mean pressure = false
   subsection boundary 0
     set id   = 1
-    set name = Back
-    set type = slip
+    set name = Outlet
+    set type = outflow
   end
   subsection boundary 1
     set id   = 2
-    set name = Front
+    set name = Back
     set type = slip
   end
   subsection boundary 2
     set id   = 3
-    set name = Bottom
+    set name = Top
     set type = slip
   end
   subsection boundary 3
     set id   = 4
-    set name = Top
+    set name = Front
     set type = slip
   end
   subsection boundary 4
     set id   = 5
+    set name = Bottom
+    set type = slip
+  end
+  subsection boundary 5
+    set id   = 6
     set name = Inlet
     set type = input_function
-
     subsection u
       set Function expression = 1
     end
@@ -118,14 +99,18 @@ subsection Fluid boundary conditions
       set Function expression = 0
     end
   end
-  subsection boundary 5
-    set id   = 6
-    set name = Outlet
-    set type = outflow
-  end
   subsection boundary 6
     set id   = 7
-    set name = Cylinder
-    set type = weak_no_slip
+    set name = Sphere
+    set type = no_slip
   end
+end
+
+subsection Debug
+  set verbosity                              = verbose
+  set apply exact solution                   = false
+  set compare jacobian matrix with fd        = false
+  set analytical_jacobian_absolute_tolerance = 1e-6
+  set analytical_jacobian_relative_tolerance = 1e-4
+  set fsi_check_mms_on_boundary              = true
 end

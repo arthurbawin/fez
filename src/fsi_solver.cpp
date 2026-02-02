@@ -21,6 +21,7 @@
 #include <linear_solver.h>
 #include <mapping_fe_field_hp2.h>
 #include <mesh.h>
+#include <mesh_and_dof_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
@@ -74,7 +75,7 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
           dim); // Lagrange multiplier
       fe_without_lambda = std::make_shared<FESystem<dim>>(
         FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim,
-        FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree) ^ dim,
+        FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree),
         FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
           dim,
         FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
@@ -261,27 +262,29 @@ void FSISolverLessLambda<dim>::setup_dofs()
 
   auto &comm = this->mpi_communicator;
 
-  // Mark the cells on which the Lagrange multiplier is defined
-  // FIXME: MUST ALSO TAG CELLS WHO ONLY HAVE AN EDGE ON THE BOUNDARY, BUT NO
-  // FACES
-  // AssertThrow(dim == 2,
-  //             ExcMessage(
-  //               "Must update the cell tagging in 3D so that cells with only
-  //               an " "edge on the boundary do have lambda defined."));
-  for (const auto &cell : this->dof_handler.active_cell_iterators())
+  // Mark the cells on which the Lagrange multiplier is defined,
+  // based on if they have a vertex touching the boundary.
+  // See also comments in incompressible_ns_solver_lambda.
   {
-    cell->set_material_id(without_lambda_domain_id);
-    if (cell->is_locally_owned())
-      cell->set_active_fe_index(index_fe_without_lambda);
-    for (const auto &face : cell->face_iterators())
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        cell->set_material_id(with_lambda_domain_id);
-        if (cell->is_locally_owned())
-          cell->set_active_fe_index(index_fe_with_lambda);
-        break;
-      }
+    std::set<Point<dim>, PointComparator<dim>> vertices_on_boundary =
+      get_mesh_vertices_on_boundary(this->dof_handler,
+                                    weak_no_slip_boundary_id);
+
+    for (const auto &cell : this->dof_handler.active_cell_iterators())
+    {
+      cell->set_material_id(without_lambda_domain_id);
+      if (cell->is_locally_owned())
+        cell->set_active_fe_index(index_fe_without_lambda);
+
+      for (const auto v : cell->vertex_indices())
+        if (vertices_on_boundary.count(cell->vertex(v)) > 0)
+        {
+          cell->set_material_id(with_lambda_domain_id);
+          if (cell->is_locally_owned())
+            cell->set_active_fe_index(index_fe_with_lambda);
+          break;
+        }
+    }
   }
 
   // Initialize dof handler
@@ -454,24 +457,188 @@ void FSISolverLessLambda<dim>::create_lagrange_multiplier_constraints()
         DoFTools::map_dofs_to_support_points(fixed_mapping_collection,
                                              this->dof_handler);
 
-      std::ofstream outfile(this->param.output.output_dir +
-                            "constrained_lambda_dofs_proc" +
-                            std::to_string(this->mpi_rank) + ".pos");
-      outfile << "View \"constrained_lambda_dofs_proc" << this->mpi_rank
-              << "\"{" << std::endl;
-      for (const auto dof : lambda_dofs)
-        if (lambda_constraints.is_constrained(dof))
+      {
+        std::ofstream outfile(this->param.output.output_dir +
+                              "constrained_lambda_dofs_proc" +
+                              std::to_string(this->mpi_rank) + ".pos");
+        outfile << "View \"constrained_lambda_dofs_proc" << this->mpi_rank
+                << "\"{" << std::endl;
+        for (const auto dof : lambda_dofs)
+          if (lambda_constraints.is_constrained(dof))
+          {
+            const Point<dim> &pt = support_points.at(dof);
+            if constexpr (dim == 2)
+              outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
+                      << std::endl;
+            else
+              outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2]
+                      << "){1};" << std::endl;
+          }
+        outfile << "};" << std::endl;
+        outfile.close();
+      }
+
+      // Print unconstrained
+      {
+        std::ofstream outfile(this->param.output.output_dir +
+                              "unconstrained_lambda_dofs_proc" +
+                              std::to_string(this->mpi_rank) + ".pos");
+        outfile << "View \"unconstrained_lambda_dofs_proc" << this->mpi_rank
+                << "\"{" << std::endl;
+        for (const auto dof : lambda_dofs)
+          if (!lambda_constraints.is_constrained(dof))
+          {
+            const Point<dim> &pt = support_points.at(dof);
+            if constexpr (dim == 2)
+              outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
+                      << std::endl;
+            else
+              outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2]
+                      << "){1};" << std::endl;
+          }
+        outfile << "};" << std::endl;
+        outfile.close();
+      }
+    }
+  }
+}
+
+template <int dim>
+void FSISolverLessLambda<dim>::create_hp_line_dof_identities()
+{
+  TimerOutput::Scope t(this->computing_timer, "Hp line identities");
+
+  const unsigned int deg_p   = this->param.finite_elements.pressure_degree;
+  const unsigned int deg_x   = this->param.finite_elements.mesh_position_degree;
+  const unsigned int u_lower = this->ordering->u_lower;
+  const unsigned int x_lower = this->ordering->x_lower;
+  std::vector<std::set<types::global_dof_index>> velocity_dofs_to_match(dim);
+  std::set<types::global_dof_index>              pressure_dofs_to_match;
+  std::vector<std::set<types::global_dof_index>> position_dofs_to_match(dim);
+
+  std::map<types::global_dof_index, Point<dim>> support_points =
+    DoFTools::map_dofs_to_support_points(fixed_mapping_collection,
+                                         this->dof_handler);
+
+  /**
+   * If cell has lambda FESystem, accumulate its dofs,
+   * then match them with the adjacent cells without lambda.
+   */
+  {
+    const auto &fe_lambda = (*fe)[index_fe_with_lambda];
+    std::vector<types::global_dof_index> dof_indices(
+      fe_lambda.n_dofs_per_cell());
+    for (const auto &cell : this->dof_handler.active_cell_iterators())
+    {
+      if (!cell_has_lambda(cell))
+        continue;
+      cell->get_dof_indices(dof_indices);
+
+      // Simply grab all the velocity, pressure and position dofs on the lambda
+      // cells, without distinguishing if they're associated to vertices, lines,
+      // faces or interiors. The hp dof identities that were correctly applied
+      // already matched the global dof index of some of these dofs. Then we'll
+      // see if the adjacent dofs at the same support point have a different
+      // global dof index or not, and if so match their values as a constraint.
+      for (unsigned int i = 0; i < fe_lambda.n_dofs_per_cell(); ++i)
+      {
+        const unsigned int comp = fe_lambda.system_to_component_index(i).first;
+        if (this->ordering->is_velocity(comp))
+          velocity_dofs_to_match[comp - u_lower].insert(dof_indices[i]);
+        // If pressure is linear, there is no line dof to match
+        if (deg_p > 1 && this->ordering->is_pressure(comp))
+          pressure_dofs_to_match.insert(dof_indices[i]);
+        if (deg_x > 1 && this->ordering->is_position(comp))
+          position_dofs_to_match[comp - x_lower].insert(dof_indices[i]);
+      }
+    }
+  }
+
+  // Safety checks
+  if constexpr (running_in_debug_mode())
+  {
+    // Check that the velocity and position dofs are contiguous
+    std::vector<std::vector<std::set<types::global_dof_index>>> to_check = {
+      velocity_dofs_to_match, position_dofs_to_match};
+
+    for (const auto &vec : to_check)
+    {
+      std::vector<std::vector<types::global_dof_index>> vec_dofs(dim);
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        vec_dofs[d] =
+          std::vector<types::global_dof_index>(vec[d].begin(), vec[d].end());
+        Assert(vec_dofs[0].size() == vec_dofs[d].size(), ExcInternalError());
+      }
+      for (unsigned int i = 0; i < vec_dofs[0].size(); ++i)
+        for (unsigned int d = 1; d < dim; ++d)
+          Assert(vec_dofs[d][i] == vec_dofs[d - 1][i] + 1, ExcInternalError());
+    }
+  }
+
+  /**
+   * Then loop over non-lambda cells, and if one of their neighbouring cell has
+   * lambda dofs, match the dofs of same component located at the same support
+   * point.
+   */
+  {
+    const auto &fe_without_lambda = (*fe)[index_fe_without_lambda];
+    std::vector<types::global_dof_index> dof_indices(
+      fe_without_lambda.n_dofs_per_cell());
+    for (const auto &cell : this->dof_handler.active_cell_iterators())
+    {
+      if (cell_has_lambda(cell))
+        continue;
+
+      bool has_neighbor_with_lambda = false;
+
+      for (const auto i_face : cell->face_indices())
+      {
+        // Check if neighbouring cell is valid and has lambda defined
+        auto neighbor = cell->neighbor(i_face);
+        if (neighbor->state() != IteratorState::IteratorStates::valid)
+          continue;
+        if (!cell_has_lambda(cell->neighbor(i_face)))
+          continue;
+        has_neighbor_with_lambda = true;
+        break;
+      }
+
+      if (has_neighbor_with_lambda)
+      {
+        cell->get_dof_indices(dof_indices);
+        for (unsigned int i = 0; i < fe_without_lambda.n_dofs_per_cell(); ++i)
         {
-          const Point<dim> &pt = support_points.at(dof);
-          if constexpr (dim == 2)
-            outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
-                    << std::endl;
-          else
-            outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-                    << std::endl;
+          const auto        &pt_i = support_points.at(dof_indices[i]);
+          const unsigned int comp =
+            fe_without_lambda.system_to_component_index(i).first;
+
+          if (this->ordering->is_velocity(comp))
+            for (const auto dof : velocity_dofs_to_match[comp - u_lower])
+              if (dof != dof_indices[i])
+                if (support_points.at(dof).distance_square(pt_i) < 1e-15)
+                {
+                  hp_dof_identities.insert({dof, dof_indices[i]});
+                  break;
+                }
+          if (this->ordering->is_pressure(comp))
+            for (const auto dof : pressure_dofs_to_match)
+              if (dof != dof_indices[i])
+                if (support_points.at(dof).distance_square(pt_i) < 1e-15)
+                {
+                  hp_dof_identities.insert({dof, dof_indices[i]});
+                  break;
+                }
+          if (this->ordering->is_position(comp))
+            for (const auto dof : position_dofs_to_match[comp - x_lower])
+              if (dof != dof_indices[i])
+                if (support_points.at(dof).distance_square(pt_i) < 1e-15)
+                {
+                  hp_dof_identities.insert({dof, dof_indices[i]});
+                  break;
+                }
         }
-      outfile << "};" << std::endl;
-      outfile.close();
+      }
     }
   }
 }
@@ -1001,6 +1168,24 @@ void FSISolverLessLambda<dim>::remove_cylinder_velocity_constraints(
 }
 
 template <int dim>
+void FSISolverLessLambda<dim>::add_hp_identities_constraints(
+  AffineConstraints<double> &constraints) const
+{
+  AffineConstraints<double> hp_constraints(this->locally_owned_dofs,
+                                           this->locally_relevant_dofs);
+
+  // Apply dof_1 = dof_2 to each pair of identified dofs
+  for (const auto &[dof1, dof2] : hp_dof_identities)
+    hp_constraints.add_constraint(dof1, {{dof2, 1.}}, 0.);
+  hp_constraints.close();
+
+  // See also comments in incompressible_ns_solver_lambda.cpp
+  constraints.merge(
+    hp_constraints,
+    AffineConstraints<double>::MergeConflictBehavior::right_object_wins);
+}
+
+template <int dim>
 void FSISolverLessLambda<dim>::create_solver_specific_zero_constraints()
 {
   this->zero_constraints.close();
@@ -1041,6 +1226,11 @@ void FSISolverLessLambda<dim>::create_solver_specific_zero_constraints()
       remove_cylinder_velocity_constraints(this->zero_constraints, true, false);
     }
   }
+
+  // Add the hp dof identities as constraints
+  // This won't be required as soon as the line dof identities are applied in
+  // deal.II (in dof_handler.distribute_dofs())
+  add_hp_identities_constraints(this->zero_constraints);
 }
 
 template <int dim>
@@ -1070,6 +1260,11 @@ void FSISolverLessLambda<dim>::create_solver_specific_nonzero_constraints()
                                            false);
     }
   }
+
+  // Add the hp dof identities as constraints
+  // This won't be required as soon as the line dof identities are applied in
+  // deal.II (in dof_handler.distribute_dofs())
+  add_hp_identities_constraints(this->nonzero_constraints);
 }
 
 template <int dim>
@@ -1110,6 +1305,11 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
                                   dsp,
                                   this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
+
+  const unsigned int s0 = dsp.n_nonzero_elements();
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz"
+                << std::endl;
 
   {
     // Manually add the lambda coupling on the relevant boundary faces
@@ -1162,6 +1362,11 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
         }
       }
   }
+
+  const unsigned int s1 = dsp.n_nonzero_elements();
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz - "
+                << s1 - s0 << std::endl;
 
   /**
    * FIXME: Still testing for better coupling betwen x and lambda.
@@ -1239,6 +1444,11 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
     default:
       DEAL_II_ASSERT_UNREACHABLE();
   }
+
+  const unsigned int s2 = dsp.n_nonzero_elements();
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz - "
+                << s2 - s1 << std::endl;
 
   SparsityTools::distribute_sparsity_pattern(dsp,
                                              this->locally_owned_dofs,
@@ -1498,10 +1708,6 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
-        // std::ofstream outfile("scratch_fsi_solver.txt");
-        // scratch_data.print(cell, outfile);
-        // AssertThrow(false, ExcMessage("Exiting"));
-        // std::cout << "Assembling on face" << std::endl;
         for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
         {
           const double face_JxW_moving =
@@ -1638,8 +1844,6 @@ void FSISolverLessLambda<dim>::compare_analytical_matrix_with_fd()
   //   this->pcout << "Max relative error analytical vs fd matrix is "
   //               << errors.second << std::endl;
 }
-
-std::ofstream outfile("scratch_fsi.txt");
 
 template <int dim>
 void FSISolverLessLambda<dim>::assemble_rhs()
@@ -1830,12 +2034,8 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
         //
         if (face->boundary_id() == weak_no_slip_boundary_id)
         {
-          // scratch_data.print(cell, outfile);
           for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
-            // std::ofstream outfile("scratch_fsi_solver.txt");
-            // scratch_data.print(cell, outfile);
-            // AssertThrow(false, ExcMessage("Exiting"));
             //
             // Flow related data (no-slip)
             //
@@ -1900,8 +2100,6 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
           }
       }
     }
-  // local_rhs.print(std::cout);
-  // AssertThrow(false, ExcMessage("Exiting"));
   cell->get_dof_indices(local_dof_indices);
 }
 
@@ -2361,7 +2559,6 @@ void FSISolverLessLambda<dim>::check_velocity_boundary() const
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
-        const unsigned int fe_index = cell->active_fe_index();
         hp_fe_face_values_fixed.reinit(cell, i_face);
         hp_fe_face_values.reinit(cell, i_face);
         const auto &fe_face_values_fixed =
@@ -2628,114 +2825,105 @@ void FSISolverLessLambda<dim>::compute_lambda_error_on_boundary(
   double         &lambda_linf_error,
   Tensor<1, dim> &error_on_integral)
 {
-  // double lambda_l2_local   = 0;
-  // double lambda_linf_local = 0;
+  double lambda_l2_local   = 0;
+  double lambda_linf_local = 0;
 
-  // Tensor<1, dim> lambda_integral, exact_integral, lambda_integral_local,
-  //   exact_integral_local;
-  // lambda_integral_local = 0;
-  // exact_integral_local  = 0;
+  Tensor<1, dim> lambda_integral, exact_integral, lambda_integral_local,
+    exact_integral_local;
 
-  // const double rho = this->param.physical_properties.fluids[0].density;
-  // const double nu =
-  //   this->param.physical_properties.fluids[0].kinematic_viscosity;
-  // const double mu = nu * rho;
+  const double nu =
+    this->param.physical_properties.fluids[0].kinematic_viscosity;
 
-  // FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-  //                                  *fe,
-  //                                  *this->face_quadrature,
-  //                                  update_values | update_quadrature_points |
-  //                                    update_JxW_values | update_normal_vectors);
+  hp::FEFaceValues hp_fe_face_values(moving_mapping_collection,
+                                     *fe,
+                                     face_quadrature_collection,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values |
+                                       update_normal_vectors);
 
-  // const unsigned int          n_faces_q_points =
-  // this->face_quadrature->size(); std::vector<Tensor<1, dim>>
-  // lambda_values(n_faces_q_points); Tensor<1, dim>              diff, exact;
+  Tensor<1, dim> diff, exact;
 
-  // // std::ofstream out("normals.pos");
-  // // out << "View \"normals\" {\n";
+  for (auto cell : this->dof_handler.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned())
+      continue;
+    if (!cell_has_lambda(cell))
+      continue;
 
-  // for (auto cell : this->dof_handler.active_cell_iterators())
-  // {
-  //   if (!cell->is_locally_owned())
-  //     continue;
+    const auto         fe_index = cell->active_fe_index();
+    const unsigned int n_faces_q_points =
+      face_quadrature_collection[fe_index].size();
+    std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
 
-  //   for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-  //   {
-  //     const auto &face = cell->face(i_face);
+    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
+    {
+      const auto &face = cell->face(i_face);
 
-  //     if (face->at_boundary() &&
-  //         face->boundary_id() == weak_no_slip_boundary_id)
-  //     {
-  //       fe_face_values.reinit(cell, i_face);
+      if (face->at_boundary() &&
+          face->boundary_id() == weak_no_slip_boundary_id)
+      {
+        hp_fe_face_values.reinit(cell, i_face);
+        const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
 
-  //       // Get FE solution values on the face
-  //       fe_face_values[lambda_extractor].get_function_values(
-  //         this->present_solution, lambda_values);
+        // Get FE solution values on the face
+        fe_face_values[lambda_extractor].get_function_values(
+          this->present_solution, lambda_values);
 
-  //       // Evaluate exact solution at quadrature points
-  //       for (unsigned int q = 0; q < n_faces_q_points; ++q)
-  //       {
-  //         const Point<dim> &qpoint         =
-  //         fe_face_values.quadrature_point(q); const auto normal_to_mesh =
-  //         fe_face_values.normal_vector(q); const auto        normal_to_solid
-  //         = -normal_to_mesh;
+        // Evaluate exact solution at quadrature points
+        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        {
+          const Point<dim> &qpoint         = fe_face_values.quadrature_point(q);
+          const auto        normal_to_mesh = fe_face_values.normal_vector(q);
+          const auto        normal_to_solid = -normal_to_mesh;
 
-  //         // Careful:
-  //         // int lambda := int sigma(u_MMS, p_MMS) cdot  normal_to_fluid
-  //         //                                                   =
-  //         //                                             normal_to_mesh
-  //         //                                                   =
-  //         //                                            -normal_to_solid
-  //         //
-  //         // Got to take the consistent normal to compare int lambda_h with
-  //         // solution.
-  //         //
-  //         // Solution<dim> computes lambda_exact = - sigma cdot ns, where n
-  //         is
-  //         // expected to be the normal to the SOLID.
+          // Careful:
+          // int lambda := int sigma(u_MMS, p_MMS) cdot  normal_to_fluid
+          //                                                   =
+          //                                             normal_to_mesh
+          //                                                   =
+          //                                            -normal_to_solid
+          //
+          // Got to take the consistent normal to compare int lambda_h with
+          // solution.
+          //
+          // Solution<dim> computes lambda_exact = - sigma cdot ns, where n is
+          // expected to be the normal to the SOLID.
+          AssertThrow(dynamic_cast<FSISolverLessLambda<dim>::MMSSolution *>(
+                        this->exact_solution.get()) != nullptr,
+                      ExcInternalError());
+          const FSISolverLessLambda<dim>::MMSSolution &sol =
+            static_cast<FSISolverLessLambda<dim>::MMSSolution &>(
+              *this->exact_solution);
+          sol.lagrange_multiplier(qpoint, nu, normal_to_solid, exact);
 
-  //         // out << "VP(" << qpoint[0] << "," << qpoint[1] << "," << 0. <<
-  //         // "){"
-  //         //   << normal[0] << "," << normal[1] << "," << 0. << "};\n";
+          diff = lambda_values[q] - exact;
 
-  //         // exact_solution is a pointer to base class Function<dim>,
-  //         // so we have to ruse to use the specific function for lambda.
-  //         std::static_pointer_cast<FSISolverLessLambda<dim>::MMSSolution>(
-  //           this->exact_solution)
-  //           ->lagrange_multiplier(qpoint, mu, normal_to_solid, exact);
+          lambda_l2_local += diff * diff * fe_face_values.JxW(q);
+          lambda_linf_local = std::max(lambda_linf_local, diff.norm());
 
-  //         diff = lambda_values[q] - exact;
+          // Increment the integral of lambda
+          lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
+          exact_integral_local += exact * fe_face_values.JxW(q);
+        }
+      }
+    }
+  }
 
-  //         lambda_l2_local += diff * diff * fe_face_values.JxW(q);
-  //         lambda_linf_local =
-  //           std::max(lambda_linf_local, std::abs(diff.norm()));
+  lambda_l2_error =
+    Utilities::MPI::sum(lambda_l2_local, this->mpi_communicator);
+  lambda_l2_error = std::sqrt(lambda_l2_error);
 
-  //         // Increment the integral of lambda
-  //         lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
-  //         exact_integral_local += exact * fe_face_values.JxW(q);
-  //       }
-  //     }
-  //   }
-  // }
+  lambda_linf_error =
+    Utilities::MPI::max(lambda_linf_local, this->mpi_communicator);
 
-  // // out << "};\n";
-  // // out.close();
-
-  // lambda_l2_error =
-  //   Utilities::MPI::sum(lambda_l2_local, this->mpi_communicator);
-  // lambda_l2_error = std::sqrt(lambda_l2_error);
-
-  // lambda_linf_error =
-  //   Utilities::MPI::max(lambda_linf_local, this->mpi_communicator);
-
-  // for (unsigned int d = 0; d < dim; ++d)
-  // {
-  //   lambda_integral[d] =
-  //     Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
-  //   exact_integral[d] =
-  //     Utilities::MPI::sum(exact_integral_local[d], this->mpi_communicator);
-  //   error_on_integral[d] = std::abs(lambda_integral[d] - exact_integral[d]);
-  // }
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    lambda_integral[d] =
+      Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
+    exact_integral[d] =
+      Utilities::MPI::sum(exact_integral_local[d], this->mpi_communicator);
+    error_on_integral[d] = std::abs(lambda_integral[d] - exact_integral[d]);
+  }
 }
 
 template <int dim>
@@ -2744,8 +2932,6 @@ void FSISolverLessLambda<dim>::compute_solver_specific_errors()
   double         l2_l = 0., li_l = 0.;
   Tensor<1, dim> error_on_integral;
   this->compute_lambda_error_on_boundary(l2_l, li_l, error_on_integral);
-  // linf_error_Fx = std::max(linf_error_Fx, error_on_integral[0]);
-  // linf_error_Fy = std::max(linf_error_Fy, error_on_integral[1]);
 
   const double t = this->time_handler.current_time;
   for (auto &[norm, handler] : this->error_handlers)
@@ -2858,152 +3044,131 @@ void FSISolverLessLambda<dim>::output_results()
 template <int dim>
 void FSISolverLessLambda<dim>::compute_forces(const bool export_table)
 {
-  // Tensor<1, dim> lambda_integral, lambda_integral_local;
-  // lambda_integral_local = 0;
+  Tensor<1, dim> lambda_integral, lambda_integral_local;
 
-  // FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-  //                                  *fe,
-  //                                  *this->face_quadrature,
-  //                                  update_values | update_quadrature_points |
-  //                                    update_JxW_values | update_normal_vectors);
+  hp::FEFaceValues hp_fe_face_values(moving_mapping_collection,
+                                     *fe,
+                                     face_quadrature_collection,
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values |
+                                       update_normal_vectors);
 
-  // const unsigned int          n_faces_q_points =
-  // this->face_quadrature->size(); std::vector<Tensor<1, dim>>
-  // lambda_values(n_faces_q_points);
+  const unsigned int n_faces_q_points =
+    face_quadrature_collection[index_fe_with_lambda].size();
+  std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
 
-  // for (auto cell : this->dof_handler.active_cell_iterators())
-  // {
-  //   if (!cell->is_locally_owned())
-  //     continue;
+  for (auto cell : this->dof_handler.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned())
+      continue;
 
-  //   for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-  //   {
-  //     const auto &face = cell->face(i_face);
+    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
+    {
+      const auto &face = cell->face(i_face);
+      if (face->at_boundary() &&
+          face->boundary_id() == weak_no_slip_boundary_id)
+      {
+        hp_fe_face_values.reinit(cell, i_face);
+        const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
+        fe_face_values[lambda_extractor].get_function_values(
+          this->present_solution, lambda_values);
+        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
+      }
+    }
+  }
 
-  //     if (face->at_boundary() &&
-  //         face->boundary_id() == weak_no_slip_boundary_id)
-  //     {
-  //       fe_face_values.reinit(cell, i_face);
+  for (unsigned int d = 0; d < dim; ++d)
+    lambda_integral[d] =
+      Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
 
-  //       // Get FE solution values on the face
-  //       fe_face_values[lambda_extractor].get_function_values(
-  //         this->present_solution, lambda_values);
+  // Forces on the cylinder are the NEGATIVE of the integral of lambda
+  this->forces_table.add_value("time", this->time_handler.current_time);
+  for (unsigned int d = 0; d < dim; ++d)
+    this->forces_table.add_value("F_comp" + std::to_string(d),
+                                 -lambda_integral[d]);
 
-  //       for (unsigned int q = 0; q < n_faces_q_points; ++q)
-  //         lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
-  //     }
-  //   }
-  // }
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "Computed forces: " << -lambda_integral << std::endl;
 
-  // for (unsigned int d = 0; d < dim; ++d)
-  //   lambda_integral[d] =
-  //     Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
-
-  // // const double rho = param.physical_properties.fluids[0].density;
-  // // const double U   = boundary_description.U;
-  // // const double D   = boundary_description.D;
-  // // const double factor = 1. / (0.5 * rho * U * U * D);
-
-  // //
-  // // Forces on the cylinder are the NEGATIVE of the integral of lambda
-  // //
-  // this->forces_table.add_value("time", this->time_handler.current_time);
-  // this->forces_table.add_value("CFx", -lambda_integral[0]);
-  // this->forces_table.add_value("CFy", -lambda_integral[1]);
-  // if constexpr (dim == 3)
-  // {
-  //   this->forces_table.add_value("CFz", -lambda_integral[2]);
-  // }
-
-  // if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-  //   this->pcout << "Computed forces: " << -lambda_integral << std::endl;
-
-  // if (export_table && this->param.output.write_results && this->mpi_rank ==
-  // 0)
-  // {
-  //   std::ofstream outfile(this->param.output.output_dir + "forces.txt");
-  //   this->forces_table.write_text(outfile);
-  // }
+  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
+  {
+    std::ofstream outfile(this->param.output.output_dir + "forces.txt");
+    this->forces_table.write_text(outfile);
+  }
 }
 
 template <int dim>
 void FSISolverLessLambda<dim>::write_cylinder_position(const bool export_table)
 {
-  // Tensor<1, dim> average_position, position_integral_local;
-  // double         boundary_measure_local = 0.;
+  Tensor<1, dim> average_position, position_integral_local;
+  double         boundary_measure_local = 0.;
 
-  // FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-  //                                        *fe,
-  //                                        *this->face_quadrature,
-  //                                        update_values |
-  //                                          update_quadrature_points |
-  //                                          update_JxW_values |
-  //                                          update_normal_vectors);
+  hp::FEFaceValues<dim> hp_fe_face_values_fixed(fixed_mapping_collection,
+                                                *fe,
+                                                face_quadrature_collection,
+                                                update_values |
+                                                  update_JxW_values);
 
-  // const unsigned int          n_faces_q_points =
-  // this->face_quadrature->size(); std::vector<Tensor<1, dim>>
-  // position_values(n_faces_q_points);
+  const unsigned int          n_faces_q_points = this->face_quadrature->size();
+  std::vector<Tensor<1, dim>> position_values(n_faces_q_points);
 
-  // for (auto cell : this->dof_handler.active_cell_iterators())
-  // {
-  //   if (!cell->is_locally_owned())
-  //     continue;
+  for (auto cell : this->dof_handler.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned())
+      continue;
 
-  //   for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-  //   {
-  //     const auto &face = cell->face(i_face);
+    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
+    {
+      const auto &face = cell->face(i_face);
 
-  //     if (face->at_boundary() &&
-  //         face->boundary_id() == weak_no_slip_boundary_id)
-  //     {
-  //       fe_face_values_fixed.reinit(cell, i_face);
+      if (face->at_boundary() &&
+          face->boundary_id() == weak_no_slip_boundary_id)
+      {
+        hp_fe_face_values_fixed.reinit(cell, i_face);
+        const auto &fe_face_values_fixed =
+          hp_fe_face_values_fixed.get_present_fe_values();
 
-  //       // Get FE solution values on the face
-  //       fe_face_values_fixed[this->position_extractor].get_function_values(
-  //         this->present_solution, position_values);
+        // Get FE solution values on the face
+        fe_face_values_fixed[this->position_extractor].get_function_values(
+          this->present_solution, position_values);
 
-  //       for (unsigned int q = 0; q < n_faces_q_points; ++q)
-  //       {
-  //         boundary_measure_local += fe_face_values_fixed.JxW(q);
-  //         position_integral_local +=
-  //           position_values[q] * fe_face_values_fixed.JxW(q);
-  //       }
-  //     }
-  //   }
-  // }
+        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        {
+          boundary_measure_local += fe_face_values_fixed.JxW(q);
+          position_integral_local +=
+            position_values[q] * fe_face_values_fixed.JxW(q);
+        }
+      }
+    }
+  }
 
-  // const double boundary_measure =
-  //   Utilities::MPI::sum(boundary_measure_local, this->mpi_communicator);
-  // for (unsigned int d = 0; d < dim; ++d)
-  //   average_position[d] =
-  //     1. / boundary_measure *
-  //     Utilities::MPI::sum(position_integral_local[d],
-  //     this->mpi_communicator);
+  const double boundary_measure =
+    Utilities::MPI::sum(boundary_measure_local, this->mpi_communicator);
+  for (unsigned int d = 0; d < dim; ++d)
+    average_position[d] =
+      1. / boundary_measure *
+      Utilities::MPI::sum(position_integral_local[d], this->mpi_communicator);
 
-  // cylinder_position_table.add_value("time", this->time_handler.current_time);
-  // cylinder_position_table.add_value("xc", average_position[0]);
-  // cylinder_position_table.add_value("yc", average_position[1]);
-  // if constexpr (dim == 3)
-  //   cylinder_position_table.add_value("zc", average_position[2]);
+  cylinder_position_table.add_value("time", this->time_handler.current_time);
+  cylinder_position_table.add_value("xc", average_position[0]);
+  cylinder_position_table.add_value("yc", average_position[1]);
+  if constexpr (dim == 3)
+    cylinder_position_table.add_value("zc", average_position[2]);
 
-  // if (export_table && this->param.output.write_results && this->mpi_rank ==
-  // 0)
-  // {
-  //   std::ofstream outfile(this->param.output.output_dir +
-  //                         "cylinder_center.txt");
-  //   cylinder_position_table.write_text(outfile);
-  // }
+  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
+  {
+    std::ofstream outfile(this->param.output.output_dir +
+                          "cylinder_center.txt");
+    cylinder_position_table.write_text(outfile);
+  }
 }
 
 template <int dim>
 void FSISolverLessLambda<dim>::solver_specific_post_processing()
 {
-  // output_results();
-
   if (this->param.mms_param.enable)
   {
-    // compute_errors();
-
     if (this->param.debug.fsi_check_mms_on_boundary)
       check_manufactured_solution_boundary();
   }
@@ -3034,11 +3199,11 @@ void FSISolverLessLambda<dim>::solver_specific_post_processing()
 
   const bool export_force_table =
     this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 5) == 0);
+    ((this->time_handler.current_time_iteration % 1) == 0);
   compute_forces(export_force_table);
   const bool export_position_table =
     this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 5) == 0);
+    ((this->time_handler.current_time_iteration % 1) == 0);
   write_cylinder_position(export_position_table);
 }
 

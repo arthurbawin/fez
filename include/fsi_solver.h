@@ -58,6 +58,12 @@ public:
   void create_lagrange_multiplier_constraints();
 
   /**
+   * Create the missing hp dof identities on lines.
+   * See incompressible_ns_solver_lambda.h for the full comment.
+   */
+  void create_hp_line_dof_identities();
+
+  /**
    * Distribute dofs for the hp::FECollection and allocate vectors
    */
   virtual void setup_dofs() override;
@@ -74,6 +80,7 @@ public:
     if (this->param.fsi.enable_coupling)
       create_position_lagrange_mult_coupling_data();
     create_lagrange_multiplier_constraints();
+    create_hp_line_dof_identities();
   }
 
   /**
@@ -83,6 +90,15 @@ public:
     AffineConstraints<double> &constraints,
     const bool                 remove_velocity_constraints,
     const bool                 remove_position_constraints) const;
+
+  /**
+   * Constrain duplicated hp dofs to be the same. For each pair (dof1, dof2)
+   * identified by create_hp_line_dof_identities() and stored in
+   * hp_dof_identities, it adds to the constraints argument a constraint dof1 =
+   * dof2.
+   */
+  void
+  add_hp_identities_constraints(AffineConstraints<double> &constraints) const;
 
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;
@@ -189,6 +205,7 @@ public:
                 ExcMessage(
                   "You are trying to get the FESystem from the FSISolver, but "
                   "this solver uses a hp::FECollection instead."));
+    return *fe_with_lambda;
   }
 
 protected:
@@ -227,6 +244,9 @@ protected:
 
   AffineConstraints<double> lambda_constraints;
   IndexSet                  additional_relevant_dofs;
+
+  std::set<std::pair<types::global_dof_index, types::global_dof_index>>
+    hp_dof_identities;
 
   // Position-lambda constraints on the cylinder
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
@@ -333,8 +353,6 @@ protected:
       const double pressure = mms.exact_pressure->value(p);
       for (unsigned int d = 0; d < dim; ++d)
         sigma[d][d] = -pressure;
-      // Tensor<2, dim> grad_u;
-      // mms.exact_velocity->gradient_vj_xi(p, grad_u);
       Tensor<2, dim> grad_u = mms.exact_velocity->gradient_vj_xi(p);
       sigma += mu_viscosity * (grad_u + transpose(grad_u));
       lambda = -sigma * normal_to_solid;

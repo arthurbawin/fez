@@ -21,6 +21,7 @@
 #include <incompressible_ns_solver_lambda.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_and_dof_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
@@ -217,42 +218,25 @@ void NSSolverLambda<dim>::setup_dofs()
      * There are two simple ways of marking the mesh elements on which the lamda
      * FESystem is applied:
      *
-     *  - Mark the cells on which at least one face touches a boundary on which a
-     * Lagrange multiplier is defined. This is the natural way to do it, but it
-     * lead to issues in parallel when a tetrahedron on a partition touches the
-     * target boundary with only an edge, and no face. I'm not sure where the
-     * problem comes from, because fundamentally there should not be any issue if
-     * the hp dof identities are properly applied. But nonetheless it lead to
-     * inconsistent parallel constraints (detected with
+     *  - Mark the cells on which at least one face touches a boundary on which
+     * a Lagrange multiplier is defined. This is the natural way to do it, but
+     * it lead to issues in parallel when a tetrahedron on a partition touches
+     * the target boundary with only an edge, and no face. I'm not sure where
+     * the problem comes from, because fundamentally there should not be any
+     * issue if the hp dof identities are properly applied. But nonetheless it
+     * lead to inconsistent parallel constraints (detected with
      * is_consistent_in_parallel()).
      *
      *  - Proceed from the vertices : collect the mesh vertices on the target
-     * boundary. Mesh vertices are not indexed globally on distributed meshes, so
-     * use Points instead, then synchronize them across ranks, and mark the cells
-     * which have at least one vertex on the boundary. This adds more elements
-     * than necessary, thus more lambda dofs to constraint to zero, but this
-     * removes the inconsistent parallel constraints.
+     * boundary. Mesh vertices are not indexed globally on distributed meshes,
+     * so use Points instead, then synchronize them across ranks, and mark the
+     * cells which have at least one vertex on the boundary. This adds more
+     * elements than necessary, thus more lambda dofs to constraint to zero, but
+     * this removes the inconsistent parallel constraints.
      */
-    std::set<Point<dim>, PointComparator<dim>> vertices_on_bdr;
-    {
-      std::vector<Point<dim>> vertices_on_weak_no_slip_boundary;
-
-      // Mark based on faces
-      for (const auto &cell : this->dof_handler.active_cell_iterators())
-        for (const auto &face : cell->face_iterators())
-          if (face->at_boundary() &&
-              face->boundary_id() == weak_no_slip_boundary_id)
-            for (unsigned int i = 0; i < face->n_vertices(); ++i)
-              vertices_on_weak_no_slip_boundary.push_back(face->vertex(i));
-
-      std::vector<std::vector<Point<dim>>> gathered =
-        Utilities::MPI::all_gather(this->mpi_communicator,
-                                   vertices_on_weak_no_slip_boundary);
-
-      for (const auto &vec : gathered)
-        for (const auto pt : vec)
-          vertices_on_bdr.insert(pt);
-    }
+    std::set<Point<dim>, PointComparator<dim>> vertices_on_bdr =
+      get_mesh_vertices_on_boundary(this->dof_handler,
+                                    weak_no_slip_boundary_id);
 
     for (const auto &cell : this->dof_handler.active_cell_iterators())
     {
@@ -262,7 +246,7 @@ void NSSolverLambda<dim>::setup_dofs()
 
       /**
        * Using faces, which does not fully work, maybe debug it at some point:
-       * 
+       *
        * for (const auto &face : cell->face_iterators())
        *   if (face->at_boundary() &&
        *       face->boundary_id() == weak_no_slip_boundary_id)

@@ -54,8 +54,8 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
   this->position_mask = fe->component_mask(this->position_extractor);
   this->lambda_mask   = fe->component_mask(this->lambda_extractor);
 
-  this->field_names_and_masks["velocity"] = this->velocity_mask;
-  this->field_names_and_masks["pressure"] = this->pressure_mask;
+  this->field_names_and_masks["velocity"]      = this->velocity_mask;
+  this->field_names_and_masks["pressure"]      = this->pressure_mask;
   this->field_names_and_masks["mesh position"] = this->position_mask;
 
   // Set the boundary id on which a weak no slip boundary condition is applied.
@@ -1260,6 +1260,11 @@ void FSISolver<dim>::create_sparsity_pattern()
                                   this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
 
+  const unsigned int s0 = dsp.n_nonzero_elements();
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz"
+                << std::endl;
+
   {
     // Manually add the lambda coupling on the relevant boundary faces
     const unsigned int n_dofs_per_cell = fe->n_dofs_per_cell();
@@ -1283,7 +1288,6 @@ void FSISolver<dim>::create_sparsity_pattern()
         {
           const unsigned int comp_i =
             fe->system_to_component_index(i_dof).first;
-          const unsigned int d_i = comp_i - this->ordering->l_lower;
 
           if (this->ordering->is_lambda(comp_i))
             for (unsigned int j_dof = 0; j_dof < n_dofs_per_cell; ++j_dof)
@@ -1295,27 +1299,26 @@ void FSISolver<dim>::create_sparsity_pattern()
               // weakly
               if (this->ordering->is_velocity(comp_j))
               {
-                const unsigned int d_j = comp_j - this->ordering->u_lower;
-                // if (d_i == d_j)
-                {
-                  // Lambda couples to u and vice versa
-                  dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
-                  dsp.add(cell_dofs[j_dof], cell_dofs[i_dof]);
-                }
+                // Lambda couples to u and vice versa
+                dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
+                dsp.add(cell_dofs[j_dof], cell_dofs[i_dof]);
               }
               if (this->ordering->is_position(comp_j))
               {
-                const unsigned int d_j = comp_j - this->ordering->x_lower;
-                // if (d_i == d_j)
-                  // In the PDEs, lambda couples to x, but x does not couple to
-                  // lambda. The x - lambda boundary coupling is applied
-                  // directly in the add_algebraic_position_coupling routines.
-                  dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
+                // In the PDEs, lambda couples to x, but x does not couple to
+                // lambda. The x - lambda boundary coupling is applied
+                // directly in the add_algebraic_position_coupling routines.
+                dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
               }
             }
         }
       }
   }
+
+  const unsigned int s1 = dsp.n_nonzero_elements();
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz - "
+                << s1 - s0 << std::endl;
 
   /**
    * FIXME: Still testing for better coupling betwen x and lambda.
@@ -1394,6 +1397,11 @@ void FSISolver<dim>::create_sparsity_pattern()
       DEAL_II_ASSERT_UNREACHABLE();
   }
 
+  const unsigned int s2 = dsp.n_nonzero_elements();
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz - "
+                << s2 - s1 << std::endl;
+
   SparsityTools::distribute_sparsity_pattern(dsp,
                                              this->locally_owned_dofs,
                                              this->mpi_communicator,
@@ -1406,8 +1414,8 @@ void FSISolver<dim>::create_sparsity_pattern()
 
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
     this->pcout << "Matrix has " << this->system_matrix.n_nonzero_elements()
-                << " nnz and size " << this->system_matrix.m()
-                << " x " << this->system_matrix.n() << std::endl;
+                << " nnz and size " << this->system_matrix.m() << " x "
+                << this->system_matrix.n() << std::endl;
 }
 
 template <int dim>

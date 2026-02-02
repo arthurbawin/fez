@@ -67,24 +67,64 @@ public:
    */
   void create_lagrange_multiplier_constraints();
 
+  /**
+   * When defining an hp partition, deal.II first creates dofs on the elements
+   * as if they were discontinuous, then identifies dofs from adjacent elements
+   * that should be the same and receive a unique global dof index. This is done
+   * in the hp_*_dof_identities, where * = vertex, line or quad (face). But it
+   * seems that for the FESystem considered here and on tetrahedra, it never
+   * enters the line dof identities function, and as a result the, e.g., P2
+   * velocity field is discontinuous on the elements at the boundary of the
+   * partitions.
+   *
+   * This function identifies those line dofs that were missed and stores them
+   * in the vector hp_dof_identities. This vector is afterward used to enforce
+   * the identities as constraints.
+   *
+   * As soon as this is fixed on the deal.II side, these calls won't be
+   * necessary anymore.
+   */
+  void create_hp_line_dof_identities();
+
+  /**
+   * Reset the vector hp_dof_identities.
+   * Will not be needed once the hp dof identification is fixed in deal.II.
+   */
+  virtual void reset_solver_specific_data() override;
+
   virtual void setup_dofs() override;
 
+  /**
+   * Create the constraints specific to this solver:
+   * - Constrain the lambda in the lambda partition but not on the boundary to
+   * zero
+   * - Identify and constrain the hp degrees of freedom on lines
+   */
   virtual void create_solver_specific_constraints_data() override
   {
     create_lagrange_multiplier_constraints();
+    create_hp_line_dof_identities();
   }
 
   /**
+   * FIXME: This function should be more generic, and concerns the geometries
+   * where boundaries intersect each other on edges.
    *
+   * Remove the velocity constraints from the boundary on which a no-slip
+   * condition is enforced, as otherwise the Lagrange multiplier cannot satisfy
+   * the no-slip constraint and gets nonsense values.
    */
   void remove_cylinder_velocity_constraints(
-    AffineConstraints<double> &constraints,
-    const bool                 remove_velocity_constraints,
-    const bool                 remove_position_constraints) const;
+    AffineConstraints<double> &constraints) const;
 
-  // virtual void create_base_constraints(const bool homogeneous,
-  //                              AffineConstraints<double> &constraints)
-  //                              override;
+  /**
+   * Constrain duplicated hp dofs to be the same. For each pair (dof1, dof2)
+   * identified by create_hp_line_dof_identities() and stored in
+   * hp_dof_identities, it adds to the constraints argument a constraint dof1 =
+   * dof2.
+   */
+  void
+  add_hp_identities_constraints(AffineConstraints<double> &constraints) const;
 
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;
@@ -149,12 +189,8 @@ public:
   virtual void output_results() override;
 
   /**
-   *
-   */
-  void compare_forces_and_position_on_obstacle() const;
-
-  /**
-   *
+   * Check that the maximum velocity dof on the boundary with weakly enforced
+   * no-slip is small emough.
    */
   void check_velocity_boundary() const;
 
@@ -166,15 +202,18 @@ public:
    */
   void compute_forces(const bool export_table);
 
-  /**
-   *
-   */
-  void write_cylinder_position(const bool export_table);
-
   virtual const FESystem<dim> &get_fe_system() const override
   {
+    // FIXME: This function is only called when distributing dofs in the base
+    // class, but this solver has its own setup_dofs function, and thus should
+    // never be called.
     AssertThrow(
-      false, ExcMessage("FSI solver with FENothing does not have a FESystem"));
+      false,
+      ExcMessage(
+        "NS solver with Lagrange multiplier for no-slip enforcement uses "
+        "deal.II's hp tools, and does not have a unique FESystem. This "
+        "function should not be called because this solver takes care of "
+        "distributing the hp dofs."));
     return *fe_with_lambda;
   }
 
@@ -198,10 +237,14 @@ protected:
   hp::MappingCollection<dim> mapping_collection;
   hp::QCollection<dim>       quadrature_collection;
   hp::QCollection<dim - 1>   face_quadrature_collection;
+  hp::QCollection<dim - 1>   error_face_quadrature_collection;
 
   FEValuesExtractors::Vector lambda_extractor;
   ComponentMask              lambda_mask;
   AffineConstraints<double>  lambda_constraints;
+
+  std::set<std::pair<types::global_dof_index, types::global_dof_index>>
+    hp_dof_identities;
 
   /**
    * The id of the mesh boundary on which the weak no-slip condition
@@ -294,8 +337,6 @@ protected:
       const double pressure = mms.exact_pressure->value(p);
       for (unsigned int d = 0; d < dim; ++d)
         sigma[d][d] = -pressure;
-      // Tensor<2, dim> grad_u;
-      // mms.exact_velocity->gradient_vj_xi(p, grad_u);
       Tensor<2, dim> grad_u = mms.exact_velocity->gradient_vj_xi(p);
       sigma += mu_viscosity * (grad_u + transpose(grad_u));
       lambda = -sigma * normal_to_solid;
@@ -344,7 +385,7 @@ protected:
     }
 
     /**
-     * Evaluate the combined velocity-pressure-position-lambda source terms.
+     * Evaluate the combined velocity-pressure-lambda source terms.
      */
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override;

@@ -331,6 +331,8 @@ namespace Parameters
 
     bool fix_z_component;
 
+    bool compute_error_on_forces;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };

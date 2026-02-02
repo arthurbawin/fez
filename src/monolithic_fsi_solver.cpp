@@ -54,8 +54,8 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
   this->position_mask = fe->component_mask(this->position_extractor);
   this->lambda_mask   = fe->component_mask(this->lambda_extractor);
 
-  this->field_names_and_masks["velocity"] = this->velocity_mask;
-  this->field_names_and_masks["pressure"] = this->pressure_mask;
+  this->field_names_and_masks["velocity"]      = this->velocity_mask;
+  this->field_names_and_masks["pressure"]      = this->pressure_mask;
   this->field_names_and_masks["mesh position"] = this->position_mask;
 
   // Set the boundary id on which a weak no slip boundary condition is applied.
@@ -99,6 +99,9 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
    * flag to change the scheme at runtime, but do not allow using the first,
    * inefficient coupling.
    */
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "Using coupling scheme : "
+                << this->param.debug.fsi_coupling_option << std::endl;
   AssertThrow(this->param.debug.fsi_coupling_option != 0,
               ExcMessage(
                 "This parameter file still uses the inefficient coupling "
@@ -127,7 +130,13 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
 
     // Create entry in error handler for Lagrange multiplier
     for (auto norm : this->param.mms_param.norms_to_compute)
+    {
       this->error_handlers[norm]->create_entry("l");
+      if (this->param.fsi.compute_error_on_forces)
+        for (unsigned int d = 0; d < dim; ++d)
+          this->error_handlers[norm]->create_entry("F_comp" +
+                                                   std::to_string(d));
+    }
   }
   else
   {
@@ -190,9 +199,13 @@ void FSISolver<dim>::reset_solver_specific_data()
     vec.clear();
   position_lambda_coeffs.clear();
   coupled_position_dofs.clear();
-  has_chunk_of_cylinder = false;
+  has_chunk_of_cylinder           = false;
+  has_global_master_position_dofs = false;
   for (unsigned int d = 0; d < dim; ++d)
-    local_position_master_dofs[d] = numbers::invalid_unsigned_int;
+  {
+    local_position_master_dofs[d]  = numbers::invalid_unsigned_int;
+    global_position_master_dofs[d] = numbers::invalid_unsigned_int;
+  }
 }
 
 template <int dim>
@@ -239,11 +252,20 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
     // Print number of owned and constrained lambda dofs
     IndexSet lambda_dofs =
       DoFTools::extract_dofs(this->dof_handler, lambda_mask);
+    unsigned int constrained_owned_dofs   = 0;
     unsigned int unconstrained_owned_dofs = 0;
     for (const auto &dof : lambda_dofs)
+    {
       if (!lambda_constraints.is_constrained(dof))
         unconstrained_owned_dofs++;
+      else
+        constrained_owned_dofs++;
+    }
 
+    const unsigned int total_constrained_owned_dofs =
+      Utilities::MPI::sum(constrained_owned_dofs, this->mpi_communicator);
+    std::cout << total_constrained_owned_dofs
+              << " constrained owned lambda dofs" << std::endl;
     const unsigned int total_unconstrained_owned_dofs =
       Utilities::MPI::sum(unconstrained_owned_dofs, this->mpi_communicator);
     std::cout << total_unconstrained_owned_dofs
@@ -387,6 +409,43 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
       for (unsigned int d = 0; d < dim; ++d)
         local_position_master_dofs[d] = index_vector[d];
     }
+  }
+  else if (this->param.debug.fsi_coupling_option == 2)
+  {
+    // Set local master position dofs (smallest on cylinder on this rank)
+    // Then set global master position dofs (smallest of all on cylinder)
+    const auto index_vector = local_position_dofs.get_index_vector();
+    if (index_vector.size() > 0)
+    {
+      has_chunk_of_cylinder = true;
+      AssertThrow(index_vector.size() >= dim,
+                  ExcMessage(
+                    "This partition has position dofs on the cylinder, but has "
+                    "less than dim position dofs, which should not happen. It "
+                    "should have n * dim position dofs on this boundary."));
+      for (unsigned int d = 0; d < dim; ++d)
+        local_position_master_dofs[d] = index_vector[d];
+    }
+
+    // The global master dofs are those on the lowest rank among the ranks on
+    // which the local position dofs is defined
+    const unsigned int candidate_rank =
+      has_chunk_of_cylinder ? this->mpi_rank :
+                              std::numeric_limits<unsigned int>::max();
+    const unsigned int owner_rank =
+      Utilities::MPI::min(candidate_rank, this->mpi_communicator);
+    has_global_master_position_dofs = (this->mpi_rank == owner_rank);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      global_position_master_dofs[d] = local_position_master_dofs[d];
+
+    if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+      this->pcout << "Global master is on rank " << owner_rank << std::endl;
+
+    Utilities::MPI::broadcast(global_position_master_dofs.data(),
+                              dim,
+                              owner_rank,
+                              this->mpi_communicator);
   }
 
   //
@@ -1201,10 +1260,15 @@ void FSISolver<dim>::create_sparsity_pattern()
                                   this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
 
+  const unsigned int s0 = dsp.n_nonzero_elements();
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz"
+                << std::endl;
+
   {
     // Manually add the lambda coupling on the relevant boundary faces
-    const unsigned int n_dofs_per_face = fe->n_dofs_per_face();
-    std::vector<types::global_dof_index> face_dofs(n_dofs_per_face);
+    const unsigned int n_dofs_per_cell = fe->n_dofs_per_cell();
+    std::vector<types::global_dof_index> cell_dofs(n_dofs_per_cell);
     for (const auto &cell : this->dof_handler.active_cell_iterators())
       for (const auto i_face : cell->face_indices())
       {
@@ -1212,44 +1276,49 @@ void FSISolver<dim>::create_sparsity_pattern()
         if (!(face->at_boundary() &&
               face->boundary_id() == weak_no_slip_boundary_id))
           continue;
-        face->get_dof_indices(face_dofs);
-        for (unsigned int i_dof = 0; i_dof < n_dofs_per_face; ++i_dof)
+
+        // Add coupling based on cell, rather than based on faces.
+        // This is because in the assembly, we loop on the cell dofs
+        // even for face terms, as the FEFaceValues functions run from
+        // 0 to n_dofs_per_cell even on faces.
+        cell->get_dof_indices(cell_dofs);
+        // face->get_dof_indices(face_dofs);
+
+        for (unsigned int i_dof = 0; i_dof < n_dofs_per_cell; ++i_dof)
         {
           const unsigned int comp_i =
-            fe->face_system_to_component_index(i_dof, i_face).first;
-          const unsigned int d_i = comp_i - this->ordering->l_lower;
+            fe->system_to_component_index(i_dof).first;
 
           if (this->ordering->is_lambda(comp_i))
-            for (unsigned int j_dof = 0; j_dof < n_dofs_per_face; ++j_dof)
+            for (unsigned int j_dof = 0; j_dof < n_dofs_per_cell; ++j_dof)
             {
               const unsigned int comp_j =
-                fe->face_system_to_component_index(j_dof, i_face).first;
+                fe->system_to_component_index(j_dof).first;
 
               // Lambda couples to u and x on faces where no-slip is enforced
               // weakly
               if (this->ordering->is_velocity(comp_j))
               {
-                const unsigned int d_j = comp_j - this->ordering->u_lower;
-                if (d_i == d_j)
-                {
-                  // Lambda couples to u and vice versa
-                  dsp.add(face_dofs[i_dof], face_dofs[j_dof]);
-                  dsp.add(face_dofs[j_dof], face_dofs[i_dof]);
-                }
+                // Lambda couples to u and vice versa
+                dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
+                dsp.add(cell_dofs[j_dof], cell_dofs[i_dof]);
               }
               if (this->ordering->is_position(comp_j))
               {
-                const unsigned int d_j = comp_j - this->ordering->x_lower;
-                if (d_i == d_j)
-                  // In the PDEs, lambda couples to x, but x does not couple to
-                  // lambda. The x - lambda boundary coupling is applied
-                  // directly in the add_algebraic_position_coupling routines.
-                  dsp.add(face_dofs[i_dof], face_dofs[j_dof]);
+                // In the PDEs, lambda couples to x, but x does not couple to
+                // lambda. The x - lambda boundary coupling is applied
+                // directly in the add_algebraic_position_coupling routines.
+                dsp.add(cell_dofs[i_dof], cell_dofs[j_dof]);
               }
             }
         }
       }
   }
+
+  const unsigned int s1 = dsp.n_nonzero_elements();
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz - "
+                << s1 - s0 << std::endl;
 
   /**
    * FIXME: Still testing for better coupling betwen x and lambda.
@@ -1287,9 +1356,51 @@ void FSISolver<dim>::create_sparsity_pattern()
       }
       break;
     }
+    case 2:
+    {
+      if (has_chunk_of_cylinder)
+      {
+        if (has_global_master_position_dofs)
+        {
+          // Add position-lambda couplings *only* for global master pos dofs
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            // Couple the global master position dof in dimension d to the
+            // lambda of same dimension (one-way coupling)
+            for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
+              dsp.add(global_position_master_dofs[d], lambda_dof);
+          }
+        }
+        else
+        {
+          // If this rank does not own the global master position dofs,
+          // couple its position dofs to it
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            // Couple the global master position dof in dimension d to the
+            // lambda of same dimension (one-way coupling)
+            dsp.add(local_position_master_dofs[d],
+                    global_position_master_dofs[d]);
+          }
+        }
+
+        // For all ranks with a piece of cylinder, couple the remaining owned
+        // position dofs to the local master dof On the rank with the global
+        // master, the local masters are also the global. This coupling is local
+        // to the partition (also a one-way coupling)
+        for (const auto &[position_dof, d] : coupled_position_dofs)
+          dsp.add(position_dof, local_position_master_dofs[d]);
+      }
+      break;
+    }
     default:
       DEAL_II_ASSERT_UNREACHABLE();
   }
+
+  const unsigned int s2 = dsp.n_nonzero_elements();
+  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz - "
+                << s2 - s1 << std::endl;
 
   SparsityTools::distribute_sparsity_pattern(dsp,
                                              this->locally_owned_dofs,
@@ -1303,7 +1414,8 @@ void FSISolver<dim>::create_sparsity_pattern()
 
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
     this->pcout << "Matrix has " << this->system_matrix.n_nonzero_elements()
-                << " nnz" << std::endl;
+                << " nnz and size " << this->system_matrix.m() << " x "
+                << this->system_matrix.n() << std::endl;
 }
 
 template <int dim>
@@ -2036,6 +2148,104 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
       }
       break;
     }
+    case 2:
+    {
+      if (has_chunk_of_cylinder)
+      {
+        // Constrain matrix
+        // - Constrain the local master position dofs to the sum of lambda
+        // - Constrain each other coupled position dofs to the local master
+
+        if (has_global_master_position_dofs)
+        {
+          // Get the rows for the global master position dofs
+          std::map<types::global_dof_index,
+                   std::vector<LA::ConstMatrixIterator>>
+            master_position_row_entries;
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            std::vector<LA::ConstMatrixIterator> row_entries;
+            for (auto it =
+                   this->system_matrix.begin(global_position_master_dofs[d]);
+                 it != this->system_matrix.end(global_position_master_dofs[d]);
+                 ++it)
+              row_entries.push_back(it);
+            master_position_row_entries[global_position_master_dofs[d]] =
+              row_entries;
+          }
+
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            for (auto it :
+                 master_position_row_entries.at(global_position_master_dofs[d]))
+              this->system_matrix.set(global_position_master_dofs[d],
+                                      it->column(),
+                                      0.0);
+
+            // Set constraint row: x_master - sum_j c_j * lambda_j = 0
+            this->system_matrix.set(global_position_master_dofs[d],
+                                    global_position_master_dofs[d],
+                                    1.);
+            for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
+              this->system_matrix.set(global_position_master_dofs[d],
+                                      lambda_dof,
+                                      -weight);
+          }
+        }
+        else
+        {
+          // Get the rows for the local master position dofs
+          std::map<types::global_dof_index,
+                   std::vector<LA::ConstMatrixIterator>>
+            master_position_row_entries;
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            std::vector<LA::ConstMatrixIterator> row_entries;
+            for (auto it =
+                   this->system_matrix.begin(local_position_master_dofs[d]);
+                 it != this->system_matrix.end(local_position_master_dofs[d]);
+                 ++it)
+              row_entries.push_back(it);
+            master_position_row_entries[local_position_master_dofs[d]] =
+              row_entries;
+          }
+
+          // Constrain local to global
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            for (auto it :
+                 master_position_row_entries.at(local_position_master_dofs[d]))
+              this->system_matrix.set(local_position_master_dofs[d],
+                                      it->column(),
+                                      0.0);
+
+            this->system_matrix.set(local_position_master_dofs[d],
+                                    local_position_master_dofs[d],
+                                    1.);
+            this->system_matrix.set(local_position_master_dofs[d],
+                                    global_position_master_dofs[d],
+                                    -1.);
+          }
+        }
+
+        // In any case, set remaining pos dofs to local master
+        // On the rank with the global master, the local is also the global
+        // Set x_i - x_master = 0 for the other coupled position dofs
+        for (const auto &[pos_dof, d] : coupled_position_dofs)
+          if (this->locally_owned_dofs.is_element(pos_dof) &&
+              pos_dof != local_position_master_dofs[d])
+          {
+            for (auto it : position_row_entries.at(pos_dof))
+              this->system_matrix.set(pos_dof, it->column(), 0.0);
+
+            this->system_matrix.set(pos_dof, pos_dof, 1.);
+            this->system_matrix.set(pos_dof,
+                                    local_position_master_dofs[d],
+                                    -1.);
+          }
+      }
+      break;
+    }
   }
 
   this->system_matrix.compress(VectorOperation::insert);
@@ -2644,6 +2854,16 @@ void FSISolver<dim>::compute_solver_specific_errors()
       handler->add_error("l", l2_l, t);
     if (norm == VectorTools::Linfty_norm)
       handler->add_error("l", li_l, t);
+
+    if (this->param.fsi.compute_error_on_forces)
+    {
+      // The error on the forces is |F_h - F_exact|, there is no need to
+      // distinguish between L^p norms.
+      for (unsigned int d = 0; d < dim; ++d)
+        handler->add_error("F_comp" + std::to_string(d),
+                           error_on_integral[d],
+                           t);
+    }
   }
 }
 

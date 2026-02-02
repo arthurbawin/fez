@@ -768,6 +768,7 @@ namespace Parameters
       prm.declare_entry("cylinder radius", "1", Patterns::Double(), "");
       prm.declare_entry("cylinder length", "1", Patterns::Double(), "");
       prm.declare_entry("fix z component", "true", Patterns::Bool(), "");
+      prm.declare_entry("compute error on forces", "false", Patterns::Bool(), "");
     }
     prm.leave_subsection();
   }
@@ -784,6 +785,7 @@ namespace Parameters
       cylinder_radius = prm.get_double("cylinder radius");
       cylinder_length = prm.get_double("cylinder length");
       fix_z_component = prm.get_bool("fix z component");
+      compute_error_on_forces = prm.get_bool("compute error on forces");
     }
     prm.leave_subsection();
   }

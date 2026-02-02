@@ -9,6 +9,125 @@ namespace ManufacturedSolutions
   using namespace dealii;
 
   /**
+   * A vector-valued radial kernel of the form:
+   *
+   * v(x) = V * f(t) * kernel(|x - center|),
+   *
+   * where V is a vector and kernel(r) is given by
+   *
+   *  - 1                                     if r <= R0
+   *  - 1 - (6. * s^5 - 15. * s^4 + 10 * s^3) if R0 <= r <= R1
+   *  - 0                                     if r >= R1
+   *
+   * where s = (r - R0)/(R1 - R0).
+   */
+  template <int dim>
+  class VectorRadialKernel : public MMSFunction<dim>
+  {
+  public:
+    VectorRadialKernel(std::shared_ptr<ParsedFunctionSDBase<dim>> time_function,
+                       const Point<dim>                          &center,
+                       const double                               R0,
+                       const double                               R1,
+                       const Tensor<1, dim>                      &V,
+                       const bool cylindrical = false)
+      : MMSFunction<dim>(dim)
+      , time_function(time_function)
+      , center(center)
+      , R0(R0)
+      , R1(R1)
+      , V(V)
+      , cylindrical(cylindrical)
+    {
+      this->check_derivatives();
+    }
+
+  public:
+    virtual void set_time(const double newtime) override
+    {
+      FunctionTime<double>::set_time(newtime);
+      time_function->set_time(newtime);
+    }
+    virtual double value(const Point<dim>  &p,
+                         const unsigned int component = 0) const override;
+    virtual double
+    time_derivative(const Point<dim>  &p,
+                    const unsigned int component = 0) const override;
+    virtual Tensor<1, dim>
+    gradient(const Point<dim>  &p,
+             const unsigned int component = 0) const override;
+    virtual SymmetricTensor<2, dim>
+    hessian(const Point<dim>  &p,
+            const unsigned int component = 0) const override;
+
+  private:
+    std::shared_ptr<ParsedFunctionSDBase<dim>> time_function;
+    const Point<dim>                           center;
+    const double                               R0;
+    const double                               R1;
+    const Tensor<1, dim>                       V;
+    const bool                                 cylindrical;
+  };
+
+  /**
+   * A vector-valued radial kernel of the form:
+   *
+   * v(x) = V * f(t) * (1 - kernel(|x - center|)),
+   *
+   * where V is a vector. This is used for example to define a non-trivial
+   * velocity field which is zero on a circle/cylinder/sphere, to test the
+   * enforcement of no-slip boundary condition with a Lagrange multiplier.
+   */
+  template <int dim>
+  class VectorOneMinusRadialKernel : public MMSFunction<dim>
+  {
+  public:
+    VectorOneMinusRadialKernel(
+      std::shared_ptr<ParsedFunctionSDBase<dim>> time_function,
+      const Point<dim>                          &center,
+      const double                               R0,
+      const double                               R1,
+      const Tensor<1, dim>                      &V,
+      const bool                                 cylindrical = false)
+      : MMSFunction<dim>(dim)
+      , time_function(time_function)
+      , center(center)
+      , R0(R0)
+      , R1(R1)
+      , V(V)
+      , cylindrical(cylindrical)
+    {
+      this->check_derivatives();
+    }
+
+  public:
+    virtual void set_time(const double newtime) override
+    {
+      FunctionTime<double>::set_time(newtime);
+      time_function->set_time(newtime);
+    }
+    virtual double value(const Point<dim>  &p,
+                         const unsigned int component = 0) const override;
+    virtual double
+    time_derivative(const Point<dim>  &p,
+                    const unsigned int component = 0) const override;
+    virtual Tensor<1, dim>
+    gradient(const Point<dim>  &p,
+             const unsigned int component = 0) const override;
+    virtual SymmetricTensor<2, dim>
+    hessian(const Point<dim>  &p,
+            const unsigned int component = 0) const override;
+
+  private:
+    std::shared_ptr<ParsedFunctionSDBase<dim>> time_function;
+    const Point<dim>                           center;
+    const double                               R0;
+    const double                               R1;
+    const Tensor<1, dim>                       V;
+    const bool                                 cylindrical;
+  };
+
+  /**
    * x_MMS(X, t) = X_0 + f(t) * kernel(|X - center|) * translation,
    *
    * where kernel is a C^2 bell-shaped function
@@ -76,7 +195,7 @@ namespace ManufacturedSolutions
                        const double                               R0,
                        const double                               R1,
                        const Tensor<1, dim>                      &translation,
-                       const bool                                 cylindrical = false)
+                       const bool cylindrical = false)
       : MMSFunction<dim>(dim)
       , time_function(time_function)
       , center(center)
@@ -142,7 +261,7 @@ namespace ManufacturedSolutions
                        const double                               R1,
                        const Tensor<1, dim>                      &translation,
                        const double                               a,
-                       const bool                                 cylindrical = false)
+                       const bool cylindrical = false)
       : MMSFunction<dim>(dim,
                          /*ignore_time_derivative =*/true,
                          /*ignore_hessian =*/true)

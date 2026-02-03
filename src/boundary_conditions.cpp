@@ -492,7 +492,7 @@ namespace BoundaryConditions
       position_flux_functions,
       constraints,
       mapping,
-      false);
+      /*use_manifold_for_normal=*/false);
 
     // Add position nonzero flux constraints from manufactured solution
     // (tangential movement)
@@ -503,7 +503,7 @@ namespace BoundaryConditions
       mms_position_flux_functions,
       constraints,
       mapping,
-      false);
+      /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>

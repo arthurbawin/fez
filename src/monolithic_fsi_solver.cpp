@@ -3482,9 +3482,11 @@ void FSISolver<dim>::compute_forces_lagrange_multiplier(const bool export_table)
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
     this->pcout << "Computed forces: " << -lambda_integral << std::endl;
 
-
+  if (export_table && this->mpi_rank == 0)
+  {
   std::ofstream outfile(this->param.output.output_dir + "forces.txt");
   this->forces_table.write_text(outfile);
+  }
 
 }
 
@@ -3617,7 +3619,7 @@ void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
   // ------------------------------------------------------------
   // 6) Export fichier
   // ------------------------------------------------------------
-  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
+  if (export_table && this->mpi_rank == 0)
   {
     std::ofstream outfile(this->param.output.output_dir +
                           "slices_forces_lagrange_multiplier.txt");
@@ -3684,7 +3686,7 @@ void FSISolver<dim>::write_cylinder_position(const bool export_table)
   if constexpr (dim == 3)
     cylinder_position_table.add_value("zc", average_position[2]);
 
-  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
+  if (export_table && this->mpi_rank == 0)
   {
     std::ofstream outfile(this->param.output.output_dir +
                           "cylinder_center.txt");
@@ -3730,14 +3732,14 @@ void FSISolver<dim>::solver_specific_post_processing()
   }
 
   const bool export_force_table =
-    this->param.postprocessing.write_total_force &&
+    (this->param.postprocessing.write_total_force &&
     (this->time_handler.is_steady() ||
      ((this->time_handler.current_time_iteration %
-       this->param.postprocessing.force_and_position_output_frequency) == 0));
+       this->param.postprocessing.force_and_position_output_frequency) == 0)));
   compute_forces_lagrange_multiplier(export_force_table);
 
-  const bool export_slices_force_table = this ->param.postprocessing.write_force_per_slice && (this->time_handler.is_steady()||((this->time_handler.current_time_iteration %
-       this->param.postprocessing.force_and_position_output_frequency) == 0));
+  const bool export_slices_force_table = (this ->param.postprocessing.write_force_per_slice && (this->time_handler.is_steady()||((this->time_handler.current_time_iteration %
+       this->param.postprocessing.force_and_position_output_frequency) == 0)));
 
   compute_slices_forces_lagrange_multiplier(export_slices_force_table);
   const bool export_position_table =

@@ -109,7 +109,7 @@ end
 # ------------------------------------------------------------
 subsection Checkpoint Restart
   set enable checkpoint = true
-  set restart           = false
+  set restart           = true
   set checkpoint frequency = 20
 end
 

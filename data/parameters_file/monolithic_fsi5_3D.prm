@@ -31,13 +31,13 @@ subsection PostProcessing
 end
 
 subsection Mesh
-  set mesh file = ../data/meshes/cyl_not_confined3D_fine4_2D.msh
+  set mesh file = ../data/meshes/cyl_not_confined3D_fine5_2D.msh
 end
 
 subsection Time integration
   set dt        = 0.01
   set t_initial = 0
-  set t_end     = 200
+  set t_end     = 0.03
   set scheme    = BDF2
 end
 

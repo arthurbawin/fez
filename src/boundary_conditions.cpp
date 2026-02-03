@@ -352,33 +352,9 @@ namespace BoundaryConditions
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
     }
+
+    
     auto comm = dof_handler.get_mpi_communicator();
-
-    // 1) Vérifier que no_flux_boundaries est identique (via hash simple)
-    auto hash_set = [&](const std::set<types::boundary_id> &s) -> unsigned long long {
-      unsigned long long h = 1469598103934665603ULL; // FNV offset
-      for (auto id : s) {
-        h ^= static_cast<unsigned long long>(id + 0x9e3779b97f4a7c15ULL);
-        h *= 1099511628211ULL;
-      }
-      return h;
-    };
-
-    unsigned long long h_local = hash_set(no_flux_boundaries);
-    unsigned long long h_min   = Utilities::MPI::min(h_local, comm);
-    unsigned long long h_max   = Utilities::MPI::max(h_local, comm);
-
-    if (h_min != h_max)
-    {
-      std::ostringstream oss;
-      oss << "[rank " << rank << "] ERROR: no_flux_boundaries differs across ranks. Local set: ";
-      for (auto id : no_flux_boundaries) oss << id << " ";
-      std::cerr << oss.str() << std::endl;
-
-      AssertThrow(false, ExcMessage("MPI inconsistency in no_flux_boundaries"));
-    }
-
-    // 2) Barrière + appel
     MPI_Barrier(comm);
     VectorTools::compute_no_normal_flux_constraints(dof_handler,
                                                     u_lower,

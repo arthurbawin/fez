@@ -164,7 +164,33 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void FiniteElements::declare_parameters(ParameterHandler &prm)
+  // Declare the parameters for a quadrature rule.
+  // The default parameters are different for the rule to compute the numerical
+  // solution, and for the rule used to compute error norms.
+  // If default_for_error = true, then this declares the default parameters for
+  // the rule used to compute errors.
+  template <int dim>
+  void declare_quadrature_rule(ParameterHandler &prm,
+                               const bool        default_for_error = false)
+  {
+    prm.declare_entry("rule for simplices",
+                      default_for_error ? "witherden_vincent" : "gauss",
+                      Patterns::Selection("gauss|witherden_vincent"),
+                      "Gauss or Witherden-Vincent (odd order) rule.");
+    prm.declare_entry("number of 1d nodes for cell quadrature",
+                      default_for_error ? ((dim == 2) ? "6" : "5") : "4",
+                      Patterns::Integer(),
+                      "Number of nodes in the base 1d quadrature. Will "
+                      "integrate a polynomial of degree 2n-1.");
+    prm.declare_entry("number of 1d nodes for face quadrature",
+                      default_for_error ? ((dim == 2) ? "6" : "5") : "4",
+                      Patterns::Integer(),
+                      "Number of nodes in the base 1d quadrature. Will "
+                      "integrate a polynomial of degree 2n-1.");
+  }
+
+  template <int dim>
+  void FiniteElements<dim>::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("FiniteElements");
     {
@@ -202,11 +228,82 @@ namespace Parameters
                         "1",
                         Patterns::Integer(),
                         "Polynomial degree of the temperature interpolant");
+
+      prm.enter_subsection("Quadrature rule");
+      {
+        declare_quadrature_rule<dim>(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("Quadrature rule for error");
+      {
+        declare_quadrature_rule<dim>(prm, true);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
 
-  void FiniteElements::read_parameters(ParameterHandler &prm)
+  template <int dim>
+  void read_quadrature_rule(ParameterHandler                             &prm,
+                            typename FiniteElements<dim>::QuadratureRule &rule)
+  {
+    const std::string parsed_rule = prm.get("rule for simplices");
+    if (parsed_rule == "gauss")
+      rule.type = FiniteElements<dim>::QuadratureRule::Type::GaussSimplex;
+    else if (parsed_rule == "witherden_vincent")
+      rule.type = FiniteElements<dim>::QuadratureRule::Type::WitherdenVincent;
+    else
+      throw std::runtime_error("Unknown quadrature rule : " + parsed_rule);
+
+    rule.n_pts_1D_simplex_cell_quad =
+      prm.get_integer("number of 1d nodes for cell quadrature");
+    rule.n_pts_1D_simplex_face_quad =
+      prm.get_integer("number of 1d nodes for face quadrature");
+
+    const unsigned int nc = rule.n_pts_1D_simplex_cell_quad,
+                       nf = rule.n_pts_1D_simplex_face_quad;
+
+    // Test input parameters. For simplices, default is QGaussSimplex with
+    // n_points_1d = 4 (maximum available)
+    if (rule.type == FiniteElements<dim>::QuadratureRule::Type::GaussSimplex)
+    {
+      // Max implemented in deal.ii is n_points_1d = 4
+      AssertThrow(1 <= nc and nc <= 4,
+                  ExcMessage("Gauss quadrature rule on simplicial cells "
+                             "expects n_points_1d in [1,4]."));
+      AssertThrow(1 <= nf and nf <= 4,
+                  ExcMessage("Gauss quadrature rule on simplicial faces "
+                             "expects n_points_1d in [1,4]."));
+    }
+    if (rule.type ==
+        FiniteElements<dim>::QuadratureRule::Type::WitherdenVincent)
+    {
+      // Max implemented in deal.ii is n_points_1d = 7 in 2D and = 5 in 3D
+      if constexpr (dim == 2)
+      {
+        // Max for cells is 7, no max for edges (QGauss 1D rules)
+        AssertThrow(1 <= nc and nc <= 7,
+                    ExcMessage("WitherdenVincent quadrature rule on simplicial "
+                               "cells in 2D expects n_points_1d in [1,7]."));
+        AssertThrow(1 <= nf,
+                    ExcMessage("Quadrature rule on simplicial faces in 1D "
+                               "expects n_points_1d greater than 0."));
+      }
+      else
+      {
+        // Max for cells is 5, max for faces is 7
+        AssertThrow(1 <= nc and nc <= 5,
+                    ExcMessage("WitherdenVincent quadrature rule on simplicial "
+                               "cells in 3D expects n_points_1d in [1,5]."));
+        AssertThrow(1 <= nf and nf <= 7,
+                    ExcMessage("WitherdenVincent quadrature rule on simplicial "
+                               "cells in 2D expects n_points_1d in [1,7]."));
+      }
+    }
+  }
+
+  template <int dim>
+  void FiniteElements<dim>::read_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("FiniteElements");
     {
@@ -219,9 +316,23 @@ namespace Parameters
       tracer_degree      = prm.get_integer("Tracer degree");
       potential_degree   = prm.get_integer("Potential degree");
       temperature_degree = prm.get_integer("Temperature degree");
+
+      prm.enter_subsection("Quadrature rule");
+      {
+        read_quadrature_rule<dim>(prm, rule);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("Quadrature rule for error");
+      {
+        read_quadrature_rule<dim>(prm, rule_for_error);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
+
+  template struct FiniteElements<2>;
+  template struct FiniteElements<3>;
 
   void Fluid::declare_parameters(ParameterHandler &prm, unsigned int index)
   {
@@ -579,10 +690,11 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Restart simulation from given checkpoint file?");
-      prm.declare_entry("checkpoint file",
-                        "checkpoint",
-                        Patterns::Anything(),
-                        "Name of the file to write to and read from the checkpoint");
+      prm.declare_entry(
+        "checkpoint file",
+        "checkpoint",
+        Patterns::Anything(),
+        "Name of the file to write to and read from the checkpoint");
       prm.declare_entry("checkpoint frequency",
                         "10",
                         Patterns::Integer(),
@@ -595,9 +707,9 @@ namespace Parameters
   {
     prm.enter_subsection("Checkpoint Restart");
     {
-      enable_checkpoint = prm.get_bool("enable checkpoint");
-      restart = prm.get_bool("restart");
-      filename = prm.get("checkpoint file");
+      enable_checkpoint    = prm.get_bool("enable checkpoint");
+      restart              = prm.get_bool("restart");
+      filename             = prm.get("checkpoint file");
       checkpoint_frequency = prm.get_integer("checkpoint frequency");
     }
     prm.leave_subsection();
@@ -768,7 +880,10 @@ namespace Parameters
       prm.declare_entry("cylinder radius", "1", Patterns::Double(), "");
       prm.declare_entry("cylinder length", "1", Patterns::Double(), "");
       prm.declare_entry("fix z component", "true", Patterns::Bool(), "");
-      prm.declare_entry("compute error on forces", "false", Patterns::Bool(), "");
+      prm.declare_entry("compute error on forces",
+                        "false",
+                        Patterns::Bool(),
+                        "");
     }
     prm.leave_subsection();
   }
@@ -778,13 +893,13 @@ namespace Parameters
     prm.enter_subsection("FSI");
     {
       READ_VERBOSITY_PARAM(prm)
-      enable_coupling = prm.get_bool("enable coupling");
-      spring_constant = prm.get_double("spring constant");
-      damping         = prm.get_double("damping");
-      mass            = prm.get_double("mass");
-      cylinder_radius = prm.get_double("cylinder radius");
-      cylinder_length = prm.get_double("cylinder length");
-      fix_z_component = prm.get_bool("fix z component");
+      enable_coupling         = prm.get_bool("enable coupling");
+      spring_constant         = prm.get_double("spring constant");
+      damping                 = prm.get_double("damping");
+      mass                    = prm.get_double("mass");
+      cylinder_radius         = prm.get_double("cylinder radius");
+      cylinder_length         = prm.get_double("cylinder length");
+      fix_z_component         = prm.get_bool("fix z component");
       compute_error_on_forces = prm.get_bool("compute error on forces");
     }
     prm.leave_subsection();
@@ -820,10 +935,7 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "");
-      prm.declare_entry("fsi_coupling_option",
-                        "1",
-                        Patterns::Integer(),
-                        "");
+      prm.declare_entry("fsi_coupling_option", "1", Patterns::Integer(), "");
     }
     prm.leave_subsection();
   }
@@ -844,7 +956,7 @@ namespace Parameters
       fsi_apply_erroneous_coupling =
         prm.get_bool("fsi_apply_erroneous_coupling");
       fsi_check_mms_on_boundary = prm.get_bool("fsi_check_mms_on_boundary");
-      fsi_coupling_option = prm.get_integer("fsi_coupling_option");
+      fsi_coupling_option       = prm.get_integer("fsi_coupling_option");
     }
     prm.leave_subsection();
   }

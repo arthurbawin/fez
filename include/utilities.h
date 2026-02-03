@@ -8,6 +8,9 @@
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping.h>
+#include <deal.II/hp/fe_values.h>
+#include <deal.II/hp/mapping_collection.h>
+#include <deal.II/hp/q_collection.h>
 #include <parameters.h>
 
 #include <cmath>
@@ -160,6 +163,17 @@ inline Tensor<1, dim> parse_rank_1_tensor(const std::string &values,
 }
 
 /**
+ * Create quadrature rules according to the information in fe_param.
+ */
+template <int dim>
+void create_quadrature_rules(
+  const Parameters::FiniteElements<dim> &fe_param,
+  std::shared_ptr<Quadrature<dim>>      &quadrature,
+  std::shared_ptr<Quadrature<dim - 1>>  &face_quadrature,
+  std::shared_ptr<Quadrature<dim>>      &error_quadrature,
+  std::shared_ptr<Quadrature<dim - 1>>  &error_face_quadrature);
+
+/**
  *
  */
 inline std::pair<double, double>
@@ -288,6 +302,38 @@ double compute_boundary_volume(const DoFHandler<dim>     &dof_handler,
 }
 
 /**
+ * Same as above but in a hp context
+ */
+template <int dim>
+double compute_boundary_volume(const DoFHandler<dim>            &dof_handler,
+                               const hp::MappingCollection<dim> &mapping,
+                               const hp::QCollection<dim - 1> &face_quadrature,
+                               const types::boundary_id        boundary_id)
+{
+  double I = 0.;
+
+  hp::FEFaceValues<dim> hp_fe_face_values(mapping,
+                                          dof_handler.get_fe_collection(),
+                                          face_quadrature,
+                                          update_JxW_values);
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (unsigned int f = 0; f < cell->n_faces(); ++f)
+        if (cell->face(f)->at_boundary() &&
+            cell->face(f)->boundary_id() == boundary_id)
+        {
+          const unsigned int fe_index = cell->active_fe_index();
+          hp_fe_face_values.reinit(cell, f);
+          const FEFaceValues<dim> &fe_face_values =
+            hp_fe_face_values.get_present_fe_values();
+          for (unsigned int q = 0; q < face_quadrature[fe_index].size(); ++q)
+            I += fe_face_values.JxW(q);
+        }
+  return Utilities::MPI::sum(I, dof_handler.get_communicator());
+}
+
+/**
  * Rename temporary files containing the root "temporary_filename_prefix" to the
  * root "final_filename_prefix", while maintaining the suffixes. This is used to
  * overwrite the checkpoint save files, without risking to corrupt the previous
@@ -297,6 +343,16 @@ void replace_temporary_files(const std::string directory,
                              const std::string temporary_filename_prefix,
                              const std::string final_filename_prefix,
                              const MPI_Comm   &mpi_communicator);
+
+/**
+ * Fill the vector dofs_to_component, which contains for each relevant dof its
+ * component index, similarly to what is done in
+ * DoFTools::internal::get_component_association.
+ */
+template <int dim>
+void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,
+                            const IndexSet             &locally_relevant_dofs,
+                            std::vector<unsigned char> &dofs_to_component);
 
 
 #endif

@@ -24,7 +24,7 @@ public:
   Parameters::Mesh                    mesh;
   Parameters::Output                  output;
   Parameters::PostProcessing          postprocessing;
-  Parameters::FiniteElements          finite_elements;
+  Parameters::FiniteElements<dim>     finite_elements;
   Parameters::PhysicalProperties<dim> physical_properties;
   Parameters::FSI                     fsi;
   Parameters::TimeIntegration         time_integration;
@@ -66,7 +66,7 @@ public:
   {}
 
 public:
-  void check_parameters() const;
+  void check_parameters(ParameterHandler &prm) const;
 
   void declare(ParameterHandler &prm)
   {
@@ -142,7 +142,7 @@ public:
     mms.read_parameters(prm);
     debug.read_parameters(prm);
 
-    check_parameters();
+    check_parameters(prm);
   }
 };
 

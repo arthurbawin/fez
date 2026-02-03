@@ -29,26 +29,16 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   , time_handler(param.time_integration)
   , postproc_handler(param.postprocessing, param.output)
 {
+  create_quadrature_rules(param.finite_elements,
+                          quadrature,
+                          face_quadrature,
+                          error_quadrature,
+                          error_face_quadrature);
+
   if (param.finite_elements.use_quads)
-  {
-    // Quadratures and mapping or quads/hexes
-    quadrature            = std::make_shared<QGauss<dim>>(4);
-    error_quadrature      = std::make_shared<QGauss<dim>>(4);
-    face_quadrature       = std::make_shared<QGauss<dim - 1>>(4);
-    error_face_quadrature = std::make_shared<QGauss<dim - 1>>(4);
-    fixed_mapping         = std::make_shared<MappingQ<dim>>(1);
-  }
+    fixed_mapping = std::make_shared<MappingQ<dim>>(1);
   else
-  {
-    // Quadratures and mapping for simplices
-    quadrature = std::make_shared<QGaussSimplex<dim>>(4);
-    error_quadrature =
-      std::make_shared<QWitherdenVincentSimplex<dim>>((dim == 2) ? 6 : 5);
-    face_quadrature = std::make_shared<QGaussSimplex<dim - 1>>(4);
-    error_face_quadrature =
-      std::make_shared<QWitherdenVincentSimplex<dim - 1>>((dim == 2) ? 6 : 5);
     fixed_mapping = std::make_shared<MappingFE<dim>>(FE_SimplexP<dim>(1));
-  }
 
   if (param.mms_param.enable)
     for (auto norm : param.mms_param.norms_to_compute)
@@ -77,6 +67,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
 
   // Mesh
   triangulation.clear();
+
+  dofs_to_component.clear();
 
   // Direct solver
   direct_solver_reuse =
@@ -304,10 +296,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
     evaluation_point = local_evaluation_point;
 
     // Also store them in initial_positions, for postprocessing:
-    DoFTools::map_dofs_to_support_points(*fixed_mapping,
-                                         dof_handler,
-                                         initial_positions,
-                                         position_mask);
+    initial_positions = DoFTools::map_dofs_to_support_points(*fixed_mapping,
+                                                             dof_handler,
+                                                             position_mask);
 
     // Create the solution-dependent mapping
     moving_mapping =
@@ -332,18 +323,55 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::reinit_vectors()
+{
+  present_solution.reinit(locally_owned_dofs,
+                          locally_relevant_dofs,
+                          mpi_communicator);
+  evaluation_point.reinit(locally_owned_dofs,
+                          locally_relevant_dofs,
+                          mpi_communicator);
+  present_solution = local_evaluation_point;
+  evaluation_point = local_evaluation_point;
+
+  for (auto &previous_sol : previous_solutions)
+  {
+    // Create a temporary, fully distributed copy of the previous solution to
+    // reapply after resizing. This is needed for checkpointing, because the
+    // previous solutions won't be zero when restarting.
+    LA::ParVectorType tmp_prev_sol(locally_owned_dofs, mpi_communicator);
+    tmp_prev_sol = previous_sol;
+    previous_sol.reinit(locally_owned_dofs,
+                        locally_relevant_dofs,
+                        mpi_communicator);
+    previous_sol = tmp_prev_sol;
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::
   create_zero_mean_pressure_constraints_data()
 {
+  // Not yet implemented in hp context
+  AssertThrow(!dof_handler.has_hp_capabilities(),
+              ExcMessage(
+                "The create_zero_mean_pressure_constraints_data() function has "
+                "not yet been implemented for the hp case."));
+
   BoundaryConditions::create_zero_mean_pressure_constraints_data(
     triangulation,
     dof_handler,
     locally_relevant_dofs,
+    dofs_to_component,
     *moving_mapping,
     *quadrature,
     ordering->p_lower,
     constrained_pressure_dof,
     zero_mean_pressure_weights);
+
+  // The mean pressure constraint added pressure ghost dofs,
+  // so parallel vectors should be reinitialized to account for them.
+  reinit_vectors();
 }
 
 template <int dim, bool with_moving_mesh>
@@ -354,6 +382,37 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
   constraints.clear();
 
   constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
+
+  /**
+   * Set whole field from exact solution if required, and add the associated
+   * constraints for the volume and boundary dofs.
+   *
+   * Do this before applying other constraints (e.g., fluxes).
+   */
+  for (const auto &[field_name, mask] : field_names_and_masks)
+  {
+    if (param.mms.set_field_as_solution.at(field_name))
+    {
+      /**
+       * Setting mesh position first is already accounted for in
+       * update_boundary_conditions(). During the second run, the moving mapping
+       * has been updated with the exact position at the current time, and the
+       * other fields can be constrained based on the exact solution evaluated
+       * on the moving mapping.
+       */
+      BoundaryConditions::apply_field_as_solution_on_volume_and_boundaries(
+        dof_handler,
+        field_name == "mesh position" ? *fixed_mapping : *moving_mapping,
+        *exact_solution,
+        evaluation_point,
+        local_evaluation_point,
+        locally_relevant_dofs,
+        dofs_to_component,
+        mask,
+        homogeneous,
+        constraints);
+    }
+  }
 
   /**
    * If relevant, apply mesh boundary conditions first, as they affect

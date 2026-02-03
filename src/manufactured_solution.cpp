@@ -24,7 +24,7 @@ namespace ManufacturedSolutions
         "none",
         Patterns::Selection(
           "none|time_dependent_vector|rigid_motion_kernel|moving radial kernel|"
-          "normal_radial_kernel"),
+          "normal_radial_kernel|vector radial kernel|vector one minus radial kernel"),
         "");
 
       //
@@ -36,6 +36,44 @@ namespace ManufacturedSolutions
                           default_point,
                           Patterns::List(Patterns::Double(), dim, dim, ","),
                           "Constant vector");
+      }
+      prm.leave_subsection();
+
+      //
+      // Vector-valued radial kernel
+      //
+      prm.enter_subsection("vector radial kernel");
+      {
+        prm.declare_entry("V",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Constant vector");
+        prm.declare_entry("r0", "0.1", Patterns::Double(), "R0");
+        prm.declare_entry("r1", "0.2", Patterns::Double(), "R1");
+        prm.declare_entry("center",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Center of the kernel");
+        prm.declare_entry("cylindrical", "false", Patterns::Bool(), "");
+      }
+      prm.leave_subsection();
+
+      //
+      // Vector-valued (1 - radial kernel)
+      //
+      prm.enter_subsection("vector one minus radial kernel");
+      {
+        prm.declare_entry("V",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Constant vector");
+        prm.declare_entry("r0", "0.1", Patterns::Double(), "R0");
+        prm.declare_entry("r1", "0.2", Patterns::Double(), "R1");
+        prm.declare_entry("center",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Center of the kernel");
+        prm.declare_entry("cylindrical", "false", Patterns::Bool(), "");
       }
       prm.leave_subsection();
 
@@ -146,6 +184,10 @@ namespace ManufacturedSolutions
         preset_field_mms = PresetMMS::moving_radial_kernel;
       else if (parsed_preset == "normal_radial_kernel")
         preset_field_mms = PresetMMS::normal_radial_kernel;
+      else if (parsed_preset == "vector radial kernel")
+        preset_field_mms = PresetMMS::vector_radial_kernel;
+      else if (parsed_preset == "vector one minus radial kernel")
+        preset_field_mms = PresetMMS::vector_one_minus_radial_kernel;
       else
         AssertThrow(false, ExcMessage("Unknown preset MMS: " + parsed_preset));
 
@@ -158,6 +200,32 @@ namespace ManufacturedSolutions
           preset_mms =
             std::make_shared<TimeDependentVector<dim>>(time_function,
                                                        constant_vector);
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("vector radial kernel");
+      {
+        const Tensor<1, dim> V  = parse_rank_1_tensor<dim>(prm.get("V"));
+        const double         r0 = prm.get_double("r0");
+        const double         r1 = prm.get_double("r1");
+        const Point<dim> center(parse_rank_1_tensor<dim>(prm.get("center")));
+        const bool       cylindrical = prm.get_bool("cylindrical");
+        if (preset_field_mms == PresetMMS::vector_radial_kernel)
+          preset_mms = std::make_shared<VectorRadialKernel<dim>>(
+            time_function, center, r0, r1, V, cylindrical);
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("vector one minus radial kernel");
+      {
+        const Tensor<1, dim> V  = parse_rank_1_tensor<dim>(prm.get("V"));
+        const double         r0 = prm.get_double("r0");
+        const double         r1 = prm.get_double("r1");
+        const Point<dim> center(parse_rank_1_tensor<dim>(prm.get("center")));
+        const bool       cylindrical = prm.get_bool("cylindrical");
+        if (preset_field_mms == PresetMMS::vector_one_minus_radial_kernel)
+          preset_mms = std::make_shared<VectorOneMinusRadialKernel<dim>>(
+            time_function, center, r0, r1, V, cylindrical);
       }
       prm.leave_subsection();
 
@@ -218,29 +286,35 @@ namespace ManufacturedSolutions
     std::shared_ptr<ParsedFunctionSDBase<dim>> dummy_vector_fun =
       std::make_shared<ParsedFunctionSDBase<dim>>(dim);
 
-    prm.enter_subsection("Manufactured solution");
+    prm.enter_subsection("Exact solution");
     {
       prm.enter_subsection("exact velocity");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_vector_fun->declare_parameters(prm, dim);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact pressure");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact mesh displacement");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_vector_fun->declare_parameters(prm, dim);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact cahn hilliard tracer");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact cahn hilliard potential");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
       prm.enter_subsection("exact temperature");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
@@ -271,39 +345,45 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> preset_potential;
     std::shared_ptr<MMSFunction<dim>> preset_temperature;
 
-    prm.enter_subsection("Manufactured solution");
+    prm.enter_subsection("Exact solution");
     {
       prm.enter_subsection("exact velocity");
+      set_field_as_solution["velocity"] = prm.get_bool("as solution");
       sym_velocity->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_velocity_type,
                                          preset_velocity);
       prm.leave_subsection();
       prm.enter_subsection("exact pressure");
+      set_field_as_solution["pressure"] = prm.get_bool("as solution");
       sym_pressure->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_pressure_type,
                                          preset_pressure);
       prm.leave_subsection();
       prm.enter_subsection("exact mesh displacement");
+      set_field_as_solution["mesh position"] = prm.get_bool("as solution");
       sym_mesh_position->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_mesh_position_type,
                                          preset_mesh_position);
       prm.leave_subsection();
       prm.enter_subsection("exact cahn hilliard tracer");
+      set_field_as_solution["tracer"] = prm.get_bool("as solution");
       sym_tracer->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_tracer_type,
                                          preset_tracer);
       prm.leave_subsection();
       prm.enter_subsection("exact cahn hilliard potential");
+      set_field_as_solution["potential"] = prm.get_bool("as solution");
       sym_potential->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_potential_type,
                                          preset_potential);
       prm.leave_subsection();
       prm.enter_subsection("exact temperature");
+      set_field_as_solution["temperature"] = prm.get_bool("as solution");
       sym_temperature->parse_parameters(prm);
       parse_preset_manufactured_solution(prm,
                                          preset_temperature_type,
@@ -324,12 +404,19 @@ namespace ManufacturedSolutions
                             preset_mesh_position;
     exact_tracer =
       (preset_tracer_type == PresetMMS::none) ? sym_tracer : preset_tracer;
-    exact_potential = (preset_potential_type == PresetMMS::none) ?
-                        sym_potential :
-                        preset_potential;
+    exact_potential   = (preset_potential_type == PresetMMS::none) ?
+                          sym_potential :
+                          preset_potential;
     exact_temperature = (preset_temperature_type == PresetMMS::none) ?
-                        sym_temperature :
-                        preset_temperature;
+                          sym_temperature :
+                          preset_temperature;
+
+    exact_solution["velocity"]      = exact_velocity;
+    exact_solution["pressure"]      = exact_pressure;
+    exact_solution["mesh position"] = exact_mesh_position;
+    exact_solution["pressure"]      = exact_tracer;
+    exact_solution["potential"]     = exact_potential;
+    exact_solution["temperature"]   = exact_temperature;
   }
 
   // Explicit instantiation

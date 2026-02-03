@@ -10,6 +10,7 @@
 #include <deal.II/lac/vector.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <utilities.h>
 
 using namespace dealii;
 
@@ -272,16 +273,24 @@ namespace BoundaryConditions
    * for 3D tests with some specific non-divergence-free velocity fields, which
    * show either reduced convergence order for the pressure or even no
    * convergence at all when setting a corner pressure DoF to zero.
+   *
+   * Also important: Note that this function adds all the non-local pressure
+   * dofs to the vector of locally relevant dofs on ranks for which the
+   * constrained pressure dof is relevant. This should be kept in mind when
+   * performing operations on locally_relevant_dofs. For example, newly added
+   * relevant pressure dofs do not have a matching support point in the map
+   * retrieved from map_dofs_to_support_points.
    */
   template <int dim>
   void create_zero_mean_pressure_constraints_data(
-    const Triangulation<dim> &tria,
-    const DoFHandler<dim>    &dof_handler,
-    IndexSet                 &locally_relevant_dofs,
-    const Mapping<dim>       &mapping,
-    const Quadrature<dim>    &quadrature,
-    const unsigned int        p_lower,
-    types::global_dof_index  &constrained_pressure_dof,
+    const Triangulation<dim>   &tria,
+    const DoFHandler<dim>      &dof_handler,
+    IndexSet                   &locally_relevant_dofs,
+    std::vector<unsigned char> &dofs_to_component,
+    const Mapping<dim>         &mapping,
+    const Quadrature<dim>      &quadrature,
+    const unsigned int          p_lower,
+    types::global_dof_index    &constrained_pressure_dof,
     std::vector<std::pair<types::global_dof_index, double>>
       &constraint_weights);
 
@@ -315,6 +324,25 @@ namespace BoundaryConditions
       solution[i] -= mean_pressure;
     solution.compress(VectorOperation::add);
   }
+
+  /**
+   * Apply the given field name as solution for the whole volume and boundaries.
+   * Not a boundary condition per se, but a similar constraint on the field
+   * dofs.
+   */
+  template <int dim, typename VectorType>
+  void apply_field_as_solution_on_volume_and_boundaries(
+    const DoFHandler<dim>      &dof_handler,
+    const Mapping<dim>         &mapping,
+    const Function<dim>        &exact_solution,
+    VectorType                 &present_solution,
+    VectorType                 &local_present_solution,
+    const IndexSet             &locally_relevant_dofs,
+    std::vector<unsigned char> &dofs_to_component,
+    const ComponentMask        &component_mask,
+    const bool                  homogeneous,
+    AffineConstraints<double>  &constraints);
+
 } // namespace BoundaryConditions
 
 /**
@@ -470,6 +498,70 @@ void BoundaryConditions::read_boundary_conditions(
     }
   }
   prm.leave_subsection();
+}
+
+template <int dim, typename VectorType>
+void BoundaryConditions::apply_field_as_solution_on_volume_and_boundaries(
+  const DoFHandler<dim>      &dof_handler,
+  const Mapping<dim>         &mapping,
+  const Function<dim>        &exact_solution,
+  VectorType                 &present_solution,
+  VectorType                 &local_present_solution,
+  const IndexSet             &locally_relevant_dofs,
+  std::vector<unsigned char> &dofs_to_component,
+  const ComponentMask        &component_mask,
+  const bool                  homogeneous,
+  AffineConstraints<double>  &constraints)
+{
+  const auto zero_fun =
+    Functions::ZeroFunction<dim>(exact_solution.n_components);
+  const Function<dim> &f = homogeneous ? zero_fun : exact_solution;
+  VectorTools::interpolate(
+    mapping, dof_handler, f, local_present_solution, component_mask);
+
+  present_solution = local_present_solution;
+
+  if (dofs_to_component.empty())
+    fill_dofs_to_component(dof_handler,
+                           locally_relevant_dofs,
+                           dofs_to_component);
+
+  for (const auto &dof : locally_relevant_dofs)
+  {
+    const unsigned char comp =
+      dofs_to_component[locally_relevant_dofs.index_within_set(dof)];
+
+    /**
+     * Non-local dofs may have been added to locally_relevant_dofs after its
+     * creation : for these dofs, the component index cannot be determined by
+     * looping over the local cells, thus we cannot decide here if the missing
+     * component index is the field currently being constrained... The map
+     * dofs_to_component should be updated when adding these dofs to
+     * locally_relevant_dofs.
+     *
+     * Currently, this happens when enforcing a zero mean pressure (which adds
+     * all pressure dofs to some ranks), and when adding lambda dofs as relevant
+     * in the FSI solver. The first case is prevented by checking the options in
+     * parameter_reader.cpp, the other should not come up because it does not
+     * make too much sense to set an exact Lagrange multiplier (and there is no
+     * currently no way to do it in the parameter file).
+     */
+    Assert(
+      comp != static_cast<unsigned char>(-1),
+      ExcMessage(
+        "You are trying to apply a prescribed exact field in parallel, but the "
+        "component index for some dofs on this partition could not be "
+        "determined, and "
+        "thus the constraints for this field may be incomplete. This is likely "
+        "because at some point, non-local dofs for this field were added to "
+        "the vector of locally relevant dofs, but their components in the "
+        "dofs_to_component map were not updated accordingly. To solve this, "
+        "the dofs_to_component should be updated whenever ghost dofs are added "
+        "to locally_relevant_dofs."));
+    if (component_mask[comp])
+      if (constraints.can_store_line(dof) && !constraints.is_constrained(dof))
+        constraints.add_constraint(dof, {}, present_solution[dof]);
+  }
 }
 
 #endif

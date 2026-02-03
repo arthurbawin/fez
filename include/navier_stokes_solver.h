@@ -92,6 +92,13 @@ public:
   virtual void setup_dofs();
 
   /**
+   * Reinitialize the ghosted parallel vectors.
+   * This should be called whenever additional ghost dofs are explicitly added
+   * to the vector of locally relevant dofs.
+   */
+  void reinit_vectors();
+
+  /**
    * Create the data needed to enforce zero-mean pressure.
    *
    * Note that, as it is done for now, enforcing zero-mean is an expensive
@@ -259,6 +266,8 @@ protected:
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler;
 
+  std::vector<unsigned char> dofs_to_component;
+
   FEValuesExtractors::Vector velocity_extractor;
   FEValuesExtractors::Scalar pressure_extractor;
   FEValuesExtractors::Vector position_extractor;
@@ -266,6 +275,9 @@ protected:
   ComponentMask velocity_mask;
   ComponentMask pressure_mask;
   ComponentMask position_mask;
+
+  // The field names and component mask for each field handled by this solver
+  std::map<std::string, ComponentMask> field_names_and_masks;
 
   Table<2, DoFTools::Coupling> coupling_table;
 

@@ -107,7 +107,7 @@ namespace BoundaryConditions
                       "none",
                       Patterns::Selection(
                         "none|fixed|coupled_to_fluid|no_flux|input_function|"
-                        "position_mms|position_flux_mms|debugtest"),
+                        "position_mms|position_flux_mms"),
                       "Type of pseudosolid boundary condition");
   }
 
@@ -130,8 +130,6 @@ namespace BoundaryConditions
       type = Type::position_mms;
     if (parsed_type == "position_flux_mms")
       type = Type::position_flux_mms;
-        if (parsed_type == "debugtest")
-      type = Type::debug_test;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Pseudosolid boundary condition for boundary " +
@@ -352,9 +350,8 @@ namespace BoundaryConditions
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
     }
-
-    
     auto comm = dof_handler.get_mpi_communicator();
+
     MPI_Barrier(comm);
     VectorTools::compute_no_normal_flux_constraints(dof_handler,
                                                     u_lower,

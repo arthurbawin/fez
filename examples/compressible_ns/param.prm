@@ -73,7 +73,7 @@ end
 subsection FiniteElements
   set Velocity degree    = 2
   set Pressure degree    = 1
-  set Temperature degree = 1
+  set Temperature degree = 2
 end
 
 #
@@ -84,6 +84,13 @@ subsection Physical properties
   subsection Fluid 0
     set density             = 1
     set kinematic viscosity = 1
+
+    set thermal conductivity = 1
+    set heat capacity at constant pressure = 1
+    set dynamic viscosity = 1
+    set gas constant = 287
+    set pressure reference = 1
+    set temperature reference = 1
   end
 end
 
@@ -92,10 +99,10 @@ end
 #
 subsection Initial conditions
   subsection velocity
-    set Function expression = 1; 0
+    set Function expression = 0; 0
   end
   subsection temperature
-    set Function expression = x
+    set Function expression = 1.23
   end
 end
 

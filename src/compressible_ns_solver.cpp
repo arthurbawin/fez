@@ -57,6 +57,8 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &para
   // FIXME: Is there a better way to create the functions?
   this->param.initial_conditions.create_initial_velocity(
     this->ordering->u_lower, this->ordering->n_components);
+  this->param.initial_conditions.create_initial_pressure(
+    this->ordering->p_lower, this->ordering->n_components);
   this->param.initial_conditions.create_initial_temperature(
     this->ordering->t_lower, this->ordering->n_components);
 
@@ -96,7 +98,7 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                                 Vector<double>   &values) const
 {
   // AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
-  const double mu = physical_properties.fluids[0].dynamic_viscosity;
+  const double mu = physical_properties.fluids[0].dynamic_viscosity_fluid;
   const double k = physical_properties.fluids[0].thermal_conductivity;
   const double R = physical_properties.fluids[0].gas_constant;
   const double cp = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
@@ -116,14 +118,13 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   const double T_ex = mms.exact_temperature->value(p);
   const double dTdt_ex = mms.exact_temperature->time_derivative(p);
 
-  // Use conventpresent_velocity_gradients)_ij := dvj/dxi
-  Tensor<2, dim> grad_u     = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<2, dim> grad_u     = mms.exact_velocity->gradient_vi_xj(p);
   Tensor<1, dim> lap_u      = mms.exact_velocity->vector_laplacian(p);
   double div_u              = mms.exact_velocity->divergence(p);
   Tensor<1, dim> grad_p     = mms.exact_pressure->gradient(p);
   Tensor<1, dim> grad_T     = mms.exact_temperature->gradient(p);
   double lap_T              = mms.exact_temperature->laplacian(p); 
-  Tensor<1, dim> uDotGrad_u = u * grad_u;
+  Tensor<1, dim> Grad_uDot_u = grad_u * u;
   double uDotGrad_p         = u * grad_p;
   double uDotGrad_T         = u * grad_T;
   Tensor<1, dim> gradDiv_u  = mms.exact_velocity->grad_div(p);
@@ -138,7 +139,7 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   double rho = rho_ref * (alpha_r * p_ex + 1.0) / (beta_r * T_ex + 1.0);
 
   // Navier-Stokes momentum (velocity) source term
-  Tensor<1, dim> f = rho * (dudt_eulerian + uDotGrad_u) + grad_p - mu * lap_u - mu * (1.0/3.0) * gradDiv_u;
+  Tensor<1, dim> f = rho * (dudt_eulerian + Grad_uDot_u) + grad_p - mu * lap_u - mu * (1.0/3.0) * gradDiv_u;
 
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
@@ -281,7 +282,7 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   local_matrix       = 0;
 
   const double mu =
-    this->param.physical_properties.fluids[0].dynamic_viscosity; 
+    this->param.physical_properties.fluids[0].dynamic_viscosity_fluid; 
   const double k =
     this->param.physical_properties.fluids[0].thermal_conductivity;
   const double R_gas =
@@ -556,7 +557,7 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   local_rhs       = 0;
 
   const double mu =
-    this->param.physical_properties.fluids[0].dynamic_viscosity;
+    this->param.physical_properties.fluids[0].dynamic_viscosity_fluid;
   const double k =
     this->param.physical_properties.fluids[0].thermal_conductivity;
   const double cp =
@@ -616,7 +617,7 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
     const auto &phi_T      = scratchData.phi_T[q];
     const auto &grad_phi_u = scratchData.grad_phi_u[q];
     const auto &div_phi_u  = scratchData.div_phi_u[q];
-    const auto &grad_phi_p = scratchData.grad_phi_p[q];
+    //const auto &grad_phi_p = scratchData.grad_phi_p[q];
     const auto &grad_phi_T = scratchData.grad_phi_T[q];
 
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)

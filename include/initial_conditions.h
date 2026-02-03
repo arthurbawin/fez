@@ -13,6 +13,8 @@ namespace Parameters
   template <int dim>
   class InitialCHNSTracer;
   template <int dim>
+  class InitialPressure;
+  template <int dim>
   class InitialTemperature;
 
   /**
@@ -47,6 +49,8 @@ namespace Parameters
           std::make_shared<Functions::ParsedFunction<dim>>(dim))
       , initial_chns_tracer_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
+      , initial_pressure_callback(
+          std::make_shared<Functions::ParsedFunction<dim>>(1))
       , initial_temperature_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
     {}
@@ -61,6 +65,17 @@ namespace Parameters
     {
       initial_velocity = std::make_shared<Parameters::InitialVelocity<dim>>(
         u_lower, n_components, initial_velocity_callback);
+    }
+
+    /*
+     * Create the actual initial pressure, once the components and layout are
+     * known.
+    */
+    void create_initial_pressure(const unsigned int p_lower,
+                                 const unsigned int n_components)
+    {
+      initial_pressure = std::make_shared<Parameters::InitialPressure<dim>>(
+        p_lower, n_components, initial_pressure_callback);
     }
 
     /**
@@ -99,6 +114,10 @@ namespace Parameters
     std::shared_ptr<Functions::ParsedFunction<dim>>
                                             initial_chns_tracer_callback;
     std::shared_ptr<InitialCHNSTracer<dim>> initial_chns_tracer;
+
+    // Pressure data
+    std::shared_ptr<Functions::ParsedFunction<dim>> initial_pressure_callback;
+    std::shared_ptr<InitialPressure<dim>>           initial_pressure;
 
     // Temperature data
     std::shared_ptr<Functions::ParsedFunction<dim>>
@@ -140,6 +159,36 @@ namespace Parameters
   };
 
   /**
+   * Initial condition for the pressure in compressible flow problems.
+   */
+
+  template <int dim>
+  class InitialPressure : public Function<dim>
+  {
+  public:
+    const unsigned int                              p_lower;
+    std::shared_ptr<Functions::ParsedFunction<dim>> initial_pressure_callback;
+  
+  public:
+    InitialPressure(
+      const unsigned int                              p_lower,
+      const unsigned int                              n_components,
+      std::shared_ptr<Functions::ParsedFunction<dim>> initial_pressure_callback)
+      : Function<dim>(n_components)
+      , p_lower(p_lower)
+      , initial_pressure_callback(initial_pressure_callback)
+    {}
+  
+    virtual double value(const Point<dim> &p,
+                         unsigned int      component) const override
+    {
+      if (component == p_lower)
+        return initial_pressure_callback->value(p);
+      return 0.;
+    }
+  };
+
+  /**
    * Initial condition for the scalar tracer phi in CHNS models.
    * This is a function with @p n_components components, which only fills
    * the phi_lower-th component.
@@ -172,7 +221,7 @@ namespace Parameters
   };
 
   /**
-   * Initial condition for the temperature for the heat equation.
+   * Initial condition for the temperature for the heat equation or the energy equation.
    * This is a function with @p n_components components, which only fills
    * the t_lower-th component.
    */
@@ -219,6 +268,9 @@ namespace Parameters
       prm.enter_subsection("cahn hilliard tracer");
       initial_chns_tracer_callback->declare_parameters(prm, 1);
       prm.leave_subsection();
+      prm.enter_subsection("pressure");
+      initial_pressure_callback->declare_parameters(prm, 1);
+      prm.leave_subsection();
       prm.enter_subsection("temperature");
       initial_temperature_callback->declare_parameters(prm, 1);
       prm.leave_subsection();
@@ -237,6 +289,9 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("cahn hilliard tracer");
       initial_chns_tracer_callback->parse_parameters(prm);
+      prm.leave_subsection();
+      prm.enter_subsection("pressure");
+      initial_pressure_callback->parse_parameters(prm);
       prm.leave_subsection();
       prm.enter_subsection("temperature");
       initial_temperature_callback->parse_parameters(prm);

@@ -261,6 +261,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
       triangulation,
       dof_handler,
       locally_relevant_dofs,   // <-- modifié ici
+      dofs_to_component,
       *fixed_mapping,          // <-- évite d’avoir besoin de moving_mapping ici
       *quadrature,
       ordering->p_lower,

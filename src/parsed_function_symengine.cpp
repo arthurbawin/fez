@@ -234,7 +234,7 @@ namespace ManufacturedSolutions
       // Check if function depends only on time
       function_of_time_only[i_comp] = true;
       for (unsigned int d = 0; d < dim; ++d)
-        if(!numbers::value_is_zero(grad_f[d]))
+        if (!numbers::value_is_zero(grad_f[d]))
           function_of_time_only[i_comp] = false;
 
       // Get the string expressions of the spatial derivatives
@@ -275,7 +275,7 @@ namespace ManufacturedSolutions
       //
       // Get time derivatives
       //
-      const Expression fdot = f.differentiate(time);
+      const Expression fdot  = f.differentiate(time);
       const Expression fddot = fdot.differentiate(time);
       {
         std::stringstream sstream;
@@ -289,7 +289,10 @@ namespace ManufacturedSolutions
       }
     }
     dfdt.initialize(variables, time_derivatives, constants, time_dependent);
-    d2fdt2.initialize(variables, time_second_derivatives, constants, time_dependent);
+    d2fdt2.initialize(variables,
+                      time_second_derivatives,
+                      constants,
+                      time_dependent);
   }
 
   // Explicit instantiations

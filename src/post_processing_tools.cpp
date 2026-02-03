@@ -3,10 +3,9 @@
 #include <deal.II/base/utilities.h>
 #include <deal.II/fe/fe_face.h>
 #include <deal.II/fe/fe_values.h>
-#include <post_processing_tools.h>
 #include <deal.II/grid/tria.h>
 #include <deal.II/numerics/data_out_faces.h>
-
+#include <post_processing_tools.h>
 
 #include <algorithm>
 #include <cmath>

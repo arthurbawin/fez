@@ -2,6 +2,7 @@
 #include <compare_matrix.h>
 #include <components_ordering.h>
 #include <copy_data.h>
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/symmetric_tensor.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -19,7 +20,9 @@
 #include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
-#include <deal.II/base/mpi.h>
+
+#include <iomanip>
+
 
 
 template <int dim>
@@ -194,16 +197,6 @@ void FSISolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
     values[ordering.l_lower + d] = 0.;
 }
 
-// template <int dim>
-// void FSISolver<dim>::reset_solver_specific_data()
-// {
-//   // Position - lambda constraints
-//   for (auto &vec : position_lambda_coeffs)
-//     vec.clear();
-//   position_lambda_coeffs.clear();
-//   coupled_position_dofs.clear();
-// }
-
 template <int dim>
 void FSISolver<dim>::reset_solver_specific_data()
 {
@@ -310,264 +303,6 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
  *
  *   FIXME: THERE IS ONLY ONE VECTOR ACTUALLY
  */
-
-
-// template <int dim>
-// void FSISolver<dim>::identify_master_slaves_position_on_weak_noslip(
-//   std::array<dealii::types::global_dof_index, dim> &master,
-//   std::array<std::vector<dealii::types::global_dof_index>, dim> &slaves) const
-// {
-//   using namespace dealii;
-
-//   for (unsigned int d = 0; d < dim; ++d)
-//   {
-//     master[d] = numbers::invalid_dof_index;
-//     slaves[d].clear();
-//   }
-
-//   // Nombre total de composantes du FE (FESystem)
-//   const unsigned int n_components = fe.n_components();
-
-//   for (unsigned int d = 0; d < dim; ++d)
-//   {
-//     // 1) Masque "uniquement la composante position d"
-//     ComponentMask one_comp_mask(n_components, false);
-
-//     const unsigned int comp = this->ordering->x_lower + d; // position component d
-//     AssertThrow(comp < n_components,
-//                 ExcMessage("Position component index out of range."));
-//     one_comp_mask.set(comp, true);
-
-//     // 2) DoFs sur la frontière pour cette composante
-//     IndexSet local =
-//       DoFTools::extract_boundary_dofs(this->dof_handler,
-//                                       one_comp_mask,
-//                                       {weak_no_slip_boundary_id});
-
-//     // Ne garder que les dofs possédés localement (un dof owned par un seul rank)
-//     local = local & this->locally_owned_dofs;
-
-//     // 3) Gather global de la liste d'indices
-//     const auto gathered =
-//       Utilities::MPI::all_gather(this->mpi_communicator, local.get_index_vector());
-
-//     std::vector<types::global_dof_index> all;
-//     for (const auto &v : gathered)
-//       all.insert(all.end(), v.begin(), v.end());
-
-//     std::sort(all.begin(), all.end());
-//     all.erase(std::unique(all.begin(), all.end()), all.end());
-
-//     // 4) Master = plus petit index global
-//     if (!all.empty())
-//     {
-//       master[d] = all.front();
-
-//       // 5) Slaves = le reste
-//       slaves[d].assign(all.begin() + 1, all.end());
-//     }
-//     else
-//     {
-//       master[d] = numbers::invalid_dof_index;
-//       slaves[d].clear();
-//     }
-//   }
-// }
-// template <int dim>
-// void FSISolver<dim>::make_global_master_position_dofs_relevant_everywhere()
-// {
-//   using namespace dealii;
-
-//   if (weak_no_slip_boundary_id == numbers::invalid_unsigned_int)
-//     return;
-
-//   const unsigned int n_effective_dim =
-//     (dim == 3 && this->param.fsi.fix_z_component ? 2u : dim);
-
-//   std::array<types::global_dof_index, dim> master;
-//   std::array<std::vector<types::global_dof_index>, dim> slaves;
-
-//   // Ton identifier GLOBAL (avec all_gather) : master[d] est unique globalement
-//   identify_master_slaves_position_on_weak_noslip(master, slaves);
-
-//   bool changed = false;
-
-//   for (unsigned int d = 0; d < n_effective_dim; ++d)
-//   {
-//     if (master[d] == numbers::invalid_dof_index)
-//       continue;
-
-//     if (!this->locally_relevant_dofs.is_element(master[d]))
-//     {
-//       this->locally_relevant_dofs.add_index(master[d]);
-//       changed = true;
-//     }
-//   }
-
-//   if (changed)
-//     this->locally_relevant_dofs.compress();
-// }
-
-// template <int dim>
-// void FSISolver<dim>::add_master_slave_constraints_on_weak_noslip(
-//   dealii::AffineConstraints<double> &constraints) const
-// {
-//   using namespace dealii;
-
-//   // Pas de weak no-slip => rien à faire
-//   if (weak_no_slip_boundary_id == numbers::invalid_unsigned_int)
-//     return;
-
-//   // Si tu forces z fixe via param.fsi.fix_z_component, on évite de contraindre z
-//   const unsigned int n_effective_dim =
-//     (dim == 3 && this->param.fsi.fix_z_component ? 2u : dim);
-
-//   std::array<types::global_dof_index, dim> master;
-//   std::array<std::vector<types::global_dof_index>, dim> slaves;
-
-//   // Fonction que tu as déjà dans ton fichier (elle fait un all_gather)
-//   identify_master_slaves_position_on_weak_noslip(master, slaves);
-
-//   for (unsigned int d = 0; d < n_effective_dim; ++d)
-//   {
-//     const auto master_dof = master[d];
-
-//     // Si aucun dof de cette composante sur la frontière (cas pathologique), skip
-//     if (master_dof == numbers::invalid_dof_index)
-//       continue;
-
-//     for (const auto slave_dof : slaves[d])
-//     {
-//       if (slave_dof == master_dof)
-//         continue;
-
-//       // On ajoute uniquement si le dof est "relevant" sur ce rank,
-//       // sinon AffineConstraints::add_line peut planter selon la config.
-//       if (!this->locally_relevant_dofs.is_element(slave_dof))
-//         continue;
-
-//       // On refuse un conflit silencieux
-//       AssertThrow(!constraints.is_constrained(slave_dof),
-//                   ExcMessage("Rigid-position slave dof is already constrained "
-//                              "(d=" +
-//                              std::to_string(d) + ", dof=" +
-//                              std::to_string(slave_dof) +
-//                              "). Remove cylinder position constraints first, "
-//                              "or avoid double constraints."));
-
-//       // Contrainte linéaire homogène : x_slave - 1*x_master = 0
-//       // -> x_slave = x_master
-//       constraints.add_line(slave_dof);
-//       constraints.add_entry(slave_dof, master_dof, 1.0);
-//       constraints.set_inhomogeneity(slave_dof, 0.0);
-//     }
-//   }
-// }
-
-// template <int dim>
-// void FSISolver<dim>::debug_test_rigid_master_slave_following(
-//   const dealii::AffineConstraints<double> &constraints,
-//   const std::array<double, dim> &amplitude,
-//   const double frequency_hz,
-//   const double tolerance) const
-// {
-//   using namespace dealii;
-
-//   if (weak_no_slip_boundary_id == numbers::invalid_unsigned_int)
-//   {
-//     if (this->mpi_rank == 0)
-//       std::cout << "[debug_test_rigid_master_slave_following] "
-//                 << "No weak_no_slip_boundary_id -> nothing to test.\n";
-//     return;
-//   }
-
-//   // Si tu bloques z via fix_z_component, on ne teste que x,y
-//   const unsigned int n_effective_dim =
-//     (dim == 3 && this->param.fsi.fix_z_component ? 2u : dim);
-
-//   // 1) Récupère master/slaves (tu as déjà cette fonction)
-//   std::array<types::global_dof_index, dim> master;
-//   std::array<std::vector<types::global_dof_index>, dim> slaves;
-//   identify_master_slaves_position_on_weak_noslip(master, slaves);
-
-//   // 2) Valeur cible imposée au master : A * sin(2*pi*f*t)
-//   const double t     = this->time_handler.current_time;
-//   const double omega = 2.0 * numbers::PI * frequency_hz;
-
-//   std::array<double, dim> target{};
-//   for (unsigned int d = 0; d < dim; ++d)
-//     target[d] = 0.0;
-
-//   for (unsigned int d = 0; d < n_effective_dim; ++d)
-//     target[d] = amplitude[d] * std::sin(omega * t);
-
-//   // 3) Vecteur test (ghosté) : important pour lire des dofs non-owned
-//   LA::ParVectorType x_test;
-//   x_test.reinit(this->locally_owned_dofs,
-//                 this->locally_relevant_dofs,
-//                 this->mpi_communicator);
-//   x_test = 0.0;
-
-//   // 4) Imposer la valeur au master (uniquement si owned par ce rank)
-//   for (unsigned int d = 0; d < n_effective_dim; ++d)
-//   {
-//     const auto m = master[d];
-//     if (m == numbers::invalid_dof_index)
-//       continue;
-
-//     if (this->locally_owned_dofs.is_element(m))
-//       x_test[m] = target[d];
-//   }
-//   x_test.compress(VectorOperation::insert);
-
-//   // 5) Appliquer les contraintes : doit propager master -> slaves
-//   constraints.distribute(x_test);
-
-//   // 6) Vérification : chaque slave doit valoir target[d]
-//   double max_err_local = 0.0;
-
-//   for (unsigned int d = 0; d < n_effective_dim; ++d)
-//   {
-//     // check master too (si relevant sur ce rank)
-//     const auto m = master[d];
-//     if (m != numbers::invalid_dof_index &&
-//         this->locally_relevant_dofs.is_element(m))
-//     {
-//       const double err_m = std::abs(x_test[m] - target[d]);
-//       max_err_local      = std::max(max_err_local, err_m);
-//     }
-
-//     for (const auto s : slaves[d])
-//       if (this->locally_relevant_dofs.is_element(s))
-//       {
-//         const double err_s = std::abs(x_test[s] - target[d]);
-//         max_err_local      = std::max(max_err_local, err_s);
-//       }
-//   }
-
-//   const double max_err =
-//     Utilities::MPI::max(max_err_local, this->mpi_communicator);
-
-//   if (this->mpi_rank == 0)
-//   {
-//     std::cout << "[debug_test_rigid_master_slave_following] t=" << t
-//               << " f=" << frequency_hz << "Hz"
-//               << " target=(";
-
-//     for (unsigned int d = 0; d < n_effective_dim; ++d)
-//       std::cout << target[d] << (d + 1 < n_effective_dim ? "," : "");
-//     std::cout << ") max_err=" << max_err
-//               << " tol=" << tolerance << std::endl;
-//   }
-
-//   AssertThrow(max_err <= tolerance,
-//               ExcMessage("Rigid master/slave test failed: max_err=" +
-//                          std::to_string(max_err) +
-//                          " > tol=" + std::to_string(tolerance) +
-//                          ". Either constraints were not added, or master is "
-//                          "constrained elsewhere, or dofs are not the expected ones."));
-// }
-
 
 
 template <int dim>
@@ -1456,7 +1191,6 @@ void FSISolver<dim>::create_solver_specific_zero_constraints()
        */
       this->pcout << "Removing zero constraints on cylinder" << std::endl;
       remove_cylinder_velocity_constraints(this->zero_constraints, true, true);
-
     }
     else if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
     {
@@ -1473,43 +1207,27 @@ void FSISolver<dim>::create_solver_specific_nonzero_constraints()
   // Merge les contraintes lambda=0
   this->nonzero_constraints.merge(
     lambda_constraints,
-    dealii::AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
+    dealii::AffineConstraints<
+      double>::MergeConflictBehavior::no_conflicts_allowed);
   if constexpr (dim == 3)
   {
     if (this->param.fsi.enable_coupling)
     {
       this->pcout << "Removing nonzero constraints on cylinder" << std::endl;
-      remove_cylinder_velocity_constraints(this->nonzero_constraints,
-                                           /*remove_velocity_constraints=*/true,
-                                           /*remove_position_constraints=*/true);
+      remove_cylinder_velocity_constraints(
+        this->nonzero_constraints,
+        /*remove_velocity_constraints=*/true,
+        /*remove_position_constraints=*/true);
     }
+    // If boundary has a weakly enforced no-slip, remove velocity constraints.
     else if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
     {
-      remove_cylinder_velocity_constraints(this->nonzero_constraints,
-                                           /*remove_velocity_constraints=*/true,
-                                           /*remove_position_constraints=*/false);
+      remove_cylinder_velocity_constraints(
+        this->nonzero_constraints,
+        /*remove_velocity_constraints=*/true,
+        /*remove_position_constraints=*/false);
     }
   }
-
-  // // ✅ ICI: on ajoute les master/slave sur NONZERO, pas sur ZERO
-  // add_master_slave_constraints_on_weak_noslip(this->nonzero_constraints);
-
-  // // ✅ close AVANT le test (distribute() suppose généralement des contraintes "fermées")
-  // this->nonzero_constraints.close();
-
-  // // (Optionnel) test debug
-  // std::array<double, dim> A{};
-  // A.fill(0.0);
-  // A[0] = 1e-3;
-  // if constexpr (dim >= 2) A[1] = 1e-3;
-  // if constexpr (dim == 3) A[2] = 0.0;
-
-  // debug_test_rigid_master_slave_following(this->nonzero_constraints,
-  //                                         A,
-  //                                         /*frequency_hz=*/1.0,
-  //                                         /*tolerance=*/1e-12);
-
-
 }
 
 
@@ -1789,7 +1507,6 @@ void FSISolver<dim>::assemble_local_matrix(
     const auto &phi_p      = scratch_data.phi_p[q];
     const auto &phi_x      = scratch_data.phi_x[q];
     const auto &grad_phi_x = scratch_data.grad_phi_x[q];
-    const auto &grad_phi_x_moving = scratch_data.grad_phi_x_moving[q];
     const auto &div_phi_x  = scratch_data.div_phi_x[q];
 
     const auto &present_velocity_values =
@@ -1825,7 +1542,6 @@ void FSISolver<dim>::assemble_local_matrix(
       const auto &div_phi_u_i  = div_phi_u[i];
       const auto &phi_p_i      = phi_p[i];
       const auto &grad_phi_x_i = grad_phi_x[i];
-      const auto &grad_phi_x_moving_i = grad_phi_x_moving[i];
       const auto &div_phi_x_i  = div_phi_x[i];
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
@@ -1847,9 +1563,7 @@ void FSISolver<dim>::assemble_local_matrix(
         const auto &phi_p_j            = phi_p[j];
         const auto &phi_x_j            = phi_x[j];
         const auto &grad_phi_x_j       = grad_phi_x[j];
-        const auto &grad_phi_x_moving_j = grad_phi_x_moving[j];
-        const auto trace_grad_phi_x_j = trace(grad_phi_x_j);
-        const auto trace_grad_phi_x_moving_j = trace(grad_phi_x_moving_j);
+        const auto  trace_grad_phi_x_j = trace(grad_phi_x_j);
         const auto &div_phi_x_j        = div_phi_x[j];
 
         double local_flow_matrix_ij = 0.;
@@ -1879,19 +1593,19 @@ void FSISolver<dim>::assemble_local_matrix(
             // term is only needed for manufactured solutions, and slows down
             // the assembly. Ommitting it does not seem to affect convergence of
             // the nonlinear solver.
-            const Tensor<2, dim> d_grad_phi_u = -grad_phi_u_i * grad_phi_x_moving_j;
-            const auto           gradu_dot_grad_phi_x_moving_j =
-              present_velocity_gradients * grad_phi_x_moving_j;
+            const Tensor<2, dim> d_grad_phi_u = -grad_phi_u_i * grad_phi_x_j;
+            const auto           gradu_dot_grad_phi_x_j =
+              present_velocity_gradients * grad_phi_x_j;
             local_flow_matrix_ij +=
-              phi_u_i * ((dudt + u_dot_grad_u_ale) * trace_grad_phi_x_moving_j -
-                         gradu_dot_grad_phi_x_moving_j * u_ale -
+              phi_u_i * ((dudt + u_dot_grad_u_ale) * trace_grad_phi_x_j -
+                         gradu_dot_grad_phi_x_j * u_ale -
                          present_velocity_gradients * bdf_c0 * phi_x_j) +
-              nu * scalar_product(-gradu_dot_grad_phi_x_moving_j, grad_phi_u_i) +
+              nu * scalar_product(-gradu_dot_grad_phi_x_j, grad_phi_u_i) +
               nu * scalar_product(present_velocity_gradients,
                                   d_grad_phi_u +
-                                    grad_phi_u_i * trace_grad_phi_x_moving_j) -
+                                    grad_phi_u_i * trace_grad_phi_x_j) -
               present_pressure_values *
-                (trace(d_grad_phi_u) + div_phi_u_i * trace_grad_phi_x_moving_j);
+                (trace(d_grad_phi_u) + div_phi_u_i * trace_grad_phi_x_j);
           }
         }
 
@@ -1910,11 +1624,11 @@ void FSISolver<dim>::assemble_local_matrix(
             // term is only needed for manufactured solutions, and slows down
             // the assembly. Ommitting it does not seem to affect convergence of
             // the nonlinear solver.
-            const auto gradu_dot_grad_phi_x_moving_j =
-              present_velocity_gradients * grad_phi_x_moving_j;
+            const auto gradu_dot_grad_phi_x_j =
+              present_velocity_gradients * grad_phi_x_j;
             local_flow_matrix_ij +=
-              phi_p_i * (trace(gradu_dot_grad_phi_x_moving_j) -
-                         present_velocity_divergence * trace_grad_phi_x_moving_j);
+              phi_p_i * (trace(gradu_dot_grad_phi_x_j) -
+                         present_velocity_divergence * trace_grad_phi_x_j);
           }
         }
 
@@ -2682,7 +2396,8 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
 
     // Check that the ratio of both terms in the position
     // boundary condition is -spring_constant
-    ratio[d] = lambda_integral[d] / cylinder_displacement[d];
+    if (std::abs(cylinder_displacement[d]) > 1e-10)
+      ratio[d] = lambda_integral[d] / cylinder_displacement[d];
   }
 
   if (this->param.fsi.verbosity == Parameters::Verbosity::verbose)
@@ -2716,7 +2431,7 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
     if (std::abs(ratio[d]) < 1e-10)
       continue;
 
-    if (lambda_integral[d]< 1e-12)
+    if (lambda_integral[d] < 1e-12)
       continue;
 
     const double absolute_error =
@@ -2727,8 +2442,9 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
 
     const double relative_error =
       absolute_error / this->param.fsi.spring_constant;
-    // AssertThrow(relative_error <= 1e-2,
-    //             ExcMessage("Ratio integral vs displacement values is not -k"));
+
+    AssertThrow(relative_error <= 1e-2,
+                ExcMessage("Ratio integral vs displacement values is not -k"));
   }
 }
 
@@ -3168,19 +2884,13 @@ void FSISolver<dim>::compute_solver_specific_errors()
 template <int dim>
 void FSISolver<dim>::output_results()
 {
-  // ============================================================
-  // 1) Full-domain VTU output
-  // ============================================================
+  // Full-domain VTU output
   if (this->param.output.write_results &&
       (this->time_handler.current_time_iteration %
            this->param.output.vtu_output_frequency ==
          0 ||
        this->time_handler.is_finished()))
   {
-    //
-    // Plot FE solution: (u, p, mesh_position, lambda)
-    // Total components = dim + 1 + dim + dim = 3*dim + 1
-    //
     std::vector<std::string> solution_names;
     solution_names.reserve(3 * dim + 1);
 
@@ -3217,9 +2927,6 @@ void FSISolver<dim>::output_results()
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
 
-    //
-    // Compute mesh velocity in post-processing
-    //
     LA::ParVectorType mesh_velocity;
     mesh_velocity.reinit(this->locally_owned_dofs, this->mpi_communicator);
 
@@ -3235,9 +2942,6 @@ void FSISolver<dim>::output_results()
 
     mesh_velocity.compress(VectorOperation::insert);
 
-    //
-    // Names for the re-exported vector (must match 3*dim + 1)
-    //
     std::vector<std::string> mesh_velocity_name;
     mesh_velocity_name.reserve(3 * dim + 1);
 
@@ -3254,26 +2958,26 @@ void FSISolver<dim>::output_results()
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
 
-    // ------------------------------------------------------------
-    // Export Lamé coefficients (cell data): lame_mu, lame_lambda
-    // ------------------------------------------------------------
+
+    // Export Lamé coefficients on cell
+
     Vector<float> lame_mu_cell(this->triangulation.n_active_cells());
     Vector<float> lame_lambda_cell(this->triangulation.n_active_cells());
 
-    // On veut être cohérent avec le pseudo-solide : intégration sur le FIXED mapping
     FEValues<dim> fe_values_fixed(*this->fixed_mapping,
                                   *fe,
                                   *this->quadrature,
                                   update_quadrature_points | update_JxW_values);
 
-    const auto &mu_fun = this->param.physical_properties.pseudosolids[0].lame_mu_fun;
-    const auto &la_fun = this->param.physical_properties.pseudosolids[0].lame_lambda_fun;
+    const auto &mu_fun =
+      this->param.physical_properties.pseudosolids[0].lame_mu_fun;
+    const auto &la_fun =
+      this->param.physical_properties.pseudosolids[0].lame_lambda_fun;
 
     AssertThrow(mu_fun, ExcMessage("lame_mu_fun is null"));
     AssertThrow(la_fun, ExcMessage("lame_lambda_fun is null"));
     for (const auto &cell : this->dof_handler.active_cell_iterators())
     {
-      // Important : en parallèle, on ne remplit que les cellules owned
       if (!cell->is_locally_owned())
         continue;
 
@@ -3290,7 +2994,7 @@ void FSISolver<dim>::output_results()
 
         mu_avg += mu_fun->value(xq, 0) * w;
         la_avg += la_fun->value(xq, 0) * w;
-        w_sum  += w;
+        w_sum += w;
       }
 
       if (w_sum > 0.0)
@@ -3300,18 +3004,18 @@ void FSISolver<dim>::output_results()
       }
 
       const unsigned int idx = cell->active_cell_index();
-      lame_mu_cell[idx]     = static_cast<float>(mu_avg);
-      lame_lambda_cell[idx] = static_cast<float>(la_avg);
+      lame_mu_cell[idx]      = static_cast<float>(mu_avg);
+      lame_lambda_cell[idx]  = static_cast<float>(la_avg);
     }
 
-    // Ajout dans le VTU comme "cell data"
+
     data_out.add_data_vector(lame_mu_cell,
-                            "lame_mu",
-                            DataOut<dim>::type_cell_data);
+                             "lame_mu",
+                             DataOut<dim>::type_cell_data);
 
     data_out.add_data_vector(lame_lambda_cell,
-                            "lame_lambda",
-                            DataOut<dim>::type_cell_data);
+                             "lame_lambda",
+                             DataOut<dim>::type_cell_data);
 
     //
     // Partition
@@ -3330,14 +3034,13 @@ void FSISolver<dim>::output_results()
       this->mpi_communicator,
       2);
 
-  this->visualization_times_and_names.emplace_back(
-    this->time_handler.current_time, pvtu_file);
+    this->visualization_times_and_names.emplace_back(
+      this->time_handler.current_time, pvtu_file);
   }
 
 
-  // ============================================================
+
   // 2) Skin (boundary-only) VTU output
-  // ============================================================
   if (this->param.output.write_skin_results &&
       this->param.output.skin_boundary_id != numbers::invalid_unsigned_int &&
       (this->time_handler.current_time_iteration %
@@ -3345,9 +3048,6 @@ void FSISolver<dim>::output_results()
          0 ||
        this->time_handler.is_finished()))
   {
-    //
-    // Same fields as full-domain: (u, p, mesh_position, lambda)
-    //
     std::vector<std::string> solution_names_faces;
     solution_names_faces.reserve(3 * dim + 1);
 
@@ -3378,8 +3078,7 @@ void FSISolver<dim>::output_results()
 
 
     PostProcessingTools::DataOutFacesOnBoundary<dim> data_out_faces(
-      this->triangulation,
-      this->param.output.skin_boundary_id);
+      this->triangulation, this->param.output.skin_boundary_id);
 
     data_out_faces.attach_dof_handler(this->dof_handler);
 
@@ -3400,19 +3099,17 @@ void FSISolver<dim>::output_results()
                                      DataOutFaces<dim>::type_cell_data);
     }
 
-    // Build patches on the current/moving mapping (important in ALE/FSI)
     data_out_faces.build_patches(*this->moving_mapping, 2);
-
-    // Parallel-safe export (pvtu + vtu per rank)
 
     const std::string skin_prefix = this->param.output.output_prefix + "_skin";
 
-    const std::string skin_pvtu_file = data_out_faces.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      skin_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
+    const std::string skin_pvtu_file =
+      data_out_faces.write_vtu_with_pvtu_record(
+        this->param.output.output_dir,
+        skin_prefix,
+        this->time_handler.current_time_iteration,
+        this->mpi_communicator,
+        2);
 
     this->visualization_times_and_names.emplace_back(
       this->time_handler.current_time, skin_pvtu_file);
@@ -3463,20 +3160,24 @@ void FSISolver<dim>::compute_forces_lagrange_multiplier(const bool export_table)
     lambda_integral[d] =
       Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
 
-  // const double rho = param.physical_properties.fluids[0].density;
-  // const double U   = boundary_description.U;
-  // const double D   = boundary_description.D;
-  // const double factor = 1. / (0.5 * rho * U * U * D);
-
   //
   // Forces on the cylinder are the NEGATIVE of the integral of lambda
   //
   this->forces_table.add_value("time", this->time_handler.current_time);
-  this->forces_table.add_value("CFx", -lambda_integral[0]);
-  this->forces_table.add_value("CFy", -lambda_integral[1]);
+  this->forces_table.add_value("Fx", -lambda_integral[0]);
+  this->forces_table.add_value("Fy", -lambda_integral[1]);
+  // Set the precision
+  this->forces_table.set_precision("Fx", 10);
+  this->forces_table.set_precision("Fy", 10);
+  this->forces_table.set_scientific("Fx", true);
+  this->forces_table.set_scientific("Fy", true);
+
+
   if constexpr (dim == 3)
   {
-    this->forces_table.add_value("CFz", -lambda_integral[2]);
+    this->forces_table.add_value("Fz", -lambda_integral[2]);
+    this->forces_table.set_precision("Fz", 10);
+    this->forces_table.set_scientific("Fz", true);
   }
 
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
@@ -3484,41 +3185,36 @@ void FSISolver<dim>::compute_forces_lagrange_multiplier(const bool export_table)
 
   if (export_table && this->mpi_rank == 0)
   {
-  std::ofstream outfile(this->param.output.output_dir + "forces.txt");
-  this->forces_table.write_text(outfile);
+    std::ofstream outfile(this->param.output.output_dir + "forces.txt");
+    outfile << std::scientific << std::setprecision(10);
+    this->forces_table.write_text(outfile);
   }
-
 }
 
 template <int dim>
 void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
   const bool export_table)
 {
-  // ------------------------------------------------------------
-  // 0) Récupère slice_index (indexé par active_cell_index)
-  // ------------------------------------------------------------
+  // Get the slice_index by active_cell_index
   const dealii::Vector<double> &slice_index =
     this->postproc_handler.get_slice_index();
 
-  // Nombre de slices = param (si tu veux)
-  const unsigned int n_slices =
-    std::max(1u, static_cast<unsigned int>(this->param.postprocessing.number_of_slices));
+  // number of slices needed
+  const unsigned int n_slices = std::max(
+    1u, static_cast<unsigned int>(this->param.postprocessing.number_of_slices));
 
-  const UpdateFlags face_flags =
-  update_values | update_quadrature_points | update_normal_vectors | update_JxW_values;
+  const UpdateFlags face_flags = update_values | update_quadrature_points |
+                                 update_normal_vectors | update_JxW_values;
 
   dealii::FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                          this->get_fe_system(),
-                                          *this->face_quadrature,
-                                          face_flags);
+                                           this->get_fe_system(),
+                                           *this->face_quadrature,
+                                           face_flags);
 
 
-  const unsigned int n_q = this->face_quadrature->size();
+  const unsigned int                  n_q = this->face_quadrature->size();
   std::vector<dealii::Tensor<1, dim>> lambda_values(n_q);
 
-  // ------------------------------------------------------------
-  // 2) Accumulateurs par slice
-  // ------------------------------------------------------------
   std::vector<dealii::Tensor<1, dim>> lambda_integral_slices_local(n_slices);
   std::vector<dealii::Tensor<1, dim>> lambda_integral_slices(n_slices);
 
@@ -3530,15 +3226,12 @@ void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
 
   bool warned_bad_index_local = false;
 
-  // ------------------------------------------------------------
-  // 3) Intégration face par face, slice = slice_index[cell]
-  // ------------------------------------------------------------
+
   for (const auto &cell : this->dof_handler.active_cell_iterators())
   {
     if (!cell->is_locally_owned())
       continue;
 
-    // Slice id de la cellule
     const auto cell_ai = cell->active_cell_index();
     if (cell_ai >= slice_index.size())
     {
@@ -3546,15 +3239,15 @@ void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
           this->param.debug.verbosity == Parameters::Verbosity::verbose)
       {
         this->pcout << "[compute_slices_forces_lagrange_multiplier] "
-                    << "slice_index trop petit (active_cell_index="
-                    << cell_ai << ", size=" << slice_index.size()
+                    << "slice_index trop petit (active_cell_index=" << cell_ai
+                    << ", size=" << slice_index.size()
                     << "). Contributions ignorées." << std::endl;
         warned_bad_index_local = true;
       }
       continue;
     }
 
-    // IMPORTANT: slice_index est double -> on attend un entier stocké en double
+    // IMPORTANT: slice_index is a double even if we would like an int
     const long long k_ll =
       static_cast<long long>(std::llround(slice_index[cell_ai]));
 
@@ -3563,11 +3256,10 @@ void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
 
     const unsigned int k = static_cast<unsigned int>(k_ll);
 
-    // Si ton postproc calcule plus de slices que le param, on ignore hors-range
     if (k >= n_slices)
       continue;
 
-    // Boucle faces boundary
+
     for (unsigned int f = 0; f < cell->n_faces(); ++f)
     {
       const auto &face = cell->face(f);
@@ -3578,27 +3270,24 @@ void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
 
       fe_face_values.reinit(cell, f);
 
-      // lambda sur la face
+
       fe_face_values[lambda_extractor].get_function_values(
         this->present_solution, lambda_values);
 
       for (unsigned int q = 0; q < n_q; ++q)
-        lambda_integral_slices_local[k] += lambda_values[q] * fe_face_values.JxW(q);
+        lambda_integral_slices_local[k] +=
+          lambda_values[q] * fe_face_values.JxW(q);
     }
   }
 
-  // ------------------------------------------------------------
-  // 4) Réduction MPI (que des doubles) -> SAFE
-  // ------------------------------------------------------------
+
   for (unsigned int k = 0; k < n_slices; ++k)
     for (unsigned int d = 0; d < dim; ++d)
       lambda_integral_slices[k][d] =
         dealii::Utilities::MPI::sum(lambda_integral_slices_local[k][d],
                                     this->mpi_communicator);
 
-  // ------------------------------------------------------------
-  // 5) Stocke dans ta table dédiée (comme tu voulais: CDk/CLk)
-  // ------------------------------------------------------------
+
   this->slices_forces_table.add_value("time", this->time_handler.current_time);
 
   for (unsigned int k = 0; k < n_slices; ++k)
@@ -3606,23 +3295,27 @@ void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
     const double Fx = -lambda_integral_slices[k][0];
     const double Fy = -lambda_integral_slices[k][1];
 
-    this->slices_forces_table.add_value("CD" + std::to_string(k), Fx);
-    this->slices_forces_table.add_value("CL" + std::to_string(k), Fy);
+    this->slices_forces_table.add_value("Fx" + std::to_string(k), Fx);
+    this->slices_forces_table.add_value("Fy" + std::to_string(k), Fy);
+    this->slices_forces_table.set_precision("Fx" + std::to_string(k), 10);
+    this->slices_forces_table.set_scientific("Fx" + std::to_string(k), true);
+    this->slices_forces_table.set_precision("Fy" + std::to_string(k), 10);
+    this->slices_forces_table.set_scientific("Fy" + std::to_string(k), true);
 
     if constexpr (dim == 3)
     {
       const double Fz = -lambda_integral_slices[k][2];
-      this->slices_forces_table.add_value("CZ" + std::to_string(k), Fz);
+      this->slices_forces_table.add_value("Fz" + std::to_string(k), Fz);
+      this->slices_forces_table.set_precision("Fz" + std::to_string(k), 10);
+      this->slices_forces_table.set_scientific("Fz" + std::to_string(k), true);
     }
   }
 
-  // ------------------------------------------------------------
-  // 6) Export fichier
-  // ------------------------------------------------------------
   if (export_table && this->mpi_rank == 0)
   {
     std::ofstream outfile(this->param.output.output_dir +
                           "slices_forces_lagrange_multiplier.txt");
+    outfile << std::scientific << std::setprecision(10);
     this->slices_forces_table.write_text(outfile);
   }
 }
@@ -3683,13 +3376,20 @@ void FSISolver<dim>::write_cylinder_position(const bool export_table)
   cylinder_position_table.add_value("time", this->time_handler.current_time);
   cylinder_position_table.add_value("xc", average_position[0]);
   cylinder_position_table.add_value("yc", average_position[1]);
+  cylinder_position_table.set_precision("xc", 10);
+  cylinder_position_table.set_scientific("xc", true);
+  cylinder_position_table.set_precision("yc", 10);
+  cylinder_position_table.set_scientific("yc", true);
   if constexpr (dim == 3)
     cylinder_position_table.add_value("zc", average_position[2]);
+  cylinder_position_table.set_precision("zc", 10);
+  cylinder_position_table.set_scientific("zc", true);
 
   if (export_table && this->mpi_rank == 0)
   {
     std::ofstream outfile(this->param.output.output_dir +
                           "cylinder_center.txt");
+    outfile << std::scientific << std::setprecision(10);
     cylinder_position_table.write_text(outfile);
   }
 }
@@ -3731,15 +3431,20 @@ void FSISolver<dim>::solver_specific_post_processing()
       check_velocity_boundary();
   }
 
+  // Call of interne post processing fonction with there linked conditions
   const bool export_force_table =
     (this->param.postprocessing.write_total_force &&
-    (this->time_handler.is_steady() ||
-     ((this->time_handler.current_time_iteration %
-       this->param.postprocessing.force_and_position_output_frequency) == 0)));
+     (this->time_handler.is_steady() ||
+      ((this->time_handler.current_time_iteration %
+        this->param.postprocessing.force_and_position_output_frequency) == 0)));
+
   compute_forces_lagrange_multiplier(export_force_table);
 
-  const bool export_slices_force_table = (this ->param.postprocessing.write_force_per_slice && (this->time_handler.is_steady()||((this->time_handler.current_time_iteration %
-       this->param.postprocessing.force_and_position_output_frequency) == 0)));
+  const bool export_slices_force_table =
+    (this->param.postprocessing.write_force_per_slice &&
+     (this->time_handler.is_steady() ||
+      ((this->time_handler.current_time_iteration %
+        this->param.postprocessing.force_and_position_output_frequency) == 0)));
 
   compute_slices_forces_lagrange_multiplier(export_slices_force_table);
   const bool export_position_table =
@@ -3747,6 +3452,7 @@ void FSISolver<dim>::solver_specific_post_processing()
     (this->time_handler.is_steady() ||
      ((this->time_handler.current_time_iteration %
        this->param.postprocessing.force_and_position_output_frequency) == 0));
+
   write_cylinder_position(export_position_table);
 }
 

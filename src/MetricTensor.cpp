@@ -508,7 +508,8 @@ MetricTensor<dim>::intersection(const MetricTensor<dim> &m2) const
       return MetricTensor<dim>(
         symmetrize(eigenvectors * eigenvalues_diag * transpose(eigenvectors)));
     }
-  } else
+  }
+  else
   {
     // TODO: simultaneous reduction in 3D
     AssertThrow(false, ExcNotImplemented());

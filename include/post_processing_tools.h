@@ -10,12 +10,11 @@
 namespace PostProcessingTools
 {
   using namespace dealii;
-  
+
   template <int dim>
   class DataOutFacesOnBoundary : public DataOutFaces<dim>
   {
   public:
-
     DataOutFacesOnBoundary(const Triangulation<dim> &triangulation,
                            const types::boundary_id  boundary_id);
 
@@ -41,7 +40,7 @@ namespace PostProcessingTools
 
   template <int dim>
   Vector<double>
-  compute_slice_index_on_boundary(const DoFHandler<dim>    &dof_handler,
+  compute_slice_index_on_boundary(const DoFHandler<dim>   &dof_handler,
                                   const types::boundary_id boundary_id,
                                   const unsigned int       n_slices,
                                   const SliceAxis          axis,

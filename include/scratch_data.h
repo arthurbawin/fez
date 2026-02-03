@@ -997,15 +997,14 @@ public:
   /**
    * Constructor
    */
-  ScratchDataFSI_hp(
-    const ComponentOrdering          &ordering,
-    const hp::FECollection<dim>      &fe_collection,
-    const hp::MappingCollection<dim> &fixed_mapping_collection,
-    const hp::MappingCollection<dim> &moving_mapping_collection,
-    const hp::QCollection<dim>       &cell_quadrature_collection,
-    const hp::QCollection<dim - 1>   &face_quadrature_collection,
-    const std::vector<double>        &bdf_coefficients,
-    const ParameterReader<dim>       &param)
+  ScratchDataFSI_hp(const ComponentOrdering          &ordering,
+                    const hp::FECollection<dim>      &fe_collection,
+                    const hp::MappingCollection<dim> &fixed_mapping_collection,
+                    const hp::MappingCollection<dim> &moving_mapping_collection,
+                    const hp::QCollection<dim>     &cell_quadrature_collection,
+                    const hp::QCollection<dim - 1> &face_quadrature_collection,
+                    const std::vector<double>      &bdf_coefficients,
+                    const ParameterReader<dim>     &param)
     : ScratchData<dim, true>(ordering,
                              /*enable_pseudo_solid = */ true,
                              /*enable_lagrange_multiplier = */ true,
@@ -1023,8 +1022,7 @@ public:
   /**
    * Copy constructor
    */
-  ScratchDataFSI_hp(
-    const ScratchDataFSI_hp &other)
+  ScratchDataFSI_hp(const ScratchDataFSI_hp &other)
     : ScratchData<dim, true>(other)
   {}
 };

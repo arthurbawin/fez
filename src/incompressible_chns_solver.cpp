@@ -50,9 +50,9 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   tracer_mask         = fe->component_mask(tracer_extractor);
   potential_mask      = fe->component_mask(potential_extractor);
 
-  this->field_names_and_masks["velocity"] = this->velocity_mask;
-  this->field_names_and_masks["pressure"] = this->pressure_mask;
-  this->field_names_and_masks["tracer"] = this->tracer_mask;
+  this->field_names_and_masks["velocity"]  = this->velocity_mask;
+  this->field_names_and_masks["pressure"]  = this->pressure_mask;
+  this->field_names_and_masks["tracer"]    = this->tracer_mask;
   this->field_names_and_masks["potential"] = this->potential_mask;
 
   /**
@@ -64,14 +64,16 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
     this->ordering->phi_lower, this->ordering->n_components);
 
   // Assign the exact solution
-  this->exact_solution = std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSolution>(
-    this->time_handler.current_time, *this->ordering, param.mms);
+  this->exact_solution =
+    std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSolution>(
+      this->time_handler.current_time, *this->ordering, param.mms);
 
   if (param.mms_param.enable)
   {
     // Create the MMS source term function and override source terms
-    this->source_terms = std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm>(
-      this->time_handler.current_time, *this->ordering, param);
+    this->source_terms =
+      std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm>(
+        this->time_handler.current_time, *this->ordering, param);
 
     // Create entry in error handler for tracer and potential
     for (auto norm : this->param.mms_param.norms_to_compute)
@@ -82,14 +84,16 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   }
   else
   {
-    this->source_terms = std::make_shared<CHNSSolver<dim, with_moving_mesh>::SourceTerm>(
-      this->time_handler.current_time, *this->ordering, param.source_terms);
+    this->source_terms =
+      std::make_shared<CHNSSolver<dim, with_moving_mesh>::SourceTerm>(
+        this->time_handler.current_time, *this->ordering, param.source_terms);
   }
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(const Point<dim> &p,
-                                                  Vector<double> &values) const
+void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
+  const Point<dim> &p,
+  Vector<double>   &values) const
 {
   const double phi          = mms.exact_tracer->value(p);
   const double filtered_phi = phi;
@@ -154,7 +158,8 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(const Point<
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_zero_constraints()
+void CHNSSolver<dim,
+                with_moving_mesh>::create_solver_specific_zero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
@@ -182,7 +187,8 @@ void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_zero_constraints(
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_nonzero_constraints()
+void CHNSSolver<dim,
+                with_moving_mesh>::create_solver_specific_nonzero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
@@ -216,8 +222,11 @@ void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_initial_conditions()
       this->param.initial_conditions.initial_chns_tracer.get();
 
   // Set tracer only
-  VectorTools::interpolate(
-    *this->moving_mapping, this->dof_handler, *tracer_fun, this->newton_update, tracer_mask);
+  VectorTools::interpolate(*this->moving_mapping,
+                           this->dof_handler,
+                           *tracer_fun,
+                           this->newton_update,
+                           tracer_mask);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -545,7 +554,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_matrix(const CopyData &copy_data)
+void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_matrix(
+  const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
@@ -803,7 +813,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_rhs(const CopyData &copy_data)
+void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_rhs(
+  const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;

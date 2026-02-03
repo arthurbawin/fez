@@ -1,11 +1,12 @@
 
 #include <boundary_conditions.h>
-#include <deal.II/grid/grid_tools_geometry.h>
-#include <deal.II/base/utilities.h>
 #include <deal.II/base/exceptions.h>
-#include <mpi.h>
-#include <sstream>
+#include <deal.II/base/utilities.h>
 #include <deal.II/fe/mapping_q1.h>
+#include <deal.II/grid/grid_tools_geometry.h>
+#include <mpi.h>
+
+#include <sstream>
 
 
 namespace BoundaryConditions
@@ -230,43 +231,45 @@ namespace BoundaryConditions
     const Function<dim>       &exact_solution,
     const Function<dim>       &exact_velocity,
     AffineConstraints<double> &constraints,
-    unsigned int rank)
+    unsigned int               rank)
   {
     const FEValuesExtractors::Vector velocity(u_lower);
-    const ComponentMask velocity_mask = dof_handler.get_fe().component_mask(velocity);
+    const ComponentMask              velocity_mask =
+      dof_handler.get_fe().component_mask(velocity);
 
 
 
     std::set<types::boundary_id> no_flux_boundaries;
     std::set<types::boundary_id> outflow_boundaries;
     std::set<types::boundary_id> velocity_normal_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_normal_flux_functions;
+    std::map<types::boundary_id, const Function<dim> *>
+                                 velocity_normal_flux_functions;
     std::set<types::boundary_id> velocity_tangential_flux_boundaries;
-    std::map<types::boundary_id, const Function<dim> *> velocity_tangential_flux_functions;
+    std::map<types::boundary_id, const Function<dim> *>
+      velocity_tangential_flux_functions;
 
     // Compteurs utiles
-    unsigned int n_no_slip = 0;
-    unsigned int n_input_function = 0;
-    unsigned int n_velocity_mms = 0;
-    unsigned int n_slip = 0;
+    unsigned int n_no_slip           = 0;
+    unsigned int n_input_function    = 0;
+    unsigned int n_velocity_mms      = 0;
+    unsigned int n_slip              = 0;
     unsigned int n_velocity_flux_mms = 0;
-    unsigned int n_outflow = 0 ; 
+    unsigned int n_outflow           = 0;
 
 
     for (const auto &[id, bc] : fluid_bc)
     {
-
-
       if (bc.type == BoundaryConditions::Type::no_slip)
       {
         ++n_no_slip;
 
         VectorTools::interpolate_boundary_values(mapping,
-                                                dof_handler,
-                                                bc.id,
-                                                Functions::ZeroFunction<dim>(n_components),
-                                                constraints,
-                                                velocity_mask);
+                                                 dof_handler,
+                                                 bc.id,
+                                                 Functions::ZeroFunction<dim>(
+                                                   n_components),
+                                                 constraints,
+                                                 velocity_mask);
       }
 
       if (bc.type == BoundaryConditions::Type::input_function)
@@ -275,26 +278,24 @@ namespace BoundaryConditions
 
         if (homogeneous)
         {
-
           VectorTools::interpolate_boundary_values(mapping,
-                                                  dof_handler,
-                                                  bc.id,
-                                                  Functions::ZeroFunction<dim>(n_components),
-                                                  constraints,
-                                                  velocity_mask);
+                                                   dof_handler,
+                                                   bc.id,
+                                                   Functions::ZeroFunction<dim>(
+                                                     n_components),
+                                                   constraints,
+                                                   velocity_mask);
         }
         else
         {
-          VectorTools::interpolate_boundary_values(mapping,
-                                                  dof_handler,
-                                                  bc.id,
-                                                  ComponentwiseFlowVelocity<dim>(u_lower,
-                                                                                  n_components,
-                                                                                  bc.u,
-                                                                                  bc.v,
-                                                                                  bc.w),
-                                                  constraints,
-                                                  velocity_mask);
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            ComponentwiseFlowVelocity<dim>(
+              u_lower, n_components, bc.u, bc.v, bc.w),
+            constraints,
+            velocity_mask);
         }
       }
 
@@ -304,25 +305,23 @@ namespace BoundaryConditions
 
         if (homogeneous)
         {
-
           VectorTools::interpolate_boundary_values(mapping,
-                                                  dof_handler,
-                                                  bc.id,
-                                                  Functions::ZeroFunction<dim>(n_components),
-                                                  constraints,
-                                                  velocity_mask);
+                                                   dof_handler,
+                                                   bc.id,
+                                                   Functions::ZeroFunction<dim>(
+                                                     n_components),
+                                                   constraints,
+                                                   velocity_mask);
         }
         else
         {
           VectorTools::interpolate_boundary_values(mapping,
-                                                  dof_handler,
-                                                  bc.id,
-                                                  exact_solution,
-                                                  constraints,
-                                                  velocity_mask);
+                                                   dof_handler,
+                                                   bc.id,
+                                                   exact_solution,
+                                                   constraints,
+                                                   velocity_mask);
         }
-
-
       }
 
       if (bc.type == BoundaryConditions::Type::slip)
@@ -335,7 +334,6 @@ namespace BoundaryConditions
       {
         ++n_outflow;
         outflow_boundaries.insert(bc.id);
-
       }
 
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
@@ -353,35 +351,40 @@ namespace BoundaryConditions
     auto comm = dof_handler.get_mpi_communicator();
 
     MPI_Barrier(comm);
-    VectorTools::compute_no_normal_flux_constraints(dof_handler,
-                                                    u_lower,
-                                                    no_flux_boundaries,
-                                                    constraints,
-                                                    mapping,
-                                                    /*use_manifold_for_normal=*/false);
+    VectorTools::compute_no_normal_flux_constraints(
+      dof_handler,
+      u_lower,
+      no_flux_boundaries,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
     MPI_Barrier(comm);
 
-    VectorTools::compute_normal_flux_constraints(dof_handler,
-                                                    u_lower,
-                                                    outflow_boundaries,
-                                                    constraints,
-                                                    mapping,
-                                                    /*use_manifold_for_normal=*/false);
+    VectorTools::compute_normal_flux_constraints(
+      dof_handler,
+      u_lower,
+      outflow_boundaries,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
 
-    VectorTools::compute_nonzero_normal_flux_constraints(dof_handler,
-                                                        u_lower,
-                                                        velocity_normal_flux_boundaries,
-                                                        velocity_normal_flux_functions,
-                                                        constraints,
-                                                        mapping,/*use_manifold_for_normal=*/false);
+    VectorTools::compute_nonzero_normal_flux_constraints(
+      dof_handler,
+      u_lower,
+      velocity_normal_flux_boundaries,
+      velocity_normal_flux_functions,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
 
-    VectorTools::compute_nonzero_tangential_flux_constraints(dof_handler,
-                                                            u_lower,
-                                                            velocity_tangential_flux_boundaries,
-                                                            velocity_tangential_flux_functions,
-                                                            constraints,
-                                                            mapping,
-                                                            /*use_manifold_for_normal=*/false);
+    VectorTools::compute_nonzero_tangential_flux_constraints(
+      dof_handler,
+      u_lower,
+      velocity_tangential_flux_boundaries,
+      velocity_tangential_flux_functions,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>
@@ -397,7 +400,6 @@ namespace BoundaryConditions
     const Function<dim>       &exact_mesh_position,
     AffineConstraints<double> &constraints)
   {
-
     const FEValuesExtractors::Vector position(x_lower);
     const ComponentMask              position_mask =
       dof_handler.get_fe().component_mask(position);
@@ -618,7 +620,8 @@ namespace BoundaryConditions
       fill_dofs_to_component(dof_handler,
                              locally_relevant_dofs,
                              dofs_to_component);
-    AssertDimension(dofs_to_component.size(), locally_relevant_dofs.n_elements());
+    AssertDimension(dofs_to_component.size(),
+                    locally_relevant_dofs.n_elements());
     for (const auto dof : gathered_dofs_flattened)
       dofs_to_component[locally_relevant_dofs.index_within_set(dof)] = p_lower;
 

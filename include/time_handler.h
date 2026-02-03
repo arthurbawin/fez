@@ -106,11 +106,10 @@ public:
   void load();
 
   /**
-   * 
+   *
    */
   template <class Archive>
-  void
-  serialize(Archive &ar, const unsigned int version);
+  void serialize(Archive &ar, const unsigned int version);
 
 public:
   Parameters::TimeIntegration time_parameters;
@@ -186,17 +185,16 @@ Tensor<1, dim> TimeHandler::compute_time_derivative_at_quadrature_node(
 }
 
 template <class Archive>
-void
-TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
+void TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
 {
-  ar &initial_time;
-  ar &final_time;
-  ar &current_time;
-  ar &current_time_iteration;
-  ar &previous_times;
-  ar &current_dt;
-  ar &time_steps;
-  ar &bdf_coefficients;
+  ar & initial_time;
+  ar & final_time;
+  ar & current_time;
+  ar & current_time_iteration;
+  ar & previous_times;
+  ar & current_dt;
+  ar & time_steps;
+  ar & bdf_coefficients;
 }
 
 #endif

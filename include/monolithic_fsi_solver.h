@@ -63,7 +63,6 @@ public:
     if (this->param.fsi.enable_coupling)
       create_position_lagrange_mult_coupling_data();
     create_lagrange_multiplier_constraints();
-
   }
 
   /**

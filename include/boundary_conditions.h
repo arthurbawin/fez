@@ -60,7 +60,6 @@ namespace BoundaryConditions
     no_flux,           // Slip. Have to check what happens at corners, etc.
     position_mms,      // Enforce x = x_mms
     position_flux_mms, // Enforce x \cdot n = x_mms \cdot n
-    debug_test,
 
     // Cahn-Hilliard
     // no_flux
@@ -216,7 +215,7 @@ namespace BoundaryConditions
     const Function<dim>       &exact_solution,
     const Function<dim>       &exact_velocity,
     AffineConstraints<double> &constraints,
-    unsigned int rank);
+    unsigned int rank /*rank added to enable MPI-aware boundary handling*/);
 
   /**
    *

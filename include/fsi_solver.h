@@ -220,7 +220,7 @@ protected:
   {
     return cell->material_id() == with_lambda_domain_id;
   }
-  
+
   std::shared_ptr<FESystem<dim>>         fe_with_lambda;
   std::shared_ptr<FESystem<dim>>         fe_without_lambda;
   std::shared_ptr<hp::FECollection<dim>> fe;

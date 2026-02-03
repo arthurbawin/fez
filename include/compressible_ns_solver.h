@@ -101,7 +101,7 @@ protected:
   const Mapping<dim> *mapping;
 
   FEValuesExtractors::Scalar temperature_extractor;
-  ComponentMask temperature_mask;
+  ComponentMask              temperature_mask;
 
   /**
    * Exact solution when performing a convergence study with a manufactured

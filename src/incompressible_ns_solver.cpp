@@ -16,9 +16,9 @@
 #include <incompressible_ns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
-#include <post_processing_tools.h>
 
 
 template <int dim>
@@ -87,7 +87,7 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   }
   else
   {
-    this->source_terms   = param.source_terms.fluid_source;
+    this->source_terms = param.source_terms.fluid_source;
   }
 }
 
@@ -501,8 +501,8 @@ void NSSolver<dim>::output_results()
   // ============================================================
   if (this->param.output.write_results &&
       (this->time_handler.current_time_iteration %
-         this->param.output.vtu_output_frequency ==
-       0 ||
+           this->param.output.vtu_output_frequency ==
+         0 ||
        this->time_handler.is_finished()))
   {
     // (u, p) => dim + 1 components
@@ -555,8 +555,8 @@ void NSSolver<dim>::output_results()
   if (this->param.output.write_skin_results &&
       this->param.output.skin_boundary_id != numbers::invalid_unsigned_int &&
       (this->time_handler.current_time_iteration %
-         this->param.output.skin_vtu_output_frequency ==
-       0 ||
+           this->param.output.skin_vtu_output_frequency ==
+         0 ||
        this->time_handler.is_finished()))
   {
     // (u, p) on the boundary
@@ -588,19 +588,20 @@ void NSSolver<dim>::output_results()
                                    data_component_interpretation_faces);
 
     data_out_faces.build_patches(*mapping, 2);
-    
-    
+
+
     const std::string skin_prefix = this->param.output.output_prefix + "_skin";
 
-    const std::string skin_pvtu_file = data_out_faces.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      skin_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
+    const std::string skin_pvtu_file =
+      data_out_faces.write_vtu_with_pvtu_record(
+        this->param.output.output_dir,
+        skin_prefix,
+        this->time_handler.current_time_iteration,
+        this->mpi_communicator,
+        2);
 
-    this->visualization_times_and_names.emplace_back(this->time_handler.current_time,
-                                                    skin_pvtu_file);
+    this->visualization_times_and_names.emplace_back(
+      this->time_handler.current_time, skin_pvtu_file);
 
 
     this->visualization_times_and_names.emplace_back(

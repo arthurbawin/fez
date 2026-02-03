@@ -31,6 +31,7 @@ public:
   Parameters::LinearSolver            linear_solver;
   Parameters::NonLinearSolver         nonlinear_solver;
   Parameters::CahnHilliard<dim>       cahn_hilliard;
+  Parameters::MeshForcing             mesh_forcing;
   Parameters::MMS                     mms_param;
   Parameters::Debug                   debug;
 
@@ -95,6 +96,7 @@ public:
     BoundaryConditions::declare_boundary_conditions<
       BoundaryConditions::HeatBC<dim>>(prm, bc_data.n_heat_bc, "Heat");
     cahn_hilliard.declare_parameters(prm);
+    mesh_forcing.declare_parameters(prm);
     source_terms.declare_parameters(prm);
     mms_param.declare_parameters(prm);
     mms.declare_parameters(prm);
@@ -134,6 +136,7 @@ public:
                                                  "Heat",
                                                  heat_bc);
     cahn_hilliard.read_parameters(prm);
+    mesh_forcing.read_parameters(prm);
     source_terms.read_parameters(prm);
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);

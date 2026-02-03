@@ -252,7 +252,17 @@ namespace Parameters
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
+  
+  struct MeshForcing
+  {
+    bool enable;
+    double alpha;
+    double beta;
 
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+  
   struct CheckpointRestart
   {
     bool enable_checkpoint;

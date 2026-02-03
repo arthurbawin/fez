@@ -480,8 +480,13 @@ private:
                                                 potential_gradients);
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+    {
       fe_values[tracer].get_function_values(previous_solutions[i],
                                             previous_tracer_values[i]);
+      fe_values[tracer].get_function_gradients(previous_solutions[i],
+                                              previous_tracer_gradients[i]);
+    }
+
 
     source_terms->vector_value_list(fe_values.get_quadrature_points(),
                                     source_term_full_moving);
@@ -519,6 +524,58 @@ private:
 
       u_conv_dot_tracer_gradient[q] =
         (present_velocity_values[q] - w) * tracer_gradients[q];
+
+      // ------------------------------------------------------------
+      // Mesh forcing cache at quadrature points (previous level)
+      //
+      // We approximate the previous convective velocity using:
+      //   u_conv^{n-1} = u^{n-1} - w^{n-1},
+      // where the previous mesh velocity is approximated by a first-order
+      // backward difference:
+      //   w^{n-1} ≈ (x^{n-1} - x^{n-2}) / Δt.
+      //
+      // NOTE: This is an approximation (even if time integration is BDF2).
+      // If x^{n-2} is not available, we fallback to w^{n-1}=0.
+      // ------------------------------------------------------------
+      if (enable_pseudo_solid && mesh_forcing_param.enable)
+      {
+        // dt reconstruction from BDF coefficients:
+        // - For BDF1: bdf0 = 1/dt
+        // - For BDF2: bdf0 = 3/(2 dt)  => dt = 3/(2 bdf0) = 1.5/bdf0
+        // For other orders: we fallback to dt = 1/bdf0 (approx).
+        double dt = 0.0;
+        if (bdf_coefficients.size() == 2)
+          dt = 1.0 / bdf_coefficients[0];
+        else if (bdf_coefficients.size() == 3)
+          dt = 1.5 / bdf_coefficients[0];
+
+        const double alpha = mesh_forcing_param.alpha;
+        const double beta  = mesh_forcing_param.beta;
+
+        const double        phi_prev  = previous_tracer_values[0][q];
+        const Tensor<1,dim> grad_tracer_prev = previous_tracer_gradients[0][q];
+        const Tensor<1,dim> u_prev    = previous_velocity_values[0][q];
+
+        // Approximate w^{n-1}
+        Tensor<1,dim> w_prev;
+        w_prev = 0.0;
+
+        // Need x^{n-1} and x^{n-2} for the backward difference
+        if (previous_position_values.size() >= 2 && dt > 0.0)
+        {
+          const Tensor<1,dim> x_prev  = previous_position_values[0][q]; // x^{n-1}
+          const Tensor<1,dim> x_prev2 = previous_position_values[1][q]; // x^{n-2}
+          w_prev = (x_prev - x_prev2) / dt;
+        }
+
+        const Tensor<1,dim> uconv_prev = u_prev - w_prev;
+        const double        s          = uconv_prev * grad_tracer_prev; // dot
+
+        // f_mesh^{n-1} = alpha * phi^{n-1} * grad(phi)^{n-1}
+        //              + beta  * (uconv^{n-1}·grad(phi)^{n-1}) * grad(phi)^{n-1}
+        f_mesh_values[q] = alpha * (phi_prev * grad_tracer_prev) + beta * (s * grad_tracer_prev);
+      }
+
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -643,6 +700,8 @@ private:
 
   Parameters::PhysicalProperties<dim> physical_properties;
   Parameters::CahnHilliard<dim>       cahn_hilliard_param;
+  // COpy alpha and beta values
+  Parameters::MeshForcing mesh_forcing_param;
 
   // Non-owning pointers for active FEValues/FaceValues
   const FEValues<dim>     *active_fe_values;
@@ -793,6 +852,11 @@ public:
   std::vector<double>              potential_values;
   std::vector<Tensor<1, dim>>      potential_gradients;
   std::vector<std::vector<double>> previous_tracer_values;
+  std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients;
+
+  // --- mesh forcing cached at quadrature points
+  std::vector<Tensor<1, dim>> f_mesh_values; // size = n_q_points
+
 
   std::vector<Tensor<1, dim>>              diffusive_flux;
   std::vector<double>                      velocity_dot_tracer_gradient;

@@ -378,24 +378,47 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
     constraints);
 
   if (param.bc_data.fix_pressure_constant)
-  {
-    // The pressure DOF is set to 0 by default for the nonzero constraints too,
-    // unless there is a prescribed manufactured solution, in which case it is
-    // prescribed to p_mms.
-    bool set_to_zero = true;
-    if (!homogeneous && param.mms_param.enable)
-      set_to_zero = false;
+    {
+      // The pressure DOF is set to 0 by default for the nonzero constraints too,
+      // unless there is a prescribed manufactured solution, in which case it is
+      // prescribed to p_mms.
+      bool set_to_zero = true;
+      if (!homogeneous && param.mms_param.enable)
+        set_to_zero = false;
 
-    BoundaryConditions::constrain_pressure_point(
-      dof_handler,
-      locally_relevant_dofs,
-      *moving_mapping,
-      *exact_solution,
-      ordering->p_lower,
-      set_to_zero,
-      constraints,
-      constrained_pressure_dof,
-      constrained_pressure_support_point);
+      // --- ALE fix: refresh the physical support point for the pinned pressure dof
+      // In ALE, the mapping changes (evaluation_point updated), but
+      // constrained_pressure_support_point is cached across calls. For MMS
+      // (set_to_zero=false), we must reevaluate p_exact at the CURRENT support point.
+      if constexpr (with_moving_mesh)
+      {
+        if (!set_to_zero &&
+            constrained_pressure_dof != numbers::invalid_dof_index &&
+            locally_relevant_dofs.is_element(constrained_pressure_dof))
+        {
+          const auto support_points =
+            DoFTools::map_dofs_to_support_points(*moving_mapping, dof_handler);
+
+          const auto it = support_points.find(constrained_pressure_dof);
+          AssertThrow(it != support_points.end(),
+                      ExcMessage("Pinned pressure DoF not found in support points map."));
+          constrained_pressure_support_point = it->second;
+        }
+      }
+      // --- end ALE fix
+      Point<dim> SupportP;
+      SupportP[0]=1.;
+      BoundaryConditions::constrain_pressure_point(
+        dof_handler,
+        locally_relevant_dofs,
+        *moving_mapping,
+        *exact_solution,
+        ordering->p_lower,
+        set_to_zero,
+        constraints,
+        constrained_pressure_dof,
+        constrained_pressure_support_point,
+        SupportP);
   }
 
   if (param.bc_data.enforce_zero_mean_pressure)

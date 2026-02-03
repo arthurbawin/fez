@@ -788,6 +788,31 @@ namespace Parameters
     prm.leave_subsection();
   }
 
+  void MeshForcing::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Mesh Forcing");
+    {
+      prm.declare_entry("enable", "false", Patterns::Bool(),
+                        "Enable mesh body-force term in pseudo-solid equation.");
+      prm.declare_entry("alpha", "0.0", Patterns::Double(),
+                        "Coefficient of alpha*phi*grad(phi).");
+      prm.declare_entry("beta", "0.0", Patterns::Double(),
+                        "Coefficient of beta*(u_conv*grad(phi))*grad(phi).");
+    }
+    prm.leave_subsection();
+  }
+
+  void MeshForcing::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Mesh Forcing");
+    {
+      enable    =prm.get_bool("enable");
+      alpha    =prm.get_double("alpha");
+      beta    =prm.get_double("beta");
+    }
+    prm.leave_subsection();
+  }
+
   void Debug::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Debug");

@@ -178,16 +178,36 @@ void NSSolver<dim>::assemble_matrix()
       "for parallel matrix and vectors, which are not thread safe."));
 #endif
 
+  auto assembly_ptr = this->param.nonlinear_solver.analytic_jacobian ?
+                      &NSSolver::assemble_local_matrix :
+                      &NSSolver::assemble_local_matrix_finite_differences;
+
   // Assemble matrix (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
                   this->dof_handler.end(),
                   *this,
-                  &NSSolver::assemble_local_matrix,
+                  assembly_ptr,
                   &NSSolver::copy_local_to_global_matrix,
                   scratchData,
                   copyData);
 
   this->system_matrix.compress(VectorOperation::add);
+}
+
+template <int dim>
+void NSSolver<dim>::assemble_local_matrix_finite_differences(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  ScratchData                                          &scratch_data,
+  CopyData                                             &copy_data)
+{
+  Verification::compute_local_matrix_finite_differences<dim>(
+    cell,
+    *this,
+    &NSSolver::assemble_local_rhs,
+    scratch_data,
+    copy_data,
+    this->evaluation_point,
+    this->local_evaluation_point);
 }
 
 template <int dim>

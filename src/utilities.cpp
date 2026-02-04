@@ -1,8 +1,75 @@
 
+#include <deal.II/base/quadrature_lib.h>
 #include <mpi.h>
 #include <utilities.h>
 
 #include <filesystem>
+
+template <int dim>
+void create_quadrature_rules(
+  const Parameters::FiniteElements<dim> &fe_param,
+  std::shared_ptr<Quadrature<dim>>      &quadrature,
+  std::shared_ptr<Quadrature<dim - 1>>  &face_quadrature,
+  std::shared_ptr<Quadrature<dim>>      &error_quadrature,
+  std::shared_ptr<Quadrature<dim - 1>>  &error_face_quadrature)
+{
+  using RuleType =
+    typename Parameters::FiniteElements<dim>::QuadratureRule::Type;
+
+  // Rules for quads are hardcoded to n_points_1d = 4 for now.
+  if (fe_param.use_quads)
+  {
+    quadrature            = std::make_shared<QGauss<dim>>(4);
+    error_quadrature      = std::make_shared<QGauss<dim>>(4);
+    face_quadrature       = std::make_shared<QGauss<dim - 1>>(4);
+    error_face_quadrature = std::make_shared<QGauss<dim - 1>>(4);
+    return;
+  }
+
+  const auto make_simplex_quadrature = [](auto  rule_type,
+                                          auto  n_cell,
+                                          auto  n_face,
+                                          auto &cell_quad,
+                                          auto &face_quad) {
+    switch (rule_type)
+    {
+      case RuleType::GaussSimplex:
+        cell_quad = std::make_shared<QGaussSimplex<dim>>(n_cell);
+        face_quad = std::make_shared<QGaussSimplex<dim - 1>>(n_face);
+        break;
+      case RuleType::WitherdenVincent:
+        cell_quad = std::make_shared<QWitherdenVincentSimplex<dim>>(n_cell);
+        face_quad = std::make_shared<QWitherdenVincentSimplex<dim - 1>>(n_face);
+        break;
+      default:
+        AssertThrow(false,
+                    ExcMessage("Could not assign a valid quadrature rule!"));
+    }
+  };
+
+  make_simplex_quadrature(fe_param.rule.type,
+                          fe_param.rule.n_pts_1D_simplex_cell_quad,
+                          fe_param.rule.n_pts_1D_simplex_face_quad,
+                          quadrature,
+                          face_quadrature);
+
+  make_simplex_quadrature(fe_param.rule_for_error.type,
+                          fe_param.rule_for_error.n_pts_1D_simplex_cell_quad,
+                          fe_param.rule_for_error.n_pts_1D_simplex_face_quad,
+                          error_quadrature,
+                          error_face_quadrature);
+}
+
+template void create_quadrature_rules(const Parameters::FiniteElements<3> &,
+                                      std::shared_ptr<Quadrature<3>> &,
+                                      std::shared_ptr<Quadrature<2>> &,
+                                      std::shared_ptr<Quadrature<3>> &,
+                                      std::shared_ptr<Quadrature<2>> &);
+template void create_quadrature_rules(const Parameters::FiniteElements<2> &,
+                                      std::shared_ptr<Quadrature<2>> &,
+                                      std::shared_ptr<Quadrature<1>> &,
+                                      std::shared_ptr<Quadrature<2>> &,
+                                      std::shared_ptr<Quadrature<1>> &);
 
 void replace_temporary_files(const std::string directory,
                              const std::string temporary_filename_prefix,
@@ -49,8 +116,8 @@ void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,
   /**
    * Note that non-local dofs may have been added to locally_relevant_dofs
    * (e.g., to add a mean pressure constraint). Because dofs_to_component is
-   * filled by looping over relevant cells, and since these non-local dofs do not
-   * belong to ghost cells, dofs_to_component will have the default value at
+   * filled by looping over relevant cells, and since these non-local dofs do
+   * not belong to ghost cells, dofs_to_component will have the default value at
    * these dofs.
    */
   const unsigned int n_relevant_dofs = locally_relevant_dofs.n_elements();

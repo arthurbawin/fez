@@ -12,6 +12,84 @@ namespace Verification
   using namespace dealii;
 
   /**
+   * Compute the local matrix on the given cell using first-order forward finite
+   * differences. This function does not currently work in parallel, possibly
+   * due to the exchanges of ghosts inside the dof loop.
+   *
+   * An alternative would be to work with local copies of the solution vector,
+   * which requires adding a reinit function for the ScratchData to interpolate
+   * fields from a local vector rather than from the full solution vector.
+   *
+   * This function is intended for prototyping.
+   */
+  template <int dim,
+            typename MainClass,
+            typename Iterator,
+            typename ScratchData,
+            typename CopyData,
+            typename VectorType>
+  void compute_local_matrix_finite_differences(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    MainClass                                            &main_object,
+    void (MainClass::*assemble_local_rhs)(const Iterator &,
+                                          ScratchData &,
+                                          CopyData &),
+    ScratchData &scratch_data,
+    CopyData    &copy_data,
+    VectorType  &evaluation_point,
+    VectorType  &local_evaluation_point)
+  {
+    const auto         comm = cell->get_dof_handler().get_mpi_communicator();
+    const unsigned int mpi_size = Utilities::MPI::n_mpi_processes(comm);
+    AssertThrow(mpi_size == 1,
+                ExcMessage("Matrix assembly with finite differences is for now "
+                           "restricted to sequential runs (1 MPI rank)."));
+
+    copy_data.cell_is_locally_owned = cell->is_locally_owned();
+
+    if (!cell->is_locally_owned())
+      return;
+
+    auto &local_matrix      = copy_data.local_matrix;
+    local_matrix            = 0;
+    auto &local_dof_indices = copy_data.local_dof_indices;
+
+    const unsigned int n = local_matrix.m();
+    Vector<double>     ref_local_rhs(n);
+
+    cell->get_dof_indices(local_dof_indices);
+    const double h = 1.e-8;
+
+    // Compute non-perturbed RHS
+    (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
+    ref_local_rhs = copy_data.local_rhs;
+
+    for (unsigned int j = 0; j < n; ++j)
+    {
+      evaluation_point      = local_evaluation_point;
+      const double og_value = evaluation_point[local_dof_indices[j]];
+
+      local_evaluation_point[local_dof_indices[j]] += h;
+      local_evaluation_point.compress(VectorOperation::add);
+      evaluation_point = local_evaluation_point;
+
+      // Compute perturbed RHS
+      (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
+
+      // Finite differences (with sign change as residual is -NL(u))
+      for (unsigned int i = 0; i < n; ++i)
+      {
+        local_matrix(i, j) = -(copy_data.local_rhs(i) - ref_local_rhs(i)) / h;
+      }
+
+      // Restore solution
+      local_evaluation_point[local_dof_indices[j]] = og_value;
+      local_evaluation_point.compress(VectorOperation::insert);
+      evaluation_point = local_evaluation_point;
+    }
+  }
+
+  /**
    * Compute the analytic Jacobian matrix on each mesh element
    * and compare it to its finite differences approximation by
    * perturing the Newton residual.
@@ -112,6 +190,7 @@ namespace Verification
       {
         //
         // Compute matrix with finite differences
+        // TODO: Use the function above instead of duplicating this code.
         //
         const double h  = 1.e-8;
         local_matrix_fd = 0.;

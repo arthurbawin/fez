@@ -1,0 +1,49 @@
+Number of MPI processes: 6
+Convergence test with manufactured solution:
+Mesh file was changed to ../../mms_meshes/holed0.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 80
+ boundary indicators: 2(16 faces) 3(8 faces) 
+ID 1 -> Domain
+ID 2 -> OuterBoundary
+ID 3 -> InnerBoundary
+Number of degrees of freedom: 516
+Convergence test with manufactured solution:
+Mesh file was changed to ../../mms_meshes/holed1.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 320
+ boundary indicators: 2(32 faces) 3(16 faces) 
+ID 1 -> Domain
+ID 2 -> OuterBoundary
+ID 3 -> InnerBoundary
+Number of degrees of freedom: 1752
+Convergence test with manufactured solution:
+Mesh file was changed to ../../mms_meshes/holed2.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 1280
+ boundary indicators: 2(64 faces) 3(32 faces) 
+ID 1 -> Domain
+ID 2 -> OuterBoundary
+ID 3 -> InnerBoundary
+Number of degrees of freedom: 6384
+
+L2_norm
+n_elm n_dof        u               p                l            F_comp0         F_comp1     
+   80   516 1.7563e-04    - 1.7815e-02     - 6.4624e-02    - 5.7940e-03    - 1.1425e-02    - 
+  320  1752 2.2956e-05 2.94 2.0097e-02 -0.17 3.9663e-02 0.70 2.1755e-04 4.74 4.3754e-04 4.71 
+ 1280  6384 2.8975e-06 2.99 7.1961e-03  1.48 1.8720e-02 1.08 5.5479e-06 5.29 1.1203e-05 5.29 
+
+Linfty_norm
+n_elm n_dof        u               p               l            F_comp0         F_comp1     
+   80   516 4.2791e-04    - 7.1914e-02    - 1.7246e-01    - 5.7940e-03    - 1.1425e-02    - 
+  320  1752 6.2549e-05 2.77 4.0050e-02 0.84 9.0196e-02 0.94 2.1755e-04 4.74 4.3754e-04 4.71 
+ 1280  6384 8.1363e-06 2.94 1.4431e-02 1.47 4.3767e-02 1.04 5.5479e-06 5.29 1.1203e-05 5.29 
+
+H1_seminorm
+n_elm n_dof        u               p              l            F_comp0         F_comp1     
+   80   516 8.5068e-03    - 4.7025e-01    - 0.0000e+00   - 5.7940e-03    - 1.1425e-02    - 
+  320  1752 2.2092e-03 1.95 2.3404e-01 1.01 0.0000e+00 nan 2.1755e-04 4.74 4.3754e-04 4.71 
+ 1280  6384 5.5870e-04 1.98 1.1245e-01 1.06 0.0000e+00 nan 5.5479e-06 5.29 1.1203e-05 5.29

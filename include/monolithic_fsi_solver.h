@@ -196,8 +196,10 @@ protected:
   // The master position dofs on this rank.
   // All other position dofs on the cylinder on this rank are constrained
   // to be equal to these ones.
-  bool                                     has_chunk_of_cylinder = false;
+  bool has_chunk_of_cylinder           = false;
+  bool has_global_master_position_dofs = false;
   std::array<types::global_dof_index, dim> local_position_master_dofs;
+  std::array<types::global_dof_index, dim> global_position_master_dofs;
 
   TableHandler cylinder_position_table;
 

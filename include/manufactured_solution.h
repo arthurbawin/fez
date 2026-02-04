@@ -17,13 +17,16 @@ namespace ManufacturedSolutions
 {
   using namespace dealii;
 
+  // TODO: clean and document these preset mms
   enum class PresetMMS
   {
     none,
     time_dependent_vector,
     rigid_motion_kernel,
     moving_radial_kernel,
-    normal_radial_kernel
+    normal_radial_kernel,
+    vector_radial_kernel,
+    vector_one_minus_radial_kernel
   };
 
   template <int dim>

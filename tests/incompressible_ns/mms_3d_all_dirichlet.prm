@@ -8,7 +8,7 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = false
+  set vtu write results    = false
   set output directory = ../data/mms/
   set output prefix    = solution
 end

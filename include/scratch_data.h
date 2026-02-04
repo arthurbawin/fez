@@ -57,6 +57,7 @@ public:
               const bool                  enable_pseudo_solid,
               const bool                  enable_lagrange_multiplier,
               const bool                  enable_cahn_hilliard,
+              const bool                  enable_compressible,
               const FESystem<dim>        &fe,
               const Mapping<dim>         &fixed_mapping,
               const Mapping<dim>         &moving_mapping,
@@ -72,6 +73,7 @@ public:
               const bool                        enable_pseudo_solid,
               const bool                        enable_lagrange_multiplier,
               const bool                        enable_cahn_hilliard,
+              const bool                        enable_compressible,
               const hp::FECollection<dim>      &fe_collection,
               const hp::MappingCollection<dim> &fixed_mapping_collection,
               const hp::MappingCollection<dim> &moving_mapping_collection,
@@ -92,6 +94,7 @@ private:
   void initialize_pseudo_solid();
   void initialize_lagrange_multiplier();
   void initialize_cahn_hilliard();
+  void initialize_compressible();
 
   /**
    * Reinit FEValues or FEFaceValues and return a reference to it.
@@ -693,10 +696,12 @@ private:
   unsigned int l_lower;
   unsigned int phi_lower;
   unsigned int mu_lower;
+  unsigned int t_lower;
 
   const bool enable_pseudo_solid;
   const bool enable_lagrange_multiplier;
   const bool enable_cahn_hilliard;
+  const bool enable_compressible;
 
   Parameters::PhysicalProperties<dim> physical_properties;
   Parameters::CahnHilliard<dim>       cahn_hilliard_param;
@@ -774,6 +779,24 @@ public:
   std::vector<std::vector<double>>         exact_face_pressure_values;
 
   /**
+   * Compressible NS
+   */
+  FEValuesExtractors::Scalar temperature;
+
+  // Variable density, also used by CHNS models
+  std::vector<double> density;
+
+  std::vector<std::vector<double>> previous_pressure_values;
+  std::vector<double>              temperature_values;
+  std::vector<Tensor<1, dim>>      temperature_gradients;
+  std::vector<std::vector<double>> previous_temperature_values;
+
+  std::vector<std::vector<double>>         phi_t;
+  std::vector<std::vector<Tensor<1, dim>>> grad_phi_t;
+
+  std::vector<double> source_term_temperature;
+
+  /**
    * Pseudo-solid and ALE
    */
   FEValuesExtractors::Vector position;
@@ -842,7 +865,6 @@ public:
   double         diffusive_flux_factor;
   Tensor<1, dim> body_force;
 
-  std::vector<double> density;
   std::vector<double> derivative_density_wrt_tracer;
   std::vector<double> dynamic_viscosity;
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
@@ -891,6 +913,7 @@ public:
                        /*enable_pseudo_solid = */ false,
                        /*enable_lagrange_multiplier = */ false,
                        /*enable_cahn_hilliard = */ false,
+                       /*enable_compressible = */ false,
                        fe,
                        mapping,
                        mapping,
@@ -904,6 +927,45 @@ public:
    * Copy constructor
    */
   ScratchDataIncompressibleNS(const ScratchDataIncompressibleNS &other)
+    : ScratchData<dim>(other)
+  {}
+};
+
+/**
+ * Scratch data for the compressible NS solver.
+ */
+template <int dim>
+class ScratchDataCompressibleNS : public ScratchData<dim>
+{
+public:
+  /**
+   * Constructor
+   */
+  ScratchDataCompressibleNS(const ComponentOrdering    &ordering,
+                            const FESystem<dim>        &fe,
+                            const Mapping<dim>         &mapping,
+                            const Quadrature<dim>      &cell_quadrature,
+                            const Quadrature<dim - 1>  &face_quadrature,
+                            const std::vector<double>  &bdf_coefficients,
+                            const ParameterReader<dim> &param)
+    : ScratchData<dim>(ordering,
+                       /*enable_pseudo_solid = */ false,
+                       /*enable_lagrange_multiplier = */ false,
+                       /*enable_cahn_hilliard = */ false,
+                       /*enable_compressible = */ true,
+                       fe,
+                       mapping,
+                       mapping,
+                       cell_quadrature,
+                       face_quadrature,
+                       bdf_coefficients,
+                       param)
+  {}
+
+  /**
+   * Copy constructor
+   */
+  ScratchDataCompressibleNS(const ScratchDataCompressibleNS &other)
     : ScratchData<dim>(other)
   {}
 };
@@ -930,6 +992,7 @@ public:
                              /*enable_pseudo_solid = */ false,
                              /*enable_lagrange_multiplier = */ true,
                              /*enable_cahn_hilliard = */ false,
+                             /*enable_compressible = */ false,
                              fe_collection,
                              mapping_collection,
                              mapping_collection,
@@ -970,6 +1033,7 @@ public:
                        /*enable_pseudo_solid = */ true,
                        /*enable_lagrange_multiplier = */ true,
                        /*enable_cahn_hilliard = */ false,
+                       /*enable_compressible = */ false,
                        fe,
                        fixed_mapping,
                        moving_mapping,
@@ -984,6 +1048,48 @@ public:
    */
   ScratchDataFSI(const ScratchDataFSI &other)
     : ScratchData<dim>(other)
+  {}
+};
+
+/**
+ * hp Scratch data for the FSI solver.
+ */
+template <int dim>
+class ScratchDataFSI_hp : public ScratchData<dim, true>
+{
+public:
+  /**
+   * Constructor
+   */
+  ScratchDataFSI_hp(
+    const ComponentOrdering          &ordering,
+    const hp::FECollection<dim>      &fe_collection,
+    const hp::MappingCollection<dim> &fixed_mapping_collection,
+    const hp::MappingCollection<dim> &moving_mapping_collection,
+    const hp::QCollection<dim>       &cell_quadrature_collection,
+    const hp::QCollection<dim - 1>   &face_quadrature_collection,
+    const std::vector<double>        &bdf_coefficients,
+    const ParameterReader<dim>       &param)
+    : ScratchData<dim, true>(ordering,
+                             /*enable_pseudo_solid = */ true,
+                             /*enable_lagrange_multiplier = */ true,
+                             /*enable_cahn_hilliard = */ false,
+                             /*enable_compressible = */ false,
+                             fe_collection,
+                             fixed_mapping_collection,
+                             moving_mapping_collection,
+                             cell_quadrature_collection,
+                             face_quadrature_collection,
+                             bdf_coefficients,
+                             param)
+  {}
+
+  /**
+   * Copy constructor
+   */
+  ScratchDataFSI_hp(
+    const ScratchDataFSI_hp &other)
+    : ScratchData<dim, true>(other)
   {}
 };
 
@@ -1010,6 +1116,7 @@ public:
                        /*enable_pseudo_solid = */ with_moving_mesh,
                        /*enable_lagrange_multiplier = */ false,
                        /*enable_cahn_hilliard = */ true,
+                       /*enable_compressible = */ false,
                        fe,
                        fixed_mapping,
                        moving_mapping,

@@ -87,7 +87,7 @@ public:
       }
 
       // Assemble matrix and solve
-      assemble = this->reassembly_heuristic(norm_residual, last_residual, iter);
+      assemble = this->reassembly_heuristic(norm_residual, last_residual);
       if (assemble)
         solver->assemble_matrix();
       solver->solve_linear_system(first_step);
@@ -193,9 +193,8 @@ private:
   /**
    * An heuristic to determine whether the matrix should be assembled
    */
-  bool reassembly_heuristic(const double       current_residual_norm,
-                            const double       previous_residual_norm,
-                            const unsigned int current_iteration) const
+  bool reassembly_heuristic(const double current_residual_norm,
+                            const double previous_residual_norm) const
   {
     const auto time_param = this->solver->get_time_parameters();
 

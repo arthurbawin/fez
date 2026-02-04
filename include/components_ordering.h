@@ -39,6 +39,9 @@ public:
   // Cahn-Hililard potential
   unsigned int mu_lower = invalid;
   unsigned int mu_upper = invalid;
+  // Temperature
+  unsigned int t_lower = invalid;
+  unsigned int t_upper = invalid;
 
   inline bool is_velocity(const unsigned int component) const
   {
@@ -63,6 +66,10 @@ public:
   inline bool is_potential(const unsigned int component) const
   {
     return mu_lower == component;
+  }
+  inline bool is_temperature(const unsigned int component) const
+  {
+    return t_lower == component;
   }
 };
 
@@ -102,6 +109,26 @@ public:
     p_upper      = dim + 1;
     l_lower      = dim + 1;
     l_upper      = 2 * dim + 1;
+  }
+};
+
+/**
+ * Components ordering for the compressible Navier-Stokes solver.
+ */
+template <int dim>
+class ComponentOrderingCompressibleNS : public ComponentOrdering
+{
+public:
+  ComponentOrderingCompressibleNS()
+    : ComponentOrdering()
+  {
+    n_components = dim + 2;
+    u_lower      = 0;
+    u_upper      = dim;
+    p_lower      = dim;
+    p_upper      = dim + 1;
+    t_lower      = dim + 1;
+    t_upper      = dim + 2;
   }
 };
 

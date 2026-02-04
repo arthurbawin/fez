@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <string>
 
+using namespace dealii;
+
 template <int dim>
 class PostProcessingHandler
 {
@@ -21,86 +23,71 @@ public:
   PostProcessingHandler(
     const Parameters::PostProcessing &postprocessing_parameters,
     const Parameters::Output         &output_parameters)
-    : pp_param(postprocessing_parameters)
+    : post_proc_param(postprocessing_parameters)
   {}
 
-  /**
-   * Single entry point:
-   * - stores dof_handler + communicator
-   * - computes slice_index once
-   */
-  void setup_slices(const dealii::DoFHandler<dim> &dof_handler_,
-                    const MPI_Comm                 mpi_communicator_)
+  void setup_slices(const DoFHandler<dim> &dof_handler)
   {
-    dof_handler      = &dof_handler_;
-    mpi_communicator = mpi_communicator_;
-    is_initialized   = true;
-
-    // If slices are disabled, do nothing (and don't mark computed)
-    if (!pp_param.enable_slicing)
+    // If slices are disabled, do nothing
+    if (!post_proc_param.enable_slicing)
       return;
 
     AssertThrow(
-      pp_param.slicing_boundary_id != dealii::numbers::invalid_unsigned_int,
-      dealii::ExcMessage("setup_slices(): slicing_boundary_id is invalid."));
+      post_proc_param.slicing_boundary_id != numbers::invalid_unsigned_int,
+      ExcMessage("slicing_boundary_id is invalid."));
 
-    const unsigned int n_slices = std::max(1u, pp_param.number_of_slices);
+    const unsigned int n_slices =
+      std::max(1u, post_proc_param.number_of_slices);
 
-    AssertThrow(n_slices >= 1, ExcMessage("n_slices must be >= 1."));
-    const std::string &dir = pp_param.slicing_direction;
+    AssertThrow(n_slices >= 1,
+                ExcMessage("n_slices must be >= 1."));
+
+    const std::string &dir = post_proc_param.slicing_direction;
 
     if constexpr (dim == 2)
       AssertThrow(
         dir == "x" || dir == "y",
-        dealii::ExcMessage(
+        ExcMessage(
           "setup_slices(): slicing_direction must be 'x' or 'y' in 2D."));
     else
       AssertThrow(
         dir == "x" || dir == "y" || dir == "z",
-        dealii::ExcMessage(
+        ExcMessage(
           "setup_slices(): slicing_direction must be 'x', 'y' or 'z' in 3D."));
 
-    const SliceAxis axis = (dir == "x" ? SliceAxis::x :
-                            dir == "y" ? SliceAxis::y :
-                                         SliceAxis::z);
+    const SliceAxis axis =
+      (dir == "x" ? SliceAxis::x :
+      dir == "y" ? SliceAxis::y :
+                    SliceAxis::z);
 
-    slice_index = PostProcessingTools::compute_slice_index_on_boundary<dim>(
-      *dof_handler,
-      pp_param.slicing_boundary_id,
-      n_slices,
-      axis,
-      mpi_communicator);
+    const MPI_Comm mpi_communicator = dof_handler.get_mpi_communicator();
 
-    slices_computed = true;
+    slice_index =
+      PostProcessingTools::compute_slice_index_on_boundary<dim>(
+        dof_handler,
+        post_proc_param.slicing_boundary_id,
+        n_slices,
+        axis,
+        mpi_communicator);
   }
 
-  const dealii::Vector<double> &get_slice_index() const
-  {
-    if (pp_param.enable_slicing)
-    {
-      AssertThrow(
-        is_initialized,
-        dealii::ExcMessage(
-          "get_slice_index(): handler not initialized (call setup_slices())."));
 
-      AssertThrow(slices_computed,
-                  dealii::ExcMessage("get_slice_index(): slices not computed "
-                                     "(setup_slices did not compute)."));
+  const Vector<double> &get_slice_index() const
+  {
+    if (post_proc_param.enable_slicing)
+    {
+      AssertThrow(!slice_index.empty(),
+                  ExcMessage(
+                    "get_slice_index(): slice_index is empty "
+                    "(setup_slices() was not called or slicing is disabled)."));
     }
 
     return slice_index;
   }
 
 private:
-  const Parameters::PostProcessing &pp_param;
-
-  const dealii::DoFHandler<dim> *dof_handler      = nullptr;
-  MPI_Comm                       mpi_communicator = MPI_COMM_NULL;
-
-  bool is_initialized  = false;
-  bool slices_computed = false;
-
-  dealii::Vector<double> slice_index;
+  const Parameters::PostProcessing &post_proc_param;
+  Vector<double> slice_index;
 };
 
 #endif

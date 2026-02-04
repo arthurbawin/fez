@@ -186,8 +186,6 @@ public:
    * compute errors, forces, etc.
    */
   void                  postprocess_solution();
-  void                  update_slices();
-  const Vector<double> &get_slices_index() const;
 
   virtual void solver_specific_post_processing() {}
 

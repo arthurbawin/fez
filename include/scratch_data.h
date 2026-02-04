@@ -141,8 +141,6 @@ private:
 
       present_velocity_sym_gradients[q] =
         symmetrize(present_velocity_gradients[q]);
-      // 0.5 *
-      // scalar_product(present_velocity_gradients[q],transpose(present_velocity_gradients[q]));
       present_velocity_divergence[q] = trace(present_velocity_gradients[q]);
 
       for (int d = 0; d < dim; ++d)

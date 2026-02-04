@@ -42,6 +42,7 @@ namespace BoundaryConditions
 
     // Flow
     outflow,      // Do nothing
+    no_tangential_flow, //Enfore no Tangential flow on the boundary
     no_slip,      // Enforce given functions
     weak_no_slip, // Check that lagrange mult is defined, couple
     slip,         // Enforce no_flux
@@ -214,8 +215,7 @@ namespace BoundaryConditions
                               &fluid_bc,
     const Function<dim>       &exact_solution,
     const Function<dim>       &exact_velocity,
-    AffineConstraints<double> &constraints,
-    unsigned int rank /*rank added to enable MPI-aware boundary handling*/);
+    AffineConstraints<double> &constraints);
 
   /**
    *

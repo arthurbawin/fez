@@ -128,8 +128,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
 
   // Slices post-processing: needs dof_handler to be initialized (works in both
   // cases)
+  if (param.postprocessing.enable_slicing)
+  {
+    postproc_handler.setup_slices(dof_handler);
+  }
 
-  postproc_handler.setup_slices(dof_handler, mpi_communicator);
+
+
 
 
 
@@ -429,8 +434,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
     param.fluid_bc,
     *exact_solution,
     *param.mms.exact_velocity,
-    constraints,
-    this->mpi_rank);
+    constraints);
 
 
 
@@ -1038,6 +1042,14 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
 
   setup_dofs();
+  
+  if (param.postprocessing.enable_slicing)
+  {
+    postproc_handler.setup_slices(dof_handler);
+  }
+
+
+
 
 
   const unsigned int n_vec = time_handler.n_previous_solutions + 1;

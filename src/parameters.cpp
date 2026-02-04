@@ -140,7 +140,7 @@ namespace Parameters
       prm.declare_entry("vtu write results",
                         "true",
                         Patterns::Bool(),
-                        "Enable/disable VTU output writing.");
+                        "Enable/disable vtu output writing.");
 
       prm.declare_entry("output directory",
                         "./",
@@ -153,28 +153,27 @@ namespace Parameters
                         "Prefix for the output files.");
 
       prm.declare_entry(
-        "VTU output frequency",
+        "vtu output frequency",
         "1",
         Patterns::Integer(1),
-        "Frequency (in time steps) for the standard VTU export.");
+        "Frequency (in time steps) for the standard vtu export.");
 
-      // --- Skin output ---
+      // --- skin output ---
       prm.declare_entry(
         "vtu write skin results",
         "false",
         Patterns::Bool(),
-        "Enable/disable skin (boundary-only) VTU output writing.");
+        "Enable/disable skin (boundary-only) vtu output writing.");
 
       prm.declare_entry("skin boundary id",
-                        "-1",
-                        Patterns::Integer(-1),
-                        "Boundary id used for the skin export. "
-                        "-1 disables the skin export even if enabled.");
+                  "0",
+                  Patterns::Integer(0),
+                  "Boundary id used for the skin export.");
 
-      prm.declare_entry("Skin VTU output frequency",
+      prm.declare_entry("skin vtu output frequency",
                         "1",
                         Patterns::Integer(1),
-                        "Frequency (in time steps) for the skin VTU export.");
+                        "Frequency (in time steps) for the skin vtu export.");
     }
     prm.leave_subsection();
   }
@@ -184,21 +183,14 @@ namespace Parameters
     prm.enter_subsection("Output");
     {
       // Must match exactly the declared names
-      write_results        = prm.get_bool("vtu write results");
+      write_results        = prm.get_bool("write vtu results");
       output_dir           = prm.get("output directory");
       output_prefix        = prm.get("output prefix");
-      vtu_output_frequency = prm.get_integer("VTU output frequency");
+      vtu_output_frequency = prm.get_integer("vtu output frequency");
 
       write_skin_results        = prm.get_bool("vtu write skin results");
-      skin_boundary_id_raw      = prm.get_integer("skin boundary id");
-      skin_vtu_output_frequency = prm.get_integer("Skin VTU output frequency");
-
-      // Convert raw int -> boundary_id
-      if (skin_boundary_id_raw < 0)
-        skin_boundary_id = numbers::invalid_unsigned_int;
-      else
-        skin_boundary_id =
-          static_cast<types::boundary_id>(skin_boundary_id_raw);
+      skin_boundary_id      = prm.get_integer("skin boundary id");
+      skin_vtu_output_frequency = prm.get_integer("skin vtu output frequency");
     }
     prm.leave_subsection();
   }
@@ -207,11 +199,10 @@ namespace Parameters
   {
     prm.enter_subsection("PostProcessing");
     {
-      // --- Global toggles ---
-      prm.declare_entry("write total force",
+      prm.declare_entry("write force",
                         "false",
                         Patterns::Bool(),
-                        "Write the total hydrodynamic force to a file.");
+                        "Write the aerodynamic force to a file.");
 
       prm.declare_entry(
         "write body position",
@@ -230,14 +221,13 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Enable slicing post-processing (forces per slice, "
-                        "optional slice VTU, etc.).");
+                        "optional slice vtu, etc.).");
 
       prm.declare_entry("slicing boundary id",
-                        "-1",
-                        Patterns::Integer(-1),
-                        "Boundary id on which slicing is performed (typically "
-                        "the body/skin boundary). "
-                        "-1 disables slicing.");
+                        "0",
+                  Patterns::Integer(0),
+                  "Boundary id on which slicing is performed (typically "
+                        "the body/skin boundary). ");
 
       prm.declare_entry("slicing direction",
                         "z",
@@ -260,10 +250,10 @@ namespace Parameters
         Patterns::Integer(1),
         "Frequency (in time steps) for forces-per-slice output.");
 
-      prm.declare_entry("write slice VTU",
+      prm.declare_entry("write slice vtu",
                         "false",
                         Patterns::Bool(),
-                        "If implemented: write a VTU/PVTU per slice.");
+                        "If implemented: write a vtu/pvtu per slice.");
     }
     prm.leave_subsection();
   }
@@ -272,7 +262,7 @@ namespace Parameters
   {
     prm.enter_subsection("PostProcessing");
     {
-      write_total_force   = prm.get_bool("write total force");
+      write_force   = prm.get_bool("write force");
       write_body_position = prm.get_bool("write body position");
 
       force_and_position_output_frequency =
@@ -281,8 +271,6 @@ namespace Parameters
       enable_slicing = prm.get_bool("enable slicing");
 
       slicing_boundary_id = prm.get_integer("slicing boundary id");
-      if (slicing_boundary_id < 0)
-        slicing_boundary_id = numbers::invalid_unsigned_int;
 
       slicing_direction = prm.get("slicing direction");
       number_of_slices  = prm.get_integer("number of slices");
@@ -291,7 +279,7 @@ namespace Parameters
       force_per_slice_output_frequency =
         prm.get_integer("force per slice output frequency");
 
-      write_slice_vtu = prm.get_bool("write slice VTU");
+      write_slice_vtu = prm.get_bool("write slice vtu");
     }
     prm.leave_subsection();
   }

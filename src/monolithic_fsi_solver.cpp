@@ -1161,6 +1161,12 @@ void FSISolver<dim>::remove_cylinder_velocity_constraints(
 template <int dim>
 void FSISolver<dim>::create_solver_specific_zero_constraints()
 {
+  this->zero_constraints.close();
+  // Merge the zero lambda constraints
+  this->zero_constraints.merge(
+    lambda_constraints,
+    AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
+
   if constexpr (dim == 3)
   {
     /** FIXME: Instead of dim = 3, the test should be whether dofs
@@ -1168,11 +1174,6 @@ void FSISolver<dim>::create_solver_specific_zero_constraints()
      * 3D fsi test case.
      */
     // add_master_slave_constraints_on_weak_noslip(this->zero_constraints);
-    this->zero_constraints.close();
-    // Merge the zero lambda constraints
-    this->zero_constraints.merge(
-      lambda_constraints,
-      AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
     if (this->param.fsi.enable_coupling)
     {
       /**
@@ -1207,8 +1208,7 @@ void FSISolver<dim>::create_solver_specific_nonzero_constraints()
   // Merge les contraintes lambda=0
   this->nonzero_constraints.merge(
     lambda_constraints,
-    dealii::AffineConstraints<
-      double>::MergeConflictBehavior::no_conflicts_allowed);
+    AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
   if constexpr (dim == 3)
   {
     if (this->param.fsi.enable_coupling)

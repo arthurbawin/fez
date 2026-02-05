@@ -237,10 +237,7 @@ namespace BoundaryConditions
     const ComponentMask              velocity_mask =
       dof_handler.get_fe().component_mask(velocity);
 
-
-
     std::set<types::boundary_id> no_flux_boundaries;
-    std::set<types::boundary_id> outflow_boundaries;
     std::set<types::boundary_id> no_tangential_flow_boundaries;
     std::set<types::boundary_id> velocity_normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *>
@@ -313,11 +310,6 @@ namespace BoundaryConditions
       if (bc.type == BoundaryConditions::Type::slip)
       {
         no_flux_boundaries.insert(bc.id);
-      }
-
-      if (bc.type == BoundaryConditions::Type::outflow)
-      {
-        outflow_boundaries.insert(bc.id);
       }
 
       if (bc.type == BoundaryConditions::Type::no_tangential_flow)

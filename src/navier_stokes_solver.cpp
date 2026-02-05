@@ -536,6 +536,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
   // Apply non-homogeneous Dirichlet BC and set as current solution
   nonzero_constraints.distribute(newton_update);
   present_solution = newton_update;
+  evaluation_point = newton_update;
 
   time_handler.rotate_solutions(present_solution, previous_solutions);
 }
@@ -606,9 +607,6 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::update_boundary_conditions()
 {
   local_evaluation_point = present_solution;
-  evaluation_point       = local_evaluation_point;
-
-
 
   if constexpr (with_moving_mesh)
   {

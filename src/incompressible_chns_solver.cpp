@@ -50,9 +50,9 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   tracer_mask         = fe->component_mask(tracer_extractor);
   potential_mask      = fe->component_mask(potential_extractor);
 
-  this->field_names_and_masks["velocity"] = this->velocity_mask;
-  this->field_names_and_masks["pressure"] = this->pressure_mask;
-  this->field_names_and_masks["tracer"] = this->tracer_mask;
+  this->field_names_and_masks["velocity"]  = this->velocity_mask;
+  this->field_names_and_masks["pressure"]  = this->pressure_mask;
+  this->field_names_and_masks["tracer"]    = this->tracer_mask;
   this->field_names_and_masks["potential"] = this->potential_mask;
 
   /**
@@ -64,14 +64,16 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
     this->ordering->phi_lower, this->ordering->n_components);
 
   // Assign the exact solution
-  this->exact_solution = std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSolution>(
-    this->time_handler.current_time, *this->ordering, param.mms);
+  this->exact_solution =
+    std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSolution>(
+      this->time_handler.current_time, *this->ordering, param.mms);
 
   if (param.mms_param.enable)
   {
     // Create the MMS source term function and override source terms
-    this->source_terms = std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm>(
-      this->time_handler.current_time, *this->ordering, param);
+    this->source_terms =
+      std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm>(
+        this->time_handler.current_time, *this->ordering, param);
 
     // Create entry in error handler for tracer and potential
     for (auto norm : this->param.mms_param.norms_to_compute)
@@ -82,29 +84,31 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   }
   else
   {
-    this->source_terms = std::make_shared<CHNSSolver<dim, with_moving_mesh>::SourceTerm>(
-      this->time_handler.current_time, *this->ordering, param.source_terms);
+    this->source_terms =
+      std::make_shared<CHNSSolver<dim, with_moving_mesh>::SourceTerm>(
+        this->time_handler.current_time, *this->ordering, param.source_terms);
   }
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(const Point<dim> &p,
-                                                  Vector<double> &values) const
+void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
+  const Point<dim> &p,
+  Vector<double>   &values) const
 {
   const double phi          = mms.exact_tracer->value(p);
   const double filtered_phi = phi;
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
-  const double rho  = cahn_hilliard_linear_mixing(filtered_phi, rho0, rho1);
+  const double rho  = CahnHilliard::linear_mixing(filtered_phi, rho0, rho1);
   const double eta0 = rho0 * physical_properties.fluids[0].kinematic_viscosity;
   const double eta1 = rho1 * physical_properties.fluids[1].kinematic_viscosity;
-  const double eta  = cahn_hilliard_linear_mixing(filtered_phi, eta0, eta1);
+  const double eta  = CahnHilliard::linear_mixing(filtered_phi, eta0, eta1);
   const double M    = cahn_hilliard_param.mobility;
   const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
   // const double drhodphi =
-  //   cahn_hilliard_linear_mixing_derivative(filtered_phi, rho0, rho1);
+  //   CahnHilliard::linear_mixing_derivative(filtered_phi, rho0, rho1);
   const double detadphi =
-    cahn_hilliard_linear_mixing_derivative(filtered_phi, eta0, eta1);
+    CahnHilliard::linear_mixing_derivative(filtered_phi, eta0, eta1);
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
@@ -132,7 +136,7 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(const Point<
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
 
   // Navier-Stokes momentum (velocity) source term
-  Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu + body_force) +
+  Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu - body_force) +
                        J_flux * grad_u + grad_p - div_viscous + phi * grad_mu);
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
@@ -154,7 +158,8 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(const Point<
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_zero_constraints()
+void CHNSSolver<dim,
+                with_moving_mesh>::create_solver_specific_zero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
@@ -182,7 +187,8 @@ void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_zero_constraints(
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::create_solver_specific_nonzero_constraints()
+void CHNSSolver<dim,
+                with_moving_mesh>::create_solver_specific_nonzero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
@@ -216,8 +222,11 @@ void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_initial_conditions()
       this->param.initial_conditions.initial_chns_tracer.get();
 
   // Set tracer only
-  VectorTools::interpolate(
-    *this->moving_mapping, this->dof_handler, *tracer_fun, this->newton_update, tracer_mask);
+  VectorTools::interpolate(*this->moving_mapping,
+                           this->dof_handler,
+                           *tracer_fun,
+                           this->newton_update,
+                           tracer_mask);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -394,7 +403,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
     const auto &potential_gradient = scratch_data.potential_gradients[q];
 
     const auto to_multiply_by_phi_u_i_phi_phi_j =
-      (drhodphi * (dudt + u_dot_grad_u + body_force) + potential_gradient);
+      (drhodphi * (dudt + u_dot_grad_u - body_force) + potential_gradient);
 
     for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
     {
@@ -545,7 +554,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_matrix(const CopyData &copy_data)
+void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_matrix(
+  const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
@@ -696,7 +706,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
 
     // Terms of the momentum equation multiplied by phi_u_i
     const auto to_multiply_by_phi_u_i =
-      rho * (dudt + u_dot_grad_u + body_force) + diffusive_flux +
+      rho * (dudt + u_dot_grad_u - body_force) + diffusive_flux +
       tracer_value * potential_gradient + source_term_velocity;
 
     // Terms of the tracer equation multiplied by phi_phi_i
@@ -803,7 +813,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_rhs(const CopyData &copy_data)
+void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_rhs(
+  const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;

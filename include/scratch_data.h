@@ -488,18 +488,18 @@ private:
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       // Physical properties based on tracer, filter if applicable
-      const double filtered_phi = tracer_values[q];
+      const double filtered_phi = tracer_limiter(tracer_values[q]);
       density[q] =
-        cahn_hilliard_linear_mixing(filtered_phi, density0, density1);
-      dynamic_viscosity[q] = cahn_hilliard_linear_mixing(filtered_phi,
+        CahnHilliard::linear_mixing(filtered_phi, density0, density1);
+      dynamic_viscosity[q] = CahnHilliard::linear_mixing(filtered_phi,
                                                          dynamic_viscosity0,
                                                          dynamic_viscosity1);
       derivative_density_wrt_tracer[q] =
-        cahn_hilliard_linear_mixing_derivative(filtered_phi,
+        CahnHilliard::linear_mixing_derivative(filtered_phi,
                                                density0,
                                                density1);
       derivative_dynamic_viscosity_wrt_tracer[q] =
-        cahn_hilliard_linear_mixing_derivative(filtered_phi,
+        CahnHilliard::linear_mixing_derivative(filtered_phi,
                                                dynamic_viscosity0,
                                                dynamic_viscosity1);
 
@@ -793,6 +793,8 @@ public:
   double         diffusive_flux_factor;
   Tensor<1, dim> body_force;
 
+  CahnHilliard::TracerLimiterFunction tracer_limiter;
+
   std::vector<double> derivative_density_wrt_tracer;
   std::vector<double> dynamic_viscosity;
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
@@ -984,15 +986,14 @@ public:
   /**
    * Constructor
    */
-  ScratchDataFSI_hp(
-    const ComponentOrdering          &ordering,
-    const hp::FECollection<dim>      &fe_collection,
-    const hp::MappingCollection<dim> &fixed_mapping_collection,
-    const hp::MappingCollection<dim> &moving_mapping_collection,
-    const hp::QCollection<dim>       &cell_quadrature_collection,
-    const hp::QCollection<dim - 1>   &face_quadrature_collection,
-    const std::vector<double>        &bdf_coefficients,
-    const ParameterReader<dim>       &param)
+  ScratchDataFSI_hp(const ComponentOrdering          &ordering,
+                    const hp::FECollection<dim>      &fe_collection,
+                    const hp::MappingCollection<dim> &fixed_mapping_collection,
+                    const hp::MappingCollection<dim> &moving_mapping_collection,
+                    const hp::QCollection<dim>     &cell_quadrature_collection,
+                    const hp::QCollection<dim - 1> &face_quadrature_collection,
+                    const std::vector<double>      &bdf_coefficients,
+                    const ParameterReader<dim>     &param)
     : ScratchData<dim, true>(ordering,
                              /*enable_pseudo_solid = */ true,
                              /*enable_lagrange_multiplier = */ true,
@@ -1010,8 +1011,7 @@ public:
   /**
    * Copy constructor
    */
-  ScratchDataFSI_hp(
-    const ScratchDataFSI_hp &other)
+  ScratchDataFSI_hp(const ScratchDataFSI_hp &other)
     : ScratchData<dim, true>(other)
   {}
 };

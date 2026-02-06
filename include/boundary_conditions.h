@@ -41,11 +41,11 @@ namespace BoundaryConditions
     dirichlet_mms,
 
     // Flow
-    outflow,      // Do nothing
-    no_tangential_flow, //Enfore no Tangential flow on the boundary
-    no_slip,      // Enforce given functions
-    weak_no_slip, // Check that lagrange mult is defined, couple
-    slip,         // Enforce no_flux
+    outflow,            // Do nothing
+    no_tangential_flow, // Enfore no Tangential flow on the boundary
+    no_slip,            // Enforce given functions
+    weak_no_slip,       // Check that lagrange mult is defined, couple
+    slip,               // Enforce no_flux
 
     // These boundary conditions are for flow verification purposes:
     // Set velocity to prescribed manufactured solution

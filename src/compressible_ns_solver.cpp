@@ -200,9 +200,10 @@ void CompressibleNSSolver<dim>::assemble_matrix()
       "for parallel matrix and vectors, which are not thread safe."));
 #endif
 
-  auto assembly_ptr = this->param.nonlinear_solver.analytic_jacobian ?
-                      &CompressibleNSSolver::assemble_local_matrix :
-                      &CompressibleNSSolver::assemble_local_matrix_finite_differences;
+  auto assembly_ptr =
+    this->param.nonlinear_solver.analytic_jacobian ?
+      &CompressibleNSSolver::assemble_local_matrix :
+      &CompressibleNSSolver::assemble_local_matrix_finite_differences;
 
   // Assemble matrix (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),

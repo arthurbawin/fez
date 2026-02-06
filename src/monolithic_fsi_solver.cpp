@@ -3440,14 +3440,16 @@ void FSISolver<dim>::solver_specific_post_processing()
 
   compute_forces_lagrange_multiplier(export_force_table);
 
-  if(this->param.postprocessing.enable_slicing){
-  const bool export_slices_force_table =
-    (this->param.postprocessing.write_force_per_slice &&
-     (this->time_handler.is_steady() ||
-      ((this->time_handler.current_time_iteration %
-        this->param.postprocessing.force_and_position_output_frequency) == 0)));
+  if (this->param.postprocessing.enable_slicing)
+  {
+    const bool export_slices_force_table =
+      (this->param.postprocessing.write_force_per_slice &&
+       (this->time_handler.is_steady() ||
+        ((this->time_handler.current_time_iteration %
+          this->param.postprocessing.force_and_position_output_frequency) ==
+         0)));
 
-  compute_slices_forces_lagrange_multiplier(export_slices_force_table);
+    compute_slices_forces_lagrange_multiplier(export_slices_force_table);
   }
 
   const bool export_position_table =

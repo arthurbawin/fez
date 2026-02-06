@@ -166,9 +166,9 @@ namespace Parameters
         "Enable/disable skin (boundary-only) vtu output writing.");
 
       prm.declare_entry("skin boundary id",
-                  "0",
-                  Patterns::Integer(0),
-                  "Boundary id used for the skin export.");
+                        "0",
+                        Patterns::Integer(0),
+                        "Boundary id used for the skin export.");
 
       prm.declare_entry("skin vtu output frequency",
                         "1",
@@ -189,7 +189,7 @@ namespace Parameters
       vtu_output_frequency = prm.get_integer("vtu output frequency");
 
       write_skin_results        = prm.get_bool("vtu write skin results");
-      skin_boundary_id      = prm.get_integer("skin boundary id");
+      skin_boundary_id          = prm.get_integer("skin boundary id");
       skin_vtu_output_frequency = prm.get_integer("skin vtu output frequency");
     }
     prm.leave_subsection();
@@ -225,8 +225,8 @@ namespace Parameters
 
       prm.declare_entry("slicing boundary id",
                         "0",
-                  Patterns::Integer(0),
-                  "Boundary id on which slicing is performed (typically "
+                        Patterns::Integer(0),
+                        "Boundary id on which slicing is performed (typically "
                         "the body/skin boundary). ");
 
       prm.declare_entry("slicing direction",
@@ -262,7 +262,7 @@ namespace Parameters
   {
     prm.enter_subsection("PostProcessing");
     {
-      write_force   = prm.get_bool("write force");
+      write_force         = prm.get_bool("write force");
       write_body_position = prm.get_bool("write body position");
 
       force_and_position_output_frequency =

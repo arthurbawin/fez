@@ -135,9 +135,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
 
 
 
-
-
-
   if (param.bc_data.enforce_zero_mean_pressure)
   {
     create_zero_mean_pressure_constraints_data();
@@ -1040,13 +1037,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
 
   setup_dofs();
-  
+
   if (param.postprocessing.enable_slicing)
   {
     postproc_handler.setup_slices(dof_handler);
   }
-
-
 
 
 

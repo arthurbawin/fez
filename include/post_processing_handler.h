@@ -32,15 +32,14 @@ public:
     if (!post_proc_param.enable_slicing)
       return;
 
-    AssertThrow(
-      post_proc_param.slicing_boundary_id != numbers::invalid_unsigned_int,
-      ExcMessage("slicing_boundary_id is invalid."));
+    AssertThrow(post_proc_param.slicing_boundary_id !=
+                  numbers::invalid_unsigned_int,
+                ExcMessage("slicing_boundary_id is invalid."));
 
     const unsigned int n_slices =
       std::max(1u, post_proc_param.number_of_slices);
 
-    AssertThrow(n_slices >= 1,
-                ExcMessage("n_slices must be >= 1."));
+    AssertThrow(n_slices >= 1, ExcMessage("n_slices must be >= 1."));
 
     const std::string &dir = post_proc_param.slicing_direction;
 
@@ -55,20 +54,18 @@ public:
         ExcMessage(
           "setup_slices(): slicing_direction must be 'x', 'y' or 'z' in 3D."));
 
-    const SliceAxis axis =
-      (dir == "x" ? SliceAxis::x :
-      dir == "y" ? SliceAxis::y :
-                    SliceAxis::z);
+    const SliceAxis axis = (dir == "x" ? SliceAxis::x :
+                            dir == "y" ? SliceAxis::y :
+                                         SliceAxis::z);
 
     const MPI_Comm mpi_communicator = dof_handler.get_mpi_communicator();
 
-    slice_index =
-      PostProcessingTools::compute_slice_index_on_boundary<dim>(
-        dof_handler,
-        post_proc_param.slicing_boundary_id,
-        n_slices,
-        axis,
-        mpi_communicator);
+    slice_index = PostProcessingTools::compute_slice_index_on_boundary<dim>(
+      dof_handler,
+      post_proc_param.slicing_boundary_id,
+      n_slices,
+      axis,
+      mpi_communicator);
   }
 
 
@@ -87,7 +84,7 @@ public:
 
 private:
   const Parameters::PostProcessing &post_proc_param;
-  Vector<double> slice_index;
+  Vector<double>                    slice_index;
 };
 
 #endif

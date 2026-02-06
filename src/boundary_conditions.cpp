@@ -5,6 +5,7 @@
 #include <deal.II/fe/mapping_q1.h>
 #include <deal.II/grid/grid_tools_geometry.h>
 #include <mpi.h>
+
 #include <sstream>
 
 
@@ -34,12 +35,13 @@ namespace BoundaryConditions
   void FluidBC<dim>::declare_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry("type",
-                      "none",
-                      Patterns::Selection(
-                        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
-                        "velocity_mms|velocity_flux_mms|open_mms|no_tangential_flow"),
-                      "Type of fluid boundary condition");
+    prm.declare_entry(
+      "type",
+      "none",
+      Patterns::Selection(
+        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
+        "velocity_mms|velocity_flux_mms|open_mms|no_tangential_flow"),
+      "Type of fluid boundary condition");
 
     // Imposed functions, if any
     prm.enter_subsection("u");
@@ -347,7 +349,7 @@ namespace BoundaryConditions
       mapping,
       /*use_manifold_for_normal=*/false);
 
-    
+
     // Add no velocity flux constraints
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,

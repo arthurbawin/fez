@@ -185,7 +185,7 @@ public:
    * Post-process the numerical solution: output for visualization,
    * compute errors, forces, etc.
    */
-  void                  postprocess_solution();
+  void postprocess_solution();
 
   virtual void solver_specific_post_processing() {}
 

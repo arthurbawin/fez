@@ -79,15 +79,15 @@ namespace Parameters
 
   struct Output
   {
-    bool         write_results        ;
-    std::string  output_dir           ;
-    std::string  output_prefix        ;
-    unsigned int vtu_output_frequency ;
+    bool         write_results;
+    std::string  output_dir;
+    std::string  output_prefix;
+    unsigned int vtu_output_frequency;
 
     // Skin output
-    bool               write_skin_results ;
-    types::boundary_id skin_boundary_id     ;
-    unsigned int       skin_vtu_output_frequency ;
+    bool               write_skin_results;
+    types::boundary_id skin_boundary_id;
+    unsigned int       skin_vtu_output_frequency;
 
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
@@ -96,18 +96,18 @@ namespace Parameters
   struct PostProcessing
   {
     // Total force + position
-    bool         write_force                  ;
-    bool         write_body_position                ;
-    unsigned int force_and_position_output_frequency ;
+    bool         write_force;
+    bool         write_body_position;
+    unsigned int force_and_position_output_frequency;
 
     // Slicing
-    bool               enable_slicing      ;
-    types::boundary_id slicing_boundary_id ;
+    bool               enable_slicing;
+    types::boundary_id slicing_boundary_id;
 
-    std::string  slicing_direction ;
-    unsigned int number_of_slices  ;
+    std::string  slicing_direction;
+    unsigned int number_of_slices;
 
-    bool         write_force_per_slice          ;
+    bool         write_force_per_slice;
     unsigned int force_per_slice_output_frequency;
 
     bool write_slice_vtu = false;

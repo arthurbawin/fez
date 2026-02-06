@@ -137,7 +137,7 @@ namespace Parameters
   {
     prm.enter_subsection("Output");
     {
-      prm.declare_entry("vtu write results",
+      prm.declare_entry("write vtu results",
                         "false",
                         Patterns::Bool(),
                         "Enable/disable vtu output writing.");
@@ -183,7 +183,7 @@ namespace Parameters
     prm.enter_subsection("Output");
     {
       // Must match exactly the declared names
-      write_results        = prm.get_bool("vtu write results");
+      write_results        = prm.get_bool("write vtu results");
       output_dir           = prm.get("output directory");
       output_prefix        = prm.get("output prefix");
       vtu_output_frequency = prm.get_integer("vtu output frequency");

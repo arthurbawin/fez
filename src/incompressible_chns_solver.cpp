@@ -132,16 +132,16 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
   const double filtered_phi = phi;
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
-  const double rho  = cahn_hilliard_linear_mixing(filtered_phi, rho0, rho1);
+  const double rho  = CahnHilliard::linear_mixing(filtered_phi, rho0, rho1);
   const double eta0 = rho0 * physical_properties.fluids[0].kinematic_viscosity;
   const double eta1 = rho1 * physical_properties.fluids[1].kinematic_viscosity;
-  const double eta  = cahn_hilliard_linear_mixing(filtered_phi, eta0, eta1);
+  const double eta  = CahnHilliard::linear_mixing(filtered_phi, eta0, eta1);
   const double M    = cahn_hilliard_param.mobility;
   const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
   // const double drhodphi =
-  //   cahn_hilliard_linear_mixing_derivative(filtered_phi, rho0, rho1);
+  //   CahnHilliard::linear_mixing_derivative(filtered_phi, rho0, rho1);
   const double detadphi =
-    cahn_hilliard_linear_mixing_derivative(filtered_phi, eta0, eta1);
+    CahnHilliard::linear_mixing_derivative(filtered_phi, eta0, eta1);
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;

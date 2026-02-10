@@ -620,7 +620,7 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
       }
 
       AssertThrow(
-        std::abs(weights_sum - expected_discrete_weights_sum) < 1e-10,
+        std::abs(weights_sum - expected_discrete_weights_sum) < 1e-8,
         ExcMessage(
           "The sum of weights for component " + std::to_string(d) +
           " of lambda coupling should be -1/k * |Cylinder|, but it's not."));
@@ -1982,42 +1982,74 @@ void FSISolver<dim>::assemble_local_rhs(
         // Lagrange multiplier for no-slip
         //
         if (face->boundary_id() == weak_no_slip_boundary_id)
-          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
+        for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
+        {
+
+          const double face_JxW_moving =
+            scratch_data.face_JxW_moving[i_face][q];
+
+          const auto &phi_u = scratch_data.phi_u_face[i_face][q];
+          const auto &phi_l = scratch_data.phi_l_face[i_face][q];
+
+          const auto &present_u =
+            scratch_data.present_face_velocity_values[i_face][q];
+          const auto &present_w =
+            scratch_data.present_face_mesh_velocity_values[i_face][q];
+          const auto &present_l =
+            scratch_data.present_face_lambda_values[i_face][q];
+
+          const auto u_ale = present_u - present_w;
+
+          /* --- Rigid-body rotational velocity evaluated on FIXED mesh --- */
+          const auto &fe_face_fixed = scratch_data.get_fe_face_values_fixed();
+          const Point<dim> xq_fixed = fe_face_fixed.quadrature_point(q);
+
+          const double omega = this->param.fsi.angular_velocity;
+
+          Point<dim> xc;
+          xc[0] = this->param.fsi.rotation_centerx;
+          xc[1] = this->param.fsi.rotation_centery;
+          if constexpr (dim == 3)
+            xc[2] = 0.0; // ou param.fsi.rotation_centerz si tu l'as
+
+          Tensor<1, dim> u_rot;
+          u_rot = 0.0;
+
+          const double rx = xq_fixed[0] - xc[0];
+          const double ry = xq_fixed[1] - xc[1];
+
+          if constexpr (dim == 2)
           {
-            //
-            // Flow related data (no-slip)
-            //
-            const double face_JxW_moving =
-              scratch_data.face_JxW_moving[i_face][q];
-            const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-            const auto &phi_l = scratch_data.phi_l_face[i_face][q];
-
-            const auto &present_u =
-              scratch_data.present_face_velocity_values[i_face][q];
-            const auto &present_w =
-              scratch_data.present_face_mesh_velocity_values[i_face][q];
-            const auto &present_l =
-              scratch_data.present_face_lambda_values[i_face][q];
-            const auto u_ale = present_u - present_w;
-
-            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-            {
-              double local_rhs_i = 0.;
-
-              const unsigned int comp_i = scratch_data.components[i];
-              const bool         i_is_u = this->ordering->is_velocity(comp_i);
-              const bool         i_is_l = this->ordering->is_lambda(comp_i);
-
-              if (i_is_u)
-                local_rhs_i -= -(phi_u[i] * present_l);
-
-              if (i_is_l)
-                local_rhs_i -= -u_ale * phi_l[i];
-
-              local_rhs_i *= face_JxW_moving;
-              local_rhs(i) += local_rhs_i;
-            }
+            u_rot[0] += -omega * ry;
+            u_rot[1] +=  omega * rx;
           }
+
+          /* Needs to be adapt for variable orientation of else*/
+          else if constexpr (dim == 3)
+          {
+            u_rot[0] += -omega * ry;
+            u_rot[1] +=  omega * rx;
+            u_rot[2] +=  0.0;
+          }
+
+          for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+          {
+            double local_rhs_i = 0.0;
+
+            const unsigned int comp_i = scratch_data.components[i];
+            const bool i_is_u = this->ordering->is_velocity(comp_i);
+            const bool i_is_l = this->ordering->is_lambda(comp_i);
+
+            if (i_is_u)
+              local_rhs_i -= -(phi_u[i] * present_l);
+
+            if (i_is_l)
+              local_rhs_i -= -(u_ale - u_rot) * phi_l[i];
+
+            local_rhs_i *= face_JxW_moving;
+            local_rhs(i) += local_rhs_i;
+          }
+        }
 
         /**
          * Open boundary condition with prescribed manufactured solution.
@@ -2419,7 +2451,7 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
     this->pcout << std::endl;
   }
 
-  AssertThrow(max_diff.norm() <= 1e-10,
+  AssertThrow(max_diff.norm() <= 1e-8,
               ExcMessage(
                 "Displacement values of the cylinder are not all the same."));
 

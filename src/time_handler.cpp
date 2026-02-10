@@ -173,6 +173,47 @@ void TimeHandler::save() const
   DEAL_II_NOT_IMPLEMENTED();
 }
 
+void TimeHandler::apply_restart_overrides(
+  const Parameters::TimeIntegration &new_params)
+{
+
+  final_time = new_params.t_end;
+
+  if (scheme == STAT)
+    return;
+
+  // 2) dt : règle d’override
+  // -> il te faut une convention côté paramètres.
+  // Par ex: si new_params.dt > 0 et que tu veux qu'il override toujours,
+  // tu l’appliques. (Ou ajoute un flag dédié, cf. section 4.)
+  const double new_dt = new_params.dt;
+
+  // Si tu ne veux PAS override dt automatiquement, remplace par un if(flag)
+  if (new_dt > 0.)
+  {
+    // BDF1: simple
+    if (scheme == BDF1)
+    {
+      current_dt   = new_dt;
+      time_steps[0]= new_dt;
+      set_bdf_coefficients();
+    }
+    // BDF2: pas variable, on garde prev_dt (= time_steps[1]) et on change dt
+    else if (scheme == BDF2)
+    {
+      current_dt = new_dt;
+
+      // IMPORTANT: time_steps size = n_previous_solutions+1 = 3 en BDF2
+      // time_steps[0] = dt prochain step
+      // time_steps[1] = dt précédent (on le garde)
+      time_steps[0] = new_dt;
+
+      set_bdf_coefficients();
+    }
+  }
+}
+
+
 void TimeHandler::load()
 {
   // TODO

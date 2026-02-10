@@ -1020,6 +1020,8 @@ namespace Parameters
       mass                    = prm.get_double("mass");
       cylinder_radius         = prm.get_double("cylinder radius");
       cylinder_length         = prm.get_double("cylinder length");
+      cylinder_centerx        = prm.get_double("cylinder center x");
+      cylinder_centery        = prm.get_double("cylinder center x");
       fix_z_component         = prm.get_bool("fix z component");
       compute_error_on_forces = prm.get_bool("compute error on forces");
     }

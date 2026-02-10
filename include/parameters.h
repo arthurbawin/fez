@@ -375,6 +375,9 @@ namespace Parameters
     double cylinder_radius;
     double cylinder_length;
 
+    double cylinder_centerx;
+    double cylinder_centery;
+
     bool fix_z_component;
 
     bool compute_error_on_forces;

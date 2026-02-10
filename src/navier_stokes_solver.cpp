@@ -1031,6 +1031,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
     boost::archive::text_iarchive archive(checkpoint_file);
     archive >> time_handler;
   }
+  
+  time_handler.apply_restart_overrides(param.time_integration);
 
 
   triangulation.load(checkpoint_prefix);

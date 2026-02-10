@@ -55,6 +55,10 @@ namespace BoundaryConditions
     prm.enter_subsection("w");
     w->declare_parameters(prm);
     prm.leave_subsection();
+
+     prm.enter_subsection("omega");
+  omega->declare_parameters(prm);
+  prm.leave_subsection();
   }
 
   template <int dim>

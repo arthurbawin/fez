@@ -555,6 +555,7 @@ public:
     if (enable_pseudo_solid)
       active_fe_values_fixed = this->reinit(cell, true);
 
+
     dofs_per_cell = active_fe_values->dofs_per_cell;
     for (const unsigned int i : active_fe_values->dof_indices())
       components[i] =
@@ -626,6 +627,25 @@ public:
       }
   }
 
+  const FEFaceValues<dim> &
+  get_fe_face_values() const
+  {
+    Assert(active_fe_face_values != nullptr,
+          ExcMessage("active_fe_face_values is null. Did you call ScratchData::reinit(cell, ...)?"));
+    return *active_fe_face_values;
+  }
+
+  const FEFaceValues<dim> &
+  get_fe_face_values_fixed() const
+  {
+    Assert(enable_pseudo_solid,
+          ExcMessage("Fixed FEFaceValues requested but enable_pseudo_solid is false."));
+    Assert(active_fe_face_values_fixed != nullptr,
+          ExcMessage("active_fe_face_values_fixed is null. Did you call ScratchData::reinit(cell, ...)?"));
+    return *active_fe_face_values_fixed;
+  }
+
+
 private:
   const bool              use_quads;
   const ComponentOrdering ordering;
@@ -648,10 +668,11 @@ private:
   Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
   // Non-owning pointers for active FEValues/FaceValues
-  const FEValues<dim>     *active_fe_values;
-  const FEValues<dim>     *active_fe_values_fixed;
-  const FEFaceValues<dim> *active_fe_face_values;
-  const FEFaceValues<dim> *active_fe_face_values_fixed;
+  const FEValues<dim>     *active_fe_values            = nullptr;
+  const FEValues<dim>     *active_fe_values_fixed      = nullptr;
+  const FEFaceValues<dim> *active_fe_face_values       = nullptr;
+  const FEFaceValues<dim> *active_fe_face_values_fixed = nullptr;
+
 
   std::unique_ptr<FEValues<dim>>     fe_values;
   std::unique_ptr<FEValues<dim>>     fe_values_fixed;

@@ -113,7 +113,7 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> u;
     std::shared_ptr<Functions::ParsedFunction<dim>> v;
     std::shared_ptr<Functions::ParsedFunction<dim>> w;
-    std::shared_ptr<Functions::ParsedFunction<dim>> omega;
+    std::shared_ptr<Functions::ParsedFunction<dim>> Omega;
 
   public:
     // Constructor. Allocates the pointers to the user functions.
@@ -122,7 +122,7 @@ namespace BoundaryConditions
       u = std::make_shared<Functions::ParsedFunction<dim>>();
       v = std::make_shared<Functions::ParsedFunction<dim>>();
       w = std::make_shared<Functions::ParsedFunction<dim>>();
-      omega = std::make_shared<Functions::ParsedFunction<dim>>();
+      Omega = std::make_shared<Functions::ParsedFunction<dim>>();
     };
 
     virtual void set_time(const double new_time) override
@@ -130,7 +130,7 @@ namespace BoundaryConditions
       u->set_time(new_time);
       v->set_time(new_time);
       w->set_time(new_time);
-      omega->set_time(new_time);
+      Omega->set_time(new_time);
     }
 
   public:

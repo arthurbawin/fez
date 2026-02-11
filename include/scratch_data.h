@@ -197,6 +197,7 @@ private:
   template <typename VectorType>
   void reinit_pseudo_solid_cell(
     const FEValues<dim>                  &fe_values_fixed,
+    const FEValues<dim>                  &fe_values_moving,
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
@@ -260,9 +261,10 @@ private:
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_x[q][k]      = fe_values_fixed[position].value(k, q);
-        grad_phi_x[q][k] = fe_values_fixed[position].gradient(k, q);
-        div_phi_x[q][k]  = fe_values_fixed[position].divergence(k, q);
+        phi_x[q][k]             = fe_values_fixed[position].value(k, q);
+        grad_phi_x[q][k]        = fe_values_fixed[position].gradient(k, q);
+        div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
+        grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
       }
     }
   }
@@ -511,6 +513,13 @@ private:
                           potential_gradients[q];
       velocity_dot_tracer_gradient[q] =
         present_velocity_values[q] * tracer_gradients[q];
+      // ALE-safe: u_conv = u - w, with w=0 if no moving mesh
+      Tensor<1, dim> w;
+      if (enable_pseudo_solid) // ou enable_moving_mesh, selon ton nom
+        w = present_mesh_velocity_values[q];
+
+      u_conv_dot_tracer_gradient[q] =
+        (present_velocity_values[q] - w) * tracer_gradients[q];
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -542,6 +551,10 @@ public:
      * current cell, extracted from the hp::FEValues with
      * get_present_fe_values().
      */
+
+    std::fill(face_boundary_id.begin(),
+              face_boundary_id.end(),
+              numbers::invalid_unsigned_int);
     active_fe_values = this->reinit(cell, false);
     if (enable_pseudo_solid)
       active_fe_values_fixed = this->reinit(cell, true);
@@ -561,6 +574,7 @@ public:
                               exact_solution);
     if (enable_pseudo_solid)
       reinit_pseudo_solid_cell(*active_fe_values_fixed,
+                               *active_fe_values,
                                current_solution,
                                previous_solutions,
                                source_terms,
@@ -591,6 +605,14 @@ public:
           if (enable_pseudo_solid)
             active_fe_face_values_fixed = this->reinit(cell, i_face, true);
 
+          face_q_points[i_face] =
+            active_fe_face_values->get_quadrature_points();
+
+          if (enable_pseudo_solid)
+            face_q_points_fixed[i_face] =
+              active_fe_face_values_fixed->get_quadrature_points();
+
+
           reinit_navier_stokes_face(i_face,
                                     *active_fe_face_values,
                                     current_solution,
@@ -616,6 +638,31 @@ public:
       }
   }
 
+  const std::vector<Point<dim>> &
+  get_face_quadrature_points(const unsigned int i_face) const
+  {
+    AssertIndexRange(i_face, n_faces);
+    Assert(face_boundary_id[i_face] != numbers::invalid_unsigned_int,
+           ExcMessage("Face quadrature points requested but this face was not "
+                      "reinit'ed on the current cell."));
+    return face_q_points[i_face];
+  }
+
+  const std::vector<Point<dim>> &
+  get_face_quadrature_points_fixed(const unsigned int i_face) const
+  {
+    Assert(enable_pseudo_solid,
+           ExcMessage("Fixed face quadrature points requested but pseudo-solid "
+                      "is disabled."));
+    AssertIndexRange(i_face, n_faces);
+    Assert(face_boundary_id[i_face] != numbers::invalid_unsigned_int,
+           ExcMessage("Fixed face quadrature points requested but this face "
+                      "was not reinit'ed on the current cell."));
+    return face_q_points_fixed[i_face];
+  }
+
+
+
 private:
   const bool              use_quads;
   const ComponentOrdering ordering;
@@ -638,10 +685,11 @@ private:
   Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
   // Non-owning pointers for active FEValues/FaceValues
-  const FEValues<dim>     *active_fe_values;
-  const FEValues<dim>     *active_fe_values_fixed;
-  const FEFaceValues<dim> *active_fe_face_values;
-  const FEFaceValues<dim> *active_fe_face_values_fixed;
+  const FEValues<dim>     *active_fe_values            = nullptr;
+  const FEValues<dim>     *active_fe_values_fixed      = nullptr;
+  const FEFaceValues<dim> *active_fe_face_values       = nullptr;
+  const FEFaceValues<dim> *active_fe_face_values_fixed = nullptr;
+
 
   std::unique_ptr<FEValues<dim>>     fe_values;
   std::unique_ptr<FEValues<dim>>     fe_values_fixed;
@@ -652,6 +700,9 @@ private:
   std::unique_ptr<hp::FEValues<dim>>     hp_fe_values_fixed;
   std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values;
   std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values_fixed;
+
+  std::vector<std::vector<Point<dim>>> face_q_points;
+  std::vector<std::vector<Point<dim>>> face_q_points_fixed;
 
 public:
   unsigned int n_q_points;
@@ -748,6 +799,7 @@ public:
   // Shape functions and gradients for each quad node and each dof
   std::vector<std::vector<Tensor<1, dim>>> phi_x;
   std::vector<std::vector<Tensor<2, dim>>> grad_phi_x;
+  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x_moving;
   std::vector<std::vector<double>>         div_phi_x;
 
   // Shape functions on faces for relevant faces, each quad node and each dof
@@ -805,9 +857,9 @@ public:
   std::vector<Tensor<1, dim>>      potential_gradients;
   std::vector<std::vector<double>> previous_tracer_values;
 
-  std::vector<Tensor<1, dim>> diffusive_flux;
-  std::vector<double>         velocity_dot_tracer_gradient;
-
+  std::vector<Tensor<1, dim>>              diffusive_flux;
+  std::vector<double>                      velocity_dot_tracer_gradient;
+  std::vector<double>                      u_conv_dot_tracer_gradient;
   std::vector<std::vector<double>>         shape_phi;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
   std::vector<std::vector<double>>         shape_mu;

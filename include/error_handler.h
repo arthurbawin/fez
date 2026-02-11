@@ -16,7 +16,8 @@ public:
                const Parameters::TimeIntegration &time_parameters)
     : mms_param(mms_parameters)
     , time_param(time_parameters)
-    , is_steady(time_parameters.scheme == Parameters::TimeIntegration::Scheme::stationary)
+    , is_steady(time_parameters.scheme ==
+                Parameters::TimeIntegration::Scheme::stationary)
   {}
 
   /**
@@ -53,10 +54,10 @@ public:
 
   /**
    * Add a spatial error entry.
-   * 
+   *
    * If the simulation is steady, this error is directly added to
    * the underlying error table to compute convergence.
-   * 
+   *
    * If it is unsteady, this stores the spatial error at time t. The prescribed
    * L^p norm in time is computed at the end of the simulation.
    * The error at all times are kept, e.g. to be plotted in postprocessing.
@@ -65,7 +66,7 @@ public:
                  const double       error_val,
                  const double       time = 0.)
   {
-    if(is_steady)
+    if (is_steady)
       add_steady_error(field_name, error_val);
     else
       add_unsteady_error(field_name, error_val, time);
@@ -119,7 +120,7 @@ public:
         case Parameters::MMS::TimeLpNorm::L1:
         {
           const double dt = std::abs(error_vec[1].first - error_vec[0].first);
-          for(const auto &[time, err] : error_vec)
+          for (const auto &[time, err] : error_vec)
           {
             error += dt * err;
           }
@@ -183,7 +184,7 @@ public:
 public:
   const Parameters::MMS             &mms_param;
   const Parameters::TimeIntegration &time_param;
-  bool is_steady;
+  bool                               is_steady;
 
   // For unsteady problems: keep the spatial errors at all time steps
   // For each field, a vector of (t, error(t)) pairs.

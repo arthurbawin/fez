@@ -1,6 +1,5 @@
 
 #include <MetricField.h>
-
 #include <deal.II/base/function_lib.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/tensor.h>
@@ -11,9 +10,9 @@
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/numerics/data_out.h>
 
+#include <algorithm>
 #include <fstream>
 #include <limits>
-#include <algorithm>
 #include <random>
 
 template <int dim>
@@ -135,7 +134,7 @@ void MetricField<dim>::metricGradation(const double       gradation,
                                        const unsigned int maxIteration,
                                        const double       tolerance)
 {
-  DoFHandler<dim> dof_handler(triangulation);
+  DoFHandler<dim>                dof_handler(triangulation);
   const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
 
   // Create and shuffle set of edges
@@ -159,19 +158,22 @@ void MetricField<dim>::metricGradation(const double       gradation,
   }
 
   // Convert to vector and shuffle in a reproducible way
-  std::vector<std::pair<unsigned int, unsigned int>> edges(edges_set.begin(), edges_set.end());
+  std::vector<std::pair<unsigned int, unsigned int>> edges(edges_set.begin(),
+                                                           edges_set.end());
 
   const unsigned int seed = 42;
-  std::mt19937 rng(seed);
+  std::mt19937       rng(seed);
   std::shuffle(edges.begin(), edges.end(), rng);
 
-  unsigned int iter = 0, numCorrected;
-  bool correction = true;
+  unsigned int iter       = 0, numCorrected;
+  bool         correction = true;
 
-  while(correction && iter < maxIteration)
+  while (correction && iter < maxIteration)
   {
-    numCorrected = 0; correction = false; iter++;
-    for(const auto &edge : edges)
+    numCorrected = 0;
+    correction   = false;
+    iter++;
+    for (const auto &edge : edges)
     {
       const Point<dim> &p = vertices[edge.first];
       const Point<dim> &q = vertices[edge.second];
@@ -179,13 +181,14 @@ void MetricField<dim>::metricGradation(const double       gradation,
       MetricTensor<dim> &Mp = _metrics[edge.first];
       MetricTensor<dim> &Mq = _metrics[edge.second];
 
-      if(gradationOnEdge(p, q, gradation, tolerance, Mp, Mq))
+      if (gradationOnEdge(p, q, gradation, tolerance, Mp, Mq))
       {
         numCorrected++;
         correction = true;
       };
     }
-    std::cout << "Metric gradation: Sweep " << iter << " - Corrected " << numCorrected << " edges" << std::endl;
+    std::cout << "Metric gradation: Sweep " << iter << " - Corrected "
+              << numCorrected << " edges" << std::endl;
   }
 }
 
@@ -194,11 +197,11 @@ void MetricField<dim>::intersectWith(const MetricField<dim> &otherField)
 {
   const unsigned int nMetrics = this->_metrics.size();
   AssertThrow(otherField._metrics.size() == nMetrics,
-            ExcDimensionMismatch(otherField._metrics.size(), nMetrics));
-  for(unsigned int i = 0; i < nMetrics; ++i)
+              ExcDimensionMismatch(otherField._metrics.size(), nMetrics));
+  for (unsigned int i = 0; i < nMetrics; ++i)
   {
     MetricTensor<dim> &metric = _metrics[i];
-    metric = metric.intersection(otherField._metrics[i]);
+    metric                    = metric.intersection(otherField._metrics[i]);
   }
 }
 
@@ -246,10 +249,11 @@ void MetricField<dim>::writeToVTU(const std::string &filename,
           const unsigned int fe_comp =
             fe.component_to_system_index(tensor_comp, v);
 
-          if(exportInverseMetrics)
+          if (exportInverseMetrics)
           {
             tensor_data[local_dof_indices[fe_comp]] = inv_tensor[c][d];
-          } else 
+          }
+          else
           {
             tensor_data[local_dof_indices[fe_comp]] = tensor[c][d];
           }

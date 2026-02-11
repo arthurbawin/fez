@@ -158,10 +158,16 @@ public:
   virtual void solver_specific_post_processing() override;
 
   /**
-   * Compute the "raw" forces on the obstacle.
+   * Compute the forces on the obstacle.
    * These need to nondimensionalized to obtain the force coefficients.
    */
-  void compute_forces(const bool export_table);
+  void compute_forces_lagrange_multiplier(const bool export_table);
+
+  /**
+   * Compute the slices forces on the obstacle.
+   * These need to nondimensionalized to obtain the force coefficients.
+   */
+  void compute_slices_forces_lagrange_multiplier(const bool export_table);
 
   /**
    *
@@ -202,6 +208,8 @@ protected:
   std::array<types::global_dof_index, dim> global_position_master_dofs;
 
   TableHandler cylinder_position_table;
+  TableHandler slices_forces_table;
+
 
 protected:
   /**

@@ -17,7 +17,8 @@ namespace Parameters
   public:
     SourceTerms()
       : fluid_source(std::make_shared<Functions::ParsedFunction<dim>>(dim + 1))
-      , pseudosolid_source(std::make_shared<Functions::ParsedFunction<dim>>(dim))
+      , pseudosolid_source(
+          std::make_shared<Functions::ParsedFunction<dim>>(dim))
       , cahnhilliard_source(std::make_shared<Functions::ParsedFunction<dim>>(2))
     {}
 
@@ -31,7 +32,8 @@ namespace Parameters
   public:
     /**
      * Source term for the Navier-Stokes momentum and mass equations.
-     * Combined vector + scalar source term, thus dim + 1 components : u-v-(w-)p.
+     * Combined vector + scalar source term, thus dim + 1 components :
+     * u-v-(w-)p.
      */
     std::shared_ptr<Functions::ParsedFunction<dim>> fluid_source;
 

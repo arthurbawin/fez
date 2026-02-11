@@ -16,6 +16,7 @@
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
+#include <post_processing_handler.h>
 #include <time_handler.h>
 #include <types.h>
 
@@ -184,7 +185,8 @@ public:
    * Post-process the numerical solution: output for visualization,
    * compute errors, forces, etc.
    */
-  void         postprocess_solution();
+  void postprocess_solution();
+
   virtual void solver_specific_post_processing() {}
 
   /**
@@ -300,6 +302,7 @@ protected:
 
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
+  PostProcessingHandler<dim>                             postproc_handler;
 };
 
 #endif

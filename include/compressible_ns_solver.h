@@ -67,7 +67,7 @@ public:
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchData                                          &scratchData,
     CopyData                                             &copy_data);
-  
+
   void assemble_local_matrix_finite_differences(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchData                                          &scratchData,
@@ -106,7 +106,7 @@ protected:
   const Mapping<dim> *mapping;
 
   FEValuesExtractors::Scalar temperature_extractor;
-  ComponentMask temperature_mask;
+  ComponentMask              temperature_mask;
 
   /**
    * Exact solution when performing a convergence study with a manufactured

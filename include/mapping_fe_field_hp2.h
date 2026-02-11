@@ -16,23 +16,17 @@
 #define dealii_mapping_fe_field_hp2_h
 
 
+#include <boost/container/small_vector.hpp>
 #include <deal.II/base/config.h>
-
 #include <deal.II/base/mg_level_object.h>
 #include <deal.II/base/mutex.h>
-
 #include <deal.II/dofs/dof_handler.h>
-
 #include <deal.II/fe/fe.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping.h>
-
 #include <deal.II/hp/collection.h>
 #include <deal.II/hp/fe_values.h>
-
 #include <deal.II/lac/vector.h>
-
-#include <boost/container/small_vector.hpp>
 
 #include <array>
 
@@ -117,15 +111,16 @@ public:
    * If an incompatible mask is passed, an exception is thrown.
    */
   MappingFEFieldHp2(const DoFHandler<dim, spacedim> &euler_dof_handler,
-                 const VectorType                &euler_vector,
-                 const ComponentMask             &mask = {});
+                    const VectorType                &euler_vector,
+                    const ComponentMask             &mask = {});
 
-  MappingFEFieldHp2(const DoFHandler<dim, spacedim> &euler_dof_handler,
-                   const hp::MappingCollection<dim, spacedim> &mapping_collection,
-                   const hp::QCollection<dim>       &cell_quadrature_collection,
-                   const hp::QCollection<dim-1>                 &face_quadrature_collection,
-                   const VectorType                &euler_vector,
-                   const ComponentMask             &mask = {});
+  MappingFEFieldHp2(
+    const DoFHandler<dim, spacedim>            &euler_dof_handler,
+    const hp::MappingCollection<dim, spacedim> &mapping_collection,
+    const hp::QCollection<dim>                 &cell_quadrature_collection,
+    const hp::QCollection<dim - 1>             &face_quadrature_collection,
+    const VectorType                           &euler_vector,
+    const ComponentMask                        &mask = {});
 
   /**
    * Constructor taking vectors on the multigrid levels rather than the active
@@ -137,8 +132,8 @@ public:
    * the other constructor need to be provided.
    */
   MappingFEFieldHp2(const DoFHandler<dim, spacedim> &euler_dof_handler,
-                 const std::vector<VectorType>   &euler_vector,
-                 const ComponentMask             &mask = {});
+                    const std::vector<VectorType>   &euler_vector,
+                    const ComponentMask             &mask = {});
 
   /**
    * Constructor with MGLevelObject instead of std::vector, otherwise the same
@@ -148,28 +143,27 @@ public:
    * here and later used for evaluation of the mapping.
    */
   MappingFEFieldHp2(const DoFHandler<dim, spacedim> &euler_dof_handler,
-                 const MGLevelObject<VectorType> &euler_vector,
-                 const ComponentMask             &mask = {});
+                    const MGLevelObject<VectorType> &euler_vector,
+                    const ComponentMask             &mask = {});
 
   /**
    * Copy constructor.
    */
-  MappingFEFieldHp2(const MappingFEFieldHp2<dim, spacedim, VectorType> &mapping);
+  MappingFEFieldHp2(
+    const MappingFEFieldHp2<dim, spacedim, VectorType> &mapping);
 
   /**
    * Return a pointer to a copy of the present object. The caller of this copy
    * then assumes ownership of it.
    */
-  virtual std::unique_ptr<Mapping<dim, spacedim>>
-  clone() const override;
+  virtual std::unique_ptr<Mapping<dim, spacedim>> clone() const override;
 
   /**
    * See the documentation of Mapping::preserves_vertex_locations()
    * for the purpose of this function. The implementation in this
    * class always returns @p false.
    */
-  virtual bool
-  preserves_vertex_locations() const override;
+  virtual bool preserves_vertex_locations() const override;
 
   virtual bool
   is_compatible_with(const ReferenceCell &reference_cell) const override;
@@ -197,14 +191,12 @@ public:
    */
 
   // for documentation, see the Mapping base class
-  virtual Point<spacedim>
-  transform_unit_to_real_cell(
+  virtual Point<spacedim> transform_unit_to_real_cell(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const Point<dim> &p) const override;
 
   // for documentation, see the Mapping base class
-  virtual Point<dim>
-  transform_real_to_unit_cell(
+  virtual Point<dim> transform_real_to_unit_cell(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const Point<spacedim> &p) const override;
 
@@ -260,15 +252,13 @@ public:
    * Return the degree of the mapping, i.e. the value which was passed to the
    * constructor.
    */
-  unsigned int
-  get_degree() const;
+  unsigned int get_degree() const;
 
   /**
    * Return the ComponentMask of the mapping, i.e. which components to use for
    * the mapping.
    */
-  ComponentMask
-  get_component_mask() const;
+  ComponentMask get_component_mask() const;
 
   /**
    * Exception
@@ -287,15 +277,12 @@ private:
 
 public:
   /**
-    * Retrieve the active fe index from a Triangulation cell iterator
-    */
+   * Retrieve the active fe index from a Triangulation cell iterator
+   */
   unsigned int get_active_fe_index(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell) const;
 
-  bool has_hp_capabilities() const
-  {
-    return hp_capabilities_enabled;
-  }
+  bool has_hp_capabilities() const { return hp_capabilities_enabled; }
 
 public:
   /**
@@ -319,79 +306,73 @@ public:
                  const ComponentMask                &mask);
 
     // Documentation see Mapping::InternalDataBase.
-    virtual void
-    reinit(const UpdateFlags      update_flags,
-           const Quadrature<dim> &quadrature) override;
+    virtual void reinit(const UpdateFlags      update_flags,
+                        const Quadrature<dim> &quadrature) override;
 
     /**
      * Shape function at quadrature point. Shape functions are in tensor
      * product order, so vertices must be reordered to obtain transformation.
      */
-    const double &
-    shape(const unsigned int qpoint, const unsigned int shape_nr) const;
+    const double &shape(const unsigned int qpoint,
+                        const unsigned int shape_nr) const;
 
     /**
      * Shape function at quadrature point. See above.
      */
-    double &
-    shape(const unsigned int qpoint, const unsigned int shape_nr);
+    double &shape(const unsigned int qpoint, const unsigned int shape_nr);
 
     /**
      * Gradient of shape function in quadrature point. See above.
      */
-    const Tensor<1, dim> &
-    derivative(const unsigned int qpoint, const unsigned int shape_nr) const;
+    const Tensor<1, dim> &derivative(const unsigned int qpoint,
+                                     const unsigned int shape_nr) const;
 
     /**
      * Gradient of shape function in quadrature point. See above.
      */
-    Tensor<1, dim> &
-    derivative(const unsigned int qpoint, const unsigned int shape_nr);
+    Tensor<1, dim> &derivative(const unsigned int qpoint,
+                               const unsigned int shape_nr);
 
     /**
      * Second derivative of shape function in quadrature point. See above.
      */
-    const Tensor<2, dim> &
-    second_derivative(const unsigned int qpoint,
-                      const unsigned int shape_nr) const;
+    const Tensor<2, dim> &second_derivative(const unsigned int qpoint,
+                                            const unsigned int shape_nr) const;
 
     /**
      * Second derivative of shape function in quadrature point. See above.
      */
-    Tensor<2, dim> &
-    second_derivative(const unsigned int qpoint, const unsigned int shape_nr);
+    Tensor<2, dim> &second_derivative(const unsigned int qpoint,
+                                      const unsigned int shape_nr);
 
     /**
      * Third derivative of shape function in quadrature point. See above.
      */
-    const Tensor<3, dim> &
-    third_derivative(const unsigned int qpoint,
-                     const unsigned int shape_nr) const;
+    const Tensor<3, dim> &third_derivative(const unsigned int qpoint,
+                                           const unsigned int shape_nr) const;
 
     /**
      * Fourth derivative of shape function in quadrature point. See above.
      */
-    Tensor<3, dim> &
-    third_derivative(const unsigned int qpoint, const unsigned int shape_nr);
+    Tensor<3, dim> &third_derivative(const unsigned int qpoint,
+                                     const unsigned int shape_nr);
 
     /**
      * Fourth derivative of shape function in quadrature point. See above.
      */
-    const Tensor<4, dim> &
-    fourth_derivative(const unsigned int qpoint,
-                      const unsigned int shape_nr) const;
+    const Tensor<4, dim> &fourth_derivative(const unsigned int qpoint,
+                                            const unsigned int shape_nr) const;
 
     /**
      * Third derivative of shape function in quadrature point. See above.
      */
-    Tensor<4, dim> &
-    fourth_derivative(const unsigned int qpoint, const unsigned int shape_nr);
+    Tensor<4, dim> &fourth_derivative(const unsigned int qpoint,
+                                      const unsigned int shape_nr);
 
     /**
      * Return an estimate (in bytes) for the memory consumption of this object.
      */
-    virtual std::size_t
-    memory_consumption() const override;
+    virtual std::size_t memory_consumption() const override;
 
     /**
      * A pointer to the underlying finite element.
@@ -551,8 +532,7 @@ protected:
                    const Quadrature<dim - 1> &quadrature) const override;
 
   // documentation can be found in Mapping::fill_fe_values()
-  virtual CellSimilarity::Similarity
-  fill_fe_values(
+  virtual CellSimilarity::Similarity fill_fe_values(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const CellSimilarity::Similarity                            cell_similarity,
     const Quadrature<dim>                                      &quadrature,
@@ -563,8 +543,7 @@ protected:
   using Mapping<dim, spacedim>::fill_fe_face_values;
 
   // documentation can be found in Mapping::fill_fe_face_values()
-  virtual void
-  fill_fe_face_values(
+  virtual void fill_fe_face_values(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const unsigned int                                          face_no,
     const hp::QCollection<dim - 1>                             &quadrature,
@@ -573,8 +552,7 @@ protected:
       &output_data) const override;
 
   // documentation can be found in Mapping::fill_fe_subface_values()
-  virtual void
-  fill_fe_subface_values(
+  virtual void fill_fe_subface_values(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const unsigned int                                          face_no,
     const unsigned int                                          subface_no,
@@ -583,8 +561,7 @@ protected:
     internal::FEValuesImplementation::MappingRelatedData<dim, spacedim>
       &output_data) const override;
 
-  virtual void
-  fill_fe_immersed_surface_values(
+  virtual void fill_fe_immersed_surface_values(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const NonMatching::ImmersedSurfaceQuadrature<dim>          &quadrature,
     const typename Mapping<dim, spacedim>::InternalDataBase    &internal_data,
@@ -654,8 +631,7 @@ private:
    *
    * @p mdata will be changed by this function.
    */
-  Point<dim>
-  do_transform_real_to_unit_cell(
+  Point<dim> do_transform_real_to_unit_cell(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const Point<spacedim>                                      &p,
     const Point<dim>                                           &starting_guess,
@@ -664,8 +640,7 @@ private:
   /**
    * Update internal degrees of freedom.
    */
-  void
-  update_internal_dofs(
+  void update_internal_dofs(
     const typename Triangulation<dim, spacedim>::cell_iterator &cell,
     const typename MappingFEFieldHp2<dim, spacedim, VectorType>::InternalData
       &data) const;
@@ -697,44 +672,41 @@ private:
    */
   mutable Threads::Mutex fe_values_mutex;
 
-  void
-  compute_face_data(const unsigned int n_original_q_points,
-                    InternalData      &data) const;
+  void compute_face_data(const unsigned int n_original_q_points,
+                         InternalData      &data) const;
 
   /**
    * hp additions
    */
-  bool hp_capabilities_enabled = false;
+  bool                                         hp_capabilities_enabled = false;
   std::unique_ptr<hp::FEValues<dim, spacedim>> hp_fe_values;
 
-    // hp::Collection<InternalData> data_collection;
+  // hp::Collection<InternalData> data_collection;
   mutable std::vector<std::shared_ptr<InternalData>> data_collection_for_cells;
   // The internal data for faces is reinited with a projected quadrature rule
   // (see get_face_data)
   mutable std::vector<std::shared_ptr<InternalData>> data_collection_for_faces;
 
-  const hp::QCollection<dim> quadrature_collection;
-  const hp::QCollection<dim-1> face_quadrature_collection;
+  const hp::QCollection<dim>     quadrature_collection;
+  const hp::QCollection<dim - 1> face_quadrature_collection;
 
 public:
   mutable unsigned int n_realloc_cell_data = 0;
   mutable unsigned int n_realloc_face_data = 0;
-  mutable unsigned int n_kept_cell_data = 0;
-  mutable unsigned int n_kept_face_data = 0;
+  mutable unsigned int n_kept_cell_data    = 0;
+  mutable unsigned int n_kept_face_data    = 0;
 
 private:
+  void create_data_collection();
+
+  void recreate_stored_internal_data_cell(const Quadrature<dim> &quadrature,
+                                          const unsigned int     fe_index,
+                                          const UpdateFlags update_flags) const;
+
   void
-  create_data_collection();
-
-  void recreate_stored_internal_data_cell(
-    const Quadrature<dim> &quadrature,
-    const unsigned int fe_index,
-    const UpdateFlags update_flags) const;
-
-  void recreate_stored_internal_data_face(
-    const Quadrature<dim-1> &face_quadrature,
-    const unsigned int fe_index,
-    const UpdateFlags update_flags) const;
+  recreate_stored_internal_data_face(const Quadrature<dim - 1> &face_quadrature,
+                                     const unsigned int         fe_index,
+                                     const UpdateFlags update_flags) const;
 
   // Declare other MappingFEFieldHp2 classes friends.
   template <int, int, class>

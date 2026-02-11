@@ -1,6 +1,13 @@
 
 #include <boundary_conditions.h>
+#include <deal.II/base/exceptions.h>
+#include <deal.II/base/utilities.h>
+#include <deal.II/fe/mapping_q1.h>
 #include <deal.II/grid/grid_tools_geometry.h>
+#include <mpi.h>
+
+#include <sstream>
+
 
 namespace BoundaryConditions
 {
@@ -28,12 +35,13 @@ namespace BoundaryConditions
   void FluidBC<dim>::declare_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry("type",
-                      "none",
-                      Patterns::Selection(
-                        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
-                        "velocity_mms|velocity_flux_mms|open_mms"),
-                      "Type of fluid boundary condition");
+    prm.declare_entry(
+      "type",
+      "none",
+      Patterns::Selection(
+        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
+        "velocity_mms|velocity_flux_mms|open_mms|no_tangential_flow"),
+      "Type of fluid boundary condition");
 
     // Imposed functions, if any
     prm.enter_subsection("u");
@@ -46,6 +54,10 @@ namespace BoundaryConditions
 
     prm.enter_subsection("w");
     w->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("Omega");
+    Omega->declare_parameters(prm);
     prm.leave_subsection();
   }
 
@@ -60,6 +72,8 @@ namespace BoundaryConditions
       type = Type::input_function;
     if (parsed_type == "outflow")
       type = Type::outflow;
+    if (parsed_type == "no_tangential_flow")
+      type = Type::no_tangential_flow;
     if (parsed_type == "no_slip")
       type = Type::no_slip;
     if (parsed_type == "weak_no_slip")
@@ -90,6 +104,10 @@ namespace BoundaryConditions
 
     prm.enter_subsection("w");
     w->parse_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("Omega");
+    Omega->parse_parameters(prm);
     prm.leave_subsection();
   }
 
@@ -230,6 +248,7 @@ namespace BoundaryConditions
       dof_handler.get_fe().component_mask(velocity);
 
     std::set<types::boundary_id> no_flux_boundaries;
+    std::set<types::boundary_id> no_tangential_flow_boundaries;
     std::set<types::boundary_id> velocity_normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *>
                                  velocity_normal_flux_functions;
@@ -249,9 +268,11 @@ namespace BoundaryConditions
                                                  constraints,
                                                  velocity_mask);
       }
+
       if (bc.type == BoundaryConditions::Type::input_function)
       {
         if (homogeneous)
+        {
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
                                                    bc.id,
@@ -259,7 +280,9 @@ namespace BoundaryConditions
                                                      n_components),
                                                    constraints,
                                                    velocity_mask);
+        }
         else
+        {
           VectorTools::interpolate_boundary_values(
             mapping,
             dof_handler,
@@ -268,10 +291,13 @@ namespace BoundaryConditions
               u_lower, n_components, bc.u, bc.v, bc.w),
             constraints,
             velocity_mask);
+        }
       }
+
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
         if (homogeneous)
+        {
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
                                                    bc.id,
@@ -279,37 +305,69 @@ namespace BoundaryConditions
                                                      n_components),
                                                    constraints,
                                                    velocity_mask);
+        }
         else
+        {
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
                                                    bc.id,
                                                    exact_solution,
                                                    constraints,
                                                    velocity_mask);
+        }
       }
+
       if (bc.type == BoundaryConditions::Type::slip)
+      {
         no_flux_boundaries.insert(bc.id);
+      }
+
+      if (bc.type == BoundaryConditions::Type::no_tangential_flow)
+      {
+        no_tangential_flow_boundaries.insert(bc.id);
+      }
+
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
         // Enforce both the normal and tangential flux to be well-posed
         velocity_normal_flux_boundaries.insert(bc.id);
         velocity_normal_flux_functions[bc.id] = &exact_velocity;
+
         velocity_tangential_flux_boundaries.insert(bc.id);
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
     }
+    auto comm = dof_handler.get_mpi_communicator();
+
+    MPI_Barrier(comm);
+    VectorTools::compute_no_normal_flux_constraints(
+      dof_handler,
+      u_lower,
+      no_flux_boundaries,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
+    MPI_Barrier(comm);
+
+    VectorTools::compute_normal_flux_constraints(
+      dof_handler,
+      u_lower,
+      no_tangential_flow_boundaries,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
+
 
     // Add no velocity flux constraints
-    VectorTools::compute_no_normal_flux_constraints(
-      dof_handler, u_lower, no_flux_boundaries, constraints, mapping);
-    // Add nonzero normal flux velocity constraints
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,
       u_lower,
       velocity_normal_flux_boundaries,
       velocity_normal_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
+
     // Add nonzero tangential flux velocity constraints
     VectorTools::compute_nonzero_tangential_flux_constraints(
       dof_handler,
@@ -317,7 +375,8 @@ namespace BoundaryConditions
       velocity_tangential_flux_boundaries,
       velocity_tangential_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>
@@ -399,7 +458,8 @@ namespace BoundaryConditions
       normal_flux_boundaries,
       position_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
 
     // Add position nonzero flux constraints from manufactured solution
     // (tangential movement)
@@ -409,7 +469,8 @@ namespace BoundaryConditions
       mms_normal_flux_boundaries,
       mms_position_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>
@@ -551,7 +612,8 @@ namespace BoundaryConditions
       fill_dofs_to_component(dof_handler,
                              locally_relevant_dofs,
                              dofs_to_component);
-    AssertDimension(dofs_to_component.size(), locally_relevant_dofs.n_elements());
+    AssertDimension(dofs_to_component.size(),
+                    locally_relevant_dofs.n_elements());
     for (const auto dof : gathered_dofs_flattened)
       dofs_to_component[locally_relevant_dofs.index_within_set(dof)] = p_lower;
 

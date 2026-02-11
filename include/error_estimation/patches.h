@@ -49,7 +49,7 @@ namespace ErrorEstimation
     template <class Archive>
     void serialize(Archive &ar, const unsigned int)
     {
-      ar &center &scaling &neighbours &neighbours_local_coordinates;
+      ar & center & scaling & neighbours & neighbours_local_coordinates;
     }
 
   private:

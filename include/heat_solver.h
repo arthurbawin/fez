@@ -2,6 +2,7 @@
 #define HEAT_SOLVER_H
 
 #include <components_ordering.h>
+#include <copy_data.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/table_handler.h>
@@ -18,7 +19,6 @@
 #include <parameter_reader.h>
 #include <scratch_data_heat.h>
 #include <time_handler.h>
-#include <copy_data.h>
 #include <types.h>
 
 using namespace dealii;
@@ -61,8 +61,8 @@ public:
 
   virtual void create_sparsity_pattern();
 
-  void         set_initial_conditions();
-  void         set_exact_solution();
+  void set_initial_conditions();
+  void set_exact_solution();
 
   virtual void solve_linear_system(const bool /* */) override;
 

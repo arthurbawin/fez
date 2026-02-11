@@ -314,9 +314,9 @@ namespace ErrorEstimation
     template <class Archive>
     void serialize(Archive &ar, const unsigned int)
     {
-      ar &requested_dof;
-      ar &neighbouring_dof;
-      ar &support_point;
+      ar & requested_dof;
+      ar & neighbouring_dof;
+      ar & support_point;
     }
   };
 

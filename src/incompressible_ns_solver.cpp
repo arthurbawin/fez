@@ -16,8 +16,10 @@
 #include <incompressible_ns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
+
 
 template <int dim>
 NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
@@ -514,14 +516,30 @@ void NSSolver<dim>::output_results()
 {
   TimerOutput::Scope t(this->computing_timer, "Write outputs");
 
-  if (this->param.output.write_results)
+  // ============================================================
+  // 1) Full-domain VTU output
+  // ============================================================
+  if (this->param.output.write_results &&
+      (this->time_handler.current_time_iteration %
+           this->param.output.vtu_output_frequency ==
+         0 ||
+       this->time_handler.is_finished()))
   {
-    std::vector<std::string> solution_names(dim, "velocity");
+    // (u, p) => dim + 1 components
+    std::vector<std::string> solution_names;
+    solution_names.reserve(dim + 1);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      solution_names.push_back("velocity");
     solution_names.push_back("pressure");
 
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        dim, DataComponentInterpretation::component_is_part_of_vector);
+      data_component_interpretation;
+    data_component_interpretation.reserve(dim + 1);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_part_of_vector);
     data_component_interpretation.push_back(
       DataComponentInterpretation::component_is_scalar);
 
@@ -531,9 +549,8 @@ void NSSolver<dim>::output_results()
                              solution_names,
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
-    //
+
     // Partition
-    //
     Vector<float> subdomain(this->triangulation.n_active_cells());
     for (unsigned int i = 0; i < subdomain.size(); ++i)
       subdomain(i) = this->triangulation.locally_owned_subdomain();
@@ -551,7 +568,68 @@ void NSSolver<dim>::output_results()
     this->visualization_times_and_names.emplace_back(
       this->time_handler.current_time, pvtu_file);
   }
+
+  // ============================================================
+  // 2) Skin (boundary-only) VTU output
+  // ============================================================
+  if (this->param.output.write_skin_results &&
+      this->param.output.skin_boundary_id != numbers::invalid_unsigned_int &&
+      (this->time_handler.current_time_iteration %
+           this->param.output.skin_vtu_output_frequency ==
+         0 ||
+       this->time_handler.is_finished()))
+  {
+    // (u, p) on the boundary
+    std::vector<std::string> solution_names_faces;
+    solution_names_faces.reserve(dim + 1);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      solution_names_faces.push_back("velocity");
+    solution_names_faces.push_back("pressure");
+
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      data_component_interpretation_faces;
+    data_component_interpretation_faces.reserve(dim + 1);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      data_component_interpretation_faces.push_back(
+        DataComponentInterpretation::component_is_part_of_vector);
+    data_component_interpretation_faces.push_back(
+      DataComponentInterpretation::component_is_scalar);
+
+    PostProcessingTools::DataOutFacesOnBoundary<dim> data_out_faces(
+      this->triangulation, this->param.output.skin_boundary_id);
+
+    data_out_faces.attach_dof_handler(this->dof_handler);
+
+    data_out_faces.add_data_vector(this->present_solution,
+                                   solution_names_faces,
+                                   DataOutFaces<dim>::type_dof_data,
+                                   data_component_interpretation_faces);
+
+    data_out_faces.build_patches(*mapping, 2);
+
+
+    const std::string skin_prefix = this->param.output.output_prefix + "_skin";
+
+    const std::string skin_pvtu_file =
+      data_out_faces.write_vtu_with_pvtu_record(
+        this->param.output.output_dir,
+        skin_prefix,
+        this->time_handler.current_time_iteration,
+        this->mpi_communicator,
+        2);
+
+    this->visualization_times_and_names.emplace_back(
+      this->time_handler.current_time, skin_pvtu_file);
+
+
+    this->visualization_times_and_names.emplace_back(
+      this->time_handler.current_time, skin_pvtu_file);
+  }
 }
+
+
 
 // Explicit instantiation
 template class NSSolver<2>;

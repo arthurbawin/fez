@@ -1,5 +1,6 @@
 
 #include <compare_matrix.h>
+#include <compressible_ns_solver.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_renumbering.h>
@@ -13,26 +14,27 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
-#include <compressible_ns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
 template <int dim>
-CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &param)
+CompressibleNSSolver<dim>::CompressibleNSSolver(
+  const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param)
 {
   if (param.finite_elements.use_quads)
     fe = std::make_shared<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree) ^dim, // Velocity
-      FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
-      FE_Q<dim>(param.finite_elements.temperature_degree)); // Temperature
+      FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
+      FE_Q<dim>(param.finite_elements.pressure_degree),       // Pressure
+      FE_Q<dim>(param.finite_elements.temperature_degree));   // Temperature
   else
     fe = std::make_shared<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^dim, // Velocity
-      FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
-      FE_SimplexP<dim>(param.finite_elements.temperature_degree)); // Temperature
+      FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
+      FE_SimplexP<dim>(param.finite_elements.pressure_degree),       // Pressure
+      FE_SimplexP<dim>(
+        param.finite_elements.temperature_degree)); // Temperature
 
   this->ordering = std::make_shared<ComponentOrderingCompressibleNS<dim>>();
 
@@ -40,12 +42,11 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &para
     FEValuesExtractors::Vector(this->ordering->u_lower);
   this->pressure_extractor =
     FEValuesExtractors::Scalar(this->ordering->p_lower);
-  temperature_extractor =
-    FEValuesExtractors::Scalar(this->ordering->t_lower);
+  temperature_extractor = FEValuesExtractors::Scalar(this->ordering->t_lower);
 
   this->velocity_mask = fe->component_mask(this->velocity_extractor);
   this->pressure_mask = fe->component_mask(this->pressure_extractor);
-  temperature_mask = fe->component_mask(temperature_extractor);
+  temperature_mask    = fe->component_mask(temperature_extractor);
 
   /**
    * This solver uses a fixed mapping only.
@@ -63,8 +64,9 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &para
   if (param.mms_param.enable)
   {
     // Assign the manufactured solution
-    this->exact_solution = std::make_shared<CompressibleNSSolver<dim>::MMSSolution>(
-      this->time_handler.current_time, *this->ordering, param.mms);
+    this->exact_solution =
+      std::make_shared<CompressibleNSSolver<dim>::MMSSolution>(
+        this->time_handler.current_time, *this->ordering, param.mms);
 
     if (param.mms_param.force_source_term)
     {
@@ -76,11 +78,12 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &para
     {
       // Create the source term function for the given MMS and override source
       // terms
-      this->source_terms = std::make_shared<CompressibleNSSolver<dim>::MMSSourceTerm>(
-        this->time_handler.current_time,
-        *this->ordering,
-        param.physical_properties,
-        param.mms);
+      this->source_terms =
+        std::make_shared<CompressibleNSSolver<dim>::MMSSourceTerm>(
+          this->time_handler.current_time,
+          *this->ordering,
+          param.physical_properties,
+          param.mms);
     }
   }
   else
@@ -92,10 +95,12 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &para
 }
 
 template <int dim>
-void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
-                                                Vector<double>   &values) const
+void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
+  const Point<dim> &p,
+  Vector<double>   &values) const
 {
-  AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
+  AssertThrow(false,
+              ExcMessage("Implement MMS source term for compressible NS"));
   // const double nu = physical_properties.fluids[0].kinematic_viscosity;
 
   // Tensor<1, dim> u, dudt_eulerian;
@@ -130,8 +135,11 @@ void CompressibleNSSolver<dim>::set_solver_specific_initial_conditions()
       this->param.initial_conditions.initial_temperature.get();
 
   // Set temperature
-  VectorTools::interpolate(
-    *mapping, this->dof_handler, *temperature_fun, this->newton_update, temperature_mask);
+  VectorTools::interpolate(*mapping,
+                           this->dof_handler,
+                           *temperature_fun,
+                           this->newton_update,
+                           temperature_mask);
   // AssertThrow(false, ExcMessage("Add initial condition for pressure"));
 }
 
@@ -192,9 +200,10 @@ void CompressibleNSSolver<dim>::assemble_matrix()
       "for parallel matrix and vectors, which are not thread safe."));
 #endif
 
-  auto assembly_ptr = this->param.nonlinear_solver.analytic_jacobian ?
-                      &CompressibleNSSolver::assemble_local_matrix :
-                      &CompressibleNSSolver::assemble_local_matrix_finite_differences;
+  auto assembly_ptr =
+    this->param.nonlinear_solver.analytic_jacobian ?
+      &CompressibleNSSolver::assemble_local_matrix :
+      &CompressibleNSSolver::assemble_local_matrix_finite_differences;
 
   // Assemble matrix (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -322,7 +331,8 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
 }
 
 template <int dim>
-void CompressibleNSSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
+void CompressibleNSSolver<dim>::copy_local_to_global_matrix(
+  const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
@@ -515,7 +525,8 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
 }
 
 template <int dim>
-void CompressibleNSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
+void CompressibleNSSolver<dim>::copy_local_to_global_rhs(
+  const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;

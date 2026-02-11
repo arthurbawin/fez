@@ -99,7 +99,7 @@ public:
               const VectorType                     &current_solution,
               const std::vector<VectorType>        &previous_solutions,
               const std::shared_ptr<Function<dim>> &source_terms,
-              const std::shared_ptr<Function<dim>> &/*exact_solution*/)
+              const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
     fe_values.reinit(cell);
 

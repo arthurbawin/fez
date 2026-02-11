@@ -119,9 +119,9 @@ namespace BoundaryConditions
     // Constructor. Allocates the pointers to the user functions.
     FluidBC()
     {
-      u = std::make_shared<Functions::ParsedFunction<dim>>();
-      v = std::make_shared<Functions::ParsedFunction<dim>>();
-      w = std::make_shared<Functions::ParsedFunction<dim>>();
+      u     = std::make_shared<Functions::ParsedFunction<dim>>();
+      v     = std::make_shared<Functions::ParsedFunction<dim>>();
+      w     = std::make_shared<Functions::ParsedFunction<dim>>();
       Omega = std::make_shared<Functions::ParsedFunction<dim>>();
     };
 

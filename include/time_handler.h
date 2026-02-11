@@ -111,11 +111,12 @@ public:
   template <class Archive>
   void serialize(Archive &ar, const unsigned int version);
 
-  /** Override the time integration parameters (e.g. for restarting a simulation with different time step).
-   * This will update the time integration scheme and recompute the BDF coefficients if needed.
+  /** Override the time integration parameters (e.g. for restarting a simulation
+   * with different time step). This will update the time integration scheme and
+   * recompute the BDF coefficients if needed.
    */
   void apply_restart_overrides(const Parameters::TimeIntegration &new_params);
-  
+
 public:
   Parameters::TimeIntegration time_parameters;
 

@@ -176,7 +176,6 @@ void TimeHandler::save() const
 void TimeHandler::apply_restart_overrides(
   const Parameters::TimeIntegration &new_params)
 {
-
   final_time = new_params.t_end;
 
   if (scheme == STAT)
@@ -194,8 +193,8 @@ void TimeHandler::apply_restart_overrides(
     // BDF1: simple
     if (scheme == BDF1)
     {
-      current_dt   = new_dt;
-      time_steps[0]= new_dt;
+      current_dt    = new_dt;
+      time_steps[0] = new_dt;
       set_bdf_coefficients();
     }
     // BDF2: pas variable, on garde prev_dt (= time_steps[1]) et on change dt

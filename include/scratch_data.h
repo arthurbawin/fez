@@ -553,8 +553,8 @@ public:
      */
 
     std::fill(face_boundary_id.begin(),
-          face_boundary_id.end(),
-          numbers::invalid_unsigned_int);
+              face_boundary_id.end(),
+              numbers::invalid_unsigned_int);
     active_fe_values = this->reinit(cell, false);
     if (enable_pseudo_solid)
       active_fe_values_fixed = this->reinit(cell, true);
@@ -605,8 +605,9 @@ public:
           if (enable_pseudo_solid)
             active_fe_face_values_fixed = this->reinit(cell, i_face, true);
 
-          face_q_points[i_face] = active_fe_face_values->get_quadrature_points();
-          
+          face_q_points[i_face] =
+            active_fe_face_values->get_quadrature_points();
+
           if (enable_pseudo_solid)
             face_q_points_fixed[i_face] =
               active_fe_face_values_fixed->get_quadrature_points();
@@ -642,7 +643,8 @@ public:
   {
     AssertIndexRange(i_face, n_faces);
     Assert(face_boundary_id[i_face] != numbers::invalid_unsigned_int,
-          ExcMessage("Face quadrature points requested but this face was not reinit'ed on the current cell."));
+           ExcMessage("Face quadrature points requested but this face was not "
+                      "reinit'ed on the current cell."));
     return face_q_points[i_face];
   }
 
@@ -650,13 +652,14 @@ public:
   get_face_quadrature_points_fixed(const unsigned int i_face) const
   {
     Assert(enable_pseudo_solid,
-          ExcMessage("Fixed face quadrature points requested but pseudo-solid is disabled."));
+           ExcMessage("Fixed face quadrature points requested but pseudo-solid "
+                      "is disabled."));
     AssertIndexRange(i_face, n_faces);
     Assert(face_boundary_id[i_face] != numbers::invalid_unsigned_int,
-          ExcMessage("Fixed face quadrature points requested but this face was not reinit'ed on the current cell."));
+           ExcMessage("Fixed face quadrature points requested but this face "
+                      "was not reinit'ed on the current cell."));
     return face_q_points_fixed[i_face];
   }
-
 
 
 
@@ -699,7 +702,7 @@ private:
   std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values_fixed;
 
   std::vector<std::vector<Point<dim>>> face_q_points;
-  std::vector<std::vector<Point<dim>>> face_q_points_fixed; 
+  std::vector<std::vector<Point<dim>>> face_q_points_fixed;
 
 public:
   unsigned int n_q_points;

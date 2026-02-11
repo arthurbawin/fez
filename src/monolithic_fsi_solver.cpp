@@ -1982,77 +1982,77 @@ void FSISolver<dim>::assemble_local_rhs(
         // Lagrange multiplier for no-slip
         //
         if (face->boundary_id() == weak_no_slip_boundary_id)
-        for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
-        {
-
-          const double face_JxW_moving =
-            scratch_data.face_JxW_moving[i_face][q];
-
-          const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-          const auto &phi_l = scratch_data.phi_l_face[i_face][q];
-
-          const auto &present_u =
-            scratch_data.present_face_velocity_values[i_face][q];
-          const auto &present_w =
-            scratch_data.present_face_mesh_velocity_values[i_face][q];
-          const auto &present_l =
-            scratch_data.present_face_lambda_values[i_face][q];
-
-          const auto u_ale = present_u - present_w;
-
-          /* --- Rigid-body rotational velocity evaluated on FIXED mesh --- */
-          const auto &q_points_fixed = scratch_data.get_face_quadrature_points_fixed(i_face);
-          AssertIndexRange(q, q_points_fixed.size());
-          const Point<dim> &xq_fixed = q_points_fixed[q];
-
-          const auto &bc  = this->param.fluid_bc.at(face->boundary_id());
-          const double Omega = (bc.Omega ? bc.Omega->value(xq_fixed, 0) : 0.0);
-
-          Point<dim> xc;
-          xc[0] = this->param.fsi.cylinder_centerx;
-          xc[1] = this->param.fsi.cylinder_centery;
-
-          /*can be change for a more generals forme */
-          if constexpr (dim == 3)
-            xc[2] = 0.0;
-
-          Tensor<1, dim> u_rot;
-          u_rot = 0.0;
-
-          const double rx = xq_fixed[0] - xc[0];
-          const double ry = xq_fixed[1] - xc[1];
-
-          if constexpr (dim == 2)
+          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
-            u_rot[0] += -Omega * ry;
-            u_rot[1] +=  Omega * rx;
+            const double face_JxW_moving =
+              scratch_data.face_JxW_moving[i_face][q];
+
+            const auto &phi_u = scratch_data.phi_u_face[i_face][q];
+            const auto &phi_l = scratch_data.phi_l_face[i_face][q];
+
+            const auto &present_u =
+              scratch_data.present_face_velocity_values[i_face][q];
+            const auto &present_w =
+              scratch_data.present_face_mesh_velocity_values[i_face][q];
+            const auto &present_l =
+              scratch_data.present_face_lambda_values[i_face][q];
+
+            const auto u_ale = present_u - present_w;
+
+            /* --- Rigid-body rotational velocity evaluated on FIXED mesh --- */
+            const auto &q_points_fixed =
+              scratch_data.get_face_quadrature_points_fixed(i_face);
+            AssertIndexRange(q, q_points_fixed.size());
+            const Point<dim> &xq_fixed = q_points_fixed[q];
+
+            const auto  &bc = this->param.fluid_bc.at(face->boundary_id());
+            const double Omega =
+              (bc.Omega ? bc.Omega->value(xq_fixed, 0) : 0.0);
+
+            Point<dim> xc;
+            xc[0] = this->param.fsi.cylinder_centerx;
+            xc[1] = this->param.fsi.cylinder_centery;
+
+            /*can be change for a more generals forme */
+            if constexpr (dim == 3)
+              xc[2] = 0.0;
+
+            Tensor<1, dim> u_rot;
+            u_rot = 0.0;
+
+            const double rx = xq_fixed[0] - xc[0];
+            const double ry = xq_fixed[1] - xc[1];
+
+            if constexpr (dim == 2)
+            {
+              u_rot[0] += -Omega * ry;
+              u_rot[1] += Omega * rx;
+            }
+            else if constexpr (dim == 3)
+            {
+              u_rot[0] += -Omega * ry;
+              u_rot[1] += Omega * rx;
+              u_rot[2] += 0.0;
+            }
+
+            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+            {
+              double local_rhs_i = 0.0;
+
+              const unsigned int comp_i = scratch_data.components[i];
+              const bool         i_is_u = this->ordering->is_velocity(comp_i);
+              const bool         i_is_l = this->ordering->is_lambda(comp_i);
+
+              if (i_is_u)
+                local_rhs_i -= -(phi_u[i] * present_l);
+
+              if (i_is_l)
+                local_rhs_i -= -(u_ale - u_rot) * phi_l[i];
+
+              local_rhs_i *= face_JxW_moving;
+              local_rhs(i) += local_rhs_i;
+            }
           }
-          else if constexpr (dim == 3)
-          {
-            u_rot[0] += -Omega * ry;
-            u_rot[1] +=  Omega * rx;
-            u_rot[2] +=  0.0;
-          }
-
-          for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-          {
-            double local_rhs_i = 0.0;
-
-            const unsigned int comp_i = scratch_data.components[i];
-            const bool i_is_u = this->ordering->is_velocity(comp_i);
-            const bool i_is_l = this->ordering->is_lambda(comp_i);
-
-            if (i_is_u)
-              local_rhs_i -= -(phi_u[i] * present_l);
-
-            if (i_is_l)
-              local_rhs_i -= -(u_ale - u_rot) * phi_l[i];
-
-            local_rhs_i *= face_JxW_moving;
-            local_rhs(i) += local_rhs_i;
-          }
-
-        }
 
         /**
          * Open boundary condition with prescribed manufactured solution.
@@ -2511,7 +2511,7 @@ void FSISolver<dim>::check_velocity_boundary() const
   std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
   std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
   Tensor<1, dim>              diff;
-  Tensor<1, dim> u_rot;
+  Tensor<1, dim>              u_rot;
 
   for (auto cell : this->dof_handler.active_cell_iterators())
   {
@@ -2539,16 +2539,16 @@ void FSISolver<dim>::check_velocity_boundary() const
 
         for (unsigned int q = 0; q < n_faces_q_points; ++q)
         {
-
           mesh_velocity_values[q] = 0;
           for (unsigned int iBDF = 0; iBDF < bdf_coefficients.size(); ++iBDF)
-            mesh_velocity_values[q] += bdf_coefficients[iBDF] * position_values[iBDF][q];
+            mesh_velocity_values[q] +=
+              bdf_coefficients[iBDF] * position_values[iBDF][q];
 
 
           const Point<dim> xq_fixed = fe_face_values_fixed.quadrature_point(q);
 
-          const auto b_id = face->boundary_id();
-          const auto &bc  = this->param.fluid_bc.at(b_id);
+          const auto  b_id = face->boundary_id();
+          const auto &bc   = this->param.fluid_bc.at(b_id);
 
 
           const double Omega = (bc.Omega ? bc.Omega->value(xq_fixed, 0) : 0.0);
@@ -2568,18 +2568,19 @@ void FSISolver<dim>::check_velocity_boundary() const
           if constexpr (dim == 2)
           {
             u_rot[0] = -Omega * ry;
-            u_rot[1] =  Omega * rx;
+            u_rot[1] = Omega * rx;
           }
           else if constexpr (dim == 3)
           {
             u_rot[0] = -Omega * ry;
-            u_rot[1] =  Omega * rx;
-            u_rot[2] =  0.0;
+            u_rot[1] = Omega * rx;
+            u_rot[2] = 0.0;
           }
 
-          const Tensor<1, dim> u_ale = fluid_velocity_values[q] - mesh_velocity_values[q];
+          const Tensor<1, dim> u_ale =
+            fluid_velocity_values[q] - mesh_velocity_values[q];
           diff = u_ale - u_rot;
-          
+
           l2_local += diff * diff * fe_face_values_fixed.JxW(q);
           li_local = std::max(li_local, diff.norm());
         }

@@ -99,16 +99,16 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
   const double filtered_phi = phi;
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
-  const double rho  = cahn_hilliard_linear_mixing(filtered_phi, rho0, rho1);
+  const double rho  = CahnHilliard::linear_mixing(filtered_phi, rho0, rho1);
   const double eta0 = rho0 * physical_properties.fluids[0].kinematic_viscosity;
   const double eta1 = rho1 * physical_properties.fluids[1].kinematic_viscosity;
-  const double eta  = cahn_hilliard_linear_mixing(filtered_phi, eta0, eta1);
+  const double eta  = CahnHilliard::linear_mixing(filtered_phi, eta0, eta1);
   const double M    = cahn_hilliard_param.mobility;
   const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
   // const double drhodphi =
-  //   cahn_hilliard_linear_mixing_derivative(filtered_phi, rho0, rho1);
+  //   CahnHilliard::linear_mixing_derivative(filtered_phi, rho0, rho1);
   const double detadphi =
-    cahn_hilliard_linear_mixing_derivative(filtered_phi, eta0, eta1);
+    CahnHilliard::linear_mixing_derivative(filtered_phi, eta0, eta1);
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
@@ -136,7 +136,7 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
 
   // Navier-Stokes momentum (velocity) source term
-  Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu + body_force) +
+  Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu - body_force) +
                        J_flux * grad_u + grad_p - div_viscous + phi * grad_mu);
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
@@ -403,7 +403,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
     const auto &potential_gradient = scratch_data.potential_gradients[q];
 
     const auto to_multiply_by_phi_u_i_phi_phi_j =
-      (drhodphi * (dudt + u_dot_grad_u + body_force) + potential_gradient);
+      (drhodphi * (dudt + u_dot_grad_u - body_force) + potential_gradient);
 
     for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
     {
@@ -706,7 +706,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
 
     // Terms of the momentum equation multiplied by phi_u_i
     const auto to_multiply_by_phi_u_i =
-      rho * (dudt + u_dot_grad_u + body_force) + diffusive_flux +
+      rho * (dudt + u_dot_grad_u - body_force) + diffusive_flux +
       tracer_value * potential_gradient + source_term_velocity;
 
     // Terms of the tracer equation multiplied by phi_phi_i

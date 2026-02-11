@@ -776,6 +776,10 @@ namespace Parameters
                         default_point,
                         Patterns::List(Patterns::Double(), dim, dim, ","),
                         "Body force vector (e.g., gravity acceleration)");
+      prm.declare_entry("enable tracer limiter",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable limiter for the tracer (phase field marker)");
     }
     prm.leave_subsection();
   }
@@ -788,10 +792,11 @@ namespace Parameters
       const std::string parsed_mobility_model = prm.get("mobility model");
       if (parsed_mobility_model == "linear")
         mobility_model = MobilityModel::constant;
-      mobility          = prm.get_double("mobility");
-      surface_tension   = prm.get_double("surface tension");
-      epsilon_interface = prm.get_double("interface thickness");
-      body_force        = parse_rank_1_tensor<dim>(prm.get("body force"));
+      mobility            = prm.get_double("mobility");
+      surface_tension     = prm.get_double("surface tension");
+      epsilon_interface   = prm.get_double("interface thickness");
+      body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
+      with_tracer_limiter = prm.get_bool("enable tracer limiter");
     }
     prm.leave_subsection();
   }

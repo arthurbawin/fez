@@ -512,6 +512,11 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
   exact_face_pressure_values.resize(n_faces,
                                     std::vector<double>(n_faces_q_points));
+  face_q_points.resize(n_faces, std::vector<Point<dim>>(n_faces_q_points));
+
+  if (enable_pseudo_solid)
+    face_q_points_fixed.resize(n_faces, std::vector<Point<dim>>(n_faces_q_points));
+
 
   if (enable_pseudo_solid)
   {

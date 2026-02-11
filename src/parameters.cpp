@@ -1000,6 +1000,11 @@ namespace Parameters
                         "Mass of the studied system");
       prm.declare_entry("cylinder radius", "1", Patterns::Double(), "");
       prm.declare_entry("cylinder length", "1", Patterns::Double(), "");
+
+      prm.declare_entry("cylinder center x", "1", Patterns::Double(), "");
+      prm.declare_entry("cylinder center y", "1", Patterns::Double(), "");
+
+
       prm.declare_entry("fix z component", "true", Patterns::Bool(), "");
       prm.declare_entry("compute error on forces",
                         "false",

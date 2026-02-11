@@ -551,10 +551,13 @@ public:
      * current cell, extracted from the hp::FEValues with
      * get_present_fe_values().
      */
+
+    std::fill(face_boundary_id.begin(),
+          face_boundary_id.end(),
+          numbers::invalid_unsigned_int);
     active_fe_values = this->reinit(cell, false);
     if (enable_pseudo_solid)
       active_fe_values_fixed = this->reinit(cell, true);
-
 
     dofs_per_cell = active_fe_values->dofs_per_cell;
     for (const unsigned int i : active_fe_values->dof_indices())
@@ -602,6 +605,13 @@ public:
           if (enable_pseudo_solid)
             active_fe_face_values_fixed = this->reinit(cell, i_face, true);
 
+          face_q_points[i_face] = active_fe_face_values->get_quadrature_points();
+          
+          if (enable_pseudo_solid)
+            face_q_points_fixed[i_face] =
+              active_fe_face_values_fixed->get_quadrature_points();
+
+
           reinit_navier_stokes_face(i_face,
                                     *active_fe_face_values,
                                     current_solution,
@@ -627,23 +637,27 @@ public:
       }
   }
 
-  const FEFaceValues<dim> &
-  get_fe_face_values() const
+  const std::vector<Point<dim>> &
+  get_face_quadrature_points(const unsigned int i_face) const
   {
-    Assert(active_fe_face_values != nullptr,
-          ExcMessage("active_fe_face_values is null. Did you call ScratchData::reinit(cell, ...)?"));
-    return *active_fe_face_values;
+    AssertIndexRange(i_face, n_faces);
+    Assert(face_boundary_id[i_face] != numbers::invalid_unsigned_int,
+          ExcMessage("Face quadrature points requested but this face was not reinit'ed on the current cell."));
+    return face_q_points[i_face];
   }
 
-  const FEFaceValues<dim> &
-  get_fe_face_values_fixed() const
+  const std::vector<Point<dim>> &
+  get_face_quadrature_points_fixed(const unsigned int i_face) const
   {
     Assert(enable_pseudo_solid,
-          ExcMessage("Fixed FEFaceValues requested but enable_pseudo_solid is false."));
-    Assert(active_fe_face_values_fixed != nullptr,
-          ExcMessage("active_fe_face_values_fixed is null. Did you call ScratchData::reinit(cell, ...)?"));
-    return *active_fe_face_values_fixed;
+          ExcMessage("Fixed face quadrature points requested but pseudo-solid is disabled."));
+    AssertIndexRange(i_face, n_faces);
+    Assert(face_boundary_id[i_face] != numbers::invalid_unsigned_int,
+          ExcMessage("Fixed face quadrature points requested but this face was not reinit'ed on the current cell."));
+    return face_q_points_fixed[i_face];
   }
+
+
 
 
 private:
@@ -683,6 +697,9 @@ private:
   std::unique_ptr<hp::FEValues<dim>>     hp_fe_values_fixed;
   std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values;
   std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values_fixed;
+
+  std::vector<std::vector<Point<dim>>> face_q_points;
+  std::vector<std::vector<Point<dim>>> face_q_points_fixed; 
 
 public:
   unsigned int n_q_points;

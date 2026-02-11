@@ -56,8 +56,8 @@ namespace BoundaryConditions
     w->declare_parameters(prm);
     prm.leave_subsection();
 
-    prm.enter_subsection("omega");
-    omega->declare_parameters(prm);
+    prm.enter_subsection("Omega");
+    Omega->declare_parameters(prm);
     prm.leave_subsection();
   }
 
@@ -106,8 +106,8 @@ namespace BoundaryConditions
     w->parse_parameters(prm);
     prm.leave_subsection();
 
-    prm.enter_subsection("omega");
-    omega->parse_parameters(prm);
+    prm.enter_subsection("Omega");
+    Omega->parse_parameters(prm);
     prm.leave_subsection();
   }
 

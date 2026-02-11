@@ -2006,11 +2006,13 @@ void FSISolver<dim>::assemble_local_rhs(
           const Point<dim> &xq_fixed = q_points_fixed[q];
 
           const auto &bc  = this->param.fluid_bc.at(face->boundary_id());
-          const double omega = (bc.omega ? bc.omega->value(xq_fixed, 0) : 0.0);
+          const double Omega = (bc.Omega ? bc.Omega->value(xq_fixed, 0) : 0.0);
 
           Point<dim> xc;
           xc[0] = this->param.fsi.cylinder_centerx;
           xc[1] = this->param.fsi.cylinder_centery;
+
+          /*can be change for a more generals forme */
           if constexpr (dim == 3)
             xc[2] = 0.0;
 
@@ -2022,13 +2024,13 @@ void FSISolver<dim>::assemble_local_rhs(
 
           if constexpr (dim == 2)
           {
-            u_rot[0] += -omega * ry;
-            u_rot[1] +=  omega * rx;
+            u_rot[0] += -Omega * ry;
+            u_rot[1] +=  Omega * rx;
           }
           else if constexpr (dim == 3)
           {
-            u_rot[0] += -omega * ry;
-            u_rot[1] +=  omega * rx;
+            u_rot[0] += -Omega * ry;
+            u_rot[1] +=  Omega * rx;
             u_rot[2] +=  0.0;
           }
 
@@ -2044,7 +2046,7 @@ void FSISolver<dim>::assemble_local_rhs(
               local_rhs_i -= -(phi_u[i] * present_l);
 
             if (i_is_l)
-              local_rhs_i -= -(u_ale + u_rot) * phi_l[i];
+              local_rhs_i -= -(u_ale - u_rot) * phi_l[i];
 
             local_rhs_i *= face_JxW_moving;
             local_rhs(i) += local_rhs_i;
@@ -2549,7 +2551,7 @@ void FSISolver<dim>::check_velocity_boundary() const
           const auto &bc  = this->param.fluid_bc.at(b_id);
 
 
-          const double omega = (bc.omega ? bc.omega->value(xq_fixed, 0) : 0.0);
+          const double Omega = (bc.Omega ? bc.Omega->value(xq_fixed, 0) : 0.0);
 
 
 
@@ -2565,19 +2567,19 @@ void FSISolver<dim>::check_velocity_boundary() const
           u_rot = 0.0;
           if constexpr (dim == 2)
           {
-            u_rot[0] = -omega * ry;
-            u_rot[1] =  omega * rx;
+            u_rot[0] = -Omega * ry;
+            u_rot[1] =  Omega * rx;
           }
           else if constexpr (dim == 3)
           {
-            u_rot[0] = -omega * ry;
-            u_rot[1] =  omega * rx;
+            u_rot[0] = -Omega * ry;
+            u_rot[1] =  Omega * rx;
             u_rot[2] =  0.0;
           }
 
           const Tensor<1, dim> u_ale = fluid_velocity_values[q] - mesh_velocity_values[q];
-          diff = u_ale + u_rot;
-
+          diff = u_ale - u_rot;
+          
           l2_local += diff * diff * fe_face_values_fixed.JxW(q);
           li_local = std::max(li_local, diff.norm());
         }

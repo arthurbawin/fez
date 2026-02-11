@@ -160,7 +160,7 @@ namespace Parameters
 
       // --- skin output ---
       prm.declare_entry(
-        "vtu write skin results",
+        "write vtu skin results",
         "false",
         Patterns::Bool(),
         "Enable/disable skin (boundary-only) vtu output writing.");
@@ -188,7 +188,7 @@ namespace Parameters
       output_prefix        = prm.get("output prefix");
       vtu_output_frequency = prm.get_integer("vtu output frequency");
 
-      write_skin_results        = prm.get_bool("vtu write skin results");
+      write_skin_results        = prm.get_bool("write vtu skin results");
       skin_boundary_id          = prm.get_integer("skin boundary id");
       skin_vtu_output_frequency = prm.get_integer("skin vtu output frequency");
     }

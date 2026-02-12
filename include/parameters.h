@@ -251,6 +251,9 @@ namespace Parameters
 
   struct TimeIntegration
   {
+    double dt_max;
+    double dt_min;
+    bool adaptative_dt;
     double dt;
     double t_initial;
     double t_end;

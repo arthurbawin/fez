@@ -684,6 +684,10 @@ namespace Parameters
   {
     prm.enter_subsection("Time integration");
     {
+      prm.declare_entry("dt_max","1",Patterns::Double(), "Time step max");
+      prm.declare_entry("dt_min","0.0001",Patterns::Double(), "Time step min");
+      prm.declare_entry("adaptative_dt","false",Patterns::Bool(),
+                        "Enable adaptative time step");
       prm.declare_entry("dt", "1", Patterns::Double(), "Time step");
       prm.declare_entry("t_initial",
                         "1",
@@ -710,6 +714,9 @@ namespace Parameters
   {
     prm.enter_subsection("Time integration");
     {
+      dt_max  = prm.get_double("dt_max");
+      dt_min  = prm.get_double("dt_min");
+      adaptative_dt = prm.get_bool("adaptative_dt");
       dt        = prm.get_double("dt");
       t_initial = prm.get_double("t_initial");
       t_end     = prm.get_double("t_end");
@@ -1031,7 +1038,7 @@ namespace Parameters
       cylinder_radius         = prm.get_double("cylinder radius");
       cylinder_length         = prm.get_double("cylinder length");
       cylinder_centerx        = prm.get_double("cylinder center x");
-      cylinder_centery        = prm.get_double("cylinder center x");
+      cylinder_centery        = prm.get_double("cylinder center y");
       fix_z_component         = prm.get_bool("fix z component");
       compute_error_on_forces = prm.get_bool("compute error on forces");
     }

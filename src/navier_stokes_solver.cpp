@@ -105,6 +105,134 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_time()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+update_time_step_after_converged_step()
+{
+  if (time_handler.is_steady())
+    return;
+
+  if (!param.time_integration.adaptative_dt)
+    return;
+
+  // ------------------------------------------------------------
+  // 0) Ordre effectif p pour le contrôle en temps
+  //    (BDF2 seulement quand on n'est plus dans le starting step)
+  // ------------------------------------------------------------
+  unsigned int order = 1;
+  if (time_handler.scheme == Parameters::TimeIntegration::Scheme::BDF2 &&
+      !time_handler.is_starting_step())
+    order = 2;
+
+  if (previous_solutions.size() < order + 1)
+    return;
+
+  // ------------------------------------------------------------
+  // 1) e_star (estimateur de Vautrin)
+  // ------------------------------------------------------------
+  LA::ParVectorType e_star;
+  e_star.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
+
+  time_handler.compute_vautrin_error_estimate(e_star,
+                                              present_solution,   // u_{n+1}
+                                              previous_solutions, // u_n, u_{n-1}, ...
+                                              order);
+
+  // ------------------------------------------------------------
+  // 2) Paramètres "en dur" (comme tu veux)
+  // ------------------------------------------------------------
+  const double u_seuil = 1e-2;
+
+  const double eps_u = 1e-3; // vitesse
+  const double eps_p = 1e-2; // pression (plus permissif)
+  const double eps_x = 1e-3; // position mesh (si ALE)
+
+  // ------------------------------------------------------------
+  // 3) R = min_q ( epsilon_q / err_q )
+  //    en respectant l'ordering des composantes
+  // ------------------------------------------------------------
+  double R = std::numeric_limits<double>::max();
+
+  // --- Vitesse : [u_lower, u_upper)
+  for (unsigned int c = ordering->u_lower; c < ordering->u_upper; ++c)
+  {
+    R = std::min(R,
+                 compute_scaled_vautrin_ratio(e_star,
+                                              present_solution,
+                                              dofs_to_component,
+                                              c,
+                                              eps_u,
+                                              u_seuil,
+                                              mpi_communicator));
+  }
+
+  // --- Pression : [p_lower, p_upper)
+  for (unsigned int c = ordering->p_lower; c < ordering->p_upper; ++c)
+  {
+    R = std::min(R,
+                 compute_scaled_vautrin_ratio(e_star,
+                                              present_solution,
+                                              dofs_to_component,
+                                              c,
+                                              eps_p,
+                                              u_seuil,
+                                              mpi_communicator));
+  }
+
+  // --- Position du maillage : [x_lower, x_upper) (seulement si ALE/moving mesh)
+  if constexpr (with_moving_mesh)
+  {
+    // Important : en NS pur, x_lower/x_upper peuvent être invalid.
+    // En FSI/ALE, ils sont définis (cf ComponentOrderingFSI).
+    const bool has_mesh_position =
+      (ordering->x_upper > ordering->x_lower); // simple test de validité
+
+    if (has_mesh_position)
+    {
+      for (unsigned int c = ordering->x_lower; c < ordering->x_upper; ++c)
+      {
+        R = std::min(R,
+                     compute_scaled_vautrin_ratio(e_star,
+                                                  present_solution,
+                                                  dofs_to_component,
+                                                  c,
+                                                  eps_x,
+                                                  u_seuil,
+                                                  mpi_communicator));
+      }
+    }
+  }
+
+  // Si jamais R est resté à +inf (aucune composante trouvée), on ne change pas dt
+  if (!std::isfinite(R) || R <= 0.0)
+    return;
+
+  // ------------------------------------------------------------
+  // 4) bornes ratio h_{n+1}/h_n
+  // ------------------------------------------------------------
+  const double ratio_min = (order == 2 ? 0.2 : 0.1);
+  const double ratio_max = (order == 2 ? (1.0 + std::sqrt(2.0)) : 5.0);
+
+  // ------------------------------------------------------------
+  // 5) dt_next (clamp dt_min/dt_max + ratios)
+  // ------------------------------------------------------------
+  const double dt_next =
+    propose_next_dt_vautrin(time_handler.current_dt,
+                            R,
+                            order,
+                            0.9, // safety en dur
+                            ratio_min,
+                            ratio_max,
+                            param.time_integration.dt_min,
+                            param.time_integration.dt_max);
+
+  time_handler.current_dt = dt_next;
+}
+
+
+
+
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::run()
 {
   reset();
@@ -202,8 +330,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
         solve_nonlinear_problem(false);
     }
 
-    postprocess_solution();
 
+
+
+    postprocess_solution();
+    update_time_step_after_converged_step();
     time_handler.rotate_solutions(present_solution, previous_solutions);
 
 
@@ -270,9 +401,14 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   // Allocate for previous BDF solutions
   previous_solutions.clear();
-  previous_solutions.resize(time_handler.n_previous_solutions);
+  const unsigned int n_history =
+    time_handler.is_steady() ? 0 : (time_handler.n_previous_solutions + 1);
+
+  previous_solutions.resize(n_history);
+
   for (auto &previous_sol : previous_solutions)
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+
 
   if constexpr (with_moving_mesh)
   {
@@ -536,6 +672,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
   evaluation_point = newton_update;
 
   time_handler.rotate_solutions(present_solution, previous_solutions);
+  // At t = t0, fill the whole history with the initial state
+  if (!time_handler.is_steady() && time_handler.current_time_iteration == 0)
+    for (auto &prev : previous_solutions)
+      prev = present_solution;
+
 }
 
 template <int dim, bool with_moving_mesh>
@@ -982,6 +1123,79 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
 }
 
 template <int dim, bool with_moving_mesh>
+double NavierStokesSolver<dim, with_moving_mesh>::
+compute_scaled_vautrin_ratio(const LA::ParVectorType         &e_star,
+                             const LA::ParVectorType         &u_star,   // prends u_np1 ici
+                             const std::vector<unsigned char> &dofs_to_component,
+                             const unsigned int               component_q,
+                             const double                     epsilon_q,
+                             const double                     u_seuil,
+                             const MPI_Comm                   comm)
+{
+  double local_sum_e2 = 0.0;
+  double local_sum_u2 = 0.0;
+  unsigned long long local_neq = 0;
+
+  for (const auto i : u_star.locally_owned_elements())
+  {
+    // Filtre: on ne garde que les dofs appartenant à la variable q
+    if (dofs_to_component[i] != component_q)
+      continue;
+
+    const double e = e_star[i];
+    const double u = u_star[i];
+
+    local_sum_e2 += e * e;
+    local_sum_u2 += u * u;
+    local_neq++;
+  }
+
+  const double global_sum_e2 = Utilities::MPI::sum(local_sum_e2, comm);
+  const double global_sum_u2 = Utilities::MPI::sum(local_sum_u2, comm);
+  const unsigned long long global_neq = Utilities::MPI::sum(local_neq, comm);
+
+  if (global_neq == 0)
+    return std::numeric_limits<double>::max(); // rien à mesurer
+
+  const double e_abs = std::sqrt(global_sum_e2 / static_cast<double>(global_neq));
+  const double u_norm = std::sqrt(global_sum_u2 / static_cast<double>(global_neq));
+
+  // Choix abs/rel (Yohann)
+  const double err = (u_norm < u_seuil) ? e_abs : (e_abs / u_norm);
+
+  if (err == 0.0)
+    return std::numeric_limits<double>::max();
+
+  // R_q = epsilon_q / err_q  (si err < eps => R>1 => dt augmente)
+  return epsilon_q / err;
+}
+
+template <int dim, bool with_moving_mesh>
+double NavierStokesSolver<dim, with_moving_mesh>::
+propose_next_dt_vautrin(const double       dt,
+                        const double       R,
+                        const unsigned int order,
+                        const double       safety,
+                        const double       ratio_min,
+                        const double       ratio_max,
+                        const double       dt_min,
+                        const double       dt_max)
+{
+  double factor = ratio_max;
+
+  if (R > 0.0)
+  {
+    factor = safety * std::pow(R, 1.0 / double(order + 1));
+    factor = std::min(ratio_max, std::max(ratio_min, factor));
+  }
+
+  double dt_new = dt * factor;
+  dt_new        = std::min(dt_max, std::max(dt_min, dt_new));
+  return dt_new;
+}
+
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::restart()
 {
   const MPI_Comm     comm = mpi_communicator;
@@ -1047,7 +1261,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
 
 
-  const unsigned int n_vec = time_handler.n_previous_solutions + 1;
+  const unsigned int n_vec = 1 + previous_solutions.size(); // present + all history
 
   std::vector<LA::ParVectorType>   vectors_to_read(n_vec);
   std::vector<LA::ParVectorType *> ptrs_to_vectors_to_read(n_vec);
@@ -1058,14 +1272,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
     ptrs_to_vectors_to_read[i] = &vectors_to_read[i];
   }
 
-  dealii::SolutionTransfer<dim, LA::ParVectorType> solution_transfer(
-    dof_handler);
+  dealii::SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
   solution_transfer.deserialize(ptrs_to_vectors_to_read);
 
-
   present_solution = vectors_to_read[0];
-  for (unsigned int i = 0; i < time_handler.n_previous_solutions; ++i)
+  for (unsigned int i = 0; i < previous_solutions.size(); ++i)
     previous_solutions[i] = vectors_to_read[i + 1];
+
 
   local_evaluation_point = present_solution;
   evaluation_point       = present_solution;

@@ -247,6 +247,26 @@ public:
    */
   virtual const FESystem<dim> &get_fe_system() const = 0;
 
+
+  double compute_scaled_vautrin_ratio(const LA::ParVectorType          &e_star,
+                                      const LA::ParVectorType          &u_star,
+                                      const std::vector<unsigned char> &dofs_to_component,
+                                      const unsigned int                component_q,
+                                      const double                      epsilon_q,
+                                      const double                      u_seuil,
+                                      const MPI_Comm                    comm);
+
+
+  static double propose_next_dt_vautrin(
+    const double       dt,
+    const double       R,
+    const unsigned int order,
+    const double       safety,
+    const double       ratio_min,
+    const double       ratio_max,
+    const double       dt_min,
+    const double       dt_max);
+
 protected:
   std::shared_ptr<ComponentOrdering> ordering;
 
@@ -303,6 +323,8 @@ protected:
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
   PostProcessingHandler<dim>                             postproc_handler;
+  void update_time_step_after_converged_step();
+
 };
 
 #endif

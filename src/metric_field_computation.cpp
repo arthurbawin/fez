@@ -1,18 +1,20 @@
 
-#include <MetricField.h>
-
 #include <deal.II/base/function.h>
 #include <deal.II/lac/vector.h>
+#include <metric_field.h>
 
 template <int dim>
 class ExactTestHessian : public Function<dim>
 {
 public:
   // Set number of components based on dim
-  ExactTestHessian() : Function<dim>((dim == 2) ? 3 : 6) {}
+  ExactTestHessian()
+    : Function<dim>((dim == 2) ? 3 : 6)
+  {}
 
   // Main function call to evaluate the function at a point
-  virtual void vector_value(const Point<dim> &p, Vector<double> &values) const override
+  virtual void vector_value(const Point<dim> &p,
+                            Vector<double>   &values) const override
   {
     // Resize vector if needed
     AssertDimension(values.size(), this->n_components);
@@ -20,12 +22,13 @@ public:
     const double x = p[0];
     const double y = p[1];
 
-    const double d = 1.;
+    const double d    = 1.;
     const double valx = (2.0 * x - sin(y * 5.0));
 
-    const double uxx = 1.0 / (d * d) * tanh(valx / d) * (pow(tanh(valx / d), 2.0) - 1.0) * 8.0;
+    const double uxx =
+      1.0 / (d * d) * tanh(valx / d) * (pow(tanh(valx / d), 2.0) - 1.0) * 8.0;
     const double uxy = -1.0 / (d * d) * cos(y * 5.0) * tanh(valx / d) *
-                   (pow(tanh(valx / d), 2.0) - 1.0) * 2.0E+1;
+                       (pow(tanh(valx / d), 2.0) - 1.0) * 2.0E+1;
     const double uyy =
       -(sin(y * 5.0) * (pow(tanh(valx / d), 2.0) - 1.0) * 2.5E+1) / d +
       1.0 / (d * d) * pow(cos(y * 5.0), 2.0) * tanh(valx / d) *
@@ -40,7 +43,7 @@ public:
       // Same ordering as dealii SymmetricTensor
       values[0] = uxx;
       values[1] = uyy;
-      values[2] = uxy;     
+      values[2] = uxy;
     }
     else if constexpr (dim == 3)
     {
@@ -48,10 +51,10 @@ public:
       const double z = p[2];
 
       // TODO: Check ordering for SymmetricTensor
-      values[0] = uxx; 
+      values[0] = uxx;
       values[1] = uyy;
       values[2] = uzz;
-      values[3] = uxy; // Check ordering 
+      values[3] = uxy; // Check ordering
       values[4] = uxz; // Check ordering
       values[5] = uyz; // Check ordering
     }
@@ -68,7 +71,7 @@ public:
   {
     AssertDimension(points.size(), value_list.size());
     for (unsigned int i = 0; i < points.size(); ++i)
-        this->vector_value(points[i], value_list[i]);
+      this->vector_value(points[i], value_list[i]);
   }
 };
 
@@ -78,13 +81,14 @@ void MetricField<dim>::computeMetricsP1()
   bool useExactDerivatives = true;
 
   ExactTestHessian<dim> hessian;
-  Vector<double> hessianAtP((dim == 2) ? 3 : 6);
+  Vector<double>        hessianAtP((dim == 2) ? 3 : 6);
 
   // Check that derivatives were given if using analytical derivatives
-  // AssertThrow(, ExcMessage("Using analytical derivatives but none were provided"));
+  // AssertThrow(, ExcMessage("Using analytical derivatives but none were
+  // provided"));
 
-  const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
-  const unsigned int n_vertices = triangulation.n_vertices();
+  const std::vector<Point<dim>> &vertices   = triangulation.get_vertices();
+  const unsigned int             n_vertices = triangulation.n_vertices();
 
   // TODO: Check if we can safely use OpenMP in postprocessing routines
   for (unsigned int v = 0; v < n_vertices; ++v)
@@ -94,7 +98,7 @@ void MetricField<dim>::computeMetricsP1()
     auto &metric = _metrics[v];
 
     // Compute derivatives at p
-    if(useExactDerivatives)
+    if (useExactDerivatives)
     {
       hessian.vector_value(p, hessianAtP);
     }
@@ -112,9 +116,9 @@ void MetricField<dim>::computeMetricsP1()
     std::cout << "Metric  is" << std::endl;
     std::cout << metric << std::endl;
     std::cout << "Bounded Metric  is" << std::endl;
-    metric.boundEigenvalues(1./(100.*100.), 1./(1e-10 * 1e-10));
+    metric.boundEigenvalues(1. / (100. * 100.), 1. / (1e-10 * 1e-10));
     std::cout << metric << std::endl;
   }
 }
 
-#include <MetricField_inst.h>
+// #include <MetricField_inst.h>

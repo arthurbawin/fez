@@ -123,7 +123,7 @@ update_time_step_after_converged_step()
       !time_handler.is_starting_step())
     order = 2;
 
-  if (previous_solutions.size() < order + 1)
+  if (!param.time_integration.adaptative_dt || previous_solutions_dt_control.size() < order + 1)
     return;
 
   // ------------------------------------------------------------
@@ -133,9 +133,10 @@ update_time_step_after_converged_step()
   e_star.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
 
   time_handler.compute_vautrin_error_estimate(e_star,
-                                              present_solution,   // u_{n+1}
-                                              previous_solutions, // u_n, u_{n-1}, ...
-                                              order);
+                                            present_solution,
+                                            previous_solutions_dt_control,
+                                            order);
+
 
   // ------------------------------------------------------------
   // 2) Paramètres "en dur" (comme tu veux)
@@ -285,6 +286,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
 
   output_results();
 
+  pcout << "scheme=" << static_cast<int>(time_handler.scheme)
+      << " adaptative_dt=" << param.time_integration.adaptative_dt
+      << " previous_solutions.size()=" << previous_solutions.size()
+      << " n_previous_solutions=" << time_handler.n_previous_solutions
+      << std::endl;
 
 
   while (!time_handler.is_finished())
@@ -330,12 +336,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
         solve_nonlinear_problem(false);
     }
 
-
-
-
     postprocess_solution();
     update_time_step_after_converged_step();
     time_handler.rotate_solutions(present_solution, previous_solutions);
+    if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
+      time_handler.rotate_solutions(present_solution, previous_solutions_dt_control);
+
 
 
 
@@ -370,6 +376,37 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
   // Initialize dof handler
   dof_handler.distribute_dofs(this->get_fe_system());
 
+   const auto &fe = dof_handler.get_fe();
+
+    // Sentinel value for "unset"
+    constexpr unsigned char unset = 255;
+
+    dofs_to_component.assign(dof_handler.n_dofs(), unset);
+
+    std::vector<types::global_dof_index> local_dof_indices(fe.n_dofs_per_cell());
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      if (cell->is_artificial())
+        continue;
+
+      cell->get_dof_indices(local_dof_indices);
+
+      for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
+      {
+        const unsigned int comp = fe.system_to_component_index(j).first;
+        const auto gi = local_dof_indices[j];
+
+        // gi is a global DoF index
+        dofs_to_component[gi] = static_cast<unsigned char>(comp);
+      }
+    }
+
+    // Optional but strongly recommended: ensure all locally relevant dofs are set
+    for (const auto gi : locally_relevant_dofs)
+      AssertThrow(dofs_to_component[gi] != unset,
+                  ExcMessage("dofs_to_component not initialized for a locally relevant DoF."));
+                  
   pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
         << std::endl;
 
@@ -401,13 +438,35 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   // Allocate for previous BDF solutions
   previous_solutions.clear();
-  const unsigned int n_history =
-    time_handler.is_steady() ? 0 : (time_handler.n_previous_solutions + 1);
+  const unsigned int extra_history =
+  (param.time_integration.adaptative_dt ? 1u : 0u);
 
-  previous_solutions.resize(n_history);
+  // ------------------------------
+  // 1) History used for assembly (BDF needs exactly n_previous_solutions)
+  // ------------------------------
+  const unsigned int n_history_assembly = time_handler.n_previous_solutions;
 
-  for (auto &previous_sol : previous_solutions)
-    previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+  previous_solutions.resize(n_history_assembly);
+  for (auto &sol : previous_solutions)
+    sol.reinit(locally_owned_dofs, mpi_communicator);
+
+  // ------------------------------
+  // 2) Extra history used ONLY for adaptive dt control (Vautrin)
+  //    Needs (order+1) vectors => for BDF2: 3 vectors.
+  // ------------------------------
+  if (param.time_integration.adaptative_dt)
+  {
+    const unsigned int n_history_dt_control = time_handler.n_previous_solutions + 1;
+
+    previous_solutions_dt_control.resize(n_history_dt_control);
+    for (auto &sol : previous_solutions_dt_control)
+      sol.reinit(locally_owned_dofs, mpi_communicator);
+  }
+  else
+  {
+    previous_solutions_dt_control.clear();
+  }
+
 
 
   if constexpr (with_moving_mesh)
@@ -672,6 +731,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
   evaluation_point = newton_update;
 
   time_handler.rotate_solutions(present_solution, previous_solutions);
+  if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
+    time_handler.rotate_solutions(present_solution, previous_solutions_dt_control);
+
   // At t = t0, fill the whole history with the initial state
   if (!time_handler.is_steady() && time_handler.current_time_iteration == 0)
     for (auto &prev : previous_solutions)

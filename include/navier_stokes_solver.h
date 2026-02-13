@@ -314,6 +314,7 @@ protected:
 
   LA::ParMatrixType              system_matrix;
   std::vector<LA::ParVectorType> previous_solutions;
+  std::vector<LA::ParVectorType> previous_solutions_dt_control;
 
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;

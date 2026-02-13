@@ -157,17 +157,19 @@ public:
 /* ---------------- Template functions ----------------- */
 
 template <typename VectorType>
-void TimeHandler::rotate_solutions(
-  const VectorType        &present_solution,
-  std::vector<VectorType> &previous_solutions) const
+void TimeHandler::rotate_solutions(const VectorType        &present_solution,
+                                  std::vector<VectorType> &previous_solutions) const
 {
-  if (!this->is_steady())
-  {
-    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-      previous_solutions[j] = previous_solutions[j - 1];
-    previous_solutions[0] = present_solution;
-  }
+  if (this->is_steady() || previous_solutions.empty())
+    return;
+
+  // Décalage: [0] <- present, [1] <- old[0], [2] <- old[1], ...
+  for (std::size_t j = previous_solutions.size(); j-- > 1; )
+    previous_solutions[j] = previous_solutions[j - 1];
+
+  previous_solutions[0] = present_solution;
 }
+
 
 template <typename VectorType>
 double TimeHandler::compute_time_derivative(

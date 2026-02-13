@@ -87,6 +87,7 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
+  template <int dim>
   struct FiniteElements
   {
     // If true, use hypercubes, otherwise use simplices (default).
@@ -112,6 +113,21 @@ namespace Parameters
 
     // Degree of the temperature for the heat equation
     unsigned int temperature_degree;
+
+    struct QuadratureRule
+    {
+      enum class Type
+      {
+        GaussSimplex,
+        WitherdenVincent
+      } type;
+
+      unsigned int n_pts_1D_simplex_cell_quad;
+      unsigned int n_pts_1D_simplex_face_quad;
+    };
+
+    QuadratureRule rule;
+    QuadratureRule rule_for_error;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -241,6 +257,7 @@ namespace Parameters
     double mobility;
     double surface_tension;
     double epsilon_interface;
+    bool   with_tracer_limiter;
 
     /**
      * We differentiate between the body force which is multiplied by the
@@ -269,7 +286,7 @@ namespace Parameters
     // If true, restart simulation from the given checkpoint file
     bool restart;
     // Name of the file to write to/read when checkpointing/restarting resp.
-    std::string  filename;
+    std::string filename;
     // Write checkpoint every N time steps
     unsigned int checkpoint_frequency;
 
@@ -341,6 +358,8 @@ namespace Parameters
 
     bool fix_z_component;
 
+    bool compute_error_on_forces;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -350,15 +369,15 @@ namespace Parameters
    */
   struct Debug
   {
-    Verbosity verbosity;
-    bool      write_partition_pos_gmsh;
-    bool      apply_exact_solution;
-    bool      compare_analytical_jacobian_with_fd;
-    double    analytical_jacobian_absolute_tolerance;
-    double    analytical_jacobian_relative_tolerance;
-    bool      fsi_apply_erroneous_coupling;
-    bool      fsi_check_mms_on_boundary;
-    unsigned int       fsi_coupling_option;
+    Verbosity    verbosity;
+    bool         write_partition_pos_gmsh;
+    bool         apply_exact_solution;
+    bool         compare_analytical_jacobian_with_fd;
+    double       analytical_jacobian_absolute_tolerance;
+    double       analytical_jacobian_relative_tolerance;
+    bool         fsi_apply_erroneous_coupling;
+    bool         fsi_check_mms_on_boundary;
+    unsigned int fsi_coupling_option;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

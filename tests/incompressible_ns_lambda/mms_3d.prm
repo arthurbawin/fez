@@ -1,0 +1,124 @@
+
+subsection Dimension
+  set dimension = 3
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write results    = false
+  set output directory = ../data/mms/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  # Mesh is set in the Manufactured solution subsection
+end
+
+subsection Time integration
+  set verbosity = quiet
+  set dt        = 0.1
+  set t_initial = 0
+  set t_end     = 1
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set verbosity            = quiet
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  set verbosity      = quiet
+  set method         = direct_mumps
+  set reuse          = true
+end
+
+subsection FiniteElements
+  set Velocity degree            = 2
+  set Pressure degree            = 1
+  set Lagrange multiplier degree = 2
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1.234
+    set kinematic viscosity = 9.876
+  end
+end
+
+subsection FSI
+  set compute error on forces = true
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 3
+  set fix pressure constant      = false
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id   = 2
+    set name = OuterBoundary
+    set type = velocity_mms
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = InnerBoundary
+    set type = weak_no_slip
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = Open
+    set type = open_mms
+  end
+end
+
+subsection Exact solution
+
+  # There is no source term for the Lagrange multiplier, so the 
+  # exact velocity must be zero on the cylinder, since this is 
+  # what is enforced with the weak_no_slip boundary condition.
+
+  subsection exact velocity
+    subsection space component
+      set preset = vector one minus radial kernel
+      subsection vector one minus radial kernel
+        set V           = 1., 2., 1.
+        set r0          = 0.15
+        set r1          = 2
+        set center      = 0.5, 0.5, 0
+        set cylindrical = true
+      end
+    end
+    subsection time component
+      set Function expression = 1
+    end
+  end
+
+  subsection exact pressure
+    set Function expression = sin(pi*x) * cos(pi*y) * sin(pi*z)
+  end
+end
+
+subsection Manufactured solution
+  set enable            = true
+  set type              = space
+  set convergence steps = 2
+
+  subsection Space convergence
+    set mesh prefix      = ../../mms_meshes/holed_3d_
+    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+  end
+end

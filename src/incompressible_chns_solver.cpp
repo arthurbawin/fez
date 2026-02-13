@@ -19,10 +19,6 @@
 #include <scratch_data.h>
 #include <utilities.h>
 
-#include <cmath>
-
-// #define WITH_SOURCE_TERMS
-
 template <int dim, bool with_moving_mesh>
 CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
@@ -64,7 +60,6 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
     this->ordering = std::make_shared<ComponentOrderingCHNS<dim, false>>();
   }
 
-
   this->velocity_extractor =
     FEValuesExtractors::Vector(this->ordering->u_lower);
   this->pressure_extractor =
@@ -80,6 +75,7 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   this->pressure_mask = fe->component_mask(this->pressure_extractor);
   if constexpr (with_moving_mesh)
     this->position_mask = fe->component_mask(this->position_extractor);
+
   tracer_mask    = fe->component_mask(tracer_extractor);
   potential_mask = fe->component_mask(potential_extractor);
 
@@ -132,16 +128,16 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
   const double filtered_phi = phi;
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
-  const double rho  = cahn_hilliard_linear_mixing(filtered_phi, rho0, rho1);
+  const double rho  = CahnHilliard::linear_mixing(filtered_phi, rho0, rho1);
   const double eta0 = rho0 * physical_properties.fluids[0].kinematic_viscosity;
   const double eta1 = rho1 * physical_properties.fluids[1].kinematic_viscosity;
-  const double eta  = cahn_hilliard_linear_mixing(filtered_phi, eta0, eta1);
+  const double eta  = CahnHilliard::linear_mixing(filtered_phi, eta0, eta1);
   const double M    = cahn_hilliard_param.mobility;
   const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
   // const double drhodphi =
-  //   cahn_hilliard_linear_mixing_derivative(filtered_phi, rho0, rho1);
+  //   CahnHilliard::linear_mixing_derivative(filtered_phi, rho0, rho1);
   const double detadphi =
-    cahn_hilliard_linear_mixing_derivative(filtered_phi, eta0, eta1);
+    CahnHilliard::linear_mixing_derivative(filtered_phi, eta0, eta1);
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
@@ -321,8 +317,9 @@ void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
 
       // x couples x,phi,u
       if constexpr (with_moving_mesh)
-        if (this->ordering->is_position(i) && 
-        (this->ordering->is_position(j) || this->ordering->is_tracer(j) || this->ordering->is_velocity(j)))
+        if (this->ordering->is_position(i) &&
+            (this->ordering->is_position(j) || this->ordering->is_tracer(j) ||
+             this->ordering->is_velocity(j)))
           coupling_table[i][j] = DoFTools::always;
 
       // phi couples to u, phi, mu, x
@@ -441,9 +438,9 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
     const auto &phi_p      = scratch_data.phi_p[q];
 
     // x necessary fct
-    const std::vector<Tensor<1, dim>> *phi_x             = nullptr;
-    const std::vector<Tensor<2, dim>> *grad_phi_x        = nullptr;
-    const std::vector<double>         *div_phi_x         = nullptr;
+    const std::vector<Tensor<1, dim>> *phi_x      = nullptr;
+    const std::vector<Tensor<2, dim>> *grad_phi_x = nullptr;
+    const std::vector<double>         *div_phi_x  = nullptr;
     const std::vector<Tensor<2, dim>> *grad_phi_x_moving = nullptr; // ∇_x (δx)
 
     if constexpr (with_moving_mesh)
@@ -461,15 +458,16 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
       //   for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
       //     if (this->ordering->is_position(scratch_data.components[j]))
       //     {
-      //       const double diff = ((*grad_phi_x)[j] - (*grad_phi_x_moving)[j]).norm();
-      //       if (diff > max_diff)
+      //       const double diff = ((*grad_phi_x)[j] -
+      //       (*grad_phi_x_moving)[j]).norm(); if (diff > max_diff)
       //       {
       //         max_diff = diff;
       //         j_max    = j;
       //       }
       //     }
 
-      //   std::cout << "[DBG] cell0 q0: max ||grad_phi_x - grad_phi_x_moving|| = "
+      //   std::cout << "[DBG] cell0 q0: max ||grad_phi_x - grad_phi_x_moving||
+      //   = "
       //             << max_diff;
 
       //   if (j_max != numbers::invalid_unsigned_int)
@@ -729,12 +727,12 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
               // phi-x bloc (ALE)
               local_flow_ij +=
                 phi_phi_i * ((-bdf_c0) * (*phi_x)[j] * tracer_gradient +
-                             u_conv * (-(transpose(G))*tracer_gradient));
+                             u_conv * (-(transpose(G)) * tracer_gradient));
 
               local_flow_ij +=
                 mobility *
-                ((-(transpose(G))*grad_phi_phi_i) * potential_gradient +
-                 grad_phi_phi_i * (-(transpose(G))*potential_gradient) +
+                ((-(transpose(G)) * grad_phi_phi_i) * potential_gradient +
+                 grad_phi_phi_i * (-(transpose(G)) * potential_gradient) +
                  (grad_phi_phi_i * potential_gradient) * trG);
             }
           }
@@ -807,9 +805,9 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
          */
         if constexpr (with_moving_mesh)
         {
-          const auto &mf =this->param.mesh_forcing;
-          const double beta  = (mf.enable ? mf.beta :0.0);
-          const double alpha = (mf.enable ? mf.alpha :0.0);
+          const auto  &mf    = this->param.mesh_forcing;
+          const double beta  = (mf.enable ? mf.beta : 0.0);
+          const double alpha = (mf.enable ? mf.alpha : 0.0);
 
           if (const_ordering.x_lower <= comp_i &&
               comp_i < const_ordering.x_upper)
@@ -817,10 +815,11 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
             if (const_ordering.u_lower <= comp_j &&
                 comp_j < const_ordering.u_upper)
             {
-              if (beta !=0.0)
+              if (beta != 0.0)
               {
-                local_ps_ij -= (*phi_x)[i] * (beta * (phi_u_j * tracer_gradient) *
-                                            tracer_gradient);
+                local_ps_ij -=
+                  (*phi_x)[i] *
+                  (beta * (phi_u_j * tracer_gradient) * tracer_gradient);
               }
             }
             if (const_ordering.x_lower <= comp_j &&
@@ -832,42 +831,42 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
                 lame_mu *
                   scalar_product((*grad_phi_x)[j] + transpose((*grad_phi_x)[j]),
                                  (*grad_phi_x)[i]);
-              if (alpha !=0.0)
+              if (alpha != 0.0)
               {
-                local_ps_ij -= (*phi_x)[i] *
-                                            (alpha * tracer_value *
-                                              (-transpose((*grad_phi_x)[j])) * tracer_gradient);
+                local_ps_ij -= (*phi_x)[i] * (alpha * tracer_value *
+                                              (-transpose((*grad_phi_x)[j])) *
+                                              tracer_gradient);
               }
-              if (beta !=0.0)
+              if (beta != 0.0)
               {
                 local_ps_ij -=
-                (*phi_x)[i] *
-                (beta *
-                 ((-bdf_c0) * (*phi_x)[j] * tracer_gradient * tracer_gradient +
-                  u_conv * ((-transpose((*grad_phi_x)[j])) * tracer_gradient) *
-                    tracer_gradient +
-                  u_dot_grad_phi *
-                    ((-transpose((*grad_phi_x)[j])) * tracer_gradient)));
+                  (*phi_x)[i] *
+                  (beta *
+                   ((-bdf_c0) * (*phi_x)[j] * tracer_gradient *
+                      tracer_gradient +
+                    u_conv *
+                      ((-transpose((*grad_phi_x)[j])) * tracer_gradient) *
+                      tracer_gradient +
+                    u_dot_grad_phi *
+                      ((-transpose((*grad_phi_x)[j])) * tracer_gradient)));
               }
-              
             }
             if (comp_j == const_ordering.phi_lower)
             {
-              if (alpha !=0.0)
+              if (alpha != 0.0)
               {
                 // mesh source term
-              local_ps_ij -=
-                ((*phi_x)[i] * (alpha * (phi_phi_j * tracer_gradient +
-                                         tracer_value * grad_phi_phi_j)));
+                local_ps_ij -=
+                  ((*phi_x)[i] * (alpha * (phi_phi_j * tracer_gradient +
+                                           tracer_value * grad_phi_phi_j)));
               }
-              if (beta !=0.0)
+              if (beta != 0.0)
               {
                 local_ps_ij -=
-                (*phi_x)[i] *
-                (beta * ((u_conv * grad_phi_phi_j) * tracer_gradient +
-                         (u_dot_grad_phi)*grad_phi_phi_j));
+                  (*phi_x)[i] *
+                  (beta * ((u_conv * grad_phi_phi_j) * tracer_gradient +
+                           (u_dot_grad_phi)*grad_phi_phi_j));
               }
-              
             }
           }
         }
@@ -1172,13 +1171,13 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
           // Linear elasticity
           lame_lambda * present_trace_strain * (*div_phi_x)[i] +
           2 * lame_mu * scalar_product(present_strain, (*grad_phi_x)[i])
-        // Linear elasticity source term
+          // Linear elasticity source term
           + (*phi_x)[i] * (*source_term_position);
         // --- mesh forcing near interface (pseudo-solid RHS)
-        const auto &mf =this->param.mesh_forcing;
-        const double beta  = (mf.enable ? mf.beta :0.0);
-        const double alpha = (mf.enable ? mf.alpha :0.0);
-        if (mf.enable && (mf.alpha !=0.0 || mf.beta !=0.0))
+        const auto  &mf    = this->param.mesh_forcing;
+        const double beta  = (mf.enable ? mf.beta : 0.0);
+        const double alpha = (mf.enable ? mf.alpha : 0.0);
+        if (mf.enable && (mf.alpha != 0.0 || mf.beta != 0.0))
         {
           const double phi  = tracer_value;
           const auto  &gphi = tracer_gradient; // ∇φ
@@ -1289,47 +1288,26 @@ void CHNSSolver<dim, with_moving_mesh>::output_results()
 
   if (this->param.output.write_results)
   {
-    std::vector<std::string> solution_names;
-    solution_names.reserve(this->ordering->n_components);
-
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("velocity");
+    std::vector<std::string> solution_names(dim, "velocity");
     solution_names.push_back("pressure");
-
     if constexpr (with_moving_mesh)
       for (unsigned int d = 0; d < dim; ++d)
         solution_names.push_back("mesh_position");
-
     solution_names.push_back("tracer");
     solution_names.push_back("potential");
 
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation;
-    data_component_interpretation.reserve(this->ordering->n_components);
-
-    // velocity (vector)
-    for (unsigned int d = 0; d < dim; ++d)
-      data_component_interpretation.push_back(
-        DataComponentInterpretation::component_is_part_of_vector);
-
-    // pressure (scalar)
+      data_component_interpretation(
+        dim, DataComponentInterpretation::component_is_part_of_vector);
     data_component_interpretation.push_back(
       DataComponentInterpretation::component_is_scalar);
-
-    // mesh_position (vector) [ALE only]
     if constexpr (with_moving_mesh)
       for (unsigned int d = 0; d < dim; ++d)
         data_component_interpretation.push_back(
           DataComponentInterpretation::component_is_part_of_vector);
-
-    // tracer (scalar)
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-
-    // potential (scalar)
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-
+    for (unsigned int i = 0; i < 2; ++i)
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_scalar);
 
     DataOut<dim> data_out;
     data_out.attach_dof_handler(this->dof_handler);

@@ -8,7 +8,11 @@
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping.h>
+#include <deal.II/hp/fe_values.h>
+#include <deal.II/hp/mapping_collection.h>
+#include <deal.II/hp/q_collection.h>
 #include <parameters.h>
+#include <types.h>
 
 #include <cmath>
 #include <limits>
@@ -160,6 +164,17 @@ inline Tensor<1, dim> parse_rank_1_tensor(const std::string &values,
 }
 
 /**
+ * Create quadrature rules according to the information in fe_param.
+ */
+template <int dim>
+void create_quadrature_rules(
+  const Parameters::FiniteElements<dim> &fe_param,
+  std::shared_ptr<Quadrature<dim>>      &quadrature,
+  std::shared_ptr<Quadrature<dim - 1>>  &face_quadrature,
+  std::shared_ptr<Quadrature<dim>>      &error_quadrature,
+  std::shared_ptr<Quadrature<dim - 1>>  &error_face_quadrature);
+
+/**
  *
  */
 inline std::pair<double, double>
@@ -288,6 +303,38 @@ double compute_boundary_volume(const DoFHandler<dim>     &dof_handler,
 }
 
 /**
+ * Same as above but in a hp context
+ */
+template <int dim>
+double compute_boundary_volume(const DoFHandler<dim>            &dof_handler,
+                               const hp::MappingCollection<dim> &mapping,
+                               const hp::QCollection<dim - 1> &face_quadrature,
+                               const types::boundary_id        boundary_id)
+{
+  double I = 0.;
+
+  hp::FEFaceValues<dim> hp_fe_face_values(mapping,
+                                          dof_handler.get_fe_collection(),
+                                          face_quadrature,
+                                          update_JxW_values);
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (unsigned int f = 0; f < cell->n_faces(); ++f)
+        if (cell->face(f)->at_boundary() &&
+            cell->face(f)->boundary_id() == boundary_id)
+        {
+          const unsigned int fe_index = cell->active_fe_index();
+          hp_fe_face_values.reinit(cell, f);
+          const FEFaceValues<dim> &fe_face_values =
+            hp_fe_face_values.get_present_fe_values();
+          for (unsigned int q = 0; q < face_quadrature[fe_index].size(); ++q)
+            I += fe_face_values.JxW(q);
+        }
+  return Utilities::MPI::sum(I, dof_handler.get_communicator());
+}
+
+/**
  * Rename temporary files containing the root "temporary_filename_prefix" to the
  * root "final_filename_prefix", while maintaining the suffixes. This is used to
  * overwrite the checkpoint save files, without risking to corrupt the previous
@@ -307,6 +354,79 @@ template <int dim>
 void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,
                             const IndexSet             &locally_relevant_dofs,
                             std::vector<unsigned char> &dofs_to_component);
+
+/**
+ *
+ */
+inline std::vector<LA::ConstMatrixIterator>
+get_matrix_rows(const LA::ParMatrixType      &matrix,
+                const types::global_dof_index dof_index)
+{
+  std::vector<LA::ConstMatrixIterator> row_entries;
+  for (auto it = matrix.begin(dof_index); it != matrix.end(dof_index); ++it)
+    // If row is empty, iterator is equal to end
+    row_entries.push_back(it);
+  return row_entries;
+}
+
+/**
+ * Add the constraint dof_index + coupling_coefficient * coupled_entry = 0
+ * to the given matrix, where dof_index is coupled to a single other entry.
+ * This only accounts for the matrix modification of the row associated to
+ * dof_index, thus RHS(dof_index) should also be set to zero.
+ */
+inline void
+constrain_matrix_row(LA::ParMatrixType                          &matrix,
+                     const types::global_dof_index               dof_index,
+                     const std::vector<LA::ConstMatrixIterator> &row_indices,
+                     const types::global_dof_index               coupled_entry,
+                     const double coupling_coefficient)
+{
+  // Set all column entries (i,j) to zero
+  for (auto it : row_indices)
+    matrix.set(dof_index, it->column(), 0.0);
+
+  // Set (i,i) to 1
+  matrix.set(dof_index, dof_index, 1.);
+
+  // Set relevant (i,j) to prescribed coefficient
+  matrix.set(dof_index, coupled_entry, coupling_coefficient);
+}
+
+/**
+ * Same as abovem but here dof_index is coupled to a vector of entries.
+ *
+ * FIXME, maybe
+ * Important : it is assumed here that the coupling coefficients are given
+ * to represent as in deal.II the affine constraint :
+ *
+ * dof_index = sum_i coupling_coefficients_i * coupled_entry_i,
+ *
+ * and not
+ *
+ * dof_index + sum_i coupling_coefficients_i * coupled_entry_i = 0.
+ *
+ * Thus, the entry (i,j) receives -coupling_coefficients_i, contrary to the
+ * function above.
+ */
+inline void constrain_matrix_row(
+  LA::ParMatrixType                          &matrix,
+  const types::global_dof_index               dof_index,
+  const std::vector<LA::ConstMatrixIterator> &row_indices,
+  const std::vector<std::pair<types::global_dof_index, double>>
+    &coupling_coefficients)
+{
+  // Set all column entries (i,j) to zero
+  for (auto it : row_indices)
+    matrix.set(dof_index, it->column(), 0.0);
+
+  // Set (i,i) to 1
+  matrix.set(dof_index, dof_index, 1.);
+
+  // Set relevant (i,j) to prescribed coefficients
+  for (const auto &[coupled_entry, coeff] : coupling_coefficients)
+    matrix.set(dof_index, coupled_entry, -coeff);
+}
 
 
 #endif

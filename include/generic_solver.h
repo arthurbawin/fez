@@ -202,7 +202,10 @@ public:
   VectorType &get_newton_update() { return newton_update; }
   VectorType &get_system_rhs() { return system_rhs; }
 
-  const Parameters::TimeIntegration &get_time_parameters() { return time_param; }
+  const Parameters::TimeIntegration &get_time_parameters()
+  {
+    return time_param;
+  }
 
 public:
   MPI_Comm           mpi_communicator;
@@ -225,9 +228,9 @@ protected:
   std::shared_ptr<NonLinearSolver<VectorType>> nonlinear_solver;
 
   // Data to perform a space and/or time convergence study
-  Parameters::Mesh                                               mesh_param;
-  Parameters::TimeIntegration                                    time_param;
-  Parameters::MMS                                                mms_param;
+  Parameters::Mesh            mesh_param;
+  Parameters::TimeIntegration time_param;
+  Parameters::MMS             mms_param;
 
   // An ErrorHandler for each error norm
   std::map<VectorTools::NormType, std::shared_ptr<ErrorHandler>> error_handlers;

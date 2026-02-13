@@ -1,7 +1,7 @@
 #ifndef METRIC_FIELD_h
 #define METRIC_FIELD_h
 
-#include <MetricTensor.h>
+#include <metric_tensor.h>
 
 using namespace dealii;
 

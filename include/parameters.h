@@ -270,6 +270,26 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
+  struct LinearElasticity
+  {
+    // If true, then the provided position source term is to be evaluated on
+    // the current mesh, and not on the reference mesh where the elasticity
+    // equation is solved (that is, we evaluate f(x(X)) instead of f(X).
+    bool enable_source_term_on_current_mesh;
+
+    // The source term on current mesh is enforced with a continuation method,
+    // starting at min_coeff * f(x(X)) and progressing until max_coeff * f(x(X))
+    double min_current_mesh_source_term_multiplier;
+    double max_current_mesh_source_term_multiplier;
+
+    // Number of steps to use in the continuation method when the source term
+    // is applied on the current configuration.
+    unsigned int n_continuation_steps;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
   struct CheckpointRestart
   {
     bool enable_checkpoint;

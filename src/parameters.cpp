@@ -683,6 +683,60 @@ namespace Parameters
   template class CahnHilliard<2>;
   template class CahnHilliard<3>;
 
+  void LinearElasticity::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Linear elasticity");
+    {
+      prm.enter_subsection("current mesh source term");
+      {
+        prm.declare_entry(
+          "enable",
+          "false",
+          Patterns::Bool(),
+          "Enable the evaluation of the given position source term on the "
+          "current mesh (and not on the reference mesh as usual)");
+        prm.declare_entry("min multiplier",
+                          "1.",
+                          Patterns::Double(1.),
+                          "Minimum coefficient multiplying the source term "
+                          "evaluated on the current mesh");
+        prm.declare_entry("max multiplier",
+                          "1.",
+                          Patterns::Double(1.),
+                          "Maximum coefficient multiplying the source term "
+                          "evaluated on the current mesh");
+        prm.declare_entry("continuation steps",
+                          "1",
+                          Patterns::Integer(1),
+                          "Number of steps to use in the continuation method");
+      }
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
+  void LinearElasticity::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Linear elasticity");
+    {
+      prm.enter_subsection("current mesh source term");
+      {
+        enable_source_term_on_current_mesh = prm.get_bool("enable");
+        min_current_mesh_source_term_multiplier =
+          prm.get_double("min multiplier");
+        max_current_mesh_source_term_multiplier =
+          prm.get_double("max multiplier");
+        AssertThrow(max_current_mesh_source_term_multiplier >=
+                      min_current_mesh_source_term_multiplier,
+                    ExcMessage("Max source term multiplier should be greater "
+                               "than the min multiplier"));
+        n_continuation_steps = prm.get_integer("continuation steps");
+      }
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
   void CheckpointRestart::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Checkpoint Restart");

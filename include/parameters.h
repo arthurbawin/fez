@@ -254,6 +254,13 @@ namespace Parameters
     double dt_max;
     double dt_min;
     bool adaptative_dt;
+    double safety;
+    double u_seuil;
+    double eps_u;
+    double eps_p;
+    double eps_x;
+    bool mms_adaptive_dt_debug;
+    std::string log_filename;
     double dt;
     double t_initial;
     double t_end;

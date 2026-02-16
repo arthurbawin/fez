@@ -119,11 +119,36 @@ public:
       {
         case Parameters::MMS::TimeLpNorm::L1:
         {
-          const double dt = std::abs(error_vec[1].first - error_vec[0].first);
-          for (const auto &[time, err] : error_vec)
+          // Integrate e(t) over time with variable dt using a trapezoidal rule:
+          // \int e(t) dt ~ sum_i 0.5*(t_{i+1}-t_i)*(e_i + e_{i+1})
+          if (error_vec.size() < 2)
           {
-            error += dt * err;
+            error = (error_vec.empty() ? 0.0 : error_vec.front().second);
+            break;
           }
+
+          // Ensure time is increasing (if not, sort a local copy)
+          // (If you know it's always increasing, you can remove this block)
+          std::vector<std::pair<double, double>> vec = error_vec;
+          std::sort(vec.begin(), vec.end(),
+                    [](const auto &a, const auto &b) { return a.first < b.first; });
+
+          double integral = 0.0;
+          for (std::size_t i = 0; i + 1 < vec.size(); ++i)
+          {
+            const double t0 = vec[i].first;
+            const double t1 = vec[i + 1].first;
+            const double e0 = vec[i].second;
+            const double e1 = vec[i + 1].second;
+
+            const double dt = t1 - t0;
+            if (dt <= 0.0)
+              continue;
+
+            integral += 0.5 * dt * (e0 + e1);
+          }
+
+          error = integral;
           break;
         }
         case Parameters::MMS::TimeLpNorm::L2:

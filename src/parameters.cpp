@@ -688,7 +688,23 @@ namespace Parameters
       prm.declare_entry("dt_min","0.0001",Patterns::Double(), "Time step min");
       prm.declare_entry("adaptative_dt","false",Patterns::Bool(),
                         "Enable adaptative time step");
-      prm.declare_entry("dt", "1", Patterns::Double(), "Time step");
+      prm.declare_entry("safety", "0.9", Patterns::Double(), "Safety factor for adaptive dt");
+      prm.declare_entry("u_seuil", "1e-2", Patterns::Double(), "Switch abs/rel scaling threshold");
+      prm.declare_entry("eps_u", "1e-3", Patterns::Double(), "Target error for velocity (adaptive dt)");
+      prm.declare_entry("eps_p", "1e-2", Patterns::Double(), "Target error for pressure (adaptive dt)");
+      prm.declare_entry("eps_x", "1e-3", Patterns::Double(), "Target error for position (adaptive dt)");
+      prm.declare_entry("mms_adaptive_dt_debug",
+                  "false",
+                  Patterns::Bool(),
+                  "Enable extra adaptive-dt diagnostics (log + consistency checks) "
+                  "intended for MMS runs.");
+      prm.declare_entry("log filename",
+                      "adaptive_dt.log",
+                      Patterns::Anything(),
+                      "Filename (in output directory) where adaptive dt diagnostics are appended.");
+        
+
+      prm.declare_entry("dt", "1", Patterns::Double(), "Time step");  
       prm.declare_entry("t_initial",
                         "1",
                         Patterns::Double(),
@@ -717,6 +733,14 @@ namespace Parameters
       dt_max  = prm.get_double("dt_max");
       dt_min  = prm.get_double("dt_min");
       adaptative_dt = prm.get_bool("adaptative_dt");
+      eps_u        = prm.get_double("eps_u");
+      eps_p        = prm.get_double("eps_p");
+      eps_x        = prm.get_double("eps_x");
+      u_seuil  = prm.get_double("u_seuil");
+      safety       = prm.get_double("safety");
+      mms_adaptive_dt_debug = prm.get_bool("mms_adaptive_dt_debug");
+      log_filename = prm.get("log filename");
+
       dt        = prm.get_double("dt");
       t_initial = prm.get_double("t_initial");
       t_end     = prm.get_double("t_end");

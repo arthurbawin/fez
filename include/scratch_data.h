@@ -143,6 +143,26 @@ private:
         symmetrize(present_velocity_gradients[q]);
       present_velocity_divergence[q] = trace(present_velocity_gradients[q]);
 
+      // Vorticity from velocity gradients
+      if constexpr (dim == 2)
+      {
+        // omega_z = d(u_y)/dx - d(u_x)/dy
+        present_vorticity_scalar[q] =
+          present_velocity_gradients[q][1][0] - present_velocity_gradients[q][0][1];
+      }
+      else if constexpr (dim == 3)
+      {
+        // curl(u)
+        present_vorticity_vector[q][0] =
+          present_velocity_gradients[q][2][1] - present_velocity_gradients[q][1][2];
+        present_vorticity_vector[q][1] =
+          present_velocity_gradients[q][0][2] - present_velocity_gradients[q][2][0];
+        present_vorticity_vector[q][2] =
+          present_velocity_gradients[q][1][0] - present_velocity_gradients[q][0][1];
+
+        present_vorticity_scalar[q] = present_vorticity_vector[q].norm();
+      }
+
       for (int d = 0; d < dim; ++d)
         source_term_velocity[q][d] = source_term_full_moving[q](u_lower + d);
       source_term_pressure[q] = source_term_full_moving[q](p_lower);
@@ -732,6 +752,8 @@ public:
   std::vector<SymmetricTensor<2, dim>>     present_velocity_sym_gradients;
   std::vector<double>                      present_velocity_divergence;
   std::vector<double>                      present_pressure_values;
+  std::vector<double>                      present_vorticity_scalar;
+  std::vector<Tensor<1, dim>>              present_vorticity_vector;
   std::vector<std::vector<Tensor<1, dim>>> previous_velocity_values;
 
   // Current values on faces (each face, each quad node)

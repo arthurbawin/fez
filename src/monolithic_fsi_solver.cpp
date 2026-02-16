@@ -2997,6 +2997,10 @@ void FSISolver<dim>::output_results()
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
 
+    PostProcessingTools::VorticityPostprocessor<dim> vorticity_pp(this->ordering->u_lower);
+    data_out.add_data_vector(this->present_solution, vorticity_pp);
+
+
     LA::ParVectorType mesh_velocity;
     mesh_velocity.reinit(this->locally_owned_dofs, this->mpi_communicator);
 

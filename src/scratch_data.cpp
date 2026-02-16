@@ -484,6 +484,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
   present_velocity_sym_gradients.resize(n_q_points);
   present_velocity_divergence.resize(n_q_points);
   present_pressure_values.resize(n_q_points);
+  present_vorticity_scalar.resize(n_q_points);
+  present_vorticity_vector.resize(n_q_points);
   previous_velocity_values.resize(bdf_coefficients.size() - 1,
                                   std::vector<Tensor<1, dim>>(n_q_points));
 

@@ -115,122 +115,167 @@ update_time_step_after_converged_step()
     return;
 
   // ------------------------------------------------------------
-  // 0) Ordre effectif p pour le contrôle en temps
-  //    (BDF2 seulement quand on n'est plus dans le starting step)
+  // 0) Effective order used for dt control
   // ------------------------------------------------------------
   unsigned int order = 1;
   if (time_handler.scheme == Parameters::TimeIntegration::Scheme::BDF2 &&
       !time_handler.is_starting_step())
     order = 2;
 
-  if (!param.time_integration.adaptative_dt || previous_solutions_dt_control.size() < order + 1)
+  if (previous_solutions_dt_control.size() < order + 1)
     return;
 
+  const double dt_used = time_handler.current_dt;
+
   // ------------------------------------------------------------
-  // 1) e_star (estimateur de Vautrin)
+  // 1) Vautrin error estimator e_star
   // ------------------------------------------------------------
   LA::ParVectorType e_star;
   e_star.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
 
   time_handler.compute_vautrin_error_estimate(e_star,
-                                            present_solution,
-                                            previous_solutions_dt_control,
-                                            order);
-
-
-  // ------------------------------------------------------------
-  // 2) Paramètres "en dur" (comme tu veux)
-  // ------------------------------------------------------------
-  const double u_seuil = 1e-2;
-
-  const double eps_u = 1e-3; // vitesse
-  const double eps_p = 1e-2; // pression (plus permissif)
-  const double eps_x = 1e-3; // position mesh (si ALE)
+                                              present_solution,
+                                              previous_solutions_dt_control,
+                                              order);
 
   // ------------------------------------------------------------
-  // 3) R = min_q ( epsilon_q / err_q )
-  //    en respectant l'ordering des composantes
+  // 2) Adaptive-dt parameters (from prm)
   // ------------------------------------------------------------
-  double R = std::numeric_limits<double>::max();
+  const double eps_u   = param.time_integration.eps_u;
+  const double eps_p   = param.time_integration.eps_p;
+  const double u_seuil = param.time_integration.u_seuil;
+  const double safety  = param.time_integration.safety;
 
-  // --- Vitesse : [u_lower, u_upper)
+  // If eps_x is not declared in prm, keep it harmless here (fallback to eps_u).
+  const double eps_x =
+    (param.time_integration.eps_x > 0.0 ? param.time_integration.eps_x : eps_u);
+
+  // ------------------------------------------------------------
+  // 3) Compute R_u, R_p, (optional) R_x, then R = min(...)
+  // ------------------------------------------------------------
+  double R_u = std::numeric_limits<double>::infinity();
+  double R_p = std::numeric_limits<double>::infinity();
+  double R_x = std::numeric_limits<double>::infinity();
+
+  // Velocity components
   for (unsigned int c = ordering->u_lower; c < ordering->u_upper; ++c)
-  {
-    R = std::min(R,
-                 compute_scaled_vautrin_ratio(e_star,
-                                              present_solution,
-                                              dofs_to_component,
-                                              c,
-                                              eps_u,
-                                              u_seuil,
-                                              mpi_communicator));
-  }
+    R_u = std::min(R_u,
+                   compute_scaled_vautrin_ratio(e_star,
+                                                present_solution,
+                                                dofs_to_component,
+                                                c,
+                                                eps_u,
+                                                u_seuil,
+                                                mpi_communicator));
 
-  // --- Pression : [p_lower, p_upper)
+  // Pressure components
   for (unsigned int c = ordering->p_lower; c < ordering->p_upper; ++c)
-  {
-    R = std::min(R,
-                 compute_scaled_vautrin_ratio(e_star,
-                                              present_solution,
-                                              dofs_to_component,
-                                              c,
-                                              eps_p,
-                                              u_seuil,
-                                              mpi_communicator));
-  }
+    R_p = std::min(R_p,
+                   compute_scaled_vautrin_ratio(e_star,
+                                                present_solution,
+                                                dofs_to_component,
+                                                c,
+                                                eps_p,
+                                                u_seuil,
+                                                mpi_communicator));
 
-  // --- Position du maillage : [x_lower, x_upper) (seulement si ALE/moving mesh)
+  // Mesh-position components if present
   if constexpr (with_moving_mesh)
   {
-    // Important : en NS pur, x_lower/x_upper peuvent être invalid.
-    // En FSI/ALE, ils sont définis (cf ComponentOrderingFSI).
-    const bool has_mesh_position =
-      (ordering->x_upper > ordering->x_lower); // simple test de validité
-
+    const bool has_mesh_position = (ordering->x_upper > ordering->x_lower);
     if (has_mesh_position)
-    {
       for (unsigned int c = ordering->x_lower; c < ordering->x_upper; ++c)
-      {
-        R = std::min(R,
-                     compute_scaled_vautrin_ratio(e_star,
-                                                  present_solution,
-                                                  dofs_to_component,
-                                                  c,
-                                                  eps_x,
-                                                  u_seuil,
-                                                  mpi_communicator));
-      }
-    }
+        R_x = std::min(R_x,
+                       compute_scaled_vautrin_ratio(e_star,
+                                                    present_solution,
+                                                    dofs_to_component,
+                                                    c,
+                                                    eps_x,
+                                                    u_seuil,
+                                                    mpi_communicator));
   }
 
-  // Si jamais R est resté à +inf (aucune composante trouvée), on ne change pas dt
+  double R = std::min(R_u, R_p);
+  if constexpr (with_moving_mesh)
+    if (std::isfinite(R_x))
+      R = std::min(R, R_x);
+
+  // If R is invalid, keep current dt
   if (!std::isfinite(R) || R <= 0.0)
     return;
 
   // ------------------------------------------------------------
-  // 4) bornes ratio h_{n+1}/h_n
+  // 4) Ratio bounds dt_{n+1}/dt_n (hard-coded as requested)
   // ------------------------------------------------------------
   const double ratio_min = (order == 2 ? 0.2 : 0.1);
   const double ratio_max = (order == 2 ? (1.0 + std::sqrt(2.0)) : 5.0);
 
   // ------------------------------------------------------------
-  // 5) dt_next (clamp dt_min/dt_max + ratios)
+  // 5) Propose next dt (clamped by dt_min/dt_max + ratio bounds)
   // ------------------------------------------------------------
-  const double dt_next =
-    propose_next_dt_vautrin(time_handler.current_dt,
+  double dt_next =
+    propose_next_dt_vautrin(dt_used,
                             R,
                             order,
-                            0.9, // safety en dur
+                            safety,
                             ratio_min,
                             ratio_max,
                             param.time_integration.dt_min,
                             param.time_integration.dt_max);
 
+  // Finish exactly at t_end (no overshoot)
+  const double t_now = time_handler.current_time;
+  const double t_end = param.time_integration.t_end;
+
+  if (t_now < t_end)
+  {
+    const double remaining = t_end - t_now;
+    if (dt_next > remaining)
+      dt_next = remaining;
+  }
+
+  // Apply
   time_handler.current_dt = dt_next;
+
+  // ------------------------------------------------------------
+  // 6) Diagnostics: append per-step info to a log file (rank 0)
+  // ------------------------------------------------------------
+  const bool do_mms_adapt_debug =
+    param.time_integration.mms_adaptive_dt_debug && param.mms_param.enable;
+
+  if (do_mms_adapt_debug)
+  {
+    const unsigned int rank =
+      Utilities::MPI::this_mpi_process(mpi_communicator);
+
+    if (rank == 0)
+    {
+      std::string out_dir = param.output.output_dir;
+      if (!out_dir.empty() && out_dir.back() != '/')
+        out_dir += '/';
+
+      if (!out_dir.empty())
+        std::filesystem::create_directories(out_dir);
+
+      const std::string fname = out_dir + param.time_integration.log_filename;
+      const bool write_header = !std::filesystem::exists(fname);
+
+      std::ofstream f(fname, std::ios::app);
+      if (write_header)
+        f << "# it  t  dt_used  order  R_u  R_p  R_x  R  dt_next\n";
+
+      f << time_handler.current_time_iteration << " "
+        << time_handler.current_time << " "
+        << dt_used << " "
+        << order << " "
+        << R_u << " "
+        << R_p << " "
+        << (with_moving_mesh ? R_x : -1.0) << " "
+        << R << " "
+        << dt_next << "\n";
+    }
+  }
 }
-
-
-
 
 
 template <int dim, bool with_moving_mesh>

@@ -97,34 +97,51 @@ namespace BoundaryConditions
   void PseudosolidBC<dim>::declare_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::declare_parameters(prm);
+
     prm.declare_entry("type",
                       "none",
                       Patterns::Selection(
                         "none|fixed|coupled_to_fluid|no_flux|input_function|"
                         "position_mms|position_flux_mms"),
                       "Type of pseudosolid boundary condition");
+
+    // Imposed functions (componentwise), same pattern as FluidBC u/v/w
+    prm.enter_subsection("x");
+    x->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("y");
+    y->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("z");
+    z->declare_parameters(prm);
+    prm.leave_subsection();
   }
+
 
   template <int dim>
   void PseudosolidBC<dim>::read_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::read_parameters(prm);
-    physics_type                  = PhysicsType::pseudosolid;
-    physics_str                   = "pseudosolid";
+    physics_type = PhysicsType::pseudosolid;
+    physics_str  = "pseudosolid";
+
     const std::string parsed_type = prm.get("type");
+
     if (parsed_type == "fixed")
       type = Type::fixed;
-    if (parsed_type == "coupled_to_fluid")
+    else if (parsed_type == "coupled_to_fluid")
       type = Type::coupled_to_fluid;
-    if (parsed_type == "no_flux")
+    else if (parsed_type == "no_flux")
       type = Type::no_flux;
-    if (parsed_type == "input_function")
+    else if (parsed_type == "input_function")
       type = Type::input_function;
-    if (parsed_type == "position_mms")
+    else if (parsed_type == "position_mms")
       type = Type::position_mms;
-    if (parsed_type == "position_flux_mms")
+    else if (parsed_type == "position_flux_mms")
       type = Type::position_flux_mms;
-    if (parsed_type == "none")
+    else if (parsed_type == "none")
       throw std::runtime_error(
         "Pseudosolid boundary condition for boundary " +
         std::to_string(this->id) +
@@ -132,7 +149,21 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed pseudosolid boundary conditions is smaller than "
         "the specified \"number\" field.");
+
+    // Parse the functions (safe to parse always; or keep it only for input_function)
+    prm.enter_subsection("x");
+    x->parse_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("y");
+    y->parse_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("z");
+    z->parse_parameters(prm);
+    prm.leave_subsection();
   }
+
 
   template <int dim>
   void CahnHilliardBC<dim>::declare_parameters(ParameterHandler &prm)
@@ -360,17 +391,21 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
-        // TODO: Prescribed but non-fixed mesh position?
-        if (!homogeneous)
-          DEAL_II_NOT_IMPLEMENTED();
-
-        VectorTools::interpolate_boundary_values(mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 constraints,
-                                                 position_mask);
+        if (homogeneous)
+        {
+          VectorTools::interpolate_boundary_values(
+            mapping, dof_handler, bc.id, zero_fun, constraints, position_mask);
+        }
+        else
+        {
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            ComponentwiseMeshPosition<dim>(x_lower, n_components, bc.x, bc.y, bc.z),
+            constraints,
+            position_mask);
+        }
       }
       if (bc.type == BoundaryConditions::Type::position_mms)
       {

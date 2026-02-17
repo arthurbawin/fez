@@ -74,6 +74,16 @@ public:
     CopyData                                             &copy_data);
 
   /**
+   * Compute the element-wise matrix using finite differences.
+   * FIXME: Rethink this to handle the finite difference computations
+   * in the base class and not in derived solvers.
+   */
+  void assemble_local_matrix_finite_differences(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    ScratchData                                          &scratchData,
+    CopyData                                             &copy_data);
+    
+  /**
    * Assemble the element-wise matrix computed with assemble_local_matrix
    * into the global matrix. Passed to WorkStream::run (see above).
    */

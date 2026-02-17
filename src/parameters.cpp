@@ -659,6 +659,18 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Enable limiter for the tracer (phase field marker)");
+      //mesh forcing parameters
+      prm.declare_entry("alpha", "0.0", Patterns::Double(),
+                        "Coefficient of alpha*phi*grad(phi).");
+      prm.declare_entry("beta", "0.0", Patterns::Double(),
+                        "Coefficient of beta*(u_conv*grad(phi))*grad(phi).");
+      prm.declare_entry("ramp steps", "0", Patterns::Integer(0),
+                  "Number of time iterations to ramp alpha/beta from 0 to target.");
+      prm.declare_entry("ramp start iteration", "0", Patterns::Integer(0),
+                        "Time iteration at which ramp starts.");
+      prm.declare_entry("ramp type", "quintic",
+                        Patterns::Selection("linear|cosine|quintic"),
+                        "Ramp profile.");
     }
     prm.leave_subsection();
   }
@@ -676,6 +688,12 @@ namespace Parameters
       epsilon_interface   = prm.get_double("interface thickness");
       body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
+      //mesh forcing parameters
+      alpha    =prm.get_double("alpha");
+      beta    =prm.get_double("beta");
+      ramp_steps = prm.get_integer("ramp steps");
+      ramp_start_iteration = prm.get_integer("ramp start iteration");
+      ramp_type = prm.get("ramp type");
     }
     prm.leave_subsection();
   }
@@ -910,30 +928,6 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void MeshForcing::declare_parameters(ParameterHandler &prm)
-  {
-    prm.enter_subsection("Mesh Forcing");
-    {
-      prm.declare_entry("enable", "false", Patterns::Bool(),
-                        "Enable mesh body-force term in pseudo-solid equation.");
-      prm.declare_entry("alpha", "0.0", Patterns::Double(),
-                        "Coefficient of alpha*phi*grad(phi).");
-      prm.declare_entry("beta", "0.0", Patterns::Double(),
-                        "Coefficient of beta*(u_conv*grad(phi))*grad(phi).");
-    }
-    prm.leave_subsection();
-  }
-
-  void MeshForcing::read_parameters(ParameterHandler &prm)
-  {
-    prm.enter_subsection("Mesh Forcing");
-    {
-      enable    =prm.get_bool("enable");
-      alpha    =prm.get_double("alpha");
-      beta    =prm.get_double("beta");
-    }
-    prm.leave_subsection();
-  }
 
   void Debug::declare_parameters(ParameterHandler &prm)
   {

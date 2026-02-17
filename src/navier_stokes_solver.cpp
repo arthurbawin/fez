@@ -402,8 +402,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
         }
       }
       // --- end ALE fix
-      Point<dim> SupportP;
-      SupportP[0]=1.;
       BoundaryConditions::constrain_pressure_point(
         dof_handler,
         locally_relevant_dofs,
@@ -413,8 +411,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
         set_to_zero,
         constraints,
         constrained_pressure_dof,
-        constrained_pressure_support_point,
-        SupportP);
+        constrained_pressure_support_point);
   }
 
   if (param.bc_data.enforce_zero_mean_pressure)

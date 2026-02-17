@@ -258,6 +258,12 @@ namespace Parameters
     double surface_tension;
     double epsilon_interface;
     bool with_tracer_limiter;
+    //mesh forcing
+    double alpha;
+    double beta;
+    unsigned int ramp_steps = 0;
+    unsigned int ramp_start_iteration = 0;
+    std::string  ramp_type = "quintic";
 
     /**
      * We differentiate between the body force which is multiplied by the
@@ -270,15 +276,6 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
   
-  struct MeshForcing
-  {
-    bool enable;
-    double alpha;
-    double beta;
-
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
-  };
   
   struct CheckpointRestart
   {

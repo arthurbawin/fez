@@ -117,8 +117,13 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
   }
   else if (scheme == BDF2)
   {
-    if (time_parameters.bdfstart ==
-        Parameters::TimeIntegration::BDFStart::BDF1)
+    const bool use_bdf1_startup =
+      (time_parameters.bdfstart ==
+       Parameters::TimeIntegration::BDFStart::BDF1) &&
+      (time_parameters.dt_control_mode ==
+       Parameters::TimeIntegration::DtControlMode::vautrin);
+
+    if (use_bdf1_startup)
     {
       // Start with BDF1
       const double starting_step_ratio = 0.1;

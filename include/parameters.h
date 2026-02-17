@@ -280,6 +280,23 @@ namespace Parameters
       initial_condition
     } bdfstart;
 
+    enum class DtControlMode
+    {
+      vautrin,
+      increasing,
+      decreasing,
+      alternating
+    } dt_control_mode;
+
+    // Geometric / test time-step control (used when dt_control_mode != vautrin)
+    // dt_{n+1} = k * dt_n (increasing), dt_{n+1} = dt_n / k (decreasing),
+    // or alternating between the two.
+    double dt_growth_factor;
+
+    // Safety margin subtracted from (1 + sqrt(2)) when bounding k.
+    // Example: margin=0.05 -> k_max = 1+sqrt(2)-0.05.
+    double dt_growth_margin;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
     bool is_steady() const { return scheme == Scheme::stationary; }

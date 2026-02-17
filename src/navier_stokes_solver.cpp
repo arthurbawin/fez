@@ -128,6 +128,52 @@ update_time_step_after_converged_step()
   const double dt_used = time_handler.current_dt;
 
   // ------------------------------------------------------------
+  // Special "test" dt sequences (no estimator): geometric increase/decrease/alternating
+  // ------------------------------------------------------------
+  if (param.time_integration.dt_control_mode !=
+      Parameters::TimeIntegration::DtControlMode::vautrin)
+  {
+    const double k = bound_growth_factor(param.time_integration.dt_growth_factor,
+                                         param.time_integration.dt_growth_margin);
+    double factor = 1.0;
+    switch (param.time_integration.dt_control_mode)
+    {
+      case Parameters::TimeIntegration::DtControlMode::increasing:
+        factor = k;
+        break;
+      case Parameters::TimeIntegration::DtControlMode::decreasing:
+        factor = 1.0 / k;
+        break;
+      case Parameters::TimeIntegration::DtControlMode::alternating:
+        // Step 1 uses dt0; after convergence we set dt2. We alternate with the *next* step.
+        // Pattern: dt2 = k*dt1, dt3 = dt2/k, dt4 = k*dt3, ...
+        factor = (time_handler.current_time_iteration % 2 == 1 ? k : 1.0 / k);
+        break;
+      case Parameters::TimeIntegration::DtControlMode::vautrin:
+        factor = 1.0;
+        break;
+    }
+
+    double dt_next = propose_next_dt_geometric(dt_used,
+                                               factor,
+                                               param.time_integration.dt_min,
+                                               param.time_integration.dt_max);
+
+    // Finish exactly at t_end (no overshoot)
+    const double t_now = time_handler.current_time;
+    const double t_end = param.time_integration.t_end;
+    if (t_now < t_end)
+    {
+      const double remaining = t_end - t_now;
+      if (dt_next > remaining)
+        dt_next = remaining;
+    }
+
+    time_handler.current_dt = dt_next;
+    return;
+  }
+
+  // ------------------------------------------------------------
   // 1) Vautrin error estimator e_star
   // ------------------------------------------------------------
   LA::ParVectorType e_star;
@@ -1299,6 +1345,40 @@ propose_next_dt_vautrin(const double       dt,
   double dt_new = dt * factor;
   dt_new        = std::min(dt_max, std::max(dt_min, dt_new));
   return dt_new;
+}
+
+
+template <int dim, bool with_moving_mesh>
+double NavierStokesSolver<dim, with_moving_mesh>::
+propose_next_dt_geometric(const double dt,
+                          const double factor,
+                          const double dt_min,
+                          const double dt_max)
+{
+  double dt_new = dt * factor;
+  dt_new        = std::min(dt_max, std::max(dt_min, dt_new));
+  return dt_new;
+}
+
+
+template <int dim, bool with_moving_mesh>
+double NavierStokesSolver<dim, with_moving_mesh>::
+bound_growth_factor(const double k_in, const double margin)
+{
+  const double m = (margin > 0.0 ? margin : 0.0);
+  const double k_max = (1.0 + std::sqrt(2.0)) - m;
+
+  double k = k_in;
+  if (k < 1.0)
+    k = 1.0;
+
+  // If margin is too large, enforce constant dt.
+  if (k_max <= 1.0)
+    k = 1.0;
+  else if (k > k_max)
+    k = k_max;
+
+  return k;
 }
 
 

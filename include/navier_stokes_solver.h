@@ -267,6 +267,15 @@ public:
     const double       dt_min,
     const double       dt_max);
 
+  static double propose_next_dt_geometric(const double dt,
+                                        const double factor,
+                                        const double dt_min,
+                                        const double dt_max);
+
+  static double bound_growth_factor(const double k_in,
+                                    const double margin);
+
+
 protected:
   std::shared_ptr<ComponentOrdering> ordering;
 

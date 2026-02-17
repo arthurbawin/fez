@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
 
       // IncompressibleNavierStokesSolver<2> problem(param);
       NSSolver<2> problem(param);
-      if(param.mms_param.enable)
+      if (param.mms_param.enable)
         problem.run_convergence_loop<2>();
       else
         problem.run();
@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
 
       // IncompressibleNavierStokesSolver<3> problem(param);
       NSSolver<3> problem(param);
-      if(param.mms_param.enable)
+      if (param.mms_param.enable)
         problem.run_convergence_loop<3>();
       else
         problem.run();

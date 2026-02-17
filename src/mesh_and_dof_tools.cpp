@@ -24,7 +24,7 @@ get_mesh_vertices_on_boundary(const DoFHandler<dim>   &dof_handler,
   for (const auto &vec : gathered)
     for (const auto pt : vec)
       vertices_on_boundary.insert(pt);
-    
+
   return vertices_on_boundary;
 }
 

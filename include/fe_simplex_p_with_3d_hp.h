@@ -20,7 +20,7 @@
 DEAL_II_NAMESPACE_OPEN
 
 /**
- * 
+ *
  */
 template <int dim, int spacedim = dim>
 class FE_SimplexP_3D_hp : public FE_SimplexP<dim, spacedim>
@@ -30,41 +30,36 @@ public:
    * Constructor.
    */
   FE_SimplexP_3D_hp(const unsigned int degree)
-   : FE_SimplexP<dim, spacedim>(degree)
+    : FE_SimplexP<dim, spacedim>(degree)
   {}
 
   /**
    * @copydoc dealii::FiniteElement::clone()
    */
-  std::unique_ptr<FiniteElement<dim, spacedim>>
-  clone() const override;
+  std::unique_ptr<FiniteElement<dim, spacedim>> clone() const override;
 
   /**
    * Return a string that uniquely identifies a finite element. This class
    * returns <tt>FE_SimplexP<dim>(degree)</tt>, with @p dim and @p degree
    * replaced by appropriate values.
    */
-  std::string
-  get_name() const override;
-  
+  std::string get_name() const override;
+
   /**
    * @copydoc dealii::FiniteElement::hp_vertex_dof_identities()
    */
-  std::vector<std::pair<unsigned int, unsigned int>>
-  hp_vertex_dof_identities(
+  std::vector<std::pair<unsigned int, unsigned int>> hp_vertex_dof_identities(
     const FiniteElement<dim, spacedim> &fe_other) const override;
 
   /**
    * @copydoc dealii::FiniteElement::hp_line_dof_identities()
    */
-  std::vector<std::pair<unsigned int, unsigned int>>
-  hp_line_dof_identities(
+  std::vector<std::pair<unsigned int, unsigned int>> hp_line_dof_identities(
     const FiniteElement<dim, spacedim> &fe_other) const override;
 
   std::vector<std::pair<unsigned int, unsigned int>>
-  hp_quad_dof_identities(
-    const FiniteElement<dim, spacedim> &fe_other,
-    const unsigned int) const override;
+  hp_quad_dof_identities(const FiniteElement<dim, spacedim> &fe_other,
+                         const unsigned int) const override;
 };
 
 DEAL_II_NAMESPACE_CLOSE

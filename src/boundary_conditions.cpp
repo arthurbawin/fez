@@ -586,7 +586,8 @@ namespace BoundaryConditions
       fill_dofs_to_component(dof_handler,
                              locally_relevant_dofs,
                              dofs_to_component);
-    AssertDimension(dofs_to_component.size(), locally_relevant_dofs.n_elements());
+    AssertDimension(dofs_to_component.size(),
+                    locally_relevant_dofs.n_elements());
     for (const auto dof : gathered_dofs_flattened)
       dofs_to_component[locally_relevant_dofs.index_within_set(dof)] = p_lower;
 

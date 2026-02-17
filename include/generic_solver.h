@@ -33,7 +33,8 @@ public:
                 const Parameters::Timer           &timer_param,
                 const Parameters::Mesh            &mesh_param,
                 const Parameters::TimeIntegration &time_param,
-                const Parameters::MMS             &mms_param)
+                const Parameters::MMS             &mms_param,
+                const SolverType                   solver_type)
     : mpi_communicator(MPI_COMM_WORLD)
     , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
     , mpi_size(Utilities::MPI::n_mpi_processes(mpi_communicator))
@@ -42,6 +43,7 @@ public:
                       pcout,
                       TimerOutput::summary,
                       TimerOutput::wall_times)
+    , solver_type(solver_type)
     , mesh_param(mesh_param)
     , time_param(time_param)
     , mms_param(mms_param)
@@ -216,6 +218,8 @@ public:
   TimerOutput        computing_timer;
 
 protected:
+  SolverType solver_type;
+
   // If parallel vector type, these are vectors with ghost entries (read only)
   VectorType present_solution;
   VectorType evaluation_point;

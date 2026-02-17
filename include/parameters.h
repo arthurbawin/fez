@@ -299,17 +299,10 @@ namespace Parameters
     double mobility;
     double surface_tension;
     double epsilon_interface;
-<<<<<<< HEAD
     bool with_tracer_limiter;
     //mesh forcing
     double alpha;
     double beta;
-    unsigned int ramp_steps = 0;
-    unsigned int ramp_start_iteration = 0;
-    std::string  ramp_type = "quintic";
-=======
-    bool   with_tracer_limiter;
->>>>>>> origin/master
 
     /**
      * We differentiate between the body force which is multiplied by the
@@ -321,10 +314,6 @@ namespace Parameters
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
-<<<<<<< HEAD
-  
-  
-=======
 
   struct LinearElasticity
   {
@@ -346,7 +335,6 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
->>>>>>> origin/master
   struct CheckpointRestart
   {
     bool enable_checkpoint;

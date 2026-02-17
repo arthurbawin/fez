@@ -10,7 +10,7 @@ end
 subsection Output
   set write results    = false
   set output directory = ../data/mms/
-  set output prefix    =TimeAle1
+  set output prefix    = TimeAle2
 end
 
 subsection Mesh
@@ -38,9 +38,11 @@ subsection Nonlinear solver
 end
 
 subsection Linear solver
-  set verbosity      = quiet
-  set method         = direct_mumps
-  set reuse          = true
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
 end
 
 subsection FiniteElements
@@ -169,7 +171,7 @@ subsection Exact solution
   end
   subsection exact mesh displacement
     set Function constants = xb=1, yb=2, A=0.08
-    set Function expression =(xb/2) + (x - xb/2) * (1 + A*(t+1)^4);(yb/2) + (y - yb/2) * (1 + A*(t+1)^4)
+    set Function expression =(xb/2) + (x - xb/2) * (1 + A*(((t+1)^4 - 1))*( (2*y/yb - 1)^2 ));(yb/2) + (y - yb/2) * (1 + A*(((t+1)^4 - 1))*( (2*x/xb - 1)^2 ))
   end
   subsection exact cahn hilliard tracer
     set Function expression = t^4*(x+y-1)

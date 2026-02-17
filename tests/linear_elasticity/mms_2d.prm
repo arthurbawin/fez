@@ -1,0 +1,103 @@
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write results = false
+end
+
+subsection Mesh
+  set dealii preset mesh     = rectangle
+  set dealii mesh parameters = 2, 2 : 0., 0. : 1, 1 : true
+  set refinement level       = 1
+end
+
+subsection Time integration
+  set verbosity = quiet
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set verbosity            = quiet
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection linear elasticity
+    set verbosity      = verbose
+    set method         = cg
+    set tolerance      = 1e-12
+    set max iterations = 1000
+  end
+end
+
+subsection FiniteElements
+  set Mesh position degree = 1
+end
+
+subsection Physical properties
+  set number of pseudosolids = 1
+  subsection Pseudosolid 0
+    subsection lame lambda
+      set Function expression = 1
+    end
+    subsection lame mu
+      set Function expression = 1
+    end
+  end
+end
+
+subsection Pseudosolid boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = position_mms
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = position_mms
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = position_mms
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type = position_mms
+  end
+end
+
+subsection Linear elasticity
+  subsection current mesh source term
+    set enable = false
+  end
+end
+
+subsection Exact solution
+  subsection exact mesh displacement
+    set Function expression = x + sin(pi*x)*cos(pi*y); y + cos(pi*x)*sin(pi*y)
+  end
+end
+
+subsection Manufactured solution
+  set enable            = true
+  set type              = space
+  set convergence steps = 4
+
+  subsection Space convergence
+    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+  end
+end

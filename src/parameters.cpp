@@ -513,13 +513,15 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void LinearSolver::declare_parameters(ParameterHandler &prm)
+  void LinearSolver::declare_parameters(ParameterHandler  &prm,
+                                        const std::string &solver_type)
   {
     prm.enter_subsection("Linear solver");
     {
+      prm.enter_subsection(solver_type);
       prm.declare_entry("method",
                         "direct_mumps",
-                        Patterns::Selection("direct_mumps|gmres"),
+                        Patterns::Selection("direct_mumps|cg|gmres"),
                         "Method");
       prm.declare_entry("tolerance",
                         "1e-6",
@@ -533,28 +535,34 @@ namespace Parameters
                         "0",
                         Patterns::Integer(),
                         "Max level of fill-in for ILU preconditioner");
-      prm.declare_entry("renumber", "false", Patterns::Bool(), "");
       prm.declare_entry("reuse", "false", Patterns::Bool(), "");
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
 
-  void LinearSolver::read_parameters(ParameterHandler &prm)
+  void LinearSolver::read_parameters(ParameterHandler  &prm,
+                                     const std::string &solver_type)
   {
     prm.enter_subsection("Linear solver");
     {
-      const std::string parsed_method = prm.get("method");
-      if (parsed_method == "direct_mumps")
-        method = Method::direct_mumps;
-      else if (parsed_method == "gmres")
-        method = Method::gmres;
-      tolerance      = prm.get_double("tolerance");
-      max_iterations = prm.get_integer("max iterations");
-      ilu_fill_level = prm.get_integer("ilu fill level");
-      renumber       = prm.get_bool("renumber");
-      reuse          = prm.get_bool("reuse");
-      READ_VERBOSITY_PARAM(prm);
+      prm.enter_subsection(solver_type);
+      {
+        const std::string parsed_method = prm.get("method");
+        if (parsed_method == "direct_mumps")
+          method = Method::direct_mumps;
+        else if (parsed_method == "cg")
+          method = Method::cg;
+        else if (parsed_method == "gmres")
+          method = Method::gmres;
+        tolerance      = prm.get_double("tolerance");
+        max_iterations = prm.get_integer("max iterations");
+        ilu_fill_level = prm.get_integer("ilu fill level");
+        reuse          = prm.get_bool("reuse");
+        READ_VERBOSITY_PARAM(prm);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -682,6 +690,60 @@ namespace Parameters
 
   template class CahnHilliard<2>;
   template class CahnHilliard<3>;
+
+  void LinearElasticity::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Linear elasticity");
+    {
+      prm.enter_subsection("current mesh source term");
+      {
+        prm.declare_entry(
+          "enable",
+          "false",
+          Patterns::Bool(),
+          "Enable the evaluation of the given position source term on the "
+          "current mesh (and not on the reference mesh as usual)");
+        prm.declare_entry("min multiplier",
+                          "1.",
+                          Patterns::Double(1.),
+                          "Minimum coefficient multiplying the source term "
+                          "evaluated on the current mesh");
+        prm.declare_entry("max multiplier",
+                          "1.",
+                          Patterns::Double(1.),
+                          "Maximum coefficient multiplying the source term "
+                          "evaluated on the current mesh");
+        prm.declare_entry("continuation steps",
+                          "1",
+                          Patterns::Integer(1),
+                          "Number of steps to use in the continuation method");
+      }
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
+  void LinearElasticity::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Linear elasticity");
+    {
+      prm.enter_subsection("current mesh source term");
+      {
+        enable_source_term_on_current_mesh = prm.get_bool("enable");
+        min_current_mesh_source_term_multiplier =
+          prm.get_double("min multiplier");
+        max_current_mesh_source_term_multiplier =
+          prm.get_double("max multiplier");
+        AssertThrow(max_current_mesh_source_term_multiplier >=
+                      min_current_mesh_source_term_multiplier,
+                    ExcMessage("Max source term multiplier should be greater "
+                               "than the min multiplier"));
+        n_continuation_steps = prm.get_integer("continuation steps");
+      }
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
 
   void CheckpointRestart::declare_parameters(ParameterHandler &prm)
   {
@@ -915,6 +977,11 @@ namespace Parameters
     prm.enter_subsection("Debug");
     {
       DECLARE_VERBOSITY_PARAM(prm, "quiet")
+      prm.declare_entry(
+        "write dealii mesh as msh",
+        "false",
+        Patterns::Bool(),
+        "If using deal.II meshing routines, write the mesh as a .msh file");
       prm.declare_entry("write partition gmsh",
                         "false",
                         Patterns::Bool(),
@@ -950,6 +1017,7 @@ namespace Parameters
     prm.enter_subsection("Debug");
     {
       READ_VERBOSITY_PARAM(prm)
+      write_dealii_mesh_as_msh = prm.get_bool("write dealii mesh as msh");
       write_partition_pos_gmsh = prm.get_bool("write partition gmsh");
       apply_exact_solution     = prm.get_bool("apply exact solution");
       compare_analytical_jacobian_with_fd =

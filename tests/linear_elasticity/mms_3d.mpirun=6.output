@@ -1,0 +1,44 @@
+Number of MPI processes: 6
+Convergence test with manufactured solution:
+Mesh file was changed to 0.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 48
+ boundary indicators: 0(8 faces) 1(8 faces) 2(8 faces) 3(8 faces) 4(8 faces) 5(8 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+ID 4 -> z_min
+ID 5 -> z_max
+Number of degrees of freedom: 81
+2 CG iterations needed to obtain convergence.
+Convergence test with manufactured solution:
+Mesh file was changed to 1.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 384
+ boundary indicators: 0(32 faces) 1(32 faces) 2(32 faces) 3(32 faces) 4(32 faces) 5(32 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+ID 4 -> z_min
+ID 5 -> z_max
+Number of degrees of freedom: 375
+31 CG iterations needed to obtain convergence.
+
+L2_norm
+n_elm n_dof        x        
+   48    81 1.9388e-01    - 
+  384   375 7.0854e-02 1.45 
+
+Linfty_norm
+n_elm n_dof        x        
+   48    81 4.9164e-01    - 
+  384   375 2.0583e-01 1.26 
+
+H1_seminorm
+n_elm n_dof        x        
+   48    81 1.6104e+00    - 
+  384   375 9.3227e-01 0.79

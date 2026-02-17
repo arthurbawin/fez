@@ -1,9 +1,32 @@
 #ifndef PARAMETERS_H
 #define PARAMETERS_H
 
+#include <deal.II/base/exceptions.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/numerics/vector_tools_common.h>
 #include <parsed_function_symengine.h>
+
+// TODO: maybe use magic_enum
+enum SolverType : unsigned int
+{
+  // One of the physics solvers : (in)compressible (CH)NS, FSI, etc.
+  main_physics = 0,
+  // Dedicated linear elasticity solver, mostly used to adapt the mesh
+  // to an initial source term.
+  linear_elasticity = 1
+};
+
+inline SolverType get_solver_type(const std::string &solver_name)
+{
+  if (solver_name == "main physics")
+    return SolverType::main_physics;
+  else if (solver_name == "linear elasticity")
+    return SolverType::linear_elasticity;
+  else
+    AssertThrow(false,
+                dealii::StandardExceptions::ExcMessage(
+                  "The requested solver type does not exist : " + solver_name));
+}
 
 /**
  * This namespace contains the parameters used to control the various
@@ -205,18 +228,37 @@ namespace Parameters
     enum class Method
     {
       direct_mumps,
+      cg,
       gmres
     } method;
 
+    // Tolerance and max number of iterations for iterative solvers
     double       tolerance;
     unsigned int max_iterations;
+
+    // Fill-in levels for ILU preconditioner
     unsigned int ilu_fill_level;
 
-    bool renumber;
+    /**
+     * When using MUMPS as solver, "reuse" the symbolic factorization of the
+     * system matrix across the solves. If the sparsity pattern does not change,
+     * then the symbolic factorization can be conserved, saving time.
+     *
+     * This is done through an extension of deal.II's PETSc interface to MUMPS,
+     * which, as a beneficial side effect, also checks the MUMPS error code,
+     * which is not done in deal.II. This allows throwing an error when the
+     * matrix is singular, instead of getting "nan" results.
+     *
+     * TODO: the associated MUMPS solver should be looked into, as it is
+     * unclear that the factorization is indeed reused and/or that it is more
+     * efficient. Unlike Pardiso, the symbolic factorization step is not cleanly
+     * separated from the actual factorization and solve steps.
+     */
     bool reuse;
 
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
+    void declare_parameters(ParameterHandler  &prm,
+                            const std::string &solver_type);
+    void read_parameters(ParameterHandler &prm, const std::string &solver_type);
   };
 
   struct TimeIntegration
@@ -265,6 +307,26 @@ namespace Parameters
      * for manufactured solutions) which is not.
      */
     Tensor<1, dim> body_force;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  struct LinearElasticity
+  {
+    // If true, then the provided position source term is to be evaluated on
+    // the current mesh, and not on the reference mesh where the elasticity
+    // equation is solved (that is, we evaluate f(x(X)) instead of f(X).
+    bool enable_source_term_on_current_mesh;
+
+    // The source term on current mesh is enforced with a continuation method,
+    // starting at min_coeff * f(x(X)) and progressing until max_coeff * f(x(X))
+    double min_current_mesh_source_term_multiplier;
+    double max_current_mesh_source_term_multiplier;
+
+    // Number of steps to use in the continuation method when the source term
+    // is applied on the current configuration.
+    unsigned int n_continuation_steps;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -360,6 +422,7 @@ namespace Parameters
   struct Debug
   {
     Verbosity    verbosity;
+    bool         write_dealii_mesh_as_msh;
     bool         write_partition_pos_gmsh;
     bool         apply_exact_solution;
     bool         compare_analytical_jacobian_with_fd;

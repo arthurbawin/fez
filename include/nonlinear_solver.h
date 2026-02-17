@@ -5,8 +5,8 @@
  * This structure is borrowed from the Lethe project.
  */
 
-#include <parameters.h>
 #include <deal.II/base/observer_pointer.h>
+#include <parameters.h>
 
 using namespace dealii;
 
@@ -25,11 +25,12 @@ class GenericSolver;
 template <typename VectorType>
 class NonLinearSolver
 {
- protected:
+protected:
   const Parameters::NonLinearSolver param;
 
   // The attached solver
   ObserverPointer<GenericSolver<VectorType>> solver;
+
 public:
   /**
    * Constructor
@@ -43,8 +44,7 @@ public:
   /**
    * Destructor
    */
-  virtual ~NonLinearSolver()
-  {}
+  virtual ~NonLinearSolver() {}
 
   /**
    * Solve the nonlinear problem (with e.g. Newton's method in the associated

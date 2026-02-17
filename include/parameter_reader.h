@@ -23,7 +23,7 @@ public:
   Parameters::Timer                              timer;
   Parameters::Mesh                               mesh;
   Parameters::Output                             output;
-  Parameters::PostProcessing          postprocessing;
+  Parameters::PostProcessing                     postprocessing;
   Parameters::FiniteElements<dim>                finite_elements;
   Parameters::PhysicalProperties<dim>            physical_properties;
   Parameters::FSI                                fsi;

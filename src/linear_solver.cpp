@@ -4,7 +4,7 @@
 #include <linear_solver.h>
 
 #if defined(FEZ_WITH_PETSC)
-#    include <petscmat.h>
+#  include <petscmat.h>
 #endif
 
 void solve_linear_system_direct(
@@ -18,11 +18,11 @@ void solve_linear_system_direct(
 
   const bool verbose =
     linear_solver_param.verbosity == Parameters::Verbosity::verbose;
-    linear_solver_param.verbosity == Parameters::Verbosity::verbose;
+  linear_solver_param.verbosity == Parameters::Verbosity::verbose;
 
   if (verbose)
-  if (verbose)
-    solver->pcout << "Entering direct solver" << std::endl;
+    if (verbose)
+      solver->pcout << "Entering direct solver" << std::endl;
 
   LA::ParVectorType &newton_update = solver->get_newton_update();
   LA::ParVectorType &system_rhs    = solver->get_system_rhs();
@@ -48,16 +48,16 @@ void solve_linear_system_direct(
   newton_update = completely_distributed_solution;
   zero_constraints.distribute(newton_update);
 
-  if  (verbose)
+  if (verbose)
     solver->pcout << "Leaving  direct solver" << std::endl;
 }
 
 void solve_linear_system_direct(
-  GenericSolver<LA::ParVectorType>           *solver,
-  const Parameters::LinearSolver             &linear_solver_param,
-  LA::ParMatrixType                          &system_matrix,
-  const IndexSet                             &locally_owned_dofs,
-  const AffineConstraints<double>            &zero_constraints,
+  GenericSolver<LA::ParVectorType>      *solver,
+  const Parameters::LinearSolver        &linear_solver_param,
+  LA::ParMatrixType                     &system_matrix,
+  const IndexSet                        &locally_owned_dofs,
+  const AffineConstraints<double>       &zero_constraints,
   PETScWrappers::SparseDirectMUMPSReuse &direct_solver)
 {
   TimerOutput::Scope t(solver->computing_timer, "Solve direct");
@@ -65,9 +65,9 @@ void solve_linear_system_direct(
 
   const bool verbose =
     linear_solver_param.verbosity == Parameters::Verbosity::verbose;
-    linear_solver_param.verbosity == Parameters::Verbosity::verbose;
+  linear_solver_param.verbosity == Parameters::Verbosity::verbose;
 
-  if  (verbose)
+  if (verbose)
     solver->pcout << "Entering direct solver" << std::endl;
 
   LA::ParVectorType &newton_update = solver->get_newton_update();
@@ -95,8 +95,8 @@ void solve_linear_system_direct(
 
   if (verbose)
 
-  if (verbose)
-    solver->pcout << "Leaving  direct solver" << std::endl;
+    if (verbose)
+      solver->pcout << "Leaving  direct solver" << std::endl;
 }
 
 void solve_linear_system_iterative(
@@ -115,65 +115,78 @@ void solve_linear_system_iterative(
                                                     solver->mpi_communicator);
 
 
-  SolverControl   solver_control(linear_solver_param.max_iterations,
+  SolverControl solver_control(linear_solver_param.max_iterations,
                                linear_solver_param.tolerance);
                                linear_solver_param.tolerance);
-  LA::SolverGMRES linear_solver(solver_control);
+                               LA::SolverGMRES linear_solver(solver_control);
 
 #if defined(FEZ_WITH_PETSC)
-  // LA::MPI::PreconditionAMG::AdditionalData data;
-  // AssertThrow(false, ExcMessage("Configure PETSc with Hypre to use
-  // BoomerAMG"));
-#if defined(FEZ_WITH_PETSC)
-  // LA::MPI::PreconditionAMG::AdditionalData data;
-  // AssertThrow(false, ExcMessage("Configure PETSc with Hypre to use
-  // BoomerAMG"));
+                               // LA::MPI::PreconditionAMG::AdditionalData data;
+                               // AssertThrow(false, ExcMessage("Configure PETSc
+                               // with Hypre to use BoomerAMG"));
+#  if defined(FEZ_WITH_PETSC)
+                               // LA::MPI::PreconditionAMG::AdditionalData data;
+                               // AssertThrow(false, ExcMessage("Configure PETSc
+                               // with Hypre to use BoomerAMG"));
 
-  LA::MPI::PreconditionILU::AdditionalData data(
-    linear_solver_param.ilu_fill_level);
-  LA::MPI::PreconditionILU preconditioner(system_matrix, data);
-  LA::MPI::PreconditionILU::AdditionalData data(
-    linear_solver_param.ilu_fill_level);
-  LA::MPI::PreconditionILU preconditioner(system_matrix, data);
+                               LA::MPI::PreconditionILU::AdditionalData data(
+                                 linear_solver_param.ilu_fill_level);
+                               LA::MPI::PreconditionILU preconditioner(
+                                 system_matrix, data);
+                               LA::MPI::PreconditionILU::AdditionalData data(
+                                 linear_solver_param.ilu_fill_level);
+                               LA::MPI::PreconditionILU preconditioner(
+                                 system_matrix, data);
 
-  // PETScWrappers::PreconditionBlockJacobi::AdditionalData data;
-  // PETScWrappers::PreconditionBlockJacobi preconditioner(system_matrix, data);
+                               // PETScWrappers::PreconditionBlockJacobi::AdditionalData
+                               // data; PETScWrappers::PreconditionBlockJacobi
+                               // preconditioner(system_matrix, data);
 
-#else
-  const bool         elliptic              = false;
-  const bool         higher_order_elements = true;
-  const unsigned int n_cycles              = 1;
-  const bool         w_cycle               = false;
-  const double       aggregation_threshold = 1e-10;
-#else
-  const bool         elliptic              = false;
-  const bool         higher_order_elements = true;
-  const unsigned int n_cycles              = 1;
-  const bool         w_cycle               = false;
-  const double       aggregation_threshold = 1e-10;
+#  else
+                               const bool         elliptic              = false;
+                               const bool         higher_order_elements = true;
+                               const unsigned int n_cycles              = 1;
+                               const bool         w_cycle               = false;
+                               const double       aggregation_threshold = 1e-10;
+#  else
+                               const bool         elliptic              = false;
+                               const bool         higher_order_elements = true;
+                               const unsigned int n_cycles              = 1;
+                               const bool         w_cycle               = false;
+                               const double       aggregation_threshold = 1e-10;
 
-  LA::MPI::PreconditionAMG::AdditionalData data(
-    elliptic, higher_order_elements, n_cycles, w_cycle, aggregation_threshold);
-  LA::MPI::PreconditionAMG::AdditionalData data(
-    elliptic, higher_order_elements, n_cycles, w_cycle, aggregation_threshold);
+                               LA::MPI::PreconditionAMG::AdditionalData data(
+                                 elliptic,
+                                 higher_order_elements,
+                                 n_cycles,
+                                 w_cycle,
+                                 aggregation_threshold);
+                               LA::MPI::PreconditionAMG::AdditionalData data(
+                                 elliptic,
+                                 higher_order_elements,
+                                 n_cycles,
+                                 w_cycle,
+                                 aggregation_threshold);
 
-  LA::MPI::PreconditionAMG preconditioner;
-  preconditioner.initialize(system_matrix, data);
+                               LA::MPI::PreconditionAMG preconditioner;
+                               preconditioner.initialize(system_matrix, data);
+#  endif
+                               LA::MPI::PreconditionAMG preconditioner;
+                               preconditioner.initialize(system_matrix, data);
 #endif
-  LA::MPI::PreconditionAMG preconditioner;
-  preconditioner.initialize(system_matrix, data);
-#endif
 
-  linear_solver.solve(system_matrix,
-                      completely_distributed_solution,
-                      system_rhs,
-                      preconditioner);
+                               linear_solver.solve(
+                                 system_matrix,
+                                 completely_distributed_solution,
+                                 system_rhs,
+                                 preconditioner);
 
-  solver->pcout << "   Solved in " << solver_control.last_step()
-                << " iterations." << std::endl;
+                               solver->pcout << "   Solved in "
+                                             << solver_control.last_step()
+                                             << " iterations." << std::endl;
 
-  newton_update = completely_distributed_solution;
-  zero_constraints.distribute(newton_update);
+                               newton_update = completely_distributed_solution;
+                               zero_constraints.distribute(newton_update);
 }
 
 void solve_linear_system_unpreconditioned_cg(

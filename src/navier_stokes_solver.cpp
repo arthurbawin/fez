@@ -22,7 +22,8 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,
-                                     param.mms_param)
+                                     param.mms_param,
+                                     SolverType::main_physics)
   , param(param)
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)
@@ -638,13 +639,15 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system(
   const bool /*apply_inhomogeneous_constraints*/)
 {
-  if (param.linear_solver.method ==
+  const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
+
+  if (linear_solver_param.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    if (param.linear_solver.reuse)
+    if (linear_solver_param.reuse)
     {
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints,
@@ -652,16 +655,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system(
     }
     else
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints);
   }
-  else if (param.linear_solver.method ==
+  else if (linear_solver_param.method ==
            Parameters::LinearSolver::Method::gmres)
   {
     solve_linear_system_iterative(this,
-                                  param.linear_solver,
+                                  linear_solver_param,
                                   system_matrix,
                                   locally_owned_dofs,
                                   zero_constraints);

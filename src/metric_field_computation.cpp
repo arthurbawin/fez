@@ -1,7 +1,7 @@
 
-#include <MetricField.h>
 #include <deal.II/base/function.h>
 #include <deal.II/lac/vector.h>
+#include <metric_field.h>
 
 template <int dim>
 class ExactTestHessian : public Function<dim>
@@ -121,4 +121,4 @@ void MetricField<dim>::computeMetricsP1()
   }
 }
 
-#include <MetricField_inst.h>
+// #include <MetricField_inst.h>

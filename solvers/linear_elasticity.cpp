@@ -1,5 +1,5 @@
 
-#include <incompressible_ns_solver.h>
+#include <linear_elasticity_solver.h>
 #include <parameter_reader.h>
 #include <utilities.h>
 
@@ -37,8 +37,7 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      // IncompressibleNavierStokesSolver<2> problem(param);
-      NSSolver<2> problem(param);
+      LinearElasticitySolver<2> problem(param);
       if (param.mms_param.enable)
         problem.run_convergence_loop<2>();
       else
@@ -53,8 +52,7 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      // IncompressibleNavierStokesSolver<3> problem(param);
-      NSSolver<3> problem(param);
+      LinearElasticitySolver<3> problem(param);
       if (param.mms_param.enable)
         problem.run_convergence_loop<3>();
       else

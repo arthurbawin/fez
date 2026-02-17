@@ -1,5 +1,4 @@
 
-#include <MetricField.h>
 #include <deal.II/base/function_lib.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/tensor.h>
@@ -9,6 +8,7 @@
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/numerics/data_out.h>
+#include <metric_field.h>
 
 #include <algorithm>
 #include <fstream>
@@ -288,4 +288,5 @@ void MetricField<dim>::writeToVTU(const std::string &filename,
   data_out.write_vtu(output);
 }
 
-#include <MetricField_inst.h>
+template class MetricField<2>;
+template class MetricField<3>;

@@ -1,5 +1,5 @@
 
-#include <MetricTensor.h>
+#include <metric_tensor.h>
 
 #include <Eigen/Dense>
 #include <unsupported/Eigen/MatrixFunctions>

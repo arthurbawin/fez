@@ -35,8 +35,10 @@ subsection Nonlinear solver
 end 
 
 subsection Linear solver
-  set verbosity      = quiet
-  set method         = direct_mumps
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+  end
 end
 
 subsection FiniteElements

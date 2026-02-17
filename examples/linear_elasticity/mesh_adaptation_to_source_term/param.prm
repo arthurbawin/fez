@@ -1,0 +1,142 @@
+
+#
+# This examples shows how the linear elasticity solver can be used
+# to adapt a mesh to a given source term. The pseudosolid analogy
+# is used to define mesh deformation.
+#
+# A steep source term is given in the "Linear elasticity" section,
+# and we want to adapt the mesh to concentrate the vertices around
+# the source term. To this end, the source term is evaluated on the
+# deformed mesh, that is, we provide f(x(X)) instead of f(X).
+# This yields a (strongly) nonlinear problem, which is solved with
+# a continuation method. The initial elasticity problem solved is :
+#
+# -div(sigma(x)) + 1 * f(x(X)) = 0,
+#
+# and the final problem, solved after 4 steps, is :
+#
+# -div(sigma(x)) + 25 * f(x(X)) = 0.
+#
+# The coefficients multiplying the source term and number of continuation
+# steps can be adjusted in the "Linear elasticity" section.
+#
+# For this problem, enabling line search in the Newton solver is required,
+# as otherwise the solution oscillates without converging as the source
+# term multiplier increases.
+#
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write results    = true
+  set output directory = ./results/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  set dealii preset mesh     = rectangle
+  set dealii mesh parameters = 32, 8 : 0., 0. : 1, 0.5 : true
+  set refinement level       = 2
+end
+
+subsection Time integration
+  set verbosity = verbose
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set verbosity            = verbose
+  set tolerance            = 1e-8
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 50
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+end
+
+#
+# Linear elasticity problem without source term is symmetric,
+# but with a nonlinear source term defined on the current configuration,
+# the matrix becomes unsymmetric if grad(f) is unsymmetric.
+#
+# Thus, CG is a suitable solver if the provided solver has a symmetric gradient,
+# for example, if it is of the form [fx(x), 0], yielding the gradient
+#
+# [ d/dx(fx); 0 ]
+# [        0; 0 ]
+#
+# This is the case for the tanh(x) given in this example.
+# If the source term has a unsymmetric gradient, CG might find a solution,
+# but MINRES would be a better alternative, but it is not implemented for now, so
+# just use MUMPS instead...
+#
+subsection Linear solver
+  subsection linear elasticity
+    set verbosity      = verbose
+    set method         = cg
+    set tolerance      = 1e-10
+    set max iterations = 1000
+  end
+end
+
+subsection FiniteElements
+  set Mesh position degree = 1
+end
+
+subsection Physical properties
+  set number of pseudosolids = 1
+  subsection Pseudosolid 0
+    subsection lame lambda
+      set Function expression = 1
+    end
+    subsection lame mu
+      set Function expression = 1
+    end
+  end
+end
+
+subsection Initial conditions
+  #set to mms = true
+end
+
+subsection Pseudosolid boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = fixed
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = fixed
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = no_flux
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type = no_flux
+  end
+end
+
+subsection Linear elasticity
+  subsection source term
+    set Function constants  = e = 0.1, xc = 0.5
+    set Function expression = tanh((x-xc)/(sqrt(2)*e)) * (1./(sqrt(2)*e)) * (1 - tanh((x-xc)/(sqrt(2)*e))*tanh((x-xc)/(sqrt(2)*e))); 0
+  end
+  subsection current mesh source term
+    set enable             = true
+    set min multiplier     = 1
+    set max multiplier     = 25
+    set continuation steps = 6
+  end
+end

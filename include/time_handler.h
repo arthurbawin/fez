@@ -132,6 +132,13 @@ public:
 
   std::deque<double> pending_dt_queue; // dts "programmés" (rampe restart)
 
+  // ------------------------------------------------------------
+  // Programmed dt schedules (paper-style variable-step tests)
+  // ------------------------------------------------------------
+  bool                use_programmed_dt_schedule = false;
+  std::vector<double> programmed_dt;
+
+  void build_programmed_dt_schedule();
 
 
 

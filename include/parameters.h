@@ -254,6 +254,31 @@ namespace Parameters
     double dt_max;
     double dt_min;
     bool adaptative_dt;
+// ------------------------------------------------------------
+// Time-step control modes used for MMS / verification of variable-step BDF2
+// ------------------------------------------------------------
+enum class DtControlMode
+{
+  vautrin,        // default adaptive dt using Vautrin estimator
+  increasing,     // geometric increasing dt on the whole interval (paper-style)
+  decreasing,     // geometric decreasing dt on the whole interval (paper-style)
+  inc_dec,        // geometric increasing then decreasing (paper-style)
+  alternating     // alternating two time steps with fixed ratio (paper-style)
+};
+
+DtControlMode dt_control_mode;
+
+// Parameter used for geometric sequences in the paper:
+// k_i = k_0 * r^i with r = gamma^(1/(N-1)).
+double dt_schedule_gamma;
+
+// Ratio for alternating steps (k1/k2 = dt_alternating_ratio).
+double dt_alternating_ratio;
+
+// Safety margin for the classical 0-stability bound of variable-step BDF2:
+// r_max = 1 + sqrt(2) - dt_ratio_margin.
+// (Used to clamp r in "increasing/decreasing/inc_dec" modes.)
+double dt_ratio_margin;
     double safety;
     double u_seuil;
     double eps_u;
@@ -279,23 +304,6 @@ namespace Parameters
       BDF1,
       initial_condition
     } bdfstart;
-
-    enum class DtControlMode
-    {
-      vautrin,
-      increasing,
-      decreasing,
-      alternating
-    } dt_control_mode;
-
-    // Geometric / test time-step control (used when dt_control_mode != vautrin)
-    // dt_{n+1} = k * dt_n (increasing), dt_{n+1} = dt_n / k (decreasing),
-    // or alternating between the two.
-    double dt_growth_factor;
-
-    // Safety margin subtracted from (1 + sqrt(2)) when bounding k.
-    // Example: margin=0.05 -> k_max = 1+sqrt(2)-0.05.
-    double dt_growth_margin;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

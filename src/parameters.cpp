@@ -1,7 +1,6 @@
 
 #include <parameters.h>
 #include <utilities.h>
-#include <cmath>
 
 #define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
   (prm).declare_entry("verbosity",                                             \
@@ -689,21 +688,26 @@ namespace Parameters
       prm.declare_entry("dt_min","0.0001",Patterns::Double(), "Time step min");
       prm.declare_entry("adaptative_dt","false",Patterns::Bool(),
                         "Enable adaptative time step");
-      prm.declare_entry("dt control mode",
-                        "vautrin",
-                        Patterns::Selection("vautrin|increasing|decreasing|alternating"),
-                        "How dt is updated when adaptative_dt=true. "
-                        "vautrin: Vautrin error estimator; increasing/decreasing/alternating: "
-                        "geometric test sequences.");
-      prm.declare_entry("dt growth factor",
-                        "2.0",
-                        Patterns::Double(),
-                        "Geometric factor k for non-vautrin dt control (k>1).");
-      prm.declare_entry("dt growth margin",
-                        "0.05",
-                        Patterns::Double(),
-                        "Safety margin subtracted from (1+sqrt(2)) when bounding k.");
 
+prm.declare_entry("dt control mode",
+                  "vautrin",
+                  Patterns::Selection("vautrin|increasing|decreasing|inc_dec|alternating"),
+                  "Time-step control mode: "
+                  "vautrin (adaptive Vautrin), increasing, decreasing, inc_dec, alternating.");
+prm.declare_entry("dt schedule gamma",
+                  "2.0",
+                  Patterns::Double(1.0),
+                  "Geometric schedule parameter gamma (paper-style). "
+                  "Used to compute r = gamma^(1/(N-1)) in increasing/decreasing/inc_dec modes.");
+prm.declare_entry("dt alternating ratio",
+                  "4.0",
+                  Patterns::Double(1.0),
+                  "Alternating time-step ratio k1/k2 (paper-style), used in alternating mode.");
+prm.declare_entry("dt ratio margin",
+                  "0.05",
+                  Patterns::Double(0.0),
+                  "Safety margin applied to the classical BDF2 ratio bound (1+sqrt(2)). "
+                  "The geometric ratio r is clamped to r_max = 1+sqrt(2)-margin.");
       prm.declare_entry("safety", "0.9", Patterns::Double(), "Safety factor for adaptive dt");
       prm.declare_entry("u_seuil", "1e-2", Patterns::Double(), "Switch abs/rel scaling threshold");
       prm.declare_entry("eps_u", "1e-3", Patterns::Double(), "Target error for velocity (adaptive dt)");
@@ -749,34 +753,22 @@ namespace Parameters
       dt_max  = prm.get_double("dt_max");
       dt_min  = prm.get_double("dt_min");
       adaptative_dt = prm.get_bool("adaptative_dt");
-      const std::string parsed_dt_mode = prm.get("dt control mode");
-      if (parsed_dt_mode == "vautrin")
-        dt_control_mode = DtControlMode::vautrin;
-      else if (parsed_dt_mode == "increasing")
-        dt_control_mode = DtControlMode::increasing;
-      else if (parsed_dt_mode == "decreasing")
-        dt_control_mode = DtControlMode::decreasing;
-      else if (parsed_dt_mode == "alternating")
-        dt_control_mode = DtControlMode::alternating;
-      else
-        throw std::runtime_error("Unknown dt control mode: " + parsed_dt_mode);
 
-      dt_growth_factor = prm.get_double("dt growth factor");
-      dt_growth_margin = prm.get_double("dt growth margin");
-      if (dt_growth_margin < 0.0)
-        dt_growth_margin = 0.0;
+const std::string parsed_dt_mode = prm.get("dt control mode");
+if (parsed_dt_mode == "vautrin")
+  dt_control_mode = DtControlMode::vautrin;
+else if (parsed_dt_mode == "increasing")
+  dt_control_mode = DtControlMode::increasing;
+else if (parsed_dt_mode == "decreasing")
+  dt_control_mode = DtControlMode::decreasing;
+else if (parsed_dt_mode == "inc_dec")
+  dt_control_mode = DtControlMode::inc_dec;
+else if (parsed_dt_mode == "alternating")
+  dt_control_mode = DtControlMode::alternating;
 
-      // Enforce: 1 <= k <= (1+sqrt(2)-margin).
-      const double k_max = (1.0 + std::sqrt(2.0)) - dt_growth_margin;
-      if (dt_growth_factor < 1.0)
-        dt_growth_factor = 1.0;
-
-      // If margin is too large, fall back to k=1 (constant dt).
-      if (k_max <= 1.0)
-        dt_growth_factor = 1.0;
-      else if (dt_growth_factor > k_max)
-        dt_growth_factor = k_max;
-
+dt_schedule_gamma     = prm.get_double("dt schedule gamma");
+dt_alternating_ratio  = prm.get_double("dt alternating ratio");
+dt_ratio_margin       = prm.get_double("dt ratio margin");
       eps_u        = prm.get_double("eps_u");
       eps_p        = prm.get_double("eps_p");
       eps_x        = prm.get_double("eps_x");

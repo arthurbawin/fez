@@ -35,6 +35,9 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   previous_times.resize(n_previous_solutions + 1, initial_time);
   time_steps.resize(n_previous_solutions + 1, initial_dt);
   bdf_coefficients.resize(n_previous_solutions + 1, 0.);
+
+  // Build programmed dt schedule for MMS verification if requested.
+  build_programmed_dt_schedule();
 }
 
 void TimeHandler::set_bdf_coefficients(
@@ -84,6 +87,15 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
   if (scheme == STAT)
     return;
 
+  // Programmed dt schedule (paper-style tests)
+  if (use_programmed_dt_schedule && pending_dt_queue.empty())
+  {
+    const unsigned int idx = current_time_iteration - 1;
+    AssertThrow(idx < programmed_dt.size(), ExcMessage("Programmed dt schedule exhausted."));
+    current_dt = programmed_dt[idx];
+  }
+
+
   // ------------------------------------------------------------
   // 0) Si une rampe de dt est en cours (restart), on force current_dt
   //    pour CE step, puis on consomme la queue.
@@ -117,13 +129,8 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
   }
   else if (scheme == BDF2)
   {
-    const bool use_bdf1_startup =
-      (time_parameters.bdfstart ==
-       Parameters::TimeIntegration::BDFStart::BDF1) &&
-      (time_parameters.dt_control_mode ==
-       Parameters::TimeIntegration::DtControlMode::vautrin);
-
-    if (use_bdf1_startup)
+    if (time_parameters.bdfstart ==
+        Parameters::TimeIntegration::BDFStart::BDF1)
     {
       // Start with BDF1
       const double starting_step_ratio = 0.1;
@@ -274,6 +281,150 @@ namespace
   }
 } // namespace
 
+
+void TimeHandler::build_programmed_dt_schedule()
+{
+  use_programmed_dt_schedule = false;
+  programmed_dt.clear();
+
+  if (time_parameters.is_steady())
+    return;
+
+  // Only used when adaptative_dt is enabled but dt_control_mode != vautrin.
+  if (!time_parameters.adaptative_dt)
+    return;
+
+  if (time_parameters.dt_control_mode ==
+      Parameters::TimeIntegration::DtControlMode::vautrin)
+    return;
+
+  const double T = final_time - initial_time;
+  if (T <= 0.0)
+    return;
+
+  // We infer the intended number of steps from the "reference" dt
+  // of the current run (this dt is refined by the MMS driver).
+  const double dt_ref = initial_dt;
+  const double N_real = T / dt_ref;
+  const unsigned int N = static_cast<unsigned int>(std::llround(N_real));
+
+  AssertThrow(N >= 2,
+             ExcMessage("Programmed dt schedule requires at least 2 time steps."));
+
+  // Ensure that dt_ref yields an (almost) integer number of steps.
+  AssertThrow(std::abs(N_real - static_cast<double>(N)) < 1e-6,
+             ExcMessage("For programmed dt schedules, dt must yield an integer number of steps "
+                        "over [t_initial,t_end]."));
+
+  programmed_dt.resize(N, 0.0);
+
+  const auto clamp_dt = [&](const double dt) -> double
+  {
+    return std::min(std::max(dt, time_parameters.dt_min), time_parameters.dt_max);
+  };
+
+  // 0-stability safety bound often used for variable-step BDF2.
+  const double ratio_limit =
+    1.0 + std::sqrt(2.0) - std::max(0.0, time_parameters.dt_ratio_margin);
+
+  // Helper: geometric schedule on [0, T] with N steps, given gamma.
+  const auto build_geometric = [&](const bool increasing)
+  {
+    const double gamma = time_parameters.dt_schedule_gamma;
+
+    // r = gamma^(1/(N-1)) and safety clamp.
+    double r = std::pow(gamma, 1.0 / static_cast<double>(N - 1));
+    if (r > ratio_limit)
+      r = ratio_limit;
+
+    // dt0 such that sum_{i=0}^{N-1} dt0 * r^i = T.
+    const double rN = std::pow(r, static_cast<double>(N));
+    const double dt0 =
+      (std::abs(r - 1.0) < 1e-14 ? T / static_cast<double>(N)
+                                 : T * (r - 1.0) / (rN - 1.0));
+
+    for (unsigned int i = 0; i < N; ++i)
+    {
+      const unsigned int j = increasing ? i : (N - 1 - i);
+      programmed_dt[i] = dt0 * std::pow(r, static_cast<double>(j));
+    }
+  };
+
+  // ---------- increasing / decreasing ----------
+  if (time_parameters.dt_control_mode ==
+      Parameters::TimeIntegration::DtControlMode::increasing)
+  {
+    build_geometric(true);
+  }
+  else if (time_parameters.dt_control_mode ==
+           Parameters::TimeIntegration::DtControlMode::decreasing)
+  {
+    build_geometric(false);
+  }
+
+  // ---------- increasing then decreasing ----------
+  if (time_parameters.dt_control_mode ==
+      Parameters::TimeIntegration::DtControlMode::inc_dec)
+  {
+    AssertThrow(N % 2 == 0,
+               ExcMessage("inc_dec programmed schedule requires an even N."));
+    const unsigned int Nh = N / 2;
+    const double Th = 0.5 * T;
+    const double gamma = time_parameters.dt_schedule_gamma;
+
+    double r = std::pow(gamma, 1.0 / static_cast<double>(Nh - 1));
+    if (r > ratio_limit)
+      r = ratio_limit;
+
+    const double rNh = std::pow(r, static_cast<double>(Nh));
+    const double dt0h =
+      (std::abs(r - 1.0) < 1e-14 ? Th / static_cast<double>(Nh)
+                                 : Th * (r - 1.0) / (rNh - 1.0));
+
+    // First half increasing.
+    for (unsigned int i = 0; i < Nh; ++i)
+      programmed_dt[i] = dt0h * std::pow(r, static_cast<double>(i));
+
+    // Second half decreasing (mirror).
+    for (unsigned int i = 0; i < Nh; ++i)
+      programmed_dt[Nh + i] = programmed_dt[Nh - 1 - i];
+  }
+
+  // ---------- alternating ----------
+  if (time_parameters.dt_control_mode ==
+      Parameters::TimeIntegration::DtControlMode::alternating)
+  {
+    AssertThrow(N % 2 == 0,
+               ExcMessage("alternating programmed schedule requires an even N."));
+    const double q = time_parameters.dt_alternating_ratio;
+
+    // Pattern: dt_big, dt_small, dt_big, dt_small, ...
+    // with dt_big/dt_small = q and sum = T.
+    const double dt_small = T / (static_cast<double>(N) * (0.5 * (q + 1.0)));
+    const double dt_big   = q * dt_small;
+
+    for (unsigned int i = 0; i < N; ++i)
+      programmed_dt[i] = (i % 2 == 0 ? dt_big : dt_small);
+  }
+
+  // Final safety: clamp and enforce exact sum by adjusting the last step.
+  double sum = 0.0;
+  for (unsigned int i = 0; i < N; ++i)
+  {
+    programmed_dt[i] = clamp_dt(programmed_dt[i]);
+    sum += programmed_dt[i];
+  }
+
+  // Adjust last dt to hit final time exactly.
+  programmed_dt[N - 1] += (T - sum);
+
+  programmed_dt[N - 1] = clamp_dt(programmed_dt[N - 1]);
+
+  use_programmed_dt_schedule = true;
+
+  // Initialize current_dt for the first step.
+  current_dt = programmed_dt[0];
+}
 
 void TimeHandler::apply_restart_overrides(
   const Parameters::TimeIntegration &new_params)

@@ -714,8 +714,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
           }
         }
 
-
-
         /**
          * Tracer equation
          */
@@ -832,14 +830,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
           // fixed tracer fields (for mesh forcing)
           const double         phi_f  = scratch_data.tracer_values_fixed[q];
           const Tensor<1, dim> gphi_f = scratch_data.tracer_gradients_fixed[q];
-          
-
-          
-          //dt
-          double dt = 0.0;
-          if (bdf.size() == 2)       dt = 1.0 / bdf_c0;
-          else if (bdf.size() == 3)  dt = 1.5 / bdf_c0;
-          else                       dt = 1.0 / bdf_c0;
 
           if (const_ordering.x_lower <= comp_i &&
               comp_i < const_ordering.x_upper)
@@ -1201,12 +1191,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
         // Linear elasticity source term
         local_rhs_ps_i += (*phi_x)[i] * (*source_term_position);
 
-
-
         const double alpha = mf.alpha;
         const double beta  = mf.beta;
-
-
 
         Tensor<1, dim> f_mesh;
 
@@ -1214,12 +1200,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
         {
           const double         phi_f  = scratch_data.tracer_values_fixed[q];
           const Tensor<1, dim> gphi_f = scratch_data.tracer_gradients_fixed[q];
-
-          // dt depuis bdf0
-          double dt = 0.0;
-          if (bdf.size() == 2)       dt = 1.0 / bdf_c0;
-          else if (bdf.size() == 3)  dt = 1.5 / bdf_c0;
-          else                       dt = 1.0 / bdf_c0;
 
           if (alpha != 0.0)
              f_mesh += alpha * (phi_f * gphi_f);

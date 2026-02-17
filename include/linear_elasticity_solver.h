@@ -186,6 +186,20 @@ protected:
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override;
 
+    /**
+     * Fill the given list of gradients.
+     */
+    virtual void vector_gradient_list(
+      const std::vector<Point<dim>> & /*points*/,
+      std::vector<std::vector<Tensor<1, dim>>> & /*gradients*/) const override
+    {
+      // Do nothing: this function is only there to be able to call
+      // vector_gradient_list in the ScratchData without throwing in debug mode.
+      // Source term gradient is only needed when the source term is evaluated
+      // on the current configuration (mesh), which is never the case for an MMS
+      // source term.
+    }
+
   protected:
     const Parameters::PhysicalProperties<dim>              &physical_properties;
     const ManufacturedSolutions::ManufacturedSolution<dim> &mms;

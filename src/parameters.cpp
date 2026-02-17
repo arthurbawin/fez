@@ -513,13 +513,15 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void LinearSolver::declare_parameters(ParameterHandler &prm)
+  void LinearSolver::declare_parameters(ParameterHandler  &prm,
+                                        const std::string &solver_type)
   {
     prm.enter_subsection("Linear solver");
     {
+      prm.enter_subsection(solver_type);
       prm.declare_entry("method",
                         "direct_mumps",
-                        Patterns::Selection("direct_mumps|gmres"),
+                        Patterns::Selection("direct_mumps|cg|gmres"),
                         "Method");
       prm.declare_entry("tolerance",
                         "1e-6",
@@ -533,28 +535,34 @@ namespace Parameters
                         "0",
                         Patterns::Integer(),
                         "Max level of fill-in for ILU preconditioner");
-      prm.declare_entry("renumber", "false", Patterns::Bool(), "");
       prm.declare_entry("reuse", "false", Patterns::Bool(), "");
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
 
-  void LinearSolver::read_parameters(ParameterHandler &prm)
+  void LinearSolver::read_parameters(ParameterHandler  &prm,
+                                     const std::string &solver_type)
   {
     prm.enter_subsection("Linear solver");
     {
-      const std::string parsed_method = prm.get("method");
-      if (parsed_method == "direct_mumps")
-        method = Method::direct_mumps;
-      else if (parsed_method == "gmres")
-        method = Method::gmres;
-      tolerance      = prm.get_double("tolerance");
-      max_iterations = prm.get_integer("max iterations");
-      ilu_fill_level = prm.get_integer("ilu fill level");
-      renumber       = prm.get_bool("renumber");
-      reuse          = prm.get_bool("reuse");
-      READ_VERBOSITY_PARAM(prm);
+      prm.enter_subsection(solver_type);
+      {
+        const std::string parsed_method = prm.get("method");
+        if (parsed_method == "direct_mumps")
+          method = Method::direct_mumps;
+        else if (parsed_method == "cg")
+          method = Method::cg;
+        else if (parsed_method == "gmres")
+          method = Method::gmres;
+        tolerance      = prm.get_double("tolerance");
+        max_iterations = prm.get_integer("max iterations");
+        ilu_fill_level = prm.get_integer("ilu fill level");
+        reuse          = prm.get_bool("reuse");
+        READ_VERBOSITY_PARAM(prm);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }

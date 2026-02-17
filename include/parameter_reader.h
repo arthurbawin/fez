@@ -19,21 +19,21 @@ public:
   //
   // Parameters
   //
-  Parameters::DummyDimension          dummy_dimension;
-  Parameters::Timer                   timer;
-  Parameters::Mesh                    mesh;
-  Parameters::Output                  output;
-  Parameters::FiniteElements<dim>     finite_elements;
-  Parameters::PhysicalProperties<dim> physical_properties;
-  Parameters::FSI                     fsi;
-  Parameters::TimeIntegration         time_integration;
-  Parameters::CheckpointRestart       checkpoint_restart;
-  Parameters::LinearSolver            linear_solver;
-  Parameters::NonLinearSolver         nonlinear_solver;
-  Parameters::CahnHilliard<dim>       cahn_hilliard;
-  Parameters::LinearElasticity        linear_elasticity;
-  Parameters::MMS                     mms_param;
-  Parameters::Debug                   debug;
+  Parameters::DummyDimension                     dummy_dimension;
+  Parameters::Timer                              timer;
+  Parameters::Mesh                               mesh;
+  Parameters::Output                             output;
+  Parameters::FiniteElements<dim>                finite_elements;
+  Parameters::PhysicalProperties<dim>            physical_properties;
+  Parameters::FSI                                fsi;
+  Parameters::TimeIntegration                    time_integration;
+  Parameters::CheckpointRestart                  checkpoint_restart;
+  std::map<SolverType, Parameters::LinearSolver> linear_solver;
+  Parameters::NonLinearSolver                    nonlinear_solver;
+  Parameters::CahnHilliard<dim>                  cahn_hilliard;
+  Parameters::LinearElasticity                   linear_elasticity;
+  Parameters::MMS                                mms_param;
+  Parameters::Debug                              debug;
 
   //
   // Initial and boundary conditions
@@ -79,7 +79,11 @@ public:
     fsi.declare_parameters(prm);
     time_integration.declare_parameters(prm);
     checkpoint_restart.declare_parameters(prm);
-    linear_solver.declare_parameters(prm);
+
+    std::vector<std::string> solvers = {"main physics", "linear elasticity"};
+    for (const auto &s : solvers)
+      linear_solver[get_solver_type(s)].declare_parameters(prm, s);
+
     nonlinear_solver.declare_parameters(prm);
     initial_conditions.declare_parameters(prm);
     bc_data.declare_parameters(prm);
@@ -114,7 +118,11 @@ public:
     fsi.read_parameters(prm);
     time_integration.read_parameters(prm);
     checkpoint_restart.read_parameters(prm);
-    linear_solver.read_parameters(prm);
+
+    std::vector<std::string> solvers = {"main physics", "linear elasticity"};
+    for (const auto &s : solvers)
+      linear_solver.at(get_solver_type(s)).read_parameters(prm, s);
+
     nonlinear_solver.read_parameters(prm);
     initial_conditions.read_parameters(prm);
     bc_data.read_parameters(prm);

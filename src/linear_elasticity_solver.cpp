@@ -5,6 +5,7 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
+#include <deal.II/lac/generic_linear_algebra.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
@@ -23,7 +24,8 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,
-                                     param.mms_param)
+                                     param.mms_param,
+                                     SolverType::linear_elasticity)
   , param(param)
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)
@@ -64,7 +66,7 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
   }
   else
   {
-    source_terms   = param.source_terms.pseudosolid_source;
+    source_terms   = param.source_terms.linear_elasticity_source;
     exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(dim);
   }
 
@@ -365,9 +367,10 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      const auto &phi_x_i      = phi_x[i];
-      const auto &grad_phi_x_i = grad_phi_x[i];
-      const auto &div_phi_x_i  = div_phi_x[i];
+      const auto &phi_x_i          = phi_x[i];
+      const auto &grad_phi_x_i     = grad_phi_x[i];
+      const auto &sym_grad_phi_x_i = symmetrize(grad_phi_x[i]);
+      const auto &div_phi_x_i      = div_phi_x[i];
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
@@ -377,7 +380,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
 
         local_matrix(i, j) +=
           (lame_lambda * div_phi_x_j * div_phi_x_i +
-           2. * lame_mu * scalar_product(sym_grad_phi_x_j, grad_phi_x_i) +
+           2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
            alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
           JxW;
       }
@@ -530,13 +533,15 @@ template <int dim>
 void LinearElasticitySolver<dim>::solve_linear_system(
   const bool /*apply_inhomogeneous_constraints*/)
 {
-  if (param.linear_solver.method ==
+  const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
+
+  if (linear_solver_param.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    if (param.linear_solver.reuse)
+    if (linear_solver_param.reuse)
     {
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints,
@@ -544,19 +549,25 @@ void LinearElasticitySolver<dim>::solve_linear_system(
     }
     else
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints);
   }
-  else if (param.linear_solver.method ==
+  else if (linear_solver_param.method == Parameters::LinearSolver::Method::cg)
+  {
+    solve_linear_system_unpreconditioned_cg(this,
+                                            linear_solver_param,
+                                            system_matrix,
+                                            locally_owned_dofs,
+                                            zero_constraints);
+  }
+  else if (linear_solver_param.method ==
            Parameters::LinearSolver::Method::gmres)
   {
-    solve_linear_system_iterative(this,
-                                  param.linear_solver,
-                                  system_matrix,
-                                  locally_owned_dofs,
-                                  zero_constraints);
+    AssertThrow(false,
+                ExcMessage("GMRES solver is not implemented for "
+                           "LinearElasticitySolver. Use CG unstead."));
   }
   else
   {

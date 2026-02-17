@@ -977,6 +977,11 @@ namespace Parameters
     prm.enter_subsection("Debug");
     {
       DECLARE_VERBOSITY_PARAM(prm, "quiet")
+      prm.declare_entry(
+        "write dealii mesh as msh",
+        "false",
+        Patterns::Bool(),
+        "If using deal.II meshing routines, write the mesh as a .msh file");
       prm.declare_entry("write partition gmsh",
                         "false",
                         Patterns::Bool(),
@@ -1012,6 +1017,7 @@ namespace Parameters
     prm.enter_subsection("Debug");
     {
       READ_VERBOSITY_PARAM(prm)
+      write_dealii_mesh_as_msh = prm.get_bool("write dealii mesh as msh");
       write_partition_pos_gmsh = prm.get_bool("write partition gmsh");
       apply_exact_solution     = prm.get_bool("apply exact solution");
       compare_analytical_jacobian_with_fd =

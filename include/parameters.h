@@ -422,6 +422,7 @@ namespace Parameters
   struct Debug
   {
     Verbosity    verbosity;
+    bool         write_dealii_mesh_as_msh;
     bool         write_partition_pos_gmsh;
     bool         apply_exact_solution;
     bool         compare_analytical_jacobian_with_fd;

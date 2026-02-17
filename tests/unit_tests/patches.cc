@@ -11,8 +11,8 @@
 #include "../tests.h"
 
 #include "mesh.h"
-#include "types.h"
 #include "parameter_reader.h"
+#include "types.h"
 
 /**
  * This tests that the patches of dof support points, used for least-squares
@@ -33,7 +33,7 @@ public:
   virtual double value(const Point<dim>  &p,
                        const unsigned int component = 0) const override
   {
-    if constexpr(dim == 2)
+    if constexpr (dim == 2)
       return sin(M_PI * p[0]) * cos(M_PI * p[1]);
     else
       return sin(M_PI * p[0]) * cos(M_PI * p[1]) * sin(M_PI * p[2]);
@@ -67,8 +67,9 @@ void test_patches(const unsigned int field_polynomial_degree)
   dof_handler.distribute_dofs(fe);
 
   // Initialize solution vectors
-  IndexSet locally_owned_dofs    = dof_handler.locally_owned_dofs();
-  IndexSet locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
+  IndexSet locally_owned_dofs = dof_handler.locally_owned_dofs();
+  IndexSet locally_relevant_dofs =
+    DoFTools::extract_locally_relevant_dofs(dof_handler);
   LA::ParVectorType solution, local_solution;
   solution.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
   local_solution.reinit(locally_owned_dofs, mpi_communicator);
@@ -81,11 +82,11 @@ void test_patches(const unsigned int field_polynomial_degree)
   // Create the patches of dof support points and print the sorted patches
   // for each owned mesh vertex
   ErrorEstimation::PatchHandler patch_handler(triangulation,
-                                   mapping,
-                                   dof_handler,
-                                   field_polynomial_degree + 1,
-                                   fe.component_mask(
-                                     FEValuesExtractors::Scalar(0)));
+                                              mapping,
+                                              dof_handler,
+                                              field_polynomial_degree + 1,
+                                              fe.component_mask(
+                                                FEValuesExtractors::Scalar(0)));
 
   deallog << "Patches" << std::endl;
   patch_handler.write_support_points_patch(solution, deallog.get_file_stream());

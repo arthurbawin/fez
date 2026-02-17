@@ -323,8 +323,9 @@ void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
 
       // x couples x,phi,u
       if constexpr (with_moving_mesh)
-        if (this->ordering->is_position(i) && 
-        (this->ordering->is_position(j) || this->ordering->is_tracer(j) || this->ordering->is_velocity(j)))
+        if (this->ordering->is_position(i) &&
+            (this->ordering->is_position(j) || this->ordering->is_tracer(j) ||
+             this->ordering->is_velocity(j)))
           coupling_table[i][j] = DoFTools::always;
 
       // phi couples to u, phi, mu, x
@@ -394,10 +395,11 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_matrix()
 }
 
 template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix_finite_differences(
-  const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData                                          &scratch_data,
-  CopyData                                             &copy_data)
+void CHNSSolver<dim, with_moving_mesh>::
+  assemble_local_matrix_finite_differences(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    ScratchData                                          &scratch_data,
+    CopyData                                             &copy_data)
 {
   Verification::compute_local_matrix_finite_differences<dim>(
     cell,
@@ -441,7 +443,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   const auto  &body_force            = scratch_data.body_force;
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
-  const auto &bdf = this->time_handler.bdf_coefficients;
+  const auto  &bdf    = this->time_handler.bdf_coefficients;
 
   const unsigned int n_dofs_per_cell = scratch_data.dofs_per_cell;
 
@@ -461,9 +463,9 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
     const auto &phi_p      = scratch_data.phi_p[q];
 
     // x necessary fct
-    const std::vector<Tensor<1, dim>> *phi_x             = nullptr;
-    const std::vector<Tensor<2, dim>> *grad_phi_x        = nullptr;
-    const std::vector<double>         *div_phi_x         = nullptr;
+    const std::vector<Tensor<1, dim>> *phi_x      = nullptr;
+    const std::vector<Tensor<2, dim>> *grad_phi_x = nullptr;
+    const std::vector<double>         *div_phi_x  = nullptr;
     const std::vector<Tensor<2, dim>> *grad_phi_x_moving = nullptr; // ∇_x (δx)
 
     if constexpr (with_moving_mesh)
@@ -481,15 +483,16 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
       //   for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
       //     if (this->ordering->is_position(scratch_data.components[j]))
       //     {
-      //       const double diff = ((*grad_phi_x)[j] - (*grad_phi_x_moving)[j]).norm();
-      //       if (diff > max_diff)
+      //       const double diff = ((*grad_phi_x)[j] -
+      //       (*grad_phi_x_moving)[j]).norm(); if (diff > max_diff)
       //       {
       //         max_diff = diff;
       //         j_max    = j;
       //       }
       //     }
 
-      //   std::cout << "[DBG] cell0 q0: max ||grad_phi_x - grad_phi_x_moving|| = "
+      //   std::cout << "[DBG] cell0 q0: max ||grad_phi_x - grad_phi_x_moving||
+      //   = "
       //             << max_diff;
 
       //   if (j_max != numbers::invalid_unsigned_int)
@@ -742,12 +745,12 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
               // phi-x bloc (ALE)
               local_flow_ij +=
                 phi_phi_i * ((-bdf_c0) * (*phi_x)[j] * tracer_gradient +
-                             u_conv * (-(transpose(G))*tracer_gradient));
+                             u_conv * (-(transpose(G)) * tracer_gradient));
 
               local_flow_ij +=
                 mobility *
-                ((-(transpose(G))*grad_phi_phi_i) * potential_gradient +
-                 grad_phi_phi_i * (-(transpose(G))*potential_gradient) +
+                ((-(transpose(G)) * grad_phi_phi_i) * potential_gradient +
+                 grad_phi_phi_i * (-(transpose(G)) * potential_gradient) +
                  (grad_phi_phi_i * potential_gradient) * trG);
             }
           }
@@ -820,8 +823,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
          */
         if constexpr (with_moving_mesh)
         {
-
-          const auto &mf =this->param.cahn_hilliard;
+          const auto &mf = this->param.cahn_hilliard;
 
           const double alpha = mf.alpha;
           const double beta  = mf.beta;
@@ -837,10 +839,11 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
             if (const_ordering.u_lower <= comp_j &&
                 comp_j < const_ordering.u_upper)
             {
-              if (beta !=0.0)
+              if (beta != 0.0)
               {
-                local_ps_ij -= (*phi_x)[i] * (beta * (phi_u_j * tracer_gradient) *
-                                            tracer_gradient);
+                local_ps_ij -=
+                  (*phi_x)[i] *
+                  (beta * (phi_u_j * tracer_gradient) * tracer_gradient);
               }
             }
             if (const_ordering.x_lower <= comp_j &&
@@ -854,45 +857,44 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
                 lame_mu *
                   scalar_product((*grad_phi_x)[j] + transpose((*grad_phi_x)[j]),
                                  (*grad_phi_x)[i]);
-              if (beta !=0.0)
+              if (beta != 0.0)
               {
                 local_ps_ij -=
-                (*phi_x)[i] *
-                (beta *
-                 ((-bdf_c0) * (*phi_x)[j] * tracer_gradient * tracer_gradient +
-                  u_conv * ((-transpose(G)) * tracer_gradient) *
-                    tracer_gradient +
-                  u_dot_grad_phi *
-                    ((-transpose(G)) * tracer_gradient)));
+                  (*phi_x)[i] *
+                  (beta *
+                   ((-bdf_c0) * (*phi_x)[j] * tracer_gradient *
+                      tracer_gradient +
+                    u_conv * ((-transpose(G)) * tracer_gradient) *
+                      tracer_gradient +
+                    u_dot_grad_phi * ((-transpose(G)) * tracer_gradient)));
               }
-              
             }
             if (comp_j == const_ordering.phi_lower)
             {
-              const double         phi_phi_j_f  = scratch_data.shape_phi_fixed[q][j];
-              const Tensor<1, dim> grad_phi_phi_j_f = scratch_data.grad_shape_phi_fixed[q][j];
+              const double phi_phi_j_f = scratch_data.shape_phi_fixed[q][j];
+              const Tensor<1, dim> grad_phi_phi_j_f =
+                scratch_data.grad_shape_phi_fixed[q][j];
 
-              if (alpha !=0.0)
-              {
-              local_ps_ij -=
-                ((*phi_x)[i] * (alpha * (phi_phi_j_f * grad_phi_phi_j_f +
-                                         phi_phi_j_f * grad_phi_phi_j_f)));
-              }
-              if (beta !=0.0)
+              if (alpha != 0.0)
               {
                 local_ps_ij -=
-                (*phi_x)[i] *
-                (beta * ((u_conv * grad_phi_phi_j) * tracer_gradient +
-                         (u_dot_grad_phi)*grad_phi_phi_j));
+                  ((*phi_x)[i] * (alpha * (phi_phi_j_f * grad_phi_phi_j_f +
+                                           phi_phi_j_f * grad_phi_phi_j_f)));
               }
-              
+              if (beta != 0.0)
+              {
+                local_ps_ij -=
+                  (*phi_x)[i] *
+                  (beta * ((u_conv * grad_phi_phi_j) * tracer_gradient +
+                           (u_dot_grad_phi)*grad_phi_phi_j));
+              }
             }
           }
         }
         local_flow_ij *= JxW_moving;
         if constexpr (with_moving_mesh)
         {
-          local_ps_ij *= scratch_data.JxW_fixed[q]; 
+          local_ps_ij *= scratch_data.JxW_fixed[q];
         }
         local_matrix(i, j) += local_flow_ij + local_ps_ij;
       }
@@ -1007,17 +1009,17 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
     scratch_data.sigma_tilde / scratch_data.epsilon;
   const double sigma_tilde_times_eps =
     scratch_data.sigma_tilde * scratch_data.epsilon;
-  const auto &body_force = scratch_data.body_force;
-  const double bdf_c0 = this->time_handler.bdf_coefficients[0];
-  const auto &bdf = this->time_handler.bdf_coefficients;
+  const auto  &body_force = scratch_data.body_force;
+  const double bdf_c0     = this->time_handler.bdf_coefficients[0];
+  const auto  &bdf        = this->time_handler.bdf_coefficients;
   //
   // Volume contributions
   //
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
     const double JxW_moving = scratch_data.JxW_moving[q];
-    const double rho = scratch_data.density[q];
-    const double eta = scratch_data.dynamic_viscosity[q];
+    const double rho        = scratch_data.density[q];
+    const double eta        = scratch_data.dynamic_viscosity[q];
 
     const auto &present_velocity_values =
       scratch_data.present_velocity_values[q];
@@ -1083,7 +1085,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
 
     // Terms of the potential equation multiplied by phi_mu_i
     const auto to_multiply_by_phi_mu_i =
-      potential_value - sigma_tilde_over_eps * phi_cube_minus_phi + source_term_potential;
+      potential_value - sigma_tilde_over_eps * phi_cube_minus_phi +
+      source_term_potential;
     // #if defined(WITH_SOURCE_TERMS)
     //   to_multiply_by_phi_mu_i +=source_term_potential;
     // #endif
@@ -1183,7 +1186,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
         /**
          * Pseudo-Solid
          */
-        const auto &mf =this->param.cahn_hilliard;
+        const auto &mf = this->param.cahn_hilliard;
         local_rhs_ps_i +=
           // Linear elasticity
           lame_lambda * present_trace_strain * (*div_phi_x)[i] +
@@ -1202,16 +1205,16 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
           const Tensor<1, dim> gphi_f = scratch_data.tracer_gradients_fixed[q];
 
           if (alpha != 0.0)
-             f_mesh += alpha * (phi_f * gphi_f);
+            f_mesh += alpha * (phi_f * gphi_f);
 
           if (beta != 0.0)
           {
-            f_mesh += beta * ((u_conv *tracer_gradient)*tracer_gradient);
+            f_mesh += beta * ((u_conv * tracer_gradient) * tracer_gradient);
           }
 
           // Add to pseudo-solid RHS as a body force
           local_rhs_ps_i -= (*phi_x)[i] * f_mesh;
-        }    
+        }
         // #if defined(WITH_SOURCE_TERMS)
         // local_rhs_ps_i += (*phi_x)[i] * (*source_term_position);
         // #endif

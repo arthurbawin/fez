@@ -487,7 +487,7 @@ private:
       fe_values[tracer].get_function_values(previous_solutions[i],
                                             previous_tracer_values[i]);
       fe_values[tracer].get_function_gradients(previous_solutions[i],
-                                              previous_tracer_gradients[i]);
+                                               previous_tracer_gradients[i]);
     }
 
 
@@ -520,11 +520,12 @@ private:
                           potential_gradients[q];
       velocity_dot_tracer_gradient[q] =
         present_velocity_values[q] * tracer_gradients[q];
-      
-      Tensor<1, dim> w = (enable_pseudo_solid ? present_mesh_velocity_values[q]
-                                  : Tensor<1, dim>());
+
+      Tensor<1, dim> w =
+        (enable_pseudo_solid ? present_mesh_velocity_values[q] :
+                               Tensor<1, dim>());
       u_conv_dot_tracer_gradient[q] =
-          velocity_dot_tracer_gradient[q]- w*tracer_gradients[q];
+        velocity_dot_tracer_gradient[q] - w * tracer_gradients[q];
 
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
@@ -592,19 +593,20 @@ public:
     // ------------------------------------------------------------
     if (enable_cahn_hilliard && enable_pseudo_solid)
     {
-      (*active_fe_values_fixed)[tracer].get_function_values(current_solution,
-                                                            tracer_values_fixed);
-      (*active_fe_values_fixed)[tracer].get_function_gradients(current_solution,
-                                                              tracer_gradients_fixed);
+      (*active_fe_values_fixed)[tracer].get_function_values(
+        current_solution, tracer_values_fixed);
+      (*active_fe_values_fixed)[tracer].get_function_gradients(
+        current_solution, tracer_gradients_fixed);
 
       for (unsigned int q = 0; q < n_q_points; ++q)
         for (unsigned int k = 0; k < dofs_per_cell; ++k)
         {
-          shape_phi_fixed[q][k]      = (*active_fe_values_fixed)[tracer].value(k, q);
-          grad_shape_phi_fixed[q][k] = (*active_fe_values_fixed)[tracer].gradient(k, q);
+          shape_phi_fixed[q][k] = (*active_fe_values_fixed)[tracer].value(k, q);
+          grad_shape_phi_fixed[q][k] =
+            (*active_fe_values_fixed)[tracer].gradient(k, q);
         }
     }
-    
+
 
     /**
      * Face contributions
@@ -834,17 +836,18 @@ public:
   std::vector<double> dynamic_viscosity;
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
 
-  
-  // Tracer evaluated on fixed mapping (for mesh forcing / reference-based forcing)
+
+  // Tracer evaluated on fixed mapping (for mesh forcing / reference-based
+  // forcing)
   std::vector<double>         tracer_values_fixed;
   std::vector<Tensor<1, dim>> tracer_gradients_fixed;
 
 
-  std::vector<double>     tracer_values;
-  std::vector<Tensor<1, dim>>      tracer_gradients;
-  std::vector<double>              potential_values;
-  std::vector<Tensor<1, dim>>      potential_gradients;
-  std::vector<std::vector<double>> previous_tracer_values;
+  std::vector<double>                      tracer_values;
+  std::vector<Tensor<1, dim>>              tracer_gradients;
+  std::vector<double>                      potential_values;
+  std::vector<Tensor<1, dim>>              potential_gradients;
+  std::vector<std::vector<double>>         previous_tracer_values;
   std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients;
 
 
@@ -855,7 +858,8 @@ public:
   std::vector<std::vector<double>>         shape_phi;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
 
-  // --- tracer shapes evaluated on FIXED mapping (needed for pseudo-solid mesh forcing Jacobian)
+  // --- tracer shapes evaluated on FIXED mapping (needed for pseudo-solid mesh
+  // forcing Jacobian)
   std::vector<std::vector<double>>         shape_phi_fixed;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi_fixed;
 

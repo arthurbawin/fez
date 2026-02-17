@@ -423,12 +423,11 @@ public:
   std::shared_ptr<Functions::ParsedFunction<dim>> z;
 
 public:
-  ComponentwiseMeshPosition(
-    const unsigned int x_lower,
-    const unsigned int n_components,
-    std::shared_ptr<Functions::ParsedFunction<dim>> x,
-    std::shared_ptr<Functions::ParsedFunction<dim>> y,
-    std::shared_ptr<Functions::ParsedFunction<dim>> z)
+  ComponentwiseMeshPosition(const unsigned int x_lower,
+                            const unsigned int n_components,
+                            std::shared_ptr<Functions::ParsedFunction<dim>> x,
+                            std::shared_ptr<Functions::ParsedFunction<dim>> y,
+                            std::shared_ptr<Functions::ParsedFunction<dim>> z)
     : Function<dim>(n_components)
     , x_lower(x_lower)
     , x(x)

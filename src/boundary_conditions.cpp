@@ -150,7 +150,8 @@ namespace BoundaryConditions
         "prescribed pseudosolid boundary conditions is smaller than "
         "the specified \"number\" field.");
 
-    // Parse the functions (safe to parse always; or keep it only for input_function)
+    // Parse the functions (safe to parse always; or keep it only for
+    // input_function)
     prm.enter_subsection("x");
     x->parse_parameters(prm);
     prm.leave_subsection();
@@ -402,7 +403,8 @@ namespace BoundaryConditions
             mapping,
             dof_handler,
             bc.id,
-            ComponentwiseMeshPosition<dim>(x_lower, n_components, bc.x, bc.y, bc.z),
+            ComponentwiseMeshPosition<dim>(
+              x_lower, n_components, bc.x, bc.y, bc.z),
             constraints,
             position_mask);
         }

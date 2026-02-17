@@ -37,8 +37,8 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      CHNSSolver<2,true> problem(param);
-      if(param.mms_param.enable)
+      CHNSSolver<2, true> problem(param);
+      if (param.mms_param.enable)
         problem.run_convergence_loop<2>();
       else
         problem.run();
@@ -52,8 +52,8 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      CHNSSolver<3,true> problem(param);
-      if(param.mms_param.enable)
+      CHNSSolver<3, true> problem(param);
+      if (param.mms_param.enable)
         problem.run_convergence_loop<3>();
       else
         problem.run();

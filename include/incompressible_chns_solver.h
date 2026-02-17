@@ -82,7 +82,7 @@ public:
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchData                                          &scratchData,
     CopyData                                             &copy_data);
-    
+
   /**
    * Assemble the element-wise matrix computed with assemble_local_matrix
    * into the global matrix. Passed to WorkStream::run (see above).

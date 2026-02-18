@@ -18,7 +18,8 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,
-                                     param.mms_param)
+                                     param.mms_param,
+                                     SolverType::main_physics)
   , param(param)
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)
@@ -374,47 +375,46 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
     constraints);
 
   if (param.bc_data.fix_pressure_constant)
+  {
+    // The pressure DOF is set to 0 by default for the nonzero constraints too,
+    // unless there is a prescribed manufactured solution, in which case it is
+    // prescribed to p_mms.
+    bool set_to_zero = true;
+    if (!homogeneous && param.mms_param.enable)
+      set_to_zero = false;
+
+    // --- ALE fix: refresh the physical support point for the pinned pressure
+    // dof In ALE, the mapping changes (evaluation_point updated), but
+    // constrained_pressure_support_point is cached across calls. For MMS
+    // (set_to_zero=false), we must reevaluate p_exact at the CURRENT support
+    // point.
+    if constexpr (with_moving_mesh)
     {
-      // The pressure DOF is set to 0 by default for the nonzero constraints too,
-      // unless there is a prescribed manufactured solution, in which case it is
-      // prescribed to p_mms.
-      bool set_to_zero = true;
-      if (!homogeneous && param.mms_param.enable)
-        set_to_zero = false;
-
-      // --- ALE fix: refresh the physical support point for the pinned pressure dof
-      // In ALE, the mapping changes (evaluation_point updated), but
-      // constrained_pressure_support_point is cached across calls. For MMS
-      // (set_to_zero=false), we must reevaluate p_exact at the CURRENT support point.
-      if constexpr (with_moving_mesh)
+      if (!set_to_zero &&
+          constrained_pressure_dof != numbers::invalid_dof_index &&
+          locally_relevant_dofs.is_element(constrained_pressure_dof))
       {
-        if (!set_to_zero &&
-            constrained_pressure_dof != numbers::invalid_dof_index &&
-            locally_relevant_dofs.is_element(constrained_pressure_dof))
-        {
-          const auto support_points =
-            DoFTools::map_dofs_to_support_points(*moving_mapping, dof_handler);
+        const auto support_points =
+          DoFTools::map_dofs_to_support_points(*moving_mapping, dof_handler);
 
-          const auto it = support_points.find(constrained_pressure_dof);
-          AssertThrow(it != support_points.end(),
-                      ExcMessage("Pinned pressure DoF not found in support points map."));
-          constrained_pressure_support_point = it->second;
-        }
+        const auto it = support_points.find(constrained_pressure_dof);
+        AssertThrow(it != support_points.end(),
+                    ExcMessage(
+                      "Pinned pressure DoF not found in support points map."));
+        constrained_pressure_support_point = it->second;
       }
-      // --- end ALE fix
-      Point<dim> SupportP;
-      SupportP[0]=1.;
-      BoundaryConditions::constrain_pressure_point(
-        dof_handler,
-        locally_relevant_dofs,
-        *moving_mapping,
-        *exact_solution,
-        ordering->p_lower,
-        set_to_zero,
-        constraints,
-        constrained_pressure_dof,
-        constrained_pressure_support_point,
-        SupportP);
+    }
+    // --- end ALE fix
+    BoundaryConditions::constrain_pressure_point(
+      dof_handler,
+      locally_relevant_dofs,
+      *moving_mapping,
+      *exact_solution,
+      ordering->p_lower,
+      set_to_zero,
+      constraints,
+      constrained_pressure_dof,
+      constrained_pressure_support_point);
   }
 
   if (param.bc_data.enforce_zero_mean_pressure)
@@ -585,13 +585,15 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system(
   const bool /*apply_inhomogeneous_constraints*/)
 {
-  if (param.linear_solver.method ==
+  const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
+
+  if (linear_solver_param.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    if (param.linear_solver.reuse)
+    if (linear_solver_param.reuse)
     {
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints,
@@ -599,16 +601,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system(
     }
     else
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints);
   }
-  else if (param.linear_solver.method ==
+  else if (linear_solver_param.method ==
            Parameters::LinearSolver::Method::gmres)
   {
     solve_linear_system_iterative(this,
-                                  param.linear_solver,
+                                  linear_solver_param,
                                   system_matrix,
                                   locally_owned_dofs,
                                   zero_constraints);

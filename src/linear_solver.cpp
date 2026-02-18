@@ -149,3 +149,47 @@ void solve_linear_system_iterative(
   newton_update = completely_distributed_solution;
   zero_constraints.distribute(newton_update);
 }
+
+void solve_linear_system_unpreconditioned_cg(
+  GenericSolver<LA::ParVectorType> *solver,
+  const Parameters::LinearSolver   &linear_solver_param,
+  LA::ParMatrixType                &system_matrix,
+  const IndexSet                   &locally_owned_dofs,
+  const AffineConstraints<double>  &zero_constraints)
+{
+  TimerOutput::Scope t(solver->computing_timer, "Solve CG");
+
+  const bool verbose =
+    linear_solver_param.verbosity == Parameters::Verbosity::verbose;
+
+  // if (verbose)
+
+  LA::ParVectorType &newton_update = solver->get_newton_update();
+  LA::ParVectorType &system_rhs    = solver->get_system_rhs();
+
+  LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
+                                                    solver->mpi_communicator);
+
+
+  SolverControl solver_control(linear_solver_param.max_iterations,
+                               linear_solver_param.tolerance);
+  LA::SolverCG  cg_solver(solver_control);
+
+#if defined(FEZ_WITH_PETSC)
+  PETScWrappers::PreconditionNone dummy_preconditioner(system_matrix);
+#else
+  // TODO: Implement for Trilinos
+  DEAL_II_NOT_IMPLEMENTED();
+#endif
+
+  cg_solver.solve(system_matrix,
+                  completely_distributed_solution,
+                  system_rhs,
+                  dummy_preconditioner);
+
+  solver->pcout << solver_control.last_step()
+                << " CG iterations needed to obtain convergence." << std::endl;
+
+  newton_update = completely_distributed_solution;
+  zero_constraints.distribute(newton_update);
+}

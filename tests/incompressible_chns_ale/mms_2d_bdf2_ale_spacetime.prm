@@ -1,0 +1,208 @@
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write results    = false
+  set output directory = ../data/mms/
+  set output prefix    = ConvSpaceALE
+end
+
+subsection Mesh
+  set dealii preset mesh     = rectangle
+  set dealii mesh parameters = 4, 8 : 0., 0. : 1., 2. : true
+  set refinement level       = 1
+end
+
+subsection Time integration
+  set verbosity        = quiet
+  set dt               = 0.1
+  set t_initial        = 0
+  set t_end            = 0.5
+  set scheme           = BDF2
+  set bdf start method = BDF1
+end
+
+subsection Nonlinear solver
+  set verbosity            = quiet
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 25
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set Velocity degree   = 2
+  set Pressure degree   = 1
+  set Mesh position degree = 1
+  set Tracer degree     = 1
+  set Potential degree  = 1
+end
+
+subsection Physical properties
+  set number of fluids = 2
+  subsection Fluid 0
+    set density             = 1.1
+    set kinematic viscosity = 2
+  end
+  subsection Fluid 1
+    set density             = 1
+    set kinematic viscosity = 1
+  end
+  set number of pseudosolids = 1
+  subsection Pseudosolid 0
+    subsection lame lambda
+      set Function expression = 1
+    end
+    subsection lame mu
+      set Function expression = 1
+    end
+  end
+end
+
+subsection Cahn Hilliard
+  set mobility model      = constant
+  set mobility            = 1
+  set surface tension     = 1
+  set interface thickness = 1
+  set body force          = 0, -9.81
+end
+
+subsection Initial conditions
+  set to mms = true
+end
+
+
+
+subsection Fluid boundary conditions
+  set number = 4
+  set fix pressure constant      = true
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = velocity_mms
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = velocity_mms
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = velocity_mms
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type = velocity_mms
+  end
+end
+
+subsection Pseudosolid boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = position_mms
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = position_mms
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = position_mms
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type = position_mms
+  end
+end
+
+subsection CahnHilliard boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = dirichlet_mms
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type = dirichlet_mms
+  end
+end
+
+subsection Exact solution
+  subsection exact velocity
+    set Function expression = t^4*(sin(pi*x)*cos(pi*y)); t^4*(sin(pi*y)*cos(pi*x))
+  end
+  subsection exact pressure
+    set Function expression = sin(pi*x)*cos(pi*y)
+  end
+  subsection exact mesh displacement 
+    set Function constants = xb=1, yb=2, A=0.08
+    set Function expression =(xb/2) + (x - xb/2) * (1 + A*t^4*sin(2*pi*y/yb));((yb/2) + (y - yb/2) * (1 + A*t^4*sin(2*pi*x/xb))) 
+  end
+  subsection exact cahn hilliard tracer
+    set Function expression = t^4*(sin(pi*y)*cos(pi*x))
+  end
+  subsection exact cahn hilliard potential
+    set Function expression = sin(pi*y)*cos(pi*x)
+  end
+end
+
+subsection Manufactured solution
+  set enable                 = true
+  set type                   = spacetime
+  set convergence steps      = 2
+  set subtract mean pressure = false
+
+  subsection Space convergence
+    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+  end
+
+  subsection Time convergence
+    set norm                 = Linfty
+    set use spatial mesh     = true
+    set spatial mesh index   = 1
+    set time step reduction  = 0.5
+  end
+end
+
+subsection Debug
+  set verbosity                              = verbose
+  set apply exact solution                   = false
+  set compare jacobian matrix with fd        = false
+  set analytical_jacobian_absolute_tolerance = 1e-5
+  set analytical_jacobian_relative_tolerance = 1e-5
+end

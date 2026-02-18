@@ -118,6 +118,9 @@ protected:
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler;
 
+  // Global DoF -> component index (needed for Vautrin dt control)
+  std::vector<unsigned char> dofs_to_component;
+
   FEValuesExtractors::Scalar temperature_extractor;
   ComponentMask              temperature_mask;
 
@@ -126,6 +129,9 @@ protected:
 
   AffineConstraints<double> zero_constraints;
   AffineConstraints<double> nonzero_constraints;
+
+  // History used for adaptive dt control (Vautrin). Stores [u_n, u_{n-1}, ...].
+  std::vector<LA::ParVectorType> previous_solutions_dt_control;
 
   LA::ParMatrixType              system_matrix;
   std::vector<LA::ParVectorType> previous_solutions;

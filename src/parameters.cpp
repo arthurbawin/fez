@@ -684,8 +684,15 @@ namespace Parameters
   {
     prm.enter_subsection("Time integration");
     {
-      prm.declare_entry("dt_max","1",Patterns::Double(), "Time step max");
-      prm.declare_entry("dt_min","0.0001",Patterns::Double(), "Time step min");
+      prm.declare_entry("dt_min_factor",
+                  "0.1",
+                  Patterns::Double(0.0),
+                  "Minimum time step as a factor of dt (dt_min = dt * factor).");
+
+      prm.declare_entry("dt_max_factor",
+                  "10.0",
+                  Patterns::Double(0.0),
+                  "Maximum time step as a factor of dt (dt_max = dt * factor).");
       prm.declare_entry("adaptative_dt","false",Patterns::Bool(),
                         "Enable adaptative time step");
 
@@ -750,8 +757,8 @@ prm.declare_entry("dt ratio margin",
   {
     prm.enter_subsection("Time integration");
     {
-      dt_max  = prm.get_double("dt_max");
-      dt_min  = prm.get_double("dt_min");
+      dt_max_factor  = prm.get_double("dt_max_factor");
+      dt_min_factor  = prm.get_double("dt_min_factor");
       adaptative_dt = prm.get_bool("adaptative_dt");
 
 const std::string parsed_dt_mode = prm.get("dt control mode");

@@ -218,4 +218,23 @@ public:
     with_moving_mesh ? 2 * dim + 3 : dim + 3;
 };
 
+
+/**
+ * Components ordering for the unsteady heat solver (scalar temperature).
+ */
+template <int dim>
+class ComponentOrderingHeat : public ComponentOrdering
+{
+public:
+  ComponentOrderingHeat()
+    : ComponentOrdering()
+  {
+    (void)dim;
+    n_components = 1;
+    t_lower      = 0;
+    t_upper      = 1;
+  }
+};
+
+
 #endif

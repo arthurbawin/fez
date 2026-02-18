@@ -37,6 +37,8 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   temperature_extractor = FEValuesExtractors::Scalar(0);
   temperature_mask      = fe.component_mask(temperature_extractor);
 
+  ordering = std::make_shared<ComponentOrderingHeat<dim>>();
+
   this->param.initial_conditions.create_initial_temperature(0, 1);
 
   if (param.mms_param.enable)
@@ -145,12 +147,42 @@ void HeatSolver<dim>::run()
 
     postprocess_solution();
 
+    // Adaptive dt (Vautrin): update dt before rotating histories
+    if (!time_handler.is_steady() && param.time_integration.adaptative_dt &&
+        param.time_integration.dt_control_mode ==
+          Parameters::TimeIntegration::DtControlMode::vautrin)
+    {
+      std::vector<std::pair<unsigned int, double>> component_eps;
+      component_eps.emplace_back(ordering->t_lower, param.time_integration.eps_u);
+
+      time_handler.update_dt_after_converged_step_vautrin(
+        present_solution,
+        previous_solutions_dt_control,
+        dofs_to_component,
+        component_eps,
+        param.time_integration.u_seuil,
+        param.time_integration.safety,
+        param.time_integration.dt_min_factor,
+        param.time_integration.dt_max_factor,
+        mpi_communicator,
+        param.time_integration.t_end,
+        /*clamp_to_t_end=*/true);
+    }
+
     if (!time_handler.is_steady())
     {
-      // Rotate solutions
+      // Rotate solutions (BDF history)
       for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
         previous_solutions[j] = previous_solutions[j - 1];
       previous_solutions[0] = present_solution;
+
+      // Rotate dt-control history
+      if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
+      {
+        for (unsigned int j = previous_solutions_dt_control.size() - 1; j >= 1; --j)
+          previous_solutions_dt_control[j] = previous_solutions_dt_control[j - 1];
+        previous_solutions_dt_control[0] = present_solution;
+      }
     }
   }
 }
@@ -171,6 +203,9 @@ void HeatSolver<dim>::setup_dofs()
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
 
+  // Scalar problem: all DoFs belong to temperature component 0
+  dofs_to_component.assign(dof_handler.n_dofs(), static_cast<unsigned char>(0));
+
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
@@ -186,6 +221,13 @@ void HeatSolver<dim>::setup_dofs()
   {
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   }
+
+  // History buffer dedicated to adaptive dt control (can be larger than BDF history)
+  const unsigned int n_history_dt_control = 3; // enough for BDF2 Vautrin (needs order+1)
+  previous_solutions_dt_control.clear();
+  previous_solutions_dt_control.resize(n_history_dt_control);
+  for (auto &previous_sol : previous_solutions_dt_control)
+    previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
   // For unsteady simulation, add the number of elements, dofs and/or the time
   // step to the error handler, once per convergence run.

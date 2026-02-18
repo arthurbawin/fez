@@ -251,8 +251,8 @@ namespace Parameters
 
   struct TimeIntegration
   {
-    double dt_max;
-    double dt_min;
+    double dt_max_factor;
+    double dt_min_factor;
     bool adaptative_dt;
 // ------------------------------------------------------------
 // Time-step control modes used for MMS / verification of variable-step BDF2

@@ -255,18 +255,6 @@ public:
                                       const double                      epsilon_q,
                                       const double                      u_seuil,
                                       const MPI_Comm                    comm);
-
-
-  static double propose_next_dt_vautrin(
-    const double       dt,
-    const double       R,
-    const unsigned int order,
-    const double       safety,
-    const double       ratio_min,
-    const double       ratio_max,
-    const double       dt_min,
-    const double       dt_max);
-
 protected:
   std::shared_ptr<ComponentOrdering> ordering;
 

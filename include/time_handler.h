@@ -4,6 +4,7 @@
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/types.h>
 #include <parameters.h>
+#include <types.h>
 #include <deque>
 
 
@@ -114,17 +115,75 @@ public:
   void serialize(Archive &ar, const unsigned int version);
 
   /** Compute the Vautrin time–integration error estimator based on the current
-    * solution and a set of previous time-step solutions. This estimator can be
-    * used for adaptive time-step control.
-    */
-  template <typename VectorType>
-  void compute_vautrin_error_estimate(VectorType              &e_star,
-                                    const VectorType        &u_np1,
-                                    const std::vector<VectorType> &previous_solutions,
-                                    const unsigned int       order) const;
+  * solution and a set of previous time-step solutions. This estimator can be
+  * used for adaptive time-step control.
+  *
+  * This overload is the common (non-template) implementation used by all
+  * solvers in the code base (Navier-Stokes, Heat, etc.), which rely on the
+  * same parallel vector type.
+  */
+void compute_vautrin_error_estimate(LA::ParVectorType                    &e_star,
+                                    const LA::ParVectorType              &u_np1,
+                                    const std::vector<LA::ParVectorType> &previous_solutions,
+                                    const unsigned int                    order) const;
 
+/** Compute the scaled Vautrin ratio for a given component q:
+  *   R_q = epsilon_q / err_q
+  * where err_q is computed as:
+  *   - absolute RMS error if ||u||_RMS < u_seuil,
+  *   - relative RMS error otherwise.
+  *
+  * The component is determined with dofs_to_component (global DoF -> component).
+  */
+double compute_scaled_vautrin_ratio(
+  const LA::ParVectorType              &e_star,
+  const LA::ParVectorType              &u_star,
+  const std::vector<unsigned char>     &dofs_to_component,
+  const unsigned int                    component_q,
+  const double                          epsilon_q,
+  const double                          u_seuil,
+  const MPI_Comm                        comm) const;
 
-  /** Override the time integration parameters (e.g. for restarting a simulation
+/** Compute dt_{n+1} from dt_n and the global ratio R = min_q R_q. */
+static double propose_next_dt_vautrin(const double       dt,
+                                     const double       R,
+                                     const unsigned int order,
+                                     const double       safety,
+                                     const double       ratio_min,
+                                     const double       ratio_max,
+                                     const double       dt_min,
+  const double       dt_max);
+
+/** High-level adaptive time-step update (Vautrin-based). This is intended to
+  * be called by any solver after a *converged* time step, *before* rotating
+  * the solution history vectors.
+  *
+  * Inputs:
+  *  - u_np1: converged solution at t_{n+1}
+  *  - previous_solutions_dt_control: history vectors [u_n, u_{n-1}, ...]
+  *    (size must be >= order+1)
+  *  - dofs_to_component: global DoF -> component index
+  *  - component_eps: list of (component, epsilon) pairs used for dt control
+  */
+bool update_dt_after_converged_step_vautrin(
+  const LA::ParVectorType                               &u_np1,
+  const std::vector<LA::ParVectorType>                  &previous_solutions_dt_control,
+  const std::vector<unsigned char>                      &dofs_to_component,
+  const std::vector<std::pair<unsigned int, double>>    &component_eps,
+  const double                                           u_seuil,
+  const double                                           safety,
+  const double                          dt_min_factor,
+  const double                          dt_max_factor,
+  const MPI_Comm                                         comm,
+  const double                                           t_end,
+  const bool                                             clamp_to_t_end = true,
+  // optional outputs (for logging/debug)
+  double                                                *out_R = nullptr,
+  unsigned int                                          *out_order = nullptr,
+  double                                                *out_dt_used = nullptr,
+  double                                                *out_dt_next = nullptr,
+  LA::ParVectorType                                     *out_e_star = nullptr) ;
+/** Override the time integration parameters (e.g. for restarting a simulation
    * with different time step). This will update the time integration scheme and
    * recompute the BDF coefficients if needed.
    */
@@ -142,6 +201,7 @@ public:
 
 
 
+
 public:
   Parameters::TimeIntegration time_parameters;
 
@@ -155,10 +215,16 @@ public:
   double              current_dt;
   std::vector<double> time_steps;
 
+  double              dt_ref_bounds;
+
   Parameters::TimeIntegration::Scheme scheme;
 
   unsigned int        n_previous_solutions;
   std::vector<double> bdf_coefficients;
+
+    
+  double get_effective_dt_min() const;
+  double get_effective_dt_max() const;
 };
 
 /* ---------------- Template functions ----------------- */
@@ -228,140 +294,12 @@ void TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
   ar & current_dt;
   ar & time_steps;
   ar & bdf_coefficients;
+
+  ar & initial_dt;
+  ar & dt_ref_bounds;
 }
 
-template <typename VectorType>
-void TimeHandler::compute_vautrin_error_estimate(
-  VectorType                    &e_star,
-  const VectorType              &u_np1,
-  const std::vector<VectorType> &previous_solutions,
-  const unsigned int             order) const
-{
-  AssertThrow(!this->is_steady(),
-              ExcMessage("No time error estimate in steady."));
-  AssertThrow(order == 1 || order == 2,
-              ExcMessage("Only order 1 or 2 supported."));
-  AssertThrow(previous_solutions.size() >= order + 1,
-              ExcMessage("Not enough history in previous_solutions. Need order+1 vectors."));
-  AssertThrow(bdf_coefficients.size() >= order + 1,
-              ExcMessage("bdf_coefficients size inconsistent with requested order."));
-  AssertThrow(time_steps.size() >= 1,
-              ExcMessage("Need at least one stored time step (h0)."));
 
-  // time_steps[0]=h_{n+1}, time_steps[1]=h_n, time_steps[2]=h_{n-1}
-  const double h0 = time_steps[0];
-  const double h1 = (time_steps.size() > 1 ? time_steps[1] : h0);
-  const double h2 = (time_steps.size() > 2 ? time_steps[2] : h1);
-
-  const unsigned int p = order;   // BDF order (1 or 2)
-  const unsigned int k = p + 1;   // p+1 (2 or 3)
-
-  // factorial(k): only 2 or 6 here
-  const double factorial = (k == 2 ? 2.0 : 6.0);
-  // (-1)^k
-  const double sign = (k % 2 == 0 ? +1.0 : -1.0);
-
-  // H0=0, H1=h0, H2=h0+h1
-  // Convention: bdf_coefficients[0] multiplies u_{n+1}, [1] -> u_n, [2] -> u_{n-1}
-  // i=0 term is alpha0 * 0^k = 0 for k>=2, so skip.
-  double sum = 0.0;
-  sum += bdf_coefficients[1] * std::pow(h0, static_cast<int>(k));
-  if (p == 2)
-    sum += bdf_coefficients[2] * std::pow(h0 + h1, static_cast<int>(k));
-
-  const double C_p1 = sign * (sum / factorial);
-
-  // Compute u^{(p+1)} via divided differences on non-uniform grid
-  VectorType u_p1;
-  u_p1.reinit(u_np1);
-  u_p1 = 0.0;
-
-  if (p == 1)
-  {
-    // dd1_0 = (u_{n+1}-u_n)/h0
-    VectorType dd10;
-    dd10.reinit(u_np1);
-    dd10 = u_np1;
-    dd10.add(-1.0, previous_solutions[0]);
-    dd10 *= (1.0 / h0);
-
-    // dd1_1 = (u_n-u_{n-1})/h1
-    VectorType dd11;
-    dd11.reinit(u_np1);
-    dd11 = previous_solutions[0];
-    dd11.add(-1.0, previous_solutions[1]);
-    dd11 *= (1.0 / h1);
-
-    // dd2 = (dd1_0 - dd1_1)/(h0+h1)
-    VectorType dd2;
-    dd2.reinit(u_np1);
-    dd2 = dd10;
-    dd2.add(-1.0, dd11);
-    dd2 *= (1.0 / (h0 + h1));
-
-    // u'' ≈ 2! * dd2
-    u_p1 = dd2;
-    u_p1 *= 2.0;
-  }
-  else // p==2
-  {
-    AssertThrow(previous_solutions.size() >= 3,
-                ExcMessage("Need u^{n-2} in previous_solutions[2] for BDF2 error estimate."));
-    AssertThrow(time_steps.size() >= 3,
-                ExcMessage("Need 3 stored time steps (h0,h1,h2) for BDF2 error estimate."));
-
-    // dd1_0 = (u_{n+1}-u_n)/h0
-    VectorType dd10;
-    dd10.reinit(u_np1);
-    dd10 = u_np1;
-    dd10.add(-1.0, previous_solutions[0]);
-    dd10 *= (1.0 / h0);
-
-    // dd1_1 = (u_n-u_{n-1})/h1
-    VectorType dd11;
-    dd11.reinit(u_np1);
-    dd11 = previous_solutions[0];
-    dd11.add(-1.0, previous_solutions[1]);
-    dd11 *= (1.0 / h1);
-
-    // dd1_2 = (u_{n-1}-u_{n-2})/h2
-    VectorType dd12;
-    dd12.reinit(u_np1);
-    dd12 = previous_solutions[1];
-    dd12.add(-1.0, previous_solutions[2]);
-    dd12 *= (1.0 / h2);
-
-    // dd2_0 = (dd1_0 - dd1_1)/(h0+h1)
-    VectorType dd20;
-    dd20.reinit(u_np1);
-    dd20 = dd10;
-    dd20.add(-1.0, dd11);
-    dd20 *= (1.0 / (h0 + h1));
-
-    // dd2_1 = (dd1_1 - dd1_2)/(h1+h2)
-    VectorType dd21;
-    dd21.reinit(u_np1);
-    dd21 = dd11;
-    dd21.add(-1.0, dd12);
-    dd21 *= (1.0 / (h1 + h2));
-
-    // dd3 = (dd2_0 - dd2_1)/(h0+h1+h2)
-    VectorType dd3;
-    dd3.reinit(u_np1);
-    dd3 = dd20;
-    dd3.add(-1.0, dd21);
-    dd3 *= (1.0 / (h0 + h1 + h2));
-
-    // u''' ≈ 3! * dd3
-    u_p1 = dd3;
-    u_p1 *= 6.0;
-  }
-
-  // e_star = C_{p+1} * h_{n+1} * u^{(p+1)}
-  e_star.reinit(u_np1);
-  e_star = u_p1;
-  e_star *= (C_p1 * h0);
-}
 
 
 

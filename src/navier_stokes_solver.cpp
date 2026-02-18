@@ -383,28 +383,21 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
     if (!homogeneous && param.mms_param.enable)
       set_to_zero = false;
 
-    // --- ALE fix: refresh the physical support point for the pinned pressure
-    // dof In ALE, the mapping changes (evaluation_point updated), but
-    // constrained_pressure_support_point is cached across calls. For MMS
-    // (set_to_zero=false), we must reevaluate p_exact at the CURRENT support
-    // point.
     if constexpr (with_moving_mesh)
     {
+      // Update the location of the support point of constrained pressure dof
+      // FIXME: this calls map_dofs_to_support_points, but is only done for MMS
       if (!set_to_zero &&
           constrained_pressure_dof != numbers::invalid_dof_index &&
           locally_relevant_dofs.is_element(constrained_pressure_dof))
       {
         const auto support_points =
           DoFTools::map_dofs_to_support_points(*moving_mapping, dof_handler);
-
-        const auto it = support_points.find(constrained_pressure_dof);
-        AssertThrow(it != support_points.end(),
-                    ExcMessage(
-                      "Pinned pressure DoF not found in support points map."));
-        constrained_pressure_support_point = it->second;
+        constrained_pressure_support_point =
+          support_points.at(constrained_pressure_dof);
       }
     }
-    // --- end ALE fix
+
     BoundaryConditions::constrain_pressure_point(
       dof_handler,
       locally_relevant_dofs,

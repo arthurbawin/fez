@@ -9,8 +9,6 @@ end
 
 subsection Output
   set write results    = false
-  set output directory = ../data/mms/
-  set output prefix    =TimeAle1
 end
 
 subsection Mesh
@@ -164,27 +162,27 @@ end
 
 subsection Exact solution
   subsection exact velocity
-    set Function expression = t^4*(x^2-2*x +3*y^2+y-x*y+1);t^4*(3*x^2+(y^2)/2+2*y-1-2*x*y)
+    set Function expression = t^4*(sin(pi*x)*cos(pi*y)); t^4*(sin(pi*y)*cos(pi*x))
   end
   subsection exact pressure
-    set Function expression =t^4*10*(x+y-1)
+    set Function expression = sin(t) * sin(pi*x)*cos(pi*y)
   end
-  subsection exact mesh displacement
+  subsection exact mesh displacement 
     set Function constants = xb=1, yb=2, A=0.08
-    set Function expression =(xb/2) + (x - xb/2) * (1 + A*(t+1)^4);(yb/2) + (y - yb/2) * (1 + A*(t+1)^4)
+    set Function expression = x + (x - xb/2) * A * t^4 * sin(2*pi*y/yb); y + (y - yb/2) * A * t^4 * sin(2*pi*x/xb) 
   end
   subsection exact cahn hilliard tracer
-    set Function expression = t^4*(x+y-1)
+    set Function expression = t^4*(sin(pi*y)*cos(pi*x))
   end
   subsection exact cahn hilliard potential
-    set Function expression = (x+y-1)
+    set Function expression = cos(t) * sin(pi*y)*cos(pi*x)
   end
 end
 
 subsection Manufactured solution
   set enable                 = true
-  set type                   = time
-  set convergence steps      = 4
+  set type                   = spacetime
+  set convergence steps      = 2
   set subtract mean pressure = false
 
   subsection Space convergence

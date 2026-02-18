@@ -363,106 +363,47 @@ namespace BoundaryConditions
 } // namespace BoundaryConditions
 
 /**
- * Flow velocity prescribed by individual ParsedFunctions u,v,w.
- * The parameter @p u_lower is the first velocity component in the
- * solution vector (zero-based).
+ * Vector-valued function described by up to 3 individual ParsedFunctions.
+ * The parameter @p lower is the first vector component in the solution vector.
  *
- * Note that the time dependency (if any) is accounted for by
- * setting the time of the underlying ParsedFunctions through set_time(t),
- * and calling e.g. u->value(p), and not u->value(p,t).
+ * This Function does no override the set_time function, instead it assumes
+ * that time has been correctly updated in each underlying ParsedFunction.
  */
 template <int dim>
-class ComponentwiseFlowVelocity : public Function<dim>
+class VectorFunctionFromComponents : public Function<dim>
 {
 public:
-  const unsigned int                              u_lower;
-  std::shared_ptr<Functions::ParsedFunction<dim>> u;
-  std::shared_ptr<Functions::ParsedFunction<dim>> v;
-  std::shared_ptr<Functions::ParsedFunction<dim>> w;
+  const unsigned int                              lower;
+  std::shared_ptr<Functions::ParsedFunction<dim>> x_component;
+  std::shared_ptr<Functions::ParsedFunction<dim>> y_component;
+  std::shared_ptr<Functions::ParsedFunction<dim>> z_component;
 
 public:
-  ComponentwiseFlowVelocity(const unsigned int u_lower,
-                            const unsigned int n_components,
-                            std::shared_ptr<Functions::ParsedFunction<dim>> u,
-                            std::shared_ptr<Functions::ParsedFunction<dim>> v,
-                            std::shared_ptr<Functions::ParsedFunction<dim>> w)
+  VectorFunctionFromComponents(
+    const unsigned int                              lower,
+    const unsigned int                              n_components,
+    std::shared_ptr<Functions::ParsedFunction<dim>> x_component,
+    std::shared_ptr<Functions::ParsedFunction<dim>> y_component,
+    std::shared_ptr<Functions::ParsedFunction<dim>> z_component)
     : Function<dim>(n_components)
-    , u_lower(u_lower)
-    , u(u)
-    , v(v)
-    , w(w)
+    , lower(lower)
+    , x_component(x_component)
+    , y_component(y_component)
+    , z_component(z_component)
   {}
 
   virtual double value(const Point<dim> &p,
                        unsigned int      component) const override
   {
-    if (component == u_lower + 0)
-      return u->value(p);
-    if (component == u_lower + 1)
-      return v->value(p);
-    if (component == u_lower + 2)
-      return w->value(p);
+    if (component == lower + 0)
+      return x_component->value(p);
+    if (component == lower + 1)
+      return y_component->value(p);
+    if (component == lower + 2)
+      return z_component->value(p);
     return 0.;
   }
 };
-
-/**
- * Mesh position prescribed by individual ParsedFunctions x,y,z.
- * The parameter @p x_lower is the first mesh-position component in the
- * solution vector (zero-based).
- *
- * Time dependency is handled by calling set_time(t) on the ParsedFunctions.
- */
-template <int dim>
-class ComponentwiseMeshPosition : public Function<dim>
-{
-public:
-  const unsigned int                              x_lower;
-  std::shared_ptr<Functions::ParsedFunction<dim>> x;
-  std::shared_ptr<Functions::ParsedFunction<dim>> y;
-  std::shared_ptr<Functions::ParsedFunction<dim>> z;
-
-public:
-  ComponentwiseMeshPosition(const unsigned int x_lower,
-                            const unsigned int n_components,
-                            std::shared_ptr<Functions::ParsedFunction<dim>> x,
-                            std::shared_ptr<Functions::ParsedFunction<dim>> y,
-                            std::shared_ptr<Functions::ParsedFunction<dim>> z)
-    : Function<dim>(n_components)
-    , x_lower(x_lower)
-    , x(x)
-    , y(y)
-    , z(z)
-  {}
-
-  virtual double value(const Point<dim> &p,
-                       unsigned int      component) const override
-  {
-    if (component == x_lower + 0)
-      return x->value(p);
-
-    if (component == x_lower + 1)
-      return y->value(p);
-
-    if (dim == 3 && component == x_lower + 2)
-      return z->value(p);
-
-    return 0.0;
-  }
-
-  virtual void vector_value(const Point<dim> &p,
-                            Vector<double>   &values) const override
-  {
-    values = 0.0;
-
-    values[x_lower + 0] = x->value(p);
-    values[x_lower + 1] = y->value(p);
-
-    if (dim == 3)
-      values[x_lower + 2] = z->value(p);
-  }
-};
-
 
 /**
  * This function is meant to represent the spatial identity function,

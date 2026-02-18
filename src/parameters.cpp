@@ -667,15 +667,17 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Enable limiter for the tracer (phase field marker)");
-      // mesh forcing parameters
-      prm.declare_entry("alpha",
-                        "0.0",
-                        Patterns::Double(),
-                        "Coefficient of alpha*phi*grad(phi).");
+      // Mesh forcing parameters
+      prm.declare_entry(
+        "alpha",
+        "0.0",
+        Patterns::Double(),
+        "Coefficient of pseudosolid source term alpha * phi * grad(phi).");
       prm.declare_entry("beta",
                         "0.0",
                         Patterns::Double(),
-                        "Coefficient of beta*(u_conv*grad(phi))*grad(phi).");
+                        "Coefficient of pseudosolid source term beta * (u_ALE "
+                        "* grad(phi)) * grad(phi).");
     }
     prm.leave_subsection();
   }
@@ -694,8 +696,8 @@ namespace Parameters
       body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
-      alpha                = prm.get_double("alpha");
-      beta                 = prm.get_double("beta");
+      alpha = prm.get_double("alpha");
+      beta  = prm.get_double("beta");
     }
     prm.leave_subsection();
   }
@@ -983,7 +985,6 @@ namespace Parameters
     }
     prm.leave_subsection();
   }
-
 
   void Debug::declare_parameters(ParameterHandler &prm)
   {

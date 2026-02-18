@@ -300,7 +300,10 @@ namespace Parameters
     double surface_tension;
     double epsilon_interface;
     bool   with_tracer_limiter;
-    // mesh forcing
+
+    // Mesh forcing parameters : these parameters control the behavior of the
+    // source term in the pseudosolid equation, in the CHNS-ALE model
+    // FIXME: use more explicit names, when the formulation has been decided
     double alpha;
     double beta;
 

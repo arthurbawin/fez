@@ -1,4 +1,4 @@
-Number of MPI processes: 6
+Number of MPI processes: 1
 Convergence test with manufactured solution:
 Mesh file was changed to 0.msh
 Mesh info:
@@ -36,4 +36,3 @@ H1_seminorm
 n_elm n_dof   dt          u               p               x              phi             mu        
    64   531 0.1000 2.9455e-01    - 4.0174e+00    - 1.4792e-01    - 1.2231e+00    - 1.3785e+00    - 
   256  1887 0.1000 7.6986e-02 1.94 1.2941e+00 1.63 7.6762e-02 0.95 6.3731e-01 0.94 6.6727e-01 1.05
-

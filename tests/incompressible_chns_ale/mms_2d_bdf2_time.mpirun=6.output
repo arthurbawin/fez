@@ -1,24 +1,6 @@
-Number of MPI processes: 1
+Number of MPI processes: 6
 Convergence test with manufactured solution:
 Mesh file was changed to 1.msh
-Mesh info:
- dimension: 2
- no. of cells: 256
- boundary indicators: 0(16 faces) 1(16 faces) 2(8 faces) 3(8 faces) 
-ID 0 -> x_min
-ID 1 -> x_max
-ID 2 -> y_min
-ID 3 -> y_max
-Number of degrees of freedom: 1887
-Mesh info:
- dimension: 2
- no. of cells: 256
- boundary indicators: 0(16 faces) 1(16 faces) 2(8 faces) 3(8 faces) 
-ID 0 -> x_min
-ID 1 -> x_max
-ID 2 -> y_min
-ID 3 -> y_max
-Number of degrees of freedom: 1887
 Mesh info:
  dimension: 2
  no. of cells: 256
@@ -42,20 +24,13 @@ L2_norm
 n_elm n_dof   dt          u                p                x               phi               mu        
   256  1887 0.1000 1.0144e-03     - 1.4646e-01     - 3.6169e-03     - 1.5531e-04     - 2.1480e-03     - 
   256  1887 0.0500 2.8421e-04 -1.84 4.0533e-02 -1.85 3.6169e-03 -0.00 4.2506e-05 -1.87 5.9132e-04 -1.86 
-  256  1887 0.0250 7.5172e-05 -1.92 1.0656e-02 -1.93 3.6169e-03 -0.00 1.1094e-05 -1.94 1.5485e-04 -1.93 
-  256  1887 0.0125 1.9328e-05 -1.96 2.7320e-03 -1.96 3.6169e-03 -0.00 2.8323e-06 -1.97 3.9606e-05 -1.97 
 
 Linfty_norm
 n_elm n_dof   dt          u                p                x               phi               mu        
   256  1887 0.1000 1.4727e-03     - 4.9507e-01     - 9.1337e-03     - 2.4046e-04     - 3.2874e-03     - 
   256  1887 0.0500 4.1612e-04 -1.82 1.3994e-01 -1.82 9.1337e-03 -0.00 6.6015e-05 -1.86 9.0619e-04 -1.86 
-  256  1887 0.0250 1.1056e-04 -1.91 3.7216e-02 -1.91 9.1337e-03 -0.00 1.7259e-05 -1.94 2.3748e-04 -1.93 
-  256  1887 0.0125 2.8493e-05 -1.96 9.5978e-03 -1.96 9.1337e-03 -0.00 4.4104e-06 -1.97 6.0762e-05 -1.97 
 
 H1_seminorm
 n_elm n_dof   dt          u                p                x               phi               mu        
   256  1887 0.1000 6.8886e-03     - 4.7887e-01     - 1.1501e-01     - 5.7123e-04     - 8.9123e-03     - 
   256  1887 0.0500 1.9384e-03 -1.83 1.3635e-01 -1.81 1.1501e-01 -0.00 1.5667e-04 -1.87 2.4685e-03 -1.85 
-  256  1887 0.0250 5.1400e-04 -1.92 3.6405e-02 -1.91 1.1501e-01 -0.00 4.0942e-05 -1.94 6.4871e-04 -1.93 
-  256  1887 0.0125 1.3234e-04 -1.96 9.4081e-03 -1.95 1.1501e-01  0.00 1.0460e-05 -1.97 1.6623e-04 -1.96 
-

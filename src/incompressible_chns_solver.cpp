@@ -1052,8 +1052,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
     const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
     const auto &potential_value    = scratch_data.potential_values[q];
     const auto &potential_gradient = scratch_data.potential_gradients[q];
-    const auto &u_conv_dot_tracer_gradient =
-      scratch_data.u_conv_dot_tracer_gradient[q];
+    const auto &velocity_dot_tracer_gradient =
+      scratch_data.velocity_dot_tracer_gradient[q];
     const double phi_cube_minus_phi =
       tracer_value * (tracer_value * tracer_value - 1.);
 
@@ -1074,7 +1074,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
 
     // Terms of the tracer equation multiplied by phi_phi_i
     const auto to_multiply_by_phi_phi_i =
-      dphidt + u_conv_dot_tracer_gradient + source_term_tracer;
+      dphidt + velocity_dot_tracer_gradient + source_term_tracer;
     // #if defined(WITH_SOURCE_TERMS)
     //   to_multiply_by_phi_phi_i += source_term_tracer;
     // #endif

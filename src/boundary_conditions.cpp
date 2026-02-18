@@ -58,21 +58,21 @@ namespace BoundaryConditions
     const std::string parsed_type = prm.get("type");
     if (parsed_type == "input_function")
       type = Type::input_function;
-    if (parsed_type == "outflow")
+    else if (parsed_type == "outflow")
       type = Type::outflow;
-    if (parsed_type == "no_slip")
+    else if (parsed_type == "no_slip")
       type = Type::no_slip;
-    if (parsed_type == "weak_no_slip")
+    else if (parsed_type == "weak_no_slip")
       type = Type::weak_no_slip;
-    if (parsed_type == "slip")
+    else if (parsed_type == "slip")
       type = Type::slip;
-    if (parsed_type == "velocity_mms")
+    else if (parsed_type == "velocity_mms")
       type = Type::velocity_mms;
-    if (parsed_type == "velocity_flux_mms")
+    else if (parsed_type == "velocity_flux_mms")
       type = Type::velocity_flux_mms;
-    if (parsed_type == "open_mms")
+    else if (parsed_type == "open_mms")
       type = Type::open_mms;
-    if (parsed_type == "none")
+    else if (parsed_type == "none")
       throw std::runtime_error(
         "Fluid boundary condition for boundary " + std::to_string(this->id) +
         " is set to \"none\".\n"
@@ -97,7 +97,6 @@ namespace BoundaryConditions
   void PseudosolidBC<dim>::declare_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::declare_parameters(prm);
-
     prm.declare_entry("type",
                       "none",
                       Patterns::Selection(
@@ -105,7 +104,7 @@ namespace BoundaryConditions
                         "position_mms|position_flux_mms"),
                       "Type of pseudosolid boundary condition");
 
-    // Imposed functions (componentwise), same pattern as FluidBC u/v/w
+    // Input component functions, same pattern as FluidBC u/v/w
     prm.enter_subsection("x");
     x->declare_parameters(prm);
     prm.leave_subsection();
@@ -119,7 +118,6 @@ namespace BoundaryConditions
     prm.leave_subsection();
   }
 
-
   template <int dim>
   void PseudosolidBC<dim>::read_parameters(ParameterHandler &prm)
   {
@@ -128,7 +126,6 @@ namespace BoundaryConditions
     physics_str  = "pseudosolid";
 
     const std::string parsed_type = prm.get("type");
-
     if (parsed_type == "fixed")
       type = Type::fixed;
     else if (parsed_type == "coupled_to_fluid")
@@ -150,8 +147,6 @@ namespace BoundaryConditions
         "prescribed pseudosolid boundary conditions is smaller than "
         "the specified \"number\" field.");
 
-    // Parse the functions (safe to parse always; or keep it only for
-    // input_function)
     prm.enter_subsection("x");
     x->parse_parameters(prm);
     prm.leave_subsection();
@@ -164,7 +159,6 @@ namespace BoundaryConditions
     z->parse_parameters(prm);
     prm.leave_subsection();
   }
-
 
   template <int dim>
   void CahnHilliardBC<dim>::declare_parameters(ParameterHandler &prm)
@@ -296,7 +290,7 @@ namespace BoundaryConditions
             mapping,
             dof_handler,
             bc.id,
-            ComponentwiseFlowVelocity<dim>(
+            VectorFunctionFromComponents<dim>(
               u_lower, n_components, bc.u, bc.v, bc.w),
             constraints,
             velocity_mask);
@@ -393,21 +387,17 @@ namespace BoundaryConditions
       if (bc.type == BoundaryConditions::Type::input_function)
       {
         if (homogeneous)
-        {
           VectorTools::interpolate_boundary_values(
             mapping, dof_handler, bc.id, zero_fun, constraints, position_mask);
-        }
         else
-        {
           VectorTools::interpolate_boundary_values(
             mapping,
             dof_handler,
             bc.id,
-            ComponentwiseMeshPosition<dim>(
+            VectorFunctionFromComponents<dim>(
               x_lower, n_components, bc.x, bc.y, bc.z),
             constraints,
             position_mask);
-        }
       }
       if (bc.type == BoundaryConditions::Type::position_mms)
       {

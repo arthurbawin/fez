@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <iomanip> 
 
 
 constexpr auto STAT = Parameters::TimeIntegration::Scheme::stationary;
@@ -185,8 +186,11 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
 
   if (time_parameters.verbosity == Parameters::Verbosity::verbose)
     pcout << std::endl
-          << "Time step " << current_time_iteration
-          << " - Advancing to t = " << current_time << '.' << std::endl;
+      << "Time step " << current_time_iteration
+      << " - Advancing to t = "
+      << std::fixed << std::setprecision(10) << current_time
+      << " with dt = " << std::fixed << std::setprecision(10) << current_dt
+      << '.' << std::endl;
 }
 
 double TimeHandler::compute_time_derivative_at_quadrature_node(

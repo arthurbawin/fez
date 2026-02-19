@@ -254,6 +254,8 @@ namespace Parameters
     double dt_max_factor;
     double dt_min_factor;
     bool adaptative_dt;
+    bool mms_scale_eps_with_dt;
+
 // ------------------------------------------------------------
 // Time-step control modes used for MMS / verification of variable-step BDF2
 // ------------------------------------------------------------
@@ -284,7 +286,12 @@ double dt_ratio_margin;
     double eps_u;
     double eps_p;
     double eps_x;
-    bool mms_adaptive_dt_debug;
+    
+    double eps_t;   // temperature (<=0 -> fallback to eps_u)
+    double eps_l;   // lagrange multiplier (<=0 -> fallback to eps_u)
+    double eps_phi; // tracer (<=0 -> fallback to eps_u)
+    double eps_mu;  // potential (<=0 -> fallback to eps_u)
+bool mms_adaptive_dt_debug;
     std::string log_filename;
     double dt;
     double t_initial;

@@ -152,22 +152,16 @@ void HeatSolver<dim>::run()
         param.time_integration.dt_control_mode ==
           Parameters::TimeIntegration::DtControlMode::vautrin)
     {
-      std::vector<std::pair<unsigned int, double>> component_eps;
-      component_eps.emplace_back(ordering->t_lower, param.time_integration.eps_u);
-
       time_handler.update_dt_after_converged_step_vautrin(
         present_solution,
         previous_solutions_dt_control,
         dofs_to_component,
-        component_eps,
-        param.time_integration.u_seuil,
-        param.time_integration.safety,
-        param.time_integration.dt_min_factor,
-        param.time_integration.dt_max_factor,
+        *ordering,
+        param.time_integration,
         mpi_communicator,
         param.time_integration.t_end,
-        /*clamp_to_t_end=*/true);
-    }
+        /*clamp_to_t_end=*/false);
+}
 
     if (!time_handler.is_steady())
     {

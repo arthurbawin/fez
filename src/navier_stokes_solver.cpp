@@ -118,38 +118,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::update_time_step_after_converged
       Parameters::TimeIntegration::DtControlMode::vautrin)
     return;
 
-  // Build (component -> epsilon) list using the solver ordering
-  std::vector<std::pair<unsigned int, double>> component_eps;
-  component_eps.reserve(ordering->n_components);
-
-  const double eps_u   = param.time_integration.eps_u;
-  const double eps_p   = param.time_integration.eps_p;
-  const double eps_x   = (param.time_integration.eps_x > 0.0 ?
-                          param.time_integration.eps_x :
-                          eps_u);
-  const double u_seuil = param.time_integration.u_seuil;
-  const double safety  = param.time_integration.safety;
-
-  for (unsigned int c = ordering->u_lower; c < ordering->u_upper; ++c)
-    component_eps.emplace_back(c, eps_u);
-
-  for (unsigned int c = ordering->p_lower; c < ordering->p_upper; ++c)
-    component_eps.emplace_back(c, eps_p);
-
-  if constexpr (with_moving_mesh)
-    for (unsigned int c = ordering->x_lower; c < ordering->x_upper; ++c)
-      component_eps.emplace_back(c, eps_x);
-
-  // Update dt inside TimeHandler (common implementation)
+  // Update dt inside TimeHandler (solver-agnostic overload)
   time_handler.update_dt_after_converged_step_vautrin(
     present_solution,
     previous_solutions_dt_control,
     dofs_to_component,
-    component_eps,
-    u_seuil,
-    safety,
-    param.time_integration.dt_min_factor,
-    param.time_integration.dt_max_factor,
+    *ordering,
+    param.time_integration,
     mpi_communicator,
     param.time_integration.t_end,
     /*clamp_to_t_end=*/true);
@@ -295,42 +270,40 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   auto &comm = mpi_communicator;
 
-  // Initialize dof handler
   dof_handler.distribute_dofs(this->get_fe_system());
 
-   const auto &fe = dof_handler.get_fe();
+  // (1) recalculer tout de suite les IndexSet cohérents avec cette distribution
+  locally_owned_dofs    = dof_handler.locally_owned_dofs();
+  locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
 
-    // Sentinel value for "unset"
-    constexpr unsigned char unset = 255;
+  const auto &fe = dof_handler.get_fe();
 
-    dofs_to_component.assign(dof_handler.n_dofs(), unset);
+  constexpr unsigned char unset = 255;
+  dofs_to_component.assign(dof_handler.n_dofs(), unset);
 
-    std::vector<types::global_dof_index> local_dof_indices(fe.n_dofs_per_cell());
+  std::vector<types::global_dof_index> local_dof_indices(fe.n_dofs_per_cell());
 
-    for (const auto &cell : dof_handler.active_cell_iterators())
+  for (const auto &cell : dof_handler.active_cell_iterators())
+  {
+    if (cell->is_artificial())
+      continue;
+
+    cell->get_dof_indices(local_dof_indices);
+
+    for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
     {
-      if (cell->is_artificial())
-        continue;
-
-      cell->get_dof_indices(local_dof_indices);
-
-      for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
-      {
-        const unsigned int comp = fe.system_to_component_index(j).first;
-        const auto gi = local_dof_indices[j];
-
-        // gi is a global DoF index
-        dofs_to_component[gi] = static_cast<unsigned char>(comp);
-      }
+      const unsigned int comp = fe.system_to_component_index(j).first;
+      const auto gi = local_dof_indices[j];
+      dofs_to_component[gi] = static_cast<unsigned char>(comp);
     }
+  }
 
-    // Optional but strongly recommended: ensure all locally relevant dofs are set
-    for (const auto gi : locally_relevant_dofs)
-      AssertThrow(dofs_to_component[gi] != unset,
-                  ExcMessage("dofs_to_component not initialized for a locally relevant DoF."));
-                  
-  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
-        << std::endl;
+  // maintenant l’assert checke le bon IndexSet
+  for (const auto gi : locally_relevant_dofs)
+    AssertThrow(dofs_to_component[gi] != unset,
+                ExcMessage("dofs_to_component not initialized for a locally relevant DoF."));
+
+  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs() << std::endl;
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);

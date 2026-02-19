@@ -1,14 +1,14 @@
-
 #include <time_handler.h>
+#include <components_ordering.h>
+
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/utilities.h>
-#include <limits>
-#include <cmath>
+
 #include <algorithm>
 #include <cmath>
+#include <deque>
+#include <iomanip>
 #include <limits>
-#include <iomanip> 
-
 
 constexpr auto STAT = Parameters::TimeIntegration::Scheme::stationary;
 constexpr auto BDF1 = Parameters::TimeIntegration::Scheme::BDF1;
@@ -24,7 +24,7 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , current_dt(time_parameters.dt)
   , dt_ref_bounds(time_parameters.dt)
   , scheme(time_parameters.scheme)
-
+  , mms_dt_reference(time_parameters.dt) // <-- capture dt_ref ONCE here
 {
   switch (scheme)
   {
@@ -53,11 +53,13 @@ void TimeHandler::set_bdf_coefficients(
 {
   const Parameters::TimeIntegration::Scheme used_scheme =
     force_scheme ? forced_scheme : scheme;
+
   switch (used_scheme)
   {
     case STAT:
       bdf_coefficients[0] = 0.;
       break;
+
     case BDF1:
     {
       const double dt     = time_steps[0];
@@ -65,6 +67,7 @@ void TimeHandler::set_bdf_coefficients(
       bdf_coefficients[1] = -1. / dt;
       break;
     }
+
     case BDF2:
     {
       const double dt      = time_steps[0];
@@ -80,10 +83,8 @@ void TimeHandler::set_bdf_coefficients(
 bool TimeHandler::is_finished() const
 {
   if (scheme == STAT)
-  {
-    // Stop after a single "time step"
     return current_time_iteration > 0;
-  }
+
   return current_time >= final_time - 1e-10;
 }
 
@@ -98,35 +99,26 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
   if (use_programmed_dt_schedule && pending_dt_queue.empty())
   {
     const unsigned int idx = current_time_iteration - 1;
-    AssertThrow(idx < programmed_dt.size(), ExcMessage("Programmed dt schedule exhausted."));
+    AssertThrow(idx < programmed_dt.size(),
+                ExcMessage("Programmed dt schedule exhausted."));
     current_dt = programmed_dt[idx];
   }
 
-
-  // ------------------------------------------------------------
-  // 0) Si une rampe de dt est en cours (restart), on force current_dt
-  //    pour CE step, puis on consomme la queue.
-  // ------------------------------------------------------------
+  // 0) Linear ramp dt (restart)
   if (!pending_dt_queue.empty())
   {
     current_dt = pending_dt_queue.front();
     pending_dt_queue.pop_front();
   }
 
-  // ------------------------------------------------------------
-  // 1) Rotate the times and time steps
-  //    IMPORTANTE: on doit décaler jusqu'à i = n_previous_solutions,
-  //    sinon en BDF2, time_steps[2] n'est jamais mis à jour.
-  // ------------------------------------------------------------
+  // 1) Rotate times and time steps (shift up to n_previous_solutions)
   for (unsigned int i = n_previous_solutions; i > 0; --i)
   {
     previous_times[i] = previous_times[i - 1];
     time_steps[i]     = time_steps[i - 1];
   }
 
-  // ------------------------------------------------------------
-  // 2) Mise à jour temps + dt + coeff BDF
-  // ------------------------------------------------------------
+  // 2) Update time + dt + BDF coefficients
   if (scheme == BDF1)
   {
     current_time += current_dt;
@@ -139,7 +131,6 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
     if (time_parameters.bdfstart ==
         Parameters::TimeIntegration::BDFStart::BDF1)
     {
-      // Start with BDF1
       const double starting_step_ratio = 0.1;
 
       if (this->is_starting_step())
@@ -150,12 +141,10 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
         previous_times[0] = current_time;
         time_steps[0]     = current_dt;
 
-        // Force scheme to BDF1
-        set_bdf_coefficients(true);
+        set_bdf_coefficients(true); // Force BDF1
       }
       else if (current_time_iteration - 1 < n_previous_solutions)
       {
-        // Previous step was starting step
         current_dt = initial_dt * (1. - starting_step_ratio);
 
         current_time += current_dt;
@@ -167,7 +156,6 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
       }
       else
       {
-        // Continue with regular time step
         current_time += current_dt;
         previous_times[0] = current_time;
         time_steps[0]     = current_dt;
@@ -186,11 +174,11 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
 
   if (time_parameters.verbosity == Parameters::Verbosity::verbose)
     pcout << std::endl
-      << "Time step " << current_time_iteration
-      << " - Advancing to t = "
-      << std::fixed << std::setprecision(10) << current_time
-      << " with dt = " << std::fixed << std::setprecision(10) << current_dt
-      << '.' << std::endl;
+          << "Time step " << current_time_iteration
+          << " - Advancing to t = "
+          << std::fixed << std::setprecision(10) << current_time
+          << " with dt = " << std::fixed << std::setprecision(10) << current_dt
+          << '.' << std::endl;
 }
 
 double TimeHandler::compute_time_derivative_at_quadrature_node(
@@ -200,32 +188,31 @@ double TimeHandler::compute_time_derivative_at_quadrature_node(
 {
   if (scheme == Parameters::TimeIntegration::Scheme::stationary)
     return 0.;
+
   if (scheme == Parameters::TimeIntegration::Scheme::BDF1 ||
       scheme == Parameters::TimeIntegration::Scheme::BDF2)
   {
     double value_dot = bdf_coefficients[0] * present_solution;
     for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
-      value_dot +=
-        bdf_coefficients[i] * previous_solutions[i - 1][quadrature_node_index];
+      value_dot += bdf_coefficients[i] * previous_solutions[i - 1][quadrature_node_index];
     return value_dot;
   }
+
   DEAL_II_ASSERT_UNREACHABLE();
 }
 
 void TimeHandler::save() const
 {
-  // TODO
   DEAL_II_NOT_IMPLEMENTED();
 }
 
 namespace
 {
-  inline void get_ratio_bounds_for_next_step(const Parameters::TimeIntegration::Scheme scheme,
+  inline void get_ratio_bounds_for_next_step(const Parameters::TimeIntegration::Scheme /*scheme*/,
                                              const bool                                next_step_is_bdf2,
                                              double                                   &ratio_min,
                                              double                                   &ratio_max)
   {
-    (void) scheme;
     if (next_step_is_bdf2)
     {
       ratio_min = 0.2;
@@ -241,10 +228,6 @@ namespace
   inline unsigned int compute_linear_ramp_N_increase(const double r_target,
                                                      const double ratio_max)
   {
-    // r_target = dt_new/dt_old > ratio_max
-    // For linear ramp, max ratio between steps occurs at first step:
-    // dt1/dt0 = 1 + (r_target - 1)/N <= ratio_max
-    // => N >= (r_target - 1)/(ratio_max - 1)
     const double denom = (ratio_max - 1.0);
     if (denom <= 0.0)
       return 1;
@@ -256,10 +239,6 @@ namespace
   inline unsigned int compute_linear_ramp_N_decrease(const double r_target,
                                                      const double ratio_min)
   {
-    // r_target = dt_new/dt_old < ratio_min
-    // For linear decreasing ramp, the MIN ratio between steps occurs at LAST step:
-    // dtN/dt(N-1) = 1 / (1 + (dt_old/dt_new - 1)/N) >= ratio_min
-    // => N >= (dt_old/dt_new - 1)/(1/ratio_min - 1)
     if (ratio_min <= 0.0 || ratio_min >= 1.0)
       return 1;
 
@@ -267,7 +246,7 @@ namespace
     if (inv <= 0.0)
       return 1;
 
-    const double r_inv = 1.0 / r_target; // dt_old/dt_new > 1
+    const double r_inv = 1.0 / r_target;
     const double Nmin  = (r_inv - 1.0) / inv;
     return std::max(1u, static_cast<unsigned int>(std::ceil(Nmin)));
   }
@@ -281,7 +260,6 @@ namespace
     if (N == 0)
       return;
 
-    // dt_k = dt_old + k*(dt_new - dt_old)/N , k=1..N
     for (unsigned int k = 1; k <= N; ++k)
     {
       const double alpha = static_cast<double>(k) / static_cast<double>(N);
@@ -291,7 +269,6 @@ namespace
   }
 } // namespace
 
-
 void TimeHandler::build_programmed_dt_schedule()
 {
   use_programmed_dt_schedule = false;
@@ -300,7 +277,6 @@ void TimeHandler::build_programmed_dt_schedule()
   if (time_parameters.is_steady())
     return;
 
-  // Only used when adaptative_dt is enabled but dt_control_mode != vautrin.
   if (!time_parameters.adaptative_dt)
     return;
 
@@ -312,8 +288,6 @@ void TimeHandler::build_programmed_dt_schedule()
   if (T <= 0.0)
     return;
 
-  // We infer the intended number of steps from the "reference" dt
-  // of the current run (this dt is refined by the MMS driver).
   const double dt_ref = initial_dt;
   const double N_real = T / dt_ref;
   const unsigned int N = static_cast<unsigned int>(std::llround(N_real));
@@ -321,7 +295,6 @@ void TimeHandler::build_programmed_dt_schedule()
   AssertThrow(N >= 2,
              ExcMessage("Programmed dt schedule requires at least 2 time steps."));
 
-  // Ensure that dt_ref yields an (almost) integer number of steps.
   AssertThrow(std::abs(N_real - static_cast<double>(N)) < 1e-6,
              ExcMessage("For programmed dt schedules, dt must yield an integer number of steps "
                         "over [t_initial,t_end]."));
@@ -336,21 +309,17 @@ void TimeHandler::build_programmed_dt_schedule()
     return std::min(std::max(dt, dt_min_eff), dt_max_eff);
   };
 
-  // 0-stability safety bound often used for variable-step BDF2.
   const double ratio_limit =
     1.0 + std::sqrt(2.0) - std::max(0.0, time_parameters.dt_ratio_margin);
 
-  // Helper: geometric schedule on [0, T] with N steps, given gamma.
   const auto build_geometric = [&](const bool increasing)
   {
     const double gamma = time_parameters.dt_schedule_gamma;
 
-    // r = gamma^(1/(N-1)) and safety clamp.
     double r = std::pow(gamma, 1.0 / static_cast<double>(N - 1));
     if (r > ratio_limit)
       r = ratio_limit;
 
-    // dt0 such that sum_{i=0}^{N-1} dt0 * r^i = T.
     const double rN = std::pow(r, static_cast<double>(N));
     const double dt0 =
       (std::abs(r - 1.0) < 1e-14 ? T / static_cast<double>(N)
@@ -363,7 +332,6 @@ void TimeHandler::build_programmed_dt_schedule()
     }
   };
 
-  // ---------- increasing / decreasing ----------
   if (time_parameters.dt_control_mode ==
       Parameters::TimeIntegration::DtControlMode::increasing)
   {
@@ -375,7 +343,6 @@ void TimeHandler::build_programmed_dt_schedule()
     build_geometric(false);
   }
 
-  // ---------- increasing then decreasing ----------
   if (time_parameters.dt_control_mode ==
       Parameters::TimeIntegration::DtControlMode::inc_dec)
   {
@@ -394,16 +361,13 @@ void TimeHandler::build_programmed_dt_schedule()
       (std::abs(r - 1.0) < 1e-14 ? Th / static_cast<double>(Nh)
                                  : Th * (r - 1.0) / (rNh - 1.0));
 
-    // First half increasing.
     for (unsigned int i = 0; i < Nh; ++i)
       programmed_dt[i] = dt0h * std::pow(r, static_cast<double>(i));
 
-    // Second half decreasing (mirror).
     for (unsigned int i = 0; i < Nh; ++i)
       programmed_dt[Nh + i] = programmed_dt[Nh - 1 - i];
   }
 
-  // ---------- alternating ----------
   if (time_parameters.dt_control_mode ==
       Parameters::TimeIntegration::DtControlMode::alternating)
   {
@@ -411,8 +375,6 @@ void TimeHandler::build_programmed_dt_schedule()
                ExcMessage("alternating programmed schedule requires an even N."));
     const double q = time_parameters.dt_alternating_ratio;
 
-    // Pattern: dt_big, dt_small, dt_big, dt_small, ...
-    // with dt_big/dt_small = q and sum = T.
     const double dt_small = T / (static_cast<double>(N) * (0.5 * (q + 1.0)));
     const double dt_big   = q * dt_small;
 
@@ -420,7 +382,6 @@ void TimeHandler::build_programmed_dt_schedule()
       programmed_dt[i] = (i % 2 == 0 ? dt_big : dt_small);
   }
 
-  // Final safety: clamp and enforce exact sum by adjusting the last step.
   double sum = 0.0;
   for (unsigned int i = 0; i < N; ++i)
   {
@@ -428,50 +389,41 @@ void TimeHandler::build_programmed_dt_schedule()
     sum += programmed_dt[i];
   }
 
-  // Adjust last dt to hit final time exactly.
   programmed_dt[N - 1] += (T - sum);
-
   programmed_dt[N - 1] = clamp_dt(programmed_dt[N - 1]);
 
   use_programmed_dt_schedule = true;
-
-  // Initialize current_dt for the first step.
   current_dt = programmed_dt[0];
 }
 
-void TimeHandler::apply_restart_overrides(
-  const Parameters::TimeIntegration &new_params)
+void TimeHandler::apply_restart_overrides(const Parameters::TimeIntegration &new_params)
 {
-  // Toujours : on peut changer t_end au restart
   final_time = new_params.t_end;
 
   if (scheme == STAT)
     return;
 
-  // Si l'utilisateur ne fournit pas un dt > 0, on ne change rien
   if (!(new_params.dt > 0.0))
     return;
 
   const double dt_old = current_dt;
   const double dt_new = new_params.dt;
 
-  // Met à jour les paramètres internes (important si tu veux "dt imposé")
   time_parameters.dt = dt_new;
   initial_dt         = dt_new;
-  dt_ref_bounds      = dt_new; 
+  dt_ref_bounds      = dt_new;
 
-  // Nettoie toute ancienne rampe
+  // IMPORTANT: on ne touche PAS mms_dt_reference ici.
+  // C'est le dt du 1er run MMS, ça doit rester constant.
+
   pending_dt_queue.clear();
 
-  // Si dt_old est foireux, on force direct
   if (!(dt_old > 0.0))
   {
     current_dt = dt_new;
     return;
   }
 
-  // Est-ce que le prochain step utilise "vraiment" BDF2 ?
-  // (si on est trop tôt dans l'historique, on retombe sur BDF1)
   const bool next_step_is_bdf2 =
     (scheme == BDF2) && (current_time_iteration >= n_previous_solutions);
 
@@ -480,14 +432,12 @@ void TimeHandler::apply_restart_overrides(
 
   const double r = dt_new / dt_old;
 
-  // Cas OK : changement pas trop violent => jump direct
   if (r >= ratio_min && r <= ratio_max)
   {
     current_dt = dt_new;
     return;
   }
 
-  // Cas violent : on construit une rampe LINÉAIRE en respectant les ratios
   unsigned int N = 1;
   if (r > ratio_max)
     N = compute_linear_ramp_N_increase(r, ratio_max);
@@ -496,7 +446,6 @@ void TimeHandler::apply_restart_overrides(
 
   build_linear_ramp(pending_dt_queue, dt_old, dt_new, N);
 
-  // On utilise le premier dt de la rampe pour le prochain step
   if (!pending_dt_queue.empty())
   {
     current_dt = pending_dt_queue.front();
@@ -508,16 +457,13 @@ void TimeHandler::apply_restart_overrides(
   }
 }
 
-
-
 void TimeHandler::load()
 {
-  // TODO
   DEAL_II_NOT_IMPLEMENTED();
 }
 
 // =========================
-// Vautrin adaptive time-step control (common to all solvers)
+// Vautrin adaptive time-step control
 // =========================
 
 void TimeHandler::compute_vautrin_error_estimate(
@@ -526,10 +472,8 @@ void TimeHandler::compute_vautrin_error_estimate(
   const std::vector<LA::ParVectorType> &previous_solutions,
   const unsigned int                    order) const
 {
-  AssertThrow(!this->is_steady(),
-              ExcMessage("No time error estimate in steady."));
-  AssertThrow(order == 1 || order == 2,
-              ExcMessage("Only order 1 or 2 supported."));
+  AssertThrow(!this->is_steady(), ExcMessage("No time error estimate in steady."));
+  AssertThrow(order == 1 || order == 2, ExcMessage("Only order 1 or 2 supported."));
   AssertThrow(previous_solutions.size() >= order + 1,
               ExcMessage("Not enough history in previous_solutions. Need order+1 vectors."));
   AssertThrow(bdf_coefficients.size() >= order + 1,
@@ -537,22 +481,16 @@ void TimeHandler::compute_vautrin_error_estimate(
   AssertThrow(time_steps.size() >= 1,
               ExcMessage("Need at least one stored time step (h0)."));
 
-  // time_steps[0]=h_{n+1}, time_steps[1]=h_n, time_steps[2]=h_{n-1}
   const double h0 = time_steps[0];
   const double h1 = (time_steps.size() > 1 ? time_steps[1] : h0);
   const double h2 = (time_steps.size() > 2 ? time_steps[2] : h1);
 
-  const unsigned int p = order;   // BDF order (1 or 2)
-  const unsigned int k = p + 1;   // p+1 (2 or 3)
+  const unsigned int p = order;
+  const unsigned int k = p + 1;
 
-  // factorial(k): only 2 or 6 here
   const double factorial = (k == 2 ? 2.0 : 6.0);
-  // (-1)^k
   const double sign = (k % 2 == 0 ? +1.0 : -1.0);
 
-  // H0=0, H1=h0, H2=h0+h1
-  // Convention: bdf_coefficients[0] multiplies u_{n+1}, [1] -> u_n, [2] -> u_{n-1}
-  // i=0 term is alpha0 * 0^k = 0 for k>=2, so skip.
   double sum = 0.0;
   sum += bdf_coefficients[1] * std::pow(h0, static_cast<int>(k));
   if (p == 2)
@@ -560,105 +498,92 @@ void TimeHandler::compute_vautrin_error_estimate(
 
   const double C_p1 = sign * (sum / factorial);
 
-  // Compute u^{(p+1)} via divided differences on non-uniform grid
   LA::ParVectorType u_p1;
   u_p1.reinit(u_np1);
   u_p1 = 0.0;
 
   if (p == 1)
   {
-    // dd1_0 = (u_{n+1}-u_n)/h0
     LA::ParVectorType dd10;
     dd10.reinit(u_np1);
     dd10 = u_np1;
     dd10.add(-1.0, previous_solutions[0]);
     dd10 *= (1.0 / h0);
 
-    // dd1_1 = (u_n-u_{n-1})/h1
     LA::ParVectorType dd11;
     dd11.reinit(u_np1);
     dd11 = previous_solutions[0];
     dd11.add(-1.0, previous_solutions[1]);
     dd11 *= (1.0 / h1);
 
-    // dd2 = (dd1_0 - dd1_1)/(h0+h1)
     LA::ParVectorType dd2;
     dd2.reinit(u_np1);
     dd2 = dd10;
     dd2.add(-1.0, dd11);
     dd2 *= (1.0 / (h0 + h1));
 
-    // u'' ≈ 2! * dd2
     u_p1 = dd2;
-    u_p1 *= 2.0;
+    u_p1 *= 2.0; // 2!
   }
-  else // p==2
+  else
   {
     AssertThrow(previous_solutions.size() >= 3,
                 ExcMessage("Need u^{n-2} in previous_solutions[2] for BDF2 error estimate."));
     AssertThrow(time_steps.size() >= 3,
                 ExcMessage("Need 3 stored time steps (h0,h1,h2) for BDF2 error estimate."));
 
-    // dd1_0 = (u_{n+1}-u_n)/h0
     LA::ParVectorType dd10;
     dd10.reinit(u_np1);
     dd10 = u_np1;
     dd10.add(-1.0, previous_solutions[0]);
     dd10 *= (1.0 / h0);
 
-    // dd1_1 = (u_n-u_{n-1})/h1
     LA::ParVectorType dd11;
     dd11.reinit(u_np1);
     dd11 = previous_solutions[0];
     dd11.add(-1.0, previous_solutions[1]);
     dd11 *= (1.0 / h1);
 
-    // dd1_2 = (u_{n-1}-u_{n-2})/h2
     LA::ParVectorType dd12;
     dd12.reinit(u_np1);
     dd12 = previous_solutions[1];
     dd12.add(-1.0, previous_solutions[2]);
     dd12 *= (1.0 / h2);
 
-    // dd2_0 = (dd1_0 - dd1_1)/(h0+h1)
     LA::ParVectorType dd20;
     dd20.reinit(u_np1);
     dd20 = dd10;
     dd20.add(-1.0, dd11);
     dd20 *= (1.0 / (h0 + h1));
 
-    // dd2_1 = (dd1_1 - dd1_2)/(h1+h2)
     LA::ParVectorType dd21;
     dd21.reinit(u_np1);
     dd21 = dd11;
     dd21.add(-1.0, dd12);
     dd21 *= (1.0 / (h1 + h2));
 
-    // dd3 = (dd2_0 - dd2_1)/(h0+h1+h2)
     LA::ParVectorType dd3;
     dd3.reinit(u_np1);
     dd3 = dd20;
     dd3.add(-1.0, dd21);
     dd3 *= (1.0 / (h0 + h1 + h2));
 
-    // u''' ≈ 3! * dd3
     u_p1 = dd3;
-    u_p1 *= 6.0;
+    u_p1 *= 6.0; // 3!
   }
 
-  // e_star = C_{p+1} * h0^{p+1} * u^{(p+1)}
   e_star = u_p1;
   e_star *= (C_p1 * std::pow(h0, static_cast<int>(p + 1)));
 }
 
 double TimeHandler::compute_scaled_vautrin_ratio(
-  const LA::ParVectorType              &e_star,
-  const LA::ParVectorType              &u_star,
-  const std::vector<unsigned char>     &dofs_to_component,
-  const unsigned int                    component_q,
-  const double                          epsilon_q,
-  const double                          u_seuil,
-  const MPI_Comm                        comm) const
+  const LA::ParVectorType          &e_star,
+  const LA::ParVectorType          &u_star,
+  const std::vector<unsigned char> &dofs_to_component,
+  const unsigned int                component_q,
+  const double                      epsilon_q,
+  const double                      u_seuil,
+  const MPI_Comm                    comm) const
 {
   double local_sum_e2 = 0.0;
   double local_sum_u2 = 0.0;
@@ -677,12 +602,9 @@ double TimeHandler::compute_scaled_vautrin_ratio(
     local_neq++;
   }
 
-  const double global_sum_e2 =
-    dealii::Utilities::MPI::sum(local_sum_e2, comm);
-  const double global_sum_u2 =
-    dealii::Utilities::MPI::sum(local_sum_u2, comm);
-  const unsigned long long global_neq =
-    dealii::Utilities::MPI::sum(local_neq, comm);
+  const double global_sum_e2 = dealii::Utilities::MPI::sum(local_sum_e2, comm);
+  const double global_sum_u2 = dealii::Utilities::MPI::sum(local_sum_u2, comm);
+  const unsigned long long global_neq = dealii::Utilities::MPI::sum(local_neq, comm);
 
   if (global_neq == 0)
     return std::numeric_limits<double>::max();
@@ -740,24 +662,23 @@ double TimeHandler::get_effective_dt_max() const
   return dt_ref_bounds * f;
 }
 
-
 bool TimeHandler::update_dt_after_converged_step_vautrin(
-  const LA::ParVectorType                               &u_np1,
-  const std::vector<LA::ParVectorType>                  &previous_solutions_dt_control,
-  const std::vector<unsigned char>                      &dofs_to_component,
-  const std::vector<std::pair<unsigned int, double>>    &component_eps,
-  const double                                           u_seuil,
-  const double                                           safety,
-  const double                                           dt_min_factor,
-  const double                                           dt_max_factor,
-  const MPI_Comm                                         comm,
-  const double                                           t_end,
-  const bool                                             clamp_to_t_end,
-  double                                                *out_R,
-  unsigned int                                          *out_order,
-  double                                                *out_dt_used,
-  double                                                *out_dt_next,
-  LA::ParVectorType                                     *out_e_star)
+  const LA::ParVectorType                            &u_np1,
+  const std::vector<LA::ParVectorType>               &previous_solutions_dt_control,
+  const std::vector<unsigned char>                   &dofs_to_component,
+  const std::vector<std::pair<unsigned int, double>> &component_eps,
+  const double                                        u_seuil,
+  const double                                        safety,
+  const double                                        /*dt_min_factor*/,
+  const double                                        /*dt_max_factor*/,
+  const MPI_Comm                                      comm,
+  const double                                        t_end,
+  const bool                                          clamp_to_t_end,
+  double                                             *out_R,
+  unsigned int                                       *out_order,
+  double                                             *out_dt_used,
+  double                                             *out_dt_next,
+  LA::ParVectorType                                  *out_e_star)
 {
   if (this->is_steady())
     return false;
@@ -769,7 +690,6 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
       Parameters::TimeIntegration::DtControlMode::vautrin)
     return false;
 
-  // Effective order for dt-control
   unsigned int order = 1;
   if (scheme == Parameters::TimeIntegration::Scheme::BDF2 &&
       !this->is_starting_step())
@@ -778,7 +698,6 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
   if (previous_solutions_dt_control.size() < order + 1)
     return false;
 
-  // 1) e_star
   LA::ParVectorType e_star;
   e_star.reinit(u_np1);
 
@@ -787,7 +706,49 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
                                        previous_solutions_dt_control,
                                        order);
 
-  // 2) R = min_q (epsilon_q / err_q)
+  // Verbose: print max relative e* per component
+  if (time_parameters.verbosity == Parameters::Verbosity::verbose)
+  {
+    const unsigned int my_rank = dealii::Utilities::MPI::this_mpi_process(comm);
+
+    for (const auto &ce : component_eps)
+    {
+      const unsigned int comp = ce.first;
+
+      double local_max_rel = 0.0;
+      unsigned long long local_count = 0;
+
+      for (const auto gi : u_np1.locally_owned_elements())
+      {
+        if (dofs_to_component[gi] != comp)
+          continue;
+
+        const double e = e_star[gi];
+        const double u = u_np1[gi];
+
+        const double denom = std::max(std::abs(u), u_seuil);
+        const double rel   = std::abs(e) / denom;
+
+        local_max_rel = std::max(local_max_rel, rel);
+        local_count++;
+      }
+
+      const double global_max_rel = dealii::Utilities::MPI::max(local_max_rel, comm);
+      const unsigned long long global_count = dealii::Utilities::MPI::sum(local_count, comm);
+
+      if (my_rank == 0)
+      {
+        std::cout
+          << "[Vautrin] comp=" << comp
+          << "  e*_rel_max=" << std::scientific << std::setprecision(6)
+          << global_max_rel
+          << "  (ndofs=" << std::dec << global_count << ")"
+          << std::endl;
+      }
+    }
+  }
+
+  // R = min_q (epsilon_q / err_q)
   double R = std::numeric_limits<double>::infinity();
   for (const auto &ce : component_eps)
   {
@@ -807,22 +768,18 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
   if (!std::isfinite(R) || R <= 0.0)
     return false;
 
-  // 3) ratio bounds (as in your existing implementation)
   const double ratio_min = (order == 2 ? 0.2 : 0.1);
   const double ratio_max = (order == 2 ? (1.0 + std::sqrt(2.0)) : 5.0);
 
   const double dt_used = current_dt;
 
-  // Bounds from factors relative to the reference dt (initial_dt)
   const double dt_min = this->get_effective_dt_min();
   const double dt_max = this->get_effective_dt_max();
 
-  double dt_next = TimeHandler::propose_next_dt_vautrin(dt_used, R, order, safety,
-                                                      ratio_min, ratio_max,
-                                                      dt_min, dt_max);
+  double dt_next =
+    TimeHandler::propose_next_dt_vautrin(dt_used, R, order, safety,
+                                         ratio_min, ratio_max, dt_min, dt_max);
 
-
-  // 5) clamp to t_end
   if (clamp_to_t_end && current_time < t_end)
   {
     const double remaining = t_end - current_time;
@@ -830,10 +787,8 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
       dt_next = remaining;
   }
 
-  // update state
   current_dt = dt_next;
 
-  // optional outputs
   if (out_R)       *out_R       = R;
   if (out_order)   *out_order   = order;
   if (out_dt_used) *out_dt_used = dt_used;
@@ -841,4 +796,75 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
   if (out_e_star)  *out_e_star  = e_star;
 
   return true;
+}
+
+bool TimeHandler::update_dt_after_converged_step_vautrin(
+  const LA::ParVectorType               &u_np1,
+  const std::vector<LA::ParVectorType>  &previous_solutions_dt_control,
+  const std::vector<unsigned char>      &dofs_to_component,
+  const ComponentOrdering               &ordering,
+  const Parameters::TimeIntegration     &ti,
+  const MPI_Comm                         comm,
+  const double                           t_end,
+  const bool                             clamp_to_t_end,
+  double                                *out_R,
+  unsigned int                          *out_order,
+  double                                *out_dt_used,
+  double                                *out_dt_next,
+  LA::ParVectorType                     *out_e_star)
+{
+  auto component_eps = ordering.make_dt_control_component_eps(ti);
+
+  // ============================================================
+  // MMS OPTION: scale eps so that when dt is halved, eps is divided by 2^p.
+  //
+  // eps_scaled = eps_base * (dt_run/dt_ref)^p
+  // If dt_run = dt_ref/2 => eps_scaled = eps_base / 2^p.
+  //
+  // Controlled by ti.mms_scale_eps_with_dt (bool).
+  // ============================================================
+  if (ti.mms_scale_eps_with_dt)
+  {
+    const double dt_ref = mms_dt_reference;
+    const double dt_run = ti.dt;
+
+    if (dt_ref > 0.0 && dt_run > 0.0)
+    {
+      // p = scheme order used for MMS comparisons
+      const unsigned int p = (scheme == Parameters::TimeIntegration::Scheme::BDF2 ? 2u : 1u);
+
+      const double scale = std::pow(dt_run / dt_ref, static_cast<int>(p));
+
+      for (auto &ce : component_eps)
+        ce.second *= scale;
+
+      if (ti.verbosity == Parameters::Verbosity::verbose &&
+          dealii::Utilities::MPI::this_mpi_process(comm) == 0)
+      {
+        std::cout
+          << "[MMS] eps scaling ON: eps <- eps * (dt/dt_ref)^p"
+          << "  scale=" << std::scientific << std::setprecision(6) << scale
+          << "  (dt=" << dt_run << ", dt_ref=" << dt_ref << ", p=" << p << ")"
+          << std::endl;
+      }
+    }
+  }
+
+  return this->update_dt_after_converged_step_vautrin(
+    u_np1,
+    previous_solutions_dt_control,
+    dofs_to_component,
+    component_eps,
+    ti.u_seuil,
+    ti.safety,
+    ti.dt_min_factor,
+    ti.dt_max_factor,
+    comm,
+    t_end,
+    clamp_to_t_end,
+    out_R,
+    out_order,
+    out_dt_used,
+    out_dt_next,
+    out_e_star);
 }

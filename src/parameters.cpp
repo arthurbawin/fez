@@ -720,11 +720,32 @@ prm.declare_entry("dt ratio margin",
       prm.declare_entry("eps_u", "1e-3", Patterns::Double(), "Target error for velocity (adaptive dt)");
       prm.declare_entry("eps_p", "1e-2", Patterns::Double(), "Target error for pressure (adaptive dt)");
       prm.declare_entry("eps_x", "1e-3", Patterns::Double(), "Target error for position (adaptive dt)");
+      prm.declare_entry("eps_t",
+                  "-1",
+                  Patterns::Double(),
+                  "Target error for temperature (adaptive dt). If <= 0, fallback to eps_u");
+      prm.declare_entry("mms_scale_eps_with_dt",
+      "false",
+      Patterns::Bool(),
+      "If true, scale eps for MMS when dt is refined: eps <- eps*(dt/dt_ref)^p.");
+
+      prm.declare_entry("eps_l",
+                        "-1",
+                        Patterns::Double(),
+                        "Target error for Lagrange multiplier (adaptive dt). If <= 0, fallback to eps_u");
+      prm.declare_entry("eps_phi",
+                        "-1",
+                        Patterns::Double(),
+                        "Target error for tracer phi (adaptive dt). If <= 0, fallback to eps_u");
+      prm.declare_entry("eps_mu",
+                        "-1",
+                        Patterns::Double(),
+                        "Target error for potential mu (adaptive dt). If <= 0, fallback to eps_u");
       prm.declare_entry("mms_adaptive_dt_debug",
-                  "false",
-                  Patterns::Bool(),
-                  "Enable extra adaptive-dt diagnostics (log + consistency checks) "
-                  "intended for MMS runs.");
+                        "false",
+                        Patterns::Bool(),
+                        "Enable extra adaptive-dt diagnostics (log + consistency checks) "
+                        "intended for MMS runs.");
       prm.declare_entry("log filename",
                       "adaptive_dt.log",
                       Patterns::Anything(),
@@ -761,29 +782,33 @@ prm.declare_entry("dt ratio margin",
       dt_min_factor  = prm.get_double("dt_min_factor");
       adaptative_dt = prm.get_bool("adaptative_dt");
 
-const std::string parsed_dt_mode = prm.get("dt control mode");
-if (parsed_dt_mode == "vautrin")
-  dt_control_mode = DtControlMode::vautrin;
-else if (parsed_dt_mode == "increasing")
-  dt_control_mode = DtControlMode::increasing;
-else if (parsed_dt_mode == "decreasing")
-  dt_control_mode = DtControlMode::decreasing;
-else if (parsed_dt_mode == "inc_dec")
-  dt_control_mode = DtControlMode::inc_dec;
-else if (parsed_dt_mode == "alternating")
-  dt_control_mode = DtControlMode::alternating;
+      const std::string parsed_dt_mode = prm.get("dt control mode");
+      if (parsed_dt_mode == "vautrin")
+        dt_control_mode = DtControlMode::vautrin;
+      else if (parsed_dt_mode == "increasing")
+        dt_control_mode = DtControlMode::increasing;
+      else if (parsed_dt_mode == "decreasing")
+        dt_control_mode = DtControlMode::decreasing;
+      else if (parsed_dt_mode == "inc_dec")
+        dt_control_mode = DtControlMode::inc_dec;
+      else if (parsed_dt_mode == "alternating")
+        dt_control_mode = DtControlMode::alternating;
 
-dt_schedule_gamma     = prm.get_double("dt schedule gamma");
-dt_alternating_ratio  = prm.get_double("dt alternating ratio");
-dt_ratio_margin       = prm.get_double("dt ratio margin");
+      dt_schedule_gamma     = prm.get_double("dt schedule gamma");
+      dt_alternating_ratio  = prm.get_double("dt alternating ratio");
+      dt_ratio_margin       = prm.get_double("dt ratio margin");
       eps_u        = prm.get_double("eps_u");
       eps_p        = prm.get_double("eps_p");
       eps_x        = prm.get_double("eps_x");
+      eps_t        = prm.get_double("eps_t");
+      eps_l        = prm.get_double("eps_l");
+      eps_phi      = prm.get_double("eps_phi");
+      eps_mu       = prm.get_double("eps_mu");
       u_seuil  = prm.get_double("u_seuil");
       safety       = prm.get_double("safety");
       mms_adaptive_dt_debug = prm.get_bool("mms_adaptive_dt_debug");
       log_filename = prm.get("log filename");
-
+      mms_scale_eps_with_dt = prm.get_bool("mms_scale_eps_with_dt");
       dt        = prm.get_double("dt");
       t_initial = prm.get_double("t_initial");
       t_end     = prm.get_double("t_end");

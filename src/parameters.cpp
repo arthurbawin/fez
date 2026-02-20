@@ -788,6 +788,17 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Enable limiter for the tracer (phase field marker)");
+      // Mesh forcing parameters
+      prm.declare_entry(
+        "alpha",
+        "0.0",
+        Patterns::Double(),
+        "Coefficient of pseudosolid source term alpha * phi * grad(phi).");
+      prm.declare_entry("beta",
+                        "0.0",
+                        Patterns::Double(),
+                        "Coefficient of pseudosolid source term beta * (u_ALE "
+                        "* grad(phi)) * grad(phi).");
     }
     prm.leave_subsection();
   }
@@ -805,6 +816,9 @@ namespace Parameters
       epsilon_interface   = prm.get_double("interface thickness");
       body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
+      // mesh forcing parameters
+      alpha = prm.get_double("alpha");
+      beta  = prm.get_double("beta");
     }
     prm.leave_subsection();
   }

@@ -331,6 +331,12 @@ namespace Parameters
     double epsilon_interface;
     bool   with_tracer_limiter;
 
+    // Mesh forcing parameters : these parameters control the behavior of the
+    // source term in the pseudosolid equation, in the CHNS-ALE model
+    // FIXME: use more explicit names, when the formulation has been decided
+    double alpha;
+    double beta;
+
     /**
      * We differentiate between the body force which is multiplied by the
      * mixture density (typically gravity), and the generic source term (e.g.,

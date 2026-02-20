@@ -1,0 +1,138 @@
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write results    = true
+  set output directory = results/
+  set output prefix    = N3_bubble
+end
+
+subsection Mesh
+  set mesh file=osc_bubble.msh
+  #set dealii preset mesh     = rectangle
+  #set dealii mesh parameters = 8, 8 : 0., 0. : 5.0, 5.0 : true
+  #set refinement level       = 15
+end
+
+subsection Time integration
+  set dt               = 1.28e-7
+  set t_initial        = 0
+  set t_end            = 1e-2
+  set scheme           = BDF2
+  set bdf start method = BDF1
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  set verbosity      = quiet
+  set method         = direct_mumps
+  set reuse          = true
+end
+
+subsection FiniteElements
+  set Velocity degree   = 2
+  set Pressure degree   = 1
+  set Tracer degree     = 1
+  set Potential degree  = 1
+end
+
+subsection Physical properties
+  set number of fluids = 2
+  subsection Fluid 0
+    set density             = 10
+    set kinematic viscosity = 0.1
+  end
+  subsection Fluid 1
+    set density             = 10
+    set kinematic viscosity = 0.1
+  end
+end
+
+subsection Cahn Hilliard
+  set mobility model      = constant
+  set mobility            = 1.568e-12
+  set surface tension     = 1
+  set interface thickness = 3.91e-6
+  set body force          = 0, 0
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 0; 0
+  end
+  subsection cahn hilliard tracer
+    set Function constants  = e=3.91e-6, R=1.25e-4,n=3,A=0.02
+    set Function expression = tanh(R*(1+A*cos(n*atan2(x,y))-sqrt((x)^2+(y)^2))/(sqrt(2)*e))
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 4
+  set fix pressure constant = false
+  set enforce zero mean pressure = true
+  subsection boundary 0
+    set id   = 5
+    set name = x_min
+    set type = slip
+  end
+  subsection boundary 1
+    set id   = 3
+    set name = x_max
+    set type = slip
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = no_slip
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = y_max
+    set type = no_slip
+  end
+end
+
+subsection CahnHilliard boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 5
+    set name = x_min
+    set type = no_flux
+  end
+  subsection boundary 1
+    set id   = 3
+    set name = x_max
+    set type = no_flux
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = no_flux
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = y_max
+    set type = no_flux
+  end
+end
+
+subsection Debug
+  set verbosity                              = verbose
+  set apply exact solution                   = false
+  set compare jacobian matrix with fd        = false
+  set analytical_jacobian_absolute_tolerance = 1e-3
+  set analytical_jacobian_relative_tolerance = 1e-3
+end

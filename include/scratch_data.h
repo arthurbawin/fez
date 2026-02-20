@@ -197,6 +197,7 @@ private:
   template <typename VectorType>
   void reinit_pseudo_solid_cell(
     const FEValues<dim>                  &fe_values_fixed,
+    const FEValues<dim>                  &fe_values_moving,
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
@@ -260,9 +261,10 @@ private:
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_x[q][k]      = fe_values_fixed[position].value(k, q);
-        grad_phi_x[q][k] = fe_values_fixed[position].gradient(k, q);
-        div_phi_x[q][k]  = fe_values_fixed[position].divergence(k, q);
+        phi_x[q][k]             = fe_values_fixed[position].value(k, q);
+        grad_phi_x[q][k]        = fe_values_fixed[position].gradient(k, q);
+        div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
+        grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
       }
     }
   }
@@ -464,25 +466,36 @@ private:
 
   template <typename VectorType>
   void reinit_cahn_hilliard_cell(
-    const FEValues<dim>                  &fe_values,
+    const FEValues<dim>                  &fe_values_fixed,
+    const FEValues<dim>                  &fe_values_moving,
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
     const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
-    fe_values[tracer].get_function_values(current_solution, tracer_values);
-    fe_values[tracer].get_function_gradients(current_solution,
-                                             tracer_gradients);
-    fe_values[potential].get_function_values(current_solution,
-                                             potential_values);
-    fe_values[potential].get_function_gradients(current_solution,
-                                                potential_gradients);
+    fe_values_moving[tracer].get_function_values(current_solution,
+                                                 tracer_values);
+    fe_values_moving[tracer].get_function_gradients(current_solution,
+                                                    tracer_gradients);
+
+    if (enable_pseudo_solid)
+    {
+      fe_values_fixed[tracer].get_function_values(current_solution,
+                                                  tracer_values_fixed);
+      fe_values_fixed[tracer].get_function_gradients(current_solution,
+                                                     tracer_gradients_fixed);
+    }
+
+    fe_values_moving[potential].get_function_values(current_solution,
+                                                    potential_values);
+    fe_values_moving[potential].get_function_gradients(current_solution,
+                                                       potential_gradients);
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
-      fe_values[tracer].get_function_values(previous_solutions[i],
-                                            previous_tracer_values[i]);
+      fe_values_moving[tracer].get_function_values(previous_solutions[i],
+                                                   previous_tracer_values[i]);
 
-    source_terms->vector_value_list(fe_values.get_quadrature_points(),
+    source_terms->vector_value_list(fe_values_moving.get_quadrature_points(),
                                     source_term_full_moving);
 
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -509,15 +522,29 @@ private:
       diffusive_flux[q] = diffusive_flux_factor *
                           present_velocity_gradients[q] *
                           potential_gradients[q];
-      velocity_dot_tracer_gradient[q] =
-        present_velocity_values[q] * tracer_gradients[q];
+
+      if (enable_pseudo_solid)
+        velocity_dot_tracer_gradient[q] =
+          (present_velocity_values[q] - present_mesh_velocity_values[q]) *
+          tracer_gradients[q];
+      else
+        velocity_dot_tracer_gradient[q] =
+          present_velocity_values[q] * tracer_gradients[q];
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        shape_phi[q][k]      = fe_values[tracer].value(k, q);
-        grad_shape_phi[q][k] = fe_values[tracer].gradient(k, q);
-        shape_mu[q][k]       = fe_values[potential].value(k, q);
-        grad_shape_mu[q][k]  = fe_values[potential].gradient(k, q);
+        // Shape functions on moving mesh
+        shape_phi[q][k]      = fe_values_moving[tracer].value(k, q);
+        grad_shape_phi[q][k] = fe_values_moving[tracer].gradient(k, q);
+        shape_mu[q][k]       = fe_values_moving[potential].value(k, q);
+        grad_shape_mu[q][k]  = fe_values_moving[potential].gradient(k, q);
+
+        // Shape functions on fixed mesh
+        if (enable_pseudo_solid)
+        {
+          shape_phi_fixed[q][k]      = fe_values_fixed[tracer].value(k, q);
+          grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
+        }
       }
     }
   }
@@ -561,17 +588,18 @@ public:
                               exact_solution);
     if (enable_pseudo_solid)
       reinit_pseudo_solid_cell(*active_fe_values_fixed,
+                               *active_fe_values,
                                current_solution,
                                previous_solutions,
                                source_terms,
                                exact_solution);
     if (enable_cahn_hilliard)
-      reinit_cahn_hilliard_cell(*active_fe_values,
+      reinit_cahn_hilliard_cell(*active_fe_values_fixed,
+                                *active_fe_values,
                                 current_solution,
                                 previous_solutions,
                                 source_terms,
                                 exact_solution);
-
     /**
      * Face contributions
      */
@@ -748,6 +776,7 @@ public:
   // Shape functions and gradients for each quad node and each dof
   std::vector<std::vector<Tensor<1, dim>>> phi_x;
   std::vector<std::vector<Tensor<2, dim>>> grad_phi_x;
+  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x_moving;
   std::vector<std::vector<double>>         div_phi_x;
 
   // Shape functions on faces for relevant faces, each quad node and each dof
@@ -799,17 +828,23 @@ public:
   std::vector<double> dynamic_viscosity;
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
 
-  std::vector<double>              tracer_values;
-  std::vector<Tensor<1, dim>>      tracer_gradients;
-  std::vector<double>              potential_values;
-  std::vector<Tensor<1, dim>>      potential_gradients;
-  std::vector<std::vector<double>> previous_tracer_values;
+  // Tracer on current and fixed (reference) mesh
+  std::vector<double>                      tracer_values;
+  std::vector<Tensor<1, dim>>              tracer_gradients;
+  std::vector<double>                      tracer_values_fixed;
+  std::vector<Tensor<1, dim>>              tracer_gradients_fixed;
+  std::vector<std::vector<double>>         previous_tracer_values;
+  // Potential on current mesh
+  std::vector<double>         potential_values;
+  std::vector<Tensor<1, dim>> potential_gradients;
 
   std::vector<Tensor<1, dim>> diffusive_flux;
   std::vector<double>         velocity_dot_tracer_gradient;
 
   std::vector<std::vector<double>>         shape_phi;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
+  std::vector<std::vector<double>>         shape_phi_fixed;
+  std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi_fixed;
   std::vector<std::vector<double>>         shape_mu;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_mu;
 

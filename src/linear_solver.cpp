@@ -162,8 +162,6 @@ void solve_linear_system_unpreconditioned_cg(
   const bool verbose =
     linear_solver_param.verbosity == Parameters::Verbosity::verbose;
 
-  // if (verbose)
-
   LA::ParVectorType &newton_update = solver->get_newton_update();
   LA::ParVectorType &system_rhs    = solver->get_system_rhs();
 
@@ -187,8 +185,10 @@ void solve_linear_system_unpreconditioned_cg(
                   system_rhs,
                   dummy_preconditioner);
 
-  solver->pcout << solver_control.last_step()
-                << " CG iterations needed to obtain convergence." << std::endl;
+  if (verbose)
+    solver->pcout << solver_control.last_step()
+                  << " CG iterations needed to obtain convergence."
+                  << std::endl;
 
   newton_update = completely_distributed_solution;
   zero_constraints.distribute(newton_update);

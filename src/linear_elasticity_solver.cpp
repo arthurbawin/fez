@@ -368,7 +368,6 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       const auto &phi_x_i          = phi_x[i];
-      const auto &grad_phi_x_i     = grad_phi_x[i];
       const auto &sym_grad_phi_x_i = symmetrize(grad_phi_x[i]);
       const auto &div_phi_x_i      = div_phi_x[i];
 

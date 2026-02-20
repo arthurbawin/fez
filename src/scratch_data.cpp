@@ -539,6 +539,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     phi_x.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
     grad_phi_x.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
+    grad_phi_x_moving.resize(n_q_points,
+                             std::vector<Tensor<2, dim>>(dofs_per_cell));
     div_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
     phi_x_face.resize(n_faces,
                       std::vector<std::vector<Tensor<1, dim>>>(
@@ -581,6 +583,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     tracer_values.resize(n_q_points);
     tracer_gradients.resize(n_q_points);
+    tracer_values_fixed.resize(n_q_points);
+    tracer_gradients_fixed.resize(n_q_points);
     potential_values.resize(n_q_points);
     potential_gradients.resize(n_q_points);
     previous_tracer_values.resize(bdf_coefficients.size() - 1,
@@ -588,10 +592,12 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     diffusive_flux.resize(n_q_points);
     velocity_dot_tracer_gradient.resize(n_q_points);
-
     shape_phi.resize(n_q_points, std::vector<double>(dofs_per_cell));
     grad_shape_phi.resize(n_q_points,
                           std::vector<Tensor<1, dim>>(dofs_per_cell));
+    shape_phi_fixed.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    grad_shape_phi_fixed.resize(n_q_points,
+                                std::vector<Tensor<1, dim>>(dofs_per_cell));
     shape_mu.resize(n_q_points, std::vector<double>(dofs_per_cell));
     grad_shape_mu.resize(n_q_points,
                          std::vector<Tensor<1, dim>>(dofs_per_cell));

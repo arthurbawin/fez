@@ -589,8 +589,6 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     potential_gradients.resize(n_q_points);
     previous_tracer_values.resize(bdf_coefficients.size() - 1,
                                   std::vector<double>(n_q_points));
-    previous_tracer_gradients.resize(bdf_coefficients.size() - 1,
-                                     std::vector<Tensor<1, dim>>(n_q_points));
 
     diffusive_flux.resize(n_q_points);
     velocity_dot_tracer_gradient.resize(n_q_points);

@@ -492,12 +492,8 @@ private:
                                                        potential_gradients);
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
-    {
       fe_values_moving[tracer].get_function_values(previous_solutions[i],
                                                    previous_tracer_values[i]);
-      fe_values_moving[tracer].get_function_gradients(
-        previous_solutions[i], previous_tracer_gradients[i]);
-    }
 
     source_terms->vector_value_list(fe_values_moving.get_quadrature_points(),
                                     source_term_full_moving);
@@ -838,7 +834,6 @@ public:
   std::vector<double>                      tracer_values_fixed;
   std::vector<Tensor<1, dim>>              tracer_gradients_fixed;
   std::vector<std::vector<double>>         previous_tracer_values;
-  std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients;
   // Potential on current mesh
   std::vector<double>         potential_values;
   std::vector<Tensor<1, dim>> potential_gradients;

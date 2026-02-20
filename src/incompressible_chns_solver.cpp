@@ -804,7 +804,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
             if (const_ordering.x_lower <= comp_j &&
                 comp_j < const_ordering.x_upper)
             {
-              const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
+              const Tensor<2, dim> &G = (*grad_phi_x_moving)[j];
 
               // Linear elasticity
               local_ps_ij +=
@@ -1091,8 +1091,9 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
       {
         // Body force to attract the mesh towards the tracer interface
         // Still testing for a good model of body force
-        mesh_forcing = alpha * (tracer_values_fixed * (*tracer_gradient_fixed)) +
-                       beta * ((u_conv * tracer_gradient) * tracer_gradient);
+        mesh_forcing =
+          alpha * (tracer_values_fixed * (*tracer_gradient_fixed)) +
+          beta * ((u_conv * tracer_gradient) * tracer_gradient);
 
         // Linear elasticity
         local_rhs_ps_i +=

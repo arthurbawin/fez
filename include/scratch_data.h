@@ -526,7 +526,7 @@ private:
       diffusive_flux[q] = diffusive_flux_factor *
                           present_velocity_gradients[q] *
                           potential_gradients[q];
-                          
+
       if (enable_pseudo_solid)
         velocity_dot_tracer_gradient[q] =
           (present_velocity_values[q] - present_mesh_velocity_values[q]) *

@@ -1,0 +1,25 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 1304
+ boundary indicators: 1(10 faces) 2(10 faces) 3(40 faces) 4(40 faces) 
+ID 1 -> Outlet
+ID 2 -> Inlet
+ID 3 -> NoFlux
+ID 4 -> InnerBoundary
+ID 5 -> Domain
+Number of degrees of freedom: 6598
+
+Time step 1 - Advancing to t = 0.1.
+Newton iter.  0:          nonlinear residual = 3.69859724e-01
+Newton iter.  1:          nonlinear residual = 2.03265802e-01	(M)
+Newton iter.  2:          nonlinear residual = 7.58150139e-03	(M)
+Newton iter.  3:          nonlinear residual = 2.48475029e-05	(M)
+Newton iter.  4:          nonlinear residual = 3.90566920e-10	(M)
+Newton iter.  5:          nonlinear residual = 1.01513407e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = +9.393034788865e+00
+Fy = -1.686098674543e-04
+

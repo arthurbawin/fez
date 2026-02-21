@@ -26,7 +26,7 @@ public:
   Parameters::PostProcessing                     postprocessing;
   Parameters::FiniteElements<dim>                finite_elements;
   Parameters::PhysicalProperties<dim>            physical_properties;
-  Parameters::FSI                                fsi;
+  Parameters::FSI<dim>                           fsi;
   Parameters::TimeIntegration                    time_integration;
   Parameters::CheckpointRestart                  checkpoint_restart;
   std::map<SolverType, Parameters::LinearSolver> linear_solver;

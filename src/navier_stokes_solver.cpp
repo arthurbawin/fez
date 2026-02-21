@@ -28,7 +28,6 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
-  , postproc_handler(param.postprocessing, param.output)
 {
   create_quadrature_rules(param.finite_elements,
                           quadrature,
@@ -55,6 +54,22 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
     std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 }
 
+
+template <int dim, bool with_moving_mesh>
+std::vector<std::pair<std::string, unsigned int>>
+NavierStokesSolver<dim, with_moving_mesh>::get_variables_description() const
+{
+  std::vector<std::pair<std::string, unsigned int>> description;
+  description.push_back({"velocity", dim});
+  description.push_back({"pressure", 1});
+  if constexpr (with_moving_mesh)
+    description.push_back({"mesh position", dim});
+  const auto additional_description = get_additional_variables_description();
+  for (const auto &additional : additional_description)
+    description.push_back(additional);
+  return description;
+};
+
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::reset()
 {
@@ -65,6 +80,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
   param.mms_param.mesh_suffix  = mms_param.mesh_suffix;
   param.mesh.filename          = mesh_param.filename;
   param.time_integration.dt    = time_param.dt;
+
+  // Clear list of files in pvd
+  if (postproc_handler)
+    postproc_handler->clear();
 
   // Mesh
   triangulation.clear();
@@ -106,10 +125,24 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_time()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::initialize()
+{
+  // Create the post-processing handler.
+  // This requires the description of the variable from the derived solvers,
+  // so I don't think this can be done in the constructor of the base class.
+  if (!postproc_handler)
+  {
+    const auto description = get_variables_description();
+    postproc_handler       = std::make_shared<PostProcessingHandler<dim>>(
+      param, triangulation, dof_handler, description);
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::run()
 {
   reset();
-
+  initialize();
 
   /**
    * If starting from zero, read the mesh then setup the dof_handler and
@@ -119,7 +152,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   if (!param.checkpoint_restart.restart)
   {
     read_mesh(triangulation, param);
-
     setup_dofs();
   }
   else
@@ -127,51 +159,28 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
     restart();
   }
 
-  // Slices post-processing: needs dof_handler to be initialized (works in both
-  // cases)
-  if (param.postprocessing.enable_slicing)
-  {
-    postproc_handler.setup_slices(dof_handler);
-  }
-
-
-
   if (param.bc_data.enforce_zero_mean_pressure)
   {
     create_zero_mean_pressure_constraints_data();
   }
-
   create_solver_specific_constraints_data();
 
   create_zero_constraints();
-
   create_nonzero_constraints();
-
   create_sparsity_pattern();
-
 
   if (!param.checkpoint_restart.restart)
   {
     set_initial_conditions();
   }
 
-
   output_results();
-
-
 
   while (!time_handler.is_finished())
   {
     time_handler.advance(pcout);
-
-
-
     set_time();
-
-
-
     update_boundary_conditions();
-
 
     if (time_handler.is_starting_step() &&
         param.time_integration.bdfstart ==
@@ -185,7 +194,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
       else
       {
         // Repeat initial condition
-
         set_initial_conditions();
       }
     }
@@ -199,15 +207,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
       if (param.debug.apply_exact_solution)
         set_exact_solution();
       else
-
         solve_nonlinear_problem(false);
     }
 
     postprocess_solution();
-
     time_handler.rotate_solutions(present_solution, previous_solutions);
-
-
 
     if (param.checkpoint_restart.enable_checkpoint &&
         (time_handler.current_time_iteration %
@@ -259,7 +263,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
       constrained_pressure_dof,
       zero_mean_pressure_weights);
   }
-
 
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
@@ -815,9 +818,86 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::output_results()
+{
+  TimerOutput::Scope t(computing_timer, "Write outputs");
+
+  // Compute mesh velocity and add it to the DataOut of the postproc handler
+  // FIXME: do this without placeholders
+  if constexpr (with_moving_mesh)
+  {
+    if (postproc_handler->should_output_volume_fields(time_handler))
+    {
+      LA::ParVectorType mesh_velocity;
+      mesh_velocity.reinit(locally_owned_dofs, mpi_communicator);
+
+      IndexSet owned_position_dofs =
+        DoFTools::extract_dofs(dof_handler, position_mask);
+      owned_position_dofs = owned_position_dofs & locally_owned_dofs;
+
+      for (const auto &dof : owned_position_dofs)
+        mesh_velocity[dof] =
+          time_handler.compute_time_derivative(dof,
+                                               present_solution,
+                                               previous_solutions);
+      mesh_velocity.compress(VectorOperation::insert);
+
+      auto variable_names = postproc_handler->get_field_names();
+      for (auto &name : variable_names)
+      {
+        if (name == "mesh position")
+          name = "mesh velocity";
+        else
+          name = "unused_" + name;
+      }
+
+      postproc_handler->add_dof_data_vector(mesh_velocity, variable_names);
+    }
+  }
+
+  // Let the derived solvers add their own relevant cell and/or dof-based
+  // data, to output either in the volume or on the prescribed boundary (skin).
+  add_solver_specific_postprocessing_data();
+
+  // Then finally output the fields. This function already checks whether
+  // we should output at this time step or not.
+  postproc_handler->output_fields(*moving_mapping,
+                                  present_solution,
+                                  time_handler);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::compute_forces()
+{
+  if (uses_hp_capabilities())
+  {
+    postproc_handler->compute_forces(*ordering,
+                                     dof_handler,
+                                     *get_fe_collection(),
+                                     *get_moving_mapping_collection(),
+                                     *get_face_quadrature_collection(),
+                                     present_solution,
+                                     time_handler);
+  }
+  else
+  {
+    postproc_handler->compute_forces(*ordering,
+                                     dof_handler,
+                                     get_fe_system(),
+                                     *moving_mapping,
+                                     *face_quadrature,
+                                     present_solution,
+                                     time_handler);
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 {
   output_results();
+
+  if (param.postprocessing.forces.enable)
+    compute_forces();
 
   if (param.mms_param.enable)
     compute_errors();
@@ -828,13 +908,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::finalize()
 {
-  if (param.output.write_results)
-  {
-    // Write .pvd output
-    std::ofstream pvd_output(param.output.output_dir +
-                             param.output.output_prefix + ".pvd");
-    DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
-  }
+  postproc_handler->write_pvd();
 }
 
 // New checkpoint fonction compatible with multinode with a sharing repository
@@ -1013,7 +1087,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
     pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
   }
 
-
   std::string output_dir = param.output.output_dir;
   if (!output_dir.empty() && output_dir.back() != '/')
     output_dir += '/';
@@ -1051,19 +1124,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
   }
 
   time_handler.apply_restart_overrides(param.time_integration);
-
-
   triangulation.load(checkpoint_prefix);
-
-
   setup_dofs();
-
-  if (param.postprocessing.enable_slicing)
-  {
-    postproc_handler.setup_slices(dof_handler);
-  }
-
-
 
   const unsigned int n_vec = time_handler.n_previous_solutions + 1;
 

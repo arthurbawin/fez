@@ -22,6 +22,7 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <mesh_and_dof_tools.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
@@ -1369,112 +1370,6 @@ void NSSolverLambda<dim>::compute_solver_specific_errors()
 }
 
 template <int dim>
-void NSSolverLambda<dim>::output_results()
-{
-  if (this->param.output.write_results)
-  {
-    //
-    // Plot FE solution
-    //
-    std::vector<std::string> solution_names(dim, "velocity");
-    solution_names.push_back("pressure");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("lambda");
-
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        dim, DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-    for (unsigned int d = 0; d < dim; ++d)
-      data_component_interpretation.push_back(
-        DataComponentInterpretation::component_is_part_of_vector);
-
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(this->dof_handler);
-    data_out.add_data_vector(this->present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-    //
-    // Partition
-    //
-    Vector<float> subdomain(this->triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = this->triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain");
-
-    data_out.build_patches(*this->moving_mapping, 2);
-    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      this->param.output.output_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
-
-    this->visualization_times_and_names.emplace_back(
-      this->time_handler.current_time, pvtu_file);
-  }
-}
-
-template <int dim>
-void NSSolverLambda<dim>::compute_forces(const bool export_table)
-{
-  Tensor<1, dim> lambda_integral, lambda_integral_local;
-
-  hp::FEFaceValues hp_fe_face_values(mapping_collection,
-                                     *fe,
-                                     face_quadrature_collection,
-                                     update_values | update_quadrature_points |
-                                       update_JxW_values |
-                                       update_normal_vectors);
-
-  const unsigned int n_faces_q_points =
-    face_quadrature_collection[index_fe_with_lambda].size();
-  std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-    {
-      const auto &face = cell->face(i_face);
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        hp_fe_face_values.reinit(cell, i_face);
-        const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
-        fe_face_values[lambda_extractor].get_function_values(
-          this->present_solution, lambda_values);
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-          lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
-      }
-    }
-  }
-
-  for (unsigned int d = 0; d < dim; ++d)
-    lambda_integral[d] =
-      Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
-
-  // Forces on the cylinder are the NEGATIVE of the integral of lambda
-  this->forces_table.add_value("time", this->time_handler.current_time);
-  for (unsigned int d = 0; d < dim; ++d)
-    this->forces_table.add_value("F_comp" + std::to_string(d),
-                                 -lambda_integral[d]);
-
-  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "Computed forces: " << -lambda_integral << std::endl;
-
-  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
-  {
-    std::ofstream outfile(this->param.output.output_dir + "forces.txt");
-    this->forces_table.write_text(outfile);
-  }
-}
-
-template <int dim>
 void NSSolverLambda<dim>::solver_specific_post_processing()
 {
   /**
@@ -1496,11 +1391,6 @@ void NSSolverLambda<dim>::solver_specific_post_processing()
             Parameters::TimeIntegration::BDFStart::initial_condition))
       check_velocity_boundary();
   }
-
-  const bool export_force_table =
-    this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 5) == 0);
-  compute_forces(export_force_table);
 }
 
 // Explicit instantiation

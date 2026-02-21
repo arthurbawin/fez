@@ -24,9 +24,20 @@ end
 # the "results" folder, which must be created before running the solver.
 #
 subsection Output
-  set write results    = true
-  set output directory = results/
-  set output prefix    = flow_cylinder
+  set write vtu results = true
+  set output directory  = results/
+  set output prefix     = flow_cylinder
+
+  #
+  # Also extract the data on the boundary associated to the cylinder
+  # for visualization.
+  #
+  subsection skin
+    set write vtu results = true
+    set boundary id       = 4    # the cylinder
+    set output prefix     = flow_cylinder_skin
+    set output frequency  = 1
+  end
 end
 
 #
@@ -85,9 +96,11 @@ end
 # where the symbolic factorization is re-used from one solver. 
 #
 subsection Linear solver
-  set verbosity      = quiet
-  set method         = direct_mumps
-  set reuse          = true
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
 end
 
 #

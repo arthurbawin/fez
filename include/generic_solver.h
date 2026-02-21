@@ -239,9 +239,6 @@ protected:
   // An ErrorHandler for each error norm
   std::map<VectorTools::NormType, std::shared_ptr<ErrorHandler>> error_handlers;
 
-  // The times and names of the pvtu files
-  std::vector<std::pair<double, std::string>> visualization_times_and_names;
-
   // Friend-ness is not inherited, so each derived nonlinear solver
   // should be marked as friend individually.
   friend class NewtonSolver<VectorType>;

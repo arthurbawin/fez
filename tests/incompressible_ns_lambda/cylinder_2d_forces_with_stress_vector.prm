@@ -26,7 +26,7 @@ subsection Nonlinear solver
   set tolerance            = 1e-10
   set divergence_tolerance = 1e+4
   set max_iterations       = 50
-  set enable_line_search   = true
+  set enable_line_search   = false
   set analytic_jacobian    = true
 end
 
@@ -83,13 +83,12 @@ subsection Fluid boundary conditions
   subsection boundary 3
     set id   = 4
     set name = InnerBoundary
-    set type = no_slip
+    set type = weak_no_slip
   end
 end
 
 subsection Postprocessing
   subsection forces computation
-    set verbosity          = verbose
     set enable             = true
     set boundary id        = 4
     set write results      = false

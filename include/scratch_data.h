@@ -870,11 +870,11 @@ public:
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
 
   // Tracer on current and fixed (reference) mesh
-  std::vector<double>                      tracer_values;
-  std::vector<Tensor<1, dim>>              tracer_gradients;
-  std::vector<double>                      tracer_values_fixed;
-  std::vector<Tensor<1, dim>>              tracer_gradients_fixed;
-  std::vector<std::vector<double>>         previous_tracer_values;
+  std::vector<double>              tracer_values;
+  std::vector<Tensor<1, dim>>      tracer_gradients;
+  std::vector<double>              tracer_values_fixed;
+  std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
+  std::vector<std::vector<double>> previous_tracer_values;
   // Potential on current mesh
   std::vector<double>         potential_values;
   std::vector<Tensor<1, dim>> potential_gradients;

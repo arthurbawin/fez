@@ -133,3 +133,14 @@ subsection Pseudosolid boundary conditions
     set type = coupled_to_fluid
   end
 end
+
+subsection Postprocessing
+  subsection forces computation
+    set verbosity          = verbose
+    set enable             = true
+    set boundary id        = 4
+    set write results      = false
+    set computation method = lagrange multiplier
+    set precision          = 12
+  end
+end

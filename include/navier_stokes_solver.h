@@ -4,7 +4,6 @@
 #include <components_ordering.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
-#include <deal.II/base/table_handler.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/dofs/dof_handler.h>
@@ -12,6 +11,9 @@
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_fe_field.h>
+#include <deal.II/hp/fe_collection.h>
+#include <deal.II/hp/mapping_collection.h>
+#include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <generic_solver.h>
 #include <mumps_solver.h>
@@ -185,8 +187,7 @@ public:
    * Post-process the numerical solution: output for visualization,
    * compute errors, forces, etc.
    */
-  void postprocess_solution();
-
+  void         postprocess_solution();
   virtual void solver_specific_post_processing() {}
 
   /**
@@ -208,14 +209,20 @@ public:
   virtual void compute_solver_specific_errors() {}
 
   /**
-   *
+   * Write the results to a vtu/pvtu file for visualization.
+   */
+  void output_results();
+  virtual void add_solver_specific_postprocessing_data() {}
+
+  /**
+   * Compute the hydrodynamic forces on the desired boundary.
    */
   void compute_forces();
 
   /**
-   * Write the results to a vtu/pvtu file for visualization.
+   *
    */
-  virtual void output_results() = 0;
+  void initialize();
 
   /**
    * Perform actions after the end of the simulation loop, such as writing
@@ -242,10 +249,79 @@ public:
    */
   void restart();
 
+private:
+  /**
+   * Get the complete description (names and numbers of components) of the
+   * variables handled by this solver.
+   */
+  std::vector<std::pair<std::string, unsigned int>>
+  get_variables_description() const;
+
+protected:
+  /**
+   * Get the descriptions (name and number of components) of the variables
+   * solved for in the derived solvers, aside from velocity, pressure and mesh
+   * position.
+   */
+  virtual std::vector<std::pair<std::string, unsigned int>>
+  get_additional_variables_description() const = 0;
+
   /**
    * Get the FESystem of the derived solver
    */
   virtual const FESystem<dim> &get_fe_system() const = 0;
+
+  /**
+   * Return true if this solver uses hp capabilities
+   */
+  virtual bool uses_hp_capabilities() const = 0;
+
+  /**
+   * Return the finite element collection used by this solver
+   * FIXME: ideally there would be a dedicated base class for hp NS solvers
+   */
+  virtual const hp::FECollection<dim> *get_fe_collection() const
+  {
+    AssertThrow(false, ExcPureFunctionCalled());
+    return nullptr;
+  };
+
+  /**
+   * Return the collection of fixed mappings used by this solver
+   */
+  virtual const hp::MappingCollection<dim> *get_fixed_mapping_collection() const
+  {
+    AssertThrow(false, ExcPureFunctionCalled());
+    return nullptr;
+  };
+
+  /**
+   * Return the collection of moving mappings used by this solver
+   */
+  virtual const hp::MappingCollection<dim> *
+  get_moving_mapping_collection() const
+  {
+    AssertThrow(false, ExcPureFunctionCalled());
+    return nullptr;
+  };
+
+  /**
+   * Return the cell quadrature collection used by this solver
+   */
+  virtual const hp::QCollection<dim> *get_cell_quadrature_collection() const
+  {
+    AssertThrow(false, ExcPureFunctionCalled());
+    return nullptr;
+  };
+
+  /**
+   * Return the face quadrature collection used by this solver
+   */
+  virtual const hp::QCollection<dim - 1> *get_face_quadrature_collection() const
+  {
+    AssertThrow(false, ExcPureFunctionCalled());
+    return nullptr;
+  };
 
 protected:
   std::shared_ptr<ComponentOrdering> ordering;
@@ -298,11 +374,10 @@ protected:
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;
 
-  TableHandler forces_table;
-
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
-  PostProcessingHandler<dim>                             postproc_handler;
+
+  std::shared_ptr<PostProcessingHandler<dim>>            postproc_handler;
 };
 
 #endif

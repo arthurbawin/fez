@@ -20,5 +20,10 @@ Newton iter.  1:          nonlinear residual = 1.39527628e-01	(M)
 Newton iter.  2:          nonlinear residual = 5.18698271e-03	(M)
 	Line search with alpha = 1.000 : res = 9.15038062e-06
 Newton iter.  3:          nonlinear residual = 9.15038062e-06	(M)
-	Line search with alpha = 1.000 : res = 4.74411078e-11
+	Line search with alpha = 1.000 : res = 4.74410394e-11
 Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Forces on boundary with id 4 computed with method : stress_vector
+Fx = +9.030007472347e+00
+Fy = -6.391779422001e-04
+

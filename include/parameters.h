@@ -107,10 +107,15 @@ namespace Parameters
     std::string  output_prefix;
     unsigned int vtu_output_frequency;
 
-    // Skin output
-    bool               write_skin_results;
-    types::boundary_id skin_boundary_id;
-    unsigned int       skin_vtu_output_frequency;
+    // A "skin" is a codimension 1 boundary on which we wish to extract data
+    // for visualization and/or postprocessing
+    struct Skin
+    {
+      bool               write_results;
+      types::boundary_id boundary_id;
+      std::string        output_prefix;
+      unsigned int       output_frequency;
+    } skin;
 
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
@@ -118,27 +123,53 @@ namespace Parameters
 
   struct PostProcessing
   {
-    // Total force + position
-    bool         write_force;
-    bool         write_body_position;
-    unsigned int force_and_position_output_frequency;
+    // Hydrodynamic forces on a single boundary
+    struct Forces
+    {
+      Verbosity          verbosity;
+      bool               enable;
+      types::boundary_id boundary_id;
+      bool               write_results;
+      std::string        output_prefix;
+      unsigned int       output_frequency;
+      unsigned int       precision;
 
-    // Slicing
-    bool               enable_slicing;
-    types::boundary_id slicing_boundary_id;
+      // The method used to evaluate the forces on a boundary
+      enum class ComputationMethod
+      {
+        stress_vector,
+        lagrange_multiplier
+      } method;
 
-    std::string  slicing_direction;
-    unsigned int number_of_slices;
+    } forces;
 
-    bool         write_force_per_slice;
-    unsigned int force_per_slice_output_frequency;
+    // For the FSI solver, compute and export the position of the structure's
+    // geometric center.
+    struct StructurePosition
+    {
+      bool               compute_center_position;
+      types::boundary_id boundary_id;
+      std::string        output_prefix;
+      unsigned int       output_frequency;
+    } structure_position;
 
-    bool write_slice_vtu = false;
+    // Cut structure into slices and compute forces on each individual slice
+    // Used e.g. to measure correlation of forces coefficients along cylinder
+    struct Slices
+    {
+      bool               enable;
+      types::boundary_id boundary_id;
+      std::string        along_which_axis;
+      unsigned int       n_slices;
+      bool               write_vtu;
+      bool               compute_forces_on_slices;
+      std::string        output_prefix;
+      unsigned int       output_frequency;
+    } slices;
 
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
   };
-
 
   template <int dim>
   struct FiniteElements
@@ -190,6 +221,7 @@ namespace Parameters
   {
     double density;
     double kinematic_viscosity;
+    double dynamic_viscosity;
 
     void declare_parameters(ParameterHandler &prm, unsigned int index);
     void read_parameters(ParameterHandler &prm, unsigned int index);
@@ -432,6 +464,7 @@ namespace Parameters
   /**
    * Fluid-structure interaction
    */
+  template <int dim>
   struct FSI
   {
     Verbosity verbosity;
@@ -444,8 +477,7 @@ namespace Parameters
     double cylinder_radius;
     double cylinder_length;
 
-    double cylinder_centerx;
-    double cylinder_centery;
+    Point<dim> cylinder_center;
 
     bool fix_z_component;
 

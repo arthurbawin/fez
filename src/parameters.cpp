@@ -10,7 +10,7 @@
                       "(default: " +                                           \
                         std::string(default_verbosity) + ")");
 
-#define READ_VERBOSITY_PARAM(prm)                                \
+#define READ_VERBOSITY_PARAM(prm, verbosity)                     \
   {                                                              \
     const std::string parsed_verbosity = (prm).get("verbosity"); \
     if (parsed_verbosity == "quiet")                             \
@@ -128,7 +128,7 @@ namespace Parameters
       deal_ii_preset_mesh   = prm.get("dealii preset mesh");
       deal_ii_mesh_param    = prm.get("dealii mesh parameters");
       refinement_level      = prm.get_integer("refinement level");
-      READ_VERBOSITY_PARAM(prm)
+      READ_VERBOSITY_PARAM(prm, verbosity)
     }
     prm.leave_subsection();
   }
@@ -141,39 +141,41 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Enable/disable vtu output writing.");
-
       prm.declare_entry("output directory",
                         "./",
                         Patterns::FileName(),
                         "Output directory.");
-
       prm.declare_entry("output prefix",
                         "solution",
                         Patterns::FileName(),
                         "Prefix for the output files.");
-
       prm.declare_entry(
         "vtu output frequency",
         "1",
         Patterns::Integer(1),
         "Frequency (in time steps) for the standard vtu export.");
-
-      // --- skin output ---
-      prm.declare_entry(
-        "write vtu skin results",
-        "false",
-        Patterns::Bool(),
-        "Enable/disable skin (boundary-only) vtu output writing.");
-
-      prm.declare_entry("skin boundary id",
-                        "0",
-                        Patterns::Integer(0),
-                        "Boundary id used for the skin export.");
-
-      prm.declare_entry("skin vtu output frequency",
-                        "1",
-                        Patterns::Integer(1),
-                        "Frequency (in time steps) for the skin vtu export.");
+      prm.enter_subsection("skin");
+      {
+        prm.declare_entry(
+          "write vtu results",
+          "false",
+          Patterns::Bool(),
+          "Enable extraction of vtu files on prescribed boundary.");
+        prm.declare_entry("boundary id",
+                          "0",
+                          Patterns::Integer(0),
+                          "Boundary id used to define the skin.");
+        prm.declare_entry("output prefix",
+                          "skin",
+                          Patterns::FileName(),
+                          "Prefix for the output files on the skin");
+        prm.declare_entry("output frequency",
+                          "1",
+                          Patterns::Integer(1),
+                          "Frequency (in time steps) for the exportation of "
+                          "skin-related files");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -182,108 +184,173 @@ namespace Parameters
   {
     prm.enter_subsection("Output");
     {
-      // Must match exactly the declared names
       write_results        = prm.get_bool("write vtu results");
       output_dir           = prm.get("output directory");
       output_prefix        = prm.get("output prefix");
       vtu_output_frequency = prm.get_integer("vtu output frequency");
-
-      write_skin_results        = prm.get_bool("write vtu skin results");
-      skin_boundary_id          = prm.get_integer("skin boundary id");
-      skin_vtu_output_frequency = prm.get_integer("skin vtu output frequency");
+      prm.enter_subsection("skin");
+      {
+        skin.write_results    = prm.get_bool("write vtu results");
+        skin.boundary_id      = prm.get_integer("boundary id");
+        skin.output_prefix    = prm.get("output prefix");
+        skin.output_frequency = prm.get_integer("output frequency");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
 
   void PostProcessing::declare_parameters(ParameterHandler &prm)
   {
-    prm.enter_subsection("PostProcessing");
+    prm.enter_subsection("Postprocessing");
     {
-      prm.declare_entry("write force",
-                        "false",
-                        Patterns::Bool(),
-                        "Write the aerodynamic force to a file.");
-
-      prm.declare_entry(
-        "write body position",
-        "false",
-        Patterns::Bool(),
-        "Write the body position (or reference point position) to a file.");
-
-      prm.declare_entry(
-        "force and position output frequency",
-        "1",
-        Patterns::Integer(1),
-        "Frequency (in time steps) for total force and position outputs.");
-
-      // --- Slice-based post-processing ---
-      prm.declare_entry("enable slicing",
-                        "false",
-                        Patterns::Bool(),
-                        "Enable slicing post-processing (forces per slice, "
-                        "optional slice vtu, etc.).");
-
-      prm.declare_entry("slicing boundary id",
-                        "0",
-                        Patterns::Integer(0),
-                        "Boundary id on which slicing is performed (typically "
-                        "the body/skin boundary). ");
-
-      prm.declare_entry("slicing direction",
-                        "z",
-                        Patterns::Selection("x|y|z"),
-                        "Direction along which slices are defined.");
-
-      prm.declare_entry("number of slices",
-                        "1",
-                        Patterns::Integer(1),
-                        "Number of slices along the chosen direction.");
-
-      prm.declare_entry("write force per slice",
-                        "false",
-                        Patterns::Bool(),
-                        "Write the force computed on each slice to a file.");
-
-      prm.declare_entry(
-        "force per slice output frequency",
-        "1",
-        Patterns::Integer(1),
-        "Frequency (in time steps) for forces-per-slice output.");
-
-      prm.declare_entry("write slice vtu",
-                        "false",
-                        Patterns::Bool(),
-                        "If implemented: write a vtu/pvtu per slice.");
+      prm.enter_subsection("forces computation");
+      {
+        prm.declare_entry("enable",
+                          "false",
+                          Patterns::Bool(),
+                          "Compute and write forces on given boundary");
+        prm.declare_entry("boundary id",
+                          "0",
+                          Patterns::Integer(0),
+                          "Boundary id on which forces should be computed");
+        prm.declare_entry("write results",
+                          "true",
+                          Patterns::Bool(),
+                          "Write computed forces to file");
+        prm.declare_entry("output prefix",
+                          "forces",
+                          Patterns::FileName(),
+                          "Prefix for the forces output files");
+        prm.declare_entry(
+          "output frequency",
+          "1",
+          Patterns::Integer(1),
+          "Frequency (in time steps) for the exportation of forces files");
+        prm.declare_entry("precision",
+                          "6",
+                          Patterns::Integer(1),
+                          "Number of significant digits to print");
+        prm.declare_entry("computation method",
+                          "stress vector",
+                          Patterns::Selection(
+                            "stress vector|lagrange multiplier"),
+                          "Method used to evaluate the hydrodynamic forces");
+        DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("structure position");
+      {
+        prm.declare_entry("compute center position",
+                          "false",
+                          Patterns::Bool(),
+                          "Compute and write position of the geometric center "
+                          "of the structure enclosed by the given boundary id");
+        prm.declare_entry(
+          "boundary id",
+          "0",
+          Patterns::Integer(0),
+          "Boundary id on which the geometric center should be computed");
+        prm.declare_entry("output prefix",
+                          "center_position",
+                          Patterns::FileName(),
+                          "Prefix for the center's position output files");
+        prm.declare_entry("output frequency",
+                          "1",
+                          Patterns::Integer(1),
+                          "Frequency (in time steps) for the exportation of "
+                          "center's position files");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("slicing");
+      {
+        prm.declare_entry(
+          "enable",
+          "false",
+          Patterns::Bool(),
+          "Enable force computation on slices of the prescribed boundary");
+        prm.declare_entry("boundary id",
+                          "0",
+                          Patterns::Integer(0),
+                          "Boundary to slice");
+        prm.declare_entry("along which axis",
+                          "z",
+                          Patterns::Selection("x|y|z"),
+                          "Axis along which the slices are defined");
+        prm.declare_entry("number of slices",
+                          "1",
+                          Patterns::Integer(1),
+                          "Number of slices along the chosen direction");
+        prm.declare_entry("write vtu",
+                          "false",
+                          Patterns::Bool(),
+                          "Write a pvtu file per slice");
+        prm.declare_entry(
+          "compute forces",
+          "false",
+          Patterns::Bool(),
+          "Compute and write the hydrodynamic forces on each slice");
+        prm.declare_entry(
+          "output prefix",
+          "center_position",
+          Patterns::FileName(),
+          "Prefix for the output files containing the forces on slices");
+        prm.declare_entry(
+          "output frequency",
+          "1",
+          Patterns::Integer(1),
+          "Frequency (in time steps) of force file writing on slices");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
 
   void PostProcessing::read_parameters(ParameterHandler &prm)
   {
-    prm.enter_subsection("PostProcessing");
+    prm.enter_subsection("Postprocessing");
     {
-      write_force         = prm.get_bool("write force");
-      write_body_position = prm.get_bool("write body position");
-
-      force_and_position_output_frequency =
-        prm.get_integer("force and position output frequency");
-
-      enable_slicing = prm.get_bool("enable slicing");
-
-      slicing_boundary_id = prm.get_integer("slicing boundary id");
-
-      slicing_direction = prm.get("slicing direction");
-      number_of_slices  = prm.get_integer("number of slices");
-
-      write_force_per_slice = prm.get_bool("write force per slice");
-      force_per_slice_output_frequency =
-        prm.get_integer("force per slice output frequency");
-
-      write_slice_vtu = prm.get_bool("write slice vtu");
+      prm.enter_subsection("forces computation");
+      {
+        forces.enable                   = prm.get_bool("enable");
+        forces.boundary_id              = prm.get_integer("boundary id");
+        forces.write_results            = prm.get_bool("write results");
+        forces.output_prefix            = prm.get("output prefix");
+        forces.output_frequency         = prm.get_integer("output frequency");
+        forces.precision                = prm.get_integer("precision");
+        const std::string parsed_method = prm.get("computation method");
+        if (parsed_method == "stress vector")
+          forces.method = Forces::ComputationMethod::stress_vector;
+        else if (parsed_method == "lagrange multiplier")
+          forces.method = Forces::ComputationMethod::lagrange_multiplier;
+        READ_VERBOSITY_PARAM(prm, forces.verbosity)
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("structure position");
+      {
+        structure_position.compute_center_position =
+          prm.get_bool("compute center position");
+        structure_position.boundary_id   = prm.get_integer("boundary id");
+        structure_position.output_prefix = prm.get("output prefix");
+        structure_position.output_frequency =
+          prm.get_integer("output frequency");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("slicing");
+      {
+        slices.enable                   = prm.get_bool("enable");
+        slices.boundary_id              = prm.get_integer("boundary id");
+        slices.along_which_axis         = prm.get("along which axis");
+        slices.n_slices                 = prm.get_integer("number of slices");
+        slices.write_vtu                = prm.get_bool("write vtu");
+        slices.compute_forces_on_slices = prm.get_bool("compute forces");
+        slices.output_prefix            = prm.get("output prefix");
+        slices.output_frequency         = prm.get_integer("output frequency");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
-
 
   // Declare the parameters for a quadrature rule.
   // The default parameters are different for the rule to compute the numerical
@@ -474,6 +541,7 @@ namespace Parameters
     {
       density             = prm.get_double("density");
       kinematic_viscosity = prm.get_double("kinematic viscosity");
+      dynamic_viscosity   = density * kinematic_viscosity;
     }
     prm.leave_subsection();
   }
@@ -629,7 +697,7 @@ namespace Parameters
         reassembly_decrease_tol = prm.get_double("decrease tolerance");
       }
       prm.leave_subsection();
-      READ_VERBOSITY_PARAM(prm);
+      READ_VERBOSITY_PARAM(prm, verbosity)
     }
     prm.leave_subsection();
   }
@@ -681,7 +749,7 @@ namespace Parameters
         max_iterations = prm.get_integer("max iterations");
         ilu_fill_level = prm.get_integer("ilu fill level");
         reuse          = prm.get_bool("reuse");
-        READ_VERBOSITY_PARAM(prm);
+        READ_VERBOSITY_PARAM(prm, verbosity)
       }
       prm.leave_subsection();
     }
@@ -753,7 +821,7 @@ namespace Parameters
       else
         throw std::runtime_error("Unknown BDF starting method : " +
                                  parsed_startup);
-      READ_VERBOSITY_PARAM(prm)
+      READ_VERBOSITY_PARAM(prm, verbosity)
     }
     prm.leave_subsection();
   }
@@ -1058,8 +1126,10 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void FSI::declare_parameters(ParameterHandler &prm)
+  template <int dim>
+  void FSI<dim>::declare_parameters(ParameterHandler &prm)
   {
+    const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
     prm.enter_subsection("FSI");
     {
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
@@ -1081,11 +1151,10 @@ namespace Parameters
                         "Mass of the studied system");
       prm.declare_entry("cylinder radius", "1", Patterns::Double(), "");
       prm.declare_entry("cylinder length", "1", Patterns::Double(), "");
-
-      prm.declare_entry("cylinder center x", "1", Patterns::Double(), "");
-      prm.declare_entry("cylinder center y", "1", Patterns::Double(), "");
-
-
+      prm.declare_entry("cylinder center",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Center of the cylinder");
       prm.declare_entry("fix z component", "true", Patterns::Bool(), "");
       prm.declare_entry("compute error on forces",
                         "false",
@@ -1095,24 +1164,27 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void FSI::read_parameters(ParameterHandler &prm)
+  template <int dim>
+  void FSI<dim>::read_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("FSI");
     {
-      READ_VERBOSITY_PARAM(prm)
-      enable_coupling         = prm.get_bool("enable coupling");
-      spring_constant         = prm.get_double("spring constant");
-      damping                 = prm.get_double("damping");
-      mass                    = prm.get_double("mass");
-      cylinder_radius         = prm.get_double("cylinder radius");
-      cylinder_length         = prm.get_double("cylinder length");
-      cylinder_centerx        = prm.get_double("cylinder center x");
-      cylinder_centery        = prm.get_double("cylinder center x");
-      fix_z_component         = prm.get_bool("fix z component");
+      READ_VERBOSITY_PARAM(prm, verbosity)
+      enable_coupling = prm.get_bool("enable coupling");
+      spring_constant = prm.get_double("spring constant");
+      damping         = prm.get_double("damping");
+      mass            = prm.get_double("mass");
+      cylinder_radius = prm.get_double("cylinder radius");
+      cylinder_length = prm.get_double("cylinder length");
+      cylinder_center = parse_rank_1_tensor<dim>(prm.get("cylinder center"));
+      fix_z_component = prm.get_bool("fix z component");
       compute_error_on_forces = prm.get_bool("compute error on forces");
     }
     prm.leave_subsection();
   }
+
+  template struct FSI<2>;
+  template struct FSI<3>;
 
   void Debug::declare_parameters(ParameterHandler &prm)
   {
@@ -1158,7 +1230,7 @@ namespace Parameters
   {
     prm.enter_subsection("Debug");
     {
-      READ_VERBOSITY_PARAM(prm)
+      READ_VERBOSITY_PARAM(prm, verbosity)
       write_dealii_mesh_as_msh = prm.get_bool("write dealii mesh as msh");
       write_partition_pos_gmsh = prm.get_bool("write partition gmsh");
       apply_exact_solution     = prm.get_bool("apply exact solution");

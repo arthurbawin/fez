@@ -143,7 +143,7 @@ public:
   /**
    *
    */
-  virtual void output_results() override;
+  virtual void add_solver_specific_postprocessing_data() override;
 
   /**
    *
@@ -158,12 +158,6 @@ public:
   virtual void solver_specific_post_processing() override;
 
   /**
-   * Compute the forces on the obstacle.
-   * These need to nondimensionalized to obtain the force coefficients.
-   */
-  void compute_forces_lagrange_multiplier(const bool export_table);
-
-  /**
    * Compute the slices forces on the obstacle.
    * These need to nondimensionalized to obtain the force coefficients.
    */
@@ -174,7 +168,18 @@ public:
    */
   void write_cylinder_position(const bool export_table);
 
+protected:
+  virtual std::vector<std::pair<std::string, unsigned int>>
+  get_additional_variables_description() const override
+  {
+    std::vector<std::pair<std::string, unsigned int>> description;
+    description.push_back({"lambda", dim});
+    return description;
+  }
+
   virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
+
+  virtual bool uses_hp_capabilities() const override { return false; };
 
 protected:
   std::shared_ptr<FESystem<dim>> fe;

@@ -2007,15 +2007,10 @@ void FSISolver<dim>::assemble_local_rhs(
 
             const auto  &bc = this->param.fluid_bc.at(face->boundary_id());
             const double Omega =
-              (bc.Omega ? bc.Omega->value(xq_fixed, 0) : 0.0);
+              (bc.angular_velocity ? bc.angular_velocity->value(xq_fixed, 0) :
+                                     0.0);
 
-            Point<dim> xc;
-            xc[0] = this->param.fsi.cylinder_centerx;
-            xc[1] = this->param.fsi.cylinder_centery;
-
-            /*can be change for a more generals forme */
-            if constexpr (dim == 3)
-              xc[2] = 0.0;
+            Point<dim> xc = this->param.fsi.cylinder_center;
 
             Tensor<1, dim> u_rot;
             u_rot = 0.0;
@@ -2550,16 +2545,11 @@ void FSISolver<dim>::check_velocity_boundary() const
           const auto  b_id = face->boundary_id();
           const auto &bc   = this->param.fluid_bc.at(b_id);
 
+          const double Omega =
+            (bc.angular_velocity ? bc.angular_velocity->value(xq_fixed, 0) :
+                                   0.0);
 
-          const double Omega = (bc.Omega ? bc.Omega->value(xq_fixed, 0) : 0.0);
-
-
-
-          Point<dim> xc;
-          xc[0] = this->param.fsi.cylinder_centerx;
-          xc[1] = this->param.fsi.cylinder_centery;
-          if constexpr (dim == 3)
-            xc[2] = 0.0;
+          Point<dim> xc = this->param.fsi.cylinder_center;
 
           const double rx = xq_fixed[0] - xc[0];
           const double ry = xq_fixed[1] - xc[1];
@@ -2597,7 +2587,6 @@ void FSISolver<dim>::check_velocity_boundary() const
     this->pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
     this->pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
     this->pcout << "||uh - wh||_Li = " << li_error << std::endl;
-    this->pcout << "u_rot =" << u_rot << std::endl;
   }
 
   if (!this->param.debug.fsi_apply_erroneous_coupling)
@@ -2952,85 +2941,11 @@ void FSISolver<dim>::compute_solver_specific_errors()
 }
 
 template <int dim>
-void FSISolver<dim>::output_results()
+void FSISolver<dim>::add_solver_specific_postprocessing_data()
 {
-  // Full-domain VTU output
-  if (this->param.output.write_results &&
-      (this->time_handler.current_time_iteration %
-           this->param.output.vtu_output_frequency ==
-         0 ||
-       this->time_handler.is_finished()))
+  if (this->postproc_handler->should_output_volume_fields(this->time_handler))
   {
-    std::vector<std::string> solution_names;
-    solution_names.reserve(3 * dim + 1);
-
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("velocity");
-    solution_names.push_back("pressure");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("mesh_position");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("lambda");
-
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation;
-    data_component_interpretation.reserve(3 * dim + 1);
-
-    for (unsigned int d = 0; d < dim; ++d)
-      data_component_interpretation.push_back(
-        DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-    for (unsigned int d = 0; d < dim; ++d)
-      data_component_interpretation.push_back(
-        DataComponentInterpretation::
-          component_is_part_of_vector); // mesh_position
-    for (unsigned int d = 0; d < dim; ++d)
-      data_component_interpretation.push_back(
-        DataComponentInterpretation::component_is_part_of_vector); // lambda
-
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(this->dof_handler);
-
-    data_out.add_data_vector(this->present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-
-    LA::ParVectorType mesh_velocity;
-    mesh_velocity.reinit(this->locally_owned_dofs, this->mpi_communicator);
-
-    const IndexSet disp_dofs =
-      DoFTools::extract_dofs(this->dof_handler, this->position_mask);
-
-    for (const auto &i : disp_dofs)
-      if (this->locally_owned_dofs.is_element(i))
-        mesh_velocity[i] =
-          this->time_handler.compute_time_derivative(i,
-                                                     this->present_solution,
-                                                     this->previous_solutions);
-
-    mesh_velocity.compress(VectorOperation::insert);
-
-    std::vector<std::string> mesh_velocity_name;
-    mesh_velocity_name.reserve(3 * dim + 1);
-
-    for (unsigned int d = 0; d < dim; ++d)
-      mesh_velocity_name.push_back("ph_velocity");
-    mesh_velocity_name.push_back("ph_pressure");
-    for (unsigned int d = 0; d < dim; ++d)
-      mesh_velocity_name.push_back("mesh_velocity");
-    for (unsigned int d = 0; d < dim; ++d)
-      mesh_velocity_name.push_back("ph_lambda");
-
-    data_out.add_data_vector(mesh_velocity,
-                             mesh_velocity_name,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-
-
     // Export Lamé coefficients on cell
-
     Vector<float> lame_mu_cell(this->triangulation.n_active_cells());
     Vector<float> lame_lambda_cell(this->triangulation.n_active_cells());
 
@@ -3078,187 +2993,22 @@ void FSISolver<dim>::output_results()
       lame_lambda_cell[idx]  = static_cast<float>(la_avg);
     }
 
-
-    data_out.add_data_vector(lame_mu_cell,
-                             "lame_mu",
-                             DataOut<dim>::type_cell_data);
-
-    data_out.add_data_vector(lame_lambda_cell,
-                             "lame_lambda",
-                             DataOut<dim>::type_cell_data);
-
-    //
-    // Partition
-    //
-    Vector<float> subdomain(this->triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = this->triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain");
-
-    data_out.build_patches(*this->moving_mapping, 2);
-
-    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      this->param.output.output_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
-
-    this->visualization_times_and_names.emplace_back(
-      this->time_handler.current_time, pvtu_file);
+    this->postproc_handler->add_cell_data_vector(lame_mu_cell, "lame_mu");
+    this->postproc_handler->add_cell_data_vector(lame_lambda_cell,
+                                                 "lame_lambda");
   }
 
+  // // Add the slice index on the skin
+  // if (this->postproc_handler->should_output_skin_fields(this->time_handler))
+  //   if (this->param.postprocessing.enable_slicing)
+  //   {
+  //     const Vector<double> &slice_index =
+  //       this->postproc_handler.get_slice_index();
 
-
-  // 2) Skin (boundary-only) VTU output
-  if (this->param.output.write_skin_results &&
-      this->param.output.skin_boundary_id != numbers::invalid_unsigned_int &&
-      (this->time_handler.current_time_iteration %
-           this->param.output.skin_vtu_output_frequency ==
-         0 ||
-       this->time_handler.is_finished()))
-  {
-    std::vector<std::string> solution_names_faces;
-    solution_names_faces.reserve(3 * dim + 1);
-
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names_faces.push_back("velocity");
-    solution_names_faces.push_back("pressure");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names_faces.push_back("mesh_position");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names_faces.push_back("lambda");
-
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation_faces;
-    data_component_interpretation_faces.reserve(3 * dim + 1);
-
-    for (unsigned int d = 0; d < dim; ++d)
-      data_component_interpretation_faces.push_back(
-        DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation_faces.push_back(
-      DataComponentInterpretation::component_is_scalar);
-    for (unsigned int d = 0; d < dim; ++d)
-      data_component_interpretation_faces.push_back(
-        DataComponentInterpretation::
-          component_is_part_of_vector); // mesh_position
-    for (unsigned int d = 0; d < dim; ++d)
-      data_component_interpretation_faces.push_back(
-        DataComponentInterpretation::component_is_part_of_vector); // lambda
-
-
-    PostProcessingTools::DataOutFacesOnBoundary<dim> data_out_faces(
-      this->triangulation, this->param.output.skin_boundary_id);
-
-    data_out_faces.attach_dof_handler(this->dof_handler);
-
-    data_out_faces.add_data_vector(this->present_solution,
-                                   solution_names_faces,
-                                   DataOutFaces<dim>::type_dof_data,
-                                   data_component_interpretation_faces);
-
-
-    if (this->param.postprocessing.enable_slicing)
-    {
-      const dealii::Vector<double> &slice_index =
-        this->postproc_handler.get_slice_index();
-
-
-      data_out_faces.add_data_vector(slice_index,
-                                     "slice index",
-                                     DataOutFaces<dim>::type_cell_data);
-    }
-
-    data_out_faces.build_patches(*this->moving_mapping, 2);
-
-    const std::string skin_prefix = this->param.output.output_prefix + "_skin";
-
-    const std::string skin_pvtu_file =
-      data_out_faces.write_vtu_with_pvtu_record(
-        this->param.output.output_dir,
-        skin_prefix,
-        this->time_handler.current_time_iteration,
-        this->mpi_communicator,
-        2);
-
-    this->visualization_times_and_names.emplace_back(
-      this->time_handler.current_time, skin_pvtu_file);
-  }
-}
-
-
-template <int dim>
-void FSISolver<dim>::compute_forces_lagrange_multiplier(const bool export_table)
-{
-  Tensor<1, dim> lambda_integral, lambda_integral_local;
-  lambda_integral_local = 0;
-
-  FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                   *fe,
-                                   *this->face_quadrature,
-                                   update_values | update_quadrature_points |
-                                     update_JxW_values | update_normal_vectors);
-
-  const unsigned int          n_faces_q_points = this->face_quadrature->size();
-  std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        fe_face_values.reinit(cell, i_face);
-
-        // Get FE solution values on the face
-        fe_face_values[lambda_extractor].get_function_values(
-          this->present_solution, lambda_values);
-
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-          lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
-      }
-    }
-  }
-
-  for (unsigned int d = 0; d < dim; ++d)
-    lambda_integral[d] =
-      Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
-
-  //
-  // Forces on the cylinder are the NEGATIVE of the integral of lambda
-  //
-  this->forces_table.add_value("time", this->time_handler.current_time);
-  this->forces_table.add_value("Fx", -lambda_integral[0]);
-  this->forces_table.add_value("Fy", -lambda_integral[1]);
-  // Set the precision
-  this->forces_table.set_precision("Fx", 10);
-  this->forces_table.set_precision("Fy", 10);
-  this->forces_table.set_scientific("Fx", true);
-  this->forces_table.set_scientific("Fy", true);
-
-
-  if constexpr (dim == 3)
-  {
-    this->forces_table.add_value("Fz", -lambda_integral[2]);
-    this->forces_table.set_precision("Fz", 10);
-    this->forces_table.set_scientific("Fz", true);
-  }
-
-  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "Computed forces: " << -lambda_integral << std::endl;
-
-  if (export_table && this->mpi_rank == 0)
-  {
-    std::ofstream outfile(this->param.output.output_dir + "forces.txt");
-    outfile << std::scientific << std::setprecision(10);
-    this->forces_table.write_text(outfile);
-  }
+  //     data_out_faces.add_data_vector(slice_index,
+  //                                    "slice index",
+  //                                    DataOutFaces<dim>::type_cell_data);
+  //   }
 }
 
 template <int dim>
@@ -3266,27 +3016,26 @@ void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
   const bool export_table)
 {
   // Get the slice_index by active_cell_index
-  const dealii::Vector<double> &slice_index =
-    this->postproc_handler.get_slice_index();
+  const Vector<double> &slice_index = this->postproc_handler->get_slice_index();
 
   // number of slices needed
   const unsigned int n_slices = std::max(
-    1u, static_cast<unsigned int>(this->param.postprocessing.number_of_slices));
+    1u, static_cast<unsigned int>(this->param.postprocessing.slices.n_slices));
 
   const UpdateFlags face_flags = update_values | update_quadrature_points |
                                  update_normal_vectors | update_JxW_values;
 
-  dealii::FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                           this->get_fe_system(),
-                                           *this->face_quadrature,
-                                           face_flags);
+  FEFaceValues<dim> fe_face_values(*this->moving_mapping,
+                                   this->get_fe_system(),
+                                   *this->face_quadrature,
+                                   face_flags);
 
 
-  const unsigned int                  n_q = this->face_quadrature->size();
-  std::vector<dealii::Tensor<1, dim>> lambda_values(n_q);
+  const unsigned int          n_q = this->face_quadrature->size();
+  std::vector<Tensor<1, dim>> lambda_values(n_q);
 
-  std::vector<dealii::Tensor<1, dim>> lambda_integral_slices_local(n_slices);
-  std::vector<dealii::Tensor<1, dim>> lambda_integral_slices(n_slices);
+  std::vector<Tensor<1, dim>> lambda_integral_slices_local(n_slices);
+  std::vector<Tensor<1, dim>> lambda_integral_slices(n_slices);
 
   for (unsigned int k = 0; k < n_slices; ++k)
   {
@@ -3354,8 +3103,8 @@ void FSISolver<dim>::compute_slices_forces_lagrange_multiplier(
   for (unsigned int k = 0; k < n_slices; ++k)
     for (unsigned int d = 0; d < dim; ++d)
       lambda_integral_slices[k][d] =
-        dealii::Utilities::MPI::sum(lambda_integral_slices_local[k][d],
-                                    this->mpi_communicator);
+        Utilities::MPI::sum(lambda_integral_slices_local[k][d],
+                            this->mpi_communicator);
 
 
   this->slices_forces_table.add_value("time", this->time_handler.current_time);
@@ -3501,34 +3250,26 @@ void FSISolver<dim>::solver_specific_post_processing()
       check_velocity_boundary();
   }
 
-  // Call of interne post processing fonction with there linked conditions
-  const bool export_force_table =
-    (this->param.postprocessing.write_force &&
-     (this->time_handler.is_steady() ||
-      ((this->time_handler.current_time_iteration %
-        this->param.postprocessing.force_and_position_output_frequency) == 0)));
-
-  compute_forces_lagrange_multiplier(export_force_table);
-
-  if (this->param.postprocessing.enable_slicing)
+  if (this->param.postprocessing.slices.enable)
   {
     const bool export_slices_force_table =
-      (this->param.postprocessing.write_force_per_slice &&
+      (this->param.postprocessing.slices.compute_forces_on_slices &&
        (this->time_handler.is_steady() ||
         ((this->time_handler.current_time_iteration %
-          this->param.postprocessing.force_and_position_output_frequency) ==
-         0)));
+          this->param.postprocessing.slices.output_frequency) == 0)));
 
     compute_slices_forces_lagrange_multiplier(export_slices_force_table);
   }
 
-  const bool export_position_table =
-    this->param.postprocessing.write_body_position &&
-    (this->time_handler.is_steady() ||
-     ((this->time_handler.current_time_iteration %
-       this->param.postprocessing.force_and_position_output_frequency) == 0));
+  if (this->param.postprocessing.structure_position.compute_center_position)
+  {
+    const bool export_position_table =
+      this->time_handler.is_steady() ||
+      ((this->time_handler.current_time_iteration %
+        this->param.postprocessing.structure_position.output_frequency) == 0);
 
-  write_cylinder_position(export_position_table);
+    write_cylinder_position(export_position_table);
+  }
 }
 
 // Explicit instantiation

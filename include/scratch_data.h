@@ -569,6 +569,10 @@ public:
      * current cell, extracted from the hp::FEValues with
      * get_present_fe_values().
      */
+
+    std::fill(face_boundary_id.begin(),
+              face_boundary_id.end(),
+              numbers::invalid_unsigned_int);
     active_fe_values = this->reinit(cell, false);
     if (enable_pseudo_solid)
       active_fe_values_fixed = this->reinit(cell, true);
@@ -619,6 +623,14 @@ public:
           if (enable_pseudo_solid)
             active_fe_face_values_fixed = this->reinit(cell, i_face, true);
 
+          face_q_points[i_face] =
+            active_fe_face_values->get_quadrature_points();
+
+          if (enable_pseudo_solid)
+            face_q_points_fixed[i_face] =
+              active_fe_face_values_fixed->get_quadrature_points();
+
+
           reinit_navier_stokes_face(i_face,
                                     *active_fe_face_values,
                                     current_solution,
@@ -644,6 +656,31 @@ public:
       }
   }
 
+  const std::vector<Point<dim>> &
+  get_face_quadrature_points(const unsigned int i_face) const
+  {
+    AssertIndexRange(i_face, n_faces);
+    Assert(face_boundary_id[i_face] != numbers::invalid_unsigned_int,
+           ExcMessage("Face quadrature points requested but this face was not "
+                      "reinit'ed on the current cell."));
+    return face_q_points[i_face];
+  }
+
+  const std::vector<Point<dim>> &
+  get_face_quadrature_points_fixed(const unsigned int i_face) const
+  {
+    Assert(enable_pseudo_solid,
+           ExcMessage("Fixed face quadrature points requested but pseudo-solid "
+                      "is disabled."));
+    AssertIndexRange(i_face, n_faces);
+    Assert(face_boundary_id[i_face] != numbers::invalid_unsigned_int,
+           ExcMessage("Fixed face quadrature points requested but this face "
+                      "was not reinit'ed on the current cell."));
+    return face_q_points_fixed[i_face];
+  }
+
+
+
 private:
   const bool              use_quads;
   const ComponentOrdering ordering;
@@ -666,10 +703,11 @@ private:
   Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
   // Non-owning pointers for active FEValues/FaceValues
-  const FEValues<dim>     *active_fe_values;
-  const FEValues<dim>     *active_fe_values_fixed;
-  const FEFaceValues<dim> *active_fe_face_values;
-  const FEFaceValues<dim> *active_fe_face_values_fixed;
+  const FEValues<dim>     *active_fe_values            = nullptr;
+  const FEValues<dim>     *active_fe_values_fixed      = nullptr;
+  const FEFaceValues<dim> *active_fe_face_values       = nullptr;
+  const FEFaceValues<dim> *active_fe_face_values_fixed = nullptr;
+
 
   std::unique_ptr<FEValues<dim>>     fe_values;
   std::unique_ptr<FEValues<dim>>     fe_values_fixed;
@@ -680,6 +718,9 @@ private:
   std::unique_ptr<hp::FEValues<dim>>     hp_fe_values_fixed;
   std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values;
   std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values_fixed;
+
+  std::vector<std::vector<Point<dim>>> face_q_points;
+  std::vector<std::vector<Point<dim>>> face_q_points_fixed;
 
 public:
   unsigned int n_q_points;
@@ -829,18 +870,18 @@ public:
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
 
   // Tracer on current and fixed (reference) mesh
-  std::vector<double>                      tracer_values;
-  std::vector<Tensor<1, dim>>              tracer_gradients;
-  std::vector<double>                      tracer_values_fixed;
-  std::vector<Tensor<1, dim>>              tracer_gradients_fixed;
-  std::vector<std::vector<double>>         previous_tracer_values;
+  std::vector<double>              tracer_values;
+  std::vector<Tensor<1, dim>>      tracer_gradients;
+  std::vector<double>              tracer_values_fixed;
+  std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
+  std::vector<std::vector<double>> previous_tracer_values;
   // Potential on current mesh
   std::vector<double>         potential_values;
   std::vector<Tensor<1, dim>> potential_gradients;
 
-  std::vector<Tensor<1, dim>> diffusive_flux;
-  std::vector<double>         velocity_dot_tracer_gradient;
-
+  std::vector<Tensor<1, dim>>              diffusive_flux;
+  std::vector<double>                      velocity_dot_tracer_gradient;
+  std::vector<double>                      u_conv_dot_tracer_gradient;
   std::vector<std::vector<double>>         shape_phi;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
   std::vector<std::vector<double>>         shape_phi_fixed;

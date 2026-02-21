@@ -8,9 +8,7 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = false
-  set output directory = ../data/mms/
-  set output prefix    = TimeAle2
+  set write vtu results = false
 end
 
 subsection Mesh

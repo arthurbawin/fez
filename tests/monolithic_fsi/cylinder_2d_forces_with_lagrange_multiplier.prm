@@ -8,7 +8,7 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = false
+  set write vtu results    = false
   set output directory = ../data/test/
   set output prefix    = solution
 end
@@ -131,5 +131,16 @@ subsection Pseudosolid boundary conditions
     set id   = 4
     set name = InnerBoundary
     set type = coupled_to_fluid
+  end
+end
+
+subsection Postprocessing
+  subsection forces computation
+    set verbosity          = verbose
+    set enable             = true
+    set boundary id        = 4
+    set write results      = false
+    set computation method = lagrange multiplier
+    set precision          = 12
   end
 end

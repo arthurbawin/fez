@@ -12,6 +12,11 @@ Number of degrees of freedom: 12938
 
 Time step 1 - Advancing to t = 0.1.
 
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = -0.000000000000e+00
+Fy = -0.000000000000e+00
+
+
 Checking consistency between lambda integral and position BC:
 Integral of lambda on cylinder is +0.00000000e+00 +0.00000000e+00
 Prescribed displacement        is +0.00000000e+00 +8.88178420e-16
@@ -25,18 +30,23 @@ Newton iter.  0:          nonlinear residual = +3.69859724e-01
 Newton iter.  1:          nonlinear residual = +9.86043847e-04	(M)
 	Line search with alpha = +1.000 : res = +1.52689669e-07
 Newton iter.  2:          nonlinear residual = +1.52689669e-07	(M)
-	Line search with alpha = +1.000 : res = +2.01514157e-13
+	Line search with alpha = +1.000 : res = +1.83840366e-13
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = +6.634363693072e-02
+Fy = -2.492445125437e-08
+
+
 Checking consistency between lambda integral and position BC:
-Integral of lambda on cylinder is -6.63436369e-02 +2.49244508e-08
+Integral of lambda on cylinder is -6.63436369e-02 +2.49244513e-08
 Prescribed displacement        is +6.63436369e-02 -2.49244501e-08
-                         Ratio is -1.00000000e+00 -1.00000003e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +3.55271368e-15 +1.77635684e-15
+                         Ratio is -1.00000000e+00 -1.00000005e+00 (expected: -1.00000000e+00)
+Max diff between displacements is +8.88178420e-16 +1.77635684e-15
 
 Checking no-slip enforcement on cylinder:
-||uh - wh||_L2 = +3.12847375e-14
-||uh - wh||_Li = +4.73023304e-14
+||uh - wh||_L2 = +3.43505385e-14
+||uh - wh||_Li = +5.92763637e-14
 
 Time step 3 - Advancing to t = +3.00000000e-01.
 Newton iter.  0:          nonlinear residual = +4.90933126e-01
@@ -44,18 +54,23 @@ Newton iter.  0:          nonlinear residual = +4.90933126e-01
 Newton iter.  1:          nonlinear residual = +3.21684432e-03	(M)
 	Line search with alpha = +1.000 : res = +1.56799544e-06
 Newton iter.  2:          nonlinear residual = +1.56799544e-06	(M)
-	Line search with alpha = +1.000 : res = +1.86800712e-12
+	Line search with alpha = +1.000 : res = +1.86602823e-12
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = +1.539696879578e-01
+Fy = -9.929102255402e-08
+
+
 Checking consistency between lambda integral and position BC:
-Integral of lambda on cylinder is -1.53969688e-01 +9.92910215e-08
-Prescribed displacement        is +1.53969688e-01 -9.92910199e-08
+Integral of lambda on cylinder is -1.53969688e-01 +9.92910226e-08
+Prescribed displacement        is +1.53969688e-01 -9.92910207e-08
                          Ratio is -1.00000000e+00 -1.00000002e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +4.44089210e-15 +5.32907052e-15
+Max diff between displacements is +8.88178420e-16 +1.77635684e-15
 
 Checking no-slip enforcement on cylinder:
-||uh - wh||_L2 = +3.94650390e-14
-||uh - wh||_Li = +4.99650209e-14
+||uh - wh||_L2 = +4.26812084e-14
+||uh - wh||_Li = +6.79065076e-14
 
 Time step 4 - Advancing to t = +4.00000000e-01.
 Newton iter.  0:          nonlinear residual = +5.26445120e-01
@@ -63,18 +78,23 @@ Newton iter.  0:          nonlinear residual = +5.26445120e-01
 Newton iter.  1:          nonlinear residual = +5.65665376e-03	(M)
 	Line search with alpha = +1.000 : res = +4.90609959e-06
 Newton iter.  2:          nonlinear residual = +4.90609959e-06	(M)
-	Line search with alpha = +1.000 : res = +1.30368062e-11
+	Line search with alpha = +1.000 : res = +1.30366849e-11
 Stopping because residual is below prescribed tolerance (+1.00e-10)
 
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = +2.472863163154e-01
+Fy = -2.245239768069e-07
+
+
 Checking consistency between lambda integral and position BC:
-Integral of lambda on cylinder is -2.47286316e-01 +2.24523976e-07
+Integral of lambda on cylinder is -2.47286316e-01 +2.24523977e-07
 Prescribed displacement        is +2.47286316e-01 -2.24523975e-07
-                         Ratio is -1.00000000e+00 -1.00000000e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +7.99360578e-15 +2.66453526e-15
+                         Ratio is -1.00000000e+00 -1.00000001e+00 (expected: -1.00000000e+00)
+Max diff between displacements is +1.77635684e-15 +1.77635684e-15
 
 Checking no-slip enforcement on cylinder:
-||uh - wh||_L2 = +3.54580187e-14
-||uh - wh||_Li = +4.40239077e-14
+||uh - wh||_L2 = +3.91648538e-14
+||uh - wh||_Li = +6.15936379e-14
 
 Time step 5 - Advancing to t = +5.00000000e-01.
 Newton iter.  0:          nonlinear residual = +5.30797508e-01
@@ -82,15 +102,20 @@ Newton iter.  0:          nonlinear residual = +5.30797508e-01
 Newton iter.  1:          nonlinear residual = +7.84941153e-03	(M)
 	Line search with alpha = +1.000 : res = +9.64014142e-06
 Newton iter.  2:          nonlinear residual = +9.64014142e-06	(M)
-	Line search with alpha = +1.000 : res = +3.91730034e-11
+	Line search with alpha = +1.000 : res = +3.91729938e-11
 Stopping because residual is below prescribed tolerance (+1.00e-10)
+
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = +3.405275290751e-01
+Fy = -3.795311749876e-07
+
 
 Checking consistency between lambda integral and position BC:
 Integral of lambda on cylinder is -3.40527529e-01 +3.79531175e-07
-Prescribed displacement        is +3.40527529e-01 -3.79531172e-07
+Prescribed displacement        is +3.40527529e-01 -3.79531173e-07
                          Ratio is -1.00000000e+00 -1.00000001e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +7.99360578e-15 +4.44089210e-15
+Max diff between displacements is +8.88178420e-16 +1.77635684e-15
 
 Checking no-slip enforcement on cylinder:
-||uh - wh||_L2 = +4.20363447e-14
-||uh - wh||_Li = +5.55252841e-14
+||uh - wh||_L2 = +3.56627710e-14
+||uh - wh||_Li = +5.18644279e-14

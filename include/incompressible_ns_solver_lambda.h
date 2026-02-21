@@ -184,11 +184,6 @@ public:
   virtual void compute_solver_specific_errors() override;
 
   /**
-   *
-   */
-  virtual void output_results() override;
-
-  /**
    * Check that the maximum velocity dof on the boundary with weakly enforced
    * no-slip is small emough.
    */
@@ -196,11 +191,14 @@ public:
 
   virtual void solver_specific_post_processing() override;
 
-  /**
-   * Compute the "raw" forces on the obstacle.
-   * These need to nondimensionalized to obtain the force coefficients.
-   */
-  void compute_forces(const bool export_table);
+protected:
+  virtual std::vector<std::pair<std::string, unsigned int>>
+  get_additional_variables_description() const override
+  {
+    std::vector<std::pair<std::string, unsigned int>> description;
+    description.push_back({"lambda", dim});
+    return description;
+  }
 
   virtual const FESystem<dim> &get_fe_system() const override
   {
@@ -216,6 +214,37 @@ public:
         "distributing the hp dofs."));
     return *fe_with_lambda;
   }
+
+  virtual bool uses_hp_capabilities() const override { return true; };
+
+  virtual const hp::FECollection<dim> *get_fe_collection() const override
+  {
+    return fe.get();
+  };
+
+  virtual const hp::MappingCollection<dim> *
+  get_fixed_mapping_collection() const override
+  {
+    return &mapping_collection;
+  };
+
+  virtual const hp::MappingCollection<dim> *
+  get_moving_mapping_collection() const override
+  {
+    return &mapping_collection;
+  };
+
+  virtual const hp::QCollection<dim> *
+  get_cell_quadrature_collection() const override
+  {
+    return &quadrature_collection;
+  };
+
+  virtual const hp::QCollection<dim - 1> *
+  get_face_quadrature_collection() const override
+  {
+    return &face_quadrature_collection;
+  };
 
 protected:
   enum

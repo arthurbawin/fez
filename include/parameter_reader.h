@@ -23,9 +23,10 @@ public:
   Parameters::Timer                              timer;
   Parameters::Mesh                               mesh;
   Parameters::Output                             output;
+  Parameters::PostProcessing                     postprocessing;
   Parameters::FiniteElements<dim>                finite_elements;
   Parameters::PhysicalProperties<dim>            physical_properties;
-  Parameters::FSI                                fsi;
+  Parameters::FSI<dim>                           fsi;
   Parameters::TimeIntegration                    time_integration;
   Parameters::CheckpointRestart                  checkpoint_restart;
   std::map<SolverType, Parameters::LinearSolver> linear_solver;
@@ -74,6 +75,7 @@ public:
     timer.declare_parameters(prm);
     mesh.declare_parameters(prm);
     output.declare_parameters(prm);
+    postprocessing.declare_parameters(prm);
     finite_elements.declare_parameters(prm);
     physical_properties.declare_parameters(prm);
     fsi.declare_parameters(prm);
@@ -113,6 +115,7 @@ public:
     timer.read_parameters(prm);
     mesh.read_parameters(prm);
     output.read_parameters(prm);
+    postprocessing.read_parameters(prm);
     finite_elements.read_parameters(prm);
     physical_properties.read_parameters(prm);
     fsi.read_parameters(prm);

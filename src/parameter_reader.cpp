@@ -46,6 +46,17 @@ void ParameterReader<dim>::check_parameters(ParameterHandler &prm) const
       "for the initial conditions.");
   }
 
+  // Postprocessing
+  if (postprocessing.slices.enable)
+    AssertThrow(dim == 3,
+                ExcMessage("Boundary slicing is only available in 3D"));
+  if (postprocessing.structure_position.compute_center_position)
+    AssertThrow(
+      fsi.enable_coupling,
+      ExcMessage(
+        "Computing the position of the structure's geometric center only makes "
+        "sense if the fluid-structure interaction coupling is enabled."));
+
   // FSI
   if (!fsi.enable_coupling)
   {

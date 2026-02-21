@@ -24,9 +24,19 @@ end
 # the "results" folder, which must be created before running the solver.
 #
 subsection Output
-  set write results    = true
-  set output directory = results/
-  set output prefix    = flow_cylinder
+  set write vtu results = true
+  set output directory  = results/
+  set output prefix     = flow_cylinder
+end
+
+subsection Postprocessing
+  subsection forces computation
+    set enable             = true
+    set boundary id        = 4 # cylinder
+    set output prefix      = forces
+    set output frequency   = 1
+    set computation method = lagrange multiplier
+  end
 end
 
 #
@@ -65,9 +75,11 @@ end
 # where the symbolic factorization is re-used from one solver. 
 #
 subsection Linear solver
-  set verbosity      = quiet
-  set method         = direct_mumps
-  set reuse          = true
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
 end
 
 #
@@ -135,4 +147,8 @@ subsection Fluid boundary conditions
     set name = Outlet
     set type = outflow
   end
+end
+
+subsection Debug
+  set verbosity = verbose
 end

@@ -22,4 +22,3 @@ Stopping because residual is below prescribed tolerance (1.00e-10)
 Forces on boundary with id 4 computed with method : lagrange_multiplier
 Fx = +9.393034788865e+00
 Fy = -1.686098674543e-04
-

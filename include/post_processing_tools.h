@@ -58,14 +58,14 @@ namespace PostProcessingTools
   template <int dim, typename VectorType>
   Tensor<1, dim> compute_forces_on_boundary(
     const DoFHandler<dim>            &dof_handler,
-    const FiniteElement<dim>         &fe,
     const Mapping<dim>               &mapping,
     const Quadrature<dim - 1>        &face_quadrature,
     const VectorType                 &solution,
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &velocity_extractor,
     const FEValuesExtractors::Scalar &pressure_extractor,
-    const double                      dynamic_viscosity);
+    const double                      dynamic_viscosity,
+    std::vector<Tensor<1, dim>>      &force_per_face);
 
   /**
    * hp-version of the function above
@@ -73,14 +73,14 @@ namespace PostProcessingTools
   template <int dim, typename VectorType>
   Tensor<1, dim> compute_forces_on_boundary(
     const DoFHandler<dim>            &dof_handler,
-    const hp::FECollection<dim>      &fe_collection,
     const hp::MappingCollection<dim> &mapping_collection,
     const hp::QCollection<dim - 1>   &face_quadrature_collection,
     const VectorType                 &solution,
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &velocity_extractor,
     const FEValuesExtractors::Scalar &pressure_extractor,
-    const double                      dynamic_viscosity);
+    const double                      dynamic_viscosity,
+    std::vector<Tensor<1, dim>>      &force_per_face);
 
   /**
    * Compute the hydrodynamic forces on the given boundary by evaluating the
@@ -102,12 +102,12 @@ namespace PostProcessingTools
   template <int dim, typename VectorType>
   Tensor<1, dim> compute_forces_on_boundary_with_lagrange_multiplier(
     const DoFHandler<dim>            &dof_handler,
-    const FiniteElement<dim>         &fe,
     const Mapping<dim>               &mapping,
     const Quadrature<dim - 1>        &face_quadrature,
     const VectorType                 &solution,
     const types::boundary_id          boundary_id,
-    const FEValuesExtractors::Vector &lambda_extractor);
+    const FEValuesExtractors::Vector &lambda_extractor,
+    std::vector<Tensor<1, dim>>      &force_per_face);
 
   /**
    * hp-version of the function above
@@ -115,13 +115,40 @@ namespace PostProcessingTools
   template <int dim, typename VectorType>
   Tensor<1, dim> compute_forces_on_boundary_with_lagrange_multiplier(
     const DoFHandler<dim>            &dof_handler,
-    const hp::FECollection<dim>      &fe_collection,
     const hp::MappingCollection<dim> &mapping_collection,
     const hp::QCollection<dim - 1>   &face_quadrature_collection,
     const VectorType                 &solution,
     const types::boundary_id          boundary_id,
-    const FEValuesExtractors::Vector &lambda_extractor);
+    const FEValuesExtractors::Vector &lambda_extractor,
+    std::vector<Tensor<1, dim>>      &force_per_face);
 
+  /**
+   * Compute the mean value on the boundary with @p boundary_id of the
+   * vector-valued field described by @p field_extractor.
+   *
+   * This function can be used, e.g., to compute the mean position of a
+   * cylinder, that is, the position of its center.
+   */
+  template <int dim, typename VectorType>
+  Tensor<1, dim> compute_vector_mean_value_on_boundary(
+    const hp::MappingCollection<dim> &mapping_collection,
+    const DoFHandler<dim>            &dof_handler,
+    const hp::QCollection<dim - 1>   &face_quadrature_collection,
+    const VectorType                 &solution,
+    const types::boundary_id          boundary_id,
+    const FEValuesExtractors::Vector &field_extractor);
+
+  /**
+   * non-hp version of the function above.
+   */
+  template <int dim, typename VectorType>
+  Tensor<1, dim> compute_vector_mean_value_on_boundary(
+    const Mapping<dim>               &mapping,
+    const DoFHandler<dim>            &dof_handler,
+    const Quadrature<dim - 1>        &face_quadrature,
+    const VectorType                 &solution,
+    const types::boundary_id          boundary_id,
+    const FEValuesExtractors::Vector &field_extractor);
 
   enum class SliceAxis : unsigned int
   {
@@ -130,27 +157,21 @@ namespace PostProcessingTools
     z = 2
   };
 
-
   /**
-   * Compute slice indices for degrees of freedom located on a given boundary.
+   * "Slice" the given boundary along the given @p axis, that is, divide that
+   * boundary into @p n_slices pieces of equal thickness along axis. The
+   * slicing is done based on the coordinates of the faces' barycenter.
    *
-   *  The boundary @p boundary_id is partitioned into @p n_slices along the
-   * coordinate direction @p axis. Each degree of freedom on this boundary
-   * is assigned to one slice based on its geometric position.
-   *
-   * The function returns a Vector<double> containing the slice index
-   * associated with each degree of freedom. A floating-point vector is used
-   * for compatibility with deal.II data structures and post-processing.
-   *
-   * @return Vector of slice indices for the specified boundary.
+   * The slice index to which a face belongs is stored in its user index,
+   * accessible with face->user_index(). Since this user index can only be used
+   * for one application, a check is done in debug mode to ensure the user index
+   * is not in use before overwriting it.
    */
   template <int dim>
-  Vector<double>
-  compute_slice_index_on_boundary(const DoFHandler<dim>   &dof_handler,
-                                  const types::boundary_id boundary_id,
-                                  const unsigned int       n_slices,
-                                  const SliceAxis          axis,
-                                  const MPI_Comm           mpi_comm);
+  void set_slice_index_on_boundary(const Triangulation<dim> &triangulation,
+                                   const types::boundary_id  boundary_id,
+                                   const unsigned int        n_slices,
+                                   const SliceAxis           axis);
 
 } // namespace PostProcessingTools
 
@@ -159,20 +180,20 @@ namespace PostProcessingTools
 template <int dim, typename VectorType>
 Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const DoFHandler<dim>            &dof_handler,
-  const FiniteElement<dim>         &fe,
   const Mapping<dim>               &mapping,
   const Quadrature<dim - 1>        &face_quadrature,
   const VectorType                 &solution,
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &velocity_extractor,
   const FEValuesExtractors::Scalar &pressure_extractor,
-  const double                      dynamic_viscosity)
+  const double                      dynamic_viscosity,
+  std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> forces, forces_local;
   const double   mu = dynamic_viscosity;
 
   FEFaceValues<dim> fe_face_values(mapping,
-                                   fe,
+                                   dof_handler.get_fe(),
                                    face_quadrature,
                                    update_values | update_gradients |
                                      update_JxW_values | update_normal_vectors);
@@ -194,6 +215,9 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
             solution, velocity_sym_gradients);
           fe_face_values[pressure_extractor].get_function_values(
             solution, pressure_values);
+
+          auto &f = force_per_face[face->index()];
+          f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
             const double p          = pressure_values[q];
@@ -209,8 +233,10 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              */
             const auto &n           = -normals[q];
             const auto  sigma_dot_n = -p * n + 2. * mu * sym_grad_u * n;
-            forces_local += sigma_dot_n * fe_face_values.JxW(q);
+            f += sigma_dot_n * fe_face_values.JxW(q);
           }
+
+          forces_local += f;
         }
       }
   for (unsigned int d = 0; d < dim; ++d)
@@ -222,20 +248,20 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
 template <int dim, typename VectorType>
 Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const DoFHandler<dim>            &dof_handler,
-  const hp::FECollection<dim>      &fe_collection,
   const hp::MappingCollection<dim> &mapping_collection,
   const hp::QCollection<dim - 1>   &face_quadrature_collection,
   const VectorType                 &solution,
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &velocity_extractor,
   const FEValuesExtractors::Scalar &pressure_extractor,
-  const double                      dynamic_viscosity)
+  const double                      dynamic_viscosity,
+  std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> forces, forces_local;
   const double   mu = dynamic_viscosity;
 
   hp::FEFaceValues<dim> hp_fe_face_values(mapping_collection,
-                                          fe_collection,
+                                          dof_handler.get_fe_collection(),
                                           face_quadrature_collection,
                                           update_values | update_gradients |
                                             update_JxW_values |
@@ -264,6 +290,9 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
             solution, velocity_sym_gradients);
           fe_face_values[pressure_extractor].get_function_values(
             solution, pressure_values);
+
+          auto &f = force_per_face[face->index()];
+          f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
             const double p          = pressure_values[q];
@@ -279,8 +308,10 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              */
             const auto &n           = -normals[q];
             const auto  sigma_dot_n = -p * n + 2. * mu * sym_grad_u * n;
-            forces_local += sigma_dot_n * fe_face_values.JxW(q);
+            f += sigma_dot_n * fe_face_values.JxW(q);
           }
+
+          forces_local += f;
         }
       }
   for (unsigned int d = 0; d < dim; ++d)
@@ -293,17 +324,20 @@ template <int dim, typename VectorType>
 Tensor<1, dim>
 PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
   const DoFHandler<dim>            &dof_handler,
-  const FiniteElement<dim>         &fe,
   const Mapping<dim>               &mapping,
   const Quadrature<dim - 1>        &face_quadrature,
   const VectorType                 &solution,
   const types::boundary_id          boundary_id,
-  const FEValuesExtractors::Vector &lambda_extractor)
+  const FEValuesExtractors::Vector &lambda_extractor,
+  std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
 
+  for (auto &f : force_per_face)
+    f = 0;
+
   FEFaceValues<dim> fe_face_values(mapping,
-                                   fe,
+                                   dof_handler.get_fe(),
                                    face_quadrature,
                                    update_values | update_JxW_values);
 
@@ -320,8 +354,16 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
           fe_face_values.reinit(cell, i_face);
           fe_face_values[lambda_extractor].get_function_values(solution,
                                                                lambda_values);
+
+          auto &f = force_per_face[face->index()];
+          f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
-            lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
+          {
+            const Tensor<1, dim> increment =
+              lambda_values[q] * fe_face_values.JxW(q);
+            lambda_integral_local += increment;
+            f -= increment;
+          }
         }
       }
   for (unsigned int d = 0; d < dim; ++d)
@@ -339,17 +381,17 @@ template <int dim, typename VectorType>
 Tensor<1, dim>
 PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
   const DoFHandler<dim>            &dof_handler,
-  const hp::FECollection<dim>      &fe_collection,
   const hp::MappingCollection<dim> &mapping_collection,
   const hp::QCollection<dim - 1>   &face_quadrature_collection,
   const VectorType                 &solution,
   const types::boundary_id          boundary_id,
-  const FEValuesExtractors::Vector &lambda_extractor)
+  const FEValuesExtractors::Vector &lambda_extractor,
+  std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
 
   hp::FEFaceValues hp_fe_face_values(mapping_collection,
-                                     fe_collection,
+                                     dof_handler.get_fe_collection(),
                                      face_quadrature_collection,
                                      update_values | update_JxW_values);
 
@@ -370,8 +412,16 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
             hp_fe_face_values.get_present_fe_values();
           fe_face_values[lambda_extractor].get_function_values(solution,
                                                                lambda_values);
+
+          auto &f = force_per_face[face->index()];
+          f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
-            lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
+          {
+            const Tensor<1, dim> increment =
+              lambda_values[q] * fe_face_values.JxW(q);
+            lambda_integral_local += increment;
+            f -= increment;
+          }
         }
       }
 
@@ -384,6 +434,129 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
   // FIXME: This has to be consistent with the formulation chosen in the
   // solver...
   return -lambda_integral;
+}
+
+template <int dim, typename VectorType>
+Tensor<1, dim> PostProcessingTools::compute_vector_mean_value_on_boundary(
+  const hp::MappingCollection<dim> &mapping_collection,
+  const DoFHandler<dim>            &dof_handler,
+  const hp::QCollection<dim - 1>   &face_quadrature_collection,
+  const VectorType                 &solution,
+  const types::boundary_id          boundary_id,
+  const FEValuesExtractors::Vector &field_extractor)
+{
+  const hp::FECollection<dim> &fe_collection = dof_handler.get_fe_collection();
+
+  AssertDimension(solution.size(), dof_handler.n_dofs());
+
+  hp::FEFaceValues<dim> fe_face_values_collection(
+    mapping_collection,
+    fe_collection,
+    face_quadrature_collection,
+    UpdateFlags(update_JxW_values | update_values));
+
+  std::vector<Tensor<1, dim>> values;
+
+  Tensor<1, dim> mean, local_mean;
+  double         local_measure = 0.;
+
+  // Compute local_mean value
+  for (const auto &cell : dof_handler.active_cell_iterators() |
+                            IteratorFilters::LocallyOwnedCell())
+  {
+    for (const auto &face : cell->face_iterators())
+      if (face->at_boundary() && face->boundary_id() == boundary_id)
+      {
+        fe_face_values_collection.reinit(cell, face);
+        const FEFaceValues<dim> &fe_values =
+          fe_face_values_collection.get_present_fe_values();
+
+        values.resize(fe_values.n_quadrature_points);
+        fe_values[field_extractor].get_function_values(solution, values);
+        for (unsigned int k = 0; k < fe_values.n_quadrature_points; ++k)
+        {
+          local_mean += fe_values.JxW(k) * values[k];
+          local_measure += fe_values.JxW(k);
+        }
+      }
+  }
+
+  // FIXME: use MPI_Reduce instead of sum (which uses MPI_Allreduce)
+  // if result is only intended for postprocessing and to be written from rank 0
+  for (unsigned int d = 0; d < dim; ++d)
+    mean[d] =
+      Utilities::MPI::sum(local_mean[d], dof_handler.get_mpi_communicator());
+  const double measure =
+    Utilities::MPI::sum(local_measure, dof_handler.get_mpi_communicator());
+
+  return (mean / measure);
+}
+
+template <int dim, typename VectorType>
+Tensor<1, dim> PostProcessingTools::compute_vector_mean_value_on_boundary(
+  const Mapping<dim>               &mapping,
+  const DoFHandler<dim>            &dof_handler,
+  const Quadrature<dim - 1>        &face_quadrature,
+  const VectorType                 &solution,
+  const types::boundary_id          boundary_id,
+  const FEValuesExtractors::Vector &field_extractor)
+{
+  return PostProcessingTools::compute_vector_mean_value_on_boundary(
+    hp::MappingCollection<dim>(mapping),
+    dof_handler,
+    hp::QCollection<dim - 1>(face_quadrature),
+    solution,
+    boundary_id,
+    field_extractor);
+}
+
+template <int dim>
+void PostProcessingTools::set_slice_index_on_boundary(
+  const Triangulation<dim> &triangulation,
+  const types::boundary_id  boundary_id,
+  const unsigned int        n_slices,
+  const SliceAxis           axis)
+{
+  // Determine the slice thickness "delta" :
+  // get the bounding box of the owned vertices on the boundary, then take
+  // the max among the bounding boxes and divide the range by n_slices.
+  std::vector<Point<dim>> boundary_vertices;
+  for (const auto &face : triangulation.active_face_iterators())
+    if (face->at_boundary() && face->boundary_id() == boundary_id)
+      for (unsigned int v = 0; v < face->n_vertices(); ++v)
+        boundary_vertices.push_back(face->vertex(v));
+
+  BoundingBox<dim>   bbox(boundary_vertices);
+  MPI_Comm           mpi_comm = triangulation.get_mpi_communicator();
+  const unsigned int axis_id  = (unsigned int)axis;
+  const double       coord_min =
+    Utilities::MPI::min(bbox.lower_bound(axis_id), mpi_comm);
+  const double coord_max =
+    Utilities::MPI::max(bbox.upper_bound(axis_id), mpi_comm);
+
+  const double delta = (coord_max - coord_min) / n_slices;
+
+  for (const auto &face : triangulation.active_face_iterators())
+  {
+    if (face->at_boundary() && face->boundary_id() == boundary_id)
+    {
+      const Point<dim> barry   = face->center();
+      unsigned int     i_slice = floor(barry[axis_id] / delta);
+
+      // A point at coord_max will have i_slice = n_slices : decrement it
+      if (i_slice == n_slices)
+        i_slice--;
+      AssertIndexRange(i_slice, n_slices);
+
+      // We are using the face user index to store the slice index, so make
+      // sure this index is not already in use
+      Assert(face->user_index() == numbers::invalid_unsigned_int,
+             ExcMessage("Trying to store the slice index in the face user "
+                        "index, but this index is already in use."));
+
+      face->set_user_index(i_slice);
+    }
+  }
 }
 
 #endif

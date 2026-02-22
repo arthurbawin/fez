@@ -8,52 +8,16 @@ subsection Timer
 end
 
 subsection Output
-  set write vtu results    = true
-  set output directory = results/
-  set output prefix    = flow_cylinder
-
-  subsection skin
-    set write vtu results    = true
-    set boundary id       = 7
-    set output prefix     = skin
-    set output frequency  = 1
-  end
-end
-
-subsection Postprocessing
-  subsection forces computation
-    set enable             = true
-    set boundary id        = 7
-    set output prefix      = forces
-    set output frequency   = 1
-    set computation method = stress vector
-  end
-
-  subsection slicing
-    set enable           = true
-    set boundary id      = 7
-    set output prefix    = slices
-    set output frequency = 1
-    set along which axis = z
-    set number of slices = 10
-    set compute forces   = true
-  end
+  set write vtu results = false
 end
 
 subsection Mesh
-  set mesh file = ./cylinder.msh
+  set mesh file = ../../cylinder_3d.msh
 end
 
 subsection Time integration
   set verbosity        = verbose
   set scheme           = stationary
-end
-
-subsection Checkpoint Restart
-  set enable checkpoint    = false
-  set restart              = false
-  set checkpoint file      = checkpoint
-  set checkpoint frequency = 10
 end
 
 subsection Nonlinear solver
@@ -64,7 +28,7 @@ subsection Nonlinear solver
   set analytic_jacobian    = true
 
   subsection reassembly heuristic
-    set decrease tolerance = 0 #0.1
+    set decrease tolerance = 0
   end
 end
 
@@ -155,7 +119,24 @@ subsection Fluid boundary conditions
   end
 end
 
-subsection Debug
-  set verbosity = verbose
-  set fsi_coupling_option = 0
+subsection Postprocessing
+  subsection forces computation
+    set verbosity          = verbose
+    set enable             = true
+    set boundary id        = 7
+    set output prefix      = forces
+    set output frequency   = 1
+    set computation method = stress vector
+  end
+
+  subsection slicing
+    set verbosity        = verbose
+    set enable           = true
+    set boundary id      = 7
+    set output prefix    = slices
+    set output frequency = 1
+    set along which axis = z
+    set number of slices = 10
+    set compute forces   = true
+  end
 end

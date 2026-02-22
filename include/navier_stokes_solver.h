@@ -211,13 +211,21 @@ public:
   /**
    * Write the results to a vtu/pvtu file for visualization.
    */
-  void output_results();
+  void         output_results();
   virtual void add_solver_specific_postprocessing_data() {}
 
   /**
    * Compute the hydrodynamic forces on the desired boundary.
    */
   void compute_forces();
+
+  /**
+   * If solving a fluid-structure interaction problem, compute the position of
+   * the geometric center of the structure described by the given boundary id.
+   * This is done by evaluating the average of the position field on that
+   * boundary.
+   */
+  void compute_structure_mean_position();
 
   /**
    *
@@ -377,7 +385,7 @@ protected:
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  std::shared_ptr<PostProcessingHandler<dim>>            postproc_handler;
+  std::shared_ptr<PostProcessingHandler<dim>> postproc_handler;
 };
 
 #endif

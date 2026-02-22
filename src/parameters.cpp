@@ -200,79 +200,64 @@ namespace Parameters
     prm.leave_subsection();
   }
 
+  void declare_postprocessing_base(ParameterHandler &prm)
+  {
+    DECLARE_VERBOSITY_PARAM(prm, "verbose")
+    prm.declare_entry("enable",
+                      "false",
+                      Patterns::Bool(),
+                      "Enable/disable this postprocessing");
+    prm.declare_entry("write results",
+                      "true",
+                      Patterns::Bool(),
+                      "Write result of this postprocessing to file");
+    prm.declare_entry("output prefix",
+                      "forces",
+                      Patterns::FileName(),
+                      "Prefix for the postprocessing output files");
+    prm.declare_entry(
+      "output frequency",
+      "1",
+      Patterns::Integer(1),
+      "Frequency (in time steps) for the exportation of postprocessing files");
+    prm.declare_entry("precision",
+                      "6",
+                      Patterns::Integer(1),
+                      "Number of significant digits to print");
+  }
+
+  void declare_postprocessing_boundary(ParameterHandler &prm)
+  {
+    declare_postprocessing_base(prm);
+    prm.declare_entry(
+      "boundary id",
+      "0",
+      Patterns::Integer(0),
+      "Boundary id on which this postprocessing should be applied");
+  }
+
   void PostProcessing::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Postprocessing");
     {
       prm.enter_subsection("forces computation");
       {
-        prm.declare_entry("enable",
-                          "false",
-                          Patterns::Bool(),
-                          "Compute and write forces on given boundary");
-        prm.declare_entry("boundary id",
-                          "0",
-                          Patterns::Integer(0),
-                          "Boundary id on which forces should be computed");
-        prm.declare_entry("write results",
-                          "true",
-                          Patterns::Bool(),
-                          "Write computed forces to file");
-        prm.declare_entry("output prefix",
-                          "forces",
-                          Patterns::FileName(),
-                          "Prefix for the forces output files");
-        prm.declare_entry(
-          "output frequency",
-          "1",
-          Patterns::Integer(1),
-          "Frequency (in time steps) for the exportation of forces files");
-        prm.declare_entry("precision",
-                          "6",
-                          Patterns::Integer(1),
-                          "Number of significant digits to print");
+        declare_postprocessing_boundary(prm);
         prm.declare_entry("computation method",
                           "stress vector",
                           Patterns::Selection(
                             "stress vector|lagrange multiplier"),
                           "Method used to evaluate the hydrodynamic forces");
-        DECLARE_VERBOSITY_PARAM(prm, "verbose")
       }
       prm.leave_subsection();
       prm.enter_subsection("structure position");
       {
-        prm.declare_entry("compute center position",
-                          "false",
-                          Patterns::Bool(),
-                          "Compute and write position of the geometric center "
-                          "of the structure enclosed by the given boundary id");
-        prm.declare_entry(
-          "boundary id",
-          "0",
-          Patterns::Integer(0),
-          "Boundary id on which the geometric center should be computed");
-        prm.declare_entry("output prefix",
-                          "center_position",
-                          Patterns::FileName(),
-                          "Prefix for the center's position output files");
-        prm.declare_entry("output frequency",
-                          "1",
-                          Patterns::Integer(1),
-                          "Frequency (in time steps) for the exportation of "
-                          "center's position files");
+        declare_postprocessing_boundary(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("slicing");
       {
-        prm.declare_entry(
-          "enable",
-          "false",
-          Patterns::Bool(),
-          "Enable force computation on slices of the prescribed boundary");
-        prm.declare_entry("boundary id",
-                          "0",
-                          Patterns::Integer(0),
-                          "Boundary to slice");
+        declare_postprocessing_boundary(prm);
         prm.declare_entry("along which axis",
                           "z",
                           Patterns::Selection("x|y|z"),
@@ -281,29 +266,34 @@ namespace Parameters
                           "1",
                           Patterns::Integer(1),
                           "Number of slices along the chosen direction");
-        prm.declare_entry("write vtu",
-                          "false",
-                          Patterns::Bool(),
-                          "Write a pvtu file per slice");
         prm.declare_entry(
           "compute forces",
           "false",
           Patterns::Bool(),
           "Compute and write the hydrodynamic forces on each slice");
-        prm.declare_entry(
-          "output prefix",
-          "center_position",
-          Patterns::FileName(),
-          "Prefix for the output files containing the forces on slices");
-        prm.declare_entry(
-          "output frequency",
-          "1",
-          Patterns::Integer(1),
-          "Frequency (in time steps) of force file writing on slices");
       }
       prm.leave_subsection();
     }
     prm.leave_subsection();
+  }
+
+  void read_postprocessing_base(ParameterHandler                   &prm,
+                                PostProcessing::PostProcessingBase &pp_base)
+  {
+    READ_VERBOSITY_PARAM(prm, pp_base.verbosity)
+    pp_base.enable           = prm.get_bool("enable");
+    pp_base.write_results    = prm.get_bool("write results");
+    pp_base.output_prefix    = prm.get("output prefix");
+    pp_base.output_frequency = prm.get_integer("output frequency");
+    pp_base.precision        = prm.get_integer("precision");
+  }
+
+  void read_postprocessing_boundary(
+    ParameterHandler                           &prm,
+    PostProcessing::PostProcessingBaseBoundary &pp_boundary)
+  {
+    read_postprocessing_base(prm, pp_boundary);
+    pp_boundary.boundary_id = prm.get_integer("boundary id");
   }
 
   void PostProcessing::read_parameters(ParameterHandler &prm)
@@ -312,40 +302,25 @@ namespace Parameters
     {
       prm.enter_subsection("forces computation");
       {
-        forces.enable                   = prm.get_bool("enable");
-        forces.boundary_id              = prm.get_integer("boundary id");
-        forces.write_results            = prm.get_bool("write results");
-        forces.output_prefix            = prm.get("output prefix");
-        forces.output_frequency         = prm.get_integer("output frequency");
-        forces.precision                = prm.get_integer("precision");
+        read_postprocessing_boundary(prm, forces);
         const std::string parsed_method = prm.get("computation method");
         if (parsed_method == "stress vector")
           forces.method = Forces::ComputationMethod::stress_vector;
         else if (parsed_method == "lagrange multiplier")
           forces.method = Forces::ComputationMethod::lagrange_multiplier;
-        READ_VERBOSITY_PARAM(prm, forces.verbosity)
       }
       prm.leave_subsection();
       prm.enter_subsection("structure position");
       {
-        structure_position.compute_center_position =
-          prm.get_bool("compute center position");
-        structure_position.boundary_id   = prm.get_integer("boundary id");
-        structure_position.output_prefix = prm.get("output prefix");
-        structure_position.output_frequency =
-          prm.get_integer("output frequency");
+        read_postprocessing_boundary(prm, structure_position);
       }
       prm.leave_subsection();
       prm.enter_subsection("slicing");
       {
-        slices.enable                   = prm.get_bool("enable");
-        slices.boundary_id              = prm.get_integer("boundary id");
+        read_postprocessing_boundary(prm, slices);
         slices.along_which_axis         = prm.get("along which axis");
         slices.n_slices                 = prm.get_integer("number of slices");
-        slices.write_vtu                = prm.get_bool("write vtu");
         slices.compute_forces_on_slices = prm.get_bool("compute forces");
-        slices.output_prefix            = prm.get("output prefix");
-        slices.output_frequency         = prm.get_integer("output frequency");
       }
       prm.leave_subsection();
     }

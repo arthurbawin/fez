@@ -180,11 +180,6 @@ public:
 
   virtual void solver_specific_post_processing() override;
 
-  /**
-   *
-   */
-  void write_cylinder_position(const bool export_table);
-
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override

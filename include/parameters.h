@@ -123,48 +123,53 @@ namespace Parameters
 
   struct PostProcessing
   {
-    // Hydrodynamic forces on a single boundary
-    struct Forces
+    // A small base struct for postprocessed quantities which can be
+    // outputted to a file
+    struct PostProcessingBase
     {
-      Verbosity          verbosity;
-      bool               enable;
-      types::boundary_id boundary_id;
-      bool               write_results;
-      std::string        output_prefix;
-      unsigned int       output_frequency;
-      unsigned int       precision;
+      Verbosity verbosity;
 
+      // Enable/disable this postprocessing
+      bool enable;
+
+      // Output the results of this postprocessing to a file
+      bool         write_results;
+      std::string  output_prefix;
+      unsigned int output_frequency;
+      unsigned int precision;
+    };
+
+    // Derived class for postprocessing on a boundary
+    struct PostProcessingBaseBoundary : public PostProcessingBase
+    {
+      types::boundary_id boundary_id;
+    };
+
+    // Hydrodynamic forces on a single boundary
+    struct Forces : public PostProcessingBaseBoundary
+    {
       // The method used to evaluate the forces on a boundary
       enum class ComputationMethod
       {
         stress_vector,
         lagrange_multiplier
       } method;
-
     } forces;
 
     // For the FSI solver, compute and export the position of the structure's
     // geometric center.
-    struct StructurePosition
+    struct StructurePosition : public PostProcessingBaseBoundary
     {
-      bool               compute_center_position;
-      types::boundary_id boundary_id;
-      std::string        output_prefix;
-      unsigned int       output_frequency;
+      // No additional members for now
     } structure_position;
 
     // Cut structure into slices and compute forces on each individual slice
     // Used e.g. to measure correlation of forces coefficients along cylinder
-    struct Slices
+    struct Slices : public PostProcessingBaseBoundary
     {
-      bool               enable;
-      types::boundary_id boundary_id;
-      std::string        along_which_axis;
-      unsigned int       n_slices;
-      bool               write_vtu;
-      bool               compute_forces_on_slices;
-      std::string        output_prefix;
-      unsigned int       output_frequency;
+      std::string  along_which_axis;
+      unsigned int n_slices;
+      bool         compute_forces_on_slices;
     } slices;
 
     static void declare_parameters(ParameterHandler &prm);

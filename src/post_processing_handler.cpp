@@ -42,9 +42,6 @@ PostProcessingHandler<dim>::PostProcessingHandler(
         triangulation, output_param.skin.boundary_id);
     data_out_skin->attach_dof_handler(dof_handler);
   }
-
-  // if (post_proc_param.slices.enable)
-  //   create_slices(dof_handler);
 }
 
 template <int dim>
@@ -66,74 +63,106 @@ void PostProcessingHandler<dim>::write_pvd() const
 }
 
 template <int dim>
-void PostProcessingHandler<dim>::create_slices(
-  const DoFHandler<dim> &dof_handler)
+void PostProcessingHandler<dim>::create_slices()
 {
-  const unsigned int n_slices = std::max(1u, post_proc_param.slices.n_slices);
-
   const std::string &dir = post_proc_param.slices.along_which_axis;
 
-  if constexpr (dim == 2)
-    AssertThrow(dir == "x" || dir == "y",
-                ExcMessage("slicing_direction must be 'x' or 'y' in 2D."));
-  else
-    AssertThrow(dir == "x" || dir == "y" || dir == "z",
-                ExcMessage("slicing_direction must be 'x', 'y' or 'z' in 3D."));
+  AssertThrow(dir == "x" || dir == "y" || (dim == 3 && dir == "z"),
+              ExcMessage(dim == 2 ?
+                           "slicing_direction must be 'x' or 'y' in 2D." :
+                           "slicing_direction must be 'x', 'y' or 'z' in 3D."));
 
-  using SliceAxis = PostProcessingTools::SliceAxis;
-
+  using SliceAxis      = PostProcessingTools::SliceAxis;
   const SliceAxis axis = (dir == "x" ? SliceAxis::x :
                           dir == "y" ? SliceAxis::y :
                                        SliceAxis::z);
 
-  slice_index = PostProcessingTools::compute_slice_index_on_boundary<dim>(
-    dof_handler,
+  PostProcessingTools::set_slice_index_on_boundary<dim>(
+    triangulation,
     post_proc_param.slices.boundary_id,
-    n_slices,
-    axis,
-    mpi_communicator);
+    post_proc_param.slices.n_slices,
+    axis);
+
+  // Store slice indices as cell-based data.
+  // If a face is on the sliced boundary, set its cell slice index to the
+  // face user index.
+  slice_indices.reinit(triangulation.n_active_cells());
+  for (const auto &cell : triangulation.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (const auto &face : cell->face_iterators())
+        if (face->at_boundary() &&
+            face->boundary_id() == post_proc_param.slices.boundary_id)
+        {
+          slice_indices[cell->active_cell_index()] = face->user_index();
+          break;
+        }
 }
 
 template <int dim>
 void PostProcessingHandler<dim>::clear()
 {
   if (data_out)
-    data_out->clear_data_vectors();
+    data_out->clear();
   if (data_out_skin)
-    data_out_skin->clear_data_vectors();
-  subdomains.reinit(0);
+    data_out_skin->clear();
   visualization_times_and_names.clear();
   visualization_times_and_names_skin.clear();
-  solution_names.clear();
-  data_component_interpretation.clear();
-  // slice_index.clear();
+  // solution_names.clear();
+  // data_component_interpretation.clear();
+  subdomains.reinit(0);
+  slice_indices.reinit(0);
 }
 
 template <int dim>
-void PostProcessingHandler<dim>::add_force_to_table_and_write(
+void PostProcessingHandler<dim>::add_force_to_table(
   const Tensor<1, dim> &forces,
-  const TimeHandler    &time_handler)
+  const TimeHandler    &time_handler,
+  TableHandler         &force_table,
+  const unsigned int    i_slice)
 {
-  const auto &forces_param = post_proc_param.forces;
-
   // Write forces to table
   std::vector<std::string> dim_str = {"x", "y", "z"};
-  forces_table.add_value("time", time_handler.current_time);
+  force_table.add_value("time", time_handler.current_time);
+  if (i_slice != numbers::invalid_unsigned_int)
+    force_table.add_value("slice", i_slice);
   for (unsigned int d = 0; d < dim; ++d)
   {
-    forces_table.add_value("F" + dim_str[d], forces[d]);
-    forces_table.set_precision("F" + dim_str[d], forces_param.precision);
-    forces_table.set_scientific("F" + dim_str[d], true);
+    force_table.add_value("F" + dim_str[d], forces[d]);
+    force_table.set_precision("F" + dim_str[d],
+                              post_proc_param.forces.precision);
+    force_table.set_scientific("F" + dim_str[d], true);
   }
+}
 
-  // Write forces to file if time step matches the frequency
-  const auto mpi_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
-  if (should_output_forces(time_handler) && mpi_rank == 0)
+template <int dim>
+void PostProcessingHandler<dim>::add_position_to_table(
+  const Tensor<1, dim> &center_position,
+  const TimeHandler    &time_handler,
+  TableHandler         &table)
+{
+  // Write position to table
+  std::vector<std::string> dim_str = {"x", "y", "z"};
+  table.add_value("time", time_handler.current_time);
+  for (unsigned int d = 0; d < dim; ++d)
   {
-    std::ofstream outfile(output_param.output_dir +
-                          post_proc_param.forces.output_prefix + ".txt");
-    outfile << std::scientific << std::setprecision(forces_param.precision);
-    forces_table.write_text(outfile);
+    table.add_value(dim_str[d], center_position[d]);
+    table.set_precision(dim_str[d],
+                        post_proc_param.structure_position.precision);
+    table.set_scientific(dim_str[d], true);
+  }
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::write_table(
+  std::ostream                                         &out,
+  const TableHandler                                   &table,
+  const Parameters::PostProcessing::PostProcessingBase &postproc_base) const
+{
+  const auto mpi_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
+  if (mpi_rank == 0)
+  {
+    out << std::scientific << std::setprecision(postproc_base.precision);
+    table.write_text(out);
   }
 }
 

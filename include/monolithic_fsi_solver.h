@@ -157,17 +157,6 @@ public:
 
   virtual void solver_specific_post_processing() override;
 
-  /**
-   * Compute the slices forces on the obstacle.
-   * These need to nondimensionalized to obtain the force coefficients.
-   */
-  void compute_slices_forces_lagrange_multiplier(const bool export_table);
-
-  /**
-   *
-   */
-  void write_cylinder_position(const bool export_table);
-
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override

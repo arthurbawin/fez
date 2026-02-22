@@ -48,9 +48,15 @@ void ParameterReader<dim>::check_parameters(ParameterHandler &prm) const
 
   // Postprocessing
   if (postprocessing.slices.enable)
+  {
     AssertThrow(dim == 3,
                 ExcMessage("Boundary slicing is only available in 3D"));
-  if (postprocessing.structure_position.compute_center_position)
+    if (postprocessing.slices.compute_forces_on_slices)
+      AssertThrow(postprocessing.forces.enable,
+                  ExcMessage("Forces computation must be enabled to compute "
+                             "forces on slices of a given boundary"));
+  }
+  if (postprocessing.structure_position.enable)
     AssertThrow(
       fsi.enable_coupling,
       ExcMessage(

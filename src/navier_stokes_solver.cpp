@@ -869,11 +869,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::compute_forces()
 {
+  TimerOutput::Scope t(computing_timer, "Compute forces");
+
   if (uses_hp_capabilities())
   {
     postproc_handler->compute_forces(*ordering,
                                      dof_handler,
-                                     *get_fe_collection(),
                                      *get_moving_mapping_collection(),
                                      *get_face_quadrature_collection(),
                                      present_solution,
@@ -883,11 +884,35 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_forces()
   {
     postproc_handler->compute_forces(*ordering,
                                      dof_handler,
-                                     get_fe_system(),
                                      *moving_mapping,
                                      *face_quadrature,
                                      present_solution,
                                      time_handler);
+  }
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim,
+                        with_moving_mesh>::compute_structure_mean_position()
+{
+  if (uses_hp_capabilities())
+  {
+    postproc_handler->compute_structure_mean_position(
+      *ordering,
+      dof_handler,
+      *get_moving_mapping_collection(),
+      *get_face_quadrature_collection(),
+      present_solution,
+      time_handler);
+  }
+  else
+  {
+    postproc_handler->compute_structure_mean_position(*ordering,
+                                                      dof_handler,
+                                                      *moving_mapping,
+                                                      *face_quadrature,
+                                                      present_solution,
+                                                      time_handler);
   }
 }
 
@@ -898,6 +923,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 
   if (param.postprocessing.forces.enable)
     compute_forces();
+
+  if constexpr (with_moving_mesh)
+    if (param.postprocessing.structure_position.enable)
+      compute_structure_mean_position();
 
   if (param.mms_param.enable)
     compute_errors();

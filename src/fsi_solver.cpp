@@ -3233,72 +3233,6 @@ void FSISolverLessLambda<dim>::compute_solver_specific_errors()
 }
 
 template <int dim>
-void FSISolverLessLambda<dim>::write_cylinder_position(const bool export_table)
-{
-  Tensor<1, dim> average_position, position_integral_local;
-  double         boundary_measure_local = 0.;
-
-  hp::FEFaceValues<dim> hp_fe_face_values_fixed(fixed_mapping_collection,
-                                                *fe,
-                                                face_quadrature_collection,
-                                                update_values |
-                                                  update_JxW_values);
-
-  const unsigned int          n_faces_q_points = this->face_quadrature->size();
-  std::vector<Tensor<1, dim>> position_values(n_faces_q_points);
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        hp_fe_face_values_fixed.reinit(cell, i_face);
-        const auto &fe_face_values_fixed =
-          hp_fe_face_values_fixed.get_present_fe_values();
-
-        // Get FE solution values on the face
-        fe_face_values_fixed[this->position_extractor].get_function_values(
-          this->present_solution, position_values);
-
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-        {
-          boundary_measure_local += fe_face_values_fixed.JxW(q);
-          position_integral_local +=
-            position_values[q] * fe_face_values_fixed.JxW(q);
-        }
-      }
-    }
-  }
-
-  const double boundary_measure =
-    Utilities::MPI::sum(boundary_measure_local, this->mpi_communicator);
-  for (unsigned int d = 0; d < dim; ++d)
-    average_position[d] =
-      1. / boundary_measure *
-      Utilities::MPI::sum(position_integral_local[d], this->mpi_communicator);
-
-  cylinder_position_table.add_value("time", this->time_handler.current_time);
-  cylinder_position_table.add_value("xc", average_position[0]);
-  cylinder_position_table.add_value("yc", average_position[1]);
-  if constexpr (dim == 3)
-    cylinder_position_table.add_value("zc", average_position[2]);
-
-  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
-  {
-    std::ofstream outfile(this->param.output.output_dir +
-                          "cylinder_center.txt");
-    cylinder_position_table.write_text(outfile);
-  }
-}
-
-template <int dim>
 void FSISolverLessLambda<dim>::solver_specific_post_processing()
 {
   if (this->param.mms_param.enable)
@@ -3330,11 +3264,6 @@ void FSISolverLessLambda<dim>::solver_specific_post_processing()
             Parameters::TimeIntegration::BDFStart::initial_condition))
       check_velocity_boundary();
   }
-
-  const bool export_position_table =
-    this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 1) == 0);
-  write_cylinder_position(export_position_table);
 }
 
 // Explicit instantiation

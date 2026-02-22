@@ -8,9 +8,7 @@ subsection Timer
 end
 
 subsection Output
-  set write vtu results    = false
-  set output directory = ../data/test/
-  set output prefix    = solution
+  set write vtu results = false
 end
 
 subsection Mesh
@@ -135,6 +133,9 @@ subsection Pseudosolid boundary conditions
 end
 
 subsection Postprocessing
+  #
+  # Compute and print the forces on the cylinder
+  #
   subsection forces computation
     set verbosity          = verbose
     set enable             = true
@@ -142,5 +143,16 @@ subsection Postprocessing
     set write results      = false
     set computation method = lagrange multiplier
     set precision          = 12
+  end
+
+  #
+  # Compute and print the position of the center of the cylinder
+  #
+  subsection structure position
+    set enable           = true
+    set boundary id      = 4
+    set output prefix    = center
+    set output frequency = 1
+    set precision        = 10
   end
 end

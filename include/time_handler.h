@@ -169,27 +169,6 @@ public:
     double                                             *out_dt_used   = nullptr,
     double                                             *out_dt_next   = nullptr,
     LA::ParVectorType                                  *out_e_star    = nullptr);
-
-  /**
-   * High-level overload: build component_eps from ordering + ti,
-   * AND (optionally) scale eps with dt for MMS comparisons:
-   *   eps <- eps * (dt_run/dt_ref)^p  (p=1 for BDF1, p=2 for BDF2)
-   */
-  bool update_dt_after_converged_step_vautrin(
-    const LA::ParVectorType               &u_np1,
-    const std::vector<LA::ParVectorType>  &previous_solutions_dt_control,
-    const std::vector<unsigned char>      &dofs_to_component,
-    const ComponentOrdering               &ordering,
-    const Parameters::TimeIntegration     &ti,
-    const MPI_Comm                         comm,
-    const double                           t_end,
-    const bool                             clamp_to_t_end = true,
-    double                                *out_R         = nullptr,
-    unsigned int                          *out_order     = nullptr,
-    double                                *out_dt_used   = nullptr,
-    double                                *out_dt_next   = nullptr,
-    LA::ParVectorType                     *out_e_star    = nullptr);
-
   // ------------------------------------------------------------
   // Public state (as in your current code)
   // ------------------------------------------------------------

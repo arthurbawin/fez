@@ -741,17 +741,6 @@ prm.declare_entry("dt ratio margin",
                         "-1",
                         Patterns::Double(),
                         "Target error for potential mu (adaptive dt). If <= 0, fallback to eps_u");
-      prm.declare_entry("mms_adaptive_dt_debug",
-                        "false",
-                        Patterns::Bool(),
-                        "Enable extra adaptive-dt diagnostics (log + consistency checks) "
-                        "intended for MMS runs.");
-      prm.declare_entry("log filename",
-                      "adaptive_dt.log",
-                      Patterns::Anything(),
-                      "Filename (in output directory) where adaptive dt diagnostics are appended.");
-        
-
       prm.declare_entry("dt", "1", Patterns::Double(), "Time step");  
       prm.declare_entry("t_initial",
                         "1",
@@ -806,8 +795,6 @@ prm.declare_entry("dt ratio margin",
       eps_mu       = prm.get_double("eps_mu");
       u_seuil  = prm.get_double("u_seuil");
       safety       = prm.get_double("safety");
-      mms_adaptive_dt_debug = prm.get_bool("mms_adaptive_dt_debug");
-      log_filename = prm.get("log filename");
       mms_scale_eps_with_dt = prm.get_bool("mms_scale_eps_with_dt");
       dt        = prm.get_double("dt");
       t_initial = prm.get_double("t_initial");

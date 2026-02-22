@@ -118,15 +118,21 @@ void NavierStokesSolver<dim, with_moving_mesh>::update_time_step_after_converged
       Parameters::TimeIntegration::DtControlMode::vautrin)
     return;
 
-  // Update dt inside TimeHandler (solver-agnostic overload)
+  const auto &ti = this->get_time_parameters(); // <-- GenericSolver::time_param (scalé MMS)
+
+  auto component_eps = ordering->make_dt_control_component_eps(ti);
+
   time_handler.update_dt_after_converged_step_vautrin(
     present_solution,
     previous_solutions_dt_control,
     dofs_to_component,
-    *ordering,
-    param.time_integration,
+    component_eps,
+    ti.u_seuil,
+    ti.safety,
+    ti.dt_min_factor,
+    ti.dt_max_factor,
     mpi_communicator,
-    param.time_integration.t_end,
+    ti.t_end,
     /*clamp_to_t_end=*/true);
 }
 

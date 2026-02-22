@@ -152,16 +152,28 @@ void HeatSolver<dim>::run()
         param.time_integration.dt_control_mode ==
           Parameters::TimeIntegration::DtControlMode::vautrin)
     {
+      const auto &ti = this->get_time_parameters(); // <-- GenericSolver::time_param (scalé MMS)
+
+      auto component_eps = ordering->make_dt_control_component_eps(ti);
+
+      pcout << std::scientific << std::setprecision(6)
+      << "[DBG] ti.eps_t=" << ti.eps_t
+      << " ti.dt="    << ti.dt
+      << std::endl;
+
       time_handler.update_dt_after_converged_step_vautrin(
         present_solution,
         previous_solutions_dt_control,
         dofs_to_component,
-        *ordering,
-        param.time_integration,
+        component_eps,
+        ti.u_seuil,
+        ti.safety,
+        ti.dt_min_factor,
+        ti.dt_max_factor,
         mpi_communicator,
-        param.time_integration.t_end,
-        /*clamp_to_t_end=*/false);
-}
+        ti.t_end,
+        /*clamp_to_t_end=*/true);
+    }
 
     if (!time_handler.is_steady())
     {

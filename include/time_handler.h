@@ -43,6 +43,9 @@ public:
     return scheme == Parameters::TimeIntegration::Scheme::stationary;
   }
 
+  double get_current_dt() const { return current_dt; }
+
+
   /**
    * For BDF methods, return true if the current time step is a "starting step"
    * (none for BDF1, first steps for BDF2).
@@ -168,7 +171,10 @@ public:
     unsigned int                                       *out_order     = nullptr,
     double                                             *out_dt_used   = nullptr,
     double                                             *out_dt_next   = nullptr,
-    LA::ParVectorType                                  *out_e_star    = nullptr);
+    LA::ParVectorType                                  *out_e_star    = nullptr,
+    const double reject_factor = 2.0,
+    bool *out_step_accepted = nullptr,
+    double *out_dt_retry = nullptr);
   // ------------------------------------------------------------
   // Public state (as in your current code)
   // ------------------------------------------------------------
@@ -200,13 +206,19 @@ public:
   bool                use_programmed_dt_schedule = false;
   std::vector<double> programmed_dt;
 
+  // Rollback the last advance() (used when a time step is rejected)
+  void rollback_last_advance(const double dt_retry);
+
 private:
-  // ============================================================
-  // MMS eps scaling: dt reference captured ONCE (first run).
-  // When MMS driver refines dt (dt <- dt/2), you can scale eps as:
-  // eps <- eps * (dt/dt_ref)^p, which gives eps/2^p when dt is halved.
-  // ============================================================
-  double mms_dt_reference = -1.0;
+
+  bool                has_step_backup = false;
+  double              backup_current_time = 0.0;
+  unsigned int        backup_current_time_iteration = 0;
+  double              backup_current_dt = 0.0;
+  std::vector<double> backup_previous_times;
+  std::vector<double> backup_time_steps;
+  std::vector<double> backup_bdf_coefficients;
+  std::deque<double>  backup_pending_dt_queue;
 };
 
 /* ---------------- Template functions ----------------- */
@@ -277,11 +289,8 @@ void TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
   ar & current_dt;
   ar & time_steps;
   ar & bdf_coefficients;
-
   ar & initial_dt;
   ar & dt_ref_bounds;
-
-  ar & mms_dt_reference;
 }
 
 #endif

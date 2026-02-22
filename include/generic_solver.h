@@ -141,7 +141,7 @@ public:
       if (update_component_eps)
       {
         const double r = mms_param.time_step_reduction_factor;
-        const double r4 = r*r*r; 
+        const double r3 = r*r*r; 
         
         time_param.eps_u *= r3;
         time_param.eps_p *= r3;

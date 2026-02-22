@@ -117,81 +117,155 @@ void HeatSolver<dim>::run()
   set_initial_conditions();
   output_results();
 
+  // --- Rejection settings ---
+  const double       reject_factor         = 2.0; 
+  const unsigned int max_rejects_per_step  = 20;
+
   while (!time_handler.is_finished())
   {
-    time_handler.advance(pcout);
-    set_time();
-    update_boundary_conditions();
+    bool step_accepted = false;
+    unsigned int n_reject = 0;
 
-    if (time_handler.is_starting_step() &&
-        param.time_integration.bdfstart ==
-          Parameters::TimeIntegration::BDFStart::initial_condition)
+    while (!step_accepted)
     {
-      if (param.mms_param.enable || param.debug.apply_exact_solution)
-        // Convergence study: start with exact solution at first time step
-        set_exact_solution();
-      else
-        // Repeat initial condition
-        set_initial_conditions();
-    }
-    else
-    {
-      if (param.debug.compare_analytical_jacobian_with_fd)
-        compare_analytical_matrix_with_fd();
+      // ------------------------------------------------------------
+      // Backup solution state BEFORE advance/solve (needed if reject)
+      // ------------------------------------------------------------
+      LA::ParVectorType present_backup;
+      present_backup.reinit(present_solution);
+      present_backup = present_solution;
 
-      if (param.debug.apply_exact_solution)
-        set_exact_solution();
-      else
-        solve_nonlinear_problem(false);
-    }
+      // Si jamais tu modifies aussi les historiques dans le pas (normalement non),
+      // tu peux aussi backup :
+      auto previous_backup = previous_solutions;
+      auto previous_dt_control_backup = previous_solutions_dt_control;
 
-    postprocess_solution();
+      // ------------------------------------------------------------
+      // Attempt the step (TimeHandler already does an internal backup)
+      // ------------------------------------------------------------
+      time_handler.advance(pcout);
+      set_time();
+      update_boundary_conditions();
 
-    // Adaptive dt (Vautrin): update dt before rotating histories
-    if (!time_handler.is_steady() && param.time_integration.adaptative_dt &&
-        param.time_integration.dt_control_mode ==
-          Parameters::TimeIntegration::DtControlMode::vautrin)
-    {
-      const auto &ti = this->get_time_parameters(); // <-- GenericSolver::time_param (scalé MMS)
-
-      auto component_eps = ordering->make_dt_control_component_eps(ti);
-
-      pcout << std::scientific << std::setprecision(6)
-      << "[DBG] ti.eps_t=" << ti.eps_t
-      << " ti.dt="    << ti.dt
-      << std::endl;
-
-      time_handler.update_dt_after_converged_step_vautrin(
-        present_solution,
-        previous_solutions_dt_control,
-        dofs_to_component,
-        component_eps,
-        ti.u_seuil,
-        ti.safety,
-        ti.dt_min_factor,
-        ti.dt_max_factor,
-        mpi_communicator,
-        ti.t_end,
-        /*clamp_to_t_end=*/true);
-    }
-
-    if (!time_handler.is_steady())
-    {
-      // Rotate solutions (BDF history)
-      for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-        previous_solutions[j] = previous_solutions[j - 1];
-      previous_solutions[0] = present_solution;
-
-      // Rotate dt-control history
-      if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
+      if (time_handler.is_starting_step() &&
+          param.time_integration.bdfstart ==
+            Parameters::TimeIntegration::BDFStart::initial_condition)
       {
-        for (unsigned int j = previous_solutions_dt_control.size() - 1; j >= 1; --j)
-          previous_solutions_dt_control[j] = previous_solutions_dt_control[j - 1];
-        previous_solutions_dt_control[0] = present_solution;
+        if (param.mms_param.enable || param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          set_initial_conditions();
       }
-    }
-  }
+      else
+      {
+        if (param.debug.compare_analytical_jacobian_with_fd)
+          compare_analytical_matrix_with_fd();
+
+        if (param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          solve_nonlinear_problem(false);
+      }
+
+      // ------------------------------------------------------------
+      // Decide accept/reject + compute next dt using TimeHandler logic
+      // (prints [Vautrin] + [REJECT] even if rejected, if you enabled it)
+      // ------------------------------------------------------------
+      step_accepted = true;
+      double dt_retry = time_handler.get_current_dt(); // si tu n'as pas de getter, remplace par un getter simple
+
+      if (!time_handler.is_steady() &&
+          param.time_integration.adaptative_dt &&
+          param.time_integration.dt_control_mode ==
+            Parameters::TimeIntegration::DtControlMode::vautrin)
+      {
+        const auto &ti = this->get_time_parameters();
+        auto component_eps = ordering->make_dt_control_component_eps(ti);
+
+        // Optionnel (mais pratique) : récupérer des infos
+        double R = 0.0, dt_used = 0.0, dt_next = 0.0;
+        unsigned int order = 0;
+
+        const bool ok = time_handler.update_dt_after_converged_step_vautrin(
+          present_solution,
+          previous_solutions_dt_control,
+          dofs_to_component,
+          component_eps,
+          ti.u_seuil,
+          ti.safety,
+          ti.dt_min_factor,
+          ti.dt_max_factor,
+          mpi_communicator,
+          ti.t_end,
+          /*clamp_to_t_end=*/true,
+          &R,
+          &order,
+          &dt_used,
+          &dt_next,
+          /*out_e_star=*/nullptr,
+          /*reject_factor=*/reject_factor,
+          &step_accepted,
+          &dt_retry);
+
+        (void)ok;
+      }
+
+      if (!step_accepted)
+      {
+        // ------------------------------------------------------------
+        // REJECT: rollback TimeHandler state + restore solution, retry
+        // ------------------------------------------------------------
+        time_handler.rollback_last_advance(dt_retry);
+
+        present_solution = present_backup;
+        previous_solutions = previous_backup;
+        previous_solutions_dt_control = previous_dt_control_backup;
+
+        n_reject++;
+        if (n_reject >= max_rejects_per_step)
+        {
+          AssertThrow(false,
+                      ExcMessage("Too many rejected time steps in HeatSolver::run()."));
+        }
+
+        continue; // retry same time step number with reduced dt
+      }
+
+      // ------------------------------------------------------------
+      // ACCEPTED step: proceed normally
+      // ------------------------------------------------------------
+      postprocess_solution();
+
+      if (!time_handler.is_steady())
+      {
+        // Rotate solutions (BDF history) - SAFE loop (no unsigned underflow)
+        if (previous_solutions.size() >= 2)
+        {
+          for (unsigned int j = previous_solutions.size(); j-- > 1; )
+            previous_solutions[j] = previous_solutions[j - 1];
+        }
+        if (!previous_solutions.empty())
+          previous_solutions[0] = present_solution;
+
+        // Rotate dt-control history (only if used)
+        if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
+        {
+          if (previous_solutions_dt_control.size() >= 2)
+          {
+            for (unsigned int j = previous_solutions_dt_control.size(); j-- > 1; )
+              previous_solutions_dt_control[j] = previous_solutions_dt_control[j - 1];
+          }
+          previous_solutions_dt_control[0] = present_solution;
+        }
+      }
+
+      // done for this time step
+      step_accepted = true;
+    } // while (!step_accepted)
+  }   // while (!time_handler.is_finished())
 }
+
+
 
 template <int dim>
 void HeatSolver<dim>::setup_dofs()

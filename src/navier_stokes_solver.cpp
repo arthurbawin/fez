@@ -142,15 +142,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
 {
   reset();
 
-  /**
-   * If starting from zero, read the mesh then setup the dof_handler and
-   * vectors. If restarting, setup_dofs() is called in the restart() function,
-   * after loading the mesh.
-   */
   if (!param.checkpoint_restart.restart)
   {
     read_mesh(triangulation, param);
-
     setup_dofs();
   }
   else
@@ -158,116 +152,179 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
     restart();
   }
 
-  // Slices post-processing: needs dof_handler to be initialized (works in both
-  // cases)
   if (param.postprocessing.enable_slicing)
-  {
     postproc_handler.setup_slices(dof_handler);
-  }
-
-
 
   if (param.bc_data.enforce_zero_mean_pressure)
-  {
     create_zero_mean_pressure_constraints_data();
-  }
 
   create_solver_specific_constraints_data();
-
   create_zero_constraints();
-
   create_nonzero_constraints();
-
   create_sparsity_pattern();
 
-
   if (!param.checkpoint_restart.restart)
-  {
     set_initial_conditions();
-  }
-
 
   output_results();
 
   pcout << "scheme=" << static_cast<int>(time_handler.scheme)
-      << " adaptative_dt=" << param.time_integration.adaptative_dt
-      << " previous_solutions.size()=" << previous_solutions.size()
-      << " n_previous_solutions=" << time_handler.n_previous_solutions
-      << std::endl;
+        << " adaptative_dt=" << param.time_integration.adaptative_dt
+        << " previous_solutions.size()=" << previous_solutions.size()
+        << " n_previous_solutions=" << time_handler.n_previous_solutions
+        << std::endl;
 
+  // --- Rejection settings ---
+  const double reject_factor = 5.0;          // reject if err > 5*eps
+  const double reject_safety = 0.95;         // can also use ti.safety
+  const unsigned int max_rejects_per_step = 20;
 
   while (!time_handler.is_finished())
   {
-    time_handler.advance(pcout);
+    bool step_accepted = false;
+    unsigned int n_reject = 0;
 
-
-
-    set_time();
-
-
-
-    update_boundary_conditions();
-
-
-    if (time_handler.is_starting_step() &&
-        param.time_integration.bdfstart ==
-          Parameters::TimeIntegration::BDFStart::initial_condition)
+    while (!step_accepted)
     {
-      if (param.mms_param.enable || param.debug.apply_exact_solution)
+      // ------------------------------------------------------------
+      // Backup solution state BEFORE advance/solve (needed if reject)
+      // ------------------------------------------------------------
+      LA::ParVectorType present_backup;
+      present_backup.reinit(present_solution);
+      present_backup = present_solution;
+
+      auto previous_backup = previous_solutions;
+      auto previous_dt_control_backup = previous_solutions_dt_control;
+
+      // -------------------
+      // Attempt the step
+      // -------------------
+      time_handler.advance(pcout);
+      set_time();
+      update_boundary_conditions();
+
+      if (time_handler.is_starting_step() &&
+          param.time_integration.bdfstart ==
+            Parameters::TimeIntegration::BDFStart::initial_condition)
       {
-        // Convergence study: start with exact solution at first time step
-        set_exact_solution();
+        if (param.mms_param.enable || param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          set_initial_conditions();
       }
       else
       {
-        // Repeat initial condition
+        if (param.debug.compare_analytical_jacobian_with_fd)
+          compare_analytical_matrix_with_fd();
 
-        set_initial_conditions();
+        if (param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          solve_nonlinear_problem(false);
       }
-    }
-    else
-    {
-      // Entering the Newton solver with a solution satisfying the nonzero
-      // constraints, which were applied in update_boundary_condition().
-      if (param.debug.compare_analytical_jacobian_with_fd)
-        compare_analytical_matrix_with_fd();
 
-      if (param.debug.apply_exact_solution)
-        set_exact_solution();
-      else
+      // -------------------
+      // Reject / accept based on Vautrin e*
+      // -------------------
+      step_accepted = true;
+      double dt_retry = time_handler.current_dt;
 
-        solve_nonlinear_problem(false);
-    }
+      if (!time_handler.is_steady() &&
+          param.time_integration.adaptative_dt &&
+          param.time_integration.dt_control_mode ==
+            Parameters::TimeIntegration::DtControlMode::vautrin)
+      {
+        const auto &ti = this->get_time_parameters(); // MMS-scaled time_param
+        auto component_eps = ordering->make_dt_control_component_eps(ti);
 
-    postprocess_solution();
-    update_time_step_after_converged_step();
-    time_handler.rotate_solutions(present_solution, previous_solutions);
-    if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
-      time_handler.rotate_solutions(present_solution, previous_solutions_dt_control);
+        // Optional outputs (useful for logs/debug)
+        double R = 0.0, dt_used = 0.0, dt_next = 0.0;
+        unsigned int order = 0;
 
+        (void)time_handler.update_dt_after_converged_step_vautrin(
+          present_solution,
+          previous_solutions_dt_control,
+          dofs_to_component,
+          component_eps,
+          ti.u_seuil,
+          ti.safety,
+          ti.dt_min_factor,
+          ti.dt_max_factor,
+          mpi_communicator,
+          ti.t_end,
+          /*clamp_to_t_end=*/true,
+          &R,
+          &order,
+          &dt_used,
+          &dt_next,
+          /*out_e_star=*/nullptr,
+          /*reject_factor=*/reject_factor,
+          &step_accepted,
+          &dt_retry);
 
+        if (!step_accepted &&
+            param.time_integration.verbosity == Parameters::Verbosity::verbose)
+        {
+          pcout << std::scientific << std::setprecision(6)
+                << "[REJECT] step=" << time_handler.current_time_iteration
+                << "  t=" << time_handler.current_time
+                << "  dt_used=" << dt_used
+                << "  dt_new=" << dt_retry
+                << "  (R=" << R << ", order=" << order << ")"
+                << std::endl;
+        }
+      }
 
+      if (!step_accepted)
+      {
+        // ------------------------------------------------------------
+        // REJECT: rollback TimeHandler state + restore solution, retry
+        // ------------------------------------------------------------
+        time_handler.rollback_last_advance(dt_retry);
 
-    if (param.checkpoint_restart.enable_checkpoint &&
-        (time_handler.current_time_iteration %
-           param.checkpoint_restart.checkpoint_frequency ==
-         0))
-    {
-      /**
-       * Write checkpoint.
-       * Checkpoint is written *after* the solutions were rotated, which amounts
-       * to writing the current solution twice... For some applications or
-       * postprocessing, maybe it would be useful to checkpoint before rotating,
-       * to actually save the last N solutions. In that case, the solutions
-       * would need to be rotated right after restart().
-       */
+        present_solution = present_backup;
+        previous_solutions = previous_backup;
+        previous_solutions_dt_control = previous_dt_control_backup;
 
-      checkpoint();
-    }
-  }
+        n_reject++;
+        if (n_reject >= max_rejects_per_step)
+        {
+          AssertThrow(false,
+                      ExcMessage("Too many rejected time steps in NavierStokesSolver::run()."));
+        }
+
+        continue; // retry this step with smaller dt
+      }
+
+// -------------------
+      // Accepted step: normal path
+      // -------------------
+      postprocess_solution();
+      // Predict next dt (already done above for Vautrin-reject logic)
+      if (!(param.time_integration.adaptative_dt &&
+            param.time_integration.dt_control_mode ==
+              Parameters::TimeIntegration::DtControlMode::vautrin))
+        update_time_step_after_converged_step();
+
+      // Rotate histories ONLY after accept
+      time_handler.rotate_solutions(present_solution, previous_solutions);
+      if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
+        time_handler.rotate_solutions(present_solution, previous_solutions_dt_control);
+
+      if (param.checkpoint_restart.enable_checkpoint &&
+          (time_handler.current_time_iteration %
+             param.checkpoint_restart.checkpoint_frequency == 0))
+      {
+        checkpoint();
+      }
+
+      step_accepted = true;
+    } // end while !accepted
+  }   // end time loop
 
   finalize();
 }
+
 
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()

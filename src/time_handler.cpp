@@ -24,7 +24,6 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , current_dt(time_parameters.dt)
   , dt_ref_bounds(time_parameters.dt)
   , scheme(time_parameters.scheme)
-  , mms_dt_reference(time_parameters.dt) // <-- capture dt_ref ONCE here
 {
   switch (scheme)
   {
@@ -90,6 +89,23 @@ bool TimeHandler::is_finished() const
 
 void TimeHandler::advance(const ConditionalOStream &pcout)
 {
+  // ------------------------------------------------------------
+  // Backup state *before* we advance, so a rejected step can be
+  // retried with a smaller dt on the SAME (t_n -> t_{n+1}) interval.
+  // ------------------------------------------------------------
+  if (!this->is_steady())
+  {
+    has_step_backup               = true;
+    backup_current_time           = current_time;
+    backup_current_time_iteration = current_time_iteration;
+    backup_current_dt             = current_dt;
+    backup_previous_times         = previous_times;
+    backup_time_steps             = time_steps;
+    backup_bdf_coefficients       = bdf_coefficients;
+    backup_pending_dt_queue       = pending_dt_queue;
+  }
+
+  // Increase the step counter (this step is "attempted" now)
   current_time_iteration++;
 
   if (scheme == STAT)
@@ -413,8 +429,6 @@ void TimeHandler::apply_restart_overrides(const Parameters::TimeIntegration &new
   initial_dt         = dt_new;
   dt_ref_bounds      = dt_new;
 
-  // IMPORTANT: on ne touche PAS mms_dt_reference ici.
-  // C'est le dt du 1er run MMS, ça doit rester constant.
 
   pending_dt_queue.clear();
 
@@ -475,106 +489,105 @@ void TimeHandler::compute_vautrin_error_estimate(
   AssertThrow(!this->is_steady(), ExcMessage("No time error estimate in steady."));
   AssertThrow(order == 1 || order == 2, ExcMessage("Only order 1 or 2 supported."));
   AssertThrow(previous_solutions.size() >= order + 1,
-              ExcMessage("Not enough history in previous_solutions. Need order+1 vectors."));
+              ExcMessage("Need at least order+1 previous solutions."));
   AssertThrow(bdf_coefficients.size() >= order + 1,
-              ExcMessage("bdf_coefficients size inconsistent with requested order."));
-  AssertThrow(time_steps.size() >= 1,
-              ExcMessage("Need at least one stored time step (h0)."));
+              ExcMessage("bdf_coefficients inconsistent with order."));
+  AssertThrow(time_steps.size() >= order,
+              ExcMessage("Need enough stored time steps."));
 
   const double h0 = time_steps[0];
   const double h1 = (time_steps.size() > 1 ? time_steps[1] : h0);
   const double h2 = (time_steps.size() > 2 ? time_steps[2] : h1);
 
   const unsigned int p = order;
-  const unsigned int k = p + 1;
 
-  const double factorial = (k == 2 ? 2.0 : 6.0);
-  const double sign = (k % 2 == 0 ? +1.0 : -1.0);
-
-  double sum = 0.0;
-  sum += bdf_coefficients[1] * std::pow(h0, static_cast<int>(k));
-  if (p == 2)
-    sum += bdf_coefficients[2] * std::pow(h0 + h1, static_cast<int>(k));
-
-  const double C_p1 = sign * (sum / factorial);
-
-  LA::ParVectorType u_p1;
-  u_p1.reinit(u_np1);
-  u_p1 = 0.0;
+  // Build divided difference of order (p+1), i.e. dd_{p+1} ~ u^{(p+1)}/(p+1)!
+  LA::ParVectorType dd_p1;
+  dd_p1.reinit(u_np1);
+  dd_p1 = 0.0;
 
   if (p == 1)
   {
+    // dd10 = [u_{n+1}, u_n]
     LA::ParVectorType dd10;
     dd10.reinit(u_np1);
     dd10 = u_np1;
     dd10.add(-1.0, previous_solutions[0]);
     dd10 *= (1.0 / h0);
 
+    // dd11 = [u_n, u_{n-1}]
     LA::ParVectorType dd11;
     dd11.reinit(u_np1);
     dd11 = previous_solutions[0];
     dd11.add(-1.0, previous_solutions[1]);
     dd11 *= (1.0 / h1);
 
-    LA::ParVectorType dd2;
-    dd2.reinit(u_np1);
-    dd2 = dd10;
-    dd2.add(-1.0, dd11);
-    dd2 *= (1.0 / (h0 + h1));
-
-    u_p1 = dd2;
-    u_p1 *= 2.0; // 2!
+    // dd2 = [u_{n+1}, u_n, u_{n-1}]
+    dd_p1 = dd10;
+    dd_p1.add(-1.0, dd11);
+    dd_p1 *= (1.0 / (h0 + h1));
   }
   else
   {
     AssertThrow(previous_solutions.size() >= 3,
-                ExcMessage("Need u^{n-2} in previous_solutions[2] for BDF2 error estimate."));
+                ExcMessage("Need u^{n-2} for BDF2 error estimate."));
     AssertThrow(time_steps.size() >= 3,
-                ExcMessage("Need 3 stored time steps (h0,h1,h2) for BDF2 error estimate."));
+                ExcMessage("Need h0,h1,h2 for BDF2 error estimate."));
 
-    LA::ParVectorType dd10;
+    // First-order divided differences
+    LA::ParVectorType dd10, dd11, dd12;
     dd10.reinit(u_np1);
+    dd11.reinit(u_np1);
+    dd12.reinit(u_np1);
+
     dd10 = u_np1;
     dd10.add(-1.0, previous_solutions[0]);
     dd10 *= (1.0 / h0);
 
-    LA::ParVectorType dd11;
-    dd11.reinit(u_np1);
     dd11 = previous_solutions[0];
     dd11.add(-1.0, previous_solutions[1]);
     dd11 *= (1.0 / h1);
 
-    LA::ParVectorType dd12;
-    dd12.reinit(u_np1);
     dd12 = previous_solutions[1];
     dd12.add(-1.0, previous_solutions[2]);
     dd12 *= (1.0 / h2);
 
-    LA::ParVectorType dd20;
+    // Second-order
+    LA::ParVectorType dd20, dd21;
     dd20.reinit(u_np1);
+    dd21.reinit(u_np1);
+
     dd20 = dd10;
     dd20.add(-1.0, dd11);
     dd20 *= (1.0 / (h0 + h1));
 
-    LA::ParVectorType dd21;
-    dd21.reinit(u_np1);
     dd21 = dd11;
     dd21.add(-1.0, dd12);
     dd21 *= (1.0 / (h1 + h2));
 
-    LA::ParVectorType dd3;
-    dd3.reinit(u_np1);
-    dd3 = dd20;
-    dd3.add(-1.0, dd21);
-    dd3 *= (1.0 / (h0 + h1 + h2));
-
-    u_p1 = dd3;
-    u_p1 *= 6.0; // 3!
+    // Third-order: dd3 = [u_{n+1},u_n,u_{n-1},u_{n-2}]
+    dd_p1.reinit(u_np1);
+    dd_p1 = dd20;
+    dd_p1.add(-1.0, dd21);
+    dd_p1 *= (1.0 / (h0 + h1 + h2));
   }
 
-  e_star = u_p1;
-  e_star *= (C_p1 * std::pow(h0, static_cast<int>(p + 1)));
+  // Build coefficient K = (-1)^{p+1} * h0 * sum_{i=1..p} alpha_i * H_i^{p+1}
+  // with H1 = h0, H2 = h0+h1
+  const double sign = ((p + 1) % 2 == 0 ? +1.0 : -1.0);
+
+  double sum = 0.0;
+  if (p >= 1)
+    sum += bdf_coefficients[1] * std::pow(h0, static_cast<int>(p + 1));
+  if (p >= 2)
+    sum += bdf_coefficients[2] * std::pow(h0 + h1, static_cast<int>(p + 1));
+
+  const double K = sign * h0 * sum;
+
+  e_star = dd_p1;
+  e_star *= K;
 }
+
 
 double TimeHandler::compute_scaled_vautrin_ratio(
   const LA::ParVectorType          &e_star,
@@ -582,37 +595,35 @@ double TimeHandler::compute_scaled_vautrin_ratio(
   const std::vector<unsigned char> &dofs_to_component,
   const unsigned int                component_q,
   const double                      epsilon_q,
-  const double                      u_seuil,
+  const double                      /*u_seuil*/,
   const MPI_Comm                    comm) const
 {
+  (void)u_star; // on n'en a plus besoin en absolu-only
+
   double local_sum_e2 = 0.0;
-  double local_sum_u2 = 0.0;
   unsigned long long local_neq = 0;
 
-  for (const auto gi : u_star.locally_owned_elements())
+  for (const auto gi : e_star.locally_owned_elements())
   {
     if (dofs_to_component[gi] != component_q)
       continue;
 
     const double e = e_star[gi];
-    const double u = u_star[gi];
-
     local_sum_e2 += e * e;
-    local_sum_u2 += u * u;
     local_neq++;
   }
 
   const double global_sum_e2 = dealii::Utilities::MPI::sum(local_sum_e2, comm);
-  const double global_sum_u2 = dealii::Utilities::MPI::sum(local_sum_u2, comm);
-  const unsigned long long global_neq = dealii::Utilities::MPI::sum(local_neq, comm);
+  const unsigned long long global_neq =
+    dealii::Utilities::MPI::sum(local_neq, comm);
 
   if (global_neq == 0)
     return std::numeric_limits<double>::max();
 
-  const double e_abs  = std::sqrt(global_sum_e2 / double(global_neq));
-  const double u_norm = std::sqrt(global_sum_u2 / double(global_neq));
+  const double e_abs = std::sqrt(global_sum_e2 / double(global_neq));
 
-  const double err = (u_norm < u_seuil) ? e_abs : (e_abs / u_norm);
+  // Erreur absolue uniquement : err = e_abs
+  const double err = e_abs;
 
   if (err == 0.0)
     return std::numeric_limits<double>::max();
@@ -678,7 +689,11 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
   unsigned int                                       *out_order,
   double                                             *out_dt_used,
   double                                             *out_dt_next,
-  LA::ParVectorType                                  *out_e_star)
+  LA::ParVectorType                                  *out_e_star,
+  const double                                        reject_factor,
+  bool                                               *out_step_accepted,
+  double                                             *out_dt_retry)
+
 {
   if (this->is_steady())
     return false;
@@ -707,46 +722,52 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
                                        order);
 
   // Verbose: print max relative e* per component
-  if (time_parameters.verbosity == Parameters::Verbosity::verbose)
+  // Verbose: print e* abs max + eps (always meaningful even if step is rejected)
+std::vector<double> comp_estar_abs_max;
+std::vector<unsigned int> comp_ids;
+comp_estar_abs_max.reserve(component_eps.size());
+comp_ids.reserve(component_eps.size());
+
+if (time_parameters.verbosity == Parameters::Verbosity::verbose)
+{
+  const unsigned int my_rank = dealii::Utilities::MPI::this_mpi_process(comm);
+
+  for (const auto &ce : component_eps)
   {
-    const unsigned int my_rank = dealii::Utilities::MPI::this_mpi_process(comm);
+    const unsigned int comp = ce.first;
 
-    for (const auto &ce : component_eps)
+    double local_max_abs = 0.0;
+    unsigned long long local_count = 0;
+
+    for (const auto gi : u_np1.locally_owned_elements())
     {
-      const unsigned int comp = ce.first;
+      if (dofs_to_component[gi] != comp)
+        continue;
 
-      double local_max_rel = 0.0;
-      unsigned long long local_count = 0;
-
-      for (const auto gi : u_np1.locally_owned_elements())
-      {
-        if (dofs_to_component[gi] != comp)
-          continue;
-
-        const double e = e_star[gi];
-        const double u = u_np1[gi];
-
-        const double denom = std::max(std::abs(u), u_seuil);
-        const double rel   = std::abs(e) / denom;
-
-        local_max_rel = std::max(local_max_rel, rel);
-        local_count++;
-      }
-
-      const double global_max_rel = dealii::Utilities::MPI::max(local_max_rel, comm);
-      const unsigned long long global_count = dealii::Utilities::MPI::sum(local_count, comm);
-
-      if (my_rank == 0)
-      {
-        std::cout
-          << "[Vautrin] comp=" << comp
-          << "  e*_rel_max=" << std::scientific << std::setprecision(6)
-          << global_max_rel
-          << "  (ndofs=" << std::dec << global_count << ")"
-          << std::endl;
-      }
+      local_max_abs = std::max(local_max_abs, std::abs(e_star[gi]));
+      local_count++;
     }
+
+    const double global_max_abs =
+      dealii::Utilities::MPI::max(local_max_abs, comm);
+    const unsigned long long global_count =
+      dealii::Utilities::MPI::sum(local_count, comm);
+
+    if (my_rank == 0)
+    {
+      std::cout
+        << "[Vautrin] comp=" << comp
+        << "  e*_abs_max=" << std::scientific << std::setprecision(6)
+        << global_max_abs
+        << "  (ndofs=" << std::dec << global_count << ")"
+        << std::endl;
+    }
+
+    comp_ids.push_back(comp);
+    comp_estar_abs_max.push_back(global_max_abs);
   }
+}
+
 
   // R = min_q (epsilon_q / err_q)
   double R = std::numeric_limits<double>::infinity();
@@ -767,14 +788,108 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
 
   if (!std::isfinite(R) || R <= 0.0)
     return false;
+  const double dt_used = current_dt;
+
+  // ------------------------------------------------------------
+  // Reject only when enough history is meaningful.
+  // We NEVER reject step 1 or 2 (startup).
+  // ------------------------------------------------------------
+  const bool rejection_enabled =
+    (reject_factor > 0.0) && (current_time_iteration > 2);
+
+  const double R_accept = rejection_enabled ? (1.0 / reject_factor) : 0.0;
+  const bool step_accepted = (R >= R_accept); // if R_accept=0 => always accept
+
+
+  // Print eps and e* max compared to threshold (also for rejected steps)
+  if (time_parameters.verbosity == Parameters::Verbosity::verbose)
+  {
+    const unsigned int my_rank = dealii::Utilities::MPI::this_mpi_process(comm);
+    if (my_rank == 0)
+    {
+      for (unsigned int k = 0; k < component_eps.size(); ++k)
+      {
+        const unsigned int comp = component_eps[k].first;
+        const double eps        = component_eps[k].second;
+
+        // Find matching e* max we computed above (same order)
+        const double emax = (k < comp_estar_abs_max.size() ? comp_estar_abs_max[k] : std::numeric_limits<double>::quiet_NaN());
+
+        std::cout
+          << "[Vautrin] comp=" << comp
+          << "  eps=" << std::scientific << std::setprecision(6) << eps
+          << "  reject_thr=" << std::scientific << std::setprecision(6) << (reject_factor * eps)
+          << "  e*_abs_max=" << std::scientific << std::setprecision(6) << emax
+          << "  status=" << (step_accepted ? "ACCEPT" : "REJECT")
+          << std::endl;
+      }
+    }
+  }
+
+
+  const double dt_min = this->get_effective_dt_min();
+  const double dt_max = this->get_effective_dt_max();
 
   const double ratio_min = (order == 2 ? 0.2 : 0.1);
   const double ratio_max = (order == 2 ? (1.0 + std::sqrt(2.0)) : 5.0);
 
-  const double dt_used = current_dt;
+  if (rejection_enabled &&!step_accepted)
+  {
+    // Rejected step: we must decrease dt (cap ratio_max at 1.0)
+    const double ratio_max_reject = 1.0;
 
-  const double dt_min = this->get_effective_dt_min();
-  const double dt_max = this->get_effective_dt_max();
+    double dt_retry =
+      TimeHandler::propose_next_dt_vautrin(dt_used, R, order, safety,
+                                           ratio_min, ratio_max_reject,
+                                           dt_min, dt_max);
+
+    // If the Vautrin proposal does not reduce (can happen when capped),
+    // fall back to a monotone interpolation between previous_dt and dt_used.
+    // We use the already-computed R = min_q (eps_q / err_q).
+    // On a rejected step, R < 1 and smaller R means 'too much error'.
+    double previous_dt = dt_used;
+    if (time_steps.size() >= 2)
+      previous_dt = time_steps[1]; // dt used at the previous accepted/attempted step
+
+    const double w = std::clamp(std::abs(R), 0.0, 1.0);
+    const double dt_interp = previous_dt + (dt_used - previous_dt) * w;
+
+    // Choose the most conservative reduction (smallest dt), while respecting dt_min/dt_max.
+    dt_retry = std::min(dt_retry, dt_interp);
+    dt_retry = std::max(dt_min, std::min(dt_retry, dt_max));
+
+    // Guarantee a strict decrease on reject
+    if (dt_retry >= dt_used)
+      dt_retry = std::max(dt_min, std::nextafter(dt_used, 0.0));
+
+    current_dt = dt_retry;
+
+    if (out_step_accepted) *out_step_accepted = false;
+    if (out_dt_retry)      *out_dt_retry      = dt_retry;
+
+    if (out_R)       *out_R       = R;
+    if (out_order)   *out_order   = order;
+    if (out_dt_used) *out_dt_used = dt_used;
+    if (out_dt_next) *out_dt_next = dt_retry;
+    if (out_e_star)  *out_e_star  = e_star;
+
+    if (time_parameters.verbosity == Parameters::Verbosity::verbose)
+    {
+      const unsigned int my_rank = dealii::Utilities::MPI::this_mpi_process(comm);
+      if (my_rank == 0)
+      {
+        std::cout
+          << "[REJECT] step=" << current_time_iteration
+          << " t=" << std::scientific << std::setprecision(10) << current_time
+          << " dt_used=" << std::scientific << std::setprecision(10) << dt_used
+          << " dt_new=" << std::scientific << std::setprecision(10) << dt_retry
+          << " (R=" << std::scientific << std::setprecision(6) << R << ")"
+          << std::endl;
+      }
+    }
+
+    return false; // rejected
+  }
 
   double dt_next =
     TimeHandler::propose_next_dt_vautrin(dt_used, R, order, safety,
@@ -797,3 +912,22 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
 
   return true;
 }
+
+void TimeHandler::rollback_last_advance(const double dt_retry)
+{
+  if (!has_step_backup)
+    return;
+
+  current_time           = backup_current_time;
+  current_time_iteration = backup_current_time_iteration;
+
+  current_dt       = dt_retry;
+  previous_times   = backup_previous_times;
+  time_steps       = backup_time_steps;
+  bdf_coefficients = backup_bdf_coefficients;
+  pending_dt_queue = backup_pending_dt_queue;
+
+  // Important: on repart sur un état cohérent, et dt_retry sera utilisé au prochain advance().
+  has_step_backup = false;
+}
+

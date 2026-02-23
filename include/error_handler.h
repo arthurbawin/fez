@@ -72,6 +72,21 @@ public:
       add_unsteady_error(field_name, error_val, time);
   }
 
+  /**
+   * Return the unsteady errors (t, e(t)) for the given field.
+   */
+  const std::vector<std::pair<double, double>> &
+  get_unsteady_errors(const std::string &field_name) const
+  {
+    AssertThrow(
+      unsteady_errors.count(field_name) > 0,
+      ExcMessage(
+        "You requested the vector of unsteady errors for the field \"" +
+        field_name +
+        "\", but this ErrorHandler does not store errors for this field."));
+    return unsteady_errors.at(field_name);
+  }
+
 private:
   /**
    * Add an error to the underlying error table to compute convergence.

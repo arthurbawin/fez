@@ -322,7 +322,6 @@ namespace BoundaryConditions
       if (bc.type == BoundaryConditions::Type::input_function)
       {
         if (homogeneous)
-        {
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
                                                    bc.id,
@@ -330,9 +329,7 @@ namespace BoundaryConditions
                                                      n_components),
                                                    constraints,
                                                    velocity_mask);
-        }
         else
-        {
           VectorTools::interpolate_boundary_values(
             mapping,
             dof_handler,
@@ -341,12 +338,10 @@ namespace BoundaryConditions
               u_lower, n_components, bc.u, bc.v, bc.w),
             constraints,
             velocity_mask);
-        }
       }
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
         if (homogeneous)
-        {
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
                                                    bc.id,
@@ -354,25 +349,18 @@ namespace BoundaryConditions
                                                      n_components),
                                                    constraints,
                                                    velocity_mask);
-        }
         else
-        {
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
                                                    bc.id,
                                                    exact_solution,
                                                    constraints,
                                                    velocity_mask);
-        }
       }
       if (bc.type == BoundaryConditions::Type::slip)
-      {
         no_flux_boundaries.insert(bc.id);
-      }
       if (bc.type == BoundaryConditions::Type::no_tangential_flow)
-      {
         no_tangential_flow_boundaries.insert(bc.id);
-      }
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
         // Enforce both the normal and tangential flux to be well-posed
@@ -383,6 +371,7 @@ namespace BoundaryConditions
       }
     }
 
+    // Add no velocity flux constraints
     VectorTools::compute_no_normal_flux_constraints(
       dof_handler,
       u_lower,
@@ -398,7 +387,6 @@ namespace BoundaryConditions
       mapping,
       /*use_manifold_for_normal=*/false);
 
-    // Add no velocity flux constraints
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,
       u_lower,

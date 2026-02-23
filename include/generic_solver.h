@@ -209,6 +209,20 @@ public:
     return time_param;
   }
 
+  std::shared_ptr<ErrorHandler>
+  get_error_handler(const VectorTools::NormType type) const
+  {
+    const std::string type_str =
+      Patterns::Tools::Convert<VectorTools::NormType>::to_string(type);
+    AssertThrow(error_handlers.count(type) > 0,
+                ExcMessage(
+                  "This solver does not hold an ErrorHandler for the norm " +
+                  type_str +
+                  ". Be sure to specify that this norm should be computed in "
+                  "the Manufactured solution subsection."));
+    return error_handlers.at(type);
+  }
+
 public:
   MPI_Comm           mpi_communicator;
   const unsigned int mpi_rank;

@@ -228,7 +228,10 @@ public:
   void compute_structure_mean_position();
 
   /**
-   *
+   * This function initializes data requiring information from the derived
+   * solver, such as the names of the model variables in addition to velocity,
+   * pressure and mesh position. These data cannot be initialized in the base
+   * class constructor, so they are initialized in this function instead.
    */
   void initialize();
 

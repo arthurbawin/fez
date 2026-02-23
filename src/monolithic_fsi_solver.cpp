@@ -14,6 +14,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
+#include <lagrange_multiplier_tools.h>
 #include <linear_solver.h>
 #include <mesh.h>
 #include <monolithic_fsi_solver.h>
@@ -1980,6 +1981,13 @@ void FSISolver<dim>::assemble_local_rhs(
         // Lagrange multiplier for no-slip
         //
         if (face->boundary_id() == weak_no_slip_boundary_id)
+        {
+          const bool enable_rigid_body_rotation =
+            this->param.fluid_bc.at(weak_no_slip_boundary_id)
+              .enable_rigid_body_rotation;
+          const auto &rotation_velocities =
+            scratch_data.input_face_rigid_body_rotation_velocity[i_face];
+
           for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
             const double face_JxW_moving =
@@ -1995,38 +2003,9 @@ void FSISolver<dim>::assemble_local_rhs(
             const auto &present_l =
               scratch_data.present_face_lambda_values[i_face][q];
 
-            const auto u_ale = present_u - present_w;
-
-            /* --- Rigid-body rotational velocity evaluated on FIXED mesh --- */
-            const auto &q_points_fixed =
-              scratch_data.get_face_quadrature_points_fixed(i_face);
-            AssertIndexRange(q, q_points_fixed.size());
-            const Point<dim> &xq_fixed = q_points_fixed[q];
-
-            const auto  &bc = this->param.fluid_bc.at(face->boundary_id());
-            const double Omega =
-              (bc.angular_velocity ? bc.angular_velocity->value(xq_fixed, 0) :
-                                     0.0);
-
-            Point<dim> xc = this->param.fsi.cylinder_center;
-
-            Tensor<1, dim> u_rot;
-            u_rot = 0.0;
-
-            const double rx = xq_fixed[0] - xc[0];
-            const double ry = xq_fixed[1] - xc[1];
-
-            if constexpr (dim == 2)
-            {
-              u_rot[0] += -Omega * ry;
-              u_rot[1] += Omega * rx;
-            }
-            else if constexpr (dim == 3)
-            {
-              u_rot[0] += -Omega * ry;
-              u_rot[1] += Omega * rx;
-              u_rot[2] += 0.0;
-            }
+            auto velocity_constraint = present_u - present_w;
+            if (enable_rigid_body_rotation)
+              velocity_constraint -= rotation_velocities[q];
 
             for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
             {
@@ -2037,15 +2016,16 @@ void FSISolver<dim>::assemble_local_rhs(
               const bool         i_is_l = this->ordering->is_lambda(comp_i);
 
               if (i_is_u)
-                local_rhs_i -= -(phi_u[i] * present_l);
+                local_rhs_i -= -phi_u[i] * present_l;
 
               if (i_is_l)
-                local_rhs_i -= -(u_ale - u_rot) * phi_l[i];
+                local_rhs_i -= -velocity_constraint * phi_l[i];
 
               local_rhs_i *= face_JxW_moving;
               local_rhs(i) += local_rhs_i;
             }
           }
+        }
 
         /**
          * Open boundary condition with prescribed manufactured solution.
@@ -2479,123 +2459,24 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
 template <int dim>
 void FSISolver<dim>::check_velocity_boundary() const
 {
-  // Check difference between uh and dxhdt
-  double l2_local = 0;
-  double li_local = 0;
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           *this->fixed_mapping,
+                           *this->moving_mapping,
+                           *this->quadrature,
+                           *this->face_quadrature,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
 
-  FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-                                         *fe,
-                                         *this->face_quadrature,
-                                         update_values |
-                                           update_quadrature_points |
-                                           update_JxW_values);
-  FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                   *fe,
-                                   *this->face_quadrature,
-                                   update_values | update_quadrature_points |
-                                     update_JxW_values);
-
-  const unsigned int n_faces_q_points = this->face_quadrature->size();
-
-  const auto &bdf_coefficients = this->time_handler.bdf_coefficients;
-
-  std::vector<std::vector<Tensor<1, dim>>> position_values(
-    bdf_coefficients.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
-  std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
-  std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
-  Tensor<1, dim>              diff;
-  Tensor<1, dim>              u_rot;
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        fe_face_values_fixed.reinit(cell, i_face);
-        fe_face_values.reinit(cell, i_face);
-
-        // Get current and previous FE solution values on the face
-        fe_face_values[this->velocity_extractor].get_function_values(
-          this->present_solution, fluid_velocity_values);
-        fe_face_values_fixed[this->position_extractor].get_function_values(
-          this->present_solution, position_values[0]);
-        for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
-          fe_face_values_fixed[this->position_extractor].get_function_values(
-            this->previous_solutions[iBDF - 1], position_values[iBDF]);
-
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-        {
-          mesh_velocity_values[q] = 0;
-          for (unsigned int iBDF = 0; iBDF < bdf_coefficients.size(); ++iBDF)
-            mesh_velocity_values[q] +=
-              bdf_coefficients[iBDF] * position_values[iBDF][q];
-
-
-          const Point<dim> xq_fixed = fe_face_values_fixed.quadrature_point(q);
-
-          const auto  b_id = face->boundary_id();
-          const auto &bc   = this->param.fluid_bc.at(b_id);
-
-          const double Omega =
-            (bc.angular_velocity ? bc.angular_velocity->value(xq_fixed, 0) :
-                                   0.0);
-
-          Point<dim> xc = this->param.fsi.cylinder_center;
-
-          const double rx = xq_fixed[0] - xc[0];
-          const double ry = xq_fixed[1] - xc[1];
-
-          u_rot = 0.0;
-          if constexpr (dim == 2)
-          {
-            u_rot[0] = -Omega * ry;
-            u_rot[1] = Omega * rx;
-          }
-          else if constexpr (dim == 3)
-          {
-            u_rot[0] = -Omega * ry;
-            u_rot[1] = Omega * rx;
-            u_rot[2] = 0.0;
-          }
-
-          const Tensor<1, dim> u_ale =
-            fluid_velocity_values[q] - mesh_velocity_values[q];
-          diff = u_ale - u_rot;
-
-          l2_local += diff * diff * fe_face_values_fixed.JxW(q);
-          li_local = std::max(li_local, diff.norm());
-        }
-      }
-    }
-  }
-
-  const double l2_error =
-    std::sqrt(Utilities::MPI::sum(l2_local, this->mpi_communicator));
-  const double li_error = Utilities::MPI::max(li_local, this->mpi_communicator);
-
-  if (this->param.fsi.verbosity == Parameters::Verbosity::verbose)
-  {
-    this->pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
-    this->pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
-    this->pcout << "||uh - wh||_Li = " << li_error << std::endl;
-  }
-
-  if (!this->param.debug.fsi_apply_erroneous_coupling)
-  {
-    // AssertThrow(l2_error < 1e-10,
-    //             ExcMessage("L2 norm of uh - wh is too large : " +
-    //                        std::to_string(l2_error)));
-    // AssertThrow(li_error < 1e-10,
-    //             ExcMessage("Linf norm of uh - wh is too large : " +
-    //                        std::to_string(li_error)));
-  }
+  LagrangeMultiplierTools::check_no_slip_on_boundary<dim>(
+    this->param,
+    scratch_data,
+    this->dof_handler,
+    this->evaluation_point,
+    this->previous_solutions,
+    this->source_terms,
+    this->exact_solution,
+    weak_no_slip_boundary_id);
 }
 
 template <int dim>
@@ -2608,10 +2489,7 @@ void FSISolver<dim>::check_manufactured_solution_boundary()
   lambda_integral_local    = 0;
   pns_integral_local       = 0;
 
-  const double rho = this->param.physical_properties.fluids[0].density;
-  const double nu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity;
-  const double mu = nu * rho;
+  const double mu = this->param.physical_properties.fluids[0].dynamic_viscosity;
 
   FEFaceValues<dim> fe_face_values(*this->moving_mapping,
                                    *fe,

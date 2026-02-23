@@ -37,14 +37,17 @@ namespace PostProcessingTools
      */
     using FaceDescriptor = typename DataOutFaces<dim>::FaceDescriptor;
 
-    FaceDescriptor first_face() override;
+    /**
+     * Return the first face which we want output for.
+     */
+    virtual FaceDescriptor first_face() override;
 
     /**
      * Return the next face after which we want output for. If there are no more
      * faces, <tt>dofs->end()</tt> is returned as the first component of the
      * return value.
      */
-    FaceDescriptor next_face(const FaceDescriptor &face) override;
+    virtual FaceDescriptor next_face(const FaceDescriptor &face) override;
 
   protected:
     const Triangulation<dim> &triangulation;

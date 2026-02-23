@@ -10,6 +10,7 @@ PostProcessingHandler<dim>::PostProcessingHandler(
   : post_proc_param(param.postprocessing)
   , output_param(param.output)
   , physical_properties(param.physical_properties)
+  , mms_param(param.mms_param)
   , triangulation(triangulation)
   , mpi_communicator(dof_handler.get_mpi_communicator())
 {
@@ -47,16 +48,21 @@ PostProcessingHandler<dim>::PostProcessingHandler(
 template <int dim>
 void PostProcessingHandler<dim>::write_pvd() const
 {
+  const std::string suffix =
+    mms_param.enable ?
+      "_convergence_step_" + std::to_string(mms_param.current_step) + ".pvd" :
+      ".pvd";
+
   if (output_param.write_results)
   {
     std::ofstream pvd_output(output_param.output_dir +
-                             output_param.output_prefix + ".pvd");
+                             output_param.output_prefix + suffix);
     DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
   }
   if (output_param.skin.write_results)
   {
     std::ofstream pvd_output(output_param.output_dir +
-                             output_param.skin.output_prefix + ".pvd");
+                             output_param.skin.output_prefix + suffix);
     DataOutBase::write_pvd_record(pvd_output,
                                   visualization_times_and_names_skin);
   }
@@ -102,13 +108,11 @@ template <int dim>
 void PostProcessingHandler<dim>::clear()
 {
   if (data_out)
-    data_out->clear();
+    data_out->clear_data_vectors();
   if (data_out_skin)
-    data_out_skin->clear();
+    data_out_skin->clear_data_vectors();
   visualization_times_and_names.clear();
   visualization_times_and_names_skin.clear();
-  // solution_names.clear();
-  // data_component_interpretation.clear();
   subdomains.reinit(0);
   slice_indices.reinit(0);
 }

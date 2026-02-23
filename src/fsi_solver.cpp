@@ -18,6 +18,7 @@
 #include <errors.h>
 #include <fe_simplex_p_with_3d_hp.h>
 #include <fsi_solver.h>
+#include <lagrange_multiplier_tools.h>
 #include <linear_solver.h>
 #include <mapping_fe_field_hp2.h>
 #include <mesh.h>
@@ -2795,102 +2796,24 @@ void FSISolverLessLambda<dim>::compare_forces_and_position_on_obstacle() const
 template <int dim>
 void FSISolverLessLambda<dim>::check_velocity_boundary() const
 {
-  // Assumes the same number of quadrature points in the collection
-  AssertDimension(face_quadrature_collection[0].size(),
-                  face_quadrature_collection[1].size());
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           fixed_mapping_collection,
+                           moving_mapping_collection,
+                           quadrature_collection,
+                           face_quadrature_collection,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
 
-  // Check difference between uh and dxhdt
-  double l2_local = 0;
-  double li_local = 0;
-
-  hp::FEFaceValues<dim> hp_fe_face_values_fixed(fixed_mapping_collection,
-                                                *fe,
-                                                face_quadrature_collection,
-                                                update_values |
-                                                  update_quadrature_points |
-                                                  update_JxW_values);
-  hp::FEFaceValues<dim> hp_fe_face_values(moving_mapping_collection,
-                                          *fe,
-                                          face_quadrature_collection,
-                                          update_values |
-                                            update_quadrature_points |
-                                            update_JxW_values);
-
-  const unsigned int n_faces_q_points = face_quadrature_collection[0].size();
-
-  const auto &bdf_coefficients = this->time_handler.bdf_coefficients;
-
-  std::vector<std::vector<Tensor<1, dim>>> position_values(
-    bdf_coefficients.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
-  std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
-  std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
-  Tensor<1, dim>              diff;
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        hp_fe_face_values_fixed.reinit(cell, i_face);
-        hp_fe_face_values.reinit(cell, i_face);
-        const auto &fe_face_values_fixed =
-          hp_fe_face_values_fixed.get_present_fe_values();
-        const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
-
-        // Get current and previous FE solution values on the face
-        fe_face_values[this->velocity_extractor].get_function_values(
-          this->present_solution, fluid_velocity_values);
-        fe_face_values_fixed[this->position_extractor].get_function_values(
-          this->present_solution, position_values[0]);
-        for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
-          fe_face_values_fixed[this->position_extractor].get_function_values(
-            this->previous_solutions[iBDF - 1], position_values[iBDF]);
-
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-        {
-          // Compute FE mesh velocity at node
-          mesh_velocity_values[q] = 0;
-          for (unsigned int iBDF = 0; iBDF < bdf_coefficients.size(); ++iBDF)
-            mesh_velocity_values[q] +=
-              bdf_coefficients[iBDF] * position_values[iBDF][q];
-
-          diff = mesh_velocity_values[q] - fluid_velocity_values[q];
-
-          // u_h - w_h
-          l2_local += diff * diff * fe_face_values_fixed.JxW(q);
-          li_local = std::max(li_local, std::abs(diff.norm()));
-        }
-      }
-    }
-  }
-
-  const double l2_error =
-    std::sqrt(Utilities::MPI::sum(l2_local, this->mpi_communicator));
-  const double li_error = Utilities::MPI::max(li_local, this->mpi_communicator);
-
-  if (this->param.fsi.verbosity == Parameters::Verbosity::verbose)
-  {
-    this->pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
-    this->pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
-    this->pcout << "||uh - wh||_Li = " << li_error << std::endl;
-  }
-
-  if (!this->param.debug.fsi_apply_erroneous_coupling)
-  {
-    AssertThrow(l2_error < 1e-12,
-                ExcMessage("L2 norm of uh - wh is too large : " +
-                           std::to_string(l2_error)));
-    AssertThrow(li_error < 1e-12,
-                ExcMessage("Linf norm of uh - wh is too large : " +
-                           std::to_string(li_error)));
-  }
+  LagrangeMultiplierTools::check_no_slip_on_boundary<dim>(
+    this->param,
+    scratch_data,
+    this->dof_handler,
+    this->evaluation_point,
+    this->previous_solutions,
+    this->source_terms,
+    this->exact_solution,
+    weak_no_slip_boundary_id);
 }
 
 template <int dim>

@@ -201,10 +201,6 @@ protected:
   std::array<types::global_dof_index, dim> local_position_master_dofs;
   std::array<types::global_dof_index, dim> global_position_master_dofs;
 
-  TableHandler cylinder_position_table;
-  TableHandler slices_forces_table;
-
-
 protected:
   /**
    * Source term.

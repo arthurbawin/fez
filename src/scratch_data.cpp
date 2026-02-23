@@ -80,7 +80,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   const Quadrature<dim - 1>  &face_quadrature,
   const std::vector<double>  &bdf_coefficients,
   const ParameterReader<dim> &param)
-  : use_quads(param.finite_elements.use_quads)
+  : param(param)
+  , use_quads(param.finite_elements.use_quads)
   , ordering(ordering)
   , n_components(ordering.n_components)
   , enable_pseudo_solid(enable_pseudo_solid)
@@ -165,7 +166,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   const hp::QCollection<dim - 1>   &face_quadrature_collection,
   const std::vector<double>        &bdf_coefficients,
   const ParameterReader<dim>       &param)
-  : use_quads(param.finite_elements.use_quads)
+  : param(param)
+  , use_quads(param.finite_elements.use_quads)
   , ordering(ordering)
   , n_components(ordering.n_components)
   , enable_pseudo_solid(enable_pseudo_solid)
@@ -264,7 +266,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
 
 template <int dim, bool has_hp_capabilities>
 ScratchData<dim, has_hp_capabilities>::ScratchData(const ScratchData &other)
-  : use_quads(other.use_quads)
+  : param(other.param)
+  , use_quads(other.use_quads)
   , ordering(other.ordering)
   , n_components(other.n_components)
   , enable_pseudo_solid(other.enable_pseudo_solid)
@@ -513,12 +516,6 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
   exact_face_pressure_values.resize(n_faces,
                                     std::vector<double>(n_faces_q_points));
-  face_q_points.resize(n_faces, std::vector<Point<dim>>(n_faces_q_points));
-
-  if (enable_pseudo_solid)
-    face_q_points_fixed.resize(n_faces,
-                               std::vector<Point<dim>>(n_faces_q_points));
-
 
   if (enable_pseudo_solid)
   {
@@ -578,6 +575,9 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
                       std::vector<std::vector<Tensor<1, dim>>>(
                         n_faces_q_points,
                         std::vector<Tensor<1, dim>>(dofs_per_cell)));
+
+    input_face_rigid_body_rotation_velocity.resize(
+      n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
   }
 
   if (enable_cahn_hilliard)

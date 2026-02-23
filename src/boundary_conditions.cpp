@@ -56,8 +56,28 @@ namespace BoundaryConditions
     w->declare_parameters(prm);
     prm.leave_subsection();
 
-    prm.enter_subsection("angular velocity");
-    angular_velocity->declare_parameters(prm);
+    prm.declare_entry(
+      "weak no slip tolerance",
+      "1e-12",
+      Patterns::Double(),
+      "Throw an error if the velocity constraint on a no-slip boundary "
+      "enforced with a Lagrange multiplier exceeds this tolerance");
+
+    prm.enter_subsection("rigid body rotation");
+    {
+      prm.declare_entry("enable",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable/disable rigid-body rotation on this boundary");
+      const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
+      prm.declare_entry("center of rotation",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Center of rotation");
+      prm.enter_subsection("angular velocity");
+      angular_velocity->declare_parameters(prm, (dim == 2) ? 1 : dim);
+      prm.leave_subsection();
+    }
     prm.leave_subsection();
   }
 
@@ -106,8 +126,17 @@ namespace BoundaryConditions
     w->parse_parameters(prm);
     prm.leave_subsection();
 
-    prm.enter_subsection("angular velocity");
-    angular_velocity->parse_parameters(prm);
+    weak_no_slip_tolerance = prm.get_double("weak no slip tolerance");
+
+    prm.enter_subsection("rigid body rotation");
+    {
+      enable_rigid_body_rotation = prm.get_bool("enable");
+      center_of_rotation =
+        parse_rank_1_tensor<dim>(prm.get("center of rotation"));
+      prm.enter_subsection("angular velocity");
+      angular_velocity->parse_parameters(prm);
+      prm.leave_subsection();
+    }
     prm.leave_subsection();
   }
 

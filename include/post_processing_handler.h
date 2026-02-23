@@ -81,6 +81,9 @@ public:
   /**
    * Write the .pvd files (volume and skin, if applicable).
    * Should be called at the end of the simulation.
+   *
+   * If a convergence study with a manufactured solution is being run,
+   * a suffix with the current convergence step is appended to the pvd file.
    */
   void write_pvd() const;
 
@@ -263,6 +266,7 @@ private:
   const Parameters::PostProcessing          &post_proc_param;
   const Parameters::Output                  &output_param;
   const Parameters::PhysicalProperties<dim> &physical_properties;
+  const Parameters::MMS                     &mms_param;
 
   const Triangulation<dim> &triangulation;
   MPI_Comm                  mpi_communicator;
@@ -361,9 +365,13 @@ void PostProcessingHandler<dim>::output_volume_fields(
   data_out->add_data_vector(subdomains, "subdomain");
   data_out->build_patches(mapping, 2);
 
+  std::string prefix = output_param.output_prefix;
+  if (mms_param.enable)
+    prefix += "_convergence_step_" + std::to_string(mms_param.current_step);
+
   const std::string pvtu_file =
     data_out->write_vtu_with_pvtu_record(output_param.output_dir,
-                                         output_param.output_prefix,
+                                         prefix,
                                          time_handler.current_time_iteration,
                                          mpi_communicator,
                                          2);
@@ -392,9 +400,14 @@ void PostProcessingHandler<dim>::output_skin_fields(
   }
   data_out_skin->build_patches(mapping, 2);
 
+  std::string prefix =
+    output_param.output_prefix + "_" + output_param.skin.output_prefix;
+  if (mms_param.enable)
+    prefix += "_convergence_step_" + std::to_string(mms_param.current_step);
+
   const std::string pvtu_file = data_out_skin->write_vtu_with_pvtu_record(
     output_param.output_dir,
-    output_param.output_prefix + "_" + output_param.skin.output_prefix,
+    prefix,
     time_handler.current_time_iteration,
     mpi_communicator,
     2);

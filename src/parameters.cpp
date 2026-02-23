@@ -67,6 +67,7 @@ namespace Parameters
   {
     prm.enter_subsection("Fluid boundary conditions");
     {
+      DECLARE_VERBOSITY_PARAM(prm, "quiet")
       prm.declare_entry(
         "fix pressure constant",
         "false",
@@ -85,6 +86,7 @@ namespace Parameters
   {
     prm.enter_subsection("Fluid boundary conditions");
     {
+      READ_VERBOSITY_PARAM(prm, fluid_verbosity)
       fix_pressure_constant      = prm.get_bool("fix pressure constant");
       enforce_zero_mean_pressure = prm.get_bool("enforce zero mean pressure");
     }

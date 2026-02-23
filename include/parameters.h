@@ -67,6 +67,8 @@ namespace Parameters
 
   struct BoundaryConditionsData
   {
+    Verbosity fluid_verbosity;
+
     // These are parsed in utilities.h
     unsigned int n_fluid_bc         = 0;
     unsigned int n_pseudosolid_bc   = 0;

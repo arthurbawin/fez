@@ -78,6 +78,7 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
+  set verbosity = verbose
   set number = 4
   subsection boundary 0
     set id   = 1

@@ -1210,12 +1210,16 @@ void FSISolver<dim>::create_solver_specific_nonzero_constraints()
     if (this->param.fsi.enable_coupling)
     {
       this->pcout << "Removing nonzero constraints on cylinder" << std::endl;
-      remove_cylinder_velocity_constraints(this->nonzero_constraints, true, true);
+      remove_cylinder_velocity_constraints(this->nonzero_constraints,
+                                           true,
+                                           true);
     }
     else if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
     {
       // If boundary has a weakly enforced no-slip, remove velocity constraints.
-      remove_cylinder_velocity_constraints(this->nonzero_constraints, true, false);
+      remove_cylinder_velocity_constraints(this->nonzero_constraints,
+                                           true,
+                                           false);
     }
   }
 }
@@ -2823,7 +2827,8 @@ void FSISolver<dim>::add_solver_specific_postprocessing_data()
       if (cell->is_locally_owned())
       {
         lame_mu_cell[cell->active_cell_index()] = mu_fun->value(cell->center());
-        lame_lambda_cell[cell->active_cell_index()] = lambda_fun->value(cell->center());
+        lame_lambda_cell[cell->active_cell_index()] =
+          lambda_fun->value(cell->center());
       }
 
     this->postproc_handler->add_cell_data_vector(lame_mu_cell, "lame_mu");

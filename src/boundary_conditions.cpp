@@ -5,8 +5,6 @@
 #include <deal.II/fe/mapping.h>
 #include <deal.II/grid/grid_tools_geometry.h>
 
-#include <sstream>
-
 namespace BoundaryConditions
 {
   void BoundaryCondition::declare_parameters(ParameterHandler &prm)

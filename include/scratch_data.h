@@ -898,9 +898,9 @@ public:
   std::vector<double>         potential_values;
   std::vector<Tensor<1, dim>> potential_gradients;
 
-  std::vector<Tensor<1, dim>>              diffusive_flux;
-  std::vector<double>                      velocity_dot_tracer_gradient;
-  
+  std::vector<Tensor<1, dim>> diffusive_flux;
+  std::vector<double>         velocity_dot_tracer_gradient;
+
   std::vector<std::vector<double>>         shape_phi;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
   std::vector<std::vector<double>>         shape_phi_fixed;

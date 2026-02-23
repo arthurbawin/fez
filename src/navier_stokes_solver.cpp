@@ -1012,13 +1012,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 //   if (rank == 0)
 //     pcout << "\n--- Writing checkpoint... ---\n\n";
 
-//   // --------------------------------------------------------------------------
-//   // 1) (Rank 0) Handling an existing temporary directory (previous crash case)
-//   //    - If the DONE file exists in the temporary directory, the previous write
-//   //      completed successfully but the "swap" step failed; the directory can
+//   //
+//   --------------------------------------------------------------------------
+//   // 1) (Rank 0) Handling an existing temporary directory (previous crash
+//   case)
+//   //    - If the DONE file exists in the temporary directory, the previous
+//   write
+//   //      completed successfully but the "swap" step failed; the directory
+//   can
 //   //      therefore be promoted.
-//   //    - Otherwise, the temporary directory is incomplete and must be removed.
-//   // --------------------------------------------------------------------------
+//   //    - Otherwise, the temporary directory is incomplete and must be
+//   removed.
+//   //
+//   --------------------------------------------------------------------------
 
 //   if (rank == 0)
 //   {
@@ -1040,13 +1046,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 //           fs::rename(final_dir, old_dir, ec);
 //           AssertThrow(!ec,
 //                       dealii::ExcMessage(
-//                         "Cannot rename final_dir -> old_dir: " + ec.message()));
+//                         "Cannot rename final_dir -> old_dir: " +
+//                         ec.message()));
 //           ec.clear();
 //         }
 
 //         fs::rename(tmp_dir, final_dir, ec);
 //         AssertThrow(!ec,
-//                     dealii::ExcMessage("Cannot rename tmp_dir -> final_dir: " +
+//                     dealii::ExcMessage("Cannot rename tmp_dir -> final_dir: "
+//                     +
 //                                        ec.message()));
 //         ec.clear();
 
@@ -1077,7 +1085,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 //   {
 //     std::ofstream checkpoint_file(prefix + ".timeinfo");
 //     AssertThrow(checkpoint_file,
-//                 dealii::ExcMessage("Could not write: " + prefix + ".timeinfo"));
+//                 dealii::ExcMessage("Could not write: " + prefix +
+//                 ".timeinfo"));
 
 //     boost::archive::text_oarchive archive(checkpoint_file);
 //     archive << time_handler;
@@ -1103,11 +1112,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
 //   MPI_Barrier(comm);
 
-//   // --------------------------------------------------------------------------
+//   //
+//   --------------------------------------------------------------------------
 //   // 4) (Rank 0) Safe commit:
 //   //    - write DONE in tmp_dir
 //   //    - swap tmp_dir to final_dir
-//   // --------------------------------------------------------------------------
+//   //
+//   --------------------------------------------------------------------------
 
 //   if (rank == 0)
 //   {
@@ -1180,7 +1191,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
 
 //     AssertThrow(fs::exists(final_dir / "DONE"),
-//                 dealii::ExcMessage("Checkpoint incomplete: missing DONE in " +
+//                 dealii::ExcMessage("Checkpoint incomplete: missing DONE in "
+//                 +
 //                                    final_dir.string()));
 
 //     AssertThrow(fs::exists(checkpoint_prefix + ".timeinfo"),

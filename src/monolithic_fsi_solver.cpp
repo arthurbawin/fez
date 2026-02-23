@@ -22,8 +22,6 @@
 #include <scratch_data.h>
 #include <utilities.h>
 
-#include <iomanip>
-
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, true>(param)
@@ -302,8 +300,6 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
  *
  *   FIXME: THERE IS ONLY ONE VECTOR ACTUALLY
  */
-
-
 template <int dim>
 void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
 {
@@ -369,8 +365,6 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
                                          gathered_dofs_flattened.end());
     this->locally_relevant_dofs.add_indices(additional_relevant_dofs);
     this->locally_relevant_dofs.compress();
-
-    // make_global_master_position_dofs_relevant_everywhere();
   }
 
   /**
@@ -578,6 +572,7 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
         if (this->locally_relevant_dofs.is_element(dof))
           coupled_position_dofs.insert({dof, dimension});
   }
+
   /**
    * Sanity check on the weights
    * Expected sum is -1/k * |Cylinder|
@@ -1161,6 +1156,7 @@ template <int dim>
 void FSISolver<dim>::create_solver_specific_zero_constraints()
 {
   this->zero_constraints.close();
+
   // Merge the zero lambda constraints
   this->zero_constraints.merge(
     lambda_constraints,
@@ -1172,7 +1168,6 @@ void FSISolver<dim>::create_solver_specific_zero_constraints()
      * belong to multiple boundaries, but for now this only happens for the
      * 3D fsi test case.
      */
-    // add_master_slave_constraints_on_weak_noslip(this->zero_constraints);
     if (this->param.fsi.enable_coupling)
     {
       /**
@@ -1204,31 +1199,26 @@ template <int dim>
 void FSISolver<dim>::create_solver_specific_nonzero_constraints()
 {
   this->nonzero_constraints.close();
-  // Merge les contraintes lambda=0
+
+  // Merge the zero lambda constraints
   this->nonzero_constraints.merge(
     lambda_constraints,
     AffineConstraints<double>::MergeConflictBehavior::no_conflicts_allowed);
+
   if constexpr (dim == 3)
   {
     if (this->param.fsi.enable_coupling)
     {
       this->pcout << "Removing nonzero constraints on cylinder" << std::endl;
-      remove_cylinder_velocity_constraints(
-        this->nonzero_constraints,
-        /*remove_velocity_constraints=*/true,
-        /*remove_position_constraints=*/true);
+      remove_cylinder_velocity_constraints(this->nonzero_constraints, true, true);
     }
-    // If boundary has a weakly enforced no-slip, remove velocity constraints.
     else if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
     {
-      remove_cylinder_velocity_constraints(
-        this->nonzero_constraints,
-        /*remove_velocity_constraints=*/true,
-        /*remove_position_constraints=*/false);
+      // If boundary has a weakly enforced no-slip, remove velocity constraints.
+      remove_cylinder_velocity_constraints(this->nonzero_constraints, true, false);
     }
   }
 }
-
 
 template <int dim>
 void FSISolver<dim>::create_sparsity_pattern()
@@ -2009,7 +1999,7 @@ void FSISolver<dim>::assemble_local_rhs(
 
             for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
             {
-              double local_rhs_i = 0.0;
+              double local_rhs_i = 0.;
 
               const unsigned int comp_i = scratch_data.components[i];
               const bool         i_is_u = this->ordering->is_velocity(comp_i);
@@ -2438,7 +2428,6 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
   {
     if (std::abs(ratio[d]) < 1e-10)
       continue;
-
     if (lambda_integral[d] < 1e-12)
       continue;
 
@@ -2821,53 +2810,21 @@ void FSISolver<dim>::add_solver_specific_postprocessing_data()
 {
   if (this->postproc_handler->should_output_volume_fields(this->time_handler))
   {
-    // Export Lamé coefficients on cell
+    // Export Lamé coefficients on cell (evaluated at center of cell)
     Vector<float> lame_mu_cell(this->triangulation.n_active_cells());
     Vector<float> lame_lambda_cell(this->triangulation.n_active_cells());
 
-    FEValues<dim> fe_values_fixed(*this->fixed_mapping,
-                                  *fe,
-                                  *this->quadrature,
-                                  update_quadrature_points | update_JxW_values);
-
     const auto &mu_fun =
       this->param.physical_properties.pseudosolids[0].lame_mu_fun;
-    const auto &la_fun =
+    const auto &lambda_fun =
       this->param.physical_properties.pseudosolids[0].lame_lambda_fun;
 
-    AssertThrow(mu_fun, ExcMessage("lame_mu_fun is null"));
-    AssertThrow(la_fun, ExcMessage("lame_lambda_fun is null"));
     for (const auto &cell : this->dof_handler.active_cell_iterators())
-    {
-      if (!cell->is_locally_owned())
-        continue;
-
-      fe_values_fixed.reinit(cell);
-
-      double mu_avg = 0.0;
-      double la_avg = 0.0;
-      double w_sum  = 0.0;
-
-      for (unsigned int q = 0; q < fe_values_fixed.n_quadrature_points; ++q)
+      if (cell->is_locally_owned())
       {
-        const Point<dim> &xq = fe_values_fixed.quadrature_point(q);
-        const double      w  = fe_values_fixed.JxW(q);
-
-        mu_avg += mu_fun->value(xq, 0) * w;
-        la_avg += la_fun->value(xq, 0) * w;
-        w_sum += w;
+        lame_mu_cell[cell->active_cell_index()] = mu_fun->value(cell->center());
+        lame_lambda_cell[cell->active_cell_index()] = lambda_fun->value(cell->center());
       }
-
-      if (w_sum > 0.0)
-      {
-        mu_avg /= w_sum;
-        la_avg /= w_sum;
-      }
-
-      const unsigned int idx = cell->active_cell_index();
-      lame_mu_cell[idx]      = static_cast<float>(mu_avg);
-      lame_lambda_cell[idx]  = static_cast<float>(la_avg);
-    }
 
     this->postproc_handler->add_cell_data_vector(lame_mu_cell, "lame_mu");
     this->postproc_handler->add_cell_data_vector(lame_lambda_cell,

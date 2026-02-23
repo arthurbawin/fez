@@ -20,7 +20,6 @@
 #include <scratch_data.h>
 #include <utilities.h>
 
-
 template <int dim>
 NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param)

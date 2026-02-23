@@ -2,12 +2,10 @@
 #include <boundary_conditions.h>
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/utilities.h>
-#include <deal.II/fe/mapping_q1.h>
+#include <deal.II/fe/mapping.h>
 #include <deal.II/grid/grid_tools_geometry.h>
-#include <mpi.h>
 
 #include <sstream>
-
 
 namespace BoundaryConditions
 {
@@ -323,7 +321,6 @@ namespace BoundaryConditions
                                                  constraints,
                                                  velocity_mask);
       }
-
       if (bc.type == BoundaryConditions::Type::input_function)
       {
         if (homogeneous)
@@ -348,7 +345,6 @@ namespace BoundaryConditions
             velocity_mask);
         }
       }
-
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
         if (homogeneous)
@@ -371,30 +367,24 @@ namespace BoundaryConditions
                                                    velocity_mask);
         }
       }
-
       if (bc.type == BoundaryConditions::Type::slip)
       {
         no_flux_boundaries.insert(bc.id);
       }
-
       if (bc.type == BoundaryConditions::Type::no_tangential_flow)
       {
         no_tangential_flow_boundaries.insert(bc.id);
       }
-
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
         // Enforce both the normal and tangential flux to be well-posed
         velocity_normal_flux_boundaries.insert(bc.id);
         velocity_normal_flux_functions[bc.id] = &exact_velocity;
-
         velocity_tangential_flux_boundaries.insert(bc.id);
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
     }
-    auto comm = dof_handler.get_mpi_communicator();
 
-    MPI_Barrier(comm);
     VectorTools::compute_no_normal_flux_constraints(
       dof_handler,
       u_lower,
@@ -402,8 +392,6 @@ namespace BoundaryConditions
       constraints,
       mapping,
       /*use_manifold_for_normal=*/false);
-    MPI_Barrier(comm);
-
     VectorTools::compute_normal_flux_constraints(
       dof_handler,
       u_lower,
@@ -411,7 +399,6 @@ namespace BoundaryConditions
       constraints,
       mapping,
       /*use_manifold_for_normal=*/false);
-
 
     // Add no velocity flux constraints
     VectorTools::compute_nonzero_normal_flux_constraints(

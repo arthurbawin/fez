@@ -26,8 +26,6 @@ void create_quadrature_rules(
     return;
   }
 
-
-
   const auto make_simplex_quadrature = [](auto  rule_type,
                                           auto  n_cell,
                                           auto  n_face,

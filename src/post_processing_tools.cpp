@@ -18,17 +18,18 @@ namespace PostProcessingTools
 
   template <int dim>
   DataOutFacesOnBoundary<dim>::DataOutFacesOnBoundary(
-    const Triangulation<dim> &triangulation_,
-    const types::boundary_id  boundary_id_)
-    : DataOutFaces<dim>(/*surface_only=*/true)
-    , triangulation(triangulation_)
-    , boundary_id(boundary_id_)
+    const Triangulation<dim> &triangulation,
+    const types::boundary_id  boundary_id)
+    : DataOutFaces<dim>(/*surface_only =*/true)
+    , triangulation(triangulation)
+    , boundary_id(boundary_id)
   {}
 
   template <int dim>
   typename DataOutFacesOnBoundary<dim>::FaceDescriptor
   DataOutFacesOnBoundary<dim>::first_face()
   {
+    // Find first active cell with a face on the prescribed boundary
     for (const auto &cell : this->triangulation.active_cell_iterators())
       if (cell->is_locally_owned())
         for (const unsigned int f : cell->face_indices())
@@ -38,8 +39,9 @@ namespace PostProcessingTools
             return FaceDescriptor(cell, f);
         }
 
-    // Peut arriver en parallèle si toutes les faces de cette boundary_id
-    // sont possédées par d'autres ranks.
+    // just return an invalid descriptor if we haven't found a locally
+    // owned face. this can happen in parallel where all boundary
+    // faces are owned by other processors
     return FaceDescriptor();
   }
 
@@ -49,31 +51,29 @@ namespace PostProcessingTools
   {
     FaceDescriptor face = old_face;
 
-    if (face.first == this->triangulation.end())
-      return face;
-
+    // first check whether the present cell has more faces on the boundary.
+    // since we started with this face, its cell must clearly be locally owned
     Assert(face.first->is_locally_owned(), ExcInternalError());
-
-    // 1) faces suivantes sur la même cellule
     for (unsigned int f = face.second + 1; f < face.first->n_faces(); ++f)
     {
       const auto &face_iter = face.first->face(f);
       if (face_iter->at_boundary() &&
           face_iter->boundary_id() == this->boundary_id)
       {
+        // Return this face
         face.second = f;
         return face;
       }
     }
 
-    // 2) cellules suivantes
+    // otherwise find the next active cell that has a face on the boundary
     typename Triangulation<dim>::active_cell_iterator active_cell = face.first;
     ++active_cell;
 
     while (active_cell != this->triangulation.end())
     {
       if (active_cell->is_locally_owned())
-        for (const unsigned int f : active_cell->face_indices())
+        for (const unsigned int f : face.first->face_indices())
           if (active_cell->face(f)->at_boundary() &&
               active_cell->face(f)->boundary_id() == this->boundary_id)
           {
@@ -84,13 +84,12 @@ namespace PostProcessingTools
       ++active_cell;
     }
 
+    // If no face was found, return with invalid pointer
     face.first  = this->triangulation.end();
     face.second = 0;
     return face;
   }
 
+  template class DataOutFacesOnBoundary<2>;
+  template class DataOutFacesOnBoundary<3>;
 } // namespace PostProcessingTools
-
-// --------- explicit instantiation for DataOutFacesOnBoundary ---------
-template class PostProcessingTools::DataOutFacesOnBoundary<2>;
-template class PostProcessingTools::DataOutFacesOnBoundary<3>;

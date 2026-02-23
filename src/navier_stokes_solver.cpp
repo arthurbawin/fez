@@ -160,9 +160,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   }
 
   if (param.bc_data.enforce_zero_mean_pressure)
-  {
     create_zero_mean_pressure_constraints_data();
-  }
   create_solver_specific_constraints_data();
 
   create_zero_constraints();
@@ -170,10 +168,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   create_sparsity_pattern();
 
   if (!param.checkpoint_restart.restart)
-  {
     set_initial_conditions();
-  }
-
   output_results();
 
   while (!time_handler.is_finished())
@@ -187,15 +182,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
           Parameters::TimeIntegration::BDFStart::initial_condition)
     {
       if (param.mms_param.enable || param.debug.apply_exact_solution)
-      {
         // Convergence study: start with exact solution at first time step
         set_exact_solution();
-      }
       else
-      {
         // Repeat initial condition
         set_initial_conditions();
-      }
     }
     else
     {
@@ -226,7 +217,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
        * to actually save the last N solutions. In that case, the solutions
        * would need to be rotated right after restart().
        */
-
       checkpoint();
     }
   }
@@ -249,20 +239,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
-
-  if (param.bc_data.enforce_zero_mean_pressure)
-  {
-    BoundaryConditions::create_zero_mean_pressure_constraints_data(
-      triangulation,
-      dof_handler,
-      locally_relevant_dofs,
-      dofs_to_component,
-      *fixed_mapping,
-      *quadrature,
-      ordering->p_lower,
-      constrained_pressure_dof,
-      zero_mean_pressure_weights);
-  }
 
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
@@ -375,7 +351,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
   AffineConstraints<double> &constraints)
 {
   constraints.clear();
-
   constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
 
   /**
@@ -426,6 +401,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
       *param.mms.exact_mesh_position,
       constraints);
   }
+
   BoundaryConditions::apply_velocity_boundary_conditions(
     homogeneous,
     ordering->u_lower,
@@ -437,19 +413,14 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
     *param.mms.exact_velocity,
     constraints);
 
-
-
   if (param.bc_data.fix_pressure_constant)
   {
     // The pressure DOF is set to 0 by default for the nonzero constraints too,
     // unless there is a prescribed manufactured solution, in which case it is
     // prescribed to p_mms.
     bool set_to_zero = true;
-
     if (!homogeneous && param.mms_param.enable)
-    {
       set_to_zero = false;
-    }
 
     if constexpr (with_moving_mesh)
     {
@@ -479,13 +450,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
   }
 
   if (param.bc_data.enforce_zero_mean_pressure)
-  {
     BoundaryConditions::add_zero_mean_pressure_constraints(
       constraints,
       locally_relevant_dofs,
       constrained_pressure_dof,
       zero_mean_pressure_weights);
-  }
 
   /**
    * Do not close the constraints here, as derived solvers may need
@@ -506,9 +475,7 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::create_nonzero_constraints()
 {
   create_base_constraints(false, nonzero_constraints);
-
   create_solver_specific_nonzero_constraints();
-
   nonzero_constraints.close();
 }
 
@@ -631,24 +598,17 @@ void NavierStokesSolver<dim, with_moving_mesh>::update_boundary_conditions()
     // Then update the moving mapping (through the evaluation point),
     // and evaluate the inhomogeneous velocity (and other) BC on the
     // updated mapping.
-
     create_nonzero_constraints();
 
-
     // Update the moving mapping
-
     nonzero_constraints.distribute(local_evaluation_point);
-
     evaluation_point = local_evaluation_point;
   }
 
   // Create and apply inhomogeneous BC for non-position fields.
   // The position BC are re-applied, but did not change.
-
   create_nonzero_constraints();
-
   nonzero_constraints.distribute(local_evaluation_point);
-
   evaluation_point = local_evaluation_point;
   present_solution = local_evaluation_point;
 }
@@ -940,248 +900,334 @@ void NavierStokesSolver<dim, with_moving_mesh>::finalize()
   postproc_handler->write_pvd();
 }
 
-// New checkpoint fonction compatible with multinode with a sharing repository
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
 {
   TimerOutput::Scope t(computing_timer, "Write checkpoint");
 
-  const MPI_Comm     comm = mpi_communicator;
-  const unsigned int rank = dealii::Utilities::MPI::this_mpi_process(comm);
+  pcout << std::endl;
+  pcout << "--- Writing checkpoint... ---" << std::endl << std::endl;
 
-  namespace fs = std::filesystem;
+  const std::string checkpoint_prefix =
+    param.output.output_dir + param.checkpoint_restart.filename;
+  const std::string tmp_checkpoint_prefix =
+    param.output.output_dir + "tmp." + param.checkpoint_restart.filename;
 
-  std::string output_dir = param.output.output_dir;
-  if (!output_dir.empty() && output_dir.back() != '/')
-    output_dir += '/';
-
-  const std::string base_name = param.checkpoint_restart.filename;
-
-
-  const fs::path final_dir = fs::path(output_dir) / base_name;
-  const fs::path tmp_dir   = fs::path(output_dir) / (base_name + ".tmp");
-
-  const std::string prefix = (tmp_dir / base_name).string();
-
-  if (rank == 0)
-    pcout << "\n--- Writing checkpoint... ---\n\n";
-
-  // --------------------------------------------------------------------------
-  // 1) (Rank 0) Handling an existing temporary directory (previous crash case)
-  //    - If the DONE file exists in the temporary directory, the previous write
-  //      completed successfully but the "swap" step failed; the directory can
-  //      therefore be promoted.
-  //    - Otherwise, the temporary directory is incomplete and must be removed.
-  // --------------------------------------------------------------------------
-
-  if (rank == 0)
   {
-    std::error_code ec;
-
-    if (fs::exists(tmp_dir, ec))
-    {
-      const fs::path done_path = tmp_dir / "DONE";
-      if (fs::exists(done_path, ec))
-      {
-        const fs::path old_dir = fs::path(output_dir) / (base_name + ".old");
-
-
-        fs::remove_all(old_dir, ec);
-        ec.clear();
-
-        if (fs::exists(final_dir, ec))
-        {
-          fs::rename(final_dir, old_dir, ec);
-          AssertThrow(!ec,
-                      dealii::ExcMessage(
-                        "Cannot rename final_dir -> old_dir: " + ec.message()));
-          ec.clear();
-        }
-
-        fs::rename(tmp_dir, final_dir, ec);
-        AssertThrow(!ec,
-                    dealii::ExcMessage("Cannot rename tmp_dir -> final_dir: " +
-                                       ec.message()));
-        ec.clear();
-
-
-        fs::remove_all(old_dir, ec);
-        ec.clear();
-      }
-      else
-      {
-        fs::remove_all(tmp_dir, ec);
-        AssertThrow(!ec,
-                    dealii::ExcMessage("Cannot remove stale tmp_dir: " +
-                                       ec.message()));
-        ec.clear();
-      }
-    }
-
-
-    fs::create_directories(tmp_dir, ec);
-    AssertThrow(!ec,
-                dealii::ExcMessage("Cannot create tmp checkpoint dir: " +
-                                   tmp_dir.string() + " : " + ec.message()));
-  }
-
-  MPI_Barrier(comm);
-
-  if (rank == 0)
-  {
-    std::ofstream checkpoint_file(prefix + ".timeinfo");
+    // Save the time handler data
+    std::ofstream checkpoint_file(tmp_checkpoint_prefix + ".timeinfo");
     AssertThrow(checkpoint_file,
-                dealii::ExcMessage("Could not write: " + prefix + ".timeinfo"));
-
+                ExcMessage("Could not write to the checkpoint file."));
     boost::archive::text_oarchive archive(checkpoint_file);
     archive << time_handler;
-    checkpoint_file.flush();
   }
 
-  MPI_Barrier(comm);
-
-
+  /**
+   * Prepare to write the present and previous solutions
+   */
   std::vector<const LA::ParVectorType *> vectors_to_checkpoint;
-  vectors_to_checkpoint.reserve(1 + previous_solutions.size());
   vectors_to_checkpoint.emplace_back(&present_solution);
   for (const auto &sol : previous_solutions)
     vectors_to_checkpoint.emplace_back(&sol);
 
-  dealii::SolutionTransfer<dim, LA::ParVectorType> solution_transfer(
-    dof_handler);
+  SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
   solution_transfer.prepare_for_serialization(vectors_to_checkpoint);
+  triangulation.save(tmp_checkpoint_prefix);
 
-  // Collective operation: each rank writes its part into the temporary
-  // directory
-  triangulation.save(prefix);
-
-  MPI_Barrier(comm);
-
-  // --------------------------------------------------------------------------
-  // 4) (Rank 0) Safe commit:
-  //    - write DONE in tmp_dir
-  //    - swap tmp_dir to final_dir
-  // --------------------------------------------------------------------------
-
-  if (rank == 0)
-  {
-    std::error_code ec;
-    {
-      std::ofstream done((tmp_dir / "DONE").string());
-      AssertThrow(done,
-                  dealii::ExcMessage("Could not write DONE in " +
-                                     tmp_dir.string()));
-      done << "ok\n";
-      done.flush();
-    }
-
-    const fs::path old_dir = fs::path(output_dir) / (base_name + ".old");
-
-    fs::remove_all(old_dir, ec);
-    ec.clear();
-
-    if (fs::exists(final_dir, ec))
-    {
-      fs::rename(final_dir, old_dir, ec);
-      AssertThrow(!ec,
-                  dealii::ExcMessage("Cannot rename final_dir -> old_dir: " +
-                                     ec.message()));
-      ec.clear();
-    }
-
-    fs::rename(tmp_dir, final_dir, ec);
-    AssertThrow(!ec,
-                dealii::ExcMessage("Cannot rename tmp_dir -> final_dir: " +
-                                   ec.message()));
-    ec.clear();
-
-    fs::remove_all(old_dir, ec);
-    ec.clear();
-  }
-
-  MPI_Barrier(comm);
+  replace_temporary_files(param.output.output_dir,
+                          "tmp." + param.checkpoint_restart.filename,
+                          param.checkpoint_restart.filename,
+                          mpi_communicator);
 }
 
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::restart()
 {
-  const MPI_Comm     comm = mpi_communicator;
-  const unsigned int rank = dealii::Utilities::MPI::this_mpi_process(comm);
+  pcout << std::endl;
+  pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
 
-  namespace fs = std::filesystem;
-
-  if (rank == 0)
-  {
-    pcout << std::endl;
-    pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
-  }
-
-  std::string output_dir = param.output.output_dir;
-  if (!output_dir.empty() && output_dir.back() != '/')
-    output_dir += '/';
-
-  const std::string base_name = param.checkpoint_restart.filename;
-
-
-  const fs::path    final_dir         = fs::path(output_dir) / base_name;
-  const std::string checkpoint_prefix = (final_dir / base_name).string();
-
-  if (rank == 0)
-  {
-    AssertThrow(fs::exists(final_dir),
-                dealii::ExcMessage("Checkpoint directory does not exist: " +
-                                   final_dir.string()));
-
-
-    AssertThrow(fs::exists(final_dir / "DONE"),
-                dealii::ExcMessage("Checkpoint incomplete: missing DONE in " +
-                                   final_dir.string()));
-
-    AssertThrow(fs::exists(checkpoint_prefix + ".timeinfo"),
-                dealii::ExcMessage("Missing checkpoint file: " +
-                                   checkpoint_prefix + ".timeinfo"));
-  }
-  MPI_Barrier(comm);
+  const std::string checkpoint_prefix =
+    param.output.output_dir + param.checkpoint_restart.filename;
 
   {
     std::ifstream checkpoint_file(checkpoint_prefix + ".timeinfo");
     AssertThrow(checkpoint_file,
-                dealii::ExcMessage("Could not read: " + checkpoint_prefix +
-                                   ".timeinfo"));
+                ExcMessage("Could not read from the checkpoint file."));
     boost::archive::text_iarchive archive(checkpoint_file);
     archive >> time_handler;
   }
 
-  time_handler.apply_restart_overrides(param.time_integration);
   triangulation.load(checkpoint_prefix);
+
+  // Setup the dofhandler and parallel vectors here
   setup_dofs();
 
-  const unsigned int n_vec = time_handler.n_previous_solutions + 1;
-
-  std::vector<LA::ParVectorType>   vectors_to_read(n_vec);
+  // SolutionTransfer deserializes to a vector of ptrs to fully distributed
+  // vectors (without ghosts), but the present and previous solutions have
+  // ghosts
+  const unsigned int             n_vec = time_handler.n_previous_solutions + 1;
+  std::vector<LA::ParVectorType> vectors_to_read(n_vec);
   std::vector<LA::ParVectorType *> ptrs_to_vectors_to_read(n_vec);
-
   for (unsigned int i = 0; i < n_vec; ++i)
   {
-    vectors_to_read[i].reinit(locally_owned_dofs, mpi_communicator);
+    vectors_to_read[i].reinit(locally_owned_dofs,
+                              mpi_communicator); // <==================
     ptrs_to_vectors_to_read[i] = &vectors_to_read[i];
   }
 
-  dealii::SolutionTransfer<dim, LA::ParVectorType> solution_transfer(
-    dof_handler);
+  SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
   solution_transfer.deserialize(ptrs_to_vectors_to_read);
 
-
+  // Assign the fully distr. vectors to the existing ghosted ones
   present_solution = vectors_to_read[0];
   for (unsigned int i = 0; i < time_handler.n_previous_solutions; ++i)
     previous_solutions[i] = vectors_to_read[i + 1];
 
   local_evaluation_point = present_solution;
   evaluation_point       = present_solution;
-
-  if (rank == 0)
-    pcout << "Restarted from: " << checkpoint_prefix << std::endl;
 }
+
+// template <int dim, bool with_moving_mesh>
+// void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
+// {
+//   TimerOutput::Scope t(computing_timer, "Write checkpoint");
+
+//   const MPI_Comm     comm = mpi_communicator;
+//   const unsigned int rank = dealii::Utilities::MPI::this_mpi_process(comm);
+
+//   namespace fs = std::filesystem;
+
+//   std::string output_dir = param.output.output_dir;
+//   if (!output_dir.empty() && output_dir.back() != '/')
+//     output_dir += '/';
+
+//   const std::string base_name = param.checkpoint_restart.filename;
+
+
+//   const fs::path final_dir = fs::path(output_dir) / base_name;
+//   const fs::path tmp_dir   = fs::path(output_dir) / (base_name + ".tmp");
+
+//   const std::string prefix = (tmp_dir / base_name).string();
+
+//   if (rank == 0)
+//     pcout << "\n--- Writing checkpoint... ---\n\n";
+
+//   // --------------------------------------------------------------------------
+//   // 1) (Rank 0) Handling an existing temporary directory (previous crash case)
+//   //    - If the DONE file exists in the temporary directory, the previous write
+//   //      completed successfully but the "swap" step failed; the directory can
+//   //      therefore be promoted.
+//   //    - Otherwise, the temporary directory is incomplete and must be removed.
+//   // --------------------------------------------------------------------------
+
+//   if (rank == 0)
+//   {
+//     std::error_code ec;
+
+//     if (fs::exists(tmp_dir, ec))
+//     {
+//       const fs::path done_path = tmp_dir / "DONE";
+//       if (fs::exists(done_path, ec))
+//       {
+//         const fs::path old_dir = fs::path(output_dir) / (base_name + ".old");
+
+
+//         fs::remove_all(old_dir, ec);
+//         ec.clear();
+
+//         if (fs::exists(final_dir, ec))
+//         {
+//           fs::rename(final_dir, old_dir, ec);
+//           AssertThrow(!ec,
+//                       dealii::ExcMessage(
+//                         "Cannot rename final_dir -> old_dir: " + ec.message()));
+//           ec.clear();
+//         }
+
+//         fs::rename(tmp_dir, final_dir, ec);
+//         AssertThrow(!ec,
+//                     dealii::ExcMessage("Cannot rename tmp_dir -> final_dir: " +
+//                                        ec.message()));
+//         ec.clear();
+
+
+//         fs::remove_all(old_dir, ec);
+//         ec.clear();
+//       }
+//       else
+//       {
+//         fs::remove_all(tmp_dir, ec);
+//         AssertThrow(!ec,
+//                     dealii::ExcMessage("Cannot remove stale tmp_dir: " +
+//                                        ec.message()));
+//         ec.clear();
+//       }
+//     }
+
+
+//     fs::create_directories(tmp_dir, ec);
+//     AssertThrow(!ec,
+//                 dealii::ExcMessage("Cannot create tmp checkpoint dir: " +
+//                                    tmp_dir.string() + " : " + ec.message()));
+//   }
+
+//   MPI_Barrier(comm);
+
+//   if (rank == 0)
+//   {
+//     std::ofstream checkpoint_file(prefix + ".timeinfo");
+//     AssertThrow(checkpoint_file,
+//                 dealii::ExcMessage("Could not write: " + prefix + ".timeinfo"));
+
+//     boost::archive::text_oarchive archive(checkpoint_file);
+//     archive << time_handler;
+//     checkpoint_file.flush();
+//   }
+
+//   MPI_Barrier(comm);
+
+
+//   std::vector<const LA::ParVectorType *> vectors_to_checkpoint;
+//   vectors_to_checkpoint.reserve(1 + previous_solutions.size());
+//   vectors_to_checkpoint.emplace_back(&present_solution);
+//   for (const auto &sol : previous_solutions)
+//     vectors_to_checkpoint.emplace_back(&sol);
+
+//   dealii::SolutionTransfer<dim, LA::ParVectorType> solution_transfer(
+//     dof_handler);
+//   solution_transfer.prepare_for_serialization(vectors_to_checkpoint);
+
+//   // Collective operation: each rank writes its part into the temporary
+//   // directory
+//   triangulation.save(prefix);
+
+//   MPI_Barrier(comm);
+
+//   // --------------------------------------------------------------------------
+//   // 4) (Rank 0) Safe commit:
+//   //    - write DONE in tmp_dir
+//   //    - swap tmp_dir to final_dir
+//   // --------------------------------------------------------------------------
+
+//   if (rank == 0)
+//   {
+//     std::error_code ec;
+//     {
+//       std::ofstream done((tmp_dir / "DONE").string());
+//       AssertThrow(done,
+//                   dealii::ExcMessage("Could not write DONE in " +
+//                                      tmp_dir.string()));
+//       done << "ok\n";
+//       done.flush();
+//     }
+
+//     const fs::path old_dir = fs::path(output_dir) / (base_name + ".old");
+
+//     fs::remove_all(old_dir, ec);
+//     ec.clear();
+
+//     if (fs::exists(final_dir, ec))
+//     {
+//       fs::rename(final_dir, old_dir, ec);
+//       AssertThrow(!ec,
+//                   dealii::ExcMessage("Cannot rename final_dir -> old_dir: " +
+//                                      ec.message()));
+//       ec.clear();
+//     }
+
+//     fs::rename(tmp_dir, final_dir, ec);
+//     AssertThrow(!ec,
+//                 dealii::ExcMessage("Cannot rename tmp_dir -> final_dir: " +
+//                                    ec.message()));
+//     ec.clear();
+
+//     fs::remove_all(old_dir, ec);
+//     ec.clear();
+//   }
+
+//   MPI_Barrier(comm);
+// }
+
+// template <int dim, bool with_moving_mesh>
+// void NavierStokesSolver<dim, with_moving_mesh>::restart()
+// {
+//   const MPI_Comm     comm = mpi_communicator;
+//   const unsigned int rank = dealii::Utilities::MPI::this_mpi_process(comm);
+
+//   namespace fs = std::filesystem;
+
+//   if (rank == 0)
+//   {
+//     pcout << std::endl;
+//     pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
+//   }
+
+//   std::string output_dir = param.output.output_dir;
+//   if (!output_dir.empty() && output_dir.back() != '/')
+//     output_dir += '/';
+
+//   const std::string base_name = param.checkpoint_restart.filename;
+
+
+//   const fs::path    final_dir         = fs::path(output_dir) / base_name;
+//   const std::string checkpoint_prefix = (final_dir / base_name).string();
+
+//   if (rank == 0)
+//   {
+//     AssertThrow(fs::exists(final_dir),
+//                 dealii::ExcMessage("Checkpoint directory does not exist: " +
+//                                    final_dir.string()));
+
+
+//     AssertThrow(fs::exists(final_dir / "DONE"),
+//                 dealii::ExcMessage("Checkpoint incomplete: missing DONE in " +
+//                                    final_dir.string()));
+
+//     AssertThrow(fs::exists(checkpoint_prefix + ".timeinfo"),
+//                 dealii::ExcMessage("Missing checkpoint file: " +
+//                                    checkpoint_prefix + ".timeinfo"));
+//   }
+//   MPI_Barrier(comm);
+
+//   {
+//     std::ifstream checkpoint_file(checkpoint_prefix + ".timeinfo");
+//     AssertThrow(checkpoint_file,
+//                 dealii::ExcMessage("Could not read: " + checkpoint_prefix +
+//                                    ".timeinfo"));
+//     boost::archive::text_iarchive archive(checkpoint_file);
+//     archive >> time_handler;
+//   }
+
+//   time_handler.apply_restart_overrides(param.time_integration);
+//   triangulation.load(checkpoint_prefix);
+//   setup_dofs();
+
+//   const unsigned int n_vec = time_handler.n_previous_solutions + 1;
+
+//   std::vector<LA::ParVectorType>   vectors_to_read(n_vec);
+//   std::vector<LA::ParVectorType *> ptrs_to_vectors_to_read(n_vec);
+
+//   for (unsigned int i = 0; i < n_vec; ++i)
+//   {
+//     vectors_to_read[i].reinit(locally_owned_dofs, mpi_communicator);
+//     ptrs_to_vectors_to_read[i] = &vectors_to_read[i];
+//   }
+
+//   dealii::SolutionTransfer<dim, LA::ParVectorType> solution_transfer(
+//     dof_handler);
+//   solution_transfer.deserialize(ptrs_to_vectors_to_read);
+
+
+//   present_solution = vectors_to_read[0];
+//   for (unsigned int i = 0; i < time_handler.n_previous_solutions; ++i)
+//     previous_solutions[i] = vectors_to_read[i + 1];
+
+//   local_evaluation_point = present_solution;
+//   evaluation_point       = present_solution;
+
+//   if (rank == 0)
+//     pcout << "Restarted from: " << checkpoint_prefix << std::endl;
+// }
 
 
 // Explicit instantiation

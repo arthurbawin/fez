@@ -1,22 +1,10 @@
 
-#include <deal.II/base/bounding_box.h>
 #include <deal.II/base/exceptions.h>
-#include <deal.II/base/mpi.h>
-#include <deal.II/base/utilities.h>
-#include <deal.II/fe/fe_face.h>
-#include <deal.II/fe/fe_values.h>
 #include <deal.II/grid/tria.h>
-#include <deal.II/numerics/data_out_faces.h>
 #include <post_processing_tools.h>
-
-#include <algorithm>
-#include <cmath>
-#include <limits>
 
 namespace PostProcessingTools
 {
-  using namespace dealii;
-
   template <int dim>
   DataOutFacesOnBoundary<dim>::DataOutFacesOnBoundary(
     const Triangulation<dim> &triangulation,

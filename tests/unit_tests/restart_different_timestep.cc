@@ -13,7 +13,7 @@
 /**
  * Similar to restart.cc, but extend the simulation time after restarting,
  * and modify the time step.
- * 
+ *
  * FIXME: this does not yet compare errors, as it is less straightforward
  * than in the constant time step setting.
  */

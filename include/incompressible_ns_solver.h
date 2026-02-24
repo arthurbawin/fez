@@ -62,16 +62,6 @@ public:
   virtual void create_sparsity_pattern() override;
 
   /**
-   *
-   */
-  virtual void output_results() override;
-
-  /**
-   * Get the FESystem of the derived solver
-   */
-  virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
-
-  /**
    * Assemble the linearized Jacobian matrix at the current evaluation point
    */
   virtual void assemble_matrix() override;
@@ -121,6 +111,17 @@ public:
    * See copy_local_to_global_matrix.
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
+
+protected:
+  virtual std::vector<std::pair<std::string, unsigned int>>
+  get_additional_variables_description() const override
+  {
+    return std::vector<std::pair<std::string, unsigned int>>();
+  }
+
+  virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
+
+  virtual bool uses_hp_capabilities() const override { return false; };
 
 protected:
   std::shared_ptr<FESystem<dim>> fe;

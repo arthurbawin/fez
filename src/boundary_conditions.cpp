@@ -1,5 +1,8 @@
 
 #include <boundary_conditions.h>
+#include <deal.II/base/exceptions.h>
+#include <deal.II/base/utilities.h>
+#include <deal.II/fe/mapping.h>
 #include <deal.II/grid/grid_tools_geometry.h>
 
 namespace BoundaryConditions
@@ -28,12 +31,13 @@ namespace BoundaryConditions
   void FluidBC<dim>::declare_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry("type",
-                      "none",
-                      Patterns::Selection(
-                        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
-                        "velocity_mms|velocity_flux_mms|open_mms"),
-                      "Type of fluid boundary condition");
+    prm.declare_entry(
+      "type",
+      "none",
+      Patterns::Selection(
+        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
+        "velocity_mms|velocity_flux_mms|open_mms|no_tangential_flow"),
+      "Type of fluid boundary condition");
 
     // Imposed functions, if any
     prm.enter_subsection("u");
@@ -46,6 +50,30 @@ namespace BoundaryConditions
 
     prm.enter_subsection("w");
     w->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.declare_entry(
+      "weak no slip tolerance",
+      "1e-12",
+      Patterns::Double(),
+      "Throw an error if the velocity constraint on a no-slip boundary "
+      "enforced with a Lagrange multiplier exceeds this tolerance");
+
+    prm.enter_subsection("rigid body rotation");
+    {
+      prm.declare_entry("enable",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable/disable rigid-body rotation on this boundary");
+      const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
+      prm.declare_entry("center of rotation",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Center of rotation");
+      prm.enter_subsection("angular velocity");
+      angular_velocity->declare_parameters(prm, (dim == 2) ? 1 : dim);
+      prm.leave_subsection();
+    }
     prm.leave_subsection();
   }
 
@@ -60,6 +88,8 @@ namespace BoundaryConditions
       type = Type::input_function;
     else if (parsed_type == "outflow")
       type = Type::outflow;
+    else if (parsed_type == "no_tangential_flow")
+      type = Type::no_tangential_flow;
     else if (parsed_type == "no_slip")
       type = Type::no_slip;
     else if (parsed_type == "weak_no_slip")
@@ -90,6 +120,19 @@ namespace BoundaryConditions
 
     prm.enter_subsection("w");
     w->parse_parameters(prm);
+    prm.leave_subsection();
+
+    weak_no_slip_tolerance = prm.get_double("weak no slip tolerance");
+
+    prm.enter_subsection("rigid body rotation");
+    {
+      enable_rigid_body_rotation = prm.get_bool("enable");
+      center_of_rotation =
+        parse_rank_1_tensor<dim>(prm.get("center of rotation"));
+      prm.enter_subsection("angular velocity");
+      angular_velocity->parse_parameters(prm);
+      prm.leave_subsection();
+    }
     prm.leave_subsection();
   }
 
@@ -256,6 +299,7 @@ namespace BoundaryConditions
       dof_handler.get_fe().component_mask(velocity);
 
     std::set<types::boundary_id> no_flux_boundaries;
+    std::set<types::boundary_id> no_tangential_flow_boundaries;
     std::set<types::boundary_id> velocity_normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *>
                                  velocity_normal_flux_functions;
@@ -315,6 +359,8 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);
+      if (bc.type == BoundaryConditions::Type::no_tangential_flow)
+        no_tangential_flow_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
         // Enforce both the normal and tangential flux to be well-posed
@@ -327,15 +373,29 @@ namespace BoundaryConditions
 
     // Add no velocity flux constraints
     VectorTools::compute_no_normal_flux_constraints(
-      dof_handler, u_lower, no_flux_boundaries, constraints, mapping);
-    // Add nonzero normal flux velocity constraints
+      dof_handler,
+      u_lower,
+      no_flux_boundaries,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
+    VectorTools::compute_normal_flux_constraints(
+      dof_handler,
+      u_lower,
+      no_tangential_flow_boundaries,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
+
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,
       u_lower,
       velocity_normal_flux_boundaries,
       velocity_normal_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
+
     // Add nonzero tangential flux velocity constraints
     VectorTools::compute_nonzero_tangential_flux_constraints(
       dof_handler,
@@ -343,7 +403,8 @@ namespace BoundaryConditions
       velocity_tangential_flux_boundaries,
       velocity_tangential_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>
@@ -426,7 +487,8 @@ namespace BoundaryConditions
       normal_flux_boundaries,
       position_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
 
     // Add position nonzero flux constraints from manufactured solution
     // (tangential movement)
@@ -436,7 +498,8 @@ namespace BoundaryConditions
       mms_normal_flux_boundaries,
       mms_position_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>

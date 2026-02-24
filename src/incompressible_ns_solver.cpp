@@ -16,6 +16,7 @@
 #include <incompressible_ns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
@@ -507,50 +508,6 @@ void NSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
   this->zero_constraints.distribute_local_to_global(copy_data.local_rhs,
                                                     copy_data.local_dof_indices,
                                                     this->system_rhs);
-}
-
-template <int dim>
-void NSSolver<dim>::output_results()
-{
-  TimerOutput::Scope t(this->computing_timer, "Write outputs");
-
-  if (this->param.output.write_results)
-  {
-    std::vector<std::string> solution_names(dim, "velocity");
-    solution_names.push_back("pressure");
-
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        dim, DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(this->dof_handler);
-    data_out.add_data_vector(this->present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-    //
-    // Partition
-    //
-    Vector<float> subdomain(this->triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = this->triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain");
-
-    data_out.build_patches(*mapping, 2);
-
-    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      this->param.output.output_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
-
-    this->visualization_times_and_names.emplace_back(
-      this->time_handler.current_time, pvtu_file);
-  }
 }
 
 // Explicit instantiation

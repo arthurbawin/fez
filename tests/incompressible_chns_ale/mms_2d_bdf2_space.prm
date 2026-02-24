@@ -8,9 +8,7 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = false
-  set output directory = ../data/mms/
-  set output prefix    = ConvSpaceALE
+  set write vtu results = false
 end
 
 subsection Mesh

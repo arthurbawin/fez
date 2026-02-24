@@ -10,7 +10,7 @@
                       "(default: " +                                           \
                         std::string(default_verbosity) + ")");
 
-#define READ_VERBOSITY_PARAM(prm)                                \
+#define READ_VERBOSITY_PARAM(prm, verbosity)                     \
   {                                                              \
     const std::string parsed_verbosity = (prm).get("verbosity"); \
     if (parsed_verbosity == "quiet")                             \
@@ -67,6 +67,7 @@ namespace Parameters
   {
     prm.enter_subsection("Fluid boundary conditions");
     {
+      DECLARE_VERBOSITY_PARAM(prm, "quiet")
       prm.declare_entry(
         "fix pressure constant",
         "false",
@@ -85,6 +86,7 @@ namespace Parameters
   {
     prm.enter_subsection("Fluid boundary conditions");
     {
+      READ_VERBOSITY_PARAM(prm, fluid_verbosity)
       fix_pressure_constant      = prm.get_bool("fix pressure constant");
       enforce_zero_mean_pressure = prm.get_bool("enforce zero mean pressure");
     }
@@ -128,7 +130,7 @@ namespace Parameters
       deal_ii_preset_mesh   = prm.get("dealii preset mesh");
       deal_ii_mesh_param    = prm.get("dealii mesh parameters");
       refinement_level      = prm.get_integer("refinement level");
-      READ_VERBOSITY_PARAM(prm)
+      READ_VERBOSITY_PARAM(prm, verbosity)
     }
     prm.leave_subsection();
   }
@@ -137,18 +139,45 @@ namespace Parameters
   {
     prm.enter_subsection("Output");
     {
-      prm.declare_entry("write results",
-                        "true",
+      prm.declare_entry("write vtu results",
+                        "false",
                         Patterns::Bool(),
-                        "Enable/disable output writing");
+                        "Enable/disable vtu output writing.");
       prm.declare_entry("output directory",
                         "./",
                         Patterns::FileName(),
-                        "Output directory");
+                        "Output directory.");
       prm.declare_entry("output prefix",
                         "solution",
                         Patterns::FileName(),
-                        "Prefix to attach to the output files");
+                        "Prefix for the output files.");
+      prm.declare_entry(
+        "vtu output frequency",
+        "1",
+        Patterns::Integer(1),
+        "Frequency (in time steps) for the standard vtu export.");
+      prm.enter_subsection("skin");
+      {
+        prm.declare_entry(
+          "write vtu results",
+          "false",
+          Patterns::Bool(),
+          "Enable extraction of vtu files on prescribed boundary.");
+        prm.declare_entry("boundary id",
+                          "0",
+                          Patterns::Integer(0),
+                          "Boundary id used to define the skin.");
+        prm.declare_entry("output prefix",
+                          "skin",
+                          Patterns::FileName(),
+                          "Prefix for the output files on the skin");
+        prm.declare_entry("output frequency",
+                          "1",
+                          Patterns::Integer(1),
+                          "Frequency (in time steps) for the exportation of "
+                          "skin-related files");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -157,9 +186,145 @@ namespace Parameters
   {
     prm.enter_subsection("Output");
     {
-      write_results = prm.get_bool("write results");
-      output_dir    = prm.get("output directory");
-      output_prefix = prm.get("output prefix");
+      write_results        = prm.get_bool("write vtu results");
+      output_dir           = prm.get("output directory");
+      output_prefix        = prm.get("output prefix");
+      vtu_output_frequency = prm.get_integer("vtu output frequency");
+      prm.enter_subsection("skin");
+      {
+        skin.write_results    = prm.get_bool("write vtu results");
+        skin.boundary_id      = prm.get_integer("boundary id");
+        skin.output_prefix    = prm.get("output prefix");
+        skin.output_frequency = prm.get_integer("output frequency");
+      }
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
+  void declare_postprocessing_base(ParameterHandler &prm)
+  {
+    DECLARE_VERBOSITY_PARAM(prm, "verbose")
+    prm.declare_entry("enable",
+                      "false",
+                      Patterns::Bool(),
+                      "Enable/disable this postprocessing");
+    prm.declare_entry("write results",
+                      "true",
+                      Patterns::Bool(),
+                      "Write result of this postprocessing to file");
+    prm.declare_entry("output prefix",
+                      "forces",
+                      Patterns::FileName(),
+                      "Prefix for the postprocessing output files");
+    prm.declare_entry(
+      "output frequency",
+      "1",
+      Patterns::Integer(1),
+      "Frequency (in time steps) for the exportation of postprocessing files");
+    prm.declare_entry("precision",
+                      "6",
+                      Patterns::Integer(1),
+                      "Number of significant digits to print");
+  }
+
+  void declare_postprocessing_boundary(ParameterHandler &prm)
+  {
+    declare_postprocessing_base(prm);
+    prm.declare_entry(
+      "boundary id",
+      "0",
+      Patterns::Integer(0),
+      "Boundary id on which this postprocessing should be applied");
+  }
+
+  void PostProcessing::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Postprocessing");
+    {
+      prm.enter_subsection("forces computation");
+      {
+        declare_postprocessing_boundary(prm);
+        prm.declare_entry("computation method",
+                          "stress vector",
+                          Patterns::Selection(
+                            "stress vector|lagrange multiplier"),
+                          "Method used to evaluate the hydrodynamic forces");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("structure position");
+      {
+        declare_postprocessing_boundary(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("slicing");
+      {
+        declare_postprocessing_boundary(prm);
+        prm.declare_entry("along which axis",
+                          "z",
+                          Patterns::Selection("x|y|z"),
+                          "Axis along which the slices are defined");
+        prm.declare_entry("number of slices",
+                          "1",
+                          Patterns::Integer(1),
+                          "Number of slices along the chosen direction");
+        prm.declare_entry(
+          "compute forces",
+          "false",
+          Patterns::Bool(),
+          "Compute and write the hydrodynamic forces on each slice");
+      }
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
+  void read_postprocessing_base(ParameterHandler                   &prm,
+                                PostProcessing::PostProcessingBase &pp_base)
+  {
+    READ_VERBOSITY_PARAM(prm, pp_base.verbosity)
+    pp_base.enable           = prm.get_bool("enable");
+    pp_base.write_results    = prm.get_bool("write results");
+    pp_base.output_prefix    = prm.get("output prefix");
+    pp_base.output_frequency = prm.get_integer("output frequency");
+    pp_base.precision        = prm.get_integer("precision");
+  }
+
+  void read_postprocessing_boundary(
+    ParameterHandler                           &prm,
+    PostProcessing::PostProcessingBaseBoundary &pp_boundary)
+  {
+    read_postprocessing_base(prm, pp_boundary);
+    pp_boundary.boundary_id = prm.get_integer("boundary id");
+  }
+
+  void PostProcessing::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Postprocessing");
+    {
+      prm.enter_subsection("forces computation");
+      {
+        read_postprocessing_boundary(prm, forces);
+        const std::string parsed_method = prm.get("computation method");
+        if (parsed_method == "stress vector")
+          forces.method = Forces::ComputationMethod::stress_vector;
+        else if (parsed_method == "lagrange multiplier")
+          forces.method = Forces::ComputationMethod::lagrange_multiplier;
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("structure position");
+      {
+        read_postprocessing_boundary(prm, structure_position);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("slicing");
+      {
+        read_postprocessing_boundary(prm, slices);
+        slices.along_which_axis         = prm.get("along which axis");
+        slices.n_slices                 = prm.get_integer("number of slices");
+        slices.compute_forces_on_slices = prm.get_bool("compute forces");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -353,6 +518,7 @@ namespace Parameters
     {
       density             = prm.get_double("density");
       kinematic_viscosity = prm.get_double("kinematic viscosity");
+      dynamic_viscosity   = density * kinematic_viscosity;
     }
     prm.leave_subsection();
   }
@@ -508,7 +674,7 @@ namespace Parameters
         reassembly_decrease_tol = prm.get_double("decrease tolerance");
       }
       prm.leave_subsection();
-      READ_VERBOSITY_PARAM(prm);
+      READ_VERBOSITY_PARAM(prm, verbosity)
     }
     prm.leave_subsection();
   }
@@ -560,7 +726,7 @@ namespace Parameters
         max_iterations = prm.get_integer("max iterations");
         ilu_fill_level = prm.get_integer("ilu fill level");
         reuse          = prm.get_bool("reuse");
-        READ_VERBOSITY_PARAM(prm);
+        READ_VERBOSITY_PARAM(prm, verbosity)
       }
       prm.leave_subsection();
     }
@@ -632,7 +798,7 @@ namespace Parameters
       else
         throw std::runtime_error("Unknown BDF starting method : " +
                                  parsed_startup);
-      READ_VERBOSITY_PARAM(prm)
+      READ_VERBOSITY_PARAM(prm, verbosity)
     }
     prm.leave_subsection();
   }
@@ -937,8 +1103,10 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void FSI::declare_parameters(ParameterHandler &prm)
+  template <int dim>
+  void FSI<dim>::declare_parameters(ParameterHandler &prm)
   {
+    const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
     prm.enter_subsection("FSI");
     {
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
@@ -960,6 +1128,10 @@ namespace Parameters
                         "Mass of the studied system");
       prm.declare_entry("cylinder radius", "1", Patterns::Double(), "");
       prm.declare_entry("cylinder length", "1", Patterns::Double(), "");
+      prm.declare_entry("cylinder center",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Center of the cylinder");
       prm.declare_entry("fix z component", "true", Patterns::Bool(), "");
       prm.declare_entry("compute error on forces",
                         "false",
@@ -969,22 +1141,27 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void FSI::read_parameters(ParameterHandler &prm)
+  template <int dim>
+  void FSI<dim>::read_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("FSI");
     {
-      READ_VERBOSITY_PARAM(prm)
-      enable_coupling         = prm.get_bool("enable coupling");
-      spring_constant         = prm.get_double("spring constant");
-      damping                 = prm.get_double("damping");
-      mass                    = prm.get_double("mass");
-      cylinder_radius         = prm.get_double("cylinder radius");
-      cylinder_length         = prm.get_double("cylinder length");
-      fix_z_component         = prm.get_bool("fix z component");
+      READ_VERBOSITY_PARAM(prm, verbosity)
+      enable_coupling = prm.get_bool("enable coupling");
+      spring_constant = prm.get_double("spring constant");
+      damping         = prm.get_double("damping");
+      mass            = prm.get_double("mass");
+      cylinder_radius = prm.get_double("cylinder radius");
+      cylinder_length = prm.get_double("cylinder length");
+      cylinder_center = parse_rank_1_tensor<dim>(prm.get("cylinder center"));
+      fix_z_component = prm.get_bool("fix z component");
       compute_error_on_forces = prm.get_bool("compute error on forces");
     }
     prm.leave_subsection();
   }
+
+  template struct FSI<2>;
+  template struct FSI<3>;
 
   void Debug::declare_parameters(ParameterHandler &prm)
   {
@@ -1030,7 +1207,7 @@ namespace Parameters
   {
     prm.enter_subsection("Debug");
     {
-      READ_VERBOSITY_PARAM(prm)
+      READ_VERBOSITY_PARAM(prm, verbosity)
       write_dealii_mesh_as_msh = prm.get_bool("write dealii mesh as msh");
       write_partition_pos_gmsh = prm.get_bool("write partition gmsh");
       apply_exact_solution     = prm.get_bool("apply exact solution");

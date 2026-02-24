@@ -171,11 +171,6 @@ public:
   /**
    *
    */
-  virtual void output_results() override;
-
-  /**
-   *
-   */
   void compare_forces_and_position_on_obstacle() const;
 
   /**
@@ -185,16 +180,14 @@ public:
 
   virtual void solver_specific_post_processing() override;
 
-  /**
-   * Compute the "raw" forces on the obstacle.
-   * These need to nondimensionalized to obtain the force coefficients.
-   */
-  void compute_forces(const bool export_table);
-
-  /**
-   *
-   */
-  void write_cylinder_position(const bool export_table);
+protected:
+  virtual std::vector<std::pair<std::string, unsigned int>>
+  get_additional_variables_description() const override
+  {
+    std::vector<std::pair<std::string, unsigned int>> description;
+    description.push_back({"lambda", dim});
+    return description;
+  }
 
   /**
    * FIXME: This function should probably be templated to work with
@@ -208,6 +201,37 @@ public:
                   "this solver uses a hp::FECollection instead."));
     return *fe_with_lambda;
   }
+
+  virtual bool uses_hp_capabilities() const override { return true; };
+
+  virtual const hp::FECollection<dim> *get_fe_collection() const override
+  {
+    return fe.get();
+  };
+
+  virtual const hp::MappingCollection<dim> *
+  get_fixed_mapping_collection() const override
+  {
+    return &fixed_mapping_collection;
+  };
+
+  virtual const hp::MappingCollection<dim> *
+  get_moving_mapping_collection() const override
+  {
+    return &moving_mapping_collection;
+  };
+
+  virtual const hp::QCollection<dim> *
+  get_cell_quadrature_collection() const override
+  {
+    return &quadrature_collection;
+  };
+
+  virtual const hp::QCollection<dim - 1> *
+  get_face_quadrature_collection() const override
+  {
+    return &face_quadrature_collection;
+  };
 
 protected:
   enum

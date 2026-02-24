@@ -178,3 +178,16 @@ void TimeHandler::load()
   // TODO
   DEAL_II_NOT_IMPLEMENTED();
 }
+
+void TimeHandler::update_parameters_after_restart(
+  const Parameters::TimeIntegration &new_parameters)
+{
+  if (scheme == STAT)
+    return;
+
+  // Update time step and final time, then update BDF coefficients
+  final_time    = new_parameters.t_end;
+  current_dt    = new_parameters.dt;
+  time_steps[0] = new_parameters.dt;
+  set_bdf_coefficients();
+}

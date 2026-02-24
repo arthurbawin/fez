@@ -41,10 +41,11 @@ namespace BoundaryConditions
     dirichlet_mms,
 
     // Flow
-    outflow,      // Do nothing
-    no_slip,      // Enforce given functions
-    weak_no_slip, // Check that lagrange mult is defined, couple
-    slip,         // Enforce no_flux
+    outflow,            // Do nothing
+    no_tangential_flow, // Enfore no tangential flow on the boundary
+    no_slip,            // Enforce given functions
+    weak_no_slip,       // Check that lagrange mult is defined, couple
+    slip,               // Enforce no_flux
 
     // These boundary conditions are for flow verification purposes:
     // Set velocity to prescribed manufactured solution
@@ -113,6 +114,14 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> v;
     std::shared_ptr<Functions::ParsedFunction<dim>> w;
 
+    // Tolerance on no slip enforcement with a Lagrange multiplier
+    double weak_no_slip_tolerance;
+
+    // Angular velocity when rotation is prescribed on boundary
+    bool                                            enable_rigid_body_rotation;
+    Point<dim>                                      center_of_rotation;
+    std::shared_ptr<Functions::ParsedFunction<dim>> angular_velocity;
+
   public:
     // Constructor. Allocates the pointers to the user functions.
     FluidBC()
@@ -120,6 +129,8 @@ namespace BoundaryConditions
       u = std::make_shared<Functions::ParsedFunction<dim>>();
       v = std::make_shared<Functions::ParsedFunction<dim>>();
       w = std::make_shared<Functions::ParsedFunction<dim>>();
+      angular_velocity =
+        std::make_shared<Functions::ParsedFunction<dim>>((dim == 2) ? 1 : dim);
     };
 
     virtual void set_time(const double new_time) override
@@ -127,6 +138,7 @@ namespace BoundaryConditions
       u->set_time(new_time);
       v->set_time(new_time);
       w->set_time(new_time);
+      angular_velocity->set_time(new_time);
     }
 
   public:

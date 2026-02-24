@@ -8,7 +8,7 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = false
+  set write vtu results    = false
   set output directory = ../data/test/
   set output prefix    = solution
 end
@@ -80,6 +80,7 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
+  set verbosity = verbose
   set number = 4
   subsection boundary 0
     set id   = 1

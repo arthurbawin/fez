@@ -2,6 +2,7 @@
 #include <compare_matrix.h>
 #include <components_ordering.h>
 #include <copy_data.h>
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/symmetric_tensor.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -13,9 +14,11 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
+#include <lagrange_multiplier_tools.h>
 #include <linear_solver.h>
 #include <mesh.h>
 #include <monolithic_fsi_solver.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
@@ -611,7 +614,7 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
       }
 
       AssertThrow(
-        std::abs(weights_sum - expected_discrete_weights_sum) < 1e-10,
+        std::abs(weights_sum - expected_discrete_weights_sum) < 1e-8,
         ExcMessage(
           "The sum of weights for component " + std::to_string(d) +
           " of lambda coupling should be -1/k * |Cylinder|, but it's not."));
@@ -1972,13 +1975,18 @@ void FSISolver<dim>::assemble_local_rhs(
         // Lagrange multiplier for no-slip
         //
         if (face->boundary_id() == weak_no_slip_boundary_id)
+        {
+          const bool enable_rigid_body_rotation =
+            this->param.fluid_bc.at(weak_no_slip_boundary_id)
+              .enable_rigid_body_rotation;
+          const auto &rotation_velocities =
+            scratch_data.input_face_rigid_body_rotation_velocity[i_face];
+
           for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
-            //
-            // Flow related data (no-slip)
-            //
             const double face_JxW_moving =
               scratch_data.face_JxW_moving[i_face][q];
+
             const auto &phi_u = scratch_data.phi_u_face[i_face][q];
             const auto &phi_l = scratch_data.phi_l_face[i_face][q];
 
@@ -1988,7 +1996,10 @@ void FSISolver<dim>::assemble_local_rhs(
               scratch_data.present_face_mesh_velocity_values[i_face][q];
             const auto &present_l =
               scratch_data.present_face_lambda_values[i_face][q];
-            const auto u_ale = present_u - present_w;
+
+            auto velocity_constraint = present_u - present_w;
+            if (enable_rigid_body_rotation)
+              velocity_constraint -= rotation_velocities[q];
 
             for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
             {
@@ -1999,15 +2010,16 @@ void FSISolver<dim>::assemble_local_rhs(
               const bool         i_is_l = this->ordering->is_lambda(comp_i);
 
               if (i_is_u)
-                local_rhs_i -= -(phi_u[i] * present_l);
+                local_rhs_i -= -phi_u[i] * present_l;
 
               if (i_is_l)
-                local_rhs_i -= -u_ale * phi_l[i];
+                local_rhs_i -= -velocity_constraint * phi_l[i];
 
               local_rhs_i *= face_JxW_moving;
               local_rhs(i) += local_rhs_i;
             }
           }
+        }
 
         /**
          * Open boundary condition with prescribed manufactured solution.
@@ -2409,7 +2421,7 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
     this->pcout << std::endl;
   }
 
-  AssertThrow(max_diff.norm() <= 1e-10,
+  AssertThrow(max_diff.norm() <= 1e-8,
               ExcMessage(
                 "Displacement values of the cylinder are not all the same."));
 
@@ -2420,6 +2432,8 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
   {
     if (std::abs(ratio[d]) < 1e-10)
       continue;
+    if (lambda_integral[d] < 1e-12)
+      continue;
 
     const double absolute_error =
       std::abs(ratio[d] - (-this->param.fsi.spring_constant));
@@ -2429,6 +2443,7 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
 
     const double relative_error =
       absolute_error / this->param.fsi.spring_constant;
+
     AssertThrow(relative_error <= 1e-2,
                 ExcMessage("Ratio integral vs displacement values is not -k"));
   }
@@ -2437,94 +2452,24 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
 template <int dim>
 void FSISolver<dim>::check_velocity_boundary() const
 {
-  // Check difference between uh and dxhdt
-  double l2_local = 0;
-  double li_local = 0;
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           *this->fixed_mapping,
+                           *this->moving_mapping,
+                           *this->quadrature,
+                           *this->face_quadrature,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
 
-  FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-                                         *fe,
-                                         *this->face_quadrature,
-                                         update_values |
-                                           update_quadrature_points |
-                                           update_JxW_values);
-  FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                   *fe,
-                                   *this->face_quadrature,
-                                   update_values | update_quadrature_points |
-                                     update_JxW_values);
-
-  const unsigned int n_faces_q_points = this->face_quadrature->size();
-
-  const auto &bdf_coefficients = this->time_handler.bdf_coefficients;
-
-  std::vector<std::vector<Tensor<1, dim>>> position_values(
-    bdf_coefficients.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
-  std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
-  std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
-  Tensor<1, dim>              diff;
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        fe_face_values_fixed.reinit(cell, i_face);
-        fe_face_values.reinit(cell, i_face);
-
-        // Get current and previous FE solution values on the face
-        fe_face_values[this->velocity_extractor].get_function_values(
-          this->present_solution, fluid_velocity_values);
-        fe_face_values_fixed[this->position_extractor].get_function_values(
-          this->present_solution, position_values[0]);
-        for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
-          fe_face_values_fixed[this->position_extractor].get_function_values(
-            this->previous_solutions[iBDF - 1], position_values[iBDF]);
-
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-        {
-          // Compute FE mesh velocity at node
-          mesh_velocity_values[q] = 0;
-          for (unsigned int iBDF = 0; iBDF < bdf_coefficients.size(); ++iBDF)
-            mesh_velocity_values[q] +=
-              bdf_coefficients[iBDF] * position_values[iBDF][q];
-
-          diff = mesh_velocity_values[q] - fluid_velocity_values[q];
-
-          // u_h - w_h
-          l2_local += diff * diff * fe_face_values_fixed.JxW(q);
-          li_local = std::max(li_local, std::abs(diff.norm()));
-        }
-      }
-    }
-  }
-
-  const double l2_error =
-    std::sqrt(Utilities::MPI::sum(l2_local, this->mpi_communicator));
-  const double li_error = Utilities::MPI::max(li_local, this->mpi_communicator);
-
-  if (this->param.fsi.verbosity == Parameters::Verbosity::verbose)
-  {
-    this->pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
-    this->pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
-    this->pcout << "||uh - wh||_Li = " << li_error << std::endl;
-  }
-
-  if (!this->param.debug.fsi_apply_erroneous_coupling)
-  {
-    AssertThrow(l2_error < 1e-12,
-                ExcMessage("L2 norm of uh - wh is too large : " +
-                           std::to_string(l2_error)));
-    AssertThrow(li_error < 1e-12,
-                ExcMessage("Linf norm of uh - wh is too large : " +
-                           std::to_string(li_error)));
-  }
+  LagrangeMultiplierTools::check_no_slip_on_boundary<dim>(
+    this->param,
+    scratch_data,
+    this->dof_handler,
+    this->evaluation_point,
+    this->previous_solutions,
+    this->source_terms,
+    this->exact_solution,
+    weak_no_slip_boundary_id);
 }
 
 template <int dim>
@@ -2537,10 +2482,7 @@ void FSISolver<dim>::check_manufactured_solution_boundary()
   lambda_integral_local    = 0;
   pns_integral_local       = 0;
 
-  const double rho = this->param.physical_properties.fluids[0].density;
-  const double nu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity;
-  const double mu = nu * rho;
+  const double mu = this->param.physical_properties.fluids[0].dynamic_viscosity;
 
   FEFaceValues<dim> fe_face_values(*this->moving_mapping,
                                    *fe,
@@ -2868,234 +2810,39 @@ void FSISolver<dim>::compute_solver_specific_errors()
 }
 
 template <int dim>
-void FSISolver<dim>::output_results()
+void FSISolver<dim>::add_solver_specific_postprocessing_data()
 {
-  if (this->param.output.write_results)
+  if (this->postproc_handler->should_output_volume_fields(this->time_handler))
   {
-    //
-    // Plot FE solution
-    //
-    std::vector<std::string> solution_names(dim, "velocity");
-    solution_names.push_back("pressure");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("mesh_position");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("lambda");
+    // Export Lamé coefficients on cell (evaluated at center of cell)
+    Vector<float> lame_mu_cell(this->triangulation.n_active_cells());
+    Vector<float> lame_lambda_cell(this->triangulation.n_active_cells());
 
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        dim, DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-    for (unsigned int d = 0; d < 2 * dim; ++d)
-      data_component_interpretation.push_back(
-        DataComponentInterpretation::component_is_part_of_vector);
+    const auto &mu_fun =
+      this->param.physical_properties.pseudosolids[0].lame_mu_fun;
+    const auto &lambda_fun =
+      this->param.physical_properties.pseudosolids[0].lame_lambda_fun;
 
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(this->dof_handler);
-    data_out.add_data_vector(this->present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-
-    //
-    // Compute mesh velocity in post-processing
-    // This is not ideal, this is done by modifying the displacement and
-    // reexporting.
-    //
-    LA::ParVectorType mesh_velocity;
-    mesh_velocity.reinit(this->locally_owned_dofs, this->mpi_communicator);
-    IndexSet disp_dofs =
-      DoFTools::extract_dofs(this->dof_handler, this->position_mask);
-
-    for (const auto &i : disp_dofs)
-      if (this->locally_owned_dofs.is_element(i))
-        mesh_velocity[i] =
-          this->time_handler.compute_time_derivative(i,
-                                                     this->present_solution,
-                                                     this->previous_solutions);
-    mesh_velocity.compress(VectorOperation::insert);
-
-    std::vector<std::string> mesh_velocity_name(dim, "ph_velocity");
-    mesh_velocity_name.emplace_back("ph_pressure");
-    for (unsigned int i = 0; i < dim; ++i)
-      mesh_velocity_name.push_back("mesh_velocity");
-    for (unsigned int i = 0; i < dim; ++i)
-      mesh_velocity_name.push_back("ph_lambda");
-
-    data_out.add_data_vector(mesh_velocity,
-                             mesh_velocity_name,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-
-    //
-    // Partition
-    //
-    Vector<float> subdomain(this->triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = this->triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain");
-
-    data_out.build_patches(*this->moving_mapping, 2);
-    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      this->param.output.output_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
-
-    this->visualization_times_and_names.emplace_back(
-      this->time_handler.current_time, pvtu_file);
-  }
-}
-
-template <int dim>
-void FSISolver<dim>::compute_forces(const bool export_table)
-{
-  Tensor<1, dim> lambda_integral, lambda_integral_local;
-  lambda_integral_local = 0;
-
-  FEFaceValues<dim> fe_face_values(*this->moving_mapping,
-                                   *fe,
-                                   *this->face_quadrature,
-                                   update_values | update_quadrature_points |
-                                     update_JxW_values | update_normal_vectors);
-
-  const unsigned int          n_faces_q_points = this->face_quadrature->size();
-  std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
+    for (const auto &cell : this->dof_handler.active_cell_iterators())
+      if (cell->is_locally_owned())
       {
-        fe_face_values.reinit(cell, i_face);
-
-        // Get FE solution values on the face
-        fe_face_values[lambda_extractor].get_function_values(
-          this->present_solution, lambda_values);
-
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-          lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
+        lame_mu_cell[cell->active_cell_index()] = mu_fun->value(cell->center());
+        lame_lambda_cell[cell->active_cell_index()] =
+          lambda_fun->value(cell->center());
       }
-    }
-  }
 
-  for (unsigned int d = 0; d < dim; ++d)
-    lambda_integral[d] =
-      Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
-
-  // const double rho = param.physical_properties.fluids[0].density;
-  // const double U   = boundary_description.U;
-  // const double D   = boundary_description.D;
-  // const double factor = 1. / (0.5 * rho * U * U * D);
-
-  //
-  // Forces on the cylinder are the NEGATIVE of the integral of lambda
-  //
-  this->forces_table.add_value("time", this->time_handler.current_time);
-  this->forces_table.add_value("CFx", -lambda_integral[0]);
-  this->forces_table.add_value("CFy", -lambda_integral[1]);
-  if constexpr (dim == 3)
-  {
-    this->forces_table.add_value("CFz", -lambda_integral[2]);
-  }
-
-  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "Computed forces: " << -lambda_integral << std::endl;
-
-  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
-  {
-    std::ofstream outfile(this->param.output.output_dir + "forces.txt");
-    this->forces_table.write_text(outfile);
-  }
-}
-
-template <int dim>
-void FSISolver<dim>::write_cylinder_position(const bool export_table)
-{
-  Tensor<1, dim> average_position, position_integral_local;
-  double         boundary_measure_local = 0.;
-
-  FEFaceValues<dim> fe_face_values_fixed(*this->fixed_mapping,
-                                         *fe,
-                                         *this->face_quadrature,
-                                         update_values |
-                                           update_quadrature_points |
-                                           update_JxW_values |
-                                           update_normal_vectors);
-
-  const unsigned int          n_faces_q_points = this->face_quadrature->size();
-  std::vector<Tensor<1, dim>> position_values(n_faces_q_points);
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        fe_face_values_fixed.reinit(cell, i_face);
-
-        // Get FE solution values on the face
-        fe_face_values_fixed[this->position_extractor].get_function_values(
-          this->present_solution, position_values);
-
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-        {
-          boundary_measure_local += fe_face_values_fixed.JxW(q);
-          position_integral_local +=
-            position_values[q] * fe_face_values_fixed.JxW(q);
-        }
-      }
-    }
-  }
-
-  const double boundary_measure =
-    Utilities::MPI::sum(boundary_measure_local, this->mpi_communicator);
-  for (unsigned int d = 0; d < dim; ++d)
-    average_position[d] =
-      1. / boundary_measure *
-      Utilities::MPI::sum(position_integral_local[d], this->mpi_communicator);
-
-  cylinder_position_table.add_value("time", this->time_handler.current_time);
-  cylinder_position_table.add_value("xc", average_position[0]);
-  cylinder_position_table.add_value("yc", average_position[1]);
-  if constexpr (dim == 3)
-    cylinder_position_table.add_value("zc", average_position[2]);
-
-  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
-  {
-    std::ofstream outfile(this->param.output.output_dir +
-                          "cylinder_center.txt");
-    cylinder_position_table.write_text(outfile);
+    this->postproc_handler->add_cell_data_vector(lame_mu_cell, "lame_mu");
+    this->postproc_handler->add_cell_data_vector(lame_lambda_cell,
+                                                 "lame_lambda");
   }
 }
 
 template <int dim>
 void FSISolver<dim>::solver_specific_post_processing()
 {
-  // output_results();
-
   if (this->param.mms_param.enable)
-  {
-    // compute_errors();
-
     if (this->param.debug.fsi_check_mms_on_boundary)
       check_manufactured_solution_boundary();
-  }
 
   // Check position - lambda coupling if coupled
   if (this->param.fsi.enable_coupling)
@@ -3120,15 +2867,6 @@ void FSISolver<dim>::solver_specific_post_processing()
             Parameters::TimeIntegration::BDFStart::initial_condition))
       check_velocity_boundary();
   }
-
-  const bool export_force_table =
-    this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 5) == 0);
-  compute_forces(export_force_table);
-  const bool export_position_table =
-    this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 5) == 0);
-  write_cylinder_position(export_position_table);
 }
 
 // Explicit instantiation

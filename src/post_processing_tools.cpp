@@ -1,4 +1,6 @@
 
+#include <deal.II/base/exceptions.h>
+#include <deal.II/grid/tria.h>
 #include <post_processing_tools.h>
 
 namespace PostProcessingTools

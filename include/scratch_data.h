@@ -272,8 +272,8 @@ private:
   template <typename VectorType>
   void reinit_pseudo_solid_face(
     const unsigned int             i_face,
-    const FEFaceValues<dim>       &fe_face_values,
     const FEFaceValues<dim>       &fe_face_values_fixed,
+    const FEFaceValues<dim>       &fe_face_values,
     const VectorType              &current_solution,
     const std::vector<VectorType> &previous_solutions,
     const std::shared_ptr<Function<dim>> & /*source_terms*/,
@@ -450,6 +450,7 @@ private:
   template <typename VectorType>
   void reinit_lagrange_multiplier_face(
     const unsigned int       i_face,
+    const FEFaceValues<dim> &fe_face_values_fixed,
     const FEFaceValues<dim> &fe_face_values,
     const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
@@ -462,6 +463,55 @@ private:
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
         phi_l_face[i_face][q][k] = fe_face_values[lambda].value(k, q);
+
+    // Rigid-body rotation
+    const auto &fluid_bc = param.fluid_bc.at(face_boundary_id[i_face]);
+    if (fluid_bc.enable_rigid_body_rotation)
+    {
+      const Point<dim> &center = fluid_bc.center_of_rotation;
+
+      /**
+       * Rigid-body rotation can be applied on fixed or moving mesh: if
+       * enable_pseudo_solid is true, then the rotation velocity is evaluated on
+       * the fixed mesh, with constant center of rotation. If false, then
+       * rotation velocity is evaluated on "moving" mesh, but the model does not
+       * solve for the pseudosolid and thus does not move the mesh, and the
+       * center of rotation is also constant.
+       *
+       * This allows keeping a constant center of rotation for both cases.
+       *
+       * The TL;DR is that "moving" refers to the current configuration, and is
+       * a misnomer for solvers which do not solve for the mesh position, as in
+       * that case the "moving" mesh remains fixed for the whole simulation...
+       */
+      const auto &qpoints = enable_pseudo_solid ?
+                              fe_face_values_fixed.get_quadrature_points() :
+                              fe_face_values.get_quadrature_points();
+
+      Tensor<1, dim>        pos_vector;
+      angular_velocity_type omega;
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+      {
+        pos_vector = qpoints[q] - center;
+
+        // Cartesian velocity on fixed mesh is omega \times (X - Xc)
+        if constexpr (dim == 2)
+        {
+          omega = fluid_bc.angular_velocity->value(qpoints[q]);
+
+          // cross_product_2d returns the product with (0, 0, 1)
+          input_face_rigid_body_rotation_velocity[i_face][q] =
+            -omega * cross_product_2d(pos_vector);
+        }
+        else
+        {
+          for (unsigned int d = 0; d < dim; ++d)
+            omega[d] = fluid_bc.angular_velocity->value(qpoints[q], d);
+          input_face_rigid_body_rotation_velocity[i_face][q] =
+            cross_product_3d(omega, pos_vector);
+        }
+      }
+    }
   }
 
   template <typename VectorType>
@@ -627,14 +677,15 @@ public:
                                     exact_solution);
           if (enable_pseudo_solid)
             reinit_pseudo_solid_face(i_face,
-                                     *active_fe_face_values,
                                      *active_fe_face_values_fixed,
+                                     *active_fe_face_values,
                                      current_solution,
                                      previous_solutions,
                                      source_terms,
                                      exact_solution);
           if (enable_lagrange_multiplier)
             reinit_lagrange_multiplier_face(i_face,
+                                            *active_fe_face_values_fixed,
                                             *active_fe_face_values,
                                             current_solution,
                                             previous_solutions,
@@ -645,8 +696,9 @@ public:
   }
 
 private:
-  const bool              use_quads;
-  const ComponentOrdering ordering;
+  const ParameterReader<dim> &param;
+  const bool                  use_quads;
+  const ComponentOrdering     ordering;
 
   unsigned int n_components;
   unsigned int u_lower;
@@ -657,11 +709,13 @@ private:
   unsigned int mu_lower;
   unsigned int t_lower;
 
+public:
   const bool enable_pseudo_solid;
   const bool enable_lagrange_multiplier;
   const bool enable_cahn_hilliard;
   const bool enable_compressible;
 
+private:
   Parameters::PhysicalProperties<dim> physical_properties;
   Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
@@ -806,6 +860,12 @@ public:
   std::vector<std::vector<Tensor<1, dim>>> present_face_lambda_values;
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_l_face;
 
+  // Rigid-body rotation enforced with Lagrange multiplier
+  // The prescribed angular velocity is scalar in 2D and a vector in 3D
+  using angular_velocity_type = Tensor<dim == 2 ? 0 : 1, dim>;
+  std::vector<std::vector<Tensor<1, dim>>>
+    input_face_rigid_body_rotation_velocity;
+
   /**
    * Cahn-Hilliard
    */
@@ -829,11 +889,11 @@ public:
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
 
   // Tracer on current and fixed (reference) mesh
-  std::vector<double>                      tracer_values;
-  std::vector<Tensor<1, dim>>              tracer_gradients;
-  std::vector<double>                      tracer_values_fixed;
-  std::vector<Tensor<1, dim>>              tracer_gradients_fixed;
-  std::vector<std::vector<double>>         previous_tracer_values;
+  std::vector<double>              tracer_values;
+  std::vector<Tensor<1, dim>>      tracer_gradients;
+  std::vector<double>              tracer_values_fixed;
+  std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
+  std::vector<std::vector<double>> previous_tracer_values;
   // Potential on current mesh
   std::vector<double>         potential_values;
   std::vector<Tensor<1, dim>> potential_gradients;

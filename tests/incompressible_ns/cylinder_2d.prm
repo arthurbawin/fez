@@ -8,9 +8,7 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = false
-  set output directory = ../data/test/
-  set output prefix    = solution
+  set write vtu results = false
 end
 
 subsection Mesh
@@ -86,5 +84,16 @@ subsection Fluid boundary conditions
     set id   = 4
     set name = InnerBoundary
     set type = no_slip
+  end
+end
+
+subsection Postprocessing
+  subsection forces computation
+    set verbosity          = verbose
+    set enable             = true
+    set boundary id        = 4
+    set write results      = false
+    set computation method = stress vector
+    set precision          = 12
   end
 end

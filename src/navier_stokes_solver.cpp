@@ -925,10 +925,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
   /**
    * Prepare to write the present and previous solutions
    */
-  std::vector<const LA::ParVectorType *> vectors_to_checkpoint;
-  vectors_to_checkpoint.emplace_back(&present_solution);
-  for (const auto &sol : previous_solutions)
-    vectors_to_checkpoint.emplace_back(&sol);
+  std::vector<const LA::ParVectorType *> vectors_to_checkpoint(
+    previous_solutions.size() + 1);
+  vectors_to_checkpoint[0] = &present_solution;
+  for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+    vectors_to_checkpoint[i + 1] = &previous_solutions[i];
 
   SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
   solution_transfer.prepare_for_serialization(vectors_to_checkpoint);
@@ -959,19 +960,22 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
   triangulation.load(checkpoint_prefix);
 
+  // Update the time handler
+  time_handler.update_parameters_after_restart(param.time_integration);
+
   // Setup the dofhandler and parallel vectors here
   setup_dofs();
 
   // SolutionTransfer deserializes to a vector of ptrs to fully distributed
   // vectors (without ghosts), but the present and previous solutions have
-  // ghosts
+  // ghosts, so they must be set after the call to deserialize
   const unsigned int             n_vec = time_handler.n_previous_solutions + 1;
   std::vector<LA::ParVectorType> vectors_to_read(n_vec);
   std::vector<LA::ParVectorType *> ptrs_to_vectors_to_read(n_vec);
   for (unsigned int i = 0; i < n_vec; ++i)
   {
-    vectors_to_read[i].reinit(locally_owned_dofs,
-                              mpi_communicator); // <==================
+    // Fully distributed vector
+    vectors_to_read[i].reinit(locally_owned_dofs, mpi_communicator);
     ptrs_to_vectors_to_read[i] = &vectors_to_read[i];
   }
 
@@ -986,261 +990,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
   local_evaluation_point = present_solution;
   evaluation_point       = present_solution;
 }
-
-// template <int dim, bool with_moving_mesh>
-// void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
-// {
-//   TimerOutput::Scope t(computing_timer, "Write checkpoint");
-
-//   const MPI_Comm     comm = mpi_communicator;
-//   const unsigned int rank = dealii::Utilities::MPI::this_mpi_process(comm);
-
-//   namespace fs = std::filesystem;
-
-//   std::string output_dir = param.output.output_dir;
-//   if (!output_dir.empty() && output_dir.back() != '/')
-//     output_dir += '/';
-
-//   const std::string base_name = param.checkpoint_restart.filename;
-
-
-//   const fs::path final_dir = fs::path(output_dir) / base_name;
-//   const fs::path tmp_dir   = fs::path(output_dir) / (base_name + ".tmp");
-
-//   const std::string prefix = (tmp_dir / base_name).string();
-
-//   if (rank == 0)
-//     pcout << "\n--- Writing checkpoint... ---\n\n";
-
-//   //
-//   --------------------------------------------------------------------------
-//   // 1) (Rank 0) Handling an existing temporary directory (previous crash
-//   case)
-//   //    - If the DONE file exists in the temporary directory, the previous
-//   write
-//   //      completed successfully but the "swap" step failed; the directory
-//   can
-//   //      therefore be promoted.
-//   //    - Otherwise, the temporary directory is incomplete and must be
-//   removed.
-//   //
-//   --------------------------------------------------------------------------
-
-//   if (rank == 0)
-//   {
-//     std::error_code ec;
-
-//     if (fs::exists(tmp_dir, ec))
-//     {
-//       const fs::path done_path = tmp_dir / "DONE";
-//       if (fs::exists(done_path, ec))
-//       {
-//         const fs::path old_dir = fs::path(output_dir) / (base_name + ".old");
-
-
-//         fs::remove_all(old_dir, ec);
-//         ec.clear();
-
-//         if (fs::exists(final_dir, ec))
-//         {
-//           fs::rename(final_dir, old_dir, ec);
-//           AssertThrow(!ec,
-//                       dealii::ExcMessage(
-//                         "Cannot rename final_dir -> old_dir: " +
-//                         ec.message()));
-//           ec.clear();
-//         }
-
-//         fs::rename(tmp_dir, final_dir, ec);
-//         AssertThrow(!ec,
-//                     dealii::ExcMessage("Cannot rename tmp_dir -> final_dir: "
-//                     +
-//                                        ec.message()));
-//         ec.clear();
-
-
-//         fs::remove_all(old_dir, ec);
-//         ec.clear();
-//       }
-//       else
-//       {
-//         fs::remove_all(tmp_dir, ec);
-//         AssertThrow(!ec,
-//                     dealii::ExcMessage("Cannot remove stale tmp_dir: " +
-//                                        ec.message()));
-//         ec.clear();
-//       }
-//     }
-
-
-//     fs::create_directories(tmp_dir, ec);
-//     AssertThrow(!ec,
-//                 dealii::ExcMessage("Cannot create tmp checkpoint dir: " +
-//                                    tmp_dir.string() + " : " + ec.message()));
-//   }
-
-//   MPI_Barrier(comm);
-
-//   if (rank == 0)
-//   {
-//     std::ofstream checkpoint_file(prefix + ".timeinfo");
-//     AssertThrow(checkpoint_file,
-//                 dealii::ExcMessage("Could not write: " + prefix +
-//                 ".timeinfo"));
-
-//     boost::archive::text_oarchive archive(checkpoint_file);
-//     archive << time_handler;
-//     checkpoint_file.flush();
-//   }
-
-//   MPI_Barrier(comm);
-
-
-//   std::vector<const LA::ParVectorType *> vectors_to_checkpoint;
-//   vectors_to_checkpoint.reserve(1 + previous_solutions.size());
-//   vectors_to_checkpoint.emplace_back(&present_solution);
-//   for (const auto &sol : previous_solutions)
-//     vectors_to_checkpoint.emplace_back(&sol);
-
-//   dealii::SolutionTransfer<dim, LA::ParVectorType> solution_transfer(
-//     dof_handler);
-//   solution_transfer.prepare_for_serialization(vectors_to_checkpoint);
-
-//   // Collective operation: each rank writes its part into the temporary
-//   // directory
-//   triangulation.save(prefix);
-
-//   MPI_Barrier(comm);
-
-//   //
-//   --------------------------------------------------------------------------
-//   // 4) (Rank 0) Safe commit:
-//   //    - write DONE in tmp_dir
-//   //    - swap tmp_dir to final_dir
-//   //
-//   --------------------------------------------------------------------------
-
-//   if (rank == 0)
-//   {
-//     std::error_code ec;
-//     {
-//       std::ofstream done((tmp_dir / "DONE").string());
-//       AssertThrow(done,
-//                   dealii::ExcMessage("Could not write DONE in " +
-//                                      tmp_dir.string()));
-//       done << "ok\n";
-//       done.flush();
-//     }
-
-//     const fs::path old_dir = fs::path(output_dir) / (base_name + ".old");
-
-//     fs::remove_all(old_dir, ec);
-//     ec.clear();
-
-//     if (fs::exists(final_dir, ec))
-//     {
-//       fs::rename(final_dir, old_dir, ec);
-//       AssertThrow(!ec,
-//                   dealii::ExcMessage("Cannot rename final_dir -> old_dir: " +
-//                                      ec.message()));
-//       ec.clear();
-//     }
-
-//     fs::rename(tmp_dir, final_dir, ec);
-//     AssertThrow(!ec,
-//                 dealii::ExcMessage("Cannot rename tmp_dir -> final_dir: " +
-//                                    ec.message()));
-//     ec.clear();
-
-//     fs::remove_all(old_dir, ec);
-//     ec.clear();
-//   }
-
-//   MPI_Barrier(comm);
-// }
-
-// template <int dim, bool with_moving_mesh>
-// void NavierStokesSolver<dim, with_moving_mesh>::restart()
-// {
-//   const MPI_Comm     comm = mpi_communicator;
-//   const unsigned int rank = dealii::Utilities::MPI::this_mpi_process(comm);
-
-//   namespace fs = std::filesystem;
-
-//   if (rank == 0)
-//   {
-//     pcout << std::endl;
-//     pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
-//   }
-
-//   std::string output_dir = param.output.output_dir;
-//   if (!output_dir.empty() && output_dir.back() != '/')
-//     output_dir += '/';
-
-//   const std::string base_name = param.checkpoint_restart.filename;
-
-
-//   const fs::path    final_dir         = fs::path(output_dir) / base_name;
-//   const std::string checkpoint_prefix = (final_dir / base_name).string();
-
-//   if (rank == 0)
-//   {
-//     AssertThrow(fs::exists(final_dir),
-//                 dealii::ExcMessage("Checkpoint directory does not exist: " +
-//                                    final_dir.string()));
-
-
-//     AssertThrow(fs::exists(final_dir / "DONE"),
-//                 dealii::ExcMessage("Checkpoint incomplete: missing DONE in "
-//                 +
-//                                    final_dir.string()));
-
-//     AssertThrow(fs::exists(checkpoint_prefix + ".timeinfo"),
-//                 dealii::ExcMessage("Missing checkpoint file: " +
-//                                    checkpoint_prefix + ".timeinfo"));
-//   }
-//   MPI_Barrier(comm);
-
-//   {
-//     std::ifstream checkpoint_file(checkpoint_prefix + ".timeinfo");
-//     AssertThrow(checkpoint_file,
-//                 dealii::ExcMessage("Could not read: " + checkpoint_prefix +
-//                                    ".timeinfo"));
-//     boost::archive::text_iarchive archive(checkpoint_file);
-//     archive >> time_handler;
-//   }
-
-//   time_handler.apply_restart_overrides(param.time_integration);
-//   triangulation.load(checkpoint_prefix);
-//   setup_dofs();
-
-//   const unsigned int n_vec = time_handler.n_previous_solutions + 1;
-
-//   std::vector<LA::ParVectorType>   vectors_to_read(n_vec);
-//   std::vector<LA::ParVectorType *> ptrs_to_vectors_to_read(n_vec);
-
-//   for (unsigned int i = 0; i < n_vec; ++i)
-//   {
-//     vectors_to_read[i].reinit(locally_owned_dofs, mpi_communicator);
-//     ptrs_to_vectors_to_read[i] = &vectors_to_read[i];
-//   }
-
-//   dealii::SolutionTransfer<dim, LA::ParVectorType> solution_transfer(
-//     dof_handler);
-//   solution_transfer.deserialize(ptrs_to_vectors_to_read);
-
-
-//   present_solution = vectors_to_read[0];
-//   for (unsigned int i = 0; i < time_handler.n_previous_solutions; ++i)
-//     previous_solutions[i] = vectors_to_read[i + 1];
-
-//   local_evaluation_point = present_solution;
-//   evaluation_point       = present_solution;
-
-//   if (rank == 0)
-//     pcout << "Restarted from: " << checkpoint_prefix << std::endl;
-// }
-
 
 // Explicit instantiation
 template class NavierStokesSolver<2, false>;

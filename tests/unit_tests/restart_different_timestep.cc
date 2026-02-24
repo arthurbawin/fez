@@ -11,10 +11,11 @@
 #include "parameters.h"
 
 /**
- * Tests the checkpoint/restart functions with the incompressible N-S solver.
- * First, solve a manufactured solution problem from t = 0 to 0.5, checkpointing
- * once at t = 0.3. Then, restart from t = 0.3, finish the computation and
- * compare the errors on velocity and pressure.
+ * Similar to restart.cc, but extend the simulation time after restarting,
+ * and modify the time step.
+ * 
+ * FIXME: this does not yet compare errors, as it is less straightforward
+ * than in the constant time step setting.
  */
 template <int dim>
 void test_restart()
@@ -166,7 +167,7 @@ void test_restart()
 
   std::vector<std::pair<double, double>> e_u, e_u_restart, e_p, e_p_restart;
 
-  // Run the full computation from t = 0 to 0.5, checkpointing once at t = 0.3
+  // Run rom t = 0 to 0.5, checkpointing once at t = 0.3
   {
     ParameterReader<dim> param(bc_data);
     ParameterHandler     dummy_prm;
@@ -191,15 +192,19 @@ void test_restart()
     }
   }
 
-  // Update the restart parameters, then
-  // restart at t = 0.3 and continue to 0.5, then compare errors
-  const unsigned int time_steps_shift = 3;
+  // Set new final time to t = 1, modify time step, then restart from t = 0.3
   {
+    prm.enter_subsection("Time integration");
+    prm.set("verbosity", "verbose");
+    prm.set("dt", "0.05"); // <======================
+    prm.set("t_initial", "0");
+    prm.set("t_end", "1"); // <======================
+    prm.set("scheme", "BDF2");
+    prm.leave_subsection();
+
     prm.enter_subsection("Checkpoint Restart");
-    prm.set("enable checkpoint", "false");
-    prm.set("restart", "true");
-    prm.set("checkpoint file", "checkpoint");
-    prm.set("checkpoint frequency", "3");
+    prm.set("enable checkpoint", "false"); // <======
+    prm.set("restart", "true");            // <======
     prm.leave_subsection();
 
     ParameterReader<dim> param(bc_data);
@@ -223,22 +228,6 @@ void test_restart()
       deallog << "t = " << eu.first << " : e_u = " << eu.second
               << " - e_p = " << ep.second << std::endl;
     }
-  }
-
-  AssertThrow(e_u.size() == 6, ExcMessage("Size mismatch"));
-  AssertThrow(e_p.size() == 6, ExcMessage("Size mismatch"));
-  AssertThrow(e_u_restart.size() == 6 - time_steps_shift,
-              ExcMessage("Size mismatch"));
-  AssertThrow(e_p_restart.size() == 6 - time_steps_shift,
-              ExcMessage("Size mismatch"));
-  for (unsigned int i = 0; i < time_steps_shift; ++i)
-  {
-    AssertThrow(std::abs(e_u[i + time_steps_shift].second -
-                         e_u_restart[i].second) < 1e-12,
-                ExcMessage("Error mismatch"));
-    AssertThrow(std::abs(e_p[i + time_steps_shift].second -
-                         e_p_restart[i].second) < 1e-12,
-                ExcMessage("Error mismatch"));
   }
   deallog << "OK" << std::endl;
 }

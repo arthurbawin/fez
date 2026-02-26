@@ -38,6 +38,16 @@ PostProcessingHandler<dim>::PostProcessingHandler(
 
   if (output_param.skin.write_results)
   {
+    // build_patches is not (yet) implemented for DataOutFaces in hp context
+    AssertThrow(
+      !dof_handler.has_hp_capabilities(),
+      ExcMessage(
+        "\nYou are using a solver with hp capabilities (i.e., "
+        "incompressible_ns_lambda or fsi), and you are also trying "
+        "to export results on a boundary (with the \"skin\" "
+        "subsection). Unfortunately, this feature is currently not yet "
+        "implemented in deal.II when using structures with hp capabilities. "
+        "Exportation on a skin is supported with the other non-hp solvers."));
     data_out_skin =
       std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
         triangulation, output_param.skin.boundary_id);

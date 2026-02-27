@@ -94,6 +94,8 @@ public:
                               const ComponentSelectFunction<dim> &comp_function,
                               const std::string                  &field_name);
 
+  void update_time_step_after_converged_step();
+
   void compute_errors();
 
   virtual void output_results();
@@ -118,6 +120,8 @@ protected:
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler;
 
+  std::vector<unsigned char> dofs_to_component;
+
   FEValuesExtractors::Scalar temperature_extractor;
   ComponentMask              temperature_mask;
 
@@ -129,6 +133,7 @@ protected:
 
   LA::ParMatrixType              system_matrix;
   std::vector<LA::ParVectorType> previous_solutions;
+  std::vector<LA::ParVectorType> previous_solutions_dt_control;
 
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;

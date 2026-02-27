@@ -118,42 +118,122 @@ void HeatSolver<dim>::run()
 
   while (!time_handler.is_finished())
   {
-    time_handler.advance(pcout);
-    set_time();
-    update_boundary_conditions();
+    bool step_accepted = false;
+    unsigned int n_reject = 0;
 
-    if (time_handler.is_starting_step() &&
-        param.time_integration.bdfstart ==
-          Parameters::TimeIntegration::BDFStart::initial_condition)
+    while (!step_accepted)
     {
-      if (param.mms_param.enable || param.debug.apply_exact_solution)
-        // Convergence study: start with exact solution at first time step
-        set_exact_solution();
+      LA::ParVectorType present_backup;
+      present_backup.reinit(present_solution);
+      present_backup = present_solution;
+      auto previous_backup = previous_solutions;
+      auto previous_dt_control_backup = previous_solutions_dt_control;
+
+      time_handler.advance(pcout);
+      set_time();
+      update_boundary_conditions();
+
+      if (time_handler.is_starting_step() &&
+          param.time_integration.bdfstart ==
+            Parameters::TimeIntegration::BDFStart::initial_condition)
+      {
+        if (param.mms_param.enable || param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          set_initial_conditions();
+      }
       else
-        // Repeat initial condition
-        set_initial_conditions();
-    }
-    else
-    {
-      if (param.debug.compare_analytical_jacobian_with_fd)
-        compare_analytical_matrix_with_fd();
+      {
+        if (param.debug.compare_analytical_jacobian_with_fd)
+          compare_analytical_matrix_with_fd();
 
-      if (param.debug.apply_exact_solution)
-        set_exact_solution();
-      else
-        solve_nonlinear_problem(false);
-    }
+        if (param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          solve_nonlinear_problem(false);
+      }
 
-    postprocess_solution();
+      step_accepted = true;
+      double dt_retry = time_handler.get_current_dt();
 
-    if (!time_handler.is_steady())
-    {
-      // Rotate solutions
-      for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-        previous_solutions[j] = previous_solutions[j - 1];
-      previous_solutions[0] = present_solution;
-    }
-  }
+      if (!time_handler.is_steady() &&
+          param.time_integration.adaptative_dt)
+      {
+        const auto &ti = this->get_time_parameters();
+        auto component_eps = ordering->make_dt_control_component_eps(ti);
+
+        double R = 0.0, dt_used = 0.0, dt_next = 0.0;
+        unsigned int order = 0;
+
+        const bool ok = time_handler.update_dt_after_converged_step(
+          present_solution,
+          previous_solutions_dt_control,
+          dofs_to_component,
+          component_eps,
+          ti.safety,
+          mpi_communicator,
+          ti.t_end,
+          /*clamp_to_t_end=*/true,
+          &R,
+          &order,
+          &dt_used,
+          &dt_next,
+          /*out_e_star=*/nullptr,
+          param.time_integration.reject_factor,
+          &step_accepted,
+          &dt_retry);
+
+        (void)ok;
+      }
+
+      if (!step_accepted)
+      {
+
+        // REJECT: rollback TimeHandler state + restore solution, retry
+
+        time_handler.rollback_last_advance(dt_retry);
+
+        present_solution = present_backup;
+        previous_solutions = previous_backup;
+        previous_solutions_dt_control = previous_dt_control_backup;
+
+        n_reject++;
+        if (n_reject >= param.time_integration.max_rejects_per_step)
+        {
+          AssertThrow(false,
+                      ExcMessage("Too many rejected time steps in HeatSolver::run()."));
+        }
+
+        continue;
+      }
+
+      // ACCEPTED step: proceed normally
+
+      postprocess_solution();
+      if (!time_handler.is_steady())
+      {
+
+        if (previous_solutions.size() >= 2)
+        {
+          for (unsigned int j = previous_solutions.size(); j-- > 1; )
+            previous_solutions[j] = previous_solutions[j - 1];
+        }
+        if (!previous_solutions.empty())
+          previous_solutions[0] = present_solution;
+
+        if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
+        {
+          if (previous_solutions_dt_control.size() >= 2)
+          {
+            for (unsigned int j = previous_solutions_dt_control.size(); j-- > 1; )
+              previous_solutions_dt_control[j] = previous_solutions_dt_control[j - 1];
+          }
+          previous_solutions_dt_control[0] = present_solution;
+        }
+      }
+      step_accepted = true;
+    } 
+  } 
 }
 
 template <int dim>

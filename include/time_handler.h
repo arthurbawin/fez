@@ -110,11 +110,6 @@ public:
   template <class Archive>
   void serialize(Archive &ar, const unsigned int version);
 
-  // ------------------------------------------------------------
-  // Programmed dt schedules (paper-style variable-step tests)
-  // ------------------------------------------------------------
-  void build_programmed_dt_schedule();
-
   /**
    * Override time integration parameters at restart (e.g. changing dt).
    */
@@ -138,7 +133,6 @@ public:
     const std::vector<unsigned char> &dofs_to_component,
     const unsigned int                component_q,
     const double                      epsilon_q,
-    const double                      u_seuil,
     const MPI_Comm                    comm) const;
 
   /** Propose dt_{n+1} from dt_n and global ratio R. */
@@ -160,7 +154,6 @@ public:
     const std::vector<LA::ParVectorType>               &previous_solutions_dt_control,
     const std::vector<unsigned char>                   &dofs_to_component,
     const std::vector<std::pair<unsigned int, double>> &component_eps,
-    const double                                        u_seuil,
     const double                                        safety,
     const double                                        dt_min_factor,
     const double                                        dt_max_factor,
@@ -202,10 +195,6 @@ public:
   // dt ramp (restart)
   std::deque<double> pending_dt_queue;
 
-  // programmed dt
-  bool                use_programmed_dt_schedule = false;
-  std::vector<double> programmed_dt;
-
   // Rollback the last advance() (used when a time step is rejected)
   void rollback_last_advance(const double dt_retry);
 
@@ -219,6 +208,37 @@ private:
   std::vector<double> backup_time_steps;
   std::vector<double> backup_bdf_coefficients;
   std::deque<double>  backup_pending_dt_queue;
+
+  // ------------------------------------------------------------
+  // Historical guard for "bad" dt proposals after a rejection.
+  //
+  // Scalar mismatch based on limiting component:
+  //   delta_n = | err_n - eps |
+  // where err_n is the scalar error measure used in dt-control (here: RMS(|e*|))
+  // for the component that realizes R = min_q (eps_q/err_q).
+  //
+  // Ratio:
+  //   r_n = delta_n / delta_{n-1}
+  //
+  // If the next proposed dt is rejected, we freeze r_n (the ratio that led to it).
+  // When the step later passes (with smaller dt), we store:
+  //   history_reject_ratio = r_n
+  //   history_reject_dt_limit = dt_that_passed
+  //
+  // Later, if r_current > trigger_factor * history_reject_ratio,
+  // we cap dt_next by history_reject_dt_limit.
+  // ------------------------------------------------------------
+  double history_reject_ratio = std::numeric_limits<double>::infinity();
+  double history_reject_dt_limit = std::numeric_limits<double>::infinity();
+
+  double last_mismatch_delta = std::numeric_limits<double>::quiet_NaN();
+  double last_mismatch_ratio = std::numeric_limits<double>::quiet_NaN();
+
+  bool   pending_reject_history = false;
+  double pending_reject_ratio = std::numeric_limits<double>::quiet_NaN();
+
+  double history_reject_trigger_factor = 0.7;
+
 };
 
 /* ---------------- Template functions ----------------- */

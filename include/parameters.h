@@ -256,33 +256,9 @@ namespace Parameters
     bool adaptative_dt;
     bool mms_scale_eps_with_dt;
 
-// ------------------------------------------------------------
-// Time-step control modes used for MMS / verification of variable-step BDF2
-// ------------------------------------------------------------
-enum class DtControlMode
-{
-  vautrin,        // default adaptive dt using Vautrin estimator
-  increasing,     // geometric increasing dt on the whole interval (paper-style)
-  decreasing,     // geometric decreasing dt on the whole interval (paper-style)
-  inc_dec,        // geometric increasing then decreasing (paper-style)
-  alternating     // alternating two time steps with fixed ratio (paper-style)
-};
 
-DtControlMode dt_control_mode;
-
-// Parameter used for geometric sequences in the paper:
-// k_i = k_0 * r^i with r = gamma^(1/(N-1)).
-double dt_schedule_gamma;
-
-// Ratio for alternating steps (k1/k2 = dt_alternating_ratio).
-double dt_alternating_ratio;
-
-// Safety margin for the classical 0-stability bound of variable-step BDF2:
-// r_max = 1 + sqrt(2) - dt_ratio_margin.
-// (Used to clamp r in "increasing/decreasing/inc_dec" modes.)
-double dt_ratio_margin;
+    double dt_ratio_margin;
     double safety;
-    double u_seuil;
     double eps_u;
     double eps_p;
     double eps_x;
@@ -291,8 +267,7 @@ double dt_ratio_margin;
     double eps_l;   // lagrange multiplier (<=0 -> fallback to eps_u)
     double eps_phi; // tracer (<=0 -> fallback to eps_u)
     double eps_mu;  // potential (<=0 -> fallback to eps_u)
-bool mms_adaptive_dt_debug;
-    std::string log_filename;
+
     double dt;
     double t_initial;
     double t_end;

@@ -42,8 +42,6 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   time_steps.resize(n_previous_solutions + 1, initial_dt);
   bdf_coefficients.resize(n_previous_solutions + 1, 0.);
 
-  // Build programmed dt schedule for MMS verification if requested.
-  build_programmed_dt_schedule();
 }
 
 void TimeHandler::set_bdf_coefficients(
@@ -105,29 +103,19 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
     backup_pending_dt_queue       = pending_dt_queue;
   }
 
-  // Increase the step counter (this step is "attempted" now)
   current_time_iteration++;
 
   if (scheme == STAT)
     return;
 
-  // Programmed dt schedule (paper-style tests)
-  if (use_programmed_dt_schedule && pending_dt_queue.empty())
-  {
-    const unsigned int idx = current_time_iteration - 1;
-    AssertThrow(idx < programmed_dt.size(),
-                ExcMessage("Programmed dt schedule exhausted."));
-    current_dt = programmed_dt[idx];
-  }
-
-  // 0) Linear ramp dt (restart)
+  // Linear ramp dt (restart)
   if (!pending_dt_queue.empty())
   {
     current_dt = pending_dt_queue.front();
     pending_dt_queue.pop_front();
   }
 
-  // 1) Rotate times and time steps (shift up to n_previous_solutions)
+  // Rotate times and time steps
   for (unsigned int i = n_previous_solutions; i > 0; --i)
   {
     previous_times[i] = previous_times[i - 1];
@@ -157,7 +145,7 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
         previous_times[0] = current_time;
         time_steps[0]     = current_dt;
 
-        set_bdf_coefficients(true); // Force BDF1
+        set_bdf_coefficients(true);
       }
       else if (current_time_iteration - 1 < n_previous_solutions)
       {
@@ -222,194 +210,65 @@ void TimeHandler::save() const
   DEAL_II_NOT_IMPLEMENTED();
 }
 
-namespace
-{
-  inline void get_ratio_bounds_for_next_step(const Parameters::TimeIntegration::Scheme /*scheme*/,
+
+inline void get_ratio_bounds_for_next_step(const Parameters::TimeIntegration::Scheme /*scheme*/,
                                              const bool                                next_step_is_bdf2,
                                              double                                   &ratio_min,
                                              double                                   &ratio_max)
-  {
-    if (next_step_is_bdf2)
-    {
-      ratio_min = 0.2;
-      ratio_max = 1.0 + std::sqrt(2.0);
-    }
-    else
-    {
-      ratio_min = 0.1;
-      ratio_max = 5.0;
-    }
-  }
-
-  inline unsigned int compute_linear_ramp_N_increase(const double r_target,
-                                                     const double ratio_max)
-  {
-    const double denom = (ratio_max - 1.0);
-    if (denom <= 0.0)
-      return 1;
-
-    const double Nmin = (r_target - 1.0) / denom;
-    return std::max(1u, static_cast<unsigned int>(std::ceil(Nmin)));
-  }
-
-  inline unsigned int compute_linear_ramp_N_decrease(const double r_target,
-                                                     const double ratio_min)
-  {
-    if (ratio_min <= 0.0 || ratio_min >= 1.0)
-      return 1;
-
-    const double inv = (1.0 / ratio_min - 1.0);
-    if (inv <= 0.0)
-      return 1;
-
-    const double r_inv = 1.0 / r_target;
-    const double Nmin  = (r_inv - 1.0) / inv;
-    return std::max(1u, static_cast<unsigned int>(std::ceil(Nmin)));
-  }
-
-  inline void build_linear_ramp(std::deque<double> &queue,
-                                const double        dt_old,
-                                const double        dt_new,
-                                const unsigned int  N)
-  {
-    queue.clear();
-    if (N == 0)
-      return;
-
-    for (unsigned int k = 1; k <= N; ++k)
-    {
-      const double alpha = static_cast<double>(k) / static_cast<double>(N);
-      const double dt_k  = dt_old + alpha * (dt_new - dt_old);
-      queue.push_back(dt_k);
-    }
-  }
-} // namespace
-
-void TimeHandler::build_programmed_dt_schedule()
 {
-  use_programmed_dt_schedule = false;
-  programmed_dt.clear();
+  if (next_step_is_bdf2)
+  {
+    ratio_min = 0.2;
+    ratio_max = 1.0 + std::sqrt(2.0);
+  }
+  else
+  {
+    ratio_min = 0.1;
+    ratio_max = 5.0;
+  }
+}
 
-  if (time_parameters.is_steady())
+inline unsigned int compute_linear_ramp_N_increase(const double r_target,
+                                                    const double ratio_max)
+{
+  const double denom = (ratio_max - 1.0);
+  if (denom <= 0.0)
+    return 1;
+
+  const double Nmin = (r_target - 1.0) / denom;
+  return std::max(1u, static_cast<unsigned int>(std::ceil(Nmin)));
+}
+
+inline unsigned int compute_linear_ramp_N_decrease(const double r_target,
+                                                    const double ratio_min)
+{
+  if (ratio_min <= 0.0 || ratio_min >= 1.0)
+    return 1;
+
+  const double inv = (1.0 / ratio_min - 1.0);
+  if (inv <= 0.0)
+    return 1;
+
+  const double r_inv = 1.0 / r_target;
+  const double Nmin  = (r_inv - 1.0) / inv;
+  return std::max(1u, static_cast<unsigned int>(std::ceil(Nmin)));
+}
+
+inline void build_linear_ramp(std::deque<double> &queue,
+                              const double        dt_old,
+                              const double        dt_new,
+                              const unsigned int  N)
+{
+  queue.clear();
+  if (N == 0)
     return;
 
-  if (!time_parameters.adaptative_dt)
-    return;
-
-  if (time_parameters.dt_control_mode ==
-      Parameters::TimeIntegration::DtControlMode::vautrin)
-    return;
-
-  const double T = final_time - initial_time;
-  if (T <= 0.0)
-    return;
-
-  const double dt_ref = initial_dt;
-  const double N_real = T / dt_ref;
-  const unsigned int N = static_cast<unsigned int>(std::llround(N_real));
-
-  AssertThrow(N >= 2,
-             ExcMessage("Programmed dt schedule requires at least 2 time steps."));
-
-  AssertThrow(std::abs(N_real - static_cast<double>(N)) < 1e-6,
-             ExcMessage("For programmed dt schedules, dt must yield an integer number of steps "
-                        "over [t_initial,t_end]."));
-
-  programmed_dt.resize(N, 0.0);
-
-  const double dt_min_eff = get_effective_dt_min();
-  const double dt_max_eff = get_effective_dt_max();
-
-  const auto clamp_dt = [&](const double dt) -> double
+  for (unsigned int k = 1; k <= N; ++k)
   {
-    return std::min(std::max(dt, dt_min_eff), dt_max_eff);
-  };
-
-  const double ratio_limit =
-    1.0 + std::sqrt(2.0) - std::max(0.0, time_parameters.dt_ratio_margin);
-
-  const auto build_geometric = [&](const bool increasing)
-  {
-    const double gamma = time_parameters.dt_schedule_gamma;
-
-    double r = std::pow(gamma, 1.0 / static_cast<double>(N - 1));
-    if (r > ratio_limit)
-      r = ratio_limit;
-
-    const double rN = std::pow(r, static_cast<double>(N));
-    const double dt0 =
-      (std::abs(r - 1.0) < 1e-14 ? T / static_cast<double>(N)
-                                 : T * (r - 1.0) / (rN - 1.0));
-
-    for (unsigned int i = 0; i < N; ++i)
-    {
-      const unsigned int j = increasing ? i : (N - 1 - i);
-      programmed_dt[i] = dt0 * std::pow(r, static_cast<double>(j));
-    }
-  };
-
-  if (time_parameters.dt_control_mode ==
-      Parameters::TimeIntegration::DtControlMode::increasing)
-  {
-    build_geometric(true);
+    const double alpha = static_cast<double>(k) / static_cast<double>(N);
+    const double dt_k  = dt_old + alpha * (dt_new - dt_old);
+    queue.push_back(dt_k);
   }
-  else if (time_parameters.dt_control_mode ==
-           Parameters::TimeIntegration::DtControlMode::decreasing)
-  {
-    build_geometric(false);
-  }
-
-  if (time_parameters.dt_control_mode ==
-      Parameters::TimeIntegration::DtControlMode::inc_dec)
-  {
-    AssertThrow(N % 2 == 0,
-               ExcMessage("inc_dec programmed schedule requires an even N."));
-    const unsigned int Nh = N / 2;
-    const double Th = 0.5 * T;
-    const double gamma = time_parameters.dt_schedule_gamma;
-
-    double r = std::pow(gamma, 1.0 / static_cast<double>(Nh - 1));
-    if (r > ratio_limit)
-      r = ratio_limit;
-
-    const double rNh = std::pow(r, static_cast<double>(Nh));
-    const double dt0h =
-      (std::abs(r - 1.0) < 1e-14 ? Th / static_cast<double>(Nh)
-                                 : Th * (r - 1.0) / (rNh - 1.0));
-
-    for (unsigned int i = 0; i < Nh; ++i)
-      programmed_dt[i] = dt0h * std::pow(r, static_cast<double>(i));
-
-    for (unsigned int i = 0; i < Nh; ++i)
-      programmed_dt[Nh + i] = programmed_dt[Nh - 1 - i];
-  }
-
-  if (time_parameters.dt_control_mode ==
-      Parameters::TimeIntegration::DtControlMode::alternating)
-  {
-    AssertThrow(N % 2 == 0,
-               ExcMessage("alternating programmed schedule requires an even N."));
-    const double q = time_parameters.dt_alternating_ratio;
-
-    const double dt_small = T / (static_cast<double>(N) * (0.5 * (q + 1.0)));
-    const double dt_big   = q * dt_small;
-
-    for (unsigned int i = 0; i < N; ++i)
-      programmed_dt[i] = (i % 2 == 0 ? dt_big : dt_small);
-  }
-
-  double sum = 0.0;
-  for (unsigned int i = 0; i < N; ++i)
-  {
-    programmed_dt[i] = clamp_dt(programmed_dt[i]);
-    sum += programmed_dt[i];
-  }
-
-  programmed_dt[N - 1] += (T - sum);
-  programmed_dt[N - 1] = clamp_dt(programmed_dt[N - 1]);
-
-  use_programmed_dt_schedule = true;
-  current_dt = programmed_dt[0];
 }
 
 void TimeHandler::apply_restart_overrides(const Parameters::TimeIntegration &new_params)
@@ -428,7 +287,6 @@ void TimeHandler::apply_restart_overrides(const Parameters::TimeIntegration &new
   time_parameters.dt = dt_new;
   initial_dt         = dt_new;
   dt_ref_bounds      = dt_new;
-
 
   pending_dt_queue.clear();
 
@@ -588,14 +446,12 @@ void TimeHandler::compute_vautrin_error_estimate(
   e_star *= K;
 }
 
-
 double TimeHandler::compute_scaled_vautrin_ratio(
   const LA::ParVectorType          &e_star,
   const LA::ParVectorType          &u_star,
   const std::vector<unsigned char> &dofs_to_component,
   const unsigned int                component_q,
   const double                      epsilon_q,
-  const double                      /*u_seuil*/,
   const MPI_Comm                    comm) const
 {
   (void)u_star; // on n'en a plus besoin en absolu-only
@@ -678,7 +534,6 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
   const std::vector<LA::ParVectorType>               &previous_solutions_dt_control,
   const std::vector<unsigned char>                   &dofs_to_component,
   const std::vector<std::pair<unsigned int, double>> &component_eps,
-  const double                                        u_seuil,
   const double                                        safety,
   const double                                        /*dt_min_factor*/,
   const double                                        /*dt_max_factor*/,
@@ -701,10 +556,6 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
   if (!time_parameters.adaptative_dt)
     return false;
 
-  if (time_parameters.dt_control_mode !=
-      Parameters::TimeIntegration::DtControlMode::vautrin)
-    return false;
-
   unsigned int order = 1;
   if (scheme == Parameters::TimeIntegration::Scheme::BDF2 &&
       !this->is_starting_step())
@@ -721,111 +572,52 @@ bool TimeHandler::update_dt_after_converged_step_vautrin(
                                        previous_solutions_dt_control,
                                        order);
 
-  // Verbose: print max relative e* per component
-  // Verbose: print e* abs max + eps (always meaningful even if step is rejected)
-std::vector<double> comp_estar_abs_max;
-std::vector<unsigned int> comp_ids;
-comp_estar_abs_max.reserve(component_eps.size());
-comp_ids.reserve(component_eps.size());
-
-if (time_parameters.verbosity == Parameters::Verbosity::verbose)
-{
-  const unsigned int my_rank = dealii::Utilities::MPI::this_mpi_process(comm);
+  
+  double       R             = std::numeric_limits<double>::infinity();
+  unsigned int limiting_comp = std::numeric_limits<unsigned int>::max();
+  double       limiting_eps  = std::numeric_limits<double>::quiet_NaN();
+  double       limiting_Rq   = std::numeric_limits<double>::quiet_NaN();
 
   for (const auto &ce : component_eps)
   {
     const unsigned int comp = ce.first;
+    const double       eps  = ce.second;
 
-    double local_max_abs = 0.0;
-    unsigned long long local_count = 0;
+    const double Rq =
+      this->compute_scaled_vautrin_ratio(e_star,
+                                         u_np1,
+                                         dofs_to_component,
+                                         comp,
+                                         eps,
+                                         comm);
 
-    for (const auto gi : u_np1.locally_owned_elements())
+    if (Rq < R)
     {
-      if (dofs_to_component[gi] != comp)
-        continue;
-
-      local_max_abs = std::max(local_max_abs, std::abs(e_star[gi]));
-      local_count++;
+      R             = Rq;
+      limiting_comp = comp;
+      limiting_eps  = eps;
+      limiting_Rq   = Rq;
     }
-
-    const double global_max_abs =
-      dealii::Utilities::MPI::max(local_max_abs, comm);
-    const unsigned long long global_count =
-      dealii::Utilities::MPI::sum(local_count, comm);
-
-    if (my_rank == 0)
-    {
-      std::cout
-        << "[Vautrin] comp=" << comp
-        << "  e*_abs_max=" << std::scientific << std::setprecision(6)
-        << global_max_abs
-        << "  (ndofs=" << std::dec << global_count << ")"
-        << std::endl;
-    }
-
-    comp_ids.push_back(comp);
-    comp_estar_abs_max.push_back(global_max_abs);
-  }
-}
-
-
-  // R = min_q (epsilon_q / err_q)
-  double R = std::numeric_limits<double>::infinity();
-  for (const auto &ce : component_eps)
-  {
-    const unsigned int comp = ce.first;
-    const double eps        = ce.second;
-
-    R = std::min(R,
-                 this->compute_scaled_vautrin_ratio(e_star,
-                                                    u_np1,
-                                                    dofs_to_component,
-                                                    comp,
-                                                    eps,
-                                                    u_seuil,
-                                                    comm));
   }
 
   if (!std::isfinite(R) || R <= 0.0)
     return false;
+
   const double dt_used = current_dt;
 
-  // ------------------------------------------------------------
-  // Reject only when enough history is meaningful.
-  // We NEVER reject step 1 or 2 (startup).
-  // ------------------------------------------------------------
-  const bool rejection_enabled =
-    (reject_factor > 0.0) && (current_time_iteration > 2);
-
-  const double R_accept = rejection_enabled ? (1.0 / reject_factor) : 0.0;
-  const bool step_accepted = (R >= R_accept); // if R_accept=0 => always accept
-
-
-  // Print eps and e* max compared to threshold (also for rejected steps)
-  if (time_parameters.verbosity == Parameters::Verbosity::verbose)
+  double mismatch_delta = std::numeric_limits<double>::quiet_NaN();
+  if (std::isfinite(limiting_eps) && limiting_eps > 0.0 &&
+      std::isfinite(limiting_Rq) && limiting_Rq > 0.0)
   {
-    const unsigned int my_rank = dealii::Utilities::MPI::this_mpi_process(comm);
-    if (my_rank == 0)
-    {
-      for (unsigned int k = 0; k < component_eps.size(); ++k)
-      {
-        const unsigned int comp = component_eps[k].first;
-        const double eps        = component_eps[k].second;
-
-        // Find matching e* max we computed above (same order)
-        const double emax = (k < comp_estar_abs_max.size() ? comp_estar_abs_max[k] : std::numeric_limits<double>::quiet_NaN());
-
-        std::cout
-          << "[Vautrin] comp=" << comp
-          << "  eps=" << std::scientific << std::setprecision(6) << eps
-          << "  reject_thr=" << std::scientific << std::setprecision(6) << (reject_factor * eps)
-          << "  e*_abs_max=" << std::scientific << std::setprecision(6) << emax
-          << "  status=" << (step_accepted ? "ACCEPT" : "REJECT")
-          << std::endl;
-      }
-    }
+    const double err_limiting = limiting_eps / limiting_Rq;
+    mismatch_delta            = std::abs(err_limiting - limiting_eps);
   }
 
+  const bool rejection_enabled =
+  (reject_factor > 0.0) && (current_time_iteration > 2);
+
+  const double R_accept     = rejection_enabled ? (1.0 / reject_factor) : 0.0;
+  const bool   step_accepted = (R >= R_accept);
 
   const double dt_min = this->get_effective_dt_min();
   const double dt_max = this->get_effective_dt_max();
@@ -833,9 +625,15 @@ if (time_parameters.verbosity == Parameters::Verbosity::verbose)
   const double ratio_min = (order == 2 ? 0.2 : 0.1);
   const double ratio_max = (order == 2 ? (1.0 + std::sqrt(2.0)) : 5.0);
 
-  if (rejection_enabled &&!step_accepted)
+  if (rejection_enabled && !step_accepted)
   {
-    // Rejected step: we must decrease dt (cap ratio_max at 1.0)
+    if (!pending_reject_history &&
+        std::isfinite(last_mismatch_ratio) && last_mismatch_ratio > 0.0)
+    {
+      pending_reject_history = true;
+      pending_reject_ratio   = last_mismatch_ratio;
+    }
+
     const double ratio_max_reject = 1.0;
 
     double dt_retry =
@@ -843,18 +641,13 @@ if (time_parameters.verbosity == Parameters::Verbosity::verbose)
                                            ratio_min, ratio_max_reject,
                                            dt_min, dt_max);
 
-    // If the Vautrin proposal does not reduce (can happen when capped),
-    // fall back to a monotone interpolation between previous_dt and dt_used.
-    // We use the already-computed R = min_q (eps_q / err_q).
-    // On a rejected step, R < 1 and smaller R means 'too much error'.
     double previous_dt = dt_used;
     if (time_steps.size() >= 2)
-      previous_dt = time_steps[1]; // dt used at the previous accepted/attempted step
+      previous_dt = time_steps[1];
 
-    const double w = std::clamp(std::abs(R), 0.0, 1.0);
+    const double w         = std::clamp(std::abs(R), 0.0, 1.0);
     const double dt_interp = previous_dt + (dt_used - previous_dt) * w;
 
-    // Choose the most conservative reduction (smallest dt), while respecting dt_min/dt_max.
     dt_retry = std::min(dt_retry, dt_interp);
     dt_retry = std::max(dt_min, std::min(dt_retry, dt_max));
 
@@ -878,22 +671,54 @@ if (time_parameters.verbosity == Parameters::Verbosity::verbose)
       const unsigned int my_rank = dealii::Utilities::MPI::this_mpi_process(comm);
       if (my_rank == 0)
       {
-        std::cout
-          << "[REJECT] step=" << current_time_iteration
-          << " t=" << std::scientific << std::setprecision(10) << current_time
-          << " dt_used=" << std::scientific << std::setprecision(10) << dt_used
-          << " dt_new=" << std::scientific << std::setprecision(10) << dt_retry
-          << " (R=" << std::scientific << std::setprecision(6) << R << ")"
-          << std::endl;
+        std::cout << "[REJECT] step=" << current_time_iteration
+                  << " t=" << std::scientific << std::setprecision(10) << current_time
+                  << " dt_used=" << std::scientific << std::setprecision(10) << dt_used
+                  << " dt_new=" << std::scientific << std::setprecision(10) << dt_retry
+                  << " (R=" << std::scientific << std::setprecision(6) << R << ")"
+                  << std::endl;
       }
     }
 
-    return false; // rejected
+    return false;
+  }
+  if (pending_reject_history &&
+      std::isfinite(pending_reject_ratio) && pending_reject_ratio > 0.0)
+  {
+    history_reject_ratio    = pending_reject_ratio;
+    history_reject_dt_limit = dt_used;
+
+    pending_reject_history = false;
+    pending_reject_ratio   = std::numeric_limits<double>::quiet_NaN();
+  }
+
+  if (std::isfinite(mismatch_delta))
+  {
+    if (std::isfinite(last_mismatch_delta) && last_mismatch_delta > 0.0)
+      last_mismatch_ratio = mismatch_delta / last_mismatch_delta;
+    else
+      last_mismatch_ratio = std::numeric_limits<double>::quiet_NaN();
+
+    last_mismatch_delta = mismatch_delta;
+  }
+  else
+  {
+    last_mismatch_ratio = std::numeric_limits<double>::quiet_NaN();
   }
 
   double dt_next =
     TimeHandler::propose_next_dt_vautrin(dt_used, R, order, safety,
                                          ratio_min, ratio_max, dt_min, dt_max);
+
+  // Historical cap: if current ratio gets too close to a known "bad" ratio, cap dt_next
+  if (std::isfinite(history_reject_ratio) && history_reject_ratio > 0.0 &&
+      std::isfinite(history_reject_dt_limit) &&
+      std::isfinite(last_mismatch_ratio) && last_mismatch_ratio > 0.0)
+  {
+    const double trigger = history_reject_trigger_factor * history_reject_ratio;
+    if (last_mismatch_ratio > trigger)
+      dt_next = std::min(dt_next, history_reject_dt_limit);
+  }
 
   if (clamp_to_t_end && current_time < t_end)
   {
@@ -903,6 +728,9 @@ if (time_parameters.verbosity == Parameters::Verbosity::verbose)
   }
 
   current_dt = dt_next;
+
+  if (out_step_accepted) *out_step_accepted = true;
+  if (out_dt_retry)      *out_dt_retry      = std::numeric_limits<double>::quiet_NaN();
 
   if (out_R)       *out_R       = R;
   if (out_order)   *out_order   = order;
@@ -927,7 +755,5 @@ void TimeHandler::rollback_last_advance(const double dt_retry)
   bdf_coefficients = backup_bdf_coefficients;
   pending_dt_queue = backup_pending_dt_queue;
 
-  // Important: on repart sur un état cohérent, et dt_retry sera utilisé au prochain advance().
   has_step_backup = false;
 }
-

@@ -696,27 +696,13 @@ namespace Parameters
       prm.declare_entry("adaptative_dt","false",Patterns::Bool(),
                         "Enable adaptative time step");
 
-prm.declare_entry("dt control mode",
-                  "vautrin",
-                  Patterns::Selection("vautrin|increasing|decreasing|inc_dec|alternating"),
-                  "Time-step control mode: "
-                  "vautrin (adaptive Vautrin), increasing, decreasing, inc_dec, alternating.");
-prm.declare_entry("dt schedule gamma",
-                  "2.0",
-                  Patterns::Double(1.0),
-                  "Geometric schedule parameter gamma (paper-style). "
-                  "Used to compute r = gamma^(1/(N-1)) in increasing/decreasing/inc_dec modes.");
-prm.declare_entry("dt alternating ratio",
-                  "4.0",
-                  Patterns::Double(1.0),
-                  "Alternating time-step ratio k1/k2 (paper-style), used in alternating mode.");
-prm.declare_entry("dt ratio margin",
+      prm.declare_entry("dt ratio margin",
                   "0.05",
                   Patterns::Double(0.0),
                   "Safety margin applied to the classical BDF2 ratio bound (1+sqrt(2)). "
                   "The geometric ratio r is clamped to r_max = 1+sqrt(2)-margin.");
+                  
       prm.declare_entry("safety", "0.9", Patterns::Double(), "Safety factor for adaptive dt");
-      prm.declare_entry("u_seuil", "1e-2", Patterns::Double(), "Switch abs/rel scaling threshold");
       prm.declare_entry("eps_u", "1e-3", Patterns::Double(), "Target error for velocity (adaptive dt)");
       prm.declare_entry("eps_p", "1e-2", Patterns::Double(), "Target error for pressure (adaptive dt)");
       prm.declare_entry("eps_x", "1e-3", Patterns::Double(), "Target error for position (adaptive dt)");
@@ -724,11 +710,6 @@ prm.declare_entry("dt ratio margin",
                   "-1",
                   Patterns::Double(),
                   "Target error for temperature (adaptive dt). If <= 0, fallback to eps_u");
-      prm.declare_entry("mms_scale_eps_with_dt",
-      "false",
-      Patterns::Bool(),
-      "If true, scale eps for MMS when dt is refined: eps <- eps*(dt/dt_ref)^p.");
-
       prm.declare_entry("eps_l",
                         "-1",
                         Patterns::Double(),
@@ -741,6 +722,13 @@ prm.declare_entry("dt ratio margin",
                         "-1",
                         Patterns::Double(),
                         "Target error for potential mu (adaptive dt). If <= 0, fallback to eps_u");
+
+      prm.declare_entry("mms_scale_eps_with_dt",
+      "false",
+      Patterns::Bool(),
+      "If true, scale eps for MMS when dt is refined: eps <- eps*(dt/dt_ref)^p.");
+
+
       prm.declare_entry("dt", "1", Patterns::Double(), "Time step");  
       prm.declare_entry("t_initial",
                         "1",
@@ -771,20 +759,6 @@ prm.declare_entry("dt ratio margin",
       dt_min_factor  = prm.get_double("dt_min_factor");
       adaptative_dt = prm.get_bool("adaptative_dt");
 
-      const std::string parsed_dt_mode = prm.get("dt control mode");
-      if (parsed_dt_mode == "vautrin")
-        dt_control_mode = DtControlMode::vautrin;
-      else if (parsed_dt_mode == "increasing")
-        dt_control_mode = DtControlMode::increasing;
-      else if (parsed_dt_mode == "decreasing")
-        dt_control_mode = DtControlMode::decreasing;
-      else if (parsed_dt_mode == "inc_dec")
-        dt_control_mode = DtControlMode::inc_dec;
-      else if (parsed_dt_mode == "alternating")
-        dt_control_mode = DtControlMode::alternating;
-
-      dt_schedule_gamma     = prm.get_double("dt schedule gamma");
-      dt_alternating_ratio  = prm.get_double("dt alternating ratio");
       dt_ratio_margin       = prm.get_double("dt ratio margin");
       eps_u        = prm.get_double("eps_u");
       eps_p        = prm.get_double("eps_p");
@@ -793,7 +767,6 @@ prm.declare_entry("dt ratio margin",
       eps_l        = prm.get_double("eps_l");
       eps_phi      = prm.get_double("eps_phi");
       eps_mu       = prm.get_double("eps_mu");
-      u_seuil  = prm.get_double("u_seuil");
       safety       = prm.get_double("safety");
       mms_scale_eps_with_dt = prm.get_bool("mms_scale_eps_with_dt");
       dt        = prm.get_double("dt");

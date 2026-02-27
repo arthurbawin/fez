@@ -117,7 +117,6 @@ void HeatSolver<dim>::run()
   set_initial_conditions();
   output_results();
 
-  // --- Rejection settings ---
   const double       reject_factor         = 2.0; 
   const unsigned int max_rejects_per_step  = 20;
 
@@ -128,21 +127,12 @@ void HeatSolver<dim>::run()
 
     while (!step_accepted)
     {
-      // ------------------------------------------------------------
-      // Backup solution state BEFORE advance/solve (needed if reject)
-      // ------------------------------------------------------------
       LA::ParVectorType present_backup;
       present_backup.reinit(present_solution);
       present_backup = present_solution;
-
-      // Si jamais tu modifies aussi les historiques dans le pas (normalement non),
-      // tu peux aussi backup :
       auto previous_backup = previous_solutions;
       auto previous_dt_control_backup = previous_solutions_dt_control;
 
-      // ------------------------------------------------------------
-      // Attempt the step (TimeHandler already does an internal backup)
-      // ------------------------------------------------------------
       time_handler.advance(pcout);
       set_time();
       update_boundary_conditions();
@@ -167,22 +157,15 @@ void HeatSolver<dim>::run()
           solve_nonlinear_problem(false);
       }
 
-      // ------------------------------------------------------------
-      // Decide accept/reject + compute next dt using TimeHandler logic
-      // (prints [Vautrin] + [REJECT] even if rejected, if you enabled it)
-      // ------------------------------------------------------------
       step_accepted = true;
-      double dt_retry = time_handler.get_current_dt(); // si tu n'as pas de getter, remplace par un getter simple
+      double dt_retry = time_handler.get_current_dt();
 
       if (!time_handler.is_steady() &&
-          param.time_integration.adaptative_dt &&
-          param.time_integration.dt_control_mode ==
-            Parameters::TimeIntegration::DtControlMode::vautrin)
+          param.time_integration.adaptative_dt)
       {
         const auto &ti = this->get_time_parameters();
         auto component_eps = ordering->make_dt_control_component_eps(ti);
 
-        // Optionnel (mais pratique) : récupérer des infos
         double R = 0.0, dt_used = 0.0, dt_next = 0.0;
         unsigned int order = 0;
 
@@ -212,9 +195,9 @@ void HeatSolver<dim>::run()
 
       if (!step_accepted)
       {
-        // ------------------------------------------------------------
+
         // REJECT: rollback TimeHandler state + restore solution, retry
-        // ------------------------------------------------------------
+
         time_handler.rollback_last_advance(dt_retry);
 
         present_solution = present_backup;
@@ -228,17 +211,15 @@ void HeatSolver<dim>::run()
                       ExcMessage("Too many rejected time steps in HeatSolver::run()."));
         }
 
-        continue; // retry same time step number with reduced dt
+        continue;
       }
 
-      // ------------------------------------------------------------
       // ACCEPTED step: proceed normally
-      // ------------------------------------------------------------
-      postprocess_solution();
 
+      postprocess_solution();
       if (!time_handler.is_steady())
       {
-        // Rotate solutions (BDF history) - SAFE loop (no unsigned underflow)
+
         if (previous_solutions.size() >= 2)
         {
           for (unsigned int j = previous_solutions.size(); j-- > 1; )
@@ -247,7 +228,6 @@ void HeatSolver<dim>::run()
         if (!previous_solutions.empty())
           previous_solutions[0] = present_solution;
 
-        // Rotate dt-control history (only if used)
         if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
         {
           if (previous_solutions_dt_control.size() >= 2)
@@ -258,11 +238,9 @@ void HeatSolver<dim>::run()
           previous_solutions_dt_control[0] = present_solution;
         }
       }
-
-      // done for this time step
       step_accepted = true;
-    } // while (!step_accepted)
-  }   // while (!time_handler.is_finished())
+    } 
+  } 
 }
 
 

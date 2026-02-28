@@ -42,4 +42,4 @@ jobs:
           # For now the only affected test is for incompressible_ns_lambda, so do not run this test
 
           cd build
-          ctest -V -E "^(incompressible_ns_lambda)" --output-on-failure
+          ctest -V -E "^(incompressible_ns_lambda/mms_3d)" --output-on-failure

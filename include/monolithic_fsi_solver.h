@@ -185,7 +185,6 @@ protected:
   types::boundary_id weak_no_slip_boundary_id = numbers::invalid_unsigned_int;
 
   AffineConstraints<double> lambda_constraints;
-  IndexSet                  additional_relevant_dofs;
 
   // Position-lambda constraints on the cylinder
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]

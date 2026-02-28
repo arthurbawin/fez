@@ -1,6 +1,6 @@
 # Adapted from the deal.II linux.yml workflow
 
-name: build-tester-foo
+name: ci-debug
 
 on:
   push:

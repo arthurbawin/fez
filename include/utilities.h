@@ -299,7 +299,7 @@ double compute_boundary_volume(const DoFHandler<dim>     &dof_handler,
           for (unsigned int q = 0; q < face_quadrature.size(); ++q)
             I += fe_face_values.JxW(q);
         }
-  return Utilities::MPI::sum(I, dof_handler.get_communicator());
+  return Utilities::MPI::sum(I, dof_handler.get_mpi_communicator());
 }
 
 /**
@@ -331,7 +331,7 @@ double compute_boundary_volume(const DoFHandler<dim>            &dof_handler,
           for (unsigned int q = 0; q < face_quadrature[fe_index].size(); ++q)
             I += fe_face_values.JxW(q);
         }
-  return Utilities::MPI::sum(I, dof_handler.get_communicator());
+  return Utilities::MPI::sum(I, dof_handler.get_mpi_communicator());
 }
 
 /**

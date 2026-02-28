@@ -335,7 +335,25 @@ namespace Parameters
     double dt;
     double t_initial;
     double t_end;
-    // unsigned int n_constant_timesteps; // To remove
+    
+    bool adaptative_dt;
+    double dt_max_factor;
+    double dt_min_factor;
+
+    bool mms_scale_eps_with_dt;
+
+    double reject_factor;
+    double max_rejects_per_step;
+    double safety;
+
+    double eps_u;
+    double eps_p;
+    double eps_x;
+    double eps_t;  
+    double eps_l; 
+    double eps_phi; 
+    double eps_mu;
+
     Verbosity verbosity;
 
     enum class Scheme

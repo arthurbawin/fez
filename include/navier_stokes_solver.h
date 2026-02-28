@@ -351,6 +351,7 @@ protected:
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler;
 
+
   std::vector<unsigned char> dofs_to_component;
 
   FEValuesExtractors::Vector velocity_extractor;
@@ -381,6 +382,7 @@ protected:
 
   LA::ParMatrixType              system_matrix;
   std::vector<LA::ParVectorType> previous_solutions;
+  std::vector<LA::ParVectorType> previous_solutions_dt_control;
 
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;

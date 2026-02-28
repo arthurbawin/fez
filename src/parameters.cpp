@@ -746,6 +746,49 @@ namespace Parameters
                         "1",
                         Patterns::Double(),
                         "End of the simulation time interval");
+
+      prm.declare_entry("adaptative_dt","false",Patterns::Bool(),
+                        "Enable adaptative time step");
+      prm.declare_entry("dt min factor",
+                  "0.1",
+                  Patterns::Double(0.0),
+                  "Minimum time step as a factor of dt (dt_min = dt * factor).");
+
+      prm.declare_entry("dt max factor",
+                  "10.0",
+                  Patterns::Double(0.0),
+                  "Maximum time step as a factor of dt (dt_max = dt * factor).");
+      
+
+      prm.declare_entry("reject factor", "2", Patterns::Double(), "Factor of eps for the reject of the adaptive dt");
+      prm.declare_entry("max reject step", "8", Patterns::Double(), "Maximum number of rejection of the same step");
+      prm.declare_entry("safety", "0.9", Patterns::Double(), "Safety factor for adaptive dt");
+      
+      prm.declare_entry("eps_u", "1e-3", Patterns::Double(), "Target error for velocity (adaptive dt)");
+      prm.declare_entry("eps_p", "1e-2", Patterns::Double(), "Target error for pressure (adaptive dt)");
+      prm.declare_entry("eps_x", "1e-3", Patterns::Double(), "Target error for position (adaptive dt)");
+      prm.declare_entry("eps_t",
+                  "-1",
+                  Patterns::Double(),
+                  "Target error for temperature (adaptive dt). If <= 0, fallback to eps_u");
+      prm.declare_entry("eps_l",
+                        "-1",
+                        Patterns::Double(),
+                        "Target error for Lagrange multiplier (adaptive dt). If <= 0, fallback to eps_u");
+      prm.declare_entry("eps_phi",
+                        "-1",
+                        Patterns::Double(),
+                        "Target error for tracer phi (adaptive dt). If <= 0, fallback to eps_u");
+      prm.declare_entry("eps_mu",
+                        "-1",
+                        Patterns::Double(),
+                        "Target error for potential mu (adaptive dt). If <= 0, fallback to eps_u");
+
+      prm.declare_entry("mms_scale_eps_with_dt",
+      "false",
+      Patterns::Bool(),
+      "If true, scale eps for MMS when dt is refined: eps <- eps*(dt/dt_ref)^p.");
+      
       prm.declare_entry("scheme",
                         "stationary",
                         Patterns::Selection("stationary|BDF1|BDF2"),
@@ -766,6 +809,25 @@ namespace Parameters
       dt        = prm.get_double("dt");
       t_initial = prm.get_double("t_initial");
       t_end     = prm.get_double("t_end");
+
+      adaptative_dt = prm.get_bool("adaptative_dt");
+      dt_max_factor  = prm.get_double("dt max factor");
+      dt_min_factor  = prm.get_double("dt min factor");
+      
+      reject_factor        = prm.get_double("reject factor");
+      max_rejects_per_step = prm.get_double("max reject step"); 
+      safety               = prm.get_double("safety");
+
+
+      eps_u        = prm.get_double("eps_u");
+      eps_p        = prm.get_double("eps_p");
+      eps_x        = prm.get_double("eps_x");
+      eps_t        = prm.get_double("eps_t");
+      eps_l        = prm.get_double("eps_l");
+      eps_phi      = prm.get_double("eps_phi");
+      eps_mu       = prm.get_double("eps_mu");
+
+      mms_scale_eps_with_dt = prm.get_bool("mms_scale_eps_with_dt");
 
       // Set the number of (constant) time steps.
       // For now, we only consider an integer number of time steps.

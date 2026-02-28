@@ -609,7 +609,7 @@ bool TimeHandler::update_dt_after_converged_step(
   }
 
   const bool rejection_enabled =
-  (reject_factor > 0.0) && (current_time_iteration > 2);
+  (reject_factor > 0.0) && (current_time_iteration > 10);
 
   const double R_accept     = rejection_enabled ? (1.0 / reject_factor) : 0.0;
   const bool   step_accepted = (R >= R_accept);
@@ -671,7 +671,7 @@ bool TimeHandler::update_dt_after_converged_step(
                   << " dt_used=" << std::scientific << std::setprecision(10) << dt_used
                   << " dt_new=" << std::scientific << std::setprecision(10) << dt_retry
                   << " (R=" << std::scientific << std::setprecision(6) << R << ")"
-                  << " (|e*|=" << std::scientific << std::setprecision(6) << e_star << ")"
+                  << " (|e*|=" << std::scientific << std::setprecision(6) << &e_star << ")"
                   << std::endl;
       }
     }

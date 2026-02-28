@@ -302,14 +302,58 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   auto &comm = mpi_communicator;
 
-  // Initialize dof handler
   dof_handler.distribute_dofs(this->get_fe_system());
 
-  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
-        << std::endl;
+  // (1) recalculer tout de suite les IndexSet cohérents avec cette distribution
+  locally_owned_dofs    = dof_handler.locally_owned_dofs();
+  locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
+
+  const auto &fe = dof_handler.get_fe();
+
+  constexpr unsigned char unset = 255;
+  dofs_to_component.assign(dof_handler.n_dofs(), unset);
+
+  std::vector<types::global_dof_index> local_dof_indices(fe.n_dofs_per_cell());
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+  {
+    if (cell->is_artificial())
+      continue;
+
+    cell->get_dof_indices(local_dof_indices);
+
+    for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
+    {
+      const unsigned int comp = fe.system_to_component_index(j).first;
+      const auto gi = local_dof_indices[j];
+      dofs_to_component[gi] = static_cast<unsigned char>(comp);
+    }
+  }
+
+  // maintenant l’assert checke le bon IndexSet
+  for (const auto gi : locally_relevant_dofs)
+    AssertThrow(dofs_to_component[gi] != unset,
+                ExcMessage("dofs_to_component not initialized for a locally relevant DoF."));
+
+  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs() << std::endl;
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
+
+  if (param.bc_data.enforce_zero_mean_pressure)
+  {
+    BoundaryConditions::create_zero_mean_pressure_constraints_data(
+      triangulation,
+      dof_handler,
+      locally_relevant_dofs,
+      dofs_to_component,
+      *fixed_mapping,
+      *quadrature,
+      ordering->p_lower,
+      constrained_pressure_dof,
+      zero_mean_pressure_weights);
+  }
+
 
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
@@ -321,9 +365,36 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   // Allocate for previous BDF solutions
   previous_solutions.clear();
-  previous_solutions.resize(time_handler.n_previous_solutions);
-  for (auto &previous_sol : previous_solutions)
-    previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+  const unsigned int extra_history =
+  (param.time_integration.adaptative_dt ? 1u : 0u);
+
+  // ------------------------------
+  // 1) History used for assembly (BDF needs exactly n_previous_solutions)
+  // ------------------------------
+  const unsigned int n_history_assembly = time_handler.n_previous_solutions;
+
+  previous_solutions.resize(n_history_assembly);
+  for (auto &sol : previous_solutions)
+    sol.reinit(locally_owned_dofs, mpi_communicator);
+
+  // ------------------------------
+  // 2) Extra history used ONLY for adaptive dt control (Vautrin)
+  //    Needs (order+1) vectors => for BDF2: 3 vectors.
+  // ------------------------------
+  if (param.time_integration.adaptative_dt)
+  {
+    const unsigned int n_history_dt_control = time_handler.n_previous_solutions + 1;
+
+    previous_solutions_dt_control.resize(n_history_dt_control);
+    for (auto &sol : previous_solutions_dt_control)
+      sol.reinit(locally_owned_dofs, mpi_communicator);
+  }
+  else
+  {
+    previous_solutions_dt_control.clear();
+  }
+
+
 
   if constexpr (with_moving_mesh)
   {

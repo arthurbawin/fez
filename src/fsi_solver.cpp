@@ -779,13 +779,14 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
     }
 
     if constexpr (running_in_debug_mode())
-    {
-      n_ranks_with_position_master =
-        Utilities::MPI::sum(has_local_position_master ? 1 : 0,
-                            this->mpi_communicator);
-      this->pcout << "There are " << n_ranks_with_position_master
-                  << " ranks with local position master dofs" << std::endl;
-    }
+      if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+      {
+        n_ranks_with_position_master =
+          Utilities::MPI::sum(has_local_position_master ? 1 : 0,
+                              this->mpi_communicator);
+        this->pcout << "There are " << n_ranks_with_position_master
+                    << " ranks with local position master dofs" << std::endl;
+      }
   }
 
   switch (this->param.debug.fsi_coupling_option)

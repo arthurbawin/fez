@@ -435,7 +435,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   const double                       alpha = this->param.cahn_hilliard.alpha;
   const double                       beta  = this->param.cahn_hilliard.beta;
   const std::vector<Tensor<1, dim>> *phi_x;
-  const std::vector<Tensor<2, dim>> *grad_phi_x, *grad_phi_x_moving;
+  const std::vector<Tensor<2, dim>> *grad_phi_x;
+  const std::vector<Tensor<2, dim>> *grad_phi_x_moving;
   const std::vector<double>         *div_phi_x;
   const std::vector<double>         *shape_phi_fixed;
   const std::vector<Tensor<1, dim>> *grad_shape_phi_fixed;
@@ -446,6 +447,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   double                div_phi_x_i, div_phi_x_j;
   double                shape_phi_fixed_j;
   const Tensor<1, dim> *grad_shape_phi_fixed_j;
+  Tensor<1, dim>        to_multiply_by_phi_u_i_tr_G;
+  double                to_multipliy_by_phi_phi_i_tr_G;
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
@@ -525,11 +528,14 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
     const auto to_multiply_by_phi_u_i_phi_phi_j =
       (drhodphi * (dudt + u_dot_grad_u - body_force) + potential_gradient);
 
-    const auto to_multiply_by_phi_u_i_tr_G =
-      rho * (dudt - body_force + present_velocity_gradients * u_conv) +
-      *source_term_velocity;
-    const auto to_multipliy_by_phi_phi_i_tr_G =
-      dphidt + u_conv * tracer_gradient + source_term_tracer;
+    if constexpr (with_moving_mesh)
+    {
+      to_multiply_by_phi_u_i_tr_G =
+        rho * (dudt - body_force + present_velocity_gradients * u_conv) +
+        *source_term_velocity;
+      to_multipliy_by_phi_phi_i_tr_G =
+        dphidt + u_conv * tracer_gradient + source_term_tracer;
+    }
 
     for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
     {

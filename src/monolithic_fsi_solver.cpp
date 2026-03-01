@@ -360,10 +360,8 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
   // DoFs: Do this only if partition contains a chunk of the cylinder
   if (n_local_lambda_dofs > 0)
   {
-    additional_relevant_dofs.set_size(this->dof_handler.n_dofs());
-    additional_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
-                                         gathered_dofs_flattened.end());
-    this->locally_relevant_dofs.add_indices(additional_relevant_dofs);
+    this->locally_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
+                                            gathered_dofs_flattened.end());
     this->locally_relevant_dofs.compress();
   }
 

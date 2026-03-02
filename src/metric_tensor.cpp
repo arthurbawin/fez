@@ -1,39 +1,7 @@
 
+#include <deal.II/lac/vector.h>
+
 #include <metric_tensor.h>
-
-#include <Eigen/Dense>
-#include <unsupported/Eigen/MatrixFunctions>
-
-// Eigen real and complex matrix types in 2D and 3D
-template <int dim>
-struct EigenRealMatrix;
-
-template <>
-struct EigenRealMatrix<2>
-{
-  using type = Eigen::Matrix2d;
-};
-
-template <>
-struct EigenRealMatrix<3>
-{
-  using type = Eigen::Matrix3d;
-};
-
-template <int dim>
-struct EigenComplexMatrix;
-
-template <>
-struct EigenComplexMatrix<2>
-{
-  using type = Eigen::Matrix2cd;
-};
-
-template <>
-struct EigenComplexMatrix<3>
-{
-  using type = Eigen::Matrix3cd;
-};
 
 template <int dim>
 typename EigenRealMatrix<dim>::type metric2eigen(const Tensor<2, dim> &tensor)
@@ -137,7 +105,7 @@ void eigenDecomposition(
 }
 
 template <int dim>
-void MetricTensor<dim>::boundEigenvalues(const double lambdaMin,
+void MetricTensor<dim>::bound_eigenvalues(const double lambdaMin,
                                          const double lambdaMax)
 {
   Eigen::Matrix<double, dim, 1>   eigenvalues;
@@ -153,7 +121,7 @@ void MetricTensor<dim>::boundEigenvalues(const double lambdaMin,
 }
 
 template <int dim>
-MetricTensor<dim> absoluteValue(const Vector<double> &vec)
+MetricTensor<dim> absolute_value(const Vector<double> &vec)
 {
   constexpr unsigned int n_components = dim * (dim + 1) / 2;
   AssertThrow(vec.size() == n_components,
@@ -190,8 +158,8 @@ MetricTensor<dim> absoluteValue(const Vector<double> &vec)
   return eigen2metric(res);
 }
 
-template MetricTensor<2> absoluteValue<2>(const Vector<double> &vec);
-template MetricTensor<3> absoluteValue<3>(const Vector<double> &vec);
+template MetricTensor<2> absolute_value<2>(const Vector<double> &vec);
+template MetricTensor<3> absolute_value<3>(const Vector<double> &vec);
 
 // template <int dim>
 // MetricTensor<dim>
@@ -518,7 +486,7 @@ MetricTensor<dim>::intersection(const MetricTensor<dim> &m2) const
 
 // Span in metric space
 template <int dim>
-MetricTensor<dim> MetricTensor<dim>::spanMetric(const double          gradation,
+MetricTensor<dim> MetricTensor<dim>::span_metric(const double          gradation,
                                                 const Tensor<1, dim> &pq) const
 {
   const double dotProd_M = pq * (*this) * pq;

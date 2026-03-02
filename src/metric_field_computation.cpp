@@ -94,8 +94,8 @@ void MetricField<dim>::computeMetricsP1()
   for (unsigned int v = 0; v < n_vertices; ++v)
   {
     const Point<dim> &p = vertices[v];
-    // MetricTensor<dim> &metric = _metrics[v];
-    auto &metric = _metrics[v];
+    // MetricTensor<dim> &metric = metrics[v];
+    auto &metric = metrics[v];
 
     // Compute derivatives at p
     if (useExactDerivatives)
@@ -112,12 +112,12 @@ void MetricField<dim>::computeMetricsP1()
     std::cout << "Hessian is" << std::endl;
     std::cout << hessianAtP << std::endl;
 
-    metric = absoluteValue<dim>(hessianAtP);
-    std::cout << "Metric  is" << std::endl;
-    std::cout << metric << std::endl;
-    std::cout << "Bounded Metric  is" << std::endl;
-    metric.boundEigenvalues(1. / (100. * 100.), 1. / (1e-10 * 1e-10));
-    std::cout << metric << std::endl;
+    // metric = absolute_value<dim>(hessianAtP);
+    // std::cout << "Metric  is" << std::endl;
+    // std::cout << metric << std::endl;
+    // std::cout << "Bounded Metric  is" << std::endl;
+    // metric.bound_eigenvalues(1. / (100. * 100.), 1. / (1e-10 * 1e-10));
+    // std::cout << metric << std::endl;
   }
 }
 

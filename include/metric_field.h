@@ -15,7 +15,7 @@ class MetricField
 {
 public:
   const Triangulation<dim>      &triangulation;
-  std::vector<MetricTensor<dim>> _metrics;
+  std::vector<MetricTensor<dim>> metrics;
 
 public:
   MetricField(const Triangulation<dim> &mesh);

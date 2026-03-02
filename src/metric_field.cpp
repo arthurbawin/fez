@@ -20,9 +20,9 @@ MetricField<dim>::MetricField(const Triangulation<dim> &mesh)
   : triangulation(mesh)
 {
   const unsigned int n_vertices = triangulation.n_vertices();
-  _metrics.resize(n_vertices);
+  metrics.resize(n_vertices);
 
-  for (auto &tensor : _metrics)
+  for (auto &tensor : metrics)
   {
     tensor       = unit_symmetric_tensor<dim>();
     tensor[0][0] = 0.1;
@@ -42,8 +42,8 @@ void MetricField<dim>::computeMetrics()
   this->computeMetricsP1();
 
   // Bound eigenvalues
-  for (auto &metric : _metrics)
-    metric.boundEigenvalues(lMin, lMax);
+  for (auto &metric : metrics)
+    metric.bound_eigenvalues(lMin, lMax);
 }
 
 template <int dim>
@@ -83,7 +83,7 @@ double MetricField<dim>::computeIntegralDeterminant() const
         }
       }
 
-      const Tensor<2, dim> &tensor = _metrics[closest_vertex_index];
+      const Tensor<2, dim> &tensor = metrics[closest_vertex_index];
       const double          det    = determinant(tensor);
       integral += det * JxW[q];
     }
@@ -103,7 +103,7 @@ bool gradationOnEdge(const Point<dim>  &p,
   bool metricChanged = false;
 
   // Span Mp to q, intersect and check if Mq needs to be reduced
-  MetricTensor<dim> MpAtq = Mp.spanMetric(gradation, q - p);
+  MetricTensor<dim> MpAtq = Mp.span_metric(gradation, q - p);
   MpAtq                   = Mq.intersection(MpAtq);
 
   const double relative_norm_q = (MpAtq - Mq).norm() / Mq.norm();
@@ -115,7 +115,7 @@ bool gradationOnEdge(const Point<dim>  &p,
   };
 
   // Idem for Mq at p
-  MetricTensor<dim> MqAtp = Mq.spanMetric(gradation, p - q);
+  MetricTensor<dim> MqAtp = Mq.span_metric(gradation, p - q);
   MqAtp                   = Mp.intersection(MqAtp);
 
   const double relative_norm_p = (MqAtp - Mp).norm() / Mp.norm();
@@ -178,8 +178,8 @@ void MetricField<dim>::metricGradation(const double       gradation,
       const Point<dim> &p = vertices[edge.first];
       const Point<dim> &q = vertices[edge.second];
 
-      MetricTensor<dim> &Mp = _metrics[edge.first];
-      MetricTensor<dim> &Mq = _metrics[edge.second];
+      MetricTensor<dim> &Mp = metrics[edge.first];
+      MetricTensor<dim> &Mq = metrics[edge.second];
 
       if (gradationOnEdge(p, q, gradation, tolerance, Mp, Mq))
       {
@@ -195,13 +195,13 @@ void MetricField<dim>::metricGradation(const double       gradation,
 template <int dim>
 void MetricField<dim>::intersectWith(const MetricField<dim> &otherField)
 {
-  const unsigned int nMetrics = this->_metrics.size();
-  AssertThrow(otherField._metrics.size() == nMetrics,
-              ExcDimensionMismatch(otherField._metrics.size(), nMetrics));
+  const unsigned int nMetrics = this->metrics.size();
+  AssertThrow(otherField.metrics.size() == nMetrics,
+              ExcDimensionMismatch(otherField.metrics.size(), nMetrics));
   for (unsigned int i = 0; i < nMetrics; ++i)
   {
-    MetricTensor<dim> &metric = _metrics[i];
-    metric                    = metric.intersection(otherField._metrics[i]);
+    MetricTensor<dim> &metric = metrics[i];
+    metric                    = metric.intersection(otherField.metrics[i]);
   }
 }
 
@@ -219,7 +219,7 @@ void MetricField<dim>::writeToVTU(const std::string &filename,
   DoFHandler<dim> dof_handler(triangulation);
   dof_handler.distribute_dofs(fe);
 
-  AssertDimension(_metrics.size(), triangulation.n_vertices());
+  AssertDimension(metrics.size(), triangulation.n_vertices());
 
   // Step 2: Create the output vector with size = dof_handler.n_dofs()
   Vector<double> tensor_data(dof_handler.n_dofs());
@@ -238,7 +238,7 @@ void MetricField<dim>::writeToVTU(const std::string &filename,
     {
       const unsigned int global_vertex_index = cell->vertex_index(v);
 
-      const SymmetricTensor<2, dim> &tensor     = _metrics[global_vertex_index];
+      const SymmetricTensor<2, dim> &tensor     = metrics[global_vertex_index];
       SymmetricTensor<2, dim>        inv_tensor = invert(tensor);
 
       for (unsigned int c = 0; c < dim; ++c)

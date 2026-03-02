@@ -1,0 +1,17 @@
+
+DEAL::Metric tensor    : 1.000 0.000  0.000 1.000
+DEAL::Symmetric tensor : 3.000 2.000  2.000 4.000
+DEAL::Metric tensor    : 3.000 2.000  2.000 4.000
+DEAL::Symmetric tensor : 1.000 2.000  2.000 4.000
+DEAL::ExcAssignFromNotSPD()
+DEAL::Metric tensor    : 3.000 2.000  2.000 4.000
+DEAL::ExcAssignFromNotSPDArray()
+DEAL::OK
+DEAL::Metric tensor    : 1.000 0.000 0.000  0.000 1.000 0.000  0.000 0.000 1.000
+DEAL::Symmetric tensor : 1.000 4.000 5.000  4.000 2.000 6.000  5.000 6.000 3.000
+DEAL::Metric tensor    : 1.000 4.000 5.000  4.000 2.000 6.000  5.000 6.000 3.000
+DEAL::Symmetric tensor : 2.000 3.000 1.000  3.000 2.000 1.000  1.000 1.000 1.000
+DEAL::ExcAssignFromNotSPD()
+DEAL::Metric tensor    : 1.000 4.000 5.000  4.000 2.000 6.000  5.000 6.000 3.000
+DEAL::ExcAssignFromNotSPDArray()
+DEAL::OK

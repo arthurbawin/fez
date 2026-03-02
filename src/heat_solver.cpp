@@ -56,7 +56,7 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   }
   else
   {
-    source_terms   = param.source_terms.fluid_source;
+    source_terms   = param.source_terms.temperature_source;
     exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(1);
   }
 

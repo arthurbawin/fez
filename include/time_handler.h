@@ -230,8 +230,9 @@ private:
   bool   pending_reject_history = false;
   double pending_reject_ratio = std::numeric_limits<double>::quiet_NaN();
 
-  double history_reject_trigger_factor = 0.7;
-
+  double history_reject_trigger_factor = 0.9;
+  unsigned int history_cap_streak = 0;
+  unsigned int history_cap_streak_max = 3; 
 };
 
 

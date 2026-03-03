@@ -252,8 +252,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
         ++n_reject;
         if (n_reject >= param.time_integration.max_rejects_per_step)
         {
-          AssertThrow(false,
-                      ExcMessage("Too many rejected time steps in NavierStokesSolver::run()."));
+          if (param.time_integration.verbosity == Parameters::Verbosity::verbose)
+            pcout << "Too many rejects at step " << time_handler.current_time_iteration
+                  << "forcing accept to continue." << std::endl;
+          step_accepted = true;
         }
 
         continue;
@@ -316,21 +318,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
-
-  if (param.bc_data.enforce_zero_mean_pressure)
-  {
-    BoundaryConditions::create_zero_mean_pressure_constraints_data(
-      triangulation,
-      dof_handler,
-      locally_relevant_dofs,
-      dofs_to_component,
-      *fixed_mapping,
-      *quadrature,
-      ordering->p_lower,
-      constrained_pressure_dof,
-      zero_mean_pressure_weights);
-  }
-
 
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);

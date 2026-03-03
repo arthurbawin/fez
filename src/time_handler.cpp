@@ -543,7 +543,6 @@ bool TimeHandler::update_dt_after_converged_step(
   const double                                        reject_factor,
   bool                                               *out_step_accepted,
   double                                             *out_dt_retry)
-
 {
   if (this->is_steady())
     return false;
@@ -551,6 +550,51 @@ bool TimeHandler::update_dt_after_converged_step(
   if (!time_parameters.adaptative_dt)
     return false;
 
+
+  // Freeze phase (for step <= ignoring_step, do NOT adapt dt and
+  // do NOT reject. Keep dt unchanged
+
+  if (current_time_iteration <= time_parameters.ignoring_step)
+  {
+    const double dt_used = current_dt;
+
+    double dt_next = dt_used;
+    if (clamp_to_t_end && current_time < t_end)
+    {
+      const double remaining = t_end - current_time;
+      if (dt_next > remaining)
+        dt_next = remaining;
+    }
+
+    current_dt = dt_next;
+
+    if (out_step_accepted) *out_step_accepted = true;
+    if (out_dt_retry)      *out_dt_retry      = std::numeric_limits<double>::quiet_NaN();
+
+    if (out_R) *out_R = std::numeric_limits<double>::infinity();
+
+    if (out_order)
+    {
+      unsigned int order = 1;
+      if (scheme == Parameters::TimeIntegration::Scheme::BDF2 &&
+          !this->is_starting_step())
+        order = 2;
+      *out_order = order;
+    }
+
+    if (out_dt_used) *out_dt_used = dt_used;
+    if (out_dt_next) *out_dt_next = dt_next;
+
+    if (out_e_star)
+    {
+      out_e_star->reinit(u_np1);
+      *out_e_star = 0.0;
+    }
+
+    return true;
+  }
+
+  // Normal adaptive dt control after ignoring_step
   unsigned int order = 1;
   if (scheme == Parameters::TimeIntegration::Scheme::BDF2 &&
       !this->is_starting_step())
@@ -563,11 +607,10 @@ bool TimeHandler::update_dt_after_converged_step(
   e_star.reinit(u_np1);
 
   this->compute_error_estimate(e_star,
-                                       u_np1,
-                                       previous_solutions_dt_control,
-                                       order);
+                               u_np1,
+                               previous_solutions_dt_control,
+                               order);
 
-  
   double       R             = std::numeric_limits<double>::infinity();
   unsigned int limiting_comp = std::numeric_limits<unsigned int>::max();
   double       limiting_eps  = std::numeric_limits<double>::quiet_NaN();
@@ -580,11 +623,11 @@ bool TimeHandler::update_dt_after_converged_step(
 
     const double Rq =
       this->compute_scaled_ratio(e_star,
-                                         u_np1,
-                                         dofs_to_component,
-                                         comp,
-                                         eps,
-                                         comm);
+                                 u_np1,
+                                 dofs_to_component,
+                                 comp,
+                                 eps,
+                                 comm);
 
     if (Rq < R)
     {
@@ -608,10 +651,9 @@ bool TimeHandler::update_dt_after_converged_step(
     mismatch_delta            = std::abs(err_limiting - limiting_eps);
   }
 
-  const bool rejection_enabled =
-  (reject_factor > 0.0) && (current_time_iteration > 10);
+  const bool rejection_enabled = (reject_factor > 0.0);
 
-  const double R_accept     = rejection_enabled ? (1.0 / reject_factor) : 0.0;
+  const double R_accept      = rejection_enabled ? (1.0 / reject_factor) : 0.0;
   const bool   step_accepted = (R >= R_accept);
 
   const double dt_min = this->get_effective_dt_min();
@@ -633,8 +675,8 @@ bool TimeHandler::update_dt_after_converged_step(
 
     double dt_retry =
       TimeHandler::propose_next_dt(dt_used, R, order, safety,
-                                           ratio_min, ratio_max_reject,
-                                           dt_min, dt_max);
+                                   ratio_min, ratio_max_reject,
+                                   dt_min, dt_max);
 
     double previous_dt = dt_used;
     if (time_steps.size() >= 2)
@@ -646,7 +688,6 @@ bool TimeHandler::update_dt_after_converged_step(
     dt_retry = std::min(dt_retry, dt_interp);
     dt_retry = std::max(dt_min, std::min(dt_retry, dt_max));
 
-    // Guarantee a strict decrease on reject
     if (dt_retry >= dt_used)
       dt_retry = std::max(dt_min, std::nextafter(dt_used, 0.0));
 
@@ -671,13 +712,13 @@ bool TimeHandler::update_dt_after_converged_step(
                   << " dt_used=" << std::scientific << std::setprecision(10) << dt_used
                   << " dt_new=" << std::scientific << std::setprecision(10) << dt_retry
                   << " (R=" << std::scientific << std::setprecision(6) << R << ")"
-                  << " (|e*|=" << std::scientific << std::setprecision(6) << &e_star << ")"
                   << std::endl;
       }
     }
 
     return false;
   }
+
   if (pending_reject_history &&
       std::isfinite(pending_reject_ratio) && pending_reject_ratio > 0.0)
   {
@@ -704,9 +745,8 @@ bool TimeHandler::update_dt_after_converged_step(
 
   double dt_next =
     TimeHandler::propose_next_dt(dt_used, R, order, safety,
-                                         ratio_min, ratio_max, dt_min, dt_max);
+                                 ratio_min, ratio_max, dt_min, dt_max);
 
-  // Historical cap: if current ratio gets too close to a known "bad" ratio, cap dt_next
   if (std::isfinite(history_reject_ratio) && history_reject_ratio > 0.0 &&
       std::isfinite(history_reject_dt_limit) &&
       std::isfinite(last_mismatch_ratio) && last_mismatch_ratio > 0.0)

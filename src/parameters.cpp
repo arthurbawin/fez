@@ -761,6 +761,7 @@ namespace Parameters
       
 
       prm.declare_entry("reject factor", "2", Patterns::Double(), "Factor of eps for the reject of the adaptive dt");
+      prm.declare_entry("ignoring step", "10", Patterns::Double(), "Number of iteration we want to ignore for time adaptation");
       prm.declare_entry("max reject step", "8", Patterns::Double(), "Maximum number of rejection of the same step");
       prm.declare_entry("safety", "0.9", Patterns::Double(), "Safety factor for adaptive dt");
       
@@ -815,6 +816,7 @@ namespace Parameters
       dt_min_factor  = prm.get_double("dt min factor");
       
       reject_factor        = prm.get_double("reject factor");
+      ignoring_step        = prm.get_double("ignoring step");
       max_rejects_per_step = prm.get_double("max reject step"); 
       safety               = prm.get_double("safety");
 

@@ -304,36 +304,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   dof_handler.distribute_dofs(this->get_fe_system());
 
-  // (1) recalculer tout de suite les IndexSet cohérents avec cette distribution
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
 
-  const auto &fe = dof_handler.get_fe();
-
   constexpr unsigned char unset = 255;
   dofs_to_component.assign(dof_handler.n_dofs(), unset);
+  fill_dofs_to_component(dof_handler, locally_relevant_dofs, dofs_to_component);
 
-  std::vector<types::global_dof_index> local_dof_indices(fe.n_dofs_per_cell());
-
-  for (const auto &cell : dof_handler.active_cell_iterators())
-  {
-    if (cell->is_artificial())
-      continue;
-
-    cell->get_dof_indices(local_dof_indices);
-
-    for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
-    {
-      const unsigned int comp = fe.system_to_component_index(j).first;
-      const auto gi = local_dof_indices[j];
-      dofs_to_component[gi] = static_cast<unsigned char>(comp);
-    }
-  }
-
-  // maintenant l’assert checke le bon IndexSet
-  for (const auto gi : locally_relevant_dofs)
-    AssertThrow(dofs_to_component[gi] != unset,
-                ExcMessage("dofs_to_component not initialized for a locally relevant DoF."));
 
   pcout << "Number of degrees of freedom: " << dof_handler.n_dofs() << std::endl;
 
@@ -368,19 +345,18 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
   const unsigned int extra_history =
   (param.time_integration.adaptative_dt ? 1u : 0u);
 
-  // ------------------------------
-  // 1) History used for assembly (BDF needs exactly n_previous_solutions)
-  // ------------------------------
+
+  //History used for assembly 
+
   const unsigned int n_history_assembly = time_handler.n_previous_solutions;
 
   previous_solutions.resize(n_history_assembly);
   for (auto &sol : previous_solutions)
     sol.reinit(locally_owned_dofs, mpi_communicator);
 
-  // ------------------------------
-  // 2) Extra history used ONLY for adaptive dt control (Vautrin)
-  //    Needs (order+1) vectors => for BDF2: 3 vectors.
-  // ------------------------------
+
+  // Extra history used ONLY for adaptive dt control
+  // Needs (order+1)
   if (param.time_integration.adaptative_dt)
   {
     const unsigned int n_history_dt_control = time_handler.n_previous_solutions + 1;
@@ -459,6 +435,21 @@ void NavierStokesSolver<dim, with_moving_mesh>::reinit_vectors()
                         mpi_communicator);
     previous_sol = tmp_prev_sol;
   }
+
+  // reinit dt-control history (if enabled)
+
+  if (!previous_solutions_dt_control.empty())
+  {
+    for (auto &prev : previous_solutions_dt_control)
+    {
+      LA::ParVectorType tmp(locally_owned_dofs, mpi_communicator);
+      tmp = prev; // copy old values (owned part)
+
+      prev.reinit(locally_owned_dofs, mpi_communicator); // owned-only
+      prev = tmp;
+  }
+}
+
 }
 
 template <int dim, bool with_moving_mesh>

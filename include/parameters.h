@@ -343,6 +343,7 @@ namespace Parameters
     bool mms_scale_eps_with_dt;
 
     double reject_factor;
+    double ignoring_step;
     double max_rejects_per_step;
     double safety;
 

@@ -331,13 +331,11 @@ void TimeHandler::load()
   DEAL_II_NOT_IMPLEMENTED();
 }
 
-// =========================
-// Vautrin adaptive time-step control
-// =========================
+// adaptive time-step control
 
 void TimeHandler::compute_error_estimate(
   LA::ParVectorType                    &e_star,
-  const LA::ParVectorType              &u_np1,
+  const LA::ParVectorType              &present_solution,
   const std::vector<LA::ParVectorType> &previous_solutions,
   const unsigned int                    order) const
 {
@@ -358,21 +356,21 @@ void TimeHandler::compute_error_estimate(
 
   // Build divided difference of order (p+1), i.e. dd_{p+1} ~ u^{(p+1)}/(p+1)!
   LA::ParVectorType dd_p1;
-  dd_p1.reinit(u_np1);
+  dd_p1.reinit(present_solution);
   dd_p1 = 0.0;
 
   if (p == 1)
   {
     // dd10 = [u_{n+1}, u_n]
     LA::ParVectorType dd10;
-    dd10.reinit(u_np1);
-    dd10 = u_np1;
+    dd10.reinit(present_solution);
+    dd10 = present_solution;
     dd10.add(-1.0, previous_solutions[0]);
     dd10 *= (1.0 / h0);
 
     // dd11 = [u_n, u_{n-1}]
     LA::ParVectorType dd11;
-    dd11.reinit(u_np1);
+    dd11.reinit(present_solution);
     dd11 = previous_solutions[0];
     dd11.add(-1.0, previous_solutions[1]);
     dd11 *= (1.0 / h1);
@@ -391,11 +389,11 @@ void TimeHandler::compute_error_estimate(
 
     // First-order divided differences
     LA::ParVectorType dd10, dd11, dd12;
-    dd10.reinit(u_np1);
-    dd11.reinit(u_np1);
-    dd12.reinit(u_np1);
+    dd10.reinit(present_solution);
+    dd11.reinit(present_solution);
+    dd12.reinit(present_solution);
 
-    dd10 = u_np1;
+    dd10 = present_solution;
     dd10.add(-1.0, previous_solutions[0]);
     dd10 *= (1.0 / h0);
 
@@ -409,8 +407,8 @@ void TimeHandler::compute_error_estimate(
 
     // Second-order
     LA::ParVectorType dd20, dd21;
-    dd20.reinit(u_np1);
-    dd21.reinit(u_np1);
+    dd20.reinit(present_solution);
+    dd21.reinit(present_solution);
 
     dd20 = dd10;
     dd20.add(-1.0, dd11);
@@ -421,7 +419,7 @@ void TimeHandler::compute_error_estimate(
     dd21 *= (1.0 / (h1 + h2));
 
     // Third-order: dd3 = [u_{n+1},u_n,u_{n-1},u_{n-2}]
-    dd_p1.reinit(u_np1);
+    dd_p1.reinit(present_solution);
     dd_p1 = dd20;
     dd_p1.add(-1.0, dd21);
     dd_p1 *= (1.0 / (h0 + h1 + h2));
@@ -527,7 +525,7 @@ double TimeHandler::get_effective_dt_max() const
 }
 
 bool TimeHandler::update_dt_after_converged_step(
-  const LA::ParVectorType                            &u_np1,
+  const LA::ParVectorType                            &present_solution,
   const std::vector<LA::ParVectorType>               &previous_solutions_dt_control,
   const std::vector<unsigned char>                   &dofs_to_component,
   const std::vector<std::pair<unsigned int, double>> &component_eps,
@@ -583,7 +581,7 @@ bool TimeHandler::update_dt_after_converged_step(
 
     if (out_e_star)
     {
-      out_e_star->reinit(u_np1);
+      out_e_star->reinit(present_solution);
       *out_e_star = 0.0;
     }
 
@@ -601,10 +599,10 @@ bool TimeHandler::update_dt_after_converged_step(
 
   // Estimation d'erreur
   LA::ParVectorType e_star;
-  e_star.reinit(u_np1);
+  e_star.reinit(present_solution);
 
   this->compute_error_estimate(e_star,
-                               u_np1,
+                               present_solution,
                                previous_solutions_dt_control,
                                order);
 
@@ -620,7 +618,7 @@ bool TimeHandler::update_dt_after_converged_step(
 
     const double Rq =
       this->compute_scaled_ratio(e_star,
-                                 u_np1,
+                                 present_solution,
                                  dofs_to_component,
                                  comp,
                                  eps,

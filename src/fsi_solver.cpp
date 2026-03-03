@@ -313,8 +313,8 @@ void FSISolverLessLambda<dim>::setup_dofs()
                                 this->locally_relevant_dofs,
                                 comm);
 
-  this->local_evaluation_point.reinit(this->locally_owned_dofs, comm);
-  this->newton_update.reinit(this->locally_owned_dofs, comm);
+  this->local_evaluation_point.reinit(this->locally_owned_dofs,this->locally_relevant_dofs, comm);
+  this->newton_update.reinit(this->locally_owned_dofs,this->locally_relevant_dofs, comm);
   this->system_rhs.reinit(this->locally_owned_dofs, comm);
 
   this->previous_solutions.clear();
@@ -333,7 +333,7 @@ void FSISolverLessLambda<dim>::setup_dofs()
     this->previous_solutions_dt_control.resize(n_hist_dt_control);
 
     for (auto &v : this->previous_solutions_dt_control)
-      v.reinit(this->locally_owned_dofs, comm);
+      v.reinit(this->locally_owned_dofs,this->locally_relevant_dofs, comm);
   }
   else
   {

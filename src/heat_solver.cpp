@@ -118,17 +118,26 @@ void HeatSolver<dim>::run()
   set_initial_conditions();
   output_results();
 
+  const auto &ti = this->get_time_parameters();
+
+
+  const double dt_min_accept = std::max(1e-14, 1e-6 * ti.dt);
+
+  const unsigned int max_rejects = param.time_integration.max_rejects_per_step;
+
   while (!time_handler.is_finished())
   {
-    bool step_accepted = false;
-    unsigned int n_reject = 0;
+    bool         step_accepted = false;
+    unsigned int n_reject      = 0;
 
     while (!step_accepted)
     {
+      // Backup state BEFORE advance/solve (needed if reject)
       LA::ParVectorType present_backup;
       present_backup.reinit(present_solution);
       present_backup = present_solution;
-      auto previous_backup = previous_solutions;
+
+      auto previous_backup            = previous_solutions;
       auto previous_dt_control_backup = previous_solutions_dt_control;
 
       time_handler.advance(pcout);
@@ -155,17 +164,18 @@ void HeatSolver<dim>::run()
           solve_nonlinear_problem(false);
       }
 
+      // Decide accept/reject based on dt-control (if enabled)
       step_accepted = true;
       double dt_retry = time_handler.get_current_dt();
 
-      if (!time_handler.is_steady() &&
-          param.time_integration.adaptative_dt)
+      if (!time_handler.is_steady() && param.time_integration.adaptative_dt)
       {
-        const auto &ti = this->get_time_parameters();
         auto component_eps = ordering->make_dt_control_component_eps(ti);
 
-        double R = 0.0, dt_used = 0.0, dt_next = 0.0;
-        unsigned int order = 0;
+        double       R      = 0.0;
+        double       dt_used = 0.0;
+        double       dt_next = 0.0;
+        unsigned int order  = 0;
 
         const bool ok = time_handler.update_dt_after_converged_step(
           present_solution,
@@ -186,57 +196,66 @@ void HeatSolver<dim>::run()
           &dt_retry);
 
         (void)ok;
+
+        if (!step_accepted && (dt_retry <= dt_min_accept))
+        {
+          if (param.time_integration.verbosity == Parameters::Verbosity::verbose)
+            pcout << "HeatSolver: dt-control requested REJECT but dt_retry="
+                  << dt_retry << " <= dt_min_accept=" << dt_min_accept
+                  << " -> forcing ACCEPT to avoid infinite rejection loop."
+                  << std::endl;
+
+          step_accepted = true;
+        }
       }
+
+      // Handle REJECT (with rollback)
 
       if (!step_accepted)
       {
-
-        // REJECT: rollback TimeHandler state + restore solution, retry
-
         time_handler.rollback_last_advance(dt_retry);
 
-        present_solution = present_backup;
-        previous_solutions = previous_backup;
+        present_solution              = present_backup;
+        previous_solutions            = previous_backup;
         previous_solutions_dt_control = previous_dt_control_backup;
 
-        n_reject++;
-        if (n_reject >= param.time_integration.max_rejects_per_step)
+        ++n_reject;
+
+        if (n_reject >= max_rejects)
         {
-          AssertThrow(false,
-                      ExcMessage("Too many rejected time steps in HeatSolver::run()."));
+          if (param.time_integration.verbosity == Parameters::Verbosity::verbose)
+            pcout << "HeatSolver: too many rejected steps ("
+                  << n_reject << " >= " << max_rejects
+                  << ") at iter " << time_handler.current_time_iteration
+                  << " -> forcing ACCEPT to continue." << std::endl;
+
+          step_accepted = true;
         }
+        else
+        {
 
-        continue;
+          continue;
+        }
       }
-
       // ACCEPTED step: proceed normally
 
       postprocess_solution();
+
       if (!time_handler.is_steady())
       {
 
-        if (previous_solutions.size() >= 2)
-        {
-          for (unsigned int j = previous_solutions.size(); j-- > 1; )
-          previous_solutions[j] = previous_solutions[j - 1];
-          previous_solutions[0] = present_solution;
-        }
-        if (!previous_solutions.empty())
-          previous_solutions[0] = present_solution;
+        time_handler.rotate_solutions(present_solution, previous_solutions);
 
-        if (param.time_integration.adaptative_dt && !previous_solutions_dt_control.empty())
+        if (param.time_integration.adaptative_dt &&
+            !previous_solutions_dt_control.empty())
         {
-          if (previous_solutions_dt_control.size() >= 2)
-          {
-            for (unsigned int j = previous_solutions_dt_control.size(); j-- > 1; )
-              previous_solutions_dt_control[j] = previous_solutions_dt_control[j - 1];
-          }
-          previous_solutions_dt_control[0] = present_solution;
+          time_handler.rotate_solutions(present_solution, previous_solutions_dt_control);
         }
       }
+
       step_accepted = true;
-    } 
-  } 
+    }
+  }
 }
 
 template <int dim>
@@ -262,8 +281,8 @@ void HeatSolver<dim>::setup_dofs()
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
-  local_evaluation_point.reinit(locally_owned_dofs, comm);
-  newton_update.reinit(locally_owned_dofs, comm);
+  local_evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+  newton_update.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   system_rhs.reinit(locally_owned_dofs, comm);
 
   // Allocate for previous BDF solutions

@@ -264,8 +264,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
       // ACCEPTED step: proceed normally
 
       postprocess_solution();
-
-      postprocess_solution();
       time_handler.rotate_solutions(present_solution, previous_solutions);
 
       if (param.time_integration.adaptative_dt &&
@@ -316,30 +314,20 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   pcout << "Number of degrees of freedom: " << dof_handler.n_dofs() << std::endl;
 
-  locally_owned_dofs    = dof_handler.locally_owned_dofs();
-  locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
-
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
-  local_evaluation_point.reinit(locally_owned_dofs, comm);
-  newton_update.reinit(locally_owned_dofs, comm);
+  local_evaluation_point.reinit(locally_owned_dofs,locally_relevant_dofs, comm);
+  newton_update.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   system_rhs.reinit(locally_owned_dofs, comm);
 
   // Allocate for previous BDF solutions
   previous_solutions.clear();
-  const unsigned int extra_history =
-  (param.time_integration.adaptative_dt ? 1u : 0u);
 
-
-  //History used for assembly 
-
-  const unsigned int n_history_assembly = time_handler.n_previous_solutions;
-
-  previous_solutions.resize(n_history_assembly);
+  previous_solutions.resize(time_handler.n_previous_solutions);
   for (auto &sol : previous_solutions)
-    sol.reinit(locally_owned_dofs, mpi_communicator);
+    sol.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
 
 
   // Extra history used ONLY for adaptive dt control
@@ -350,7 +338,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
     previous_solutions_dt_control.resize(n_history_dt_control);
     for (auto &sol : previous_solutions_dt_control)
-      sol.reinit(locally_owned_dofs, mpi_communicator);
+      sol.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
   }
   else
   {
@@ -421,6 +409,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::reinit_vectors()
                         locally_relevant_dofs,
                         mpi_communicator);
     previous_sol = tmp_prev_sol;
+    previous_sol.compress(dealii::VectorOperation::insert);
   }
 
   // reinit dt-control history (if enabled)
@@ -430,12 +419,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::reinit_vectors()
     for (auto &prev : previous_solutions_dt_control)
     {
       LA::ParVectorType tmp(locally_owned_dofs, mpi_communicator);
-      tmp = prev; // copy old values (owned part)
-
-      prev.reinit(locally_owned_dofs, mpi_communicator); // owned-only
+      tmp = prev;
+      prev.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
       prev = tmp;
+      prev.compress(dealii::VectorOperation::insert);
+    }
   }
-}
 
 }
 

@@ -122,6 +122,10 @@ private:
                                             present_velocity_values);
     fe_values[velocity].get_function_gradients(current_solution,
                                                present_velocity_gradients);
+    fe_values[velocity].get_function_symmetric_gradients(
+      current_solution, present_velocity_sym_gradients);
+    fe_values[velocity].get_function_divergences(current_solution,
+                                                 present_velocity_divergence);
     fe_values[pressure].get_function_values(current_solution,
                                             present_pressure_values);
 
@@ -138,10 +142,6 @@ private:
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       JxW_moving[q] = fe_values.JxW(q);
-
-      present_velocity_sym_gradients[q] =
-        symmetrize(present_velocity_gradients[q]);
-      present_velocity_divergence[q] = trace(present_velocity_gradients[q]);
 
       for (int d = 0; d < dim; ++d)
         source_term_velocity[q][d] = source_term_full_moving[q](u_lower + d);

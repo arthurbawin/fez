@@ -164,13 +164,15 @@ void FSISolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   }
 
   // Use convention (grad_u)_ij := dvj/dxi
-  Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
-  Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
-  Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
-  Tensor<1, dim> uDotGradu = u * grad_u;
+  Tensor<2, dim> grad_u     = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<1, dim> lap_u      = mms.exact_velocity->vector_laplacian(p);
+  Tensor<1, dim> grad_div_u = mms.exact_velocity->grad_div(p);
+  Tensor<1, dim> grad_p     = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> uDotGradu  = u * grad_u;
 
   // Velocity source term
-  Tensor<1, dim> f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
+  Tensor<1, dim> f =
+    -(dudt_eulerian + uDotGradu + grad_p - nu * (lap_u + grad_div_u));
   for (unsigned int d = 0; d < dim; ++d)
     values[ordering.u_lower + d] = f[d];
 
@@ -1492,18 +1494,21 @@ void FSISolver<dim>::assemble_local_matrix(
     const double JxW_moving = scratch_data.JxW_moving[q];
     const double JxW_fixed  = scratch_data.JxW_fixed[q];
 
-    const auto &phi_u      = scratch_data.phi_u[q];
-    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
-    const auto &div_phi_u  = scratch_data.div_phi_u[q];
-    const auto &phi_p      = scratch_data.phi_p[q];
-    const auto &phi_x      = scratch_data.phi_x[q];
-    const auto &grad_phi_x = scratch_data.grad_phi_x[q];
-    const auto &div_phi_x  = scratch_data.div_phi_x[q];
+    const auto &phi_u          = scratch_data.phi_u[q];
+    const auto &grad_phi_u     = scratch_data.grad_phi_u[q];
+    const auto &sym_grad_phi_u = scratch_data.sym_grad_phi_u[q];
+    const auto &div_phi_u      = scratch_data.div_phi_u[q];
+    const auto &phi_p          = scratch_data.phi_p[q];
+    const auto &phi_x          = scratch_data.phi_x[q];
+    const auto &grad_phi_x     = scratch_data.grad_phi_x[q];
+    const auto &div_phi_x      = scratch_data.div_phi_x[q];
 
     const auto &present_velocity_values =
       scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratch_data.present_velocity_gradients[q];
+    const auto &present_velocity_sym_gradients =
+      scratch_data.present_velocity_sym_gradients[q];
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
     const double present_pressure_values =
@@ -1550,6 +1555,7 @@ void FSISolver<dim>::assemble_local_matrix(
 
         const auto &phi_u_j            = phi_u[j];
         const auto &grad_phi_u_j       = grad_phi_u[j];
+        const auto &sym_grad_phi_u_j   = sym_grad_phi_u[j];
         const auto &div_phi_u_j        = div_phi_u[j];
         const auto &phi_p_j            = phi_p[j];
         const auto &phi_x_j            = phi_x[j];
@@ -1568,7 +1574,7 @@ void FSISolver<dim>::assemble_local_matrix(
             local_flow_matrix_ij +=
               phi_u_i * (bdf_c0 * phi_u_j + grad_phi_u_j * u_ale +
                          present_velocity_gradients * phi_u_j) +
-              nu * scalar_product(grad_phi_u_j, grad_phi_u_i);
+              2. * nu * scalar_product(sym_grad_phi_u_j, grad_phi_u_i);
           }
 
           if (j_is_p)
@@ -1587,14 +1593,18 @@ void FSISolver<dim>::assemble_local_matrix(
             const Tensor<2, dim> d_grad_phi_u = -grad_phi_u_i * grad_phi_x_j;
             const auto           gradu_dot_grad_phi_x_j =
               present_velocity_gradients * grad_phi_x_j;
+            const auto sym_gradu_dot_grad_phi_x_j =
+              present_velocity_sym_gradients * grad_phi_x_j;
             local_flow_matrix_ij +=
               phi_u_i * ((dudt + u_dot_grad_u_ale) * trace_grad_phi_x_j -
                          gradu_dot_grad_phi_x_j * u_ale -
                          present_velocity_gradients * bdf_c0 * phi_x_j) +
-              nu * scalar_product(-gradu_dot_grad_phi_x_j, grad_phi_u_i) +
-              nu * scalar_product(present_velocity_gradients,
-                                  d_grad_phi_u +
-                                    grad_phi_u_i * trace_grad_phi_x_j) -
+              2. * nu *
+                scalar_product(-sym_gradu_dot_grad_phi_x_j, grad_phi_u_i) +
+              2. * nu *
+                scalar_product(present_velocity_sym_gradients,
+                               d_grad_phi_u +
+                                 grad_phi_u_i * trace_grad_phi_x_j) -
               present_pressure_values *
                 (trace(d_grad_phi_u) + div_phi_u_i * trace_grad_phi_x_j);
           }
@@ -1856,6 +1866,8 @@ void FSISolver<dim>::assemble_local_rhs(
       scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratch_data.present_velocity_gradients[q];
+    const auto &present_velocity_sym_gradients =
+      scratch_data.present_velocity_sym_gradients[q];
     const auto &present_pressure_values =
       scratch_data.present_pressure_values[q];
     const auto &present_mesh_velocity_values =
@@ -1934,7 +1946,8 @@ void FSISolver<dim>::assemble_local_rhs(
       {
         // Diffusion : only compute double contraction if needed
         local_rhs_flow_i -=
-          nu * scalar_product(present_velocity_gradients, grad_phi_u_i);
+          2. * nu *
+          scalar_product(present_velocity_sym_gradients, grad_phi_u_i);
       }
 
       local_rhs_flow_i *= JxW_moving;

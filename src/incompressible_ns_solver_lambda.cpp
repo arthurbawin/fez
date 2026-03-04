@@ -214,28 +214,11 @@ void NSSolverLambda<dim>::setup_dofs()
 
   auto &comm = this->mpi_communicator;
 
-  // Mark the cells on which the Lagrange multiplier is defined
+  // -------------------------------------------------------------------
+  // 1) Mark cells where the (u,p,lambda) FE is active (lambda only near
+  //    the weak-no-slip boundary), inspired by FSISolverLessLambda
+  // -------------------------------------------------------------------
   {
-    /**
-     * There are two simple ways of marking the mesh elements on which the lamda
-     * FESystem is applied:
-     *
-     *  - Mark the cells on which at least one face touches a boundary on which
-     * a Lagrange multiplier is defined. This is the natural way to do it, but
-     * it lead to issues in parallel when a tetrahedron on a partition touches
-     * the target boundary with only an edge, and no face. I'm not sure where
-     * the problem comes from, because fundamentally there should not be any
-     * issue if the hp dof identities are properly applied. But nonetheless it
-     * lead to inconsistent parallel constraints (detected with
-     * is_consistent_in_parallel()).
-     *
-     *  - Proceed from the vertices : collect the mesh vertices on the target
-     * boundary. Mesh vertices are not indexed globally on distributed meshes,
-     * so use Points instead, then synchronize them across ranks, and mark the
-     * cells which have at least one vertex on the boundary. This adds more
-     * elements than necessary, thus more lambda dofs to constraint to zero, but
-     * this removes the inconsistent parallel constraints.
-     */
     std::set<Point<dim>, PointComparator<dim>> vertices_on_bdr =
       get_mesh_vertices_on_boundary(this->dof_handler,
                                     weak_no_slip_boundary_id);
@@ -243,49 +226,52 @@ void NSSolverLambda<dim>::setup_dofs()
     for (const auto &cell : this->dof_handler.active_cell_iterators())
     {
       cell->set_material_id(without_lambda_domain_id);
-      if (cell->is_locally_owned())
+
+      // IMPORTANT: set active FE index on locally owned AND ghost cells
+      // (this is what fixes a lot of parallel inconsistencies)
+      if (cell->is_locally_owned() || cell->is_ghost())
         cell->set_active_fe_index(index_fe_without_lambda);
 
-      /**
-       * Using faces, which does not fully work, maybe debug it at some point:
-       *
-       * for (const auto &face : cell->face_iterators())
-       *   if (face->at_boundary() &&
-       *       face->boundary_id() == weak_no_slip_boundary_id)
-       *   {
-       *     cell->set_material_id(with_lambda_domain_id);
-       *     if (cell->is_locally_owned())
-       *       cell->set_active_fe_index(index_fe_with_lambda);
-       *     break;
-       *   }
-       */
-
-      // Using vertices:
+      // Vertex-based marking (robust in parallel)
       for (const auto v : cell->vertex_indices())
         if (vertices_on_bdr.count(cell->vertex(v)) > 0)
         {
           cell->set_material_id(with_lambda_domain_id);
-          if (cell->is_locally_owned())
+
+          if (cell->is_locally_owned() || cell->is_ghost())
             cell->set_active_fe_index(index_fe_with_lambda);
+
           break;
         }
     }
   }
 
-  // Initialize dof handler
+  // -------------------------------------------------------------------
+  // 2) Distribute DoFs
+  // -------------------------------------------------------------------
   this->dof_handler.distribute_dofs(*fe);
-
-  // Optional: Plot active fe index after ghosts were updated in distribute_dofs
-  // write_partition_gmsh_with_active_fe_index(this->dof_handler, this->param);
 
   this->pcout << "Number of degrees of freedom: " << this->dof_handler.n_dofs()
               << std::endl;
 
-  this->locally_owned_dofs = this->dof_handler.locally_owned_dofs();
+  this->locally_owned_dofs    = this->dof_handler.locally_owned_dofs();
   this->locally_relevant_dofs =
     DoFTools::extract_locally_relevant_dofs(this->dof_handler);
 
-  // Initialize parallel vectors
+  // -------------------------------------------------------------------
+  // 3) Build dofs_to_component (same pattern as FSISolverLessLambda)
+  // -------------------------------------------------------------------
+  constexpr unsigned char unset = 255;
+  this->dofs_to_component.assign(this->dof_handler.n_dofs(), unset);
+
+  fill_dofs_to_component(this->dof_handler,
+                         this->locally_relevant_dofs,
+                         this->dofs_to_component);
+
+  // -------------------------------------------------------------------
+  // 4) Initialize vectors (match the FSI style: include relevant dofs
+  //    whenever a vector is used with constraints / ghost access)
+  // -------------------------------------------------------------------
   this->present_solution.reinit(this->locally_owned_dofs,
                                 this->locally_relevant_dofs,
                                 comm);
@@ -293,11 +279,18 @@ void NSSolverLambda<dim>::setup_dofs()
                                 this->locally_relevant_dofs,
                                 comm);
 
-  this->local_evaluation_point.reinit(this->locally_owned_dofs, comm);
-  this->newton_update.reinit(this->locally_owned_dofs, comm);
+  this->local_evaluation_point.reinit(this->locally_owned_dofs,
+                                      this->locally_relevant_dofs,
+                                      comm);
+  this->newton_update.reinit(this->locally_owned_dofs,
+                             this->locally_relevant_dofs,
+                             comm);
+
   this->system_rhs.reinit(this->locally_owned_dofs, comm);
 
-  // Allocate for previous BDF solutions
+  // -------------------------------------------------------------------
+  // 5) History vectors for BDF
+  // -------------------------------------------------------------------
   this->previous_solutions.clear();
   this->previous_solutions.resize(this->time_handler.n_previous_solutions);
   for (auto &previous_sol : this->previous_solutions)
@@ -305,11 +298,34 @@ void NSSolverLambda<dim>::setup_dofs()
                         this->locally_relevant_dofs,
                         comm);
 
-  // Unused in this solver
+  // Optional: dt-control history (if your NSSolverLambda has it, and if you
+  // use adaptive dt / rejection like the other solvers)
+  if (this->param.time_integration.adaptative_dt)
+  {
+    const unsigned int n_hist_dt_control =
+      this->time_handler.n_previous_solutions + 1;
+
+    this->previous_solutions_dt_control.clear();
+    this->previous_solutions_dt_control.resize(n_hist_dt_control);
+
+    for (auto &v : this->previous_solutions_dt_control)
+      v.reinit(this->locally_owned_dofs,
+               this->locally_relevant_dofs,
+               comm);
+  }
+  else
+  {
+    this->previous_solutions_dt_control.clear();
+  }
+
+  // -------------------------------------------------------------------
+  // 6) No ALE here: keep fixed mapping
+  // -------------------------------------------------------------------
   this->moving_mapping = this->fixed_mapping;
 
-  // For unsteady simulation, add the number of elements, dofs and/or the time
-  // step to the error handler, once per convergence run.
+  // -------------------------------------------------------------------
+  // 7) MMS / error handler bookkeeping (unchanged)
+  // -------------------------------------------------------------------
   if (!this->time_handler.is_steady() && this->param.mms_param.enable)
     for (auto &[norm, handler] : this->error_handlers)
     {

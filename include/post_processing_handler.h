@@ -269,6 +269,7 @@ private:
   const Parameters::MMS                     &mms_param;
 
   const Triangulation<dim> &triangulation;
+  const DoFHandler<dim>    &dof_handler;
   MPI_Comm                  mpi_communicator;
 
   std::unique_ptr<DataOut<dim>> data_out;
@@ -387,6 +388,17 @@ void PostProcessingHandler<dim>::output_skin_fields(
   const VectorType   &solution,
   const TimeHandler  &time_handler)
 {
+  // build_patches is not (yet) implemented for DataOutFaces in hp context
+  AssertThrow(
+    !dof_handler.has_hp_capabilities(),
+    ExcMessage(
+      "\nYou are using a solver with hp capabilities (i.e., "
+      "incompressible_ns_lambda or fsi), and you are also trying "
+      "to export results on a boundary (with the \"skin\" "
+      "subsection). Unfortunately, this feature is currently not yet "
+      "implemented in deal.II when using structures with hp capabilities. "
+      "Exportation on a skin is supported with the other non-hp solvers."));
+
   data_out_skin->add_data_vector(solution,
                                  solution_names,
                                  DataOutFaces<dim>::type_dof_data,

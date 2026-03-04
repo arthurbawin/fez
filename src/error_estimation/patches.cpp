@@ -491,6 +491,8 @@ namespace ErrorEstimation
     const types::global_vertex_index vertex_index,
     const unsigned int               layer) const
   {
+    (void)vertex_index;
+    (void)layer;
     // const auto &patch_elements = patches_of_elements[vertex_index];
     // const auto &patches_support_points =
     //   patches_of_support_points[vertex_index];

@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Project options
 # ======================
 option(ENABLE_TESTING     "Enable testing"                           OFF)
+option(ENABLE_MMG         "Enable MMG"                               OFF)
 option(FEZ_FORCE_PETSC    "Force PETSc wrappers for linear algebra"  OFF)
 option(FEZ_FORCE_TRILINOS "Force Trilinos wrappers for linear algebra" OFF)
 
@@ -73,6 +74,11 @@ message(STATUS "FEZ_WITH_PETSC    = ${FEZ_WITH_PETSC}")
 message(STATUS "FEZ_WITH_TRILINOS = ${FEZ_WITH_TRILINOS}")
 message(STATUS "------------------------------------------")
 
+if(ENABLE_MMG)
+  find_package(MMG)
+  add_compile_definitions(FEZ_WITH_MMG)
+endif()
+
 # === Add Eigen (standard + unsupported) ===
 set(EIGEN3_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/contrib/eigen)
 include_directories(${EIGEN3_INCLUDE_DIR})
@@ -90,9 +96,9 @@ target_include_directories(project_src PUBLIC include)
 deal_ii_setup_target(project_src)
 
 # === Build solvers executables ===
-file(GLOB EXAMPLE_FILES CONFIGURE_DEPENDS solvers/*.cpp)
+file(GLOB SOLVER_FILES CONFIGURE_DEPENDS solvers/*.cpp)
 
-foreach(solver_src ${EXAMPLE_FILES})
+foreach(solver_src ${SOLVER_FILES})
     get_filename_component(solver_name ${solver_src} NAME_WE)
 
     add_executable(${solver_name} ${solver_src})
@@ -101,6 +107,14 @@ foreach(solver_src ${EXAMPLE_FILES})
     # Link with project source code and deal.II
     target_link_libraries(${solver_name} project_src)
     deal_ii_setup_target(${solver_name})
+
+    if(ENABLE_MMG)
+      target_include_directories(${solver_name} PRIVATE ${MMG_INCLUDE_DIRS})
+      target_link_libraries( ${solver_name} ${MMG_LIBRARIES})
+      MESSAGE(STATUS "${solver_name}")
+      MESSAGE(STATUS "${MMG_LIBRARIES}")
+      MESSAGE(STATUS "${MMG_INCLUDE_DIRS}")
+  endif()
 endforeach()
 
 # Tests

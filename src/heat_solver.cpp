@@ -13,6 +13,7 @@
 #include <heat_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_adaptation_tools.h>
 #include <post_processing_tools.h>
 #include <utilities.h>
 
@@ -154,6 +155,8 @@ void HeatSolver<dim>::run()
       previous_solutions[0] = present_solution;
     }
   }
+
+  adapt_mesh();
 }
 
 template <int dim>
@@ -688,6 +691,36 @@ void HeatSolver<dim>::postprocess_solution()
     compute_errors();
 
   // compute_recovery();
+}
+
+#include <metric_field.h>
+
+template <int dim>
+class AnalyticalMetric : public TensorFunction<2, dim>
+{
+public:
+  AnalyticalMetric()
+    : TensorFunction<2, dim>()
+  {}
+
+  virtual Tensor<2, dim> value(const Point<dim> &p) const override
+  {
+    (void)p;
+    auto res  = unit_symmetric_tensor<dim>();
+    res[1][1] = 2;
+    res[0][1] = 1;
+    return res;
+  }
+};
+
+template <int dim>
+void HeatSolver<dim>::adapt_mesh()
+{
+  MetricField<dim> field(param, triangulation);
+  // field.set_metrics_from_function(AnalyticalMetric<dim>());
+  field.writeToVTU("my_metrics");
+
+  // adapt_mesh_mmg(param, triangulation);
 }
 
 // Explicit instantiation

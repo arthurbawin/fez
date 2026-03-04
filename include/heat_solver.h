@@ -100,6 +100,8 @@ public:
 
   void compute_recovery();
 
+  void adapt_mesh();
+
 protected:
   std::shared_ptr<ComponentOrdering> ordering;
 

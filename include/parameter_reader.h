@@ -35,6 +35,7 @@ public:
   Parameters::LinearElasticity                   linear_elasticity;
   Parameters::MMS                                mms_param;
   Parameters::Debug                              debug;
+  Parameters::MetricFields<dim>                  metric_fields;
 
   //
   // Initial and boundary conditions
@@ -67,8 +68,14 @@ public:
   {}
 
 public:
-  void check_parameters(ParameterHandler &prm) const;
+  /**
+   * Check that the given parameters are consistent.
+   */
+  void check_parameters() const;
 
+  /**
+   * Declare (initialize) all the possible parameters
+   */
   void declare(ParameterHandler &prm)
   {
     dummy_dimension.declare_parameters(prm);
@@ -107,8 +114,12 @@ public:
     mms_param.declare_parameters(prm);
     mms.declare_parameters(prm);
     debug.declare_parameters(prm);
+    metric_fields.declare_parameters(prm);
   }
 
+  /**
+   * Read the parameters given for this computation in the parameter file
+   */
   void read(ParameterHandler &prm)
   {
     dummy_dimension.read_parameters(prm);
@@ -152,8 +163,9 @@ public:
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);
     debug.read_parameters(prm);
+    metric_fields.read_parameters(prm);
 
-    check_parameters(prm);
+    check_parameters();
   }
 };
 

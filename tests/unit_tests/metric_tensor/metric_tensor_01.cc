@@ -36,13 +36,13 @@ void test_metric_2d()
   t2[0][1] = 2;
   deallog << "Symmetric tensor : " << t2 << std::endl;
   try
-    {
-      MetricTensor<2> m2(t2);
-    }
+  {
+    MetricTensor<2> m2(t2);
+  }
   catch (ExceptionBase &e)
-    {
-      deallog << e.get_exc_name() << std::endl;
-    }
+  {
+    deallog << e.get_exc_name() << std::endl;
+  }
 
   /*
    * Initialize from an array
@@ -90,13 +90,13 @@ void test_metric_3d()
   t2[1][2] = 1;
   deallog << "Symmetric tensor : " << t2 << std::endl;
   try
-    {
-      MetricTensor<3> m2(t2);
-    }
+  {
+    MetricTensor<3> m2(t2);
+  }
   catch (ExceptionBase &e)
-    {
-      deallog << e.get_exc_name() << std::endl;
-    }
+  {
+    deallog << e.get_exc_name() << std::endl;
+  }
 
   // From SPD array
   double v1[6] = {1, 2, 3, 4, 5, 6};
@@ -114,8 +114,7 @@ void test_metric_3d()
   deallog << "OK" << std::endl;
 }
 
-int
-main()
+int main()
 {
   deal_II_exceptions::disable_abort_on_exception();
 

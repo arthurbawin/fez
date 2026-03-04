@@ -2,6 +2,7 @@
 #include <deal.II/base/function_lib.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/tensor.h>
+#include <deal.II/base/tensor_function.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_simplex_p.h>
@@ -9,6 +10,9 @@
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/numerics/data_out.h>
 #include <metric_field.h>
+#include <metric_tensor.h>
+#include <parameter_reader.h>
+#include <parameters.h>
 
 #include <algorithm>
 #include <fstream>
@@ -16,38 +20,59 @@
 #include <random>
 
 template <int dim>
-MetricField<dim>::MetricField(const Triangulation<dim> &mesh)
-  : triangulation(mesh)
+MetricField<dim>::MetricField(const ParameterReader<dim> &param,
+                              const Triangulation<dim>   &triangulation)
+  : param(param)
+  , triangulation(triangulation)
+  , n_vertices(triangulation.n_vertices())
+  , metrics(n_vertices)
 {
-  const unsigned int n_vertices = triangulation.n_vertices();
-  metrics.resize(n_vertices);
+  // All metrics are initialized to the identity
+  // If enabled, initialize to the given callback
+  // FIXME: generalize to other field than the [0]-th
+  if (param.metric_fields.metric_fields[0].analytical_metric.enable)
+    set_metrics_from_function(MetricFunctionFromComponents(
+      *param.metric_fields.metric_fields[0].analytical_metric.callback));
+}
 
-  for (auto &tensor : metrics)
+template <int dim>
+void MetricField<dim>::set_metrics_from_function(
+  const TensorFunction<2, dim> &function)
+{
+  const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
+  const std::vector<bool> &used_vertices  = triangulation.get_used_vertices();
+
+  AssertDimension(vertices.size(), n_vertices);
+  AssertDimension(used_vertices.size(), n_vertices);
+
+  for (unsigned int i = 0; i < n_vertices; ++i)
   {
-    tensor       = unit_symmetric_tensor<dim>();
-    tensor[0][0] = 0.1;
+    if (used_vertices[i])
+    {
+      metrics[i] = symmetrize(function.value(vertices[i]));
+    }
   }
 }
 
 template <int dim>
-void MetricField<dim>::computeMetrics()
+void MetricField<dim>::compute_metrics()
 {
-  const double hMin = 1e-10;
-  const double hMax = 1.;
+  // const double hMin = 1e-10;
+  // const double hMax = 1.;
 
-  const double lMin = 1. / (hMax * hMax);
-  const double lMax = 1. / (hMin * hMin);
+  // const double lMin = 1. / (hMax * hMax);
+  // const double lMax = 1. / (hMin * hMin);
 
-  // Compute raw metrics
-  this->computeMetricsP1();
+  // // Compute raw metrics
+  // this->compute_metrics_P1();
 
-  // Bound eigenvalues
-  for (auto &metric : metrics)
-    metric.bound_eigenvalues(lMin, lMax);
+  // // Bound eigenvalues
+  // for (auto &metric : metrics)
+  //   metric.bound_eigenvalues(lMin, lMax);
 }
 
 template <int dim>
-double MetricField<dim>::computeIntegralDeterminant() const
+double MetricField<dim>::compute_integral_determinant() const
 {
   QGauss<dim>     quadrature_formula(2);
   FE_Q<dim>       fe(1);
@@ -130,9 +155,9 @@ bool gradationOnEdge(const Point<dim>  &p,
 }
 
 template <int dim>
-void MetricField<dim>::metricGradation(const double       gradation,
-                                       const unsigned int maxIteration,
-                                       const double       tolerance)
+void MetricField<dim>::metric_gradation(const double       gradation,
+                                        const unsigned int maxIteration,
+                                        const double       tolerance)
 {
   DoFHandler<dim>                dof_handler(triangulation);
   const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
@@ -193,7 +218,7 @@ void MetricField<dim>::metricGradation(const double       gradation,
 }
 
 template <int dim>
-void MetricField<dim>::intersectWith(const MetricField<dim> &otherField)
+void MetricField<dim>::intersect_with(const MetricField<dim> &otherField)
 {
   const unsigned int nMetrics = this->metrics.size();
   AssertThrow(otherField.metrics.size() == nMetrics,
@@ -284,8 +309,9 @@ void MetricField<dim>::writeToVTU(const std::string &filename,
                            interpretation);
   data_out.build_patches();
 
-  std::ofstream output(filename);
-  data_out.write_vtu(output);
+  // std::ofstream output(filename);
+  data_out.write_vtu_with_pvtu_record(
+    "./", filename, 0, triangulation.get_mpi_communicator(), 2);
 }
 
 template class MetricField<2>;

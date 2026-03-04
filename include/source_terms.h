@@ -72,7 +72,7 @@ namespace Parameters
     std::shared_ptr<Functions::ParsedFunction<dim>> cahnhilliard_source;
 
     /**
-     * 
+     *
      */
     std::shared_ptr<Functions::ParsedFunction<dim>> temperature_source;
 

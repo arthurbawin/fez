@@ -37,7 +37,7 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void DummyDimension::read_parameters(ParameterHandler &prm)
+  void DummyDimension::read_parameters(ParameterHandler &)
   {
     // Nothing to do, dimension was read in utilities.h
   }
@@ -1162,6 +1162,113 @@ namespace Parameters
 
   template struct FSI<2>;
   template struct FSI<3>;
+
+  template <int dim>
+  void MetricField<dim>::declare_parameters(ParameterHandler  &prm,
+                                            const unsigned int index) const
+  {
+    prm.enter_subsection("Metric field " + std::to_string(index));
+    {
+      DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.enter_subsection("Analytical metric");
+      {
+        prm.declare_entry("enable", "false", Patterns::Bool(), "");
+        analytical_metric.callback->declare_parameters(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("Gradation");
+      {
+        prm.declare_entry("enable", "false", Patterns::Bool(), "");
+        prm.declare_entry("gradation", "1.5", Patterns::Double(1.01), "");
+        prm.declare_entry("max iteration", "100", Patterns::Integer(1), "");
+        prm.declare_entry("tolerance", "1e-2", Patterns::Double(0), "");
+        prm.declare_entry(
+          "spanning space",
+          "metric",
+          Patterns::Selection("euclidean|metric|exp_metric"),
+          "Space in which a single metric spans a full metric field");
+      }
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
+  template <int dim>
+  void MetricField<dim>::read_parameters(ParameterHandler  &prm,
+                                         const unsigned int index)
+  {
+    prm.enter_subsection("Metric field " + std::to_string(index));
+    {
+      READ_VERBOSITY_PARAM(prm, verbosity)
+      prm.enter_subsection("Analytical metric");
+      {
+        analytical_metric.enable = prm.get_bool("enable");
+        analytical_metric.callback->parse_parameters(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("Gradation");
+      {
+        gradation.enable               = prm.get_bool("enable");
+        gradation.gradation            = prm.get_double("gradation");
+        gradation.max_iterations       = prm.get_integer("max iteration");
+        gradation.tolerance            = prm.get_double("tolerance");
+        const std::string parsed_space = prm.get("spanning space");
+        if (parsed_space == "euclidean")
+          gradation.spanning_space = Gradation::SpanningSpace::euclidean;
+        else if (parsed_space == "metric")
+          gradation.spanning_space = Gradation::SpanningSpace::metric;
+        else if (parsed_space == "exp_metric")
+          gradation.spanning_space = Gradation::SpanningSpace::exp_metric;
+        else
+          throw std::runtime_error("Unknown gradation spanning space : " +
+                                   parsed_space);
+      }
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
+  template struct MetricField<2>;
+  template struct MetricField<3>;
+
+  template <int dim>
+  void MetricFields<dim>::declare_parameters(ParameterHandler &prm)
+  {
+    const MetricField<dim> dummy_metric_field;
+    prm.enter_subsection("Metric tensor fields");
+    {
+      prm.declare_entry(
+        "number",
+        "1",
+        Patterns::Integer(),
+        "Number of metric fields to consider for mesh adaptation");
+      for (unsigned int i = 0; i < max_metric_fields; ++i)
+        dummy_metric_field.declare_parameters(prm, i);
+    }
+    prm.leave_subsection();
+  }
+
+  template <int dim>
+  void MetricFields<dim>::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Metric tensor fields");
+    {
+      n_metric_fields = prm.get_integer("number");
+      AssertThrow(n_metric_fields <= max_metric_fields,
+                  ExcMessage(
+                    "More than " + std::to_string(max_metric_fields) +
+                    " metric fields are specified, which is not supported. To "
+                    "account for more metric fields, simply modifiy the "
+                    "hardcoded value for max_metric_fields."));
+      metric_fields.resize(n_metric_fields);
+      for (unsigned int i = 0; i < n_metric_fields; ++i)
+        metric_fields[i].read_parameters(prm, i);
+    }
+    prm.leave_subsection();
+  }
+
+  template struct MetricFields<2>;
+  template struct MetricFields<3>;
 
   void Debug::declare_parameters(ParameterHandler &prm)
   {

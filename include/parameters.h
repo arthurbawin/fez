@@ -3,6 +3,7 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/base/parsed_function.h>
 #include <deal.II/numerics/vector_tools_common.h>
 #include <parsed_function_symengine.h>
 
@@ -490,6 +491,84 @@ namespace Parameters
 
     bool compute_error_on_forces;
 
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  /**
+   * A single metric tensor field for anisotropic mesh adaptation
+   */
+  template <int dim>
+  class MetricField
+  {
+  public:
+    Verbosity verbosity;
+
+    struct AnalyticalMetric
+    {
+      bool enable;
+
+      // The metric components are represented with a ParsedFunction, which
+      // supports automatic differentiation for the gradient.
+      // The Christoffel symbols require only the first metric derivatives, so
+      // this is enough for testing, but maybe we can switch to symbolic
+      // derivatives at some point if needed.
+      std::shared_ptr<Functions::ParsedFunction<dim>> callback;
+    } analytical_metric;
+
+    struct Gradation
+    {
+      bool enable;
+      // Prescribed gradation value (geometric size progression)
+      double gradation;
+      // Max number of passes when smoothing a metric field
+      unsigned int max_iterations;
+      // Tolerance : if the difference between any two metrics is lower than
+      // this value between two passes, stop smoothing.
+      double tolerance;
+      // Space in which a single metric spans a full metric field
+      enum class SpanningSpace
+      {
+        euclidean,
+        metric,
+        exp_metric
+      } spanning_space;
+    } gradation;
+
+  public:
+    MetricField()
+      : verbosity(Verbosity::verbose)
+    {
+      const unsigned n_metric_components = dim * (dim + 1) / 2;
+      analytical_metric.callback =
+        std::make_shared<Functions::ParsedFunction<dim>>(n_metric_components);
+    }
+
+    void set_time(const double newtime)
+    {
+      analytical_metric.callback->set_time(newtime);
+    }
+    void declare_parameters(ParameterHandler  &prm,
+                            const unsigned int index) const;
+    void read_parameters(ParameterHandler &prm, const unsigned int index);
+  };
+
+  template <int dim>
+  class MetricFields
+  {
+  public:
+    // For now, the maximum number of metric fields is hardcoded to 6,
+    // which is velocity, pressure, temperature and CHNS phase tracer in 3D
+    unsigned int                  max_metric_fields = 6;
+    unsigned int                  n_metric_fields;
+    std::vector<MetricField<dim>> metric_fields;
+
+  public:
+    void set_time(const double newtime)
+    {
+      for (auto &m : metric_fields)
+        m.set_time(newtime);
+    }
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };

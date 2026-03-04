@@ -76,7 +76,7 @@ public:
 };
 
 template <int dim>
-void MetricField<dim>::computeMetricsP1()
+void MetricField<dim>::compute_metrics_P1()
 {
   bool useExactDerivatives = true;
 

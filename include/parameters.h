@@ -476,6 +476,7 @@ namespace Parameters
     // Options to write the convergence rates to a file
     bool        write_convergence_table_to_file;
     std::string convergence_file_prefix;
+    bool        compute_rates_only_at_end;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {

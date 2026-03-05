@@ -1006,6 +1006,11 @@ namespace Parameters
                         "convergence_rates",
                         Patterns::Anything(),
                         "Prefix for the convergence file.");
+      prm.declare_entry("compute rates only at end",
+                        "true",
+                        Patterns::Bool(),
+                        "If disabled, compute and write convergence rates at "
+                        "each convergence step.");
       prm.enter_subsection("Space convergence");
       {
         prm.declare_entry("use dealii cube mesh",
@@ -1081,7 +1086,8 @@ namespace Parameters
       run_only_step          = prm.get_integer("run only step");
       write_convergence_table_to_file =
         prm.get_bool("write convergence table to file");
-      convergence_file_prefix = prm.get("convergence file prefix");
+      convergence_file_prefix   = prm.get("convergence file prefix");
+      compute_rates_only_at_end = prm.get_bool("compute rates only at end");
       prm.enter_subsection("Space convergence");
       {
         use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");

@@ -221,6 +221,8 @@ void GenericSolver<VectorType>::run_convergence_loop()
 {
   for (unsigned int i_conv = 0; i_conv < mms_param.n_convergence; ++i_conv)
   {
+    const bool is_last_step = i_conv == mms_param.n_convergence - 1;
+
     mms_param.current_step = i_conv;
     for (auto &[norm, handler] : error_handlers)
       handler->clear_error_history();
@@ -286,30 +288,34 @@ void GenericSolver<VectorType>::run_convergence_loop()
       for (auto &[norm, handler] : error_handlers)
         handler->compute_temporal_error();
 
-    if (mms_param.run_only_step >= 0)
-      break;
-  }
-
-  for (auto &[norm, handler] : error_handlers)
-    handler->template compute_rates<dim>();
-  if (mpi_rank == 0)
-  {
-    for (auto &[norm, handler] : error_handlers)
+    // If requested, compute and write convergence rates as soon as available
+    if (is_last_step || !mms_param.compute_rates_only_at_end)
     {
-      const std::string norm_str =
-        Patterns::Tools::Convert<VectorTools::NormType>::to_string(norm);
-      std::cout << std::endl;
-      std::cout << norm_str << std::endl;
-      handler->write_rates();
-
-      if (mms_param.write_convergence_table_to_file)
+      for (auto &[norm, handler] : error_handlers)
+        handler->template compute_rates<dim>();
+      if (mpi_rank == 0)
       {
-        std::ofstream outfile(output_param.output_dir +
-                              mms_param.convergence_file_prefix + "_" +
-                              norm_str + ".txt");
-        handler->error_table.write_text(outfile);
+        for (auto &[norm, handler] : error_handlers)
+        {
+          const std::string norm_str =
+            Patterns::Tools::Convert<VectorTools::NormType>::to_string(norm);
+          std::cout << std::endl;
+          std::cout << norm_str << std::endl;
+          handler->write_rates();
+
+          if (mms_param.write_convergence_table_to_file)
+          {
+            std::ofstream outfile(output_param.output_dir +
+                                  mms_param.convergence_file_prefix + "_" +
+                                  norm_str + ".txt");
+            handler->error_table.write_text(outfile);
+          }
+        }
       }
     }
+
+    if (mms_param.run_only_step >= 0)
+      break;
   }
 }
 

@@ -263,6 +263,8 @@ private:
       {
         phi_x[q][k]             = fe_values_fixed[position].value(k, q);
         grad_phi_x[q][k]        = fe_values_fixed[position].gradient(k, q);
+        sym_grad_phi_x[q][k]    = symmetrize(grad_phi_x[q][k]);
+        trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
         div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
         grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
       }
@@ -828,10 +830,12 @@ public:
     previous_face_position_values;
 
   // Shape functions and gradients for each quad node and each dof
-  std::vector<std::vector<Tensor<1, dim>>> phi_x;
-  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x;
-  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x_moving;
-  std::vector<std::vector<double>>         div_phi_x;
+  std::vector<std::vector<Tensor<1, dim>>>          phi_x;
+  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x;
+  std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
+  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x_moving;
+  std::vector<std::vector<double>>                  div_phi_x;
+  std::vector<std::vector<double>>                  trace_grad_phi_x;
 
   // Shape functions on faces for relevant faces, each quad node and each dof
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_x_face;

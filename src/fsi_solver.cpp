@@ -228,13 +228,15 @@ void FSISolverLessLambda<dim>::MMSSourceTerm::vector_value(
   }
 
   // Use convention (grad_u)_ij := dvj/dxi
-  Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
-  Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
-  Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
-  Tensor<1, dim> uDotGradu = u * grad_u;
+  Tensor<2, dim> grad_u     = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<1, dim> lap_u      = mms.exact_velocity->vector_laplacian(p);
+  Tensor<1, dim> grad_div_u = mms.exact_velocity->grad_div(p);
+  Tensor<1, dim> grad_p     = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> uDotGradu  = u * grad_u;
 
   // Velocity source term
-  Tensor<1, dim> f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
+  Tensor<1, dim> f =
+    -(dudt_eulerian + uDotGradu + grad_p - nu * (lap_u + grad_div_u));
   for (unsigned int d = 0; d < dim; ++d)
     values[ordering.u_lower + d] = f[d];
 
@@ -1835,18 +1837,23 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
     const double JxW_moving = scratch_data.JxW_moving[q];
     const double JxW_fixed  = scratch_data.JxW_fixed[q];
 
-    const auto &phi_u      = scratch_data.phi_u[q];
-    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
-    const auto &div_phi_u  = scratch_data.div_phi_u[q];
-    const auto &phi_p      = scratch_data.phi_p[q];
-    const auto &phi_x      = scratch_data.phi_x[q];
-    const auto &grad_phi_x = scratch_data.grad_phi_x[q];
-    const auto &div_phi_x  = scratch_data.div_phi_x[q];
+    const auto &phi_u            = scratch_data.phi_u[q];
+    const auto &grad_phi_u       = scratch_data.grad_phi_u[q];
+    const auto &sym_grad_phi_u   = scratch_data.sym_grad_phi_u[q];
+    const auto &div_phi_u        = scratch_data.div_phi_u[q];
+    const auto &phi_p            = scratch_data.phi_p[q];
+    const auto &phi_x            = scratch_data.phi_x[q];
+    const auto &grad_phi_x       = scratch_data.grad_phi_x[q];
+    const auto &sym_grad_phi_x   = scratch_data.sym_grad_phi_x[q];
+    const auto &div_phi_x        = scratch_data.div_phi_x[q];
+    const auto &trace_grad_phi_x = scratch_data.trace_grad_phi_x[q];
 
     const auto &present_velocity_values =
       scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratch_data.present_velocity_gradients[q];
+    const auto &present_velocity_sym_gradients =
+      scratch_data.present_velocity_sym_gradients[q];
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
     const double present_pressure_values =
@@ -1862,6 +1869,37 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, present_velocity_values, scratch_data.previous_velocity_values);
 
+    std::vector<Tensor<1, dim>> to_multiply_by_phi_u_i_momentum(
+      scratch_data.dofs_per_cell);
+    std::vector<Tensor<1, dim>> to_multiply_by_phi_u_i_position(
+      scratch_data.dofs_per_cell);
+    std::vector<Tensor<2, dim>> gradu_dot_grad_phi_x_j(
+      scratch_data.dofs_per_cell);
+    std::vector<Tensor<2, dim>> sym_gradu_dot_grad_phi_x_j(
+      scratch_data.dofs_per_cell);
+
+    for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
+    {
+      const auto &phi_u_j      = phi_u[j];
+      const auto &grad_phi_u_j = grad_phi_u[j];
+
+      to_multiply_by_phi_u_i_momentum[j] = bdf_c0 * phi_u_j +
+                                           grad_phi_u_j * u_ale +
+                                           present_velocity_gradients * phi_u_j;
+
+      const auto &phi_x_j            = phi_x[j];
+      const auto &grad_phi_x_j       = grad_phi_x[j];
+      const auto  trace_grad_phi_x_j = trace_grad_phi_x[j];
+
+      gradu_dot_grad_phi_x_j[j] = present_velocity_gradients * grad_phi_x_j;
+      sym_gradu_dot_grad_phi_x_j[j] =
+        present_velocity_sym_gradients * grad_phi_x_j;
+      to_multiply_by_phi_u_i_position[j] =
+        (dudt + u_dot_grad_u_ale) * trace_grad_phi_x_j -
+        gradu_dot_grad_phi_x_j[j] * u_ale -
+        present_velocity_gradients * bdf_c0 * phi_x_j;
+    }
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     // for (auto i : scratch_data.dofs_without_lambda)
     {
@@ -1871,20 +1909,31 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
       const bool i_is_p = comp_i == const_ordering.p_lower;
       const bool i_is_x =
         const_ordering.x_lower <= comp_i && comp_i < const_ordering.x_upper;
+      const bool i_is_l =
+        const_ordering.l_lower <= comp_i && comp_i < const_ordering.l_upper;
+      if (i_is_l)
+        continue;
 
-      const auto &phi_u_i      = phi_u[i];
-      const auto &grad_phi_u_i = grad_phi_u[i];
-      const auto &div_phi_u_i  = div_phi_u[i];
-      const auto &phi_p_i      = phi_p[i];
-      const auto &grad_phi_x_i = grad_phi_x[i];
-      const auto &div_phi_x_i  = div_phi_x[i];
+      const auto &coupling_row = this->coupling_table[comp_i];
+
+      const auto &phi_u_i          = phi_u[i];
+      const auto &grad_phi_u_i     = grad_phi_u[i];
+      const auto &sym_grad_phi_u_i = sym_grad_phi_u[i];
+      const auto &div_phi_u_i      = div_phi_u[i];
+      const auto &phi_p_i          = phi_p[i];
+      const auto &sym_grad_phi_x_i = sym_grad_phi_x[i];
+      const auto &div_phi_x_i      = div_phi_x[i];
+
+      const Tensor<2, dim> sym_grad_u_dot_grad_phi_u_i =
+        present_velocity_sym_gradients * grad_phi_u_i;
+      const double trace_sym_grad_u_dot_grad_phi_u_i =
+        trace(sym_grad_u_dot_grad_phi_u_i);
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       // for (auto j : scratch_data.dofs_without_lambda)
       {
-        const unsigned int comp_j = scratch_data.components[j];
-        bool               assemble =
-          this->coupling_table[comp_i][comp_j] == DoFTools::always;
+        const unsigned int comp_j   = scratch_data.components[j];
+        const bool         assemble = coupling_row[comp_j] == DoFTools::always;
         if (!assemble)
           continue;
         const bool j_is_u =
@@ -1892,35 +1941,33 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
         const bool j_is_p = comp_j == const_ordering.p_lower;
         const bool j_is_x =
           const_ordering.x_lower <= comp_j && comp_j < const_ordering.x_upper;
+        const bool j_is_l =
+          const_ordering.l_lower <= comp_j && comp_j < const_ordering.l_upper;
+        if (j_is_l)
+          continue;
 
-        const auto &phi_u_j            = phi_u[j];
-        const auto &grad_phi_u_j       = grad_phi_u[j];
-        const auto &div_phi_u_j        = div_phi_u[j];
-        const auto &phi_p_j            = phi_p[j];
-        const auto &phi_x_j            = phi_x[j];
-        const auto &grad_phi_x_j       = grad_phi_x[j];
-        const auto  trace_grad_phi_x_j = trace(grad_phi_x_j);
-        const auto &div_phi_x_j        = div_phi_x[j];
-
-        double local_flow_matrix_ij = 0.;
+        double local_flow_matrix_ij = j_is_p ? -div_phi_u_i * phi_p[j] : 0.;
         double local_ps_matrix_ij   = 0.;
 
+        /**
+         * Momentum equation
+         */
         if (i_is_u)
         {
           if (j_is_u)
           {
             // Time derivative, convection (including ALE) and diffusion
             local_flow_matrix_ij +=
-              phi_u_i * (bdf_c0 * phi_u_j + grad_phi_u_j * u_ale +
-                         present_velocity_gradients * phi_u_j) +
-              nu * scalar_product(grad_phi_u_j, grad_phi_u_i);
+              phi_u_i * to_multiply_by_phi_u_i_momentum[j] +
+              2. * nu * scalar_product(sym_grad_phi_u[j], sym_grad_phi_u_i);
           }
 
-          if (j_is_p)
-          {
-            // Pressure gradient
-            local_flow_matrix_ij += -div_phi_u_i * phi_p_j;
-          }
+          // if (j_is_p)
+          // {
+          //   // Pressure gradient
+          //   // Accounted for in the initialization of local_flow_matrix_ij
+          //   local_flow_matrix_ij += -div_phi_u_i * phi_p_j;
+          // }
 
           if (j_is_x)
           {
@@ -1929,28 +1976,28 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
             // term is only needed for manufactured solutions, and slows down
             // the assembly. Ommitting it does not seem to affect convergence of
             // the nonlinear solver.
-            const Tensor<2, dim> d_grad_phi_u = -grad_phi_u_i * grad_phi_x_j;
-            const auto           gradu_dot_grad_phi_x_j =
-              present_velocity_gradients * grad_phi_x_j;
+            const auto trace_grad_phi_x_j = trace_grad_phi_x[j];
+
             local_flow_matrix_ij +=
-              phi_u_i * ((dudt + u_dot_grad_u_ale) * trace_grad_phi_x_j -
-                         gradu_dot_grad_phi_x_j * u_ale -
-                         present_velocity_gradients * bdf_c0 * phi_x_j) +
-              nu * scalar_product(-gradu_dot_grad_phi_x_j, grad_phi_u_i) +
-              nu * scalar_product(present_velocity_gradients,
-                                  d_grad_phi_u +
-                                    grad_phi_u_i * trace_grad_phi_x_j) -
-              present_pressure_values *
-                (trace(d_grad_phi_u) + div_phi_u_i * trace_grad_phi_x_j);
+              phi_u_i * to_multiply_by_phi_u_i_position[j] +
+              2. * nu *
+                (-2. * scalar_product(sym_grad_phi_x[j],
+                                      sym_grad_u_dot_grad_phi_u_i) +
+                 trace_grad_phi_x_j * trace_sym_grad_u_dot_grad_phi_u_i) -
+              present_pressure_values * (trace(-grad_phi_u_i * grad_phi_x[j]) +
+                                         div_phi_u_i * trace_grad_phi_x_j);
           }
         }
 
+        /**
+         * Continuity equation
+         */
         if (i_is_p)
         {
           if (j_is_u)
           {
             // Continuity : variation w.r.t. u
-            local_flow_matrix_ij += -phi_p_i * div_phi_u_j;
+            local_flow_matrix_ij += -phi_p_i * div_phi_u[j];
           }
 
           if (j_is_x)
@@ -1960,28 +2007,28 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
             // term is only needed for manufactured solutions, and slows down
             // the assembly. Ommitting it does not seem to affect convergence of
             // the nonlinear solver.
-            const auto gradu_dot_grad_phi_x_j =
-              present_velocity_gradients * grad_phi_x_j;
             local_flow_matrix_ij +=
-              phi_p_i * (trace(gradu_dot_grad_phi_x_j) -
-                         present_velocity_divergence * trace_grad_phi_x_j);
+              phi_p_i * (trace(gradu_dot_grad_phi_x_j[j]) -
+                         present_velocity_divergence * trace_grad_phi_x[j]);
           }
         }
 
-        //
-        // Pseudo-solid
-        //
+        /**
+         * Pseudo-solid equation
+         */
         if (i_is_x && j_is_x)
         {
+          const auto &sym_grad_phi_x_j = sym_grad_phi_x[j];
+          const auto &div_phi_x_j      = div_phi_x[j];
+
           // Linear elasticity
           local_ps_matrix_ij +=
             lame_lambda * div_phi_x_j * div_phi_x_i +
-            lame_mu * scalar_product((grad_phi_x_j + transpose(grad_phi_x_j)),
-                                     grad_phi_x_i);
+            2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i);
+          local_ps_matrix_ij *= JxW_fixed;
         }
 
         local_flow_matrix_ij *= JxW_moving;
-        local_ps_matrix_ij *= JxW_fixed;
         local_matrix(i, j) += local_flow_matrix_ij + local_ps_matrix_ij;
       }
     }
@@ -2005,9 +2052,10 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
           const double face_JxW_moving =
             scratch_data.face_JxW_moving[i_face][q];
 
-          const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-          const auto &phi_x = scratch_data.phi_x_face[i_face][q];
-          const auto &phi_l = scratch_data.phi_l_face[i_face][q];
+          const auto &phi_u    = scratch_data.phi_u_face[i_face][q];
+          const auto &phi_x    = scratch_data.phi_x_face[i_face][q];
+          const auto &phi_l    = scratch_data.phi_l_face[i_face][q];
+          const auto &delta_dx = scratch_data.delta_dx[i_face][q];
 
           const auto &present_u =
             scratch_data.present_face_velocity_values[i_face][q];
@@ -2045,11 +2093,10 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
               if (!assemble)
                 continue;
 
-              const auto &phi_u_j = phi_u[j];
-              const auto &phi_x_j = phi_x[j];
-              const auto &phi_l_j = phi_l[j];
-
-              const double delta_dx_j = scratch_data.delta_dx[i_face][q][j];
+              const auto  &phi_u_j    = phi_u[j];
+              const auto  &phi_x_j    = phi_x[j];
+              const auto  &phi_l_j    = phi_l[j];
+              const double delta_dx_j = delta_dx[j];
 
               double local_matrix_ij = 0.;
 
@@ -2207,6 +2254,8 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
       scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratch_data.present_velocity_gradients[q];
+    const auto &present_velocity_sym_gradients =
+      scratch_data.present_velocity_sym_gradients[q];
     const auto &present_pressure_values =
       scratch_data.present_pressure_values[q];
     const auto &present_mesh_velocity_values =
@@ -2220,10 +2269,10 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, present_velocity_values, scratch_data.previous_velocity_values);
 
-    const auto &phi_p      = scratch_data.phi_p[q];
-    const auto &phi_u      = scratch_data.phi_u[q];
-    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
-    const auto &div_phi_u  = scratch_data.div_phi_u[q];
+    const auto &phi_p          = scratch_data.phi_p[q];
+    const auto &phi_u          = scratch_data.phi_u[q];
+    const auto &sym_grad_phi_u = scratch_data.sym_grad_phi_u[q];
+    const auto &div_phi_u      = scratch_data.div_phi_u[q];
 
     //
     // Pseudo-solid related data
@@ -2249,9 +2298,9 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
     const auto to_multiply_by_phi_u_i =
       (dudt + u_dot_grad_u_ale + source_term_velocity);
 
-    const auto &phi_x      = scratch_data.phi_x[q];
-    const auto &grad_phi_x = scratch_data.grad_phi_x[q];
-    const auto &div_phi_x  = scratch_data.div_phi_x[q];
+    const auto &phi_x          = scratch_data.phi_x[q];
+    const auto &sym_grad_phi_x = scratch_data.sym_grad_phi_x[q];
+    const auto &div_phi_x      = scratch_data.div_phi_x[q];
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     // for (auto i : scratch_data.dofs_without_lambda)
@@ -2262,10 +2311,10 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
       const bool i_is_x =
         const_ordering.x_lower <= comp_i && comp_i < const_ordering.x_upper;
 
-      const auto &phi_u_i      = phi_u[i];
-      const auto &grad_phi_u_i = grad_phi_u[i];
-      const auto &div_phi_u_i  = div_phi_u[i];
-      const auto &phi_p_i      = phi_p[i];
+      const auto &phi_u_i          = phi_u[i];
+      const auto &sym_grad_phi_u_i = sym_grad_phi_u[i];
+      const auto &div_phi_u_i      = div_phi_u[i];
+      const auto &phi_p_i          = phi_p[i];
 
       //
       // Flow residual
@@ -2286,7 +2335,8 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
       {
         // Diffusion : only compute double contraction if needed
         local_rhs_flow_i -=
-          nu * scalar_product(present_velocity_gradients, grad_phi_u_i);
+          2. * nu *
+          scalar_product(present_velocity_sym_gradients, sym_grad_phi_u_i);
       }
 
       local_rhs_flow_i *= JxW_moving;
@@ -2301,7 +2351,7 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
         local_rhs_ps_i -= (
           // Linear elasticity : only compute double contraction if needed
           lame_lambda * present_trace_strain * div_phi_x[i] +
-          2. * lame_mu * scalar_product(present_strain, grad_phi_x[i])
+          2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i])
           // Linear elasticity source term
           + phi_x[i] * source_term_position);
         local_rhs_ps_i *= JxW_fixed;

@@ -426,6 +426,7 @@ namespace Parameters
   {
     bool enable;
 
+    // The type of study to perform : refinement in space and/or time
     enum class Type
     {
       space,
@@ -433,6 +434,9 @@ namespace Parameters
       spacetime
     } type;
 
+    // The Lp norm used to compute the error in time
+    // The norm for the error in space is given through norms_to_compute
+    // FIXME: do the same for the time
     enum class TimeLpNorm
     {
       L1,
@@ -440,16 +444,26 @@ namespace Parameters
       Linfty
     } time_norm;
 
+    // Subtract the mean value from the exact pressure solution.
+    // This must be enabled when performing a convergence study while also
+    // enforcing a zero-mean pressure solution, otherwise both functions
+    // differ by the constant mean.
     bool subtract_mean_pressure;
 
+    // Force the use of the provided source term in the "Source terms" section,
+    // even during a convergence study. This can be used when the provided exact
+    // solution is really a solution of the system of PDEs for the given source
+    // terms. In that case, the source terms obtained from the MMS are not set.
     bool force_source_term;
 
     unsigned int n_convergence;
     unsigned int current_step = 0;
     int          run_only_step;
 
-    bool         use_deal_ii_cube_mesh;
-    bool         use_deal_ii_holed_plate_mesh;
+    // FIXME: remove these, and use only the options from the "Mesh" section
+    bool use_deal_ii_cube_mesh;
+    bool use_deal_ii_holed_plate_mesh;
+
     std::string  mesh_prefix;
     unsigned int first_mesh_index;
     unsigned int mesh_suffix = 0;
@@ -459,6 +473,11 @@ namespace Parameters
     bool         use_space_convergence_mesh;
     unsigned int spatial_mesh_index;
     double       time_step_reduction_factor;
+
+    // Options to write the convergence rates to a file
+    bool        write_convergence_table_to_file;
+    std::string convergence_file_prefix;
+    bool        compute_rates_only_at_end;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {

@@ -527,6 +527,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     present_mesh_velocity_values.resize(n_q_points);
     previous_position_values.resize(bdf_coefficients.size() - 1,
                                     std::vector<Tensor<1, dim>>(n_q_points));
+    previous_position_gradients.resize(bdf_coefficients.size() - 1,
+                                      std::vector<Tensor<2, dim>>(n_q_points));
 
     present_face_position_values.resize(
       n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
@@ -591,10 +593,17 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     tracer_gradients.resize(n_q_points);
     tracer_values_fixed.resize(n_q_points);
     tracer_gradients_fixed.resize(n_q_points);
+    previous_tracer_values_fixed.resize(bdf_coefficients.size() - 1,
+                                    std::vector<double>(n_q_points));
+
+    previous_tracer_gradients_fixed.resize(bdf_coefficients.size() - 1,
+                                          std::vector<Tensor<1, dim>>(n_q_points));
     potential_values.resize(n_q_points);
     potential_gradients.resize(n_q_points);
     previous_tracer_values.resize(bdf_coefficients.size() - 1,
                                   std::vector<double>(n_q_points));
+    previous_tracer_gradients.resize(bdf_coefficients.size() - 1,
+                                       std::vector<Tensor<1, dim>>(n_q_points));
 
     diffusive_flux.resize(n_q_points);
     velocity_dot_tracer_gradient.resize(n_q_points);

@@ -215,6 +215,8 @@ private:
       //                                            previous_velocity_values[i]);
       fe_values_fixed[position].get_function_values(
         previous_solutions[i], previous_position_values[i]);
+      fe_values_fixed[position].get_function_gradients(
+        previous_solutions[i], previous_position_gradients[i]);
     }
 
     // Current mesh velocity from displacement
@@ -253,8 +255,8 @@ private:
 
       AssertThrow(lame_mu[q] >= 0,
                   ExcMessage("Lamé coefficient mu should be positive"));
-      AssertThrow(lame_lambda[q] >= 0,
-                  ExcMessage("Lamé coefficient lambda should be positive"));
+      // AssertThrow(lame_lambda[q] >= 0,
+      //             ExcMessage("Lamé coefficient lambda should be positive"));
 
       for (int d = 0; d < dim; ++d)
         source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
@@ -542,8 +544,17 @@ private:
                                                        potential_gradients);
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+    {
       fe_values_moving[tracer].get_function_values(previous_solutions[i],
                                                    previous_tracer_values[i]);
+      fe_values_moving[tracer].get_function_gradients(previous_solutions[i],
+                                                  previous_tracer_gradients[i]);
+      fe_values_fixed[tracer].get_function_values(previous_solutions[i],
+                                                              previous_tracer_values_fixed[i]);
+      fe_values_fixed[tracer].get_function_gradients(previous_solutions[i],
+                                                                previous_tracer_gradients_fixed[i]);
+    }
+    
 
     source_terms->vector_value_list(fe_values_moving.get_quadrature_points(),
                                     source_term_full_moving);
@@ -819,6 +830,7 @@ public:
   std::vector<Tensor<2, dim>>              present_position_gradients;
   std::vector<Tensor<1, dim>>              present_mesh_velocity_values;
   std::vector<std::vector<Tensor<1, dim>>> previous_position_values;
+  std::vector<std::vector<Tensor<2, dim>>> previous_position_gradients;
 
   // Current and previous values on faces
   std::vector<std::vector<Tensor<1, dim>>> present_face_position_values;
@@ -889,11 +901,14 @@ public:
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
 
   // Tracer on current and fixed (reference) mesh
-  std::vector<double>              tracer_values;
-  std::vector<Tensor<1, dim>>      tracer_gradients;
-  std::vector<double>              tracer_values_fixed;
-  std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
-  std::vector<std::vector<double>> previous_tracer_values;
+  std::vector<double>                      tracer_values;
+  std::vector<Tensor<1, dim>>              tracer_gradients;
+  std::vector<double>                      tracer_values_fixed;
+  std::vector<Tensor<1, dim>>              tracer_gradients_fixed;
+  std::vector<std::vector<double>>              previous_tracer_values_fixed;
+  std::vector<std::vector<Tensor<1, dim>>>      previous_tracer_gradients_fixed;
+  std::vector<std::vector<double>>         previous_tracer_values;
+  std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients;
   // Potential on current mesh
   std::vector<double>         potential_values;
   std::vector<Tensor<1, dim>> potential_gradients;

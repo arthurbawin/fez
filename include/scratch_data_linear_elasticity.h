@@ -70,6 +70,7 @@ private:
 
     position_values.resize(n_q_points);
     position_sym_gradients.resize(n_q_points);
+    position_gradients.resize(n_q_points);
 
     phi_x.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
     grad_phi_x.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
@@ -100,6 +101,8 @@ public:
     fe_values[position].get_function_values(current_solution, position_values);
     fe_values[position].get_function_symmetric_gradients(
       current_solution, position_sym_gradients);
+    fe_values[position].get_function_gradients(
+      current_solution, position_gradients);
 
     const auto &quadrature_points = fe_values.get_quadrature_points();
     source_terms->vector_value_list(quadrature_points, source_term_full);
@@ -137,8 +140,8 @@ public:
 
       AssertThrow(lame_mu[q] >= 0,
                   ExcMessage("Lamé coefficient mu should be positive"));
-      AssertThrow(lame_lambda[q] >= 0,
-                  ExcMessage("Lamé coefficient lambda should be positive"));
+      // AssertThrow(lame_lambda[q] >= 0,
+      //             ExcMessage("Lamé coefficient lambda should be positive"));
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -168,6 +171,7 @@ public:
 
   std::vector<Tensor<1, dim>>          position_values;
   std::vector<SymmetricTensor<2, dim>> position_sym_gradients;
+  std::vector<Tensor<2, dim>> position_gradients;
 
   std::vector<std::vector<Tensor<1, dim>>> phi_x;
   std::vector<std::vector<Tensor<2, dim>>> grad_phi_x;

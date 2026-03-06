@@ -39,6 +39,14 @@ namespace BoundaryConditions
         "velocity_mms|velocity_flux_mms|open_mms|no_tangential_flow"),
       "Type of fluid boundary condition");
 
+    //To specifie with component of the velocity you want to leave unconstrained
+    prm.declare_entry("constrain_u", "true", Patterns::Bool(),
+                  "Constrain x-velocity component on this boundary");
+    prm.declare_entry("constrain_v", "true", Patterns::Bool(),
+                      "Constrain y-velocity component on this boundary");
+    prm.declare_entry("constrain_w", "true", Patterns::Bool(),
+                      "Constrain z-velocity component on this boundary (3D only)");
+
     // Imposed functions, if any
     prm.enter_subsection("u");
     u->declare_parameters(prm);
@@ -109,6 +117,17 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed fluid boundary conditions is smaller than "
         "the specified \"number\" field.");
+    
+    constrain_u = prm.get_bool("constrain_u");
+    constrain_v = prm.get_bool("constrain_v");
+    constrain_w = prm.get_bool("constrain_w");
+
+    if constexpr (dim == 2)
+      constrain_w = false;
+
+    AssertThrow(constrain_u || constrain_v || constrain_w,
+                ExcMessage("Fluid BC " + std::to_string(this->id) +
+                          ": at least one velocity component must be constrained."));
 
     prm.enter_subsection("u");
     u->parse_parameters(prm);
@@ -297,6 +316,18 @@ namespace BoundaryConditions
     const FEValuesExtractors::Vector velocity(u_lower);
     const ComponentMask              velocity_mask =
       dof_handler.get_fe().component_mask(velocity);
+    
+    const auto make_partial_velocity_mask =
+      [&](const BoundaryConditions::FluidBC<dim> &bc) -> ComponentMask
+    {
+      std::vector<bool> mask(n_components, false);
+      if (bc.constrain_u) mask[u_lower + 0] = true;
+      if constexpr (dim >= 2)
+        if (bc.constrain_v) mask[u_lower + 1] = true;
+      if constexpr (dim == 3)
+        if (bc.constrain_w) mask[u_lower + 2] = true;
+      return ComponentMask(mask);
+    };
 
     std::set<types::boundary_id> no_flux_boundaries;
     std::set<types::boundary_id> no_tangential_flow_boundaries;
@@ -321,6 +352,7 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
+        const ComponentMask partial_mask = make_partial_velocity_mask(bc);
         if (homogeneous)
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
@@ -328,7 +360,7 @@ namespace BoundaryConditions
                                                    Functions::ZeroFunction<dim>(
                                                      n_components),
                                                    constraints,
-                                                   velocity_mask);
+                                                   partial_mask);
         else
           VectorTools::interpolate_boundary_values(
             mapping,
@@ -337,7 +369,7 @@ namespace BoundaryConditions
             VectorFunctionFromComponents<dim>(
               u_lower, n_components, bc.u, bc.v, bc.w),
             constraints,
-            velocity_mask);
+            partial_mask);
       }
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
@@ -370,22 +402,29 @@ namespace BoundaryConditions
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
     }
-
     // Add no velocity flux constraints
-    VectorTools::compute_no_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      no_flux_boundaries,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
-    VectorTools::compute_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      no_tangential_flow_boundaries,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
+    for (const auto &id : no_flux_boundaries)
+    {
+      const std::set<types::boundary_id> single_boundary = {id};
+      VectorTools::compute_no_normal_flux_constraints(
+        dof_handler,
+        u_lower,
+        single_boundary,
+        constraints,
+        mapping,
+        /*use_manifold_for_normal=*/false);
+    }
+    for (const auto &id : no_tangential_flow_boundaries)
+    {
+      const std::set<types::boundary_id> single_boundary = {id};
+      VectorTools::compute_normal_flux_constraints(
+        dof_handler,
+        u_lower,
+        single_boundary,
+        constraints,
+        mapping,
+        /*use_manifold_for_normal=*/false);
+    }
 
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,

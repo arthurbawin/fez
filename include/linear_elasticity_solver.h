@@ -87,6 +87,11 @@ public:
     return nonzero_constraints;
   }
 
+  // parallel::fullydistributed::Triangulation<dim> &get_triangulation()
+  // {
+  // return triangulation;
+  // }
+  const DoFHandler<dim> &get_dof_handler() const { return dof_handler; }
   void update_boundary_conditions();
 
   virtual void create_sparsity_pattern();

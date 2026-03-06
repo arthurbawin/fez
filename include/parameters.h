@@ -375,6 +375,8 @@ namespace Parameters
     // FIXME: use more explicit names, when the formulation has been decided
     double alpha;
     double beta;
+    double gamma;
+    int mesh_forcing_type;
 
     /**
      * We differentiate between the body force which is multiplied by the
@@ -402,6 +404,12 @@ namespace Parameters
     // Number of steps to use in the continuation method when the source term
     // is applied on the current configuration.
     unsigned int n_continuation_steps;
+    
+    // If true, runs the linear elasticity solver as a pre-processing step
+    // to compute an initial mesh deformation. The resulting position field
+    // is used to initialize the ALE mesh of the CHNS solver, typically when
+    // mesh forcing is activated.
+    bool use_as_presolver;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

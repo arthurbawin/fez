@@ -612,18 +612,47 @@ void LinearElasticitySolver<dim>::output_results()
 template <int dim>
 void LinearElasticitySolver<dim>::move_mesh()
 {
+  present_solution.compress(dealii::VectorOperation::insert);
+  present_solution.update_ghost_values();
+
+  const IndexSet locally_owned = dof_handler.locally_owned_dofs();
+
   std::vector<bool> vertex_moved(triangulation.n_vertices(), false);
+  std::vector<bool> vertex_locally_moved(triangulation.n_vertices(), false);
+
   for (auto &cell : dof_handler.active_cell_iterators())
     if (cell->is_locally_owned())
       for (const auto v : cell->vertex_indices())
-        // if (owned_vertices[cell->vertex_index(v)])
-        if (!vertex_moved[cell->vertex_index(v)])
-        {
-          vertex_moved[cell->vertex_index(v)] = true;
-          for (unsigned int d = 0; d < dim; ++d)
-            cell->vertex(v)[d] = present_solution(cell->vertex_dof_index(v, d));
-        }
+      {
+        const auto vid = cell->vertex_index(v);
+        if (vertex_moved[vid])
+          continue;
+
+        // Règle: ce rank "possède" le vertex si les dim dofs de position
+        // associés au vertex sont locally-owned.
+        bool i_own_vertex = true;
+        for (unsigned int d = 0; d < dim; ++d)
+          i_own_vertex =
+            i_own_vertex &&
+            locally_owned.is_element(cell->vertex_dof_index(v, d));
+
+        // Marque qu'on a traité ce vertex (pour ne pas le revisiter)
+        vertex_moved[vid] = true;
+
+        if (!i_own_vertex)
+          continue;
+
+        // Déplace le vertex
+        for (unsigned int d = 0; d < dim; ++d)
+          cell->vertex(v)[d] = present_solution(cell->vertex_dof_index(v, d));
+
+        vertex_locally_moved[vid] = true;
+      }
+
+  // Synchronise les vertices déplacés sur les frontières MPI
+  triangulation.communicate_locally_moved_vertices(vertex_locally_moved);
 }
+
 
 template <int dim>
 void LinearElasticitySolver<dim>::compute_errors()

@@ -113,7 +113,10 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> u;
     std::shared_ptr<Functions::ParsedFunction<dim>> v;
     std::shared_ptr<Functions::ParsedFunction<dim>> w;
-
+    
+    bool constrain_u = true;
+    bool constrain_v = true;
+    bool constrain_w = true;
     // Tolerance on no slip enforcement with a Lagrange multiplier
     double weak_no_slip_tolerance;
 

@@ -583,7 +583,7 @@ namespace Parameters
         "number of pseudosolids",
         "0",
         Patterns::Integer(),
-        "Number of pseudosolids (linear elastic analogy for mesh movement)");
+        "Number of pseudosolids (Linear elasticity elastic analogy for mesh movement)");
 
       pseudosolids.resize(max_pseudosolids);
       for (unsigned int i = 0; i < max_pseudosolids; ++i)
@@ -844,6 +844,14 @@ namespace Parameters
                         Patterns::Double(),
                         "Coefficient of pseudosolid source term beta * (u_ALE "
                         "* grad(phi)) * grad(phi).");
+      prm.declare_entry("gamma",
+                        "0.0",
+                        Patterns::Double(),
+                        "Coefficient of pseudosolid source term when using mesh forcing type with band");
+      prm.declare_entry("mesh forcing type",
+                        "0",
+                        Patterns::Integer(),
+                        "ID of forcing type");
     }
     prm.leave_subsection();
   }
@@ -864,6 +872,8 @@ namespace Parameters
       // mesh forcing parameters
       alpha = prm.get_double("alpha");
       beta  = prm.get_double("beta");
+      gamma = prm.get_double("gamma");
+      mesh_forcing_type = prm.get_integer("mesh forcing type");
     }
     prm.leave_subsection();
   }
@@ -885,18 +895,24 @@ namespace Parameters
           "current mesh (and not on the reference mesh as usual)");
         prm.declare_entry("min multiplier",
                           "1.",
-                          Patterns::Double(1.),
+                          Patterns::Double(),
                           "Minimum coefficient multiplying the source term "
                           "evaluated on the current mesh");
         prm.declare_entry("max multiplier",
                           "1.",
-                          Patterns::Double(1.),
+                          Patterns::Double(),
                           "Maximum coefficient multiplying the source term "
                           "evaluated on the current mesh");
         prm.declare_entry("continuation steps",
                           "1",
                           Patterns::Integer(1),
                           "Number of steps to use in the continuation method");
+        prm.declare_entry(
+          "use as presolver",
+          "false",
+          Patterns::Bool(),
+          "If true, runs the linear elasticity solver first and uses its "
+          "solution to initialize the ALE mesh position of the actual solver.");
       }
       prm.leave_subsection();
     }
@@ -919,6 +935,7 @@ namespace Parameters
                     ExcMessage("Max source term multiplier should be greater "
                                "than the min multiplier"));
         n_continuation_steps = prm.get_integer("continuation steps");
+        use_as_presolver = prm.get_bool("use as presolver");
       }
       prm.leave_subsection();
     }

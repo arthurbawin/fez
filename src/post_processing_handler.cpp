@@ -1,5 +1,7 @@
-
 #include <post_processing_handler.h>
+
+#include <filesystem>
+#include <system_error>
 
 template <int dim>
 PostProcessingHandler<dim>::PostProcessingHandler(
@@ -178,6 +180,62 @@ void PostProcessingHandler<dim>::write_table(
     out << std::scientific << std::setprecision(postproc_base.precision);
     table.write_text(out);
   }
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::replace_temporary_file(
+  const std::string &tmp_filename,
+  const std::string &final_filename) const
+{
+  const unsigned int mpi_rank =
+    Utilities::MPI::this_mpi_process(mpi_communicator);
+
+  if (mpi_rank == 0)
+  {
+    std::error_code ec_remove;
+    std::filesystem::remove(final_filename, ec_remove);
+
+    std::error_code ec_rename;
+    std::filesystem::rename(tmp_filename, final_filename, ec_rename);
+
+    AssertThrow(!ec_rename,
+                ExcMessage("Could not replace temporary file \"" +
+                           tmp_filename + "\" by final file \"" +
+                           final_filename + "\". Error: " +
+                           ec_rename.message()));
+  }
+
+  MPI_Barrier(mpi_communicator);
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::write_table_checkpoint_style(
+  const std::string                                    &filename,
+  const TableHandler                                   &table,
+  const Parameters::PostProcessing::PostProcessingBase &postproc_base) const
+{
+  const unsigned int mpi_rank =
+    Utilities::MPI::this_mpi_process(mpi_communicator);
+
+  const std::string tmp_filename = filename + ".tmp";
+
+  if (mpi_rank == 0)
+  {
+    {
+      std::ofstream out(tmp_filename);
+      AssertThrow(out,
+                  ExcMessage("Could not open temporary file \"" + tmp_filename +
+                             "\" for writing."));
+      out << std::scientific << std::setprecision(postproc_base.precision);
+      table.write_text(out);
+      AssertThrow(out.good(),
+                  ExcMessage("An error occurred while writing temporary file \"" +
+                             tmp_filename + "\"."));
+    }
+  }
+
+  MPI_Barrier(mpi_communicator);
+  replace_temporary_file(tmp_filename, filename);
 }
 
 template class PostProcessingHandler<2>;

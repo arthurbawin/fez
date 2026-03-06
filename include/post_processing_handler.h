@@ -14,6 +14,9 @@
 #include <post_processing_tools.h>
 #include <time_handler.h>
 
+#include <fstream>
+#include <string>
+
 using namespace dealii;
 
 /**
@@ -256,6 +259,21 @@ private:
     std::ostream                                         &out,
     const TableHandler                                   &table,
     const Parameters::PostProcessing::PostProcessingBase &postproc_base) const;
+
+  /**
+   * Write a table to a temporary file and then atomically replace the final
+   * file. This avoids losing the previous valid file if the write fails.
+   */
+  void write_table_checkpoint_style(
+    const std::string                                    &filename,
+    const TableHandler                                   &table,
+    const Parameters::PostProcessing::PostProcessingBase &postproc_base) const;
+
+  /**
+   * Replace final file by temporary file.
+   */
+  void replace_temporary_file(const std::string &tmp_filename,
+                              const std::string &final_filename) const;
 
   /**
    * Assign a slice index to the faces on the sliced boundary.
@@ -503,13 +521,18 @@ void PostProcessingHandler<dim>::compute_forces(
     std::cout.flags(old_flags);
   }
 
-  // Add forces to forces table and write if time step matches frequency
+  // Add forces to table
+  add_force_to_table(forces, time_handler, forces_table);
+
+  // Write full force table only when requested, using tmp + rename
+  if (should_output_forces(time_handler))
   {
-    add_force_to_table(forces, time_handler, forces_table);
-    std::ofstream outfile(output_param.output_dir +
-                          post_proc_param.forces.output_prefix + ".txt");
-    if (should_output_forces(time_handler))
-      write_table(outfile, forces_table, post_proc_param.forces);
+    const std::string filename =
+      output_param.output_dir + post_proc_param.forces.output_prefix + ".txt";
+
+    write_table_checkpoint_style(filename,
+                                 forces_table,
+                                 post_proc_param.forces);
   }
 
   // Compute forces on each slice of given boundary
@@ -561,11 +584,16 @@ void PostProcessingHandler<dim>::compute_forces(
       std::cout.flags(old_flags);
     }
 
-    // Write to file
-    std::ofstream slices_outfile(output_param.output_dir +
-                                 post_proc_param.forces.output_prefix + "_" +
-                                 slices_param.output_prefix + ".txt");
-    write_table(slices_outfile, forces_table_per_slice, post_proc_param.forces);
+    if (should_output_forces(time_handler))
+    {
+      const std::string slices_filename =
+        output_param.output_dir + post_proc_param.forces.output_prefix + "_" +
+        slices_param.output_prefix + ".txt";
+
+      write_table_checkpoint_style(slices_filename,
+                                   forces_table_per_slice,
+                                   post_proc_param.forces);
+    }
 
     // Check that sum of forces on slices is the force on boundary
     {
@@ -626,17 +654,20 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
     std::cout.flags(old_flags);
   }
 
-  // Add forces to forces table and write if time step matches frequency
   add_position_to_table(mean_position,
                         time_handler,
                         structure_mean_position_table);
-  std::ofstream outfile(output_param.output_dir +
-                        post_proc_param.structure_position.output_prefix +
-                        ".txt");
+
   if (should_output_mean_position(time_handler))
-    write_table(outfile,
-                structure_mean_position_table,
-                post_proc_param.structure_position);
+  {
+    const std::string filename =
+      output_param.output_dir +
+      post_proc_param.structure_position.output_prefix + ".txt";
+
+    write_table_checkpoint_style(filename,
+                                 structure_mean_position_table,
+                                 post_proc_param.structure_position);
+  }
 }
 
 #endif

@@ -1,4 +1,5 @@
 
+#include <assembly/lagrange_multiplier.h>
 #include <boundary_conditions.h>
 #include <compare_matrix.h>
 #include <components_ordering.h>
@@ -904,39 +905,13 @@ void NSSolverLambda<dim>::assemble_local_matrix(
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
-        for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
-        {
-          const double face_JxW_moving =
-            scratch_data.face_JxW_moving[i_face][q];
-
-          const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-          const auto &phi_l = scratch_data.phi_l_face[i_face][q];
-
-          for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-          {
-            const unsigned int comp_i = scratch_data.components[i];
-            const bool         i_is_u = this->ordering->is_velocity(comp_i);
-            const bool         i_is_l = this->ordering->is_lambda(comp_i);
-
-            for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
-            {
-              const unsigned int comp_j = scratch_data.components[j];
-              const bool         j_is_u = this->ordering->is_velocity(comp_j);
-              const bool         j_is_l = this->ordering->is_lambda(comp_j);
-
-              double local_matrix_ij = 0.;
-
-              if (i_is_u && j_is_l)
-                local_matrix_ij += -(phi_l[j] * phi_u[i]);
-
-              if (i_is_l && j_is_u)
-                local_matrix_ij += -phi_u[j] * phi_l[i];
-
-              local_matrix_ij *= face_JxW_moving;
-              local_matrix(i, j) += local_matrix_ij;
-            }
-          }
-        }
+        Assembly::weakly_enforced_no_slip_matrix(*this->ordering,
+                                                 i_face,
+                                                 this->param.fluid_bc.at(
+                                                   weak_no_slip_boundary_id),
+                                                 scratch_data,
+                                                 this->time_handler,
+                                                 local_matrix);
       }
     }
   }
@@ -1123,49 +1098,12 @@ void NSSolverLambda<dim>::assemble_local_rhs(
         if (cell_has_lambda(cell))
           if (face->boundary_id() == weak_no_slip_boundary_id)
           {
-            const bool enable_rigid_body_rotation =
-              this->param.fluid_bc.at(weak_no_slip_boundary_id)
-                .enable_rigid_body_rotation;
-            const auto &rotation_velocities =
-              scratch_data.input_face_rigid_body_rotation_velocity[i_face];
-
-            for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
-            {
-              //
-              // Flow related data (no-slip)
-              //
-              const double face_JxW_moving =
-                scratch_data.face_JxW_moving[i_face][q];
-              const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-              const auto &phi_l = scratch_data.phi_l_face[i_face][q];
-
-              const auto &present_u =
-                scratch_data.present_face_velocity_values[i_face][q];
-              const auto &present_l =
-                scratch_data.present_face_lambda_values[i_face][q];
-
-              auto velocity_constraint = present_u;
-              if (enable_rigid_body_rotation)
-                velocity_constraint -= rotation_velocities[q];
-
-              for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-              {
-                double local_rhs_i = 0.;
-
-                const unsigned int comp_i = scratch_data.components[i];
-                const bool         i_is_u = this->ordering->is_velocity(comp_i);
-                const bool         i_is_l = this->ordering->is_lambda(comp_i);
-
-                if (i_is_u)
-                  local_rhs_i -= -phi_u[i] * present_l;
-
-                if (i_is_l)
-                  local_rhs_i -= -velocity_constraint * phi_l[i];
-
-                local_rhs_i *= face_JxW_moving;
-                local_rhs(i) += local_rhs_i;
-              }
-            }
+            Assembly::weakly_enforced_no_slip_rhs(*this->ordering,
+                                                  i_face,
+                                                  this->param.fluid_bc.at(
+                                                    weak_no_slip_boundary_id),
+                                                  scratch_data,
+                                                  local_rhs);
           }
 
         /**

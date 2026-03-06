@@ -2203,6 +2203,8 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
     this->param.physical_properties.fluids[0].kinematic_viscosity;
   const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
 
+  
+
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
     //
@@ -2333,6 +2335,11 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
         //
         if (face->boundary_id() == weak_no_slip_boundary_id)
         {
+          const bool enable_rigid_body_rotation =
+            this->param.fluid_bc.at(weak_no_slip_boundary_id)
+              .enable_rigid_body_rotation;
+          const auto &rotation_velocities =
+            scratch_data.input_face_rigid_body_rotation_velocity[i_face];
           for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
             //
@@ -2349,7 +2356,10 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
               scratch_data.present_face_mesh_velocity_values[i_face][q];
             const auto &present_l =
               scratch_data.present_face_lambda_values[i_face][q];
-            const auto u_ale = present_u - present_w;
+
+            Tensor<1, dim> velocity_constraint = present_u - present_w;
+            if (enable_rigid_body_rotation)
+              velocity_constraint -= rotation_velocities[q];
 
             for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
             {
@@ -2363,7 +2373,7 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
                 local_rhs_i -= -(phi_u[i] * present_l);
 
               if (i_is_l)
-                local_rhs_i -= -u_ale * phi_l[i];
+                local_rhs_i -= -velocity_constraint * phi_l[i];
 
               local_rhs_i *= face_JxW_moving;
               local_rhs(i) += local_rhs_i;

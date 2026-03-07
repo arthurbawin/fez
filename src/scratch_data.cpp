@@ -542,9 +542,12 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     phi_x.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
     grad_phi_x.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
+    sym_grad_phi_x.resize(n_q_points,
+                          std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
     grad_phi_x_moving.resize(n_q_points,
                              std::vector<Tensor<2, dim>>(dofs_per_cell));
     div_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    trace_grad_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
     phi_x_face.resize(n_faces,
                       std::vector<std::vector<Tensor<1, dim>>>(
                         n_faces_q_points,

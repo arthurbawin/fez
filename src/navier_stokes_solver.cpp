@@ -15,7 +15,8 @@
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
+  : GenericSolver<LA::ParVectorType>(param.output,
+                                     param.nonlinear_solver,
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,

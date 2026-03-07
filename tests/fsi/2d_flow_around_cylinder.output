@@ -47,7 +47,7 @@ y = +7.9999999814e+00
 Checking consistency between lambda integral and position BC:
 Integral of lambda on cylinder is -6.63437645e-02 +1.86104827e-08
 Prescribed displacement        is +6.63437645e-02 -1.86104820e-08
-                         Ratio is -1.00000000e+00 -1.00000003e+00 (expected: -1.00000000e+00)
+                         Ratio is -1.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
 Max diff between displacements is +8.88178420e-16 +1.77635684e-15
 
 Checking no-slip enforcement on cylinder:
@@ -74,7 +74,7 @@ y = +7.9999999306e+00
 Checking consistency between lambda integral and position BC:
 Integral of lambda on cylinder is -1.53970320e-01 +6.93626624e-08
 Prescribed displacement        is +1.53970320e-01 -6.93626641e-08
-                         Ratio is -1.00000000e+00 -9.99999976e-01 (expected: -1.00000000e+00)
+                         Ratio is -1.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
 Max diff between displacements is +8.88178420e-16 +4.44089210e-15
 
 Checking no-slip enforcement on cylinder:

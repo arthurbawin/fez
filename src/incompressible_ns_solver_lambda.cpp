@@ -584,18 +584,17 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
 
   if constexpr (running_in_debug_mode())
   {
-    // Check consistency of constraints for RELEVANT (not active) dofs before
-    // removing
+    // Check constraints consistency before removing
     {
       const bool consistent = constraints.is_consistent_in_parallel(
         Utilities::MPI::all_gather(this->mpi_communicator,
                                    this->locally_owned_dofs),
-        this->locally_relevant_dofs,
-        // DoFTools::extract_locally_active_dofs(this->dof_handler),
+        // this->locally_relevant_dofs,
+        DoFTools::extract_locally_active_dofs(this->dof_handler),
         this->mpi_communicator,
         true);
-      Assert(consistent,
-             ExcMessage("Constraints are not consistent before removing"));
+      AssertThrow(consistent,
+                  ExcMessage("Constraints are not consistent before removing"));
     }
   }
 
@@ -629,18 +628,17 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
 
   if constexpr (running_in_debug_mode())
   {
-    // Check consistency of constraints for RELEVANT (not active) dofs after
-    // removing
+    // Check constraints consistency after removing
     {
       const bool consistent = constraints.is_consistent_in_parallel(
         Utilities::MPI::all_gather(this->mpi_communicator,
                                    this->locally_owned_dofs),
-        this->locally_relevant_dofs,
-        // DoFTools::extract_locally_active_dofs(this->dof_handler),
+        // this->locally_relevant_dofs,
+        DoFTools::extract_locally_active_dofs(this->dof_handler),
         this->mpi_communicator,
         true);
-      Assert(consistent,
-             ExcMessage("Constraints are not consistent after removing"));
+      AssertThrow(consistent,
+                  ExcMessage("Constraints are not consistent after removing"));
     }
 
     // Check that boundary dofs were correctly removed

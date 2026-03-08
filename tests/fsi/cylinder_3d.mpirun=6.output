@@ -12,6 +12,7 @@ ID 5 -> Inlet
 ID 6 -> Outlet
 ID 7 -> Cylinder
 ID 8 -> Domain
+There are 6 ranks with local position master dofs
 Dim 0 : Sum of weights = -23.2101 - expected from mesh : -23.2101 - expected theoretical : -25.1327
 Dim 1 : Sum of weights = -23.2101 - expected from mesh : -23.2101 - expected theoretical : -25.1327
 912 constrained owned lambda dofs

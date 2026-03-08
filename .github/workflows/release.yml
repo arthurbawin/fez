@@ -1,4 +1,5 @@
-# Adapted from the deal.II linux.yml workflow
+# Adapted from both the deal.II "linux.yml" and Lethe "release.yml" workflow
+# Credit goes to their respective authors
 
 name: ci-release
 
@@ -7,6 +8,10 @@ on:
     branches: [ master ]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   N_JOBS: 4
@@ -36,7 +41,14 @@ jobs:
                 -G Ninja
           ninja -j ${{ env.N_JOBS }}
 
-      - name: Test release
+      # Run the serial tests in parallel 
+      - name: Run serial tests in release
         run: |
           cd build
-          ctest -V --output-on-failure
+          ctest -V --output-on-failure -E "mpirun=[2-9]" -j ${{ env.N_JOBS }}
+
+      # Run the parallel tests one at a time 
+      - name: Run parallel tests in release
+        run: |
+          cd build
+          ctest -V --output-on-failure -R "mpirun=[2-9]" -j 1

@@ -276,11 +276,12 @@ void NSSolverLambda<dim>::setup_dofs()
   // Initialize dof handler
   this->dof_handler.distribute_dofs(*fe);
 
-  // Optional: Plot active fe index after ghosts were updated in distribute_dofs
-  // write_partition_gmsh_with_active_fe_index(this->dof_handler, this->param);
-
-  this->pcout << "Number of degrees of freedom: " << this->dof_handler.n_dofs()
-              << std::endl;
+  // The number of dofs in 3d changes if the hp line identities are correctly
+  // applied. Do not print the number of dofs in 3d, as they will differ between
+  // the docker and the fixed version and the tests will fail.
+  if (dim == 2)
+    this->pcout << "Number of degrees of freedom: "
+                << this->dof_handler.n_dofs() << std::endl;
 
   this->locally_owned_dofs = this->dof_handler.locally_owned_dofs();
   this->locally_relevant_dofs =
@@ -419,6 +420,7 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
   }
 }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
 template <int dim>
 void NSSolverLambda<dim>::create_hp_line_dof_identities()
 {
@@ -542,6 +544,7 @@ void NSSolverLambda<dim>::create_hp_line_dof_identities()
     }
   }
 }
+#endif
 
 template <int dim>
 void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
@@ -652,6 +655,7 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
   }
 }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
 template <int dim>
 void NSSolverLambda<dim>::add_hp_identities_constraints(
   AffineConstraints<double> &constraints) const
@@ -675,6 +679,7 @@ void NSSolverLambda<dim>::add_hp_identities_constraints(
     hp_constraints,
     AffineConstraints<double>::MergeConflictBehavior::right_object_wins);
 }
+#endif
 
 template <int dim>
 void NSSolverLambda<dim>::create_solver_specific_zero_constraints()
@@ -697,10 +702,12 @@ void NSSolverLambda<dim>::create_solver_specific_zero_constraints()
       remove_cylinder_velocity_constraints(this->zero_constraints);
     }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
   add_hp_identities_constraints(this->zero_constraints);
+#endif
 }
 
 template <int dim>
@@ -720,10 +727,12 @@ void NSSolverLambda<dim>::create_solver_specific_nonzero_constraints()
       remove_cylinder_velocity_constraints(this->nonzero_constraints);
     }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
   add_hp_identities_constraints(this->nonzero_constraints);
+#endif
 }
 
 template <int dim>

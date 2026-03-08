@@ -1568,10 +1568,9 @@ void FSISolver<dim>::assemble_local_matrix(
 
       const auto &phi_u_i      = phi_u[i];
       const auto &grad_phi_u_i = grad_phi_u[i];
-      const auto &gui          = grad_phi_u_i[comp_i];
       const auto &div_phi_u_i  = div_phi_u[i];
       const auto &phi_p_i      = phi_p[i];
-      const auto &gxi          = grad_phi_x[i][comp_i - x_lower];
+      const auto &grad_phi_x_i = grad_phi_x[i];
       const auto &div_phi_x_i  = div_phi_x[i];
 
       const Tensor<2, dim> sym_grad_u_dot_grad_phi_u_i =
@@ -1606,6 +1605,7 @@ void FSISolver<dim>::assemble_local_matrix(
         {
           if (j_is_u)
           {
+            const auto &gui = grad_phi_u_i[comp_i];
             const auto &guj = grad_phi_u[j][comp_j];
 
             // Time derivative, convection (including ALE) and diffusion
@@ -1671,6 +1671,7 @@ void FSISolver<dim>::assemble_local_matrix(
         double local_ps_matrix_ij = 0.;
         if (i_is_x && j_is_x)
         {
+          const auto &gxi = grad_phi_x_i[comp_i - x_lower];
           const auto &gxj = grad_phi_x[j][comp_j - x_lower];
 
           // Linear elasticity

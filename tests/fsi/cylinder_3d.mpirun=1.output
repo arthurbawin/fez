@@ -12,14 +12,12 @@ ID 5 -> Inlet
 ID 6 -> Outlet
 ID 7 -> Cylinder
 ID 8 -> Domain
-Number of degrees of freedom: 4382
 Dim 0 : Sum of weights = -23.2101 - expected from mesh : -23.2101 - expected theoretical : -25.1327
 Dim 1 : Sum of weights = -23.2101 - expected from mesh : -23.2101 - expected theoretical : -25.1327
 912 constrained owned lambda dofs
 798 unconstrained owned lambda dofs
 Removing zero constraints on cylinder
 Removing nonzero constraints on cylinder
-Matrix has 395715 nnz and size 4382 x 4382
 
 Time step 1 - Advancing to t = 0.1.
 Removing nonzero constraints on cylinder

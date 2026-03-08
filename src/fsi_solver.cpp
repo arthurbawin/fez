@@ -297,8 +297,13 @@ void FSISolverLessLambda<dim>::setup_dofs()
   // Initialize dof handler
   this->dof_handler.distribute_dofs(*fe);
 
-  this->pcout << "Number of degrees of freedom: " << this->dof_handler.n_dofs()
-              << std::endl;
+  // The number of dofs in 3d changes if the hp line identities are correctly
+  // applied. Do not print the number of dofs in 3d, as they will differ between
+  // the docker and the fixed version and the tests will fail.
+  if (dim == 2)
+    this->pcout << "Number of degrees of freedom: "
+                << this->dof_handler.n_dofs() << std::endl;
+
 
   this->locally_owned_dofs = this->dof_handler.locally_owned_dofs();
   this->locally_relevant_dofs =
@@ -530,6 +535,7 @@ void FSISolverLessLambda<dim>::create_lagrange_multiplier_constraints()
   }
 }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
 template <int dim>
 void FSISolverLessLambda<dim>::create_hp_line_dof_identities()
 {
@@ -669,6 +675,7 @@ void FSISolverLessLambda<dim>::create_hp_line_dof_identities()
     }
   }
 }
+#endif
 
 /**
  * On the cylinder, we have
@@ -1465,25 +1472,27 @@ void FSISolverLessLambda<dim>::remove_cylinder_velocity_constraints(
           "boundary have conflicting prescribed boundary conditions."));
 }
 
-// template <int dim>
-// void FSISolverLessLambda<dim>::add_hp_identities_constraints(
-//   AffineConstraints<double> &constraints) const
-// {
-//   // AssertThrow(false, ExcMessage("Not needed"));
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
+template <int dim>
+void FSISolverLessLambda<dim>::add_hp_identities_constraints(
+  AffineConstraints<double> &constraints) const
+{
+  // AssertThrow(false, ExcMessage("Not needed"));
 
-//   AffineConstraints<double> hp_constraints(this->locally_owned_dofs,
-//                                            this->locally_relevant_dofs);
+  AffineConstraints<double> hp_constraints(this->locally_owned_dofs,
+                                           this->locally_relevant_dofs);
 
-//   // Apply dof_1 = dof_2 to each pair of identified dofs
-//   for (const auto &[dof1, dof2] : hp_dof_identities)
-//     hp_constraints.add_constraint(dof1, {{dof2, 1.}}, 0.);
-//   hp_constraints.close();
+  // Apply dof_1 = dof_2 to each pair of identified dofs
+  for (const auto &[dof1, dof2] : hp_dof_identities)
+    hp_constraints.add_constraint(dof1, {{dof2, 1.}}, 0.);
+  hp_constraints.close();
 
-//   // See also comments in incompressible_ns_solver_lambda.cpp
-//   constraints.merge(
-//     hp_constraints,
-//     AffineConstraints<double>::MergeConflictBehavior::right_object_wins);
-// }
+  // See also comments in incompressible_ns_solver_lambda.cpp
+  constraints.merge(
+    hp_constraints,
+    AffineConstraints<double>::MergeConflictBehavior::right_object_wins);
+}
+#endif
 
 template <int dim>
 void FSISolverLessLambda<dim>::create_solver_specific_zero_constraints()
@@ -1527,10 +1536,12 @@ void FSISolverLessLambda<dim>::create_solver_specific_zero_constraints()
     }
   }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
-  // add_hp_identities_constraints(this->zero_constraints);
+  add_hp_identities_constraints(this->zero_constraints);
+#endif
 }
 
 template <int dim>
@@ -1561,10 +1572,12 @@ void FSISolverLessLambda<dim>::create_solver_specific_nonzero_constraints()
     }
   }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
-  // add_hp_identities_constraints(this->nonzero_constraints);
+  add_hp_identities_constraints(this->nonzero_constraints);
+#endif
 }
 
 template <int dim>
@@ -1751,9 +1764,10 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
                              this->mpi_communicator);
 
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "Matrix has " << this->system_matrix.n_nonzero_elements()
-                << " nnz and size " << this->system_matrix.m() << " x "
-                << this->system_matrix.n() << std::endl;
+    if (dim == 2)
+      this->pcout << "Matrix has " << this->system_matrix.n_nonzero_elements()
+                  << " nnz and size " << this->system_matrix.m() << " x "
+                  << this->system_matrix.n() << std::endl;
 }
 
 template <int dim>
@@ -1919,10 +1933,9 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
 
       const auto &phi_u_i      = phi_u[i];
       const auto &grad_phi_u_i = grad_phi_u[i];
-      const auto &gui          = grad_phi_u_i[comp_i];
       const auto &div_phi_u_i  = div_phi_u[i];
       const auto &phi_p_i      = phi_p[i];
-      const auto &gxi          = grad_phi_x[i][comp_i - x_lower];
+      const auto &grad_phi_x_i = grad_phi_x[i];
       const auto &div_phi_x_i  = div_phi_x[i];
 
       const Tensor<2, dim> sym_grad_u_dot_grad_phi_u_i =
@@ -1957,6 +1970,7 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
         {
           if (j_is_u)
           {
+            const auto &gui = grad_phi_u_i[comp_i];
             const auto &guj = grad_phi_u[j][comp_j];
 
             // Time derivative, convection (including ALE) and diffusion
@@ -2022,6 +2036,7 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
         double local_ps_matrix_ij = 0.;
         if (i_is_x && j_is_x)
         {
+          const auto &gxi = grad_phi_x_i[comp_i - x_lower];
           const auto &gxj = grad_phi_x[j][comp_j - x_lower];
 
           // Linear elasticity

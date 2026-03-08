@@ -9,7 +9,6 @@ ID 1 -> InnerBoundary
 ID 2 -> OuterBoundary
 ID 3 -> Open
 ID 4 -> Domain
-Number of degrees of freedom: 2192
 Convergence test with manufactured solution:
 Mesh file was changed to ../../mms_meshes/holed_3d_1.msh
 Mesh info:
@@ -20,7 +19,6 @@ ID 1 -> InnerBoundary
 ID 2 -> OuterBoundary
 ID 3 -> Open
 ID 4 -> Domain
-Number of degrees of freedom: 12387
 
 L2_norm
 n_elm n_dof        u               p               l            F_comp0         F_comp1         F_comp2     

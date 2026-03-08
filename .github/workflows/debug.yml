@@ -31,15 +31,12 @@ jobs:
           mkdir build && cd build
           cmake -D CMAKE_BUILD_TYPE=Debug \
                 -D ENABLE_TESTING=1 \
+                -D DEAL_II_WITH_HP_IDENTITIES_BUG=1 \
                 .. \
                 -G Ninja
           ninja -j ${{ env.N_JOBS }}
 
       - name: Test debug
         run: |
-          # As long as the hp identity issue is not "fixed" (assuming it is indeed a bug (-:),
-          # the hp-based solvers return a different number of dofs in 3D.
-          # For now the only affected test is for incompressible_ns_lambda, so do not run this test
-
           cd build
-          ctest -V -E "incompressible_ns_lambda/.*3d" --output-on-failure
+          ctest -V --output-on-failure

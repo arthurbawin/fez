@@ -19,7 +19,8 @@
 
 template <int dim>
 HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
+  : GenericSolver<LA::ParVectorType>(param.output,
+                                     param.nonlinear_solver,
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,

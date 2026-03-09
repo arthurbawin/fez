@@ -27,6 +27,22 @@ void test_metric_2d()
   deallog << "Metric tensor    : " << m1 << std::endl;
   AssertThrow(m1 == t1, ExcInternalError());
 
+  // Print underlying Eigen matrix and eigendecomposition
+  const auto e_val = m1.get_eigenvalues();
+  const auto e_vec = m1.get_eigenvectors();
+  deallog << "Eigen matrix     : " << m1.get_eigen_matrix() << std::endl;
+  deallog << "Eigenvalues      : " << e_val << std::endl;
+  deallog << "Eigenvectors     : " << e_vec << std::endl;
+  deallog << "determinant      : " << determinant(m1) << std::endl;
+
+  auto d  = unit_symmetric_tensor<2>();
+  d[0][0] = e_val[0];
+  d[1][1] = e_val[1];
+
+  // Reassemble the metric from its eigendecomposition
+  MetricTensor<2> assembled(e_vec * d * transpose(e_vec));
+  AssertThrow((m1 - assembled).norm() < 1e-14, ExcInternalError());
+
   /*
    * Initialize from non-PD tensor, this should throw in debug
    */
@@ -72,14 +88,31 @@ void test_metric_3d()
   SymmetricTensor<2, 3> t1;
   t1[0][0] = 1;
   t1[1][1] = 2;
-  t1[2][2] = 3;
-  t1[0][1] = 4;
+  t1[2][2] = 27;
+  t1[0][1] = 1;
   t1[0][2] = 5;
   t1[1][2] = 6;
   deallog << "Symmetric tensor : " << t1 << std::endl;
   MetricTensor<3> m1(t1);
   deallog << "Metric tensor    : " << m1 << std::endl;
   AssertThrow(m1 == t1, ExcInternalError());
+
+  // Print underlying Eigen matrix and eigendecomposition
+  const auto e_val = m1.get_eigenvalues();
+  const auto e_vec = m1.get_eigenvectors();
+  deallog << "Eigen matrix     : " << m1.get_eigen_matrix() << std::endl;
+  deallog << "Eigenvalues      : " << e_val << std::endl;
+  deallog << "Eigenvectors     : " << e_vec << std::endl;
+  deallog << "determinant      : " << determinant(m1) << std::endl;
+
+  auto d  = unit_symmetric_tensor<3>();
+  d[0][0] = e_val[0];
+  d[1][1] = e_val[1];
+  d[2][2] = e_val[2];
+
+  // Reassemble the metric from its eigendecomposition
+  MetricTensor<3> assembled(symmetrize(e_vec * d * transpose(e_vec)));
+  AssertThrow((m1 - assembled).norm() < 1e-13, ExcInternalError());
 
   SymmetricTensor<2, 3> t2;
   t2[0][0] = 2;
@@ -99,7 +132,7 @@ void test_metric_3d()
   }
 
   // From SPD array
-  double v1[6] = {1, 2, 3, 4, 5, 6};
+  double v1[6] = {1, 2, 27, 1, 5, 6};
   deallog << "Metric tensor    : " << MetricTensor<3>(v1) << std::endl;
   // Non-SPD array
   double v2[6] = {2, 2, 1, 3, 1, 1};

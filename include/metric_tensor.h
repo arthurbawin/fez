@@ -43,10 +43,29 @@ struct EigenComplexMatrix<3>
   using type = Eigen::Matrix3cd;
 };
 
-DeclExceptionMsg(ExcNotSPD,
-                 "You are performing an operation on a metric tensor, which "
-                 "should be symmetric and positive-definite (SPD) by "
-                 "definition, but the underlying tensor is not SPD.");
+/**
+ * Return true if t is positive definite using Sylvester's criterion
+ */
+template <int dim>
+constexpr inline bool is_positive_definite(const SymmetricTensor<2, dim> &t);
+
+template <>
+constexpr inline bool is_positive_definite(const SymmetricTensor<2, 2> &t)
+{
+  return t[0][0] > 0. && determinant(t) > 0.;
+}
+
+template <>
+constexpr inline bool is_positive_definite(const SymmetricTensor<2, 3> &t)
+{
+  return t[0][0] > 0. && (t[0][0] * t[1][1] - t[0][1] * t[0][1]) > 0. &&
+         determinant(t) > 0.;
+}
+
+// DeclExceptionMsg(ExcNotSPD,
+//                  "You are performing an operation on a metric tensor, which "
+//                  "should be symmetric and positive-definite (SPD) by "
+//                  "definition, but the underlying tensor is not SPD.");
 
 DeclExceptionMsg(
   ExcOperationMadeNotSPD,
@@ -56,23 +75,24 @@ DeclExceptionMsg(
 DeclExceptionMsg(
   ExcAssignFromNotSPD,
   "You are trying to create a metric tensor, which should be symmetric and "
-  "positive-definite (SPD) by definition, from a non-SPD SymmetricTensor.");
+  "positive-definite (SPD) by definition, from a SymmetricTensor that is not "
+  "positive-definite.");
 
 DeclExceptionMsg(
   ExcAssignFromNotSPDArray,
   "You are trying to create a metric tensor, which should be symmetric and "
   "positive-definite (SPD) by definition, from an array that "
-  "represents a non-SPD SymmetricTensor. You should maybe double-check "
-  "the ordering of the entries of the array.");
+  "represents a SymmetricTensor that is not positive-definite. "
+  "You should maybe double check the ordering of the entries of the array.");
 
-#define AssertIsSPD(metric_tensor) \
-  Assert(dealii::determinant(metric_tensor) > 0, ExcNotSPD())
+// #define AssertIsSPD(metric_tensor) \
+//   Assert(is_positive_definite(metric_tensor), ExcNotSPD())
 
 #define AssertAssignFromSPD(symmetric_tensor) \
-  Assert(dealii::determinant(symmetric_tensor) > 0, ExcAssignFromNotSPD())
+  Assert(is_positive_definite(symmetric_tensor), ExcAssignFromNotSPD())
 
 #define AssertAssignFromSPDArray(metric_tensor) \
-  Assert(dealii::determinant(metric_tensor) > 0, ExcAssignFromNotSPDArray())
+  Assert(is_positive_definite(metric_tensor), ExcAssignFromNotSPDArray())
 
 /**
  * A metric tensor is a positive-definite SymmetricTensor<2, dim, double>, with
@@ -87,13 +107,25 @@ class MetricTensor : public SymmetricTensor<2, dim>
 public:
   /**
    * Constructor. Generate a MetricTensor from a SymmetricTensor. Assumes that
-   * @p t is already positive-definite (it has positive determinant), and in
+   * @p t is already positive-definite (it has all positive eigenvalues), and in
    * debug mode this is in fact checked.
    *
    * Unlike SymmetricTensors, there is no constructor to create a default metric
    * tensor with arbitrary or zero values, since the tensor should be SPD.
    */
   MetricTensor(const SymmetricTensor<2, dim> &t = unit_symmetric_tensor<dim>());
+
+  /**
+   * Constructor. Generate a MetricTensor from a Tensor. Assumes that @p t is
+   * symmetric and positive-definite (it has all positive eigenvalues), and in
+   * debug mode this is in fact checked.
+   *
+   * This constructor allows the creation of a metric tensor from its
+   * eigendecomposition M = QDQ^T. Since the matrix Q of eigenvectors is *not*
+   * symmetric in general, it is stored as a Tensor<2, dim> and not a
+   * SymmetricTensor<2, dim>, and the result of QDQ^T is also a Tensor<2, dim>.
+   */
+  MetricTensor(const Tensor<2, dim> &t);
 
   /**
    * A constructor that creates a symmetric tensor from an array holding its
@@ -130,6 +162,31 @@ public:
   operator=(const double (&array)[n_independent_components]);
 
   /**
+   * Return the eigenvalues as a Tensor<1, dim>
+   */
+  const Tensor<1, dim> &get_eigenvalues() const;
+
+  /**
+   * Return the orthonormal eigenvectors as a Tensor<2, dim>
+   */
+  const Tensor<2, dim> &get_eigenvectors() const;
+
+  /**
+   * Return a const reference to the underlying Eigen matrix
+   */
+  const typename EigenRealMatrix<dim>::type &get_eigen_matrix() const;
+
+  /**
+   * Return the eigenvalues as a vector in Eigen format
+   */
+  const Eigen::Matrix<double, dim, 1> &get_eigenvalues_as_eigen() const;
+
+  /**
+   * Return the orthonormal eigenvectors as an Eigen matrix
+   */
+  const Eigen::Matrix<double, dim, dim> &get_eigenvectors_as_eigen() const;
+
+  /**
    * Limit the eigenvalues to lambdaMin and lambdaMax
    */
   void bound_eigenvalues(const double lambdaMin, const double lambdaMax);
@@ -161,15 +218,20 @@ private:
   /**
    *
    */
-  void compute_eigendecomposition();
+  // void compute_eigendecomposition();
 
 private:
   // Matrix representation of the underlying tensor in Eigen format.
   // This is *not* the matrix of the eigendecomposition of this metric tensor.
   typename EigenRealMatrix<dim>::type matrix_eigen;
 
+  // The eigendecomposition stored in Eigen format
   Eigen::Matrix<double, dim, 1>   eigenvalues;
   Eigen::Matrix<double, dim, dim> eigenvectors;
+
+  // The eigendecomposition stored as Tensors
+  Tensor<1, dim> eigenvalues_t;
+  Tensor<2, dim> eigenvectors_t;
 };
 
 /**
@@ -201,11 +263,11 @@ public:
                  << "You are trying to assign a metric tensor, which should be "
                     "symmetric and positive-definite (SPD) by definition, from "
                     "an analytical metric given in the parameter file, but the "
-                    "parsed function returned a tensor with nonpositive "
-                    "determinant.\n\nThe provided function evaluated at point ["
+                    "parsed function returned a non SPD tensor.\n\n "
+                    "The provided function evaluated at point ["
                  << arg1 << "] returned the components " << arg2
-                 << ", with det = " << arg3 << ".\n\n"
-                 << "You should maybe double-check that (i) he components "
+                 << ", with determinant = " << arg3 << ".\n\n"
+                 << "You should maybe double-check that (i) the components "
                     "of the metric tensor do indeed yield an SPD matrix, and "
                     "(ii) the components were given in the right order, which "
                     "is :\n\n in 2D : set Function expression = xx; yy; xy\n "
@@ -232,7 +294,7 @@ public:
     if constexpr (running_in_debug_mode())
     {
       const double det = determinant(res);
-      Assert(det > 0, ExcUserFunNotSPD(p, res, det));
+      Assert(is_positive_definite(res), ExcUserFunNotSPD(p, res, det));
     }
     return res;
   }

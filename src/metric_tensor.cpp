@@ -9,6 +9,18 @@ MetricTensor<dim>::MetricTensor(const SymmetricTensor<2, dim> &t)
   , matrix_eigen(MetricTensorTools::metric2eigen(*this))
 {
   AssertAssignFromSPD(t);
+  MetricTensorTools::eigen_decomposition_symmetric(
+    matrix_eigen, eigenvalues, eigenvectors, eigenvalues_t, eigenvectors_t);
+}
+
+template <int dim>
+MetricTensor<dim>::MetricTensor(const Tensor<2, dim> &t)
+  : SymmetricTensor<2, dim>(t)
+  , matrix_eigen(MetricTensorTools::metric2eigen(*this))
+{
+  AssertAssignFromSPD(*this);
+  MetricTensorTools::eigen_decomposition_symmetric(
+    matrix_eigen, eigenvalues, eigenvectors, eigenvalues_t, eigenvectors_t);
 }
 
 template <int dim>
@@ -17,12 +29,16 @@ MetricTensor<dim>::MetricTensor(const double (&array)[n_independent_components])
   , matrix_eigen(MetricTensorTools::metric2eigen(*this))
 {
   AssertAssignFromSPDArray(*this);
+  MetricTensorTools::eigen_decomposition_symmetric(
+    matrix_eigen, eigenvalues, eigenvectors, eigenvalues_t, eigenvectors_t);
 }
 
 template <int dim>
 MetricTensor<dim>::MetricTensor(const MetricTensor<dim> &m)
   : SymmetricTensor<2, dim>(m)
-  , matrix_eigen(MetricTensorTools::metric2eigen(*this))
+  , matrix_eigen(m.matrix_eigen)
+  , eigenvalues(m.eigenvalues)
+  , eigenvectors(m.eigenvectors)
 {
   AssertAssignFromSPD(m);
 }
@@ -33,7 +49,9 @@ MetricTensor<dim>::operator=(const MetricTensor<dim> &m)
 {
   AssertAssignFromSPD(m);
   SymmetricTensor<2, dim>::operator=(m);
-  matrix_eigen(MetricTensorTools::metric2eigen(*this));
+  matrix_eigen = m.matrix_eigen;
+  eigenvalues  = m.eigenvalues;
+  eigenvectors = m.eigenvectors;
   return *this;
 }
 
@@ -43,7 +61,9 @@ MetricTensor<dim>::operator=(const SymmetricTensor<2, dim> &t)
 {
   AssertAssignFromSPD(t);
   SymmetricTensor<2, dim>::operator=(t);
-  matrix_eigen(MetricTensorTools::metric2eigen(*this));
+  MetricTensorTools::metric2eigen(*this, matrix_eigen);
+  MetricTensorTools::eigen_decomposition_symmetric(
+    matrix_eigen, eigenvalues, eigenvectors, eigenvalues_t, eigenvectors_t);
   return *this;
 }
 
@@ -67,13 +87,44 @@ MetricTensor<dim>::operator=(const double (&array)[n_independent_components])
     (*this)[1][2] = array[5];
   }
   AssertAssignFromSPDArray(*this);
-  matrix_eigen(MetricTensorTools::metric2eigen(*this));
+  MetricTensorTools::metric2eigen(*this, matrix_eigen);
+  MetricTensorTools::eigen_decomposition_symmetric(
+    matrix_eigen, eigenvalues, eigenvectors, eigenvalues_t, eigenvectors_t);
   return *this;
 }
 
 template <int dim>
-void MetricTensor<dim>::compute_eigendecomposition()
-{}
+const Tensor<1, dim> &MetricTensor<dim>::get_eigenvalues() const
+{
+  return eigenvalues_t;
+}
+
+template <int dim>
+const Tensor<2, dim> &MetricTensor<dim>::get_eigenvectors() const
+{
+  return eigenvectors_t;
+}
+
+template <int dim>
+const typename EigenRealMatrix<dim>::type &
+MetricTensor<dim>::get_eigen_matrix() const
+{
+  return matrix_eigen;
+}
+
+template <int dim>
+const Eigen::Matrix<double, dim, 1> &
+MetricTensor<dim>::get_eigenvalues_as_eigen() const
+{
+  return eigenvalues;
+}
+
+template <int dim>
+const Eigen::Matrix<double, dim, dim> &
+MetricTensor<dim>::get_eigenvectors_as_eigen() const
+{
+  return eigenvectors;
+}
 
 template <int dim>
 MetricTensor<dim> MetricTensor<dim>::log() const
@@ -85,27 +136,6 @@ template <int dim>
 MetricTensor<dim> MetricTensor<dim>::exp() const
 {
   return MetricTensorTools::eigen2metric<dim>(matrix_eigen.exp());
-}
-
-/**
- * Eigendecomposition for a symmetric matrix.
- * Real eigenvalues and orthogonal eigenvectors.
- */
-template <int dim>
-void eigen_decomposition_symmetric(
-  const Eigen::Matrix<double, dim, dim> &A,
-  Eigen::Matrix<double, dim, 1>         &eigenvalues,
-  Eigen::Matrix<double, dim, dim>       &eigenvectors)
-{
-  Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, dim, dim>> eigensolver(
-    A, Eigen::ComputeEigenvectors);
-
-  if (eigensolver.info() != Eigen::Success)
-    throw std::runtime_error("Eigen decomposition failed");
-
-  eigenvalues = eigensolver.eigenvalues(); // Real-valued vector
-  eigenvectors =
-    eigensolver.eigenvectors(); // Columns are eigenvectors (orthonormal)
 }
 
 /**
@@ -133,9 +163,8 @@ void MetricTensor<dim>::bound_eigenvalues(const double min_eigenvalue,
 {
   Eigen::Matrix<double, dim, 1>   eigenvalues;
   Eigen::Matrix<double, dim, dim> eigenvectors;
-  eigen_decomposition_symmetric<dim>(MetricTensorTools::metric2eigen(*this),
-                                     eigenvalues,
-                                     eigenvectors);
+  MetricTensorTools::eigen_decomposition_symmetric<dim>(
+    MetricTensorTools::metric2eigen(*this), eigenvalues, eigenvectors);
   for (auto &val : eigenvalues)
     val = std::min(max_eigenvalue, std::max(min_eigenvalue, val));
   Eigen::Matrix<double, dim, dim> res =
@@ -172,7 +201,8 @@ MetricTensor<dim> absolute_value(const Vector<double> &vec)
     eigenMat(2, 1) = vec[5];
   }
 
-  eigen_decomposition_symmetric<dim>(eigenMat, eigenvalues, eigenvectors);
+  // MetricTensorTools::eigen_decomposition_symmetric<dim>(eigenMat,
+  // eigenvalues, eigenvectors);
 
   Eigen::Matrix<double, dim, dim> absD = eigenvalues.cwiseAbs().asDiagonal();
 

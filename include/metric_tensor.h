@@ -8,39 +8,42 @@
 #include <deal.II/grid/tria.h>
 
 #include <Eigen/Dense>
-#include <unsupported/Eigen/MatrixFunctions>
 
 using namespace dealii;
 
 // Eigen real and complex matrix types in 2D and 3D
 template <int dim>
-struct EigenRealMatrix;
+struct EigenReal;
 
 template <>
-struct EigenRealMatrix<2>
+struct EigenReal<2>
 {
-  using type = Eigen::Matrix2d;
+  using matrix_type = Eigen::Matrix2d;
+  using vector_type = Eigen::Vector2d;
 };
 
 template <>
-struct EigenRealMatrix<3>
+struct EigenReal<3>
 {
-  using type = Eigen::Matrix3d;
+  using matrix_type = Eigen::Matrix3d;
+  using vector_type = Eigen::Vector3d;
 };
 
 template <int dim>
-struct EigenComplexMatrix;
+struct EigenComplex;
 
 template <>
-struct EigenComplexMatrix<2>
+struct EigenComplex<2>
 {
-  using type = Eigen::Matrix2cd;
+  using matrix_type = Eigen::Matrix2cd;
+  using vector_type = Eigen::Vector2cd;
 };
 
 template <>
-struct EigenComplexMatrix<3>
+struct EigenComplex<3>
 {
-  using type = Eigen::Matrix3cd;
+  using matrix_type = Eigen::Matrix3cd;
+  using vector_type = Eigen::Vector3cd;
 };
 
 /**
@@ -60,6 +63,12 @@ constexpr inline bool is_positive_definite(const SymmetricTensor<2, 3> &t)
 {
   return t[0][0] > 0. && (t[0][0] * t[1][1] - t[0][1] * t[0][1]) > 0. &&
          determinant(t) > 0.;
+}
+
+template <int dim>
+constexpr inline bool is_orthonormal(const Tensor<2, dim> &t)
+{
+  return (t * transpose(t) - unit_symmetric_tensor<dim>()).norm() < 1e-14;
 }
 
 // DeclExceptionMsg(ExcNotSPD,
@@ -85,8 +94,22 @@ DeclExceptionMsg(
   "represents a SymmetricTensor that is not positive-definite. "
   "You should maybe double check the ordering of the entries of the array.");
 
-// #define AssertIsSPD(metric_tensor) \
-//   Assert(is_positive_definite(metric_tensor), ExcNotSPD())
+DeclException1(
+  ExcEigenvalueNotPositive,
+  double,
+  << "At leat one eigenvalue used to create a metric tensor is not positive: "
+  << arg1);
+
+DeclException1(ExcEigenvectorsNotOrthonormal,
+               std::string,
+               << "The set of eigenvectors used to create a metric tensor is "
+                  "not orthonormal: "
+               << arg1);
+
+/**
+ * #define AssertIsSPD(metric_tensor) \
+ *   Assert(is_positive_definite(metric_tensor), ExcNotSPD())
+ */
 
 #define AssertAssignFromSPD(symmetric_tensor) \
   Assert(is_positive_definite(symmetric_tensor), ExcAssignFromNotSPD())
@@ -101,6 +124,10 @@ DeclExceptionMsg(
 template <int dim>
 class MetricTensor : public SymmetricTensor<2, dim>
 {
+public:
+  using EigenRealMatrix = typename EigenReal<dim>::matrix_type;
+  using EigenRealVector = typename EigenReal<dim>::vector_type;
+
   static constexpr unsigned int n_independent_components =
     SymmetricTensor<2, dim>::n_independent_components;
 
@@ -128,6 +155,17 @@ public:
   MetricTensor(const Tensor<2, dim> &t);
 
   /**
+   * Constructor. Generate a MetricTensor from its eigendecomposition. Assumes
+   * that the @p eigenvalues are all positive and that the @p eigenvectors are
+   * orthonormal, which is checked in debug mode.
+   *
+   * This constructor is an alternative to the one above. @p eigenvectors is
+   * expected to be the matrix Q in the eigendecomposition M = QDQ^T.
+   */
+  MetricTensor(const Tensor<2, dim> &eigenvectors,
+               const Tensor<1, dim> &eigenvalues);
+
+  /**
    * A constructor that creates a symmetric tensor from an array holding its
    * independent N*(N+1)/2 components. Identical to the one for
    * SymmetricTensors, but here it additionally checks for postiive-definiteness
@@ -144,22 +182,21 @@ public:
   /**
    * Assignment operator from a MetricTensor.
    */
-  constexpr MetricTensor<dim> &operator=(const MetricTensor<dim> &m);
+  MetricTensor<dim> &operator=(const MetricTensor<dim> &m);
 
   /**
    * Assignment operator from a SymmetricTensor, assumed to be SPD.
    * This operator simply checks that t is in fact SPD (in debug only), then
    * calls the assignment operator for SymmetricTensors.
    */
-  constexpr MetricTensor<dim> &operator=(const SymmetricTensor<2, dim> &t);
+  MetricTensor<dim> &operator=(const SymmetricTensor<2, dim> &t);
 
   /**
    * Assignment operator from an array with N*(N+1)/2 components.
    * As for SymmetricTensors, this requires knowing the layout of the indices,
    * which can be obtained through the unrolled_index() function.
    */
-  constexpr MetricTensor<dim> &
-  operator=(const double (&array)[n_independent_components]);
+  MetricTensor<dim> &operator=(const double (&array)[n_independent_components]);
 
   /**
    * Return the eigenvalues as a Tensor<1, dim>
@@ -174,39 +211,63 @@ public:
   /**
    * Return a const reference to the underlying Eigen matrix
    */
-  const typename EigenRealMatrix<dim>::type &get_eigen_matrix() const;
+  const EigenRealMatrix &get_eigen_matrix() const;
 
   /**
    * Return the eigenvalues as a vector in Eigen format
    */
-  const Eigen::Matrix<double, dim, 1> &get_eigenvalues_as_eigen() const;
+  const EigenRealVector &get_eigenvalues_as_eigen() const;
 
   /**
    * Return the orthonormal eigenvectors as an Eigen matrix
    */
-  const Eigen::Matrix<double, dim, dim> &get_eigenvectors_as_eigen() const;
+  const EigenRealMatrix &get_eigenvectors_as_eigen() const;
 
   /**
-   * Limit the eigenvalues to lambdaMin and lambdaMax
-   */
-  void bound_eigenvalues(const double lambdaMin, const double lambdaMax);
-
-  /**
+   * Limit the eigenvalues to [min_eigenvalue, max_eigenvalue].
+   * After calling this function, the underlying matrix is set to:
    *
+   *             M = Q * diag(lambda_1', ..., lambda_d') * Q^T,
+   *
+   * with lambda_i' := min(max(lambda_i, min_eigenvalue), max_eigenvalue).
+   */
+  void bound_eigenvalues(const double min_eigenvalue,
+                         const double max_eigenvalue);
+
+  /**
+   * Same as the function above, but returns a new metric with the bounded
+   * eigenvalues.
+   */
+  MetricTensor<dim> bounded_eigenvalues(const double min_eigenvalue,
+                                        const double max_eigenvalue) const;
+
+  /**
+   * Return the matrix logarithm of the underlying matrix of this metric.
+   * This is logm(M) := Q * log(D) * Q^T, which is not the componentwise
+   * logarithm. Computed with Eigen's log().
    */
   MetricTensor<dim> log() const;
 
   /**
-   *
+   * Return the matrix exponential of the underlying matrix of this metric.
+   * This is expm(M) := Q * exp(D) * Q^T, which is not the componentwise
+   * exponential. Computed with Eigen's exp().
    */
   MetricTensor<dim> exp() const;
 
   /**
    * Compute metric intersection of this metric with other.
    * Checks first if metrics are diagonal or multiple of one another.
-   * If not, compute their simultaneousReduction.
+   * If not, compute their simultaneous reduction.
    */
-  MetricTensor<dim> intersection(const MetricTensor<dim> &other) const;
+  MetricTensor<dim> intersection(const MetricTensor<dim> &other,
+                                 const double             tolerance) const;
+
+  /**
+   * Compute metric intersection of this metric with other using the routines
+   * from the MMG library.
+   */
+  MetricTensor<dim> intersection_mmg(const MetricTensor<dim> &other) const;
 
   /**
    * Span a metric at distance pq with prescribed gradation.
@@ -215,19 +276,13 @@ public:
                                 const Tensor<1, dim> &pq) const;
 
 private:
-  /**
-   *
-   */
-  // void compute_eigendecomposition();
-
-private:
   // Matrix representation of the underlying tensor in Eigen format.
   // This is *not* the matrix of the eigendecomposition of this metric tensor.
-  typename EigenRealMatrix<dim>::type matrix_eigen;
+  EigenRealMatrix matrix_eigen;
 
   // The eigendecomposition stored in Eigen format
-  Eigen::Matrix<double, dim, 1>   eigenvalues;
-  Eigen::Matrix<double, dim, dim> eigenvectors;
+  EigenRealVector eigenvalues;
+  EigenRealMatrix eigenvectors;
 
   // The eigendecomposition stored as Tensors
   Tensor<1, dim> eigenvalues_t;

@@ -43,6 +43,11 @@ void test_metric_2d()
   MetricTensor<2> assembled(e_vec * d * transpose(e_vec));
   AssertThrow((m1 - assembled).norm() < 1e-14, ExcInternalError());
 
+  // Create a new metric direclty from the eigendecomposition
+  MetricTensor<2> m2(e_vec, e_val);
+  deallog << "Metric from decomposition : " << m2 << std::endl;
+  AssertThrow((m2 - m1).norm() < 1e-14, ExcInternalError());
+
   /*
    * Initialize from non-PD tensor, this should throw in debug
    */
@@ -53,7 +58,7 @@ void test_metric_2d()
   deallog << "Symmetric tensor : " << t2 << std::endl;
   try
   {
-    MetricTensor<2> m2(t2);
+    MetricTensor<2> m(t2);
   }
   catch (ExceptionBase &e)
   {
@@ -114,6 +119,11 @@ void test_metric_3d()
   MetricTensor<3> assembled(symmetrize(e_vec * d * transpose(e_vec)));
   AssertThrow((m1 - assembled).norm() < 1e-13, ExcInternalError());
 
+  // Create a new metric direclty from the eigendecomposition
+  MetricTensor<3> m2(e_vec, e_val);
+  deallog << "Metric from decomposition : " << m2 << std::endl;
+  AssertThrow((m2 - m1).norm() < 1e-13, ExcInternalError());
+
   SymmetricTensor<2, 3> t2;
   t2[0][0] = 2;
   t2[1][1] = 2;
@@ -124,7 +134,7 @@ void test_metric_3d()
   deallog << "Symmetric tensor : " << t2 << std::endl;
   try
   {
-    MetricTensor<3> m2(t2);
+    MetricTensor<3> m(t2);
   }
   catch (ExceptionBase &e)
   {

@@ -127,29 +127,29 @@ bool gradationOnEdge(const Point<dim>  &p,
 {
   bool metricChanged = false;
 
-  // Span Mp to q, intersect and check if Mq needs to be reduced
-  MetricTensor<dim> MpAtq = Mp.span_metric(gradation, q - p);
-  MpAtq                   = Mq.intersection(MpAtq);
+  // // Span Mp to q, intersect and check if Mq needs to be reduced
+  // MetricTensor<dim> MpAtq = Mp.span_metric(gradation, q - p);
+  // MpAtq                   = Mq.intersection(MpAtq);
 
-  const double relative_norm_q = (MpAtq - Mq).norm() / Mq.norm();
+  // const double relative_norm_q = (MpAtq - Mq).norm() / Mq.norm();
 
-  if (relative_norm_q > relativeTolerance)
-  {
-    Mq            = MpAtq;
-    metricChanged = true;
-  };
+  // if (relative_norm_q > relativeTolerance)
+  // {
+  //   Mq            = MpAtq;
+  //   metricChanged = true;
+  // };
 
-  // Idem for Mq at p
-  MetricTensor<dim> MqAtp = Mq.span_metric(gradation, p - q);
-  MqAtp                   = Mp.intersection(MqAtp);
+  // // Idem for Mq at p
+  // MetricTensor<dim> MqAtp = Mq.span_metric(gradation, p - q);
+  // MqAtp                   = Mp.intersection(MqAtp);
 
-  const double relative_norm_p = (MqAtp - Mp).norm() / Mp.norm();
+  // const double relative_norm_p = (MqAtp - Mp).norm() / Mp.norm();
 
-  if (relative_norm_p > relativeTolerance)
-  {
-    Mp            = MqAtp;
-    metricChanged = true;
-  };
+  // if (relative_norm_p > relativeTolerance)
+  // {
+  //   Mp            = MqAtp;
+  //   metricChanged = true;
+  // };
 
   return metricChanged;
 }
@@ -220,14 +220,14 @@ void MetricField<dim>::metric_gradation(const double       gradation,
 template <int dim>
 void MetricField<dim>::intersect_with(const MetricField<dim> &otherField)
 {
-  const unsigned int nMetrics = this->metrics.size();
-  AssertThrow(otherField.metrics.size() == nMetrics,
-              ExcDimensionMismatch(otherField.metrics.size(), nMetrics));
-  for (unsigned int i = 0; i < nMetrics; ++i)
-  {
-    MetricTensor<dim> &metric = metrics[i];
-    metric                    = metric.intersection(otherField.metrics[i]);
-  }
+  // const unsigned int nMetrics = this->metrics.size();
+  // AssertThrow(otherField.metrics.size() == nMetrics,
+  //             ExcDimensionMismatch(otherField.metrics.size(), nMetrics));
+  // for (unsigned int i = 0; i < nMetrics; ++i)
+  // {
+  //   MetricTensor<dim> &metric = metrics[i];
+  //   metric                    = metric.intersection(otherField.metrics[i]);
+  // }
 }
 
 /**

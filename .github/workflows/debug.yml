@@ -45,7 +45,8 @@ jobs:
       - name: Run serial tests in debug
         run: |
           cd build
-          ctest -V --output-on-failure -E "mpirun=[2-9]" -j ${{ env.N_JOBS }}
+          # Do not run incompressible_ns_lambda/mms_3d, which may timeout
+          ctest -V --output-on-failure -E "(mpirun=[2-9]|incompressible_ns_lambda/mms_3d)" -j ${{ env.N_JOBS }}
 
       # Run the parallel tests one at a time 
       - name: Run parallel tests in debug

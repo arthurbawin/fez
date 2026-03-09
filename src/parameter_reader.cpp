@@ -56,12 +56,6 @@ void ParameterReader<dim>::check_parameters(ParameterHandler &prm) const
                   ExcMessage("Forces computation must be enabled to compute "
                              "forces on slices of a given boundary"));
   }
-  if (postprocessing.structure_position.enable)
-    AssertThrow(
-      fsi.enable_coupling,
-      ExcMessage(
-        "Computing the position of the structure's geometric center only makes "
-        "sense if the fluid-structure interaction coupling is enabled."));
 
   // FSI
   if (!fsi.enable_coupling)

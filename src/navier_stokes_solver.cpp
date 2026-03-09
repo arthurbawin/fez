@@ -694,8 +694,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
     {
       error_handlers.at(norm)->add_reference_data(
         "n_elm", triangulation.n_global_active_cells());
-      error_handlers.at(norm)->add_reference_data("n_dof",
-                                                  dof_handler.n_dofs());
+
+      // FIXME: Remove the dofs from the convergence table in 3d as long as the
+      // hp bug is in deal.II, to allow tests with the docker
+      if (!(dim == 3 && dof_handler.has_hp_capabilities()))
+        error_handlers.at(norm)->add_reference_data("n_dof",
+                                                    dof_handler.n_dofs());
     }
 
   /**

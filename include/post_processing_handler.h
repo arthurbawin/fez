@@ -518,10 +518,12 @@ void PostProcessingHandler<dim>::compute_forces(
   // Add forces to forces table and write if time step matches frequency
   {
     add_force_to_table(forces, time_handler, forces_table);
-    std::ofstream outfile(output_param.output_dir +
-                          post_proc_param.forces.output_prefix + ".txt");
     if (should_output_forces(time_handler))
+    {
+      std::ofstream outfile(output_param.output_dir +
+                            post_proc_param.forces.output_prefix + ".txt");
       write_table(outfile, forces_table, post_proc_param.forces);
+    }
   }
 
   // Compute forces on each slice of given boundary
@@ -574,10 +576,15 @@ void PostProcessingHandler<dim>::compute_forces(
     }
 
     // Write to file
-    std::ofstream slices_outfile(output_param.output_dir +
-                                 post_proc_param.forces.output_prefix + "_" +
-                                 slices_param.output_prefix + ".txt");
-    write_table(slices_outfile, forces_table_per_slice, post_proc_param.forces);
+    if (should_output_postprocessing(time_handler, slices_param))
+    {
+      std::ofstream slices_outfile(output_param.output_dir +
+                                   post_proc_param.forces.output_prefix + "_" +
+                                   slices_param.output_prefix + ".txt");
+      write_table(slices_outfile,
+                  forces_table_per_slice,
+                  post_proc_param.forces);
+    }
 
     // Check that sum of forces on slices is the force on boundary
     {
@@ -642,13 +649,15 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
   add_position_to_table(mean_position,
                         time_handler,
                         structure_mean_position_table);
-  std::ofstream outfile(output_param.output_dir +
-                        post_proc_param.structure_position.output_prefix +
-                        ".txt");
   if (should_output_mean_position(time_handler))
+  {
+    std::ofstream outfile(output_param.output_dir +
+                          post_proc_param.structure_position.output_prefix +
+                          ".txt");
     write_table(outfile,
                 structure_mean_position_table,
                 post_proc_param.structure_position);
+  }
 }
 
 #endif

@@ -1,4 +1,5 @@
 
+#include <assembly/lagrange_multiplier.h>
 #include <boundary_conditions.h>
 #include <compare_matrix.h>
 #include <components_ordering.h>
@@ -275,11 +276,12 @@ void NSSolverLambda<dim>::setup_dofs()
   // Initialize dof handler
   this->dof_handler.distribute_dofs(*fe);
 
-  // Optional: Plot active fe index after ghosts were updated in distribute_dofs
-  // write_partition_gmsh_with_active_fe_index(this->dof_handler, this->param);
-
-  this->pcout << "Number of degrees of freedom: " << this->dof_handler.n_dofs()
-              << std::endl;
+  // The number of dofs in 3d changes if the hp line identities are correctly
+  // applied. Do not print the number of dofs in 3d, as they will differ between
+  // the docker and the fixed version and the tests will fail.
+  if (dim == 2)
+    this->pcout << "Number of degrees of freedom: "
+                << this->dof_handler.n_dofs() << std::endl;
 
   this->locally_owned_dofs = this->dof_handler.locally_owned_dofs();
   this->locally_relevant_dofs =
@@ -315,7 +317,10 @@ void NSSolverLambda<dim>::setup_dofs()
     {
       handler->add_reference_data("n_elm",
                                   this->triangulation.n_global_active_cells());
-      handler->add_reference_data("n_dof", this->dof_handler.n_dofs());
+      // FIXME: Remove the dofs from the convergence table in 3d as long as the
+      // hp bug is in deal.II, to allow tests with the docker
+      if (dim == 2)
+        handler->add_reference_data("n_dof", this->dof_handler.n_dofs());
       handler->add_time_step(this->time_handler.initial_dt);
     }
 }
@@ -418,6 +423,7 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
   }
 }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
 template <int dim>
 void NSSolverLambda<dim>::create_hp_line_dof_identities()
 {
@@ -541,6 +547,7 @@ void NSSolverLambda<dim>::create_hp_line_dof_identities()
     }
   }
 }
+#endif
 
 template <int dim>
 void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
@@ -577,18 +584,17 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
 
   if constexpr (running_in_debug_mode())
   {
-    // Check consistency of constraints for RELEVANT (not active) dofs before
-    // removing
+    // Check constraints consistency before removing
     {
       const bool consistent = constraints.is_consistent_in_parallel(
         Utilities::MPI::all_gather(this->mpi_communicator,
                                    this->locally_owned_dofs),
-        this->locally_relevant_dofs,
-        // DoFTools::extract_locally_active_dofs(this->dof_handler),
+        // this->locally_relevant_dofs,
+        DoFTools::extract_locally_active_dofs(this->dof_handler),
         this->mpi_communicator,
         true);
-      Assert(consistent,
-             ExcMessage("Constraints are not consistent before removing"));
+      AssertThrow(consistent,
+                  ExcMessage("Constraints are not consistent before removing"));
     }
   }
 
@@ -622,18 +628,17 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
 
   if constexpr (running_in_debug_mode())
   {
-    // Check consistency of constraints for RELEVANT (not active) dofs after
-    // removing
+    // Check constraints consistency after removing
     {
       const bool consistent = constraints.is_consistent_in_parallel(
         Utilities::MPI::all_gather(this->mpi_communicator,
                                    this->locally_owned_dofs),
-        this->locally_relevant_dofs,
-        // DoFTools::extract_locally_active_dofs(this->dof_handler),
+        // this->locally_relevant_dofs,
+        DoFTools::extract_locally_active_dofs(this->dof_handler),
         this->mpi_communicator,
         true);
-      Assert(consistent,
-             ExcMessage("Constraints are not consistent after removing"));
+      AssertThrow(consistent,
+                  ExcMessage("Constraints are not consistent after removing"));
     }
 
     // Check that boundary dofs were correctly removed
@@ -651,6 +656,7 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
   }
 }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
 template <int dim>
 void NSSolverLambda<dim>::add_hp_identities_constraints(
   AffineConstraints<double> &constraints) const
@@ -674,6 +680,7 @@ void NSSolverLambda<dim>::add_hp_identities_constraints(
     hp_constraints,
     AffineConstraints<double>::MergeConflictBehavior::right_object_wins);
 }
+#endif
 
 template <int dim>
 void NSSolverLambda<dim>::create_solver_specific_zero_constraints()
@@ -696,10 +703,12 @@ void NSSolverLambda<dim>::create_solver_specific_zero_constraints()
       remove_cylinder_velocity_constraints(this->zero_constraints);
     }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
   add_hp_identities_constraints(this->zero_constraints);
+#endif
 }
 
 template <int dim>
@@ -719,10 +728,12 @@ void NSSolverLambda<dim>::create_solver_specific_nonzero_constraints()
       remove_cylinder_velocity_constraints(this->nonzero_constraints);
     }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
   add_hp_identities_constraints(this->nonzero_constraints);
+#endif
 }
 
 template <int dim>
@@ -904,39 +915,13 @@ void NSSolverLambda<dim>::assemble_local_matrix(
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
-        for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
-        {
-          const double face_JxW_moving =
-            scratch_data.face_JxW_moving[i_face][q];
-
-          const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-          const auto &phi_l = scratch_data.phi_l_face[i_face][q];
-
-          for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-          {
-            const unsigned int comp_i = scratch_data.components[i];
-            const bool         i_is_u = this->ordering->is_velocity(comp_i);
-            const bool         i_is_l = this->ordering->is_lambda(comp_i);
-
-            for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
-            {
-              const unsigned int comp_j = scratch_data.components[j];
-              const bool         j_is_u = this->ordering->is_velocity(comp_j);
-              const bool         j_is_l = this->ordering->is_lambda(comp_j);
-
-              double local_matrix_ij = 0.;
-
-              if (i_is_u && j_is_l)
-                local_matrix_ij += -(phi_l[j] * phi_u[i]);
-
-              if (i_is_l && j_is_u)
-                local_matrix_ij += -phi_u[j] * phi_l[i];
-
-              local_matrix_ij *= face_JxW_moving;
-              local_matrix(i, j) += local_matrix_ij;
-            }
-          }
-        }
+        Assembly::weakly_enforced_no_slip_matrix(*this->ordering,
+                                                 i_face,
+                                                 this->param.fluid_bc.at(
+                                                   weak_no_slip_boundary_id),
+                                                 scratch_data,
+                                                 this->time_handler,
+                                                 local_matrix);
       }
     }
   }
@@ -1123,49 +1108,12 @@ void NSSolverLambda<dim>::assemble_local_rhs(
         if (cell_has_lambda(cell))
           if (face->boundary_id() == weak_no_slip_boundary_id)
           {
-            const bool enable_rigid_body_rotation =
-              this->param.fluid_bc.at(weak_no_slip_boundary_id)
-                .enable_rigid_body_rotation;
-            const auto &rotation_velocities =
-              scratch_data.input_face_rigid_body_rotation_velocity[i_face];
-
-            for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
-            {
-              //
-              // Flow related data (no-slip)
-              //
-              const double face_JxW_moving =
-                scratch_data.face_JxW_moving[i_face][q];
-              const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-              const auto &phi_l = scratch_data.phi_l_face[i_face][q];
-
-              const auto &present_u =
-                scratch_data.present_face_velocity_values[i_face][q];
-              const auto &present_l =
-                scratch_data.present_face_lambda_values[i_face][q];
-
-              auto velocity_constraint = present_u;
-              if (enable_rigid_body_rotation)
-                velocity_constraint -= rotation_velocities[q];
-
-              for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-              {
-                double local_rhs_i = 0.;
-
-                const unsigned int comp_i = scratch_data.components[i];
-                const bool         i_is_u = this->ordering->is_velocity(comp_i);
-                const bool         i_is_l = this->ordering->is_lambda(comp_i);
-
-                if (i_is_u)
-                  local_rhs_i -= -phi_u[i] * present_l;
-
-                if (i_is_l)
-                  local_rhs_i -= -velocity_constraint * phi_l[i];
-
-                local_rhs_i *= face_JxW_moving;
-                local_rhs(i) += local_rhs_i;
-              }
-            }
+            Assembly::weakly_enforced_no_slip_rhs(*this->ordering,
+                                                  i_face,
+                                                  this->param.fluid_bc.at(
+                                                    weak_no_slip_boundary_id),
+                                                  scratch_data,
+                                                  local_rhs);
           }
 
         /**

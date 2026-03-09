@@ -16,6 +16,8 @@
 #include <parameter_reader.h>
 #include <types.h>
 
+#include <iomanip>
+
 using namespace dealii;
 
 /**
@@ -279,6 +281,34 @@ void GenericSolver<VectorType>::run_convergence_loop()
       // This change is accounted for in the reset() function of each
       // derived solver
       time_param.dt *= mms_param.time_step_reduction_factor;
+    }
+
+    bool update_component_eps =
+      (time_param.mms_scale_eps_with_dt && time_param.adaptative_dt) &&
+      (i_conv > 0) && (mms_param.type == Parameters::MMS::Type::time ||
+                       mms_param.type == Parameters::MMS::Type::spacetime);
+
+    if (update_component_eps)
+    {
+      const double r  = mms_param.time_step_reduction_factor;
+      const double r3 = r * r * r;
+
+      time_param.eps_u *= r3;
+      time_param.eps_p *= r3;
+      time_param.eps_x *= r3;
+      time_param.eps_t *= r3;
+      time_param.eps_phi *= r3;
+      time_param.eps_mu *= r3;
+
+      pcout << std::scientific << std::setprecision(10)
+            << "[MMS] eps scaling applied: r=" << r << "  r^3=" << r3 << "\n"
+            << "  eps_u=" << time_param.eps_u
+            << "  eps_p=" << time_param.eps_p
+            << "  eps_x=" << time_param.eps_x
+            << "  eps_t=" << time_param.eps_t
+            << "  eps_phi=" << time_param.eps_phi
+            << "  eps_mu=" << time_param.eps_mu
+            << std::endl;
     }
 
     this->run();

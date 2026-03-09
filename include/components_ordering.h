@@ -2,6 +2,9 @@
 #define COMPONENT_ORDERING_H
 
 #include <deal.II/base/types.h>
+#include <parameters.h>
+#include <utility>
+#include <vector>
 
 /**
  * A ComponentOrdering describes the lower and upper component indices for a
@@ -42,6 +45,9 @@ public:
   // Temperature
   unsigned int t_lower = invalid;
   unsigned int t_upper = invalid;
+
+  std::vector<std::pair<unsigned int, double>>
+  make_dt_control_component_eps(const Parameters::TimeIntegration &ti) const;
 
   inline bool is_velocity(const unsigned int component) const
   {
@@ -224,5 +230,69 @@ public:
     mu_upper  = C::mu_upper;
   }
 };
+
+template <int dim>
+class ComponentOrderingHeat : public ComponentOrdering
+{
+public:
+  ComponentOrderingHeat()
+    : ComponentOrdering()
+  {
+    (void)dim;
+    n_components = 1;
+    t_lower      = 0;
+    t_upper      = 1;
+  }
+};
+
+inline std::vector<std::pair<unsigned int, double>>
+ComponentOrdering::make_dt_control_component_eps(const Parameters::TimeIntegration &ti) const
+{
+  std::vector<std::pair<unsigned int, double>> component_eps;
+  if (n_components != invalid)
+    component_eps.reserve(n_components);
+
+  const auto is_valid_range = [&](unsigned int lo, unsigned int up) {
+    return lo != invalid && up != invalid && lo < up;
+  };
+
+  const double eps_u   = ti.eps_u;
+  const double eps_p   = ti.eps_p;
+  const double eps_x   = (ti.eps_x > 0.0 ? ti.eps_x : eps_u);
+  const double eps_t   = (ti.eps_t > 0.0 ? ti.eps_t : eps_u);
+  const double eps_l   = (ti.eps_l > 0.0 ? ti.eps_l : eps_u);
+  const double eps_phi = (ti.eps_phi > 0.0 ? ti.eps_phi : eps_u);
+  const double eps_mu  = (ti.eps_mu > 0.0 ? ti.eps_mu : eps_u);
+
+  if (is_valid_range(u_lower, u_upper))
+    for (unsigned int c = u_lower; c < u_upper; ++c)
+      component_eps.emplace_back(c, eps_u);
+
+  if (is_valid_range(p_lower, p_upper))
+    for (unsigned int c = p_lower; c < p_upper; ++c)
+      component_eps.emplace_back(c, eps_p);
+
+  if (is_valid_range(x_lower, x_upper))
+    for (unsigned int c = x_lower; c < x_upper; ++c)
+      component_eps.emplace_back(c, eps_x);
+
+  if (is_valid_range(t_lower, t_upper))
+    for (unsigned int c = t_lower; c < t_upper; ++c)
+      component_eps.emplace_back(c, eps_t);
+
+  if (is_valid_range(l_lower, l_upper))
+    for (unsigned int c = l_lower; c < l_upper; ++c)
+      component_eps.emplace_back(c, eps_l);
+
+  if (is_valid_range(phi_lower, phi_upper))
+    for (unsigned int c = phi_lower; c < phi_upper; ++c)
+      component_eps.emplace_back(c, eps_phi);
+
+  if (is_valid_range(mu_lower, mu_upper))
+    for (unsigned int c = mu_lower; c < mu_upper; ++c)
+      component_eps.emplace_back(c, eps_mu);
+
+  return component_eps;
+}
 
 #endif

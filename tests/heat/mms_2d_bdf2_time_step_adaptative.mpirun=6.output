@@ -1,0 +1,64 @@
+Number of MPI processes: 6
+Mesh info:
+ dimension: 2
+ no. of cells: 8
+ boundary indicators: 1(2 faces) 2(2 faces) 3(2 faces) 4(2 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 25
+[MMS] eps scaling applied: r=5.0000000000e-01  r^3=1.2500000000e-01
+  eps_u=1.2500000000e-04  eps_p=1.2500000000e-03  eps_x=1.2500000000e-04  eps_t=2.5000000000e-04  eps_phi=-1.2500000000e-01  eps_mu=-1.2500000000e-01
+Mesh info:
+ dimension: 2
+ no. of cells: 8
+ boundary indicators: 1(2 faces) 2(2 faces) 3(2 faces) 4(2 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 25
+[MMS] eps scaling applied: r=5.0000000000e-01  r^3=1.2500000000e-01
+  eps_u=1.5625000000e-05  eps_p=1.5625000000e-04  eps_x=1.5625000000e-05  eps_t=3.1250000000e-05  eps_phi=-1.5625000000e-02  eps_mu=-1.5625000000e-02
+Mesh info:
+ dimension: 2
+ no. of cells: 8
+ boundary indicators: 1(2 faces) 2(2 faces) 3(2 faces) 4(2 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 25
+[MMS] eps scaling applied: r=5.0000000000e-01  r^3=1.2500000000e-01
+  eps_u=1.9531250000e-06  eps_p=1.9531250000e-05  eps_x=1.9531250000e-06  eps_t=3.9062500000e-06  eps_phi=-1.9531250000e-03  eps_mu=-1.9531250000e-03
+Mesh info:
+ dimension: 2
+ no. of cells: 8
+ boundary indicators: 1(2 faces) 2(2 faces) 3(2 faces) 4(2 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 25
+
+L2_norm
+n_elm n_dof   dt          T         
+    8    25 0.0100 7.6618e-03     - 
+    8    25 0.0050 1.5765e-03 -2.28 
+    8    25 0.0025 3.6539e-04 -2.11 
+    8    25 0.0013 9.0348e-05 -2.02 
+
+Linfty_norm
+n_elm n_dof   dt          T         
+    8    25 0.0100 1.4260e-02     - 
+    8    25 0.0050 2.9541e-03 -2.27 
+    8    25 0.0025 6.8360e-04 -2.11 
+    8    25 0.0013 1.6900e-04 -2.02 
+
+H1_seminorm
+n_elm n_dof   dt          T         
+    8    25 0.0100 3.5258e-02     - 
+    8    25 0.0050 7.2360e-03 -2.28 
+    8    25 0.0025 1.6777e-03 -2.11 
+    8    25 0.0013 4.1490e-04 -2.02

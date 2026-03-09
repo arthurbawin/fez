@@ -171,36 +171,107 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
 
   while (!time_handler.is_finished())
   {
-    time_handler.advance(pcout);
-    set_time();
-    update_boundary_conditions();
+    bool         step_accepted = false;
+    unsigned int n_reject      = 0;
 
-    if (time_handler.is_starting_step() &&
-        param.time_integration.bdfstart ==
-          Parameters::TimeIntegration::BDFStart::initial_condition)
+    while (!step_accepted)
     {
-      if (param.mms_param.enable || param.debug.apply_exact_solution)
-        // Convergence study: start with exact solution at first time step
-        set_exact_solution();
-      else
-        // Repeat initial condition
-        set_initial_conditions();
-    }
-    else
-    {
-      // Entering the Newton solver with a solution satisfying the nonzero
-      // constraints, which were applied in update_boundary_condition().
-      if (param.debug.compare_analytical_jacobian_with_fd)
-        compare_analytical_matrix_with_fd();
 
-      if (param.debug.apply_exact_solution)
-        set_exact_solution();
-      else
-        solve_nonlinear_problem(false);
-    }
+      LA::ParVectorType present_backup;
+      present_backup.reinit(present_solution);
+      present_backup = present_solution;
 
-    postprocess_solution();
-    time_handler.rotate_solutions(present_solution, previous_solutions);
+      auto previous_backup            = previous_solutions;
+      auto previous_dt_control_backup = previous_solutions_dt_control;
+
+      time_handler.advance(pcout);
+      set_time();
+      update_boundary_conditions();
+
+
+      if (time_handler.is_starting_step() &&
+          param.time_integration.bdfstart ==
+            Parameters::TimeIntegration::BDFStart::initial_condition)
+      {
+        if (param.mms_param.enable || param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          set_initial_conditions();
+      }
+      else
+      {
+        if (param.debug.compare_analytical_jacobian_with_fd)
+          compare_analytical_matrix_with_fd();
+
+        if (param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          solve_nonlinear_problem(false);
+      }
+      step_accepted = true;
+      double dt_retry = time_handler.get_current_dt(); 
+
+      if (!time_handler.is_steady() && param.time_integration.adaptative_dt)
+      {
+        const auto &ti = this->get_time_parameters(); 
+        auto component_eps = ordering->make_dt_control_component_eps(ti);
+
+
+        double       R       = 0.0;
+        double       dt_used  = 0.0;
+        double       dt_next  = 0.0;
+        unsigned int order   = 0;
+
+        const bool ok = time_handler.update_dt_after_converged_step(
+          present_solution,
+          previous_solutions_dt_control,
+          dofs_to_component,
+          component_eps,
+          ti.safety,
+          mpi_communicator,
+          ti.t_end,
+          /*clamp_to_t_end=*/true,
+          &R,
+          &order,
+          &dt_used,
+          &dt_next,
+          /*out_e_star=*/nullptr,
+          param.time_integration.reject_factor,
+          &step_accepted,
+          &dt_retry);
+      }
+
+      if (!step_accepted)
+      {
+        // REJECT: rollback TimeHandler state + restore solution, retry
+        time_handler.rollback_last_advance(dt_retry);
+
+        present_solution            = present_backup;
+        previous_solutions          = previous_backup;
+        previous_solutions_dt_control = previous_dt_control_backup;
+
+        ++n_reject;
+        if (n_reject >= param.time_integration.max_rejects_per_step)
+        {
+          if (param.time_integration.verbosity == Parameters::Verbosity::verbose)
+            pcout << "Too many rejects at step " << time_handler.current_time_iteration
+                  << "forcing accept to continue." << std::endl;
+          step_accepted = true;
+        }
+
+        continue;
+      }
+
+      // ACCEPTED step: proceed normally
+
+      postprocess_solution();
+      time_handler.rotate_solutions(present_solution, previous_solutions);
+
+      if (param.time_integration.adaptative_dt &&
+          !previous_solutions_dt_control.empty())
+      {
+        time_handler.rotate_solutions(present_solution, previous_solutions_dt_control);
+      }
 
     if (param.checkpoint_restart.enable_checkpoint &&
         (time_handler.current_time_iteration %
@@ -217,6 +288,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
        */
       checkpoint();
     }
+
+    step_accepted = true;
+    }
   }
 
   finalize();
@@ -229,28 +303,50 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 
   auto &comm = mpi_communicator;
 
-  // Initialize dof handler
   dof_handler.distribute_dofs(this->get_fe_system());
-
-  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
-        << std::endl;
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
+
+  constexpr unsigned char unset = 255;
+  dofs_to_component.assign(dof_handler.n_dofs(), unset);
+  fill_dofs_to_component(dof_handler, locally_relevant_dofs, dofs_to_component);
+
+
+  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs() << std::endl;
 
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
-  local_evaluation_point.reinit(locally_owned_dofs, comm);
-  newton_update.reinit(locally_owned_dofs, comm);
+  local_evaluation_point.reinit(locally_owned_dofs,locally_relevant_dofs, comm);
+  newton_update.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   system_rhs.reinit(locally_owned_dofs, comm);
 
   // Allocate for previous BDF solutions
   previous_solutions.clear();
+
   previous_solutions.resize(time_handler.n_previous_solutions);
-  for (auto &previous_sol : previous_solutions)
-    previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+  for (auto &sol : previous_solutions)
+    sol.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
+
+
+  // Extra history used ONLY for adaptive dt control
+  // Needs (order+1)
+  if (param.time_integration.adaptative_dt)
+  {
+    const unsigned int n_history_dt_control = time_handler.n_previous_solutions + 1;
+
+    previous_solutions_dt_control.resize(n_history_dt_control);
+    for (auto &sol : previous_solutions_dt_control)
+      sol.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
+  }
+  else
+  {
+    previous_solutions_dt_control.clear();
+  }
+
+
 
   if constexpr (with_moving_mesh)
   {
@@ -314,7 +410,23 @@ void NavierStokesSolver<dim, with_moving_mesh>::reinit_vectors()
                         locally_relevant_dofs,
                         mpi_communicator);
     previous_sol = tmp_prev_sol;
+    previous_sol.compress(dealii::VectorOperation::insert);
   }
+
+  // reinit dt-control history (if enabled)
+
+  if (!previous_solutions_dt_control.empty())
+  {
+    for (auto &prev : previous_solutions_dt_control)
+    {
+      LA::ParVectorType tmp(locally_owned_dofs, mpi_communicator);
+      tmp = prev;
+      prev.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
+      prev = tmp;
+      prev.compress(dealii::VectorOperation::insert);
+    }
+  }
+
 }
 
 template <int dim, bool with_moving_mesh>

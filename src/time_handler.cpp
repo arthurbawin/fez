@@ -178,7 +178,6 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
           << "Time step " << current_time_iteration
           << " - Advancing to t = "
           << std::fixed << std::setprecision(10) << current_time
-          << " with dt = " << std::fixed << std::setprecision(10) << current_dt
           << '.' << std::endl;
 }
 

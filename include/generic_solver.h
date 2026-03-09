@@ -299,16 +299,6 @@ void GenericSolver<VectorType>::run_convergence_loop()
       time_param.eps_t *= r3;
       time_param.eps_phi *= r3;
       time_param.eps_mu *= r3;
-
-      pcout << std::scientific << std::setprecision(10)
-            << "[MMS] eps scaling applied: r=" << r << "  r^3=" << r3 << "\n"
-            << "  eps_u=" << time_param.eps_u
-            << "  eps_p=" << time_param.eps_p
-            << "  eps_x=" << time_param.eps_x
-            << "  eps_t=" << time_param.eps_t
-            << "  eps_phi=" << time_param.eps_phi
-            << "  eps_mu=" << time_param.eps_mu
-            << std::endl;
     }
 
     this->run();

@@ -11,12 +11,12 @@ ID 5 -> Inlet
 ID 6 -> Outlet
 ID 7 -> Cylinder
 ID 8 -> Domain
-Number of degrees of freedom: 10377
+Number of degrees of freedom: 11007
 Newton iter.  0:          nonlinear residual = 1.19030409e+00
 Newton iter.  1:          nonlinear residual = 1.90478687e+00	(M)
 Newton iter.  2:          nonlinear residual = 1.01474411e-02	(M)
 Newton iter.  3:          nonlinear residual = 2.01207937e-07	(M)
-Newton iter.  4:          nonlinear residual = 3.00862152e-14	(M)
+Newton iter.  4:          nonlinear residual = 2.80596492e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Forces on boundary with id 7 computed with method : lagrange_multiplier
@@ -34,4 +34,4 @@ Slice 5: Fx = +5.132308e+00	Fy = +3.875753e-03	Fz = +7.281590e-02
 Slice 6: Fx = +5.028377e+00	Fy = +1.729818e-02	Fz = -2.866607e-02	
 Slice 7: Fx = +6.668702e+00	Fy = -7.867242e-03	Fz = +8.051664e-02	
 Slice 8: Fx = +5.415804e+00	Fy = +6.791744e-02	Fz = -7.965816e-02	
-Slice 9: Fx = +5.652088e+00	Fy = -6.342757e-02	Fz = +8.716553e-03
+Slice 9: Fx = +5.652088e+00	Fy = -6.342757e-02	Fz = +8.716553e-03	

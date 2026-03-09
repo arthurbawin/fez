@@ -8,8 +8,264 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 25
-[MMS] eps scaling applied: r=5.0000000000e-01  r^3=1.2500000000e-01
-  eps_u=1.2500000000e-04  eps_p=1.2500000000e-03  eps_x=1.2500000000e-04  eps_t=2.5000000000e-04  eps_phi=-1.2500000000e-01  eps_mu=-1.2500000000e-01
+
+Time step 1 - Advancing to t = 0.0100000000.
+
+Time step 2 - Advancing to t = 0.0200000000.
+Newton iter.  0:          nonlinear residual = 6.81563058e+00
+	Line search with alpha = 1.000 : res = 2.02910256e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 3 - Advancing to t = 0.0300000000.
+Newton iter.  0:          nonlinear residual = 6.25323048e+00
+	Line search with alpha = 1.000 : res = 1.10965549e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 4 - Advancing to t = 0.0400000000.
+Newton iter.  0:          nonlinear residual = 5.45648430e+00
+	Line search with alpha = 1.000 : res = 1.70865859e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 5 - Advancing to t = 0.0500000000.
+Newton iter.  0:          nonlinear residual = 4.44427219e+00
+	Line search with alpha = 1.000 : res = 1.78015743e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 6 - Advancing to t = 0.0600000000.
+Newton iter.  0:          nonlinear residual = 3.25360528e+00
+	Line search with alpha = 1.000 : res = 8.29178108e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 7 - Advancing to t = 0.0700000000.
+Newton iter.  0:          nonlinear residual = 1.93146358e+00
+	Line search with alpha = 1.000 : res = 1.48891845e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 8 - Advancing to t = 0.0800000000.
+Newton iter.  0:          nonlinear residual = 5.30740947e-01
+	Line search with alpha = 1.000 : res = 1.85089048e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 9 - Advancing to t = 0.0900000000.
+Newton iter.  0:          nonlinear residual = 8.92459737e-01
+	Line search with alpha = 1.000 : res = 2.41726104e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 10 - Advancing to t = 0.1000000000.
+Newton iter.  0:          nonlinear residual = 2.28116469e+00
+	Line search with alpha = 1.000 : res = 7.37124864e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 11 - Advancing to t = 0.1100000000.
+Newton iter.  0:          nonlinear residual = 3.57982255e+00
+	Line search with alpha = 1.000 : res = 1.14259577e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 12 - Advancing to t = 0.1200000000.
+Newton iter.  0:          nonlinear residual = 4.73649983e+00
+	Line search with alpha = 1.000 : res = 1.90781489e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 13 - Advancing to t = 0.1300000000.
+Newton iter.  0:          nonlinear residual = 5.70494941e+00
+	Line search with alpha = 1.000 : res = 1.67125539e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 14 - Advancing to t = 0.1400000000.
+Newton iter.  0:          nonlinear residual = 6.44645072e+00
+	Line search with alpha = 1.000 : res = 1.37739258e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 15 - Advancing to t = 0.1500000000.
+Newton iter.  0:          nonlinear residual = 6.93135060e+00
+	Line search with alpha = 1.000 : res = 2.20279190e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 16 - Advancing to t = 0.1600000000.
+Newton iter.  0:          nonlinear residual = 7.14024256e+00
+	Line search with alpha = 1.000 : res = 1.08178224e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 17 - Advancing to t = 0.1700000000.
+Newton iter.  0:          nonlinear residual = 7.06473769e+00
+	Line search with alpha = 1.000 : res = 9.30441366e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 18 - Advancing to t = 0.1800000000.
+Newton iter.  0:          nonlinear residual = 6.70779659e+00
+	Line search with alpha = 1.000 : res = 1.61458792e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 19 - Advancing to t = 0.1900000000.
+Newton iter.  0:          nonlinear residual = 6.08360920e+00
+	Line search with alpha = 1.000 : res = 9.10328231e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 20 - Advancing to t = 0.2000000000.
+Newton iter.  0:          nonlinear residual = 5.21702733e+00
+	Line search with alpha = 1.000 : res = 1.83884214e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 21 - Advancing to t = 0.2100000000.
+Newton iter.  0:          nonlinear residual = 4.14257249e+00
+	Line search with alpha = 1.000 : res = 2.06352088e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 22 - Advancing to t = 0.2191164727.
+Newton iter.  0:          nonlinear residual = 2.88674630e+00
+	Line search with alpha = 1.000 : res = 2.14883007e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 23 - Advancing to t = 0.2288229631.
+Newton iter.  0:          nonlinear residual = 1.70130456e+00
+	Line search with alpha = 1.000 : res = 2.14795216e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 24 - Advancing to t = 0.2398829246.
+Newton iter.  0:          nonlinear residual = 2.29667733e-01
+	Line search with alpha = 1.000 : res = 1.17160515e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 25 - Advancing to t = 0.2536238421.
+Newton iter.  0:          nonlinear residual = 1.66678082e+00
+	Line search with alpha = 1.000 : res = 1.17826550e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 26 - Advancing to t = 0.2867973516.
+Newton iter.  0:          nonlinear residual = 6.36970495e+00
+	Line search with alpha = 1.000 : res = 1.66670745e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+[REJECT] step=26 t=2.8679735161e-01 dt_used=3.3173509507e-02 dt_new=1.2882350910e-02 (R=8.033108e-02)
+
+Time step 26 - Advancing to t = 0.2665061930.
+Newton iter.  0:          nonlinear residual = 3.41816799e+00
+	Line search with alpha = 1.000 : res = 5.98808222e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 27 - Advancing to t = 0.2797068975.
+Newton iter.  0:          nonlinear residual = 5.06279958e+00
+	Line search with alpha = 1.000 : res = 2.04117316e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 28 - Advancing to t = 0.2903419180.
+Newton iter.  0:          nonlinear residual = 5.80998759e+00
+	Line search with alpha = 1.000 : res = 2.00474558e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 29 - Advancing to t = 0.2994513313.
+Newton iter.  0:          nonlinear residual = 6.38544662e+00
+	Line search with alpha = 1.000 : res = 1.69824995e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 30 - Advancing to t = 0.3080197560.
+Newton iter.  0:          nonlinear residual = 6.79568723e+00
+	Line search with alpha = 1.000 : res = 9.89487795e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 31 - Advancing to t = 0.3163256563.
+Newton iter.  0:          nonlinear residual = 6.95327777e+00
+	Line search with alpha = 1.000 : res = 1.60286675e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 32 - Advancing to t = 0.3245047875.
+Newton iter.  0:          nonlinear residual = 6.91303320e+00
+	Line search with alpha = 1.000 : res = 1.43688217e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 33 - Advancing to t = 0.3326560978.
+Newton iter.  0:          nonlinear residual = 6.69299137e+00
+	Line search with alpha = 1.000 : res = 1.17837918e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 34 - Advancing to t = 0.3408494455.
+Newton iter.  0:          nonlinear residual = 6.29636592e+00
+	Line search with alpha = 1.000 : res = 2.05469597e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 35 - Advancing to t = 0.3491538804.
+Newton iter.  0:          nonlinear residual = 5.72940415e+00
+	Line search with alpha = 1.000 : res = 1.57381344e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 36 - Advancing to t = 0.3576518187.
+Newton iter.  0:          nonlinear residual = 4.99504247e+00
+	Line search with alpha = 1.000 : res = 1.11627311e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 37 - Advancing to t = 0.3664495574.
+Newton iter.  0:          nonlinear residual = 4.09239228e+00
+	Line search with alpha = 1.000 : res = 2.26388406e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 38 - Advancing to t = 0.3756987324.
+Newton iter.  0:          nonlinear residual = 3.01585982e+00
+	Line search with alpha = 1.000 : res = 2.64388989e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 39 - Advancing to t = 0.3856460894.
+Newton iter.  0:          nonlinear residual = 1.74970710e+00
+	Line search with alpha = 1.000 : res = 1.89677091e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 40 - Advancing to t = 0.3967773916.
+Newton iter.  0:          nonlinear residual = 2.50364750e-01
+	Line search with alpha = 1.000 : res = 1.73096768e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 41 - Advancing to t = 0.4104626230.
+Newton iter.  0:          nonlinear residual = 1.64046598e+00
+	Line search with alpha = 1.000 : res = 1.70966908e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 42 - Advancing to t = 0.4233449739.
+Newton iter.  0:          nonlinear residual = 3.39540274e+00
+	Line search with alpha = 1.000 : res = 1.36201285e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 43 - Advancing to t = 0.4366428610.
+Newton iter.  0:          nonlinear residual = 5.05811758e+00
+	Line search with alpha = 1.000 : res = 1.77254504e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 44 - Advancing to t = 0.4473164656.
+Newton iter.  0:          nonlinear residual = 5.80390063e+00
+	Line search with alpha = 1.000 : res = 9.68124578e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 45 - Advancing to t = 0.4564349462.
+Newton iter.  0:          nonlinear residual = 6.38147778e+00
+	Line search with alpha = 1.000 : res = 1.09138169e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 46 - Advancing to t = 0.4650079177.
+Newton iter.  0:          nonlinear residual = 6.79550162e+00
+	Line search with alpha = 1.000 : res = 1.47975596e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 47 - Advancing to t = 0.4733160635.
+Newton iter.  0:          nonlinear residual = 6.95490909e+00
+	Line search with alpha = 1.000 : res = 8.36086288e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 48 - Advancing to t = 0.4814959729.
+Newton iter.  0:          nonlinear residual = 6.91632011e+00
+	Line search with alpha = 1.000 : res = 1.22802610e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 49 - Advancing to t = 0.4896474145.
+Newton iter.  0:          nonlinear residual = 6.69799066e+00
+	Line search with alpha = 1.000 : res = 1.58256296e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 50 - Advancing to t = 0.4978402442.
+Newton iter.  0:          nonlinear residual = 6.30296276e+00
+	Line search with alpha = 1.000 : res = 3.27838219e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 51 - Advancing to t = 0.5000000000.
+Newton iter.  0:          nonlinear residual = 4.42050820e+00
+	Line search with alpha = 1.000 : res = 2.93061624e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
 Mesh info:
  dimension: 2
  no. of cells: 8
@@ -19,8 +275,513 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 25
-[MMS] eps scaling applied: r=5.0000000000e-01  r^3=1.2500000000e-01
-  eps_u=1.5625000000e-05  eps_p=1.5625000000e-04  eps_x=1.5625000000e-05  eps_t=3.1250000000e-05  eps_phi=-1.5625000000e-02  eps_mu=-1.5625000000e-02
+
+Time step 1 - Advancing to t = 0.0050000000.
+
+Time step 2 - Advancing to t = 0.0100000000.
+Newton iter.  0:          nonlinear residual = 6.56651312e+00
+	Line search with alpha = 1.000 : res = 1.20642582e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 3 - Advancing to t = 0.0150000000.
+Newton iter.  0:          nonlinear residual = 6.43130490e+00
+	Line search with alpha = 1.000 : res = 1.36986150e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 4 - Advancing to t = 0.0200000000.
+Newton iter.  0:          nonlinear residual = 6.23571777e+00
+	Line search with alpha = 1.000 : res = 1.46009533e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 5 - Advancing to t = 0.0250000000.
+Newton iter.  0:          nonlinear residual = 5.97882831e+00
+	Line search with alpha = 1.000 : res = 1.40754200e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 6 - Advancing to t = 0.0300000000.
+Newton iter.  0:          nonlinear residual = 5.66229331e+00
+	Line search with alpha = 1.000 : res = 1.95432024e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 7 - Advancing to t = 0.0350000000.
+Newton iter.  0:          nonlinear residual = 5.28903186e+00
+	Line search with alpha = 1.000 : res = 5.28659029e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 8 - Advancing to t = 0.0400000000.
+Newton iter.  0:          nonlinear residual = 4.86273786e+00
+	Line search with alpha = 1.000 : res = 3.49951885e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 9 - Advancing to t = 0.0450000000.
+Newton iter.  0:          nonlinear residual = 4.38768901e+00
+	Line search with alpha = 1.000 : res = 3.73293200e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 10 - Advancing to t = 0.0500000000.
+Newton iter.  0:          nonlinear residual = 3.86865721e+00
+	Line search with alpha = 1.000 : res = 1.59494767e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 11 - Advancing to t = 0.0550000000.
+Newton iter.  0:          nonlinear residual = 3.31084959e+00
+	Line search with alpha = 1.000 : res = 2.78855088e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 12 - Advancing to t = 0.0600000000.
+Newton iter.  0:          nonlinear residual = 2.71985566e+00
+	Line search with alpha = 1.000 : res = 3.40902044e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 13 - Advancing to t = 0.0650000000.
+Newton iter.  0:          nonlinear residual = 2.10159284e+00
+	Line search with alpha = 1.000 : res = 4.56782151e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 14 - Advancing to t = 0.0700000000.
+Newton iter.  0:          nonlinear residual = 1.46224864e+00
+	Line search with alpha = 1.000 : res = 3.47520409e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 15 - Advancing to t = 0.0750000000.
+Newton iter.  0:          nonlinear residual = 8.08219669e-01
+	Line search with alpha = 1.000 : res = 2.77790206e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 16 - Advancing to t = 0.0800000000.
+Newton iter.  0:          nonlinear residual = 1.46048272e-01
+	Line search with alpha = 1.000 : res = 1.76297104e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 17 - Advancing to t = 0.0850000000.
+Newton iter.  0:          nonlinear residual = 5.17643124e-01
+	Line search with alpha = 1.000 : res = 2.34490288e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 18 - Advancing to t = 0.0900000000.
+Newton iter.  0:          nonlinear residual = 1.17621673e+00
+	Line search with alpha = 1.000 : res = 1.16701254e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 19 - Advancing to t = 0.0950000000.
+Newton iter.  0:          nonlinear residual = 1.82308717e+00
+	Line search with alpha = 1.000 : res = 1.92474219e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 20 - Advancing to t = 0.1000000000.
+Newton iter.  0:          nonlinear residual = 2.45178628e+00
+	Line search with alpha = 1.000 : res = 3.04817586e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 21 - Advancing to t = 0.1050000000.
+Newton iter.  0:          nonlinear residual = 3.05602796e+00
+	Line search with alpha = 1.000 : res = 3.40110426e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 22 - Advancing to t = 0.1107012779.
+Newton iter.  0:          nonlinear residual = 3.78225348e+00
+	Line search with alpha = 1.000 : res = 3.09570371e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 23 - Advancing to t = 0.1160707145.
+Newton iter.  0:          nonlinear residual = 4.24272783e+00
+	Line search with alpha = 1.000 : res = 3.14459265e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 24 - Advancing to t = 0.1210181301.
+Newton iter.  0:          nonlinear residual = 4.69692498e+00
+	Line search with alpha = 1.000 : res = 1.80083878e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 25 - Advancing to t = 0.1257262404.
+Newton iter.  0:          nonlinear residual = 5.12319822e+00
+	Line search with alpha = 1.000 : res = 1.81982543e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 26 - Advancing to t = 0.1302679206.
+Newton iter.  0:          nonlinear residual = 5.47830895e+00
+	Line search with alpha = 1.000 : res = 2.65368458e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 27 - Advancing to t = 0.1346832263.
+Newton iter.  0:          nonlinear residual = 5.77536008e+00
+	Line search with alpha = 1.000 : res = 2.87940654e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 28 - Advancing to t = 0.1390048485.
+Newton iter.  0:          nonlinear residual = 6.02199331e+00
+	Line search with alpha = 1.000 : res = 2.84486941e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 29 - Advancing to t = 0.1432546487.
+Newton iter.  0:          nonlinear residual = 6.21909089e+00
+	Line search with alpha = 1.000 : res = 1.86398441e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 30 - Advancing to t = 0.1474485097.
+Newton iter.  0:          nonlinear residual = 6.36877470e+00
+	Line search with alpha = 1.000 : res = 2.00639310e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 31 - Advancing to t = 0.1515997691.
+Newton iter.  0:          nonlinear residual = 6.47284821e+00
+	Line search with alpha = 1.000 : res = 1.67805052e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 32 - Advancing to t = 0.1557200896.
+Newton iter.  0:          nonlinear residual = 6.53234840e+00
+	Line search with alpha = 1.000 : res = 2.19637609e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 33 - Advancing to t = 0.1598199525.
+Newton iter.  0:          nonlinear residual = 6.54804036e+00
+	Line search with alpha = 1.000 : res = 1.71365455e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 34 - Advancing to t = 0.1639090859.
+Newton iter.  0:          nonlinear residual = 6.52053188e+00
+	Line search with alpha = 1.000 : res = 1.78690745e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 35 - Advancing to t = 0.1679967860.
+Newton iter.  0:          nonlinear residual = 6.45028210e+00
+	Line search with alpha = 1.000 : res = 1.11489974e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 36 - Advancing to t = 0.1720921947.
+Newton iter.  0:          nonlinear residual = 6.33762872e+00
+	Line search with alpha = 1.000 : res = 1.41785525e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 37 - Advancing to t = 0.1762045688.
+Newton iter.  0:          nonlinear residual = 6.18280063e+00
+	Line search with alpha = 1.000 : res = 2.43440651e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 38 - Advancing to t = 0.1803435558.
+Newton iter.  0:          nonlinear residual = 5.98591665e+00
+	Line search with alpha = 1.000 : res = 2.30927909e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 39 - Advancing to t = 0.1845195018.
+Newton iter.  0:          nonlinear residual = 5.74697614e+00
+	Line search with alpha = 1.000 : res = 2.82158031e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 40 - Advancing to t = 0.1887438204.
+Newton iter.  0:          nonlinear residual = 5.46583906e+00
+	Line search with alpha = 1.000 : res = 2.65464921e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 41 - Advancing to t = 0.1930294680.
+Newton iter.  0:          nonlinear residual = 5.14219147e+00
+	Line search with alpha = 1.000 : res = 2.92312162e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 42 - Advancing to t = 0.1973915907.
+Newton iter.  0:          nonlinear residual = 4.77549014e+00
+	Line search with alpha = 1.000 : res = 1.95192238e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 43 - Advancing to t = 0.2018484521.
+Newton iter.  0:          nonlinear residual = 4.36487445e+00
+	Line search with alpha = 1.000 : res = 2.44890094e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 44 - Advancing to t = 0.2064228363.
+Newton iter.  0:          nonlinear residual = 3.90902411e+00
+	Line search with alpha = 1.000 : res = 1.80240437e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 45 - Advancing to t = 0.2111442896.
+Newton iter.  0:          nonlinear residual = 3.40592086e+00
+	Line search with alpha = 1.000 : res = 3.77449354e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 46 - Advancing to t = 0.2160529466.
+Newton iter.  0:          nonlinear residual = 2.85242646e+00
+	Line search with alpha = 1.000 : res = 4.02269887e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 47 - Advancing to t = 0.2212066159.
+Newton iter.  0:          nonlinear residual = 2.24347629e+00
+	Line search with alpha = 1.000 : res = 5.03910389e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 48 - Advancing to t = 0.2266954188.
+Newton iter.  0:          nonlinear residual = 1.57036258e+00
+	Line search with alpha = 1.000 : res = 3.24506216e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 49 - Advancing to t = 0.2326771860.
+Newton iter.  0:          nonlinear residual = 8.16452414e-01
+	Line search with alpha = 1.000 : res = 2.27423072e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 50 - Advancing to t = 0.2394878007.
+Newton iter.  0:          nonlinear residual = 5.66329168e-02
+	Line search with alpha = 1.000 : res = 2.03843761e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 51 - Advancing to t = 0.2482192340.
+Newton iter.  0:          nonlinear residual = 1.18442209e+00
+	Line search with alpha = 1.000 : res = 2.41725673e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 52 - Advancing to t = 0.2619329182.
+Newton iter.  0:          nonlinear residual = 3.01228686e+00
+	Line search with alpha = 1.000 : res = 1.11304320e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 53 - Advancing to t = 0.2692272696.
+Newton iter.  0:          nonlinear residual = 3.51561512e+00
+	Line search with alpha = 1.000 : res = 2.22822516e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 54 - Advancing to t = 0.2743987583.
+Newton iter.  0:          nonlinear residual = 4.17732739e+00
+	Line search with alpha = 1.000 : res = 2.79490069e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 55 - Advancing to t = 0.2792490420.
+Newton iter.  0:          nonlinear residual = 4.81774218e+00
+	Line search with alpha = 1.000 : res = 2.88623446e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 56 - Advancing to t = 0.2838576785.
+Newton iter.  0:          nonlinear residual = 5.21019974e+00
+	Line search with alpha = 1.000 : res = 3.79625033e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 57 - Advancing to t = 0.2883165758.
+Newton iter.  0:          nonlinear residual = 5.55226846e+00
+	Line search with alpha = 1.000 : res = 3.04700411e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 58 - Advancing to t = 0.2926936198.
+Newton iter.  0:          nonlinear residual = 5.84466702e+00
+	Line search with alpha = 1.000 : res = 2.51354418e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 59 - Advancing to t = 0.2969968044.
+Newton iter.  0:          nonlinear residual = 6.07646692e+00
+	Line search with alpha = 1.000 : res = 1.43773867e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 60 - Advancing to t = 0.3012339716.
+Newton iter.  0:          nonlinear residual = 6.26024587e+00
+	Line search with alpha = 1.000 : res = 2.61962934e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 61 - Advancing to t = 0.3054184746.
+Newton iter.  0:          nonlinear residual = 6.39925659e+00
+	Line search with alpha = 1.000 : res = 1.13921249e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 62 - Advancing to t = 0.3095628567.
+Newton iter.  0:          nonlinear residual = 6.49326085e+00
+	Line search with alpha = 1.000 : res = 1.49819910e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 63 - Advancing to t = 0.3136783974.
+Newton iter.  0:          nonlinear residual = 6.54296217e+00
+	Line search with alpha = 1.000 : res = 9.57867314e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 64 - Advancing to t = 0.3177755002.
+Newton iter.  0:          nonlinear residual = 6.54908508e+00
+	Line search with alpha = 1.000 : res = 1.22077487e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 65 - Advancing to t = 0.3218638501.
+Newton iter.  0:          nonlinear residual = 6.51213558e+00
+	Line search with alpha = 1.000 : res = 2.46856258e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 66 - Advancing to t = 0.3259527064.
+Newton iter.  0:          nonlinear residual = 6.43253188e+00
+	Line search with alpha = 1.000 : res = 1.29620263e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 67 - Advancing to t = 0.3300512181.
+Newton iter.  0:          nonlinear residual = 6.31059450e+00
+	Line search with alpha = 1.000 : res = 1.24542101e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 68 - Advancing to t = 0.3341687052.
+Newton iter.  0:          nonlinear residual = 6.14653018e+00
+	Line search with alpha = 1.000 : res = 1.55633071e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 69 - Advancing to t = 0.3383149404.
+Newton iter.  0:          nonlinear residual = 5.94043225e+00
+	Line search with alpha = 1.000 : res = 1.67177450e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 70 - Advancing to t = 0.3425004677.
+Newton iter.  0:          nonlinear residual = 5.69227126e+00
+	Line search with alpha = 1.000 : res = 2.61778770e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 71 - Advancing to t = 0.3467369907.
+Newton iter.  0:          nonlinear residual = 5.40187223e+00
+	Line search with alpha = 1.000 : res = 3.00059623e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 72 - Advancing to t = 0.3510378770.
+Newton iter.  0:          nonlinear residual = 5.06887646e+00
+	Line search with alpha = 1.000 : res = 3.20717267e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 73 - Advancing to t = 0.3554188545.
+Newton iter.  0:          nonlinear residual = 4.69268038e+00
+	Line search with alpha = 1.000 : res = 2.09114898e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 74 - Advancing to t = 0.3598990215.
+Newton iter.  0:          nonlinear residual = 4.27233811e+00
+	Line search with alpha = 1.000 : res = 1.75738111e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 75 - Advancing to t = 0.3645023903.
+Newton iter.  0:          nonlinear residual = 3.80640300e+00
+	Line search with alpha = 1.000 : res = 3.52867681e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 76 - Advancing to t = 0.3692603882.
+Newton iter.  0:          nonlinear residual = 3.29265954e+00
+	Line search with alpha = 1.000 : res = 2.95391087e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 77 - Advancing to t = 0.3742161921.
+Newton iter.  0:          nonlinear residual = 2.72764182e+00
+	Line search with alpha = 1.000 : res = 2.81947651e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 78 - Advancing to t = 0.3794329263.
+Newton iter.  0:          nonlinear residual = 2.10569449e+00
+	Line search with alpha = 1.000 : res = 3.19552861e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 79 - Advancing to t = 0.3850110918.
+Newton iter.  0:          nonlinear residual = 1.41691545e+00
+	Line search with alpha = 1.000 : res = 3.46666853e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 80 - Advancing to t = 0.3911325992.
+Newton iter.  0:          nonlinear residual = 6.41791405e-01
+	Line search with alpha = 1.000 : res = 1.32914568e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 81 - Advancing to t = 0.3982091647.
+Newton iter.  0:          nonlinear residual = 2.67541002e-01
+	Line search with alpha = 1.000 : res = 2.08502237e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 82 - Advancing to t = 0.4078387974.
+Newton iter.  0:          nonlinear residual = 1.51326775e+00
+	Line search with alpha = 1.000 : res = 1.72991863e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 83 - Advancing to t = 0.4184839809.
+Newton iter.  0:          nonlinear residual = 2.89977063e+00
+	Line search with alpha = 1.000 : res = 2.45565852e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 84 - Advancing to t = 0.4252722795.
+Newton iter.  0:          nonlinear residual = 3.50197236e+00
+	Line search with alpha = 1.000 : res = 2.71031126e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 85 - Advancing to t = 0.4305626005.
+Newton iter.  0:          nonlinear residual = 4.15182283e+00
+	Line search with alpha = 1.000 : res = 1.76766394e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 86 - Advancing to t = 0.4354656964.
+Newton iter.  0:          nonlinear residual = 4.73000126e+00
+	Line search with alpha = 1.000 : res = 3.29844469e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 87 - Advancing to t = 0.4401217250.
+Newton iter.  0:          nonlinear residual = 5.14307355e+00
+	Line search with alpha = 1.000 : res = 2.82098692e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 88 - Advancing to t = 0.4446217139.
+Newton iter.  0:          nonlinear residual = 5.49593169e+00
+	Line search with alpha = 1.000 : res = 2.76454787e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 89 - Advancing to t = 0.4490218237.
+Newton iter.  0:          nonlinear residual = 5.79442238e+00
+	Line search with alpha = 1.000 : res = 2.92834619e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 90 - Advancing to t = 0.4533390363.
+Newton iter.  0:          nonlinear residual = 6.03623510e+00
+	Line search with alpha = 1.000 : res = 1.09134453e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 91 - Advancing to t = 0.4575866241.
+Newton iter.  0:          nonlinear residual = 6.22938691e+00
+	Line search with alpha = 1.000 : res = 1.61479340e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 92 - Advancing to t = 0.4617790213.
+Newton iter.  0:          nonlinear residual = 6.37663710e+00
+	Line search with alpha = 1.000 : res = 7.73897650e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 93 - Advancing to t = 0.4659292187.
+Newton iter.  0:          nonlinear residual = 6.47856883e+00
+	Line search with alpha = 1.000 : res = 7.38042860e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 94 - Advancing to t = 0.4700487735.
+Newton iter.  0:          nonlinear residual = 6.53602731e+00
+	Line search with alpha = 1.000 : res = 8.68279807e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 95 - Advancing to t = 0.4741482093.
+Newton iter.  0:          nonlinear residual = 6.54976000e+00
+	Line search with alpha = 1.000 : res = 6.80490958e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 96 - Advancing to t = 0.4782372802.
+Newton iter.  0:          nonlinear residual = 6.52032420e+00
+	Line search with alpha = 1.000 : res = 1.00660332e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 97 - Advancing to t = 0.4823252836.
+Newton iter.  0:          nonlinear residual = 6.44816574e+00
+	Line search with alpha = 1.000 : res = 8.15105735e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 98 - Advancing to t = 0.4864213640.
+Newton iter.  0:          nonlinear residual = 6.33362218e+00
+	Line search with alpha = 1.000 : res = 1.97723237e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 99 - Advancing to t = 0.4905347907.
+Newton iter.  0:          nonlinear residual = 6.17691877e+00
+	Line search with alpha = 1.000 : res = 1.74624851e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 100 - Advancing to t = 0.4946752355.
+Newton iter.  0:          nonlinear residual = 5.97816912e+00
+	Line search with alpha = 1.000 : res = 1.59962947e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 101 - Advancing to t = 0.4988530826.
+Newton iter.  0:          nonlinear residual = 5.73736666e+00
+	Line search with alpha = 1.000 : res = 2.60246482e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 102 - Advancing to t = 0.5000000000.
+Newton iter.  0:          nonlinear residual = 4.30249997e+00
+	Line search with alpha = 1.000 : res = 8.49839319e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
 Mesh info:
  dimension: 2
  no. of cells: 8
@@ -30,8 +791,1009 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 25
-[MMS] eps scaling applied: r=5.0000000000e-01  r^3=1.2500000000e-01
-  eps_u=1.9531250000e-06  eps_p=1.9531250000e-05  eps_x=1.9531250000e-06  eps_t=3.9062500000e-06  eps_phi=-1.9531250000e-03  eps_mu=-1.9531250000e-03
+
+Time step 1 - Advancing to t = 0.0025000000.
+
+Time step 2 - Advancing to t = 0.0050000000.
+Newton iter.  0:          nonlinear residual = 6.36607585e+00
+	Line search with alpha = 1.000 : res = 1.48894435e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 3 - Advancing to t = 0.0075000000.
+Newton iter.  0:          nonlinear residual = 6.33316364e+00
+	Line search with alpha = 1.000 : res = 2.27373028e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 4 - Advancing to t = 0.0100000000.
+Newton iter.  0:          nonlinear residual = 6.28536651e+00
+	Line search with alpha = 1.000 : res = 1.00505355e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 5 - Advancing to t = 0.0125000000.
+Newton iter.  0:          nonlinear residual = 6.22215156e+00
+	Line search with alpha = 1.000 : res = 1.20831606e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 6 - Advancing to t = 0.0150000000.
+Newton iter.  0:          nonlinear residual = 6.14345808e+00
+	Line search with alpha = 1.000 : res = 1.67257878e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 7 - Advancing to t = 0.0175000000.
+Newton iter.  0:          nonlinear residual = 6.04941257e+00
+	Line search with alpha = 1.000 : res = 2.40156068e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 8 - Advancing to t = 0.0200000000.
+Newton iter.  0:          nonlinear residual = 5.94023011e+00
+	Line search with alpha = 1.000 : res = 2.53535591e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 9 - Advancing to t = 0.0225000000.
+Newton iter.  0:          nonlinear residual = 5.81618001e+00
+	Line search with alpha = 1.000 : res = 3.69000157e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 10 - Advancing to t = 0.0250000000.
+Newton iter.  0:          nonlinear residual = 5.67757363e+00
+	Line search with alpha = 1.000 : res = 2.93742805e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 11 - Advancing to t = 0.0275000000.
+Newton iter.  0:          nonlinear residual = 5.52475978e+00
+	Line search with alpha = 1.000 : res = 2.50036673e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 12 - Advancing to t = 0.0300000000.
+Newton iter.  0:          nonlinear residual = 5.35812265e+00
+	Line search with alpha = 1.000 : res = 5.15789710e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 13 - Advancing to t = 0.0325000000.
+Newton iter.  0:          nonlinear residual = 5.17808062e+00
+	Line search with alpha = 1.000 : res = 3.18146986e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 14 - Advancing to t = 0.0350000000.
+Newton iter.  0:          nonlinear residual = 4.98508516e+00
+	Line search with alpha = 1.000 : res = 3.77905518e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 15 - Advancing to t = 0.0375000000.
+Newton iter.  0:          nonlinear residual = 4.77961983e+00
+	Line search with alpha = 1.000 : res = 4.72164038e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 16 - Advancing to t = 0.0400000000.
+Newton iter.  0:          nonlinear residual = 4.56219911e+00
+	Line search with alpha = 1.000 : res = 5.35398840e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 17 - Advancing to t = 0.0425000000.
+Newton iter.  0:          nonlinear residual = 4.33336719e+00
+	Line search with alpha = 1.000 : res = 2.11256648e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 18 - Advancing to t = 0.0450000000.
+Newton iter.  0:          nonlinear residual = 4.09369664e+00
+	Line search with alpha = 1.000 : res = 5.36597157e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 19 - Advancing to t = 0.0475000000.
+Newton iter.  0:          nonlinear residual = 3.84378703e+00
+	Line search with alpha = 1.000 : res = 1.52406383e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 20 - Advancing to t = 0.0500000000.
+Newton iter.  0:          nonlinear residual = 3.58426346e+00
+	Line search with alpha = 1.000 : res = 6.58651187e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 21 - Advancing to t = 0.0525000000.
+Newton iter.  0:          nonlinear residual = 3.31577501e+00
+	Line search with alpha = 1.000 : res = 4.06534390e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 22 - Advancing to t = 0.0549785003.
+Newton iter.  0:          nonlinear residual = 3.03493621e+00
+	Line search with alpha = 1.000 : res = 6.05330963e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 23 - Advancing to t = 0.0575192636.
+Newton iter.  0:          nonlinear residual = 2.76750480e+00
+	Line search with alpha = 1.000 : res = 4.02325129e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 24 - Advancing to t = 0.0601456562.
+Newton iter.  0:          nonlinear residual = 2.47166151e+00
+	Line search with alpha = 1.000 : res = 4.16701175e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 25 - Advancing to t = 0.0628651894.
+Newton iter.  0:          nonlinear residual = 2.15467154e+00
+	Line search with alpha = 1.000 : res = 4.66672552e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 26 - Advancing to t = 0.0656957010.
+Newton iter.  0:          nonlinear residual = 1.81924550e+00
+	Line search with alpha = 1.000 : res = 5.36494218e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 27 - Advancing to t = 0.0686649879.
+Newton iter.  0:          nonlinear residual = 1.46195303e+00
+	Line search with alpha = 1.000 : res = 3.31565503e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 28 - Advancing to t = 0.0718155984.
+Newton iter.  0:          nonlinear residual = 1.07800987e+00
+	Line search with alpha = 1.000 : res = 2.62325022e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 29 - Advancing to t = 0.0752190389.
+Newton iter.  0:          nonlinear residual = 6.59510211e-01
+	Line search with alpha = 1.000 : res = 3.57513454e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 30 - Advancing to t = 0.0790142710.
+Newton iter.  0:          nonlinear residual = 1.90664468e-01
+	Line search with alpha = 1.000 : res = 3.82281733e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 31 - Advancing to t = 0.0835610128.
+Newton iter.  0:          nonlinear residual = 3.70436190e-01
+	Line search with alpha = 1.000 : res = 2.87845983e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 32 - Advancing to t = 0.0912459357.
+Newton iter.  0:          nonlinear residual = 1.31016981e+00
+	Line search with alpha = 1.000 : res = 2.93682533e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 33 - Advancing to t = 0.0962641204.
+Newton iter.  0:          nonlinear residual = 1.85968095e+00
+	Line search with alpha = 1.000 : res = 2.72874369e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 34 - Advancing to t = 0.0996640522.
+Newton iter.  0:          nonlinear residual = 2.30269124e+00
+	Line search with alpha = 1.000 : res = 3.46063079e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 35 - Advancing to t = 0.1026435045.
+Newton iter.  0:          nonlinear residual = 2.75153402e+00
+	Line search with alpha = 1.000 : res = 4.15484237e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 36 - Advancing to t = 0.1054265924.
+Newton iter.  0:          nonlinear residual = 3.09563525e+00
+	Line search with alpha = 1.000 : res = 4.21099985e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 37 - Advancing to t = 0.1080771950.
+Newton iter.  0:          nonlinear residual = 3.39530739e+00
+	Line search with alpha = 1.000 : res = 2.87112238e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 38 - Advancing to t = 0.1106459417.
+Newton iter.  0:          nonlinear residual = 3.67614227e+00
+	Line search with alpha = 1.000 : res = 3.89132061e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 39 - Advancing to t = 0.1131482894.
+Newton iter.  0:          nonlinear residual = 3.93355445e+00
+	Line search with alpha = 1.000 : res = 4.28953127e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 40 - Advancing to t = 0.1155905552.
+Newton iter.  0:          nonlinear residual = 4.17286215e+00
+	Line search with alpha = 1.000 : res = 4.68274090e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 41 - Advancing to t = 0.1179801296.
+Newton iter.  0:          nonlinear residual = 4.39743717e+00
+	Line search with alpha = 1.000 : res = 4.94478081e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 42 - Advancing to t = 0.1203238755.
+Newton iter.  0:          nonlinear residual = 4.60772425e+00
+	Line search with alpha = 1.000 : res = 5.71376084e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 43 - Advancing to t = 0.1226275783.
+Newton iter.  0:          nonlinear residual = 4.80419349e+00
+	Line search with alpha = 1.000 : res = 6.10889820e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 44 - Advancing to t = 0.1248961631.
+Newton iter.  0:          nonlinear residual = 4.98741201e+00
+	Line search with alpha = 1.000 : res = 6.11410396e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 45 - Advancing to t = 0.1271338094.
+Newton iter.  0:          nonlinear residual = 5.15782013e+00
+	Line search with alpha = 1.000 : res = 4.45191387e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 46 - Advancing to t = 0.1293440792.
+Newton iter.  0:          nonlinear residual = 5.31578929e+00
+	Line search with alpha = 1.000 : res = 4.57181289e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 47 - Advancing to t = 0.1315300540.
+Newton iter.  0:          nonlinear residual = 5.46164171e+00
+	Line search with alpha = 1.000 : res = 3.39046374e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 48 - Advancing to t = 0.1336944384.
+Newton iter.  0:          nonlinear residual = 5.59564693e+00
+	Line search with alpha = 1.000 : res = 2.98339756e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 49 - Advancing to t = 0.1358396344.
+Newton iter.  0:          nonlinear residual = 5.71803040e+00
+	Line search with alpha = 1.000 : res = 3.51648218e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 50 - Advancing to t = 0.1379677989.
+Newton iter.  0:          nonlinear residual = 5.82898291e+00
+	Line search with alpha = 1.000 : res = 4.69837950e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 51 - Advancing to t = 0.1400808873.
+Newton iter.  0:          nonlinear residual = 5.92866703e+00
+	Line search with alpha = 1.000 : res = 2.36917060e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 52 - Advancing to t = 0.1421806891.
+Newton iter.  0:          nonlinear residual = 6.01722202e+00
+	Line search with alpha = 1.000 : res = 2.28353604e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 53 - Advancing to t = 0.1442688559.
+Newton iter.  0:          nonlinear residual = 6.09476775e+00
+	Line search with alpha = 1.000 : res = 2.40818476e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 54 - Advancing to t = 0.1463469248.
+Newton iter.  0:          nonlinear residual = 6.16140764e+00
+	Line search with alpha = 1.000 : res = 1.31059737e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 55 - Advancing to t = 0.1484163382.
+Newton iter.  0:          nonlinear residual = 6.21723113e+00
+	Line search with alpha = 1.000 : res = 8.98973480e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 56 - Advancing to t = 0.1504784601.
+Newton iter.  0:          nonlinear residual = 6.26231547e+00
+	Line search with alpha = 1.000 : res = 1.79406348e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 57 - Advancing to t = 0.1525345905.
+Newton iter.  0:          nonlinear residual = 6.29672733e+00
+	Line search with alpha = 1.000 : res = 1.30051183e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 58 - Advancing to t = 0.1545859780.
+Newton iter.  0:          nonlinear residual = 6.32052394e+00
+	Line search with alpha = 1.000 : res = 9.77979692e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 59 - Advancing to t = 0.1566338304.
+Newton iter.  0:          nonlinear residual = 6.33375410e+00
+	Line search with alpha = 1.000 : res = 1.07913648e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 60 - Advancing to t = 0.1586793256.
+Newton iter.  0:          nonlinear residual = 6.33645894e+00
+	Line search with alpha = 1.000 : res = 1.26514502e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 61 - Advancing to t = 0.1607236199.
+Newton iter.  0:          nonlinear residual = 6.32867247e+00
+	Line search with alpha = 1.000 : res = 1.38662803e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 62 - Advancing to t = 0.1627678575.
+Newton iter.  0:          nonlinear residual = 6.31042201e+00
+	Line search with alpha = 1.000 : res = 1.66192554e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 63 - Advancing to t = 0.1648131787.
+Newton iter.  0:          nonlinear residual = 6.28172846e+00
+	Line search with alpha = 1.000 : res = 1.37570466e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 64 - Advancing to t = 0.1668607282.
+Newton iter.  0:          nonlinear residual = 6.24260645e+00
+	Line search with alpha = 1.000 : res = 1.90113790e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 65 - Advancing to t = 0.1689116632.
+Newton iter.  0:          nonlinear residual = 6.19306436e+00
+	Line search with alpha = 1.000 : res = 1.55615671e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 66 - Advancing to t = 0.1709671626.
+Newton iter.  0:          nonlinear residual = 6.13310414e+00
+	Line search with alpha = 1.000 : res = 1.51105195e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 67 - Advancing to t = 0.1730284354.
+Newton iter.  0:          nonlinear residual = 6.06272116e+00
+	Line search with alpha = 1.000 : res = 2.45860456e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 68 - Advancing to t = 0.1750967310.
+Newton iter.  0:          nonlinear residual = 5.98190372e+00
+	Line search with alpha = 1.000 : res = 2.22220358e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 69 - Advancing to t = 0.1771733493.
+Newton iter.  0:          nonlinear residual = 5.89063254e+00
+	Line search with alpha = 1.000 : res = 1.59112745e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 70 - Advancing to t = 0.1792596530.
+Newton iter.  0:          nonlinear residual = 5.78888003e+00
+	Line search with alpha = 1.000 : res = 2.12492811e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 71 - Advancing to t = 0.1813570806.
+Newton iter.  0:          nonlinear residual = 5.67660931e+00
+	Line search with alpha = 1.000 : res = 6.48720238e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 72 - Advancing to t = 0.1834671621.
+Newton iter.  0:          nonlinear residual = 5.55377303e+00
+	Line search with alpha = 1.000 : res = 4.92480176e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 73 - Advancing to t = 0.1855915365.
+Newton iter.  0:          nonlinear residual = 5.42031186e+00
+	Line search with alpha = 1.000 : res = 6.60196184e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 74 - Advancing to t = 0.1877319735.
+Newton iter.  0:          nonlinear residual = 5.27615261e+00
+	Line search with alpha = 1.000 : res = 3.39397889e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 75 - Advancing to t = 0.1898903982.
+Newton iter.  0:          nonlinear residual = 5.12120586e+00
+	Line search with alpha = 1.000 : res = 6.69746688e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 76 - Advancing to t = 0.1920689222.
+Newton iter.  0:          nonlinear residual = 4.95536302e+00
+	Line search with alpha = 1.000 : res = 6.36294829e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 77 - Advancing to t = 0.1942698813.
+Newton iter.  0:          nonlinear residual = 4.77849255e+00
+	Line search with alpha = 1.000 : res = 4.48880170e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 78 - Advancing to t = 0.1964958819.
+Newton iter.  0:          nonlinear residual = 4.59043525e+00
+	Line search with alpha = 1.000 : res = 2.79471161e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 79 - Advancing to t = 0.1987498608.
+Newton iter.  0:          nonlinear residual = 4.39099805e+00
+	Line search with alpha = 1.000 : res = 6.82893211e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 80 - Advancing to t = 0.2010351610.
+Newton iter.  0:          nonlinear residual = 4.17994611e+00
+	Line search with alpha = 1.000 : res = 3.94669105e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 81 - Advancing to t = 0.2033556305.
+Newton iter.  0:          nonlinear residual = 3.95699216e+00
+	Line search with alpha = 1.000 : res = 9.37730083e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 82 - Advancing to t = 0.2057157542.
+Newton iter.  0:          nonlinear residual = 3.72178240e+00
+	Line search with alpha = 1.000 : res = 2.96699720e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 83 - Advancing to t = 0.2081208330.
+Newton iter.  0:          nonlinear residual = 3.47387700e+00
+	Line search with alpha = 1.000 : res = 5.59159873e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 84 - Advancing to t = 0.2105772317.
+Newton iter.  0:          nonlinear residual = 3.21272279e+00
+	Line search with alpha = 1.000 : res = 4.47650071e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 85 - Advancing to t = 0.2130927350.
+Newton iter.  0:          nonlinear residual = 2.93761402e+00
+	Line search with alpha = 1.000 : res = 6.08607191e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 86 - Advancing to t = 0.2156770727.
+Newton iter.  0:          nonlinear residual = 2.64763375e+00
+	Line search with alpha = 1.000 : res = 5.21495095e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 87 - Advancing to t = 0.2183427278.
+Newton iter.  0:          nonlinear residual = 2.34156327e+00
+	Line search with alpha = 1.000 : res = 3.65453337e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 88 - Advancing to t = 0.2211062405.
+Newton iter.  0:          nonlinear residual = 2.01773486e+00
+	Line search with alpha = 1.000 : res = 4.40282385e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 89 - Advancing to t = 0.2239904455.
+Newton iter.  0:          nonlinear residual = 1.67377747e+00
+	Line search with alpha = 1.000 : res = 4.94538385e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 90 - Advancing to t = 0.2270286261.
+Newton iter.  0:          nonlinear residual = 1.30614105e+00
+	Line search with alpha = 1.000 : res = 4.20910533e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 91 - Advancing to t = 0.2302731039.
+Newton iter.  0:          nonlinear residual = 9.09104769e-01
+	Line search with alpha = 1.000 : res = 4.22312711e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 92 - Advancing to t = 0.2338159954.
+Newton iter.  0:          nonlinear residual = 4.72355817e-01
+	Line search with alpha = 1.000 : res = 6.04230928e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 93 - Advancing to t = 0.2378537659.
+Newton iter.  0:          nonlinear residual = 2.66382822e-02
+	Line search with alpha = 1.000 : res = 3.84271973e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 94 - Advancing to t = 0.2430228363.
+Newton iter.  0:          nonlinear residual = 6.62912532e-01
+	Line search with alpha = 1.000 : res = 3.12452056e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 95 - Advancing to t = 0.2512856576.
+Newton iter.  0:          nonlinear residual = 1.70016719e+00
+	Line search with alpha = 1.000 : res = 1.70082697e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+[REJECT] step=95 t=2.5128565756e-01 dt_used=8.2628212809e-03 dt_new=4.3272854416e-03 (R=1.970308e-01)
+
+Time step 95 - Advancing to t = 0.2473501217.
+Newton iter.  0:          nonlinear residual = 1.21342035e+00
+	Line search with alpha = 1.000 : res = 1.91161281e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 96 - Advancing to t = 0.2516561615.
+Newton iter.  0:          nonlinear residual = 1.79752465e+00
+	Line search with alpha = 1.000 : res = 5.42783295e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 97 - Advancing to t = 0.2552451915.
+Newton iter.  0:          nonlinear residual = 2.20122175e+00
+	Line search with alpha = 1.000 : res = 2.85240122e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 98 - Advancing to t = 0.2583335886.
+Newton iter.  0:          nonlinear residual = 2.58326309e+00
+	Line search with alpha = 1.000 : res = 4.93662731e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 99 - Advancing to t = 0.2611966571.
+Newton iter.  0:          nonlinear residual = 2.94460257e+00
+	Line search with alpha = 1.000 : res = 2.77813592e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 100 - Advancing to t = 0.2639182489.
+Newton iter.  0:          nonlinear residual = 3.25954010e+00
+	Line search with alpha = 1.000 : res = 3.35487717e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 101 - Advancing to t = 0.2665347238.
+Newton iter.  0:          nonlinear residual = 3.54651398e+00
+	Line search with alpha = 1.000 : res = 5.74962961e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 102 - Advancing to t = 0.2690709614.
+Newton iter.  0:          nonlinear residual = 3.81365466e+00
+	Line search with alpha = 1.000 : res = 3.78095391e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 103 - Advancing to t = 0.2715409456.
+Newton iter.  0:          nonlinear residual = 4.06209452e+00
+	Line search with alpha = 1.000 : res = 4.07882725e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 104 - Advancing to t = 0.2739541235.
+Newton iter.  0:          nonlinear residual = 4.29406534e+00
+	Line search with alpha = 1.000 : res = 3.14123170e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 105 - Advancing to t = 0.2763182812.
+Newton iter.  0:          nonlinear residual = 4.51111503e+00
+	Line search with alpha = 1.000 : res = 4.24937696e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 106 - Advancing to t = 0.2786398569.
+Newton iter.  0:          nonlinear residual = 4.71401255e+00
+	Line search with alpha = 1.000 : res = 5.37607231e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 107 - Advancing to t = 0.2809241779.
+Newton iter.  0:          nonlinear residual = 4.90336657e+00
+	Line search with alpha = 1.000 : res = 3.75641490e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 108 - Advancing to t = 0.2831757240.
+Newton iter.  0:          nonlinear residual = 5.07969746e+00
+	Line search with alpha = 1.000 : res = 6.72538905e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 109 - Advancing to t = 0.2853983083.
+Newton iter.  0:          nonlinear residual = 5.24342460e+00
+	Line search with alpha = 1.000 : res = 4.13916164e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 110 - Advancing to t = 0.2875952163.
+Newton iter.  0:          nonlinear residual = 5.39489463e+00
+	Line search with alpha = 1.000 : res = 4.91480973e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 111 - Advancing to t = 0.2897693167.
+Newton iter.  0:          nonlinear residual = 5.53439831e+00
+	Line search with alpha = 1.000 : res = 3.72894257e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 112 - Advancing to t = 0.2919231445.
+Newton iter.  0:          nonlinear residual = 5.66217956e+00
+	Line search with alpha = 1.000 : res = 3.10317608e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 113 - Advancing to t = 0.2940589650.
+Newton iter.  0:          nonlinear residual = 5.77844417e+00
+	Line search with alpha = 1.000 : res = 3.33808495e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 114 - Advancing to t = 0.2961788227.
+Newton iter.  0:          nonlinear residual = 5.88336716e+00
+	Line search with alpha = 1.000 : res = 3.68151834e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 115 - Advancing to t = 0.2982845806.
+Newton iter.  0:          nonlinear residual = 5.97709817e+00
+	Line search with alpha = 1.000 : res = 2.36030345e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 116 - Advancing to t = 0.3003779512.
+Newton iter.  0:          nonlinear residual = 6.05976578e+00
+	Line search with alpha = 1.000 : res = 3.19362798e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 117 - Advancing to t = 0.3024605221.
+Newton iter.  0:          nonlinear residual = 6.13148080e+00
+	Line search with alpha = 1.000 : res = 2.47369167e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 118 - Advancing to t = 0.3045337777.
+Newton iter.  0:          nonlinear residual = 6.19233898e+00
+	Line search with alpha = 1.000 : res = 2.14082713e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 119 - Advancing to t = 0.3065991163.
+Newton iter.  0:          nonlinear residual = 6.24242305e+00
+	Line search with alpha = 1.000 : res = 1.99042096e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 120 - Advancing to t = 0.3086578662.
+Newton iter.  0:          nonlinear residual = 6.28180449e+00
+	Line search with alpha = 1.000 : res = 1.29243425e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 121 - Advancing to t = 0.3107112983.
+Newton iter.  0:          nonlinear residual = 6.31054480e+00
+	Line search with alpha = 1.000 : res = 1.09744149e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 122 - Advancing to t = 0.3127606379.
+Newton iter.  0:          nonlinear residual = 6.32869663e+00
+	Line search with alpha = 1.000 : res = 5.96051016e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 123 - Advancing to t = 0.3148070758.
+Newton iter.  0:          nonlinear residual = 6.33630461e+00
+	Line search with alpha = 1.000 : res = 1.61253188e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 124 - Advancing to t = 0.3168517770.
+Newton iter.  0:          nonlinear residual = 6.33340602e+00
+	Line search with alpha = 1.000 : res = 1.47744621e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 125 - Advancing to t = 0.3188958903.
+Newton iter.  0:          nonlinear residual = 6.32003127e+00
+	Line search with alpha = 1.000 : res = 1.27578626e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 126 - Advancing to t = 0.3209405568.
+Newton iter.  0:          nonlinear residual = 6.29620425e+00
+	Line search with alpha = 1.000 : res = 2.01540596e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 127 - Advancing to t = 0.3229869180.
+Newton iter.  0:          nonlinear residual = 6.26194250e+00
+	Line search with alpha = 1.000 : res = 2.40534744e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 128 - Advancing to t = 0.3250361241.
+Newton iter.  0:          nonlinear residual = 6.21725732e+00
+	Line search with alpha = 1.000 : res = 1.79372452e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 129 - Advancing to t = 0.3270893430.
+Newton iter.  0:          nonlinear residual = 6.16215370e+00
+	Line search with alpha = 1.000 : res = 3.99872192e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 130 - Advancing to t = 0.3291477683.
+Newton iter.  0:          nonlinear residual = 6.09663013e+00
+	Line search with alpha = 1.000 : res = 2.17564961e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 131 - Advancing to t = 0.3312126294.
+Newton iter.  0:          nonlinear residual = 6.02067825e+00
+	Line search with alpha = 1.000 : res = 4.90871785e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 132 - Advancing to t = 0.3332852012.
+Newton iter.  0:          nonlinear residual = 5.93428242e+00
+	Line search with alpha = 1.000 : res = 2.07291602e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 133 - Advancing to t = 0.3353668156.
+Newton iter.  0:          nonlinear residual = 5.83741903e+00
+	Line search with alpha = 1.000 : res = 4.93687783e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 134 - Advancing to t = 0.3374588741.
+Newton iter.  0:          nonlinear residual = 5.73005565e+00
+	Line search with alpha = 1.000 : res = 3.77553358e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 135 - Advancing to t = 0.3395628619.
+Newton iter.  0:          nonlinear residual = 5.61215000e+00
+	Line search with alpha = 1.000 : res = 4.22013693e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 136 - Advancing to t = 0.3416803649.
+Newton iter.  0:          nonlinear residual = 5.48364853e+00
+	Line search with alpha = 1.000 : res = 2.63501387e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 137 - Advancing to t = 0.3438130890.
+Newton iter.  0:          nonlinear residual = 5.34448478e+00
+	Line search with alpha = 1.000 : res = 6.36417191e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 138 - Advancing to t = 0.3459628834.
+Newton iter.  0:          nonlinear residual = 5.19457723e+00
+	Line search with alpha = 1.000 : res = 6.17874316e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 139 - Advancing to t = 0.3481317689.
+Newton iter.  0:          nonlinear residual = 5.03382662e+00
+	Line search with alpha = 1.000 : res = 4.18922079e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 140 - Advancing to t = 0.3503219714.
+Newton iter.  0:          nonlinear residual = 4.86211263e+00
+	Line search with alpha = 1.000 : res = 2.78858795e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 141 - Advancing to t = 0.3525359649.
+Newton iter.  0:          nonlinear residual = 4.67928962e+00
+	Line search with alpha = 1.000 : res = 6.06464075e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 142 - Advancing to t = 0.3547765241.
+Newton iter.  0:          nonlinear residual = 4.48518116e+00
+	Line search with alpha = 1.000 : res = 4.27695954e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 143 - Advancing to t = 0.3570467920.
+Newton iter.  0:          nonlinear residual = 4.27957301e+00
+	Line search with alpha = 1.000 : res = 6.79346472e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 144 - Advancing to t = 0.3593503673.
+Newton iter.  0:          nonlinear residual = 4.06220382e+00
+	Line search with alpha = 1.000 : res = 4.46827211e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 145 - Advancing to t = 0.3616914195.
+Newton iter.  0:          nonlinear residual = 3.83275285e+00
+	Line search with alpha = 1.000 : res = 4.86854216e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 146 - Advancing to t = 0.3640748435.
+Newton iter.  0:          nonlinear residual = 3.59082314e+00
+	Line search with alpha = 1.000 : res = 4.41606714e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 147 - Advancing to t = 0.3665064720.
+Newton iter.  0:          nonlinear residual = 3.33591836e+00
+	Line search with alpha = 1.000 : res = 7.76862023e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 148 - Advancing to t = 0.3689933756.
+Newton iter.  0:          nonlinear residual = 3.06740970e+00
+	Line search with alpha = 1.000 : res = 9.01236480e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 149 - Advancing to t = 0.3715442986.
+Newton iter.  0:          nonlinear residual = 2.78448748e+00
+	Line search with alpha = 1.000 : res = 8.99815643e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 150 - Advancing to t = 0.3741703165.
+Newton iter.  0:          nonlinear residual = 2.48608761e+00
+	Line search with alpha = 1.000 : res = 5.91308253e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 151 - Advancing to t = 0.3768858733.
+Newton iter.  0:          nonlinear residual = 2.17077491e+00
+	Line search with alpha = 1.000 : res = 7.92835498e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 152 - Advancing to t = 0.3797105060.
+Newton iter.  0:          nonlinear residual = 1.83654764e+00
+	Line search with alpha = 1.000 : res = 4.26912296e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 153 - Advancing to t = 0.3826719240.
+Newton iter.  0:          nonlinear residual = 1.48048617e+00
+	Line search with alpha = 1.000 : res = 5.75425417e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 154 - Advancing to t = 0.3858120377.
+Newton iter.  0:          nonlinear residual = 1.09805967e+00
+	Line search with alpha = 1.000 : res = 4.39452001e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 155 - Advancing to t = 0.3892003980.
+Newton iter.  0:          nonlinear residual = 6.81566323e-01
+	Line search with alpha = 1.000 : res = 4.10126918e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 156 - Advancing to t = 0.3929707216.
+Newton iter.  0:          nonlinear residual = 2.15845038e-01
+	Line search with alpha = 1.000 : res = 2.61404206e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 157 - Advancing to t = 0.3972980071.
+Newton iter.  0:          nonlinear residual = 3.24790525e-01
+	Line search with alpha = 1.000 : res = 3.53784847e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 158 - Advancing to t = 0.4016252925.
+Newton iter.  0:          nonlinear residual = 8.84215961e-01
+	Line search with alpha = 1.000 : res = 2.94413868e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 159 - Advancing to t = 0.4070461101.
+Newton iter.  0:          nonlinear residual = 1.59253669e+00
+	Line search with alpha = 1.000 : res = 3.75229565e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 160 - Advancing to t = 0.4110760025.
+Newton iter.  0:          nonlinear residual = 2.00394332e+00
+	Line search with alpha = 1.000 : res = 1.99589318e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 161 - Advancing to t = 0.4142864791.
+Newton iter.  0:          nonlinear residual = 2.42066309e+00
+	Line search with alpha = 1.000 : res = 1.62933802e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 162 - Advancing to t = 0.4172229011.
+Newton iter.  0:          nonlinear residual = 2.81863523e+00
+	Line search with alpha = 1.000 : res = 3.69026400e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 163 - Advancing to t = 0.4199908614.
+Newton iter.  0:          nonlinear residual = 3.14462060e+00
+	Line search with alpha = 1.000 : res = 3.15724006e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 164 - Advancing to t = 0.4226384261.
+Newton iter.  0:          nonlinear residual = 3.44023973e+00
+	Line search with alpha = 1.000 : res = 4.65508851e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 165 - Advancing to t = 0.4252013733.
+Newton iter.  0:          nonlinear residual = 3.71596387e+00
+	Line search with alpha = 1.000 : res = 4.81462516e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 166 - Advancing to t = 0.4276950032.
+Newton iter.  0:          nonlinear residual = 3.97078972e+00
+	Line search with alpha = 1.000 : res = 4.15763706e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 167 - Advancing to t = 0.4301286247.
+Newton iter.  0:          nonlinear residual = 4.20841593e+00
+	Line search with alpha = 1.000 : res = 8.15070588e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 168 - Advancing to t = 0.4325104919.
+Newton iter.  0:          nonlinear residual = 4.43096385e+00
+	Line search with alpha = 1.000 : res = 4.91906406e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 169 - Advancing to t = 0.4348474987.
+Newton iter.  0:          nonlinear residual = 4.63911692e+00
+	Line search with alpha = 1.000 : res = 3.13578969e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 170 - Advancing to t = 0.4371453327.
+Newton iter.  0:          nonlinear residual = 4.83350511e+00
+	Line search with alpha = 1.000 : res = 5.37369912e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 171 - Advancing to t = 0.4394087782.
+Newton iter.  0:          nonlinear residual = 5.01469749e+00
+	Line search with alpha = 1.000 : res = 5.20841753e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 172 - Advancing to t = 0.4416418894.
+Newton iter.  0:          nonlinear residual = 5.18313810e+00
+	Line search with alpha = 1.000 : res = 3.16995407e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 173 - Advancing to t = 0.4438481382.
+Newton iter.  0:          nonlinear residual = 5.33919622e+00
+	Line search with alpha = 1.000 : res = 3.61397236e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 174 - Advancing to t = 0.4460305393.
+Newton iter.  0:          nonlinear residual = 5.48318405e+00
+	Line search with alpha = 1.000 : res = 4.43264966e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 175 - Advancing to t = 0.4481917456.
+Newton iter.  0:          nonlinear residual = 5.61536242e+00
+	Line search with alpha = 1.000 : res = 3.69841928e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 176 - Advancing to t = 0.4503341175.
+Newton iter.  0:          nonlinear residual = 5.73595055e+00
+	Line search with alpha = 1.000 : res = 2.57090048e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 177 - Advancing to t = 0.4524597778.
+Newton iter.  0:          nonlinear residual = 5.84513439e+00
+	Line search with alpha = 1.000 : res = 4.18227366e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 178 - Advancing to t = 0.4545706538.
+Newton iter.  0:          nonlinear residual = 5.94307258e+00
+	Line search with alpha = 1.000 : res = 2.84385336e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 179 - Advancing to t = 0.4566685117.
+Newton iter.  0:          nonlinear residual = 6.02990119e+00
+	Line search with alpha = 1.000 : res = 2.61758966e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 180 - Advancing to t = 0.4587549836.
+Newton iter.  0:          nonlinear residual = 6.10573739e+00
+	Line search with alpha = 1.000 : res = 1.70469211e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 181 - Advancing to t = 0.4608315904.
+Newton iter.  0:          nonlinear residual = 6.17068231e+00
+	Line search with alpha = 1.000 : res = 1.22534300e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 182 - Advancing to t = 0.4628997612.
+Newton iter.  0:          nonlinear residual = 6.22482339e+00
+	Line search with alpha = 1.000 : res = 1.67893785e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 183 - Advancing to t = 0.4649608491.
+Newton iter.  0:          nonlinear residual = 6.26823616e+00
+	Line search with alpha = 1.000 : res = 2.76557496e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 184 - Advancing to t = 0.4670161450.
+Newton iter.  0:          nonlinear residual = 6.30098574e+00
+	Line search with alpha = 1.000 : res = 1.77121417e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 185 - Advancing to t = 0.4690668904.
+Newton iter.  0:          nonlinear residual = 6.32312801e+00
+	Line search with alpha = 1.000 : res = 1.40020544e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 186 - Advancing to t = 0.4711142878.
+Newton iter.  0:          nonlinear residual = 6.33471054e+00
+	Line search with alpha = 1.000 : res = 8.90715476e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 187 - Advancing to t = 0.4731595109.
+Newton iter.  0:          nonlinear residual = 6.33577331e+00
+	Line search with alpha = 1.000 : res = 1.26208719e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 188 - Advancing to t = 0.4752037137.
+Newton iter.  0:          nonlinear residual = 6.32634928e+00
+	Line search with alpha = 1.000 : res = 1.35891468e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 189 - Advancing to t = 0.4772480392.
+Newton iter.  0:          nonlinear residual = 6.30646476e+00
+	Line search with alpha = 1.000 : res = 2.35120764e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 190 - Advancing to t = 0.4792936277.
+Newton iter.  0:          nonlinear residual = 6.27613967e+00
+	Line search with alpha = 1.000 : res = 2.37956002e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 191 - Advancing to t = 0.4813416252.
+Newton iter.  0:          nonlinear residual = 6.23538768e+00
+	Line search with alpha = 1.000 : res = 2.28178289e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 192 - Advancing to t = 0.4833931918.
+Newton iter.  0:          nonlinear residual = 6.18421615e+00
+	Line search with alpha = 1.000 : res = 2.43320246e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 193 - Advancing to t = 0.4854495105.
+Newton iter.  0:          nonlinear residual = 6.12262606e+00
+	Line search with alpha = 1.000 : res = 3.48583627e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 194 - Advancing to t = 0.4875117960.
+Newton iter.  0:          nonlinear residual = 6.05061170e+00
+	Line search with alpha = 1.000 : res = 2.90066137e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 195 - Advancing to t = 0.4895813047.
+Newton iter.  0:          nonlinear residual = 5.96816022e+00
+	Line search with alpha = 1.000 : res = 3.02660151e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 196 - Advancing to t = 0.4916593457.
+Newton iter.  0:          nonlinear residual = 5.87525111e+00
+	Line search with alpha = 1.000 : res = 2.18496561e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 197 - Advancing to t = 0.4937472925.
+Newton iter.  0:          nonlinear residual = 5.77185539e+00
+	Line search with alpha = 1.000 : res = 4.81333592e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 198 - Advancing to t = 0.4958465970.
+Newton iter.  0:          nonlinear residual = 5.65793463e+00
+	Line search with alpha = 1.000 : res = 3.54446193e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 199 - Advancing to t = 0.4979588049.
+Newton iter.  0:          nonlinear residual = 5.53343973e+00
+	Line search with alpha = 1.000 : res = 4.70487853e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 200 - Advancing to t = 0.5000000000.
+Newton iter.  0:          nonlinear residual = 5.35793290e+00
+	Line search with alpha = 1.000 : res = 4.85469658e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
 Mesh info:
  dimension: 2
  no. of cells: 8
@@ -41,6 +1803,2019 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 25
+
+Time step 1 - Advancing to t = 0.0012500000.
+
+Time step 2 - Advancing to t = 0.0025000000.
+Newton iter.  0:          nonlinear residual = 6.24877509e+00
+	Line search with alpha = 1.000 : res = 1.69861397e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 3 - Advancing to t = 0.0037500000.
+Newton iter.  0:          nonlinear residual = 6.24066978e+00
+	Line search with alpha = 1.000 : res = 6.95321021e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 4 - Advancing to t = 0.0050000000.
+Newton iter.  0:          nonlinear residual = 6.22889268e+00
+	Line search with alpha = 1.000 : res = 1.51906439e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 5 - Advancing to t = 0.0062500000.
+Newton iter.  0:          nonlinear residual = 6.21329762e+00
+	Line search with alpha = 1.000 : res = 2.16301765e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 6 - Advancing to t = 0.0075000000.
+Newton iter.  0:          nonlinear residual = 6.19384259e+00
+	Line search with alpha = 1.000 : res = 2.51798741e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 7 - Advancing to t = 0.0087500000.
+Newton iter.  0:          nonlinear residual = 6.17052247e+00
+	Line search with alpha = 1.000 : res = 2.30677910e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 8 - Advancing to t = 0.0100000000.
+Newton iter.  0:          nonlinear residual = 6.14334616e+00
+	Line search with alpha = 1.000 : res = 2.55068015e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 9 - Advancing to t = 0.0112500000.
+Newton iter.  0:          nonlinear residual = 6.11232892e+00
+	Line search with alpha = 1.000 : res = 2.64229366e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 10 - Advancing to t = 0.0125000000.
+Newton iter.  0:          nonlinear residual = 6.07748972e+00
+	Line search with alpha = 1.000 : res = 3.18062153e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 11 - Advancing to t = 0.0137500000.
+Newton iter.  0:          nonlinear residual = 6.03885033e+00
+	Line search with alpha = 1.000 : res = 3.64684894e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 12 - Advancing to t = 0.0150000000.
+Newton iter.  0:          nonlinear residual = 5.99643504e+00
+	Line search with alpha = 1.000 : res = 2.20332445e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 13 - Advancing to t = 0.0162500000.
+Newton iter.  0:          nonlinear residual = 5.95027052e+00
+	Line search with alpha = 1.000 : res = 3.87155213e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 14 - Advancing to t = 0.0175000000.
+Newton iter.  0:          nonlinear residual = 5.90038578e+00
+	Line search with alpha = 1.000 : res = 5.42401822e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 15 - Advancing to t = 0.0187500000.
+Newton iter.  0:          nonlinear residual = 5.84681213e+00
+	Line search with alpha = 1.000 : res = 1.21596547e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 16 - Advancing to t = 0.0200000000.
+Newton iter.  0:          nonlinear residual = 5.78958318e+00
+	Line search with alpha = 1.000 : res = 4.71657268e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 17 - Advancing to t = 0.0212500000.
+Newton iter.  0:          nonlinear residual = 5.72873481e+00
+	Line search with alpha = 1.000 : res = 5.55496767e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 18 - Advancing to t = 0.0225000000.
+Newton iter.  0:          nonlinear residual = 5.66430514e+00
+	Line search with alpha = 1.000 : res = 2.65729000e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 19 - Advancing to t = 0.0237500000.
+Newton iter.  0:          nonlinear residual = 5.59633451e+00
+	Line search with alpha = 1.000 : res = 5.54674025e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 20 - Advancing to t = 0.0250000000.
+Newton iter.  0:          nonlinear residual = 5.52486547e+00
+	Line search with alpha = 1.000 : res = 5.42453385e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 21 - Advancing to t = 0.0262500000.
+Newton iter.  0:          nonlinear residual = 5.44994276e+00
+	Line search with alpha = 1.000 : res = 6.30081101e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 22 - Advancing to t = 0.0273152384.
+Newton iter.  0:          nonlinear residual = 5.22074132e+00
+	Line search with alpha = 1.000 : res = 4.98124796e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 23 - Advancing to t = 0.0283630516.
+Newton iter.  0:          nonlinear residual = 5.27658826e+00
+	Line search with alpha = 1.000 : res = 1.58338738e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 24 - Advancing to t = 0.0294323998.
+Newton iter.  0:          nonlinear residual = 5.23930800e+00
+	Line search with alpha = 1.000 : res = 8.67607119e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 25 - Advancing to t = 0.0305103083.
+Newton iter.  0:          nonlinear residual = 5.15507114e+00
+	Line search with alpha = 1.000 : res = 9.13281161e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 26 - Advancing to t = 0.0315944405.
+Newton iter.  0:          nonlinear residual = 5.07642079e+00
+	Line search with alpha = 1.000 : res = 5.56065765e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 27 - Advancing to t = 0.0326848121.
+Newton iter.  0:          nonlinear residual = 4.99676636e+00
+	Line search with alpha = 1.000 : res = 7.29375996e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 28 - Advancing to t = 0.0337809072.
+Newton iter.  0:          nonlinear residual = 4.91384049e+00
+	Line search with alpha = 1.000 : res = 1.34949211e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 29 - Advancing to t = 0.0348828013.
+Newton iter.  0:          nonlinear residual = 4.82854335e+00
+	Line search with alpha = 1.000 : res = 1.13265546e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 30 - Advancing to t = 0.0359908726.
+Newton iter.  0:          nonlinear residual = 4.74065074e+00
+	Line search with alpha = 1.000 : res = 1.22876840e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 31 - Advancing to t = 0.0371055072.
+Newton iter.  0:          nonlinear residual = 4.64991574e+00
+	Line search with alpha = 1.000 : res = 8.24005502e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 32 - Advancing to t = 0.0382270965.
+Newton iter.  0:          nonlinear residual = 4.55630545e+00
+	Line search with alpha = 1.000 : res = 1.10471431e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 33 - Advancing to t = 0.0393560546.
+Newton iter.  0:          nonlinear residual = 4.45979966e+00
+	Line search with alpha = 1.000 : res = 1.05611917e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 34 - Advancing to t = 0.0404928212.
+Newton iter.  0:          nonlinear residual = 4.36036463e+00
+	Line search with alpha = 1.000 : res = 9.34746725e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 35 - Advancing to t = 0.0416378668.
+Newton iter.  0:          nonlinear residual = 4.25796482e+00
+	Line search with alpha = 1.000 : res = 1.34124351e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 36 - Advancing to t = 0.0427916983.
+Newton iter.  0:          nonlinear residual = 4.15256072e+00
+	Line search with alpha = 1.000 : res = 7.81280645e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 37 - Advancing to t = 0.0439548641.
+Newton iter.  0:          nonlinear residual = 4.04410762e+00
+	Line search with alpha = 1.000 : res = 8.39719883e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 38 - Advancing to t = 0.0451279592.
+Newton iter.  0:          nonlinear residual = 3.93255564e+00
+	Line search with alpha = 1.000 : res = 7.71156166e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 39 - Advancing to t = 0.0463116316.
+Newton iter.  0:          nonlinear residual = 3.81784921e+00
+	Line search with alpha = 1.000 : res = 1.20587213e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 40 - Advancing to t = 0.0475065902.
+Newton iter.  0:          nonlinear residual = 3.69992624e+00
+	Line search with alpha = 1.000 : res = 8.40416597e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 41 - Advancing to t = 0.0487136137.
+Newton iter.  0:          nonlinear residual = 3.57871710e+00
+	Line search with alpha = 1.000 : res = 1.37002122e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 42 - Advancing to t = 0.0499335615.
+Newton iter.  0:          nonlinear residual = 3.45414342e+00
+	Line search with alpha = 1.000 : res = 1.01562328e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 43 - Advancing to t = 0.0511673869.
+Newton iter.  0:          nonlinear residual = 3.32611662e+00
+	Line search with alpha = 1.000 : res = 1.60255749e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 44 - Advancing to t = 0.0524161529.
+Newton iter.  0:          nonlinear residual = 3.19453609e+00
+	Line search with alpha = 1.000 : res = 1.31482799e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 45 - Advancing to t = 0.0536810529.
+Newton iter.  0:          nonlinear residual = 3.05928702e+00
+	Line search with alpha = 1.000 : res = 9.49025664e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 46 - Advancing to t = 0.0549634347.
+Newton iter.  0:          nonlinear residual = 2.92023754e+00
+	Line search with alpha = 1.000 : res = 1.05391565e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 47 - Advancing to t = 0.0562648322.
+Newton iter.  0:          nonlinear residual = 2.77723530e+00
+	Line search with alpha = 1.000 : res = 7.85379403e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 48 - Advancing to t = 0.0575870059.
+Newton iter.  0:          nonlinear residual = 2.63010289e+00
+	Line search with alpha = 1.000 : res = 1.31519687e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 49 - Advancing to t = 0.0589319945.
+Newton iter.  0:          nonlinear residual = 2.47863202e+00
+	Line search with alpha = 1.000 : res = 5.55012573e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 50 - Advancing to t = 0.0603021843.
+Newton iter.  0:          nonlinear residual = 2.32257580e+00
+	Line search with alpha = 1.000 : res = 5.07225352e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 51 - Advancing to t = 0.0617004024.
+Newton iter.  0:          nonlinear residual = 2.16163823e+00
+	Line search with alpha = 1.000 : res = 1.18208061e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 52 - Advancing to t = 0.0631300448.
+Newton iter.  0:          nonlinear residual = 1.99545983e+00
+	Line search with alpha = 1.000 : res = 5.22856174e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 53 - Advancing to t = 0.0645952583.
+Newton iter.  0:          nonlinear residual = 1.82359729e+00
+	Line search with alpha = 1.000 : res = 5.24663706e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 54 - Advancing to t = 0.0661012053.
+Newton iter.  0:          nonlinear residual = 1.64549372e+00
+	Line search with alpha = 1.000 : res = 8.60722181e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 55 - Advancing to t = 0.0676544651.
+Newton iter.  0:          nonlinear residual = 1.46043375e+00
+	Line search with alpha = 1.000 : res = 1.11690294e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 56 - Advancing to t = 0.0692636685.
+Newton iter.  0:          nonlinear residual = 1.26747252e+00
+	Line search with alpha = 1.000 : res = 6.39609419e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 57 - Advancing to t = 0.0709405587.
+Newton iter.  0:          nonlinear residual = 1.06531705e+00
+	Line search with alpha = 1.000 : res = 3.55837432e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 58 - Advancing to t = 0.0727018963.
+Newton iter.  0:          nonlinear residual = 8.52113528e-01
+	Line search with alpha = 1.000 : res = 7.40048963e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 59 - Advancing to t = 0.0745732176.
+Newton iter.  0:          nonlinear residual = 6.25027826e-01
+	Line search with alpha = 1.000 : res = 8.99672677e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 60 - Advancing to t = 0.0765973059.
+Newton iter.  0:          nonlinear residual = 3.79300034e-01
+	Line search with alpha = 1.000 : res = 6.85806523e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 61 - Advancing to t = 0.0788576225.
+Newton iter.  0:          nonlinear residual = 1.05626615e-01
+	Line search with alpha = 1.000 : res = 7.15224788e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 62 - Advancing to t = 0.0815721413.
+Newton iter.  0:          nonlinear residual = 2.20341671e-01
+	Line search with alpha = 1.000 : res = 4.54571271e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 63 - Advancing to t = 0.0862486161.
+Newton iter.  0:          nonlinear residual = 7.66277844e-01
+	Line search with alpha = 1.000 : res = 5.62244522e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 64 - Advancing to t = 0.0891980872.
+Newton iter.  0:          nonlinear residual = 1.08944353e+00
+	Line search with alpha = 1.000 : res = 8.17459815e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 65 - Advancing to t = 0.0911934354.
+Newton iter.  0:          nonlinear residual = 1.37100271e+00
+	Line search with alpha = 1.000 : res = 6.01512853e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 66 - Advancing to t = 0.0929521913.
+Newton iter.  0:          nonlinear residual = 1.65128192e+00
+	Line search with alpha = 1.000 : res = 7.10255329e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 67 - Advancing to t = 0.0945934445.
+Newton iter.  0:          nonlinear residual = 1.86653305e+00
+	Line search with alpha = 1.000 : res = 8.37090572e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 68 - Advancing to t = 0.0961542809.
+Newton iter.  0:          nonlinear residual = 2.05929796e+00
+	Line search with alpha = 1.000 : res = 1.22737893e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 69 - Advancing to t = 0.0976648358.
+Newton iter.  0:          nonlinear residual = 2.24358585e+00
+	Line search with alpha = 1.000 : res = 6.95573834e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 70 - Advancing to t = 0.0991337002.
+Newton iter.  0:          nonlinear residual = 2.41648111e+00
+	Line search with alpha = 1.000 : res = 6.85681481e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 71 - Advancing to t = 0.1005644258.
+Newton iter.  0:          nonlinear residual = 2.58156685e+00
+	Line search with alpha = 1.000 : res = 7.97181617e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 72 - Advancing to t = 0.1019613097.
+Newton iter.  0:          nonlinear residual = 2.74082919e+00
+	Line search with alpha = 1.000 : res = 1.32000992e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 73 - Advancing to t = 0.1033282903.
+Newton iter.  0:          nonlinear residual = 2.89447380e+00
+	Line search with alpha = 1.000 : res = 7.55997934e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 74 - Advancing to t = 0.1046686621.
+Newton iter.  0:          nonlinear residual = 3.04279925e+00
+	Line search with alpha = 1.000 : res = 7.71409889e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 75 - Advancing to t = 0.1059852161.
+Newton iter.  0:          nonlinear residual = 3.18616838e+00
+	Line search with alpha = 1.000 : res = 8.57600607e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 76 - Advancing to t = 0.1072803023.
+Newton iter.  0:          nonlinear residual = 3.32486398e+00
+	Line search with alpha = 1.000 : res = 9.13489741e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 77 - Advancing to t = 0.1085559037.
+Newton iter.  0:          nonlinear residual = 3.45912984e+00
+	Line search with alpha = 1.000 : res = 1.21882450e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 78 - Advancing to t = 0.1098137160.
+Newton iter.  0:          nonlinear residual = 3.58918084e+00
+	Line search with alpha = 1.000 : res = 6.78880552e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 79 - Advancing to t = 0.1110552071.
+Newton iter.  0:          nonlinear residual = 3.71519941e+00
+	Line search with alpha = 1.000 : res = 1.27651638e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 80 - Advancing to t = 0.1122816607.
+Newton iter.  0:          nonlinear residual = 3.83734087e+00
+	Line search with alpha = 1.000 : res = 1.10146774e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 81 - Advancing to t = 0.1134942091.
+Newton iter.  0:          nonlinear residual = 3.95573923e+00
+	Line search with alpha = 1.000 : res = 6.66993980e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 82 - Advancing to t = 0.1146938586.
+Newton iter.  0:          nonlinear residual = 4.07051095e+00
+	Line search with alpha = 1.000 : res = 8.87664548e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 83 - Advancing to t = 0.1158815097.
+Newton iter.  0:          nonlinear residual = 4.18175802e+00
+	Line search with alpha = 1.000 : res = 7.16600885e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 84 - Advancing to t = 0.1170579727.
+Newton iter.  0:          nonlinear residual = 4.28957029e+00
+	Line search with alpha = 1.000 : res = 5.24993336e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 85 - Advancing to t = 0.1182239811.
+Newton iter.  0:          nonlinear residual = 4.39402737e+00
+	Line search with alpha = 1.000 : res = 8.54149194e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 86 - Advancing to t = 0.1193802021.
+Newton iter.  0:          nonlinear residual = 4.49520015e+00
+	Line search with alpha = 1.000 : res = 8.95847985e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 87 - Advancing to t = 0.1205272454.
+Newton iter.  0:          nonlinear residual = 4.59315201e+00
+	Line search with alpha = 1.000 : res = 7.94236547e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 88 - Advancing to t = 0.1216656705.
+Newton iter.  0:          nonlinear residual = 4.68793980e+00
+	Line search with alpha = 1.000 : res = 8.93150493e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 89 - Advancing to t = 0.1227959929.
+Newton iter.  0:          nonlinear residual = 4.77961476e+00
+	Line search with alpha = 1.000 : res = 1.00315166e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 90 - Advancing to t = 0.1239186895.
+Newton iter.  0:          nonlinear residual = 4.86822315e+00
+	Line search with alpha = 1.000 : res = 8.51514265e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 91 - Advancing to t = 0.1250342028.
+Newton iter.  0:          nonlinear residual = 4.95380692e+00
+	Line search with alpha = 1.000 : res = 9.72225069e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 92 - Advancing to t = 0.1261429448.
+Newton iter.  0:          nonlinear residual = 5.03640416e+00
+	Line search with alpha = 1.000 : res = 9.14795459e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 93 - Advancing to t = 0.1272453004.
+Newton iter.  0:          nonlinear residual = 5.11604956e+00
+	Line search with alpha = 1.000 : res = 1.94081716e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 94 - Advancing to t = 0.1283416303.
+Newton iter.  0:          nonlinear residual = 5.19277477e+00
+	Line search with alpha = 1.000 : res = 1.41682867e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 95 - Advancing to t = 0.1294322734.
+Newton iter.  0:          nonlinear residual = 5.26660877e+00
+	Line search with alpha = 1.000 : res = 1.28764231e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 96 - Advancing to t = 0.1305175486.
+Newton iter.  0:          nonlinear residual = 5.33757806e+00
+	Line search with alpha = 1.000 : res = 7.17663205e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 97 - Advancing to t = 0.1315977576.
+Newton iter.  0:          nonlinear residual = 5.40570701e+00
+	Line search with alpha = 1.000 : res = 8.80165840e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 98 - Advancing to t = 0.1326731858.
+Newton iter.  0:          nonlinear residual = 5.47101798e+00
+	Line search with alpha = 1.000 : res = 5.40546790e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 99 - Advancing to t = 0.1337441042.
+Newton iter.  0:          nonlinear residual = 5.53353157e+00
+	Line search with alpha = 1.000 : res = 5.79881654e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 100 - Advancing to t = 0.1348107704.
+Newton iter.  0:          nonlinear residual = 5.59326674e+00
+	Line search with alpha = 1.000 : res = 4.84711708e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 101 - Advancing to t = 0.1358734305.
+Newton iter.  0:          nonlinear residual = 5.65024099e+00
+	Line search with alpha = 1.000 : res = 5.61006423e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 102 - Advancing to t = 0.1369323192.
+Newton iter.  0:          nonlinear residual = 5.70447048e+00
+	Line search with alpha = 1.000 : res = 8.17480028e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 103 - Advancing to t = 0.1379876616.
+Newton iter.  0:          nonlinear residual = 5.75597012e+00
+	Line search with alpha = 1.000 : res = 5.29563956e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 104 - Advancing to t = 0.1390396736.
+Newton iter.  0:          nonlinear residual = 5.80475370e+00
+	Line search with alpha = 1.000 : res = 4.35015977e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 105 - Advancing to t = 0.1400885629.
+Newton iter.  0:          nonlinear residual = 5.85083397e+00
+	Line search with alpha = 1.000 : res = 2.62800561e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 106 - Advancing to t = 0.1411345298.
+Newton iter.  0:          nonlinear residual = 5.89422273e+00
+	Line search with alpha = 1.000 : res = 4.64105773e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 107 - Advancing to t = 0.1421777674.
+Newton iter.  0:          nonlinear residual = 5.93493088e+00
+	Line search with alpha = 1.000 : res = 5.84519099e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 108 - Advancing to t = 0.1432184628.
+Newton iter.  0:          nonlinear residual = 5.97296850e+00
+	Line search with alpha = 1.000 : res = 4.91664975e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 109 - Advancing to t = 0.1442567974.
+Newton iter.  0:          nonlinear residual = 6.00834492e+00
+	Line search with alpha = 1.000 : res = 5.80144435e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 110 - Advancing to t = 0.1452929472.
+Newton iter.  0:          nonlinear residual = 6.04106874e+00
+	Line search with alpha = 1.000 : res = 6.37806828e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 111 - Advancing to t = 0.1463270836.
+Newton iter.  0:          nonlinear residual = 6.07114790e+00
+	Line search with alpha = 1.000 : res = 2.18343577e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 112 - Advancing to t = 0.1473593737.
+Newton iter.  0:          nonlinear residual = 6.09858973e+00
+	Line search with alpha = 1.000 : res = 3.53873392e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 113 - Advancing to t = 0.1483899809.
+Newton iter.  0:          nonlinear residual = 6.12340096e+00
+	Line search with alpha = 1.000 : res = 2.48357594e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 114 - Advancing to t = 0.1494190649.
+Newton iter.  0:          nonlinear residual = 6.14558775e+00
+	Line search with alpha = 1.000 : res = 1.96213010e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 115 - Advancing to t = 0.1504467823.
+Newton iter.  0:          nonlinear residual = 6.16515578e+00
+	Line search with alpha = 1.000 : res = 2.77867178e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 116 - Advancing to t = 0.1514732871.
+Newton iter.  0:          nonlinear residual = 6.18211019e+00
+	Line search with alpha = 1.000 : res = 2.26150936e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 117 - Advancing to t = 0.1524987308.
+Newton iter.  0:          nonlinear residual = 6.19645568e+00
+	Line search with alpha = 1.000 : res = 2.11748603e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 118 - Advancing to t = 0.1535232627.
+Newton iter.  0:          nonlinear residual = 6.20819646e+00
+	Line search with alpha = 1.000 : res = 1.57552023e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 119 - Advancing to t = 0.1545470304.
+Newton iter.  0:          nonlinear residual = 6.21733633e+00
+	Line search with alpha = 1.000 : res = 9.62436809e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 120 - Advancing to t = 0.1555701798.
+Newton iter.  0:          nonlinear residual = 6.22387866e+00
+	Line search with alpha = 1.000 : res = 1.41209579e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 121 - Advancing to t = 0.1565928558.
+Newton iter.  0:          nonlinear residual = 6.22782643e+00
+	Line search with alpha = 1.000 : res = 1.12358452e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 122 - Advancing to t = 0.1576152021.
+Newton iter.  0:          nonlinear residual = 6.22918219e+00
+	Line search with alpha = 1.000 : res = 9.75262807e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 123 - Advancing to t = 0.1586373617.
+Newton iter.  0:          nonlinear residual = 6.22794813e+00
+	Line search with alpha = 1.000 : res = 8.11072360e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 124 - Advancing to t = 0.1596594774.
+Newton iter.  0:          nonlinear residual = 6.22412604e+00
+	Line search with alpha = 1.000 : res = 1.16421656e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 125 - Advancing to t = 0.1606816914.
+Newton iter.  0:          nonlinear residual = 6.21771735e+00
+	Line search with alpha = 1.000 : res = 1.87852850e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 126 - Advancing to t = 0.1617041464.
+Newton iter.  0:          nonlinear residual = 6.20872311e+00
+	Line search with alpha = 1.000 : res = 2.10729937e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 127 - Advancing to t = 0.1627269851.
+Newton iter.  0:          nonlinear residual = 6.19714398e+00
+	Line search with alpha = 1.000 : res = 1.58552461e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 128 - Advancing to t = 0.1637503509.
+Newton iter.  0:          nonlinear residual = 6.18298028e+00
+	Line search with alpha = 1.000 : res = 4.70135197e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 129 - Advancing to t = 0.1647743882.
+Newton iter.  0:          nonlinear residual = 6.16623191e+00
+	Line search with alpha = 1.000 : res = 2.20283884e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 130 - Advancing to t = 0.1657992422.
+Newton iter.  0:          nonlinear residual = 6.14689842e+00
+	Line search with alpha = 1.000 : res = 3.66378071e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 131 - Advancing to t = 0.1668250599.
+Newton iter.  0:          nonlinear residual = 6.12497896e+00
+	Line search with alpha = 1.000 : res = 4.61515061e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 132 - Advancing to t = 0.1678519895.
+Newton iter.  0:          nonlinear residual = 6.10047228e+00
+	Line search with alpha = 1.000 : res = 3.54005000e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 133 - Advancing to t = 0.1688801815.
+Newton iter.  0:          nonlinear residual = 6.07337672e+00
+	Line search with alpha = 1.000 : res = 2.28950553e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 134 - Advancing to t = 0.1699097887.
+Newton iter.  0:          nonlinear residual = 6.04369020e+00
+	Line search with alpha = 1.000 : res = 5.36283030e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 135 - Advancing to t = 0.1709409662.
+Newton iter.  0:          nonlinear residual = 6.01141021e+00
+	Line search with alpha = 1.000 : res = 3.50098492e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 136 - Advancing to t = 0.1719738721.
+Newton iter.  0:          nonlinear residual = 5.97653375e+00
+	Line search with alpha = 1.000 : res = 4.21736587e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 137 - Advancing to t = 0.1730086680.
+Newton iter.  0:          nonlinear residual = 5.93905739e+00
+	Line search with alpha = 1.000 : res = 2.71771572e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 138 - Advancing to t = 0.1740455188.
+Newton iter.  0:          nonlinear residual = 5.89897715e+00
+	Line search with alpha = 1.000 : res = 5.98846679e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 139 - Advancing to t = 0.1750845936.
+Newton iter.  0:          nonlinear residual = 5.85628855e+00
+	Line search with alpha = 1.000 : res = 5.16834836e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 140 - Advancing to t = 0.1761260659.
+Newton iter.  0:          nonlinear residual = 5.81098654e+00
+	Line search with alpha = 1.000 : res = 9.29071553e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 141 - Advancing to t = 0.1771701139.
+Newton iter.  0:          nonlinear residual = 5.76306548e+00
+	Line search with alpha = 1.000 : res = 4.50979510e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 142 - Advancing to t = 0.1782169213.
+Newton iter.  0:          nonlinear residual = 5.71251910e+00
+	Line search with alpha = 1.000 : res = 6.95722617e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 143 - Advancing to t = 0.1792666777.
+Newton iter.  0:          nonlinear residual = 5.65934043e+00
+	Line search with alpha = 1.000 : res = 7.30529464e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 144 - Advancing to t = 0.1803195790.
+Newton iter.  0:          nonlinear residual = 5.60352181e+00
+	Line search with alpha = 1.000 : res = 7.87127521e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 145 - Advancing to t = 0.1813758282.
+Newton iter.  0:          nonlinear residual = 5.54505478e+00
+	Line search with alpha = 1.000 : res = 4.52497757e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 146 - Advancing to t = 0.1824356358.
+Newton iter.  0:          nonlinear residual = 5.48393006e+00
+	Line search with alpha = 1.000 : res = 4.34598397e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 147 - Advancing to t = 0.1834992209.
+Newton iter.  0:          nonlinear residual = 5.42013744e+00
+	Line search with alpha = 1.000 : res = 7.63229738e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 148 - Advancing to t = 0.1845668116.
+Newton iter.  0:          nonlinear residual = 5.35366575e+00
+	Line search with alpha = 1.000 : res = 6.85116966e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 149 - Advancing to t = 0.1856386461.
+Newton iter.  0:          nonlinear residual = 5.28450275e+00
+	Line search with alpha = 1.000 : res = 1.11343899e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 150 - Advancing to t = 0.1867149737.
+Newton iter.  0:          nonlinear residual = 5.21263505e+00
+	Line search with alpha = 1.000 : res = 6.55869276e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 151 - Advancing to t = 0.1877960555.
+Newton iter.  0:          nonlinear residual = 5.13804799e+00
+	Line search with alpha = 1.000 : res = 1.03311429e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 152 - Advancing to t = 0.1888821659.
+Newton iter.  0:          nonlinear residual = 5.06072553e+00
+	Line search with alpha = 1.000 : res = 1.11822597e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 153 - Advancing to t = 0.1899735940.
+Newton iter.  0:          nonlinear residual = 4.98065012e+00
+	Line search with alpha = 1.000 : res = 6.89222384e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 154 - Advancing to t = 0.1910706445.
+Newton iter.  0:          nonlinear residual = 4.89780254e+00
+	Line search with alpha = 1.000 : res = 1.51976368e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 155 - Advancing to t = 0.1921736400.
+Newton iter.  0:          nonlinear residual = 4.81216172e+00
+	Line search with alpha = 1.000 : res = 1.59866092e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 156 - Advancing to t = 0.1932829225.
+Newton iter.  0:          nonlinear residual = 4.72370459e+00
+	Line search with alpha = 1.000 : res = 1.68007779e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 157 - Advancing to t = 0.1943988555.
+Newton iter.  0:          nonlinear residual = 4.63240580e+00
+	Line search with alpha = 1.000 : res = 1.49935134e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 158 - Advancing to t = 0.1955218264.
+Newton iter.  0:          nonlinear residual = 4.53823751e+00
+	Line search with alpha = 1.000 : res = 4.90944156e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 159 - Advancing to t = 0.1966522493.
+Newton iter.  0:          nonlinear residual = 4.44116907e+00
+	Line search with alpha = 1.000 : res = 1.37603277e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 160 - Advancing to t = 0.1977905680.
+Newton iter.  0:          nonlinear residual = 4.34116670e+00
+	Line search with alpha = 1.000 : res = 1.12374186e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 161 - Advancing to t = 0.1989372595.
+Newton iter.  0:          nonlinear residual = 4.23819311e+00
+	Line search with alpha = 1.000 : res = 1.55756408e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 162 - Advancing to t = 0.2000928383.
+Newton iter.  0:          nonlinear residual = 4.13220704e+00
+	Line search with alpha = 1.000 : res = 1.10109409e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 163 - Advancing to t = 0.2012578612.
+Newton iter.  0:          nonlinear residual = 4.02316273e+00
+	Line search with alpha = 1.000 : res = 9.32384846e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 164 - Advancing to t = 0.2024329328.
+Newton iter.  0:          nonlinear residual = 3.91100928e+00
+	Line search with alpha = 1.000 : res = 1.10425514e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 165 - Advancing to t = 0.2036187122.
+Newton iter.  0:          nonlinear residual = 3.79569000e+00
+	Line search with alpha = 1.000 : res = 1.04721907e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 166 - Advancing to t = 0.2048159209.
+Newton iter.  0:          nonlinear residual = 3.67714144e+00
+	Line search with alpha = 1.000 : res = 1.05977462e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 167 - Advancing to t = 0.2060253521.
+Newton iter.  0:          nonlinear residual = 3.55529241e+00
+	Line search with alpha = 1.000 : res = 9.99027958e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 168 - Advancing to t = 0.2072478821.
+Newton iter.  0:          nonlinear residual = 3.43006271e+00
+	Line search with alpha = 1.000 : res = 1.06014853e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 169 - Advancing to t = 0.2084844837.
+Newton iter.  0:          nonlinear residual = 3.30136163e+00
+	Line search with alpha = 1.000 : res = 1.02240455e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 170 - Advancing to t = 0.2097362434.
+Newton iter.  0:          nonlinear residual = 3.16908602e+00
+	Line search with alpha = 1.000 : res = 1.21549308e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 171 - Advancing to t = 0.2110043820.
+Newton iter.  0:          nonlinear residual = 3.03311805e+00
+	Line search with alpha = 1.000 : res = 1.48459373e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 172 - Advancing to t = 0.2122902802.
+Newton iter.  0:          nonlinear residual = 2.89332224e+00
+	Line search with alpha = 1.000 : res = 1.49113504e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 173 - Advancing to t = 0.2135955119.
+Newton iter.  0:          nonlinear residual = 2.74954181e+00
+	Line search with alpha = 1.000 : res = 1.01473622e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 174 - Advancing to t = 0.2149218863.
+Newton iter.  0:          nonlinear residual = 2.60159396e+00
+	Line search with alpha = 1.000 : res = 1.02779528e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 175 - Advancing to t = 0.2162715026.
+Newton iter.  0:          nonlinear residual = 2.44926370e+00
+	Line search with alpha = 1.000 : res = 5.78404330e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 176 - Advancing to t = 0.2176468236.
+Newton iter.  0:          nonlinear residual = 2.29229562e+00
+	Line search with alpha = 1.000 : res = 7.51227463e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 177 - Advancing to t = 0.2190507738.
+Newton iter.  0:          nonlinear residual = 2.13038285e+00
+	Line search with alpha = 1.000 : res = 9.10864817e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 178 - Advancing to t = 0.2204868767.
+Newton iter.  0:          nonlinear residual = 1.96315169e+00
+	Line search with alpha = 1.000 : res = 4.47052597e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 179 - Advancing to t = 0.2219594498.
+Newton iter.  0:          nonlinear residual = 1.79013974e+00
+	Line search with alpha = 1.000 : res = 1.01681877e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 180 - Advancing to t = 0.2234738901.
+Newton iter.  0:          nonlinear residual = 1.61076389e+00
+	Line search with alpha = 1.000 : res = 1.34062269e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 181 - Advancing to t = 0.2250371108.
+Newton iter.  0:          nonlinear residual = 1.42427140e+00
+	Line search with alpha = 1.000 : res = 1.02109883e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 182 - Advancing to t = 0.2266582378.
+Newton iter.  0:          nonlinear residual = 1.22966202e+00
+	Line search with alpha = 1.000 : res = 1.16153783e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 183 - Advancing to t = 0.2283497897.
+Newton iter.  0:          nonlinear residual = 1.02555607e+00
+	Line search with alpha = 1.000 : res = 9.09062298e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 184 - Advancing to t = 0.2301298295.
+Newton iter.  0:          nonlinear residual = 8.09954222e-01
+	Line search with alpha = 1.000 : res = 8.18666211e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 185 - Advancing to t = 0.2320263026.
+Newton iter.  0:          nonlinear residual = 5.79753322e-01
+	Line search with alpha = 1.000 : res = 7.26853430e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 186 - Advancing to t = 0.2340871360.
+Newton iter.  0:          nonlinear residual = 3.29619140e-01
+	Line search with alpha = 1.000 : res = 8.53870669e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 187 - Advancing to t = 0.2364096867.
+Newton iter.  0:          nonlinear residual = 4.86951861e-02
+	Line search with alpha = 1.000 : res = 6.89092804e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 188 - Advancing to t = 0.2392726124.
+Newton iter.  0:          nonlinear residual = 2.94157628e-01
+	Line search with alpha = 1.000 : res = 4.41199183e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 189 - Advancing to t = 0.2461843264.
+Newton iter.  0:          nonlinear residual = 1.08858630e+00
+	Line search with alpha = 1.000 : res = 2.25332438e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+[REJECT] step=189 t=2.4618432639e-01 dt_used=6.9117140213e-03 dt_new=2.6571029514e-03 (R=7.793640e-02)
+
+Time step 189 - Advancing to t = 0.2419297153.
+Newton iter.  0:          nonlinear residual = 6.28514440e-01
+	Line search with alpha = 1.000 : res = 7.20170572e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 190 - Advancing to t = 0.2447217560.
+Newton iter.  0:          nonlinear residual = 9.91874655e-01
+	Line search with alpha = 1.000 : res = 4.17134198e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 191 - Advancing to t = 0.2469438453.
+Newton iter.  0:          nonlinear residual = 1.24140856e+00
+	Line search with alpha = 1.000 : res = 5.80344918e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 192 - Advancing to t = 0.2488061511.
+Newton iter.  0:          nonlinear residual = 1.48876723e+00
+	Line search with alpha = 1.000 : res = 6.09508155e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 193 - Advancing to t = 0.2505204890.
+Newton iter.  0:          nonlinear residual = 1.72293058e+00
+	Line search with alpha = 1.000 : res = 7.35961317e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 194 - Advancing to t = 0.2521412690.
+Newton iter.  0:          nonlinear residual = 1.92659879e+00
+	Line search with alpha = 1.000 : res = 7.72836772e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 195 - Advancing to t = 0.2536933448.
+Newton iter.  0:          nonlinear residual = 2.11576157e+00
+	Line search with alpha = 1.000 : res = 9.86134417e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 196 - Advancing to t = 0.2551937838.
+Newton iter.  0:          nonlinear residual = 2.29555583e+00
+	Line search with alpha = 1.000 : res = 6.48942538e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 197 - Advancing to t = 0.2566512166.
+Newton iter.  0:          nonlinear residual = 2.46646809e+00
+	Line search with alpha = 1.000 : res = 7.42290103e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 198 - Advancing to t = 0.2580712682.
+Newton iter.  0:          nonlinear residual = 2.63022101e+00
+	Line search with alpha = 1.000 : res = 6.33451118e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 199 - Advancing to t = 0.2594586292.
+Newton iter.  0:          nonlinear residual = 2.78787563e+00
+	Line search with alpha = 1.000 : res = 8.87752544e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 200 - Advancing to t = 0.2608171532.
+Newton iter.  0:          nonlinear residual = 2.93990317e+00
+	Line search with alpha = 1.000 : res = 8.63188738e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 201 - Advancing to t = 0.2621500001.
+Newton iter.  0:          nonlinear residual = 3.08670303e+00
+	Line search with alpha = 1.000 : res = 8.22366138e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 202 - Advancing to t = 0.2634598047.
+Newton iter.  0:          nonlinear residual = 3.22862447e+00
+	Line search with alpha = 1.000 : res = 4.07119915e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 203 - Advancing to t = 0.2647487835.
+Newton iter.  0:          nonlinear residual = 3.36595010e+00
+	Line search with alpha = 1.000 : res = 1.27735268e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 204 - Advancing to t = 0.2660188204.
+Newton iter.  0:          nonlinear residual = 3.49891762e+00
+	Line search with alpha = 1.000 : res = 1.05137590e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 205 - Advancing to t = 0.2672715352.
+Newton iter.  0:          nonlinear residual = 3.62772989e+00
+	Line search with alpha = 1.000 : res = 6.94804296e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 206 - Advancing to t = 0.2685083357.
+Newton iter.  0:          nonlinear residual = 3.75255963e+00
+	Line search with alpha = 1.000 : res = 1.15851398e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 207 - Advancing to t = 0.2697304566.
+Newton iter.  0:          nonlinear residual = 3.87355494e+00
+	Line search with alpha = 1.000 : res = 1.24084676e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 208 - Advancing to t = 0.2709389898.
+Newton iter.  0:          nonlinear residual = 3.99084404e+00
+	Line search with alpha = 1.000 : res = 1.01211276e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 209 - Advancing to t = 0.2721349075.
+Newton iter.  0:          nonlinear residual = 4.10453870e+00
+	Line search with alpha = 1.000 : res = 1.11002728e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 210 - Advancing to t = 0.2733190814.
+Newton iter.  0:          nonlinear residual = 4.21473703e+00
+	Line search with alpha = 1.000 : res = 8.35830119e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 211 - Advancing to t = 0.2744922973.
+Newton iter.  0:          nonlinear residual = 4.32152561e+00
+	Line search with alpha = 1.000 : res = 1.18469268e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 212 - Advancing to t = 0.2756552676.
+Newton iter.  0:          nonlinear residual = 4.42498128e+00
+	Line search with alpha = 1.000 : res = 8.42715472e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 213 - Advancing to t = 0.2768086412.
+Newton iter.  0:          nonlinear residual = 4.52517253e+00
+	Line search with alpha = 1.000 : res = 1.17780773e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 214 - Advancing to t = 0.2779530118.
+Newton iter.  0:          nonlinear residual = 4.62216069e+00
+	Line search with alpha = 1.000 : res = 6.75974797e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 215 - Advancing to t = 0.2790889249.
+Newton iter.  0:          nonlinear residual = 4.71600083e+00
+	Line search with alpha = 1.000 : res = 1.38427570e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 216 - Advancing to t = 0.2802168840.
+Newton iter.  0:          nonlinear residual = 4.80674261e+00
+	Line search with alpha = 1.000 : res = 9.74235413e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 217 - Advancing to t = 0.2813373549.
+Newton iter.  0:          nonlinear residual = 4.89443093e+00
+	Line search with alpha = 1.000 : res = 1.45257412e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 218 - Advancing to t = 0.2824507707.
+Newton iter.  0:          nonlinear residual = 4.97910652e+00
+	Line search with alpha = 1.000 : res = 7.44298678e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 219 - Advancing to t = 0.2835575346.
+Newton iter.  0:          nonlinear residual = 5.06080639e+00
+	Line search with alpha = 1.000 : res = 9.73214940e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 220 - Advancing to t = 0.2846580242.
+Newton iter.  0:          nonlinear residual = 5.13956430e+00
+	Line search with alpha = 1.000 : res = 1.39592031e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 221 - Advancing to t = 0.2857525930.
+Newton iter.  0:          nonlinear residual = 5.21541105e+00
+	Line search with alpha = 1.000 : res = 1.09047642e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 222 - Advancing to t = 0.2868415737.
+Newton iter.  0:          nonlinear residual = 5.28837483e+00
+	Line search with alpha = 1.000 : res = 7.97539447e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 223 - Advancing to t = 0.2879252800.
+Newton iter.  0:          nonlinear residual = 5.35848150e+00
+	Line search with alpha = 1.000 : res = 1.19711273e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 224 - Advancing to t = 0.2890040082.
+Newton iter.  0:          nonlinear residual = 5.42575477e+00
+	Line search with alpha = 1.000 : res = 5.84416499e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 225 - Advancing to t = 0.2900780393.
+Newton iter.  0:          nonlinear residual = 5.49021646e+00
+	Line search with alpha = 1.000 : res = 3.76532841e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 226 - Advancing to t = 0.2911476402.
+Newton iter.  0:          nonlinear residual = 5.55188666e+00
+	Line search with alpha = 1.000 : res = 4.01939267e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 227 - Advancing to t = 0.2922130647.
+Newton iter.  0:          nonlinear residual = 5.61078387e+00
+	Line search with alpha = 1.000 : res = 4.12200258e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 228 - Advancing to t = 0.2932745555.
+Newton iter.  0:          nonlinear residual = 5.66692518e+00
+	Line search with alpha = 1.000 : res = 8.17875393e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 229 - Advancing to t = 0.2943323441.
+Newton iter.  0:          nonlinear residual = 5.72032636e+00
+	Line search with alpha = 1.000 : res = 6.58860899e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 230 - Advancing to t = 0.2953866530.
+Newton iter.  0:          nonlinear residual = 5.77100196e+00
+	Line search with alpha = 1.000 : res = 6.76292382e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 231 - Advancing to t = 0.2964376953.
+Newton iter.  0:          nonlinear residual = 5.81896545e+00
+	Line search with alpha = 1.000 : res = 8.03978725e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 232 - Advancing to t = 0.2974856764.
+Newton iter.  0:          nonlinear residual = 5.86422930e+00
+	Line search with alpha = 1.000 : res = 9.17758941e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 233 - Advancing to t = 0.2985307944.
+Newton iter.  0:          nonlinear residual = 5.90680500e+00
+	Line search with alpha = 1.000 : res = 1.86935051e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 234 - Advancing to t = 0.2995732406.
+Newton iter.  0:          nonlinear residual = 5.94670323e+00
+	Line search with alpha = 1.000 : res = 4.30041797e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 235 - Advancing to t = 0.3006132001.
+Newton iter.  0:          nonlinear residual = 5.98393381e+00
+	Line search with alpha = 1.000 : res = 4.60866638e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 236 - Advancing to t = 0.3016508527.
+Newton iter.  0:          nonlinear residual = 6.01850586e+00
+	Line search with alpha = 1.000 : res = 5.22046049e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 237 - Advancing to t = 0.3026863731.
+Newton iter.  0:          nonlinear residual = 6.05042777e+00
+	Line search with alpha = 1.000 : res = 3.55565951e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 238 - Advancing to t = 0.3037199312.
+Newton iter.  0:          nonlinear residual = 6.07970730e+00
+	Line search with alpha = 1.000 : res = 3.21724689e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 239 - Advancing to t = 0.3047516930.
+Newton iter.  0:          nonlinear residual = 6.10635157e+00
+	Line search with alpha = 1.000 : res = 2.34210973e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 240 - Advancing to t = 0.3057818206.
+Newton iter.  0:          nonlinear residual = 6.13036716e+00
+	Line search with alpha = 1.000 : res = 3.81563635e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 241 - Advancing to t = 0.3068104729.
+Newton iter.  0:          nonlinear residual = 6.15176007e+00
+	Line search with alpha = 1.000 : res = 1.91608308e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 242 - Advancing to t = 0.3078378056.
+Newton iter.  0:          nonlinear residual = 6.17053582e+00
+	Line search with alpha = 1.000 : res = 1.89690214e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 243 - Advancing to t = 0.3088639719.
+Newton iter.  0:          nonlinear residual = 6.18669941e+00
+	Line search with alpha = 1.000 : res = 2.41671828e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 244 - Advancing to t = 0.3098891226.
+Newton iter.  0:          nonlinear residual = 6.20025538e+00
+	Line search with alpha = 1.000 : res = 1.62196014e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 245 - Advancing to t = 0.3109134065.
+Newton iter.  0:          nonlinear residual = 6.21120783e+00
+	Line search with alpha = 1.000 : res = 1.57739992e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 246 - Advancing to t = 0.3119369705.
+Newton iter.  0:          nonlinear residual = 6.21956043e+00
+	Line search with alpha = 1.000 : res = 1.74321529e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 247 - Advancing to t = 0.3129599604.
+Newton iter.  0:          nonlinear residual = 6.22531643e+00
+	Line search with alpha = 1.000 : res = 1.84888250e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 248 - Advancing to t = 0.3139825205.
+Newton iter.  0:          nonlinear residual = 6.22847866e+00
+	Line search with alpha = 1.000 : res = 1.53240997e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 249 - Advancing to t = 0.3150047944.
+Newton iter.  0:          nonlinear residual = 6.22904959e+00
+	Line search with alpha = 1.000 : res = 1.20943803e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 250 - Advancing to t = 0.3160269249.
+Newton iter.  0:          nonlinear residual = 6.22703126e+00
+	Line search with alpha = 1.000 : res = 1.30160295e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 251 - Advancing to t = 0.3170490546.
+Newton iter.  0:          nonlinear residual = 6.22242537e+00
+	Line search with alpha = 1.000 : res = 1.49270454e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 252 - Advancing to t = 0.3180713260.
+Newton iter.  0:          nonlinear residual = 6.21523322e+00
+	Line search with alpha = 1.000 : res = 2.04969307e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 253 - Advancing to t = 0.3190938815.
+Newton iter.  0:          nonlinear residual = 6.20545575e+00
+	Line search with alpha = 1.000 : res = 1.88074755e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 254 - Advancing to t = 0.3201168642.
+Newton iter.  0:          nonlinear residual = 6.19309352e+00
+	Line search with alpha = 1.000 : res = 1.82044850e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 255 - Advancing to t = 0.3211404177.
+Newton iter.  0:          nonlinear residual = 6.17814672e+00
+	Line search with alpha = 1.000 : res = 2.43076235e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 256 - Advancing to t = 0.3221646866.
+Newton iter.  0:          nonlinear residual = 6.16061514e+00
+	Line search with alpha = 1.000 : res = 2.49458460e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 257 - Advancing to t = 0.3231898166.
+Newton iter.  0:          nonlinear residual = 6.14049822e+00
+	Line search with alpha = 1.000 : res = 2.62131259e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 258 - Advancing to t = 0.3242159550.
+Newton iter.  0:          nonlinear residual = 6.11779499e+00
+	Line search with alpha = 1.000 : res = 2.07022488e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 259 - Advancing to t = 0.3252432508.
+Newton iter.  0:          nonlinear residual = 6.09250407e+00
+	Line search with alpha = 1.000 : res = 2.50036211e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 260 - Advancing to t = 0.3262718551.
+Newton iter.  0:          nonlinear residual = 6.06462367e+00
+	Line search with alpha = 1.000 : res = 3.17118667e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 261 - Advancing to t = 0.3273019213.
+Newton iter.  0:          nonlinear residual = 6.03415159e+00
+	Line search with alpha = 1.000 : res = 4.09691066e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 262 - Advancing to t = 0.3283336055.
+Newton iter.  0:          nonlinear residual = 6.00108518e+00
+	Line search with alpha = 1.000 : res = 5.49760045e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 263 - Advancing to t = 0.3293670667.
+Newton iter.  0:          nonlinear residual = 5.96542130e+00
+	Line search with alpha = 1.000 : res = 4.69168711e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 264 - Advancing to t = 0.3304024675.
+Newton iter.  0:          nonlinear residual = 5.92715635e+00
+	Line search with alpha = 1.000 : res = 5.04987313e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 265 - Advancing to t = 0.3314399741.
+Newton iter.  0:          nonlinear residual = 5.88628622e+00
+	Line search with alpha = 1.000 : res = 5.55153792e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 266 - Advancing to t = 0.3324797567.
+Newton iter.  0:          nonlinear residual = 5.84280626e+00
+	Line search with alpha = 1.000 : res = 5.77808555e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 267 - Advancing to t = 0.3335219904.
+Newton iter.  0:          nonlinear residual = 5.79671123e+00
+	Line search with alpha = 1.000 : res = 5.33452971e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 268 - Advancing to t = 0.3345668549.
+Newton iter.  0:          nonlinear residual = 5.74799531e+00
+	Line search with alpha = 1.000 : res = 4.80216852e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 269 - Advancing to t = 0.3356145356.
+Newton iter.  0:          nonlinear residual = 5.69665202e+00
+	Line search with alpha = 1.000 : res = 3.20495820e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 270 - Advancing to t = 0.3366652241.
+Newton iter.  0:          nonlinear residual = 5.64267420e+00
+	Line search with alpha = 1.000 : res = 4.15932427e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 271 - Advancing to t = 0.3377191182.
+Newton iter.  0:          nonlinear residual = 5.58605394e+00
+	Line search with alpha = 1.000 : res = 4.34636860e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 272 - Advancing to t = 0.3387764232.
+Newton iter.  0:          nonlinear residual = 5.52678254e+00
+	Line search with alpha = 1.000 : res = 7.47577498e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 273 - Advancing to t = 0.3398373522.
+Newton iter.  0:          nonlinear residual = 5.46485044e+00
+	Line search with alpha = 1.000 : res = 5.97342291e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 274 - Advancing to t = 0.3409021268.
+Newton iter.  0:          nonlinear residual = 5.40024716e+00
+	Line search with alpha = 1.000 : res = 9.96201199e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 275 - Advancing to t = 0.3419709781.
+Newton iter.  0:          nonlinear residual = 5.33296121e+00
+	Line search with alpha = 1.000 : res = 9.52935580e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 276 - Advancing to t = 0.3430441476.
+Newton iter.  0:          nonlinear residual = 5.26298002e+00
+	Line search with alpha = 1.000 : res = 7.09938381e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 277 - Advancing to t = 0.3441218881.
+Newton iter.  0:          nonlinear residual = 5.19028981e+00
+	Line search with alpha = 1.000 : res = 7.88377760e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 278 - Advancing to t = 0.3452044645.
+Newton iter.  0:          nonlinear residual = 5.11487553e+00
+	Line search with alpha = 1.000 : res = 1.45345292e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 279 - Advancing to t = 0.3462921555.
+Newton iter.  0:          nonlinear residual = 5.03672068e+00
+	Line search with alpha = 1.000 : res = 8.81919940e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 280 - Advancing to t = 0.3473852549.
+Newton iter.  0:          nonlinear residual = 4.95580724e+00
+	Line search with alpha = 1.000 : res = 9.32858892e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 281 - Advancing to t = 0.3484840726.
+Newton iter.  0:          nonlinear residual = 4.87211544e+00
+	Line search with alpha = 1.000 : res = 9.08755453e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 282 - Advancing to t = 0.3495889368.
+Newton iter.  0:          nonlinear residual = 4.78562362e+00
+	Line search with alpha = 1.000 : res = 1.39259990e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 283 - Advancing to t = 0.3507001959.
+Newton iter.  0:          nonlinear residual = 4.69630805e+00
+	Line search with alpha = 1.000 : res = 7.56153317e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 284 - Advancing to t = 0.3518182203.
+Newton iter.  0:          nonlinear residual = 4.60414266e+00
+	Line search with alpha = 1.000 : res = 9.63909710e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 285 - Advancing to t = 0.3529434051.
+Newton iter.  0:          nonlinear residual = 4.50909877e+00
+	Line search with alpha = 1.000 : res = 1.12799850e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 286 - Advancing to t = 0.3540761733.
+Newton iter.  0:          nonlinear residual = 4.41114484e+00
+	Line search with alpha = 1.000 : res = 1.20764708e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 287 - Advancing to t = 0.3552169781.
+Newton iter.  0:          nonlinear residual = 4.31024606e+00
+	Line search with alpha = 1.000 : res = 1.21227869e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 288 - Advancing to t = 0.3563663076.
+Newton iter.  0:          nonlinear residual = 4.20636399e+00
+	Line search with alpha = 1.000 : res = 7.59226178e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 289 - Advancing to t = 0.3575246885.
+Newton iter.  0:          nonlinear residual = 4.09945606e+00
+	Line search with alpha = 1.000 : res = 1.27662964e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 290 - Advancing to t = 0.3586926915.
+Newton iter.  0:          nonlinear residual = 3.98947503e+00
+	Line search with alpha = 1.000 : res = 1.63893976e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 291 - Advancing to t = 0.3598709370.
+Newton iter.  0:          nonlinear residual = 3.87636832e+00
+	Line search with alpha = 1.000 : res = 8.92951899e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 292 - Advancing to t = 0.3610601020.
+Newton iter.  0:          nonlinear residual = 3.76007729e+00
+	Line search with alpha = 1.000 : res = 7.87817822e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 293 - Advancing to t = 0.3622609287.
+Newton iter.  0:          nonlinear residual = 3.64053627e+00
+	Line search with alpha = 1.000 : res = 1.77017337e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 294 - Advancing to t = 0.3634742342.
+Newton iter.  0:          nonlinear residual = 3.51767148e+00
+	Line search with alpha = 1.000 : res = 1.47164152e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 295 - Advancing to t = 0.3647009226.
+Newton iter.  0:          nonlinear residual = 3.39139971e+00
+	Line search with alpha = 1.000 : res = 1.10324644e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 296 - Advancing to t = 0.3659419992.
+Newton iter.  0:          nonlinear residual = 3.26162668e+00
+	Line search with alpha = 1.000 : res = 8.35829587e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 297 - Advancing to t = 0.3671985887.
+Newton iter.  0:          nonlinear residual = 3.12824507e+00
+	Line search with alpha = 1.000 : res = 1.28399921e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 298 - Advancing to t = 0.3684719574.
+Newton iter.  0:          nonlinear residual = 2.99113204e+00
+	Line search with alpha = 1.000 : res = 1.06867680e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 299 - Advancing to t = 0.3697635408.
+Newton iter.  0:          nonlinear residual = 2.85014607e+00
+	Line search with alpha = 1.000 : res = 7.50155556e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 300 - Advancing to t = 0.3710749792.
+Newton iter.  0:          nonlinear residual = 2.70512307e+00
+	Line search with alpha = 1.000 : res = 1.14409083e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 301 - Advancing to t = 0.3724081631.
+Newton iter.  0:          nonlinear residual = 2.55587119e+00
+	Line search with alpha = 1.000 : res = 8.22694469e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 302 - Advancing to t = 0.3737652933.
+Newton iter.  0:          nonlinear residual = 2.40216417e+00
+	Line search with alpha = 1.000 : res = 1.09697546e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 303 - Advancing to t = 0.3751489606.
+Newton iter.  0:          nonlinear residual = 2.24373234e+00
+	Line search with alpha = 1.000 : res = 1.39918894e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 304 - Advancing to t = 0.3765622545.
+Newton iter.  0:          nonlinear residual = 2.08025043e+00
+	Line search with alpha = 1.000 : res = 1.05008635e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 305 - Advancing to t = 0.3780089154.
+Newton iter.  0:          nonlinear residual = 1.91132053e+00
+	Line search with alpha = 1.000 : res = 1.02248116e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 306 - Advancing to t = 0.3794935523.
+Newton iter.  0:          nonlinear residual = 1.73644764e+00
+	Line search with alpha = 1.000 : res = 8.70032203e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 307 - Advancing to t = 0.3810219666.
+Newton iter.  0:          nonlinear residual = 1.55500340e+00
+	Line search with alpha = 1.000 : res = 8.94615729e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 308 - Advancing to t = 0.3826016525.
+Newton iter.  0:          nonlinear residual = 1.36617011e+00
+	Line search with alpha = 1.000 : res = 8.03921962e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 309 - Advancing to t = 0.3842426086.
+Newton iter.  0:          nonlinear residual = 1.16884988e+00
+	Line search with alpha = 1.000 : res = 1.08576629e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 310 - Advancing to t = 0.3859587410.
+Newton iter.  0:          nonlinear residual = 9.61507928e-01
+	Line search with alpha = 1.000 : res = 9.36671676e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 311 - Advancing to t = 0.3877704926.
+Newton iter.  0:          nonlinear residual = 7.41879034e-01
+	Line search with alpha = 1.000 : res = 6.05032330e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 312 - Advancing to t = 0.3897103493.
+Newton iter.  0:          nonlinear residual = 5.06353050e-01
+	Line search with alpha = 1.000 : res = 6.04093768e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 313 - Advancing to t = 0.3918364047.
+Newton iter.  0:          nonlinear residual = 2.48460410e-01
+	Line search with alpha = 1.000 : res = 8.05732353e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 314 - Advancing to t = 0.3942759817.
+Newton iter.  0:          nonlinear residual = 4.60058052e-02
+	Line search with alpha = 1.000 : res = 4.75710381e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 315 - Advancing to t = 0.3974722179.
+Newton iter.  0:          nonlinear residual = 4.26574876e-01
+	Line search with alpha = 1.000 : res = 5.13763548e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 316 - Advancing to t = 0.4017370122.
+Newton iter.  0:          nonlinear residual = 9.43847364e-01
+	Line search with alpha = 1.000 : res = 3.71256759e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 317 - Advancing to t = 0.4042333152.
+Newton iter.  0:          nonlinear residual = 1.19422474e+00
+	Line search with alpha = 1.000 : res = 4.47377990e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 318 - Advancing to t = 0.4060790116.
+Newton iter.  0:          nonlinear residual = 1.48121946e+00
+	Line search with alpha = 1.000 : res = 4.91095480e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 319 - Advancing to t = 0.4077847461.
+Newton iter.  0:          nonlinear residual = 1.74640656e+00
+	Line search with alpha = 1.000 : res = 6.48584674e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 320 - Advancing to t = 0.4093905325.
+Newton iter.  0:          nonlinear residual = 1.94582254e+00
+	Line search with alpha = 1.000 : res = 4.59851828e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 321 - Advancing to t = 0.4109283938.
+Newton iter.  0:          nonlinear residual = 2.13444253e+00
+	Line search with alpha = 1.000 : res = 7.82891379e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 322 - Advancing to t = 0.4124213372.
+Newton iter.  0:          nonlinear residual = 2.31454037e+00
+	Line search with alpha = 1.000 : res = 6.41527488e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 323 - Advancing to t = 0.4138743575.
+Newton iter.  0:          nonlinear residual = 2.48387684e+00
+	Line search with alpha = 1.000 : res = 7.57043753e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 324 - Advancing to t = 0.4152909228.
+Newton iter.  0:          nonlinear residual = 2.64643718e+00
+	Line search with alpha = 1.000 : res = 6.77336135e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 325 - Advancing to t = 0.4166753043.
+Newton iter.  0:          nonlinear residual = 2.80341630e+00
+	Line search with alpha = 1.000 : res = 6.74955852e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 326 - Advancing to t = 0.4180311870.
+Newton iter.  0:          nonlinear residual = 2.95487730e+00
+	Line search with alpha = 1.000 : res = 5.53223491e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 327 - Advancing to t = 0.4193616426.
+Newton iter.  0:          nonlinear residual = 3.10116324e+00
+	Line search with alpha = 1.000 : res = 9.67958965e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 328 - Advancing to t = 0.4206692761.
+Newton iter.  0:          nonlinear residual = 3.24261675e+00
+	Line search with alpha = 1.000 : res = 4.90460719e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 329 - Advancing to t = 0.4219562809.
+Newton iter.  0:          nonlinear residual = 3.37949928e+00
+	Line search with alpha = 1.000 : res = 8.98020893e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 330 - Advancing to t = 0.4232245158.
+Newton iter.  0:          nonlinear residual = 3.51204211e+00
+	Line search with alpha = 1.000 : res = 1.67125676e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 331 - Advancing to t = 0.4244755783.
+Newton iter.  0:          nonlinear residual = 3.64044723e+00
+	Line search with alpha = 1.000 : res = 8.91263780e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 332 - Advancing to t = 0.4257108577.
+Newton iter.  0:          nonlinear residual = 3.76488545e+00
+	Line search with alpha = 1.000 : res = 3.98865978e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 333 - Advancing to t = 0.4269315730.
+Newton iter.  0:          nonlinear residual = 3.88550292e+00
+	Line search with alpha = 1.000 : res = 9.10279187e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 334 - Advancing to t = 0.4281388030.
+Newton iter.  0:          nonlinear residual = 4.00242615e+00
+	Line search with alpha = 1.000 : res = 5.88170138e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 335 - Advancing to t = 0.4293335091.
+Newton iter.  0:          nonlinear residual = 4.11576546e+00
+	Line search with alpha = 1.000 : res = 1.08207577e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 336 - Advancing to t = 0.4305165538.
+Newton iter.  0:          nonlinear residual = 4.22561769e+00
+	Line search with alpha = 1.000 : res = 9.72391421e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 337 - Advancing to t = 0.4316887149.
+Newton iter.  0:          nonlinear residual = 4.33206835e+00
+	Line search with alpha = 1.000 : res = 1.00434047e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 338 - Advancing to t = 0.4328506980.
+Newton iter.  0:          nonlinear residual = 4.43519339e+00
+	Line search with alpha = 1.000 : res = 4.04142700e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 339 - Advancing to t = 0.4340031462.
+Newton iter.  0:          nonlinear residual = 4.53506050e+00
+	Line search with alpha = 1.000 : res = 9.02454229e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 340 - Advancing to t = 0.4351466480.
+Newton iter.  0:          nonlinear residual = 4.63173035e+00
+	Line search with alpha = 1.000 : res = 1.07179158e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 341 - Advancing to t = 0.4362817445.
+Newton iter.  0:          nonlinear residual = 4.72525742e+00
+	Line search with alpha = 1.000 : res = 1.20732613e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 342 - Advancing to t = 0.4374089352.
+Newton iter.  0:          nonlinear residual = 4.81569086e+00
+	Line search with alpha = 1.000 : res = 6.16351919e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 343 - Advancing to t = 0.4385286824.
+Newton iter.  0:          nonlinear residual = 4.90307514e+00
+	Line search with alpha = 1.000 : res = 3.83312640e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 344 - Advancing to t = 0.4396414160.
+Newton iter.  0:          nonlinear residual = 4.98745058e+00
+	Line search with alpha = 1.000 : res = 8.24947094e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 345 - Advancing to t = 0.4407475367.
+Newton iter.  0:          nonlinear residual = 5.06885386e+00
+	Line search with alpha = 1.000 : res = 1.07837623e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 346 - Advancing to t = 0.4418474193.
+Newton iter.  0:          nonlinear residual = 5.14731839e+00
+	Line search with alpha = 1.000 : res = 8.83661146e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 347 - Advancing to t = 0.4429414154.
+Newton iter.  0:          nonlinear residual = 5.22287473e+00
+	Line search with alpha = 1.000 : res = 8.88198589e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 348 - Advancing to t = 0.4440298556.
+Newton iter.  0:          nonlinear residual = 5.29555081e+00
+	Line search with alpha = 1.000 : res = 7.72825590e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 349 - Advancing to t = 0.4451130516.
+Newton iter.  0:          nonlinear residual = 5.36537226e+00
+	Line search with alpha = 1.000 : res = 7.87781237e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 350 - Advancing to t = 0.4461912984.
+Newton iter.  0:          nonlinear residual = 5.43236259e+00
+	Line search with alpha = 1.000 : res = 7.95177144e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 351 - Advancing to t = 0.4472648754.
+Newton iter.  0:          nonlinear residual = 5.49654345e+00
+	Line search with alpha = 1.000 : res = 7.76861141e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 352 - Advancing to t = 0.4483340480.
+Newton iter.  0:          nonlinear residual = 5.55793475e+00
+	Line search with alpha = 1.000 : res = 7.48861218e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 353 - Advancing to t = 0.4493990690.
+Newton iter.  0:          nonlinear residual = 5.61655486e+00
+	Line search with alpha = 1.000 : res = 6.70592055e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 354 - Advancing to t = 0.4504601799.
+Newton iter.  0:          nonlinear residual = 5.67242071e+00
+	Line search with alpha = 1.000 : res = 8.62016981e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 355 - Advancing to t = 0.4515176113.
+Newton iter.  0:          nonlinear residual = 5.72554794e+00
+	Line search with alpha = 1.000 : res = 3.62348933e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 356 - Advancing to t = 0.4525715846.
+Newton iter.  0:          nonlinear residual = 5.77595101e+00
+	Line search with alpha = 1.000 : res = 3.43617392e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 357 - Advancing to t = 0.4536223122.
+Newton iter.  0:          nonlinear residual = 5.82364328e+00
+	Line search with alpha = 1.000 : res = 5.02053263e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 358 - Advancing to t = 0.4546699988.
+Newton iter.  0:          nonlinear residual = 5.86863710e+00
+	Line search with alpha = 1.000 : res = 4.65484356e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 359 - Advancing to t = 0.4557148416.
+Newton iter.  0:          nonlinear residual = 5.91094390e+00
+	Line search with alpha = 1.000 : res = 4.30039885e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 360 - Advancing to t = 0.4567570314.
+Newton iter.  0:          nonlinear residual = 5.95057425e+00
+	Line search with alpha = 1.000 : res = 4.45931590e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 361 - Advancing to t = 0.4577967527.
+Newton iter.  0:          nonlinear residual = 5.98753791e+00
+	Line search with alpha = 1.000 : res = 4.65369410e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 362 - Advancing to t = 0.4588341849.
+Newton iter.  0:          nonlinear residual = 6.02184391e+00
+	Line search with alpha = 1.000 : res = 4.10659768e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 363 - Advancing to t = 0.4598695019.
+Newton iter.  0:          nonlinear residual = 6.05350059e+00
+	Line search with alpha = 1.000 : res = 2.76210356e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 364 - Advancing to t = 0.4609028734.
+Newton iter.  0:          nonlinear residual = 6.08251564e+00
+	Line search with alpha = 1.000 : res = 3.68160647e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 365 - Advancing to t = 0.4619344651.
+Newton iter.  0:          nonlinear residual = 6.10889613e+00
+	Line search with alpha = 1.000 : res = 2.70420757e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 366 - Advancing to t = 0.4629644385.
+Newton iter.  0:          nonlinear residual = 6.13264856e+00
+	Line search with alpha = 1.000 : res = 3.68689803e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 367 - Advancing to t = 0.4639929523.
+Newton iter.  0:          nonlinear residual = 6.15377890e+00
+	Line search with alpha = 1.000 : res = 2.35935381e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 368 - Advancing to t = 0.4650201620.
+Newton iter.  0:          nonlinear residual = 6.17229261e+00
+	Line search with alpha = 1.000 : res = 3.78496315e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 369 - Advancing to t = 0.4660462204.
+Newton iter.  0:          nonlinear residual = 6.18819464e+00
+	Line search with alpha = 1.000 : res = 1.59128849e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 370 - Advancing to t = 0.4670712782.
+Newton iter.  0:          nonlinear residual = 6.20148949e+00
+	Line search with alpha = 1.000 : res = 2.20332172e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 371 - Advancing to t = 0.4680954839.
+Newton iter.  0:          nonlinear residual = 6.21218122e+00
+	Line search with alpha = 1.000 : res = 1.37481742e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 372 - Advancing to t = 0.4691189845.
+Newton iter.  0:          nonlinear residual = 6.22027345e+00
+	Line search with alpha = 1.000 : res = 1.28571003e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 373 - Advancing to t = 0.4701419253.
+Newton iter.  0:          nonlinear residual = 6.22576938e+00
+	Line search with alpha = 1.000 : res = 1.11229270e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 374 - Advancing to t = 0.4711644508.
+Newton iter.  0:          nonlinear residual = 6.22867181e+00
+	Line search with alpha = 1.000 : res = 1.46036564e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 375 - Advancing to t = 0.4721867043.
+Newton iter.  0:          nonlinear residual = 6.22898317e+00
+	Line search with alpha = 1.000 : res = 6.92490986e-16
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 376 - Advancing to t = 0.4732088288.
+Newton iter.  0:          nonlinear residual = 6.22670547e+00
+	Line search with alpha = 1.000 : res = 1.29668997e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 377 - Advancing to t = 0.4742309667.
+Newton iter.  0:          nonlinear residual = 6.22184035e+00
+	Line search with alpha = 1.000 : res = 1.36913206e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 378 - Advancing to t = 0.4752532604.
+Newton iter.  0:          nonlinear residual = 6.21438910e+00
+	Line search with alpha = 1.000 : res = 1.43467400e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 379 - Advancing to t = 0.4762758527.
+Newton iter.  0:          nonlinear residual = 6.20435261e+00
+	Line search with alpha = 1.000 : res = 1.39652727e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 380 - Advancing to t = 0.4772988864.
+Newton iter.  0:          nonlinear residual = 6.19173139e+00
+	Line search with alpha = 1.000 : res = 2.28185138e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 381 - Advancing to t = 0.4783225053.
+Newton iter.  0:          nonlinear residual = 6.17652561e+00
+	Line search with alpha = 1.000 : res = 3.01786910e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 382 - Advancing to t = 0.4793468542.
+Newton iter.  0:          nonlinear residual = 6.15873502e+00
+	Line search with alpha = 1.000 : res = 3.17299924e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 383 - Advancing to t = 0.4803720788.
+Newton iter.  0:          nonlinear residual = 6.13835901e+00
+	Line search with alpha = 1.000 : res = 2.53515240e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 384 - Advancing to t = 0.4813983267.
+Newton iter.  0:          nonlinear residual = 6.11539657e+00
+	Line search with alpha = 1.000 : res = 5.04500030e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 385 - Advancing to t = 0.4824257469.
+Newton iter.  0:          nonlinear residual = 6.08984629e+00
+	Line search with alpha = 1.000 : res = 4.39836464e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 386 - Advancing to t = 0.4834544909.
+Newton iter.  0:          nonlinear residual = 6.06170634e+00
+	Line search with alpha = 1.000 : res = 3.75213085e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 387 - Advancing to t = 0.4844847123.
+Newton iter.  0:          nonlinear residual = 6.03097447e+00
+	Line search with alpha = 1.000 : res = 4.65455202e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 388 - Advancing to t = 0.4855165674.
+Newton iter.  0:          nonlinear residual = 5.99764797e+00
+	Line search with alpha = 1.000 : res = 4.13697697e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 389 - Advancing to t = 0.4865502157.
+Newton iter.  0:          nonlinear residual = 5.96172367e+00
+	Line search with alpha = 1.000 : res = 5.08182258e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 390 - Advancing to t = 0.4875858200.
+Newton iter.  0:          nonlinear residual = 5.92319792e+00
+	Line search with alpha = 1.000 : res = 4.03475833e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 391 - Advancing to t = 0.4886235469.
+Newton iter.  0:          nonlinear residual = 5.88206656e+00
+	Line search with alpha = 1.000 : res = 4.84517447e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 392 - Advancing to t = 0.4896635672.
+Newton iter.  0:          nonlinear residual = 5.83832486e+00
+	Line search with alpha = 1.000 : res = 8.11565097e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 393 - Advancing to t = 0.4907060562.
+Newton iter.  0:          nonlinear residual = 5.79196755e+00
+	Line search with alpha = 1.000 : res = 4.93713210e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 394 - Advancing to t = 0.4917511944.
+Newton iter.  0:          nonlinear residual = 5.74298874e+00
+	Line search with alpha = 1.000 : res = 8.35333981e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 395 - Advancing to t = 0.4927991677.
+Newton iter.  0:          nonlinear residual = 5.69138187e+00
+	Line search with alpha = 1.000 : res = 5.42804596e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 396 - Advancing to t = 0.4938501682.
+Newton iter.  0:          nonlinear residual = 5.63713972e+00
+	Line search with alpha = 1.000 : res = 6.68427564e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 397 - Advancing to t = 0.4949043946.
+Newton iter.  0:          nonlinear residual = 5.58025430e+00
+	Line search with alpha = 1.000 : res = 7.51720335e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 398 - Advancing to t = 0.4959620528.
+Newton iter.  0:          nonlinear residual = 5.52071682e+00
+	Line search with alpha = 1.000 : res = 5.62016370e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 399 - Advancing to t = 0.4970233568.
+Newton iter.  0:          nonlinear residual = 5.45851765e+00
+	Line search with alpha = 1.000 : res = 2.86777179e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 400 - Advancing to t = 0.4980885291.
+Newton iter.  0:          nonlinear residual = 5.39364619e+00
+	Line search with alpha = 1.000 : res = 1.48772398e-14
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 401 - Advancing to t = 0.4991578018.
+Newton iter.  0:          nonlinear residual = 5.32609086e+00
+	Line search with alpha = 1.000 : res = 9.72536898e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Time step 402 - Advancing to t = 0.5000000000.
+Newton iter.  0:          nonlinear residual = 5.03500213e+00
+	Line search with alpha = 1.000 : res = 6.83275932e-15
+Stopping because residual is below prescribed tolerance (1.00e-12)
 
 L2_norm
 n_elm n_dof   dt          T         
@@ -55,10 +3830,3 @@ n_elm n_dof   dt          T
     8    25 0.0050 2.9541e-03 -2.27 
     8    25 0.0025 6.8360e-04 -2.11 
     8    25 0.0013 1.6900e-04 -2.02 
-
-H1_seminorm
-n_elm n_dof   dt          T         
-    8    25 0.0100 3.5258e-02     - 
-    8    25 0.0050 7.2360e-03 -2.28 
-    8    25 0.0025 1.6777e-03 -2.11 
-    8    25 0.0013 4.1490e-04 -2.02

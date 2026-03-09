@@ -8,8 +8,6 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 59
-[MMS] eps scaling applied: r=5.0000000000e-01  r^3=1.2500000000e-01
-  eps_u=6.2500000000e-06  eps_p=6.2500000000e-06  eps_x=1.2500000000e-04  eps_t=-1.2500000000e-01  eps_phi=-1.2500000000e-01  eps_mu=-1.2500000000e-01
 Mesh info:
  dimension: 2
  no. of cells: 8
@@ -19,8 +17,6 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 59
-[MMS] eps scaling applied: r=5.0000000000e-01  r^3=1.2500000000e-01
-  eps_u=7.8125000000e-07  eps_p=7.8125000000e-07  eps_x=1.5625000000e-05  eps_t=-1.5625000000e-02  eps_phi=-1.5625000000e-02  eps_mu=-1.5625000000e-02
 Mesh info:
  dimension: 2
  no. of cells: 8
@@ -30,8 +26,6 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 59
-[MMS] eps scaling applied: r=5.0000000000e-01  r^3=1.2500000000e-01
-  eps_u=9.7656250000e-08  eps_p=9.7656250000e-08  eps_x=1.9531250000e-06  eps_t=-1.9531250000e-03  eps_phi=-1.9531250000e-03  eps_mu=-1.9531250000e-03
 Mesh info:
  dimension: 2
  no. of cells: 8

@@ -280,12 +280,9 @@ void NSSolverLambda<dim>::setup_dofs()
                                 comm);
 
   this->local_evaluation_point.reinit(this->locally_owned_dofs,
-                                      this->locally_relevant_dofs,
                                       comm);
   this->newton_update.reinit(this->locally_owned_dofs,
-                             this->locally_relevant_dofs,
                              comm);
-
   this->system_rhs.reinit(this->locally_owned_dofs, comm);
 
   // -------------------------------------------------------------------

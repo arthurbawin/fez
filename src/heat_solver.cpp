@@ -121,7 +121,6 @@ void HeatSolver<dim>::run()
 
   const auto &ti = this->get_time_parameters();
 
-
   const double dt_min_accept = std::max(1e-14, 1e-6 * ti.dt);
 
   const unsigned int max_rejects = param.time_integration.max_rejects_per_step;
@@ -173,13 +172,18 @@ void HeatSolver<dim>::run()
       {
         auto component_eps = ordering->make_dt_control_component_eps(ti);
 
-        double       R      = 0.0;
+        double       R       = 0.0;
         double       dt_used = 0.0;
         double       dt_next = 0.0;
-        unsigned int order  = 0;
+        unsigned int order   = 0;
+
+
+        LA::ParVectorType present_solution_dt_control;
+        present_solution_dt_control.reinit(locally_owned_dofs, mpi_communicator);
+        present_solution_dt_control = present_solution;
 
         const bool ok = time_handler.update_dt_after_converged_step(
-          present_solution,
+          present_solution_dt_control,
           previous_solutions_dt_control,
           dofs_to_component,
           component_eps,
@@ -211,7 +215,6 @@ void HeatSolver<dim>::run()
       }
 
       // Handle REJECT (with rollback)
-
       if (!step_accepted)
       {
         time_handler.rollback_last_advance(dt_retry);
@@ -234,12 +237,11 @@ void HeatSolver<dim>::run()
         }
         else
         {
-
           continue;
         }
       }
-      // ACCEPTED step: proceed normally
 
+      // ACCEPTED step: proceed normally
       postprocess_solution();
 
       if (!time_handler.is_steady())
@@ -250,7 +252,13 @@ void HeatSolver<dim>::run()
         if (param.time_integration.adaptative_dt &&
             !previous_solutions_dt_control.empty())
         {
-          time_handler.rotate_solutions(present_solution, previous_solutions_dt_control);
+          LA::ParVectorType present_solution_dt_control;
+          present_solution_dt_control.reinit(locally_owned_dofs,
+                                             mpi_communicator);
+          present_solution_dt_control = present_solution;
+
+          time_handler.rotate_solutions(present_solution_dt_control,
+                                        previous_solutions_dt_control);
         }
       }
 
@@ -278,28 +286,26 @@ void HeatSolver<dim>::setup_dofs()
   // Scalar problem: all DoFs belong to temperature component 0
   dofs_to_component.assign(dof_handler.n_dofs(), static_cast<unsigned char>(0));
 
-  // Initialize parallel vectors
+
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
-  local_evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
-  newton_update.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+
+  local_evaluation_point.reinit(locally_owned_dofs, comm);
+  newton_update.reinit(locally_owned_dofs, comm);
   system_rhs.reinit(locally_owned_dofs, comm);
 
-  // Allocate for previous BDF solutions
   previous_solutions.clear();
   previous_solutions.resize(time_handler.n_previous_solutions);
   for (auto &previous_sol : previous_solutions)
-  {
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
-  }
 
-  // History buffer dedicated to adaptive dt control (can be larger than BDF history)
-  const unsigned int n_history_dt_control = 3; // enough for BDF2 Vautrin (needs order+1)
+
+  const unsigned int n_history_dt_control = 3; // enough for BDF2 Vautrin
   previous_solutions_dt_control.clear();
   previous_solutions_dt_control.resize(n_history_dt_control);
   for (auto &previous_sol : previous_solutions_dt_control)
-    previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+    previous_sol.reinit(locally_owned_dofs, comm);
 
   // For unsteady simulation, add the number of elements, dofs and/or the time
   // step to the error handler, once per convergence run.
@@ -403,10 +409,26 @@ void HeatSolver<dim>::set_initial_conditions()
 
   if (!time_handler.is_steady())
   {
-    // Rotate solutions
-    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
+
+    for (int j = static_cast<int>(previous_solutions.size()) - 1; j >= 1; --j)
       previous_solutions[j] = previous_solutions[j - 1];
-    previous_solutions[0] = present_solution;
+    if (!previous_solutions.empty())
+      previous_solutions[0] = present_solution;
+
+    if (param.time_integration.adaptative_dt &&
+        !previous_solutions_dt_control.empty())
+    {
+      LA::ParVectorType present_solution_dt_control;
+      present_solution_dt_control.reinit(locally_owned_dofs, mpi_communicator);
+      present_solution_dt_control = present_solution;
+
+      for (int j = static_cast<int>(previous_solutions_dt_control.size()) - 1;
+           j >= 1;
+           --j)
+        previous_solutions_dt_control[j] = previous_solutions_dt_control[j - 1];
+
+      previous_solutions_dt_control[0] = present_solution_dt_control;
+    }
   }
 }
 

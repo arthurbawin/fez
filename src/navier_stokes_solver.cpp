@@ -176,7 +176,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
 
     while (!step_accepted)
     {
-
       LA::ParVectorType present_backup;
       present_backup.reinit(present_solution);
       present_backup = present_solution;
@@ -187,7 +186,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
       time_handler.advance(pcout);
       set_time();
       update_boundary_conditions();
-
 
       if (time_handler.is_starting_step() &&
           param.time_integration.bdfstart ==
@@ -208,22 +206,27 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
         else
           solve_nonlinear_problem(false);
       }
+
       step_accepted = true;
-      double dt_retry = time_handler.get_current_dt(); 
+      double dt_retry = time_handler.get_current_dt();
 
       if (!time_handler.is_steady() && param.time_integration.adaptative_dt)
       {
-        const auto &ti = this->get_time_parameters(); 
+        const auto &ti = this->get_time_parameters();
         auto component_eps = ordering->make_dt_control_component_eps(ti);
 
-
         double       R       = 0.0;
-        double       dt_used  = 0.0;
-        double       dt_next  = 0.0;
+        double       dt_used = 0.0;
+        double       dt_next = 0.0;
         unsigned int order   = 0;
 
+
+        LA::ParVectorType present_solution_dt_control;
+        present_solution_dt_control.reinit(locally_owned_dofs, mpi_communicator);
+        present_solution_dt_control = present_solution;
+
         const bool ok = time_handler.update_dt_after_converged_step(
-          present_solution,
+          present_solution_dt_control,
           previous_solutions_dt_control,
           dofs_to_component,
           component_eps,
@@ -239,6 +242,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
           param.time_integration.reject_factor,
           &step_accepted,
           &dt_retry);
+
+        (void)ok;
       }
 
       if (!step_accepted)
@@ -254,42 +259,49 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
         if (n_reject >= param.time_integration.max_rejects_per_step)
         {
           if (param.time_integration.verbosity == Parameters::Verbosity::verbose)
-            pcout << "Too many rejects at step " << time_handler.current_time_iteration
-                  << "forcing accept to continue." << std::endl;
+            pcout << "Too many rejects at step "
+                  << time_handler.current_time_iteration
+                  << ", forcing accept to continue." << std::endl;
           step_accepted = true;
         }
 
-        continue;
+        if (!step_accepted)
+          continue;
       }
 
       // ACCEPTED step: proceed normally
-
       postprocess_solution();
       time_handler.rotate_solutions(present_solution, previous_solutions);
 
       if (param.time_integration.adaptative_dt &&
           !previous_solutions_dt_control.empty())
       {
-        time_handler.rotate_solutions(present_solution, previous_solutions_dt_control);
+        LA::ParVectorType present_solution_dt_control;
+        present_solution_dt_control.reinit(locally_owned_dofs,
+                                           mpi_communicator);
+        present_solution_dt_control = present_solution;
+
+        time_handler.rotate_solutions(present_solution_dt_control,
+                                      previous_solutions_dt_control);
       }
 
-    if (param.checkpoint_restart.enable_checkpoint &&
-        (time_handler.current_time_iteration %
-           param.checkpoint_restart.checkpoint_frequency ==
-         0))
-    {
-      /**
-       * Write checkpoint.
-       * Checkpoint is written *after* the solutions were rotated, which amounts
-       * to writing the current solution twice... For some applications or
-       * postprocessing, maybe it would be useful to checkpoint before rotating,
-       * to actually save the last N solutions. In that case, the solutions
-       * would need to be rotated right after restart().
-       */
-      checkpoint();
-    }
+      if (param.checkpoint_restart.enable_checkpoint &&
+          (time_handler.current_time_iteration %
+             param.checkpoint_restart.checkpoint_frequency ==
+           0))
+      {
+        /**
+         * Write checkpoint.
+         * Checkpoint is written *after* the solutions were rotated, which amounts
+         * to writing the current solution twice... For some applications or
+         * postprocessing, maybe it would be useful to checkpoint before rotating,
+         * to actually save the last N solutions. In that case, the solutions
+         * would need to be rotated right after restart().
+         */
+        checkpoint();
+      }
 
-    step_accepted = true;
+      step_accepted = true;
     }
   }
 
@@ -312,41 +324,38 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
   dofs_to_component.assign(dof_handler.n_dofs(), unset);
   fill_dofs_to_component(dof_handler, locally_relevant_dofs, dofs_to_component);
 
+  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
+        << std::endl;
 
-  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs() << std::endl;
-
-  // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
   evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
-  local_evaluation_point.reinit(locally_owned_dofs,locally_relevant_dofs, comm);
-  newton_update.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+  // Owned-only vectors
+  local_evaluation_point.reinit(locally_owned_dofs, comm);
+  newton_update.reinit(locally_owned_dofs, comm);
   system_rhs.reinit(locally_owned_dofs, comm);
 
-  // Allocate for previous BDF solutions
-  previous_solutions.clear();
 
+  previous_solutions.clear();
   previous_solutions.resize(time_handler.n_previous_solutions);
   for (auto &sol : previous_solutions)
     sol.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
 
-
-  // Extra history used ONLY for adaptive dt control
-  // Needs (order+1)
+  // Extra history used ONLY for adaptive dt control => owned-only
   if (param.time_integration.adaptative_dt)
   {
-    const unsigned int n_history_dt_control = time_handler.n_previous_solutions + 1;
+    const unsigned int n_history_dt_control =
+      time_handler.n_previous_solutions + 1;
 
+    previous_solutions_dt_control.clear();
     previous_solutions_dt_control.resize(n_history_dt_control);
     for (auto &sol : previous_solutions_dt_control)
-      sol.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
+      sol.reinit(locally_owned_dofs, mpi_communicator);
   }
   else
   {
     previous_solutions_dt_control.clear();
   }
-
-
 
   if constexpr (with_moving_mesh)
   {
@@ -406,6 +415,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::reinit_vectors()
     // previous solutions won't be zero when restarting.
     LA::ParVectorType tmp_prev_sol(locally_owned_dofs, mpi_communicator);
     tmp_prev_sol = previous_sol;
+
     previous_sol.reinit(locally_owned_dofs,
                         locally_relevant_dofs,
                         mpi_communicator);
@@ -413,20 +423,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::reinit_vectors()
     previous_sol.compress(dealii::VectorOperation::insert);
   }
 
-  // reinit dt-control history (if enabled)
-
+  // Reinit dt-control history
   if (!previous_solutions_dt_control.empty())
   {
     for (auto &prev : previous_solutions_dt_control)
     {
       LA::ParVectorType tmp(locally_owned_dofs, mpi_communicator);
       tmp = prev;
-      prev.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
+
+      prev.reinit(locally_owned_dofs, mpi_communicator);
       prev = tmp;
       prev.compress(dealii::VectorOperation::insert);
     }
   }
-
 }
 
 template <int dim, bool with_moving_mesh>
@@ -450,8 +459,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::
     constrained_pressure_dof,
     zero_mean_pressure_weights);
 
-  // The mean pressure constraint added pressure ghost dofs,
-  // so parallel vectors should be reinitialized to account for them.
+
   reinit_vectors();
 }
 
@@ -632,6 +640,17 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
   evaluation_point = newton_update;
 
   time_handler.rotate_solutions(present_solution, previous_solutions);
+
+  if (param.time_integration.adaptative_dt &&
+      !previous_solutions_dt_control.empty())
+  {
+    LA::ParVectorType present_solution_dt_control;
+    present_solution_dt_control.reinit(locally_owned_dofs, mpi_communicator);
+    present_solution_dt_control = present_solution;
+
+    time_handler.rotate_solutions(present_solution_dt_control,
+                                  previous_solutions_dt_control);
+  }
 }
 
 template <int dim, bool with_moving_mesh>
@@ -1076,9 +1095,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
   // Setup the dofhandler and parallel vectors here
   setup_dofs();
 
-  // SolutionTransfer deserializes to a vector of ptrs to fully distributed
-  // vectors (without ghosts), but the present and previous solutions have
-  // ghosts, so they must be set after the call to deserialize
+
   const unsigned int             n_vec = time_handler.n_previous_solutions + 1;
   std::vector<LA::ParVectorType> vectors_to_read(n_vec);
   std::vector<LA::ParVectorType *> ptrs_to_vectors_to_read(n_vec);
@@ -1092,13 +1109,31 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
   SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
   solution_transfer.deserialize(ptrs_to_vectors_to_read);
 
-  // Assign the fully distr. vectors to the existing ghosted ones
   present_solution = vectors_to_read[0];
   for (unsigned int i = 0; i < time_handler.n_previous_solutions; ++i)
     previous_solutions[i] = vectors_to_read[i + 1];
 
   local_evaluation_point = present_solution;
   evaluation_point       = present_solution;
+
+  if (param.time_integration.adaptative_dt &&
+      !previous_solutions_dt_control.empty())
+  {
+    previous_solutions_dt_control[0].reinit(locally_owned_dofs,
+                                            mpi_communicator);
+    previous_solutions_dt_control[0] = vectors_to_read[0];
+
+    const unsigned int n_copy =
+      std::min<unsigned int>(time_handler.n_previous_solutions,
+                             previous_solutions_dt_control.size() - 1);
+
+    for (unsigned int i = 0; i < n_copy; ++i)
+    {
+      previous_solutions_dt_control[i + 1].reinit(locally_owned_dofs,
+                                                  mpi_communicator);
+      previous_solutions_dt_control[i + 1] = vectors_to_read[i + 1];
+    }
+  }
 }
 
 // Explicit instantiation

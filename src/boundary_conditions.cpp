@@ -32,8 +32,18 @@ namespace BoundaryConditions
                       "none",
                       Patterns::Selection(
                         "none|input_function|outflow|no_slip|weak_no_slip|slip|"
-                        "velocity_mms|velocity_flux_mms|open_mms"),
+                        "velocity_mms|velocity_flux_mms|pressure_mms|open_mms"),
                       "Type of fluid boundary condition");
+
+    prm.declare_entry("impose velocity",
+                      "true",
+                      Patterns::Bool(),
+                      "If true, impose velocity components (u,v,w) for type=input_function.");
+
+    prm.declare_entry("impose pressure",
+                      "false",
+                      Patterns::Bool(),
+                      "If true, impose pressre (p) for type=input_function.");
 
     // Imposed functions, if any
     prm.enter_subsection("u");
@@ -46,6 +56,10 @@ namespace BoundaryConditions
 
     prm.enter_subsection("w");
     w->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("p");
+    p->declare_parameters(prm);
     prm.leave_subsection();
   }
 
@@ -70,6 +84,8 @@ namespace BoundaryConditions
       type = Type::velocity_mms;
     if (parsed_type == "velocity_flux_mms")
       type = Type::velocity_flux_mms;
+    if (parsed_type == "pressure_mms")
+      type = Type::pressure_mms;
     if (parsed_type == "open_mms")
       type = Type::open_mms;
     if (parsed_type == "none")
@@ -79,6 +95,9 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed fluid boundary conditions is smaller than "
         "the specified \"number\" field.");
+
+    impose_velocity = prm.get_bool("impose velocity");
+    impose_pressure = prm.get_bool("impose pressure");
 
     prm.enter_subsection("u");
     u->parse_parameters(prm);
@@ -91,6 +110,12 @@ namespace BoundaryConditions
     prm.enter_subsection("w");
     w->parse_parameters(prm);
     prm.leave_subsection();
+
+    prm.enter_subsection("p");
+    p->parse_parameters(prm);
+    prm.leave_subsection();
+
+    // std::cout<<p->value(Point<dim>())<<std::endl;
   }
 
   template <int dim>
@@ -249,7 +274,7 @@ namespace BoundaryConditions
                                                  constraints,
                                                  velocity_mask);
       }
-      if (bc.type == BoundaryConditions::Type::input_function)
+      if (bc.type == BoundaryConditions::Type::input_function && bc.impose_velocity)
       {
         if (homogeneous)
           VectorTools::interpolate_boundary_values(mapping,
@@ -318,6 +343,54 @@ namespace BoundaryConditions
       velocity_tangential_flux_functions,
       constraints,
       mapping);
+  }
+
+  template <int dim>
+  void apply_pressure_boundary_conditions(
+    const bool             homogeneous,
+    const unsigned int     p_lower,
+    const unsigned int     n_components,
+    const DoFHandler<dim> &dof_handler,
+    const Mapping<dim>    &mapping,
+    const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>> &fluid_bc,
+    const Function<dim>       &exact_solution,
+    AffineConstraints<double> &constraints)
+  {
+    const FEValuesExtractors::Scalar pressure(p_lower);
+    const ComponentMask pressure_mask = dof_handler.get_fe().component_mask(pressure);
+
+    for (const auto &[boundary_id, bc] : fluid_bc)
+    {
+      (void)boundary_id;
+      if (bc.type == BoundaryConditions::Type::input_function && bc.impose_pressure)
+      {
+        // std::cout << "apply_pressure_boundary_conditions called on boundary " << bc.id << std::endl;
+
+        // if (homogeneous)
+        // {
+        //   VectorTools::interpolate_boundary_values(mapping, dof_handler, bc.id,
+        //                                            Functions::ZeroFunction<dim>(n_components),
+        //                                            constraints, pressure_mask);
+        // }
+        // else
+        // {
+        //   AssertThrow(bc.p != nullptr,
+        //                   ExcMessage("Pressure BC requested (impose_pressure=true) "
+        //                              "but bc.p is null. Provide subsection 'p' in the .prm."));
+        //   VectorTools::interpolate_boundary_values(mapping, dof_handler, bc.id,
+        //                                            ComponentwiseFlowPressure<dim>(p_lower,n_components,*bc.p),
+        //                                            constraints, pressure_mask);
+        //   std::cout << "Pressure BC value at origin = " << bc.p->value(Point<dim>()) << std::endl;
+        // }
+
+    // ------------------------------------------------------------
+    // Cas Poiseuille / pression imposée faiblement :
+    // utilisée dans les termes de bord du résidu/Jacobien,
+    // PAS une contrainte forte sur les DOFs de p.
+    // ------------------------------------------------------------
+        continue;
+      }
+    }
   }
 
   template <int dim>

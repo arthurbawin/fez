@@ -45,6 +45,9 @@ public:
    */
   virtual ~CompressibleNSSolver() {}
 
+  virtual void create_solver_specific_zero_constraints() override;
+  virtual void create_solver_specific_nonzero_constraints() override;
+
   /**
    * Apply initial condition on the temperature and pressure
    */
@@ -64,6 +67,11 @@ public:
    *
    */
   virtual void output_results() override;
+
+  /**
+   * 
+   */
+  virtual void compute_solver_specific_errors() override;
 
   /**
    * Get the FESystem of the derived solver

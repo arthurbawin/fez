@@ -401,6 +401,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
       constrained_pressure_dof,
       zero_mean_pressure_weights);
 
+  BoundaryConditions::apply_pressure_boundary_conditions(
+    homogeneous,
+    ordering->p_lower,
+    ordering->n_components,
+    dof_handler,
+    *moving_mapping,
+    param.fluid_bc,
+    *exact_solution,
+    constraints);
   /**
    * Do not close the constraints here, as derived solvers may need
    * to add boundary conditions on their own fields (e.g., Cahn Hilliard)

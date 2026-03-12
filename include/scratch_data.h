@@ -118,6 +118,20 @@ private:
     const std::shared_ptr<Function<dim>> &source_terms,
     const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
+    // Layout/FE checks
+    const unsigned int n_comp_fe = fe_values.get_fe().n_components();
+
+    AssertThrow(u_lower == 0, ExcMessage("Expected u_lower=0 for layout u-v-(w)-p-T."));
+    AssertThrow(p_lower == dim, ExcMessage("Expected p_lower=dim for layout u-v-(w)-p-T."));
+    if (enable_compressible)
+      AssertThrow(t_lower == dim + 1, ExcMessage("Expected t_lower=dim+1 for layout u-v-(w)-p-T."));
+
+    if (enable_compressible)
+      AssertThrow(n_comp_fe == dim + 2, ExcMessage("Compressible enabled but FE != dim+2 components."));
+    else
+      AssertThrow(n_comp_fe == dim + 1 || n_comp_fe == dim + 2,
+                  ExcMessage("Unexpected FE components count."));
+
     fe_values[velocity].get_function_values(current_solution,
                                             present_velocity_values);
     fe_values[velocity].get_function_gradients(current_solution,
@@ -128,11 +142,41 @@ private:
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
       fe_values[velocity].get_function_values(previous_solutions[i],
-                                              previous_velocity_values[i]);
+                                              previous_velocity_values[i]);     
 
-    // Source terms with layout u-v-(w-)p
-    source_terms->vector_value_list(fe_values.get_quadrature_points(),
-                                    source_term_full_moving);
+    // Source terms with layout u-v-(w)-p
+    Assert(source_terms != nullptr, ExcMessage("source_terms is null"));
+
+    const unsigned int n_comp_f = source_terms->n_components;
+    // Assure que la sortie a la taille du FE
+    for (auto &v : source_term_full_moving)
+      v.reinit(n_comp_fe);
+
+    // Cas 1 : la Function a exactement la bonne taille
+    if (n_comp_f == n_comp_fe)
+    {
+      source_terms->vector_value_list(fe_values.get_quadrature_points(),
+                                      source_term_full_moving);
+    }
+    // Cas 2 : FE compressible (dim+2) mais source_terms fourni en (dim+1) => T=0
+    else if (enable_compressible && n_comp_fe == dim + 2 && n_comp_f == dim + 1)
+    {
+      std::vector<Vector<double>> tmp(n_q_points, Vector<double>(n_comp_f));
+      source_terms->vector_value_list(fe_values.get_quadrature_points(), tmp);
+    
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        for (unsigned int d = 0; d < dim; ++d)
+          source_term_full_moving[q](u_lower + d) = tmp[q](u_lower + d);
+      
+        source_term_full_moving[q](p_lower) = tmp[q](p_lower);
+        source_term_full_moving[q](t_lower) = 0.0; // pas de source en T
+      }
+    }
+    else
+    {
+      AssertThrow(false, ExcMessage("source_terms has incompatible n_components with FE layout."));
+    }
 
     // Get jacobian, shape functions and set source terms
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -172,26 +216,47 @@ private:
     fe_face_values[velocity].get_function_values(
       current_solution, present_face_velocity_values[i_face]);
 
+    fe_face_values[velocity].get_function_gradients(
+      current_solution, present_face_velocity_gradients[i_face]);
+
+    fe_face_values[pressure].get_function_values(
+      current_solution, present_face_pressure_values[i_face]);
+
     // Exact solution with layout u-v-(w-)p and its gradient
-    exact_solution->vector_value_list(fe_face_values.get_quadrature_points(),
+    if (exact_solution)
+    {
+      exact_solution->vector_value_list(fe_face_values.get_quadrature_points(),
                                       exact_solution_full);
-    exact_solution->vector_gradient_list(fe_face_values.get_quadrature_points(),
-                                         grad_exact_solution_full);
+      exact_solution->vector_gradient_list(fe_face_values.get_quadrature_points(),
+                                           grad_exact_solution_full);
+    }
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
       face_JxW_moving[i_face][q]     = fe_face_values.JxW(q);
       face_normals_moving[i_face][q] = fe_face_values.normal_vector(q);
 
+      present_face_velocity_sym_gradients[i_face][q] =
+        symmetrize(present_face_velocity_gradients[i_face][q]);
+
+      present_face_velocity_divergence[i_face][q] =
+        trace(present_face_velocity_gradients[i_face][q]);
+
       for (int di = 0; di < dim; ++di)
         for (int dj = 0; dj < dim; ++dj)
           exact_face_velocity_gradients[i_face][q][di][dj] =
             grad_exact_solution_full[q][u_lower + di][dj];
+      exact_face_velocity_divergences[i_face][q] =
+        trace(exact_face_velocity_gradients[i_face][q]);
       exact_face_pressure_values[i_face][q] = exact_solution_full[q](p_lower);
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
         phi_u_face[i_face][q][k] = fe_face_values[velocity].value(k, q);
+        phi_p_face[i_face][q][k] = fe_face_values[pressure].value(k,q);
+        grad_phi_u_face[i_face][q][k] = fe_face_values[velocity].gradient(k, q);
+        sym_grad_phi_u_face[i_face][q][k] = symmetrize(grad_phi_u_face[i_face][q][k]);
+        div_phi_u_face[i_face][q][k] = fe_face_values[velocity].divergence(k, q);
       }
     }
   }
@@ -202,13 +267,28 @@ private:
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+    const std::shared_ptr<Function<dim>> & exact_solution)
   {
+    // Layout/FE checks
+    const unsigned int n_comp_fe = fe_values.get_fe().n_components();
+
+    AssertThrow(u_lower == 0, ExcMessage("Expected u_lower=0 for layout u-v-(w)-p-T."));
+    AssertThrow(p_lower == dim, ExcMessage("Expected p_lower=dim for layout u-v-(w)-p-T."));
+    if (enable_compressible)
+      AssertThrow(t_lower == dim + 1, ExcMessage("Expected t_lower=dim+1 for layout u-v-(w)-p-T."));
+
+    if (enable_compressible)
+      AssertThrow(n_comp_fe == dim + 2, ExcMessage("Compressible enabled but FE != dim+2 components."));
+    else
+      AssertThrow(n_comp_fe == dim + 1 || n_comp_fe == dim + 2,
+                  ExcMessage("Unexpected FE components count."));
+
+    // Present solutions
     fe_values[temperature].get_function_values(current_solution,
                                               present_temperature_values);
     fe_values[temperature].get_function_gradients(current_solution,
                                                  present_temperature_gradients);   
-    
+    fe_values[pressure].get_function_values(current_solution, present_pressure_values);
     fe_values[pressure].get_function_gradients(current_solution,
                                                 present_pressure_gradients);
     
@@ -219,11 +299,27 @@ private:
                                               previous_pressure_values[i]);  
       fe_values[temperature].get_function_values(previous_solutions[i],
                                                  previous_temperature_values[i]); 
-    } 
-                                                 
-    //Source terms with layout u-v-(w-)p-T
-    source_terms->vector_value_list(fe_values.get_quadrature_points(),
-                                    source_term_full_moving);
+    }                                       
+                
+    // Exact solution at cell quadrature points (layout u-v-(w-)p-T)
+    Assert(exact_solution != nullptr, ExcMessage("exact_solution is null"));
+    AssertThrow(exact_solution->n_components == fe_values.get_fe().n_components(),
+            ExcMessage("exact_solution n_components must match FE (u-v-(w)-p-T)."));
+    exact_solution->vector_value_list(fe_values.get_quadrature_points(),
+                                      exact_solution_full_cell);
+      
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      // velocity u_ex
+      for (unsigned int d = 0; d < dim; ++d)
+        exact_velocity_values_cell[q][d] = exact_solution_full_cell[q](u_lower + d);
+    
+      // pressure p_ex
+      exact_pressure_values_cell[q] = exact_solution_full_cell[q](p_lower);
+    
+      // temperature T_ex
+      exact_temperature_values_cell[q] = exact_solution_full_cell[q](t_lower);
+    }
                   
     // Get jacobian, shape functions and set source terms
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -242,7 +338,7 @@ private:
       a_p[q] = alpha_r / (alpha_r * p_star + 1.0);
       b_T[q] = beta_r / (beta_r * T_star + 1.0);
 
-      density[q] = (pressure_ref / (gas_constant * temperature_ref)) * ((alpha_r * p_star + 1.0) / (beta_r * T_star + 1));
+      density[q] = (pressure_ref / (gas_constant * temperature_ref)) * ((alpha_r * p_star + 1.0) / (beta_r * T_star + 1.));
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -263,16 +359,39 @@ private:
   {
     fe_face_values[temperature].get_function_values(
       current_solution, present_face_temperature_values[i_face]);
+    
+    fe_face_values[temperature].get_function_gradients(
+      current_solution, present_face_temperature_gradients[i_face]);
+    
+    if (exact_solution != nullptr)
+    {
+      exact_solution->vector_gradient_list(fe_face_values.get_quadrature_points(),
+                                           grad_exact_solution_full);
+    }
+
+    const auto &quad_points = fe_face_values.get_quadrature_points();
+
+    // Get the fluid bc on this face
+    AssertThrow(param.fluid_bc.count(face_boundary_id[i_face]) > 0, ExcMessage("Trying to get a boundary condition on a face that has no boundary condition defined."));
+    const auto &bc = param.fluid_bc.at(face_boundary_id[i_face]);
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
       const double T_star = present_face_temperature_values[i_face][q];
       const double T_tot = temperature_ref + T_star;
       present_face_temperature_absolute_values[i_face][q] = T_tot;
+      face_input_pressure_values[i_face][q] = bc.p->value(quad_points[q]);
+
+      if (exact_solution != nullptr)
+        exact_face_temperature_gradients[i_face][q] = 
+          grad_exact_solution_full[q][t_lower];
+      else
+        exact_face_temperature_gradients[i_face][q] = Tensor<1, dim>();
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
         phi_T_face[i_face][q][k] = fe_face_values[temperature].value(k,q);
+        grad_phi_T_face[i_face][q][k] = fe_face_values[temperature].gradient(k, q);
       }
     }
   }
@@ -715,6 +834,7 @@ public:
   }
 
 private:
+  const ParameterReader<dim>&param;
   const bool              use_quads;
   const ComponentOrdering ordering;
 
@@ -783,6 +903,11 @@ public:
 
   // Current values on faces (each face, each quad node)
   std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
+  std::vector<std::vector<Tensor<2, dim>>> present_face_velocity_gradients;
+  std::vector<std::vector<SymmetricTensor<2, dim>>> present_face_velocity_sym_gradients;
+  std::vector<std::vector<double>> present_face_velocity_divergence;
+
+  std::vector<std::vector<double>> present_face_pressure_values;
 
   // Shape functions in volume (each quad node and each dof)
   std::vector<std::vector<Tensor<1, dim>>>          phi_u;
@@ -793,16 +918,29 @@ public:
 
   // Shape functions on faces (each face, quad node and dof)
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
+  std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_u_face;
+  std::vector<std::vector<std::vector<SymmetricTensor<2, dim>>>> sym_grad_phi_u_face;
+  std::vector<std::vector<std::vector<double>>> div_phi_u_face;
+  std::vector<std::vector<std::vector<double>>> phi_p_face;
+
 
   // Source term in volume
   std::vector<Vector<double>> source_term_full_moving;
   std::vector<Tensor<1, dim>> source_term_velocity;
   std::vector<double>         source_term_pressure;
 
-  // Exact solution
+  // Exact solution (cell/volume quadrature points)
+  std::vector<Vector<double>> exact_solution_full_cell;  // size: n_q_points, each: n_components
+  std::vector<Tensor<1, dim>> exact_velocity_values_cell; // size: n_q_points
+  std::vector<double>         exact_pressure_values_cell; // size: n_q_points
+  std::vector<double>         exact_temperature_values_cell; // size: n_q_points
+
+
+  // Exact solution (faces)
   std::vector<Vector<double>>              exact_solution_full;
   std::vector<std::vector<Tensor<1, dim>>> grad_exact_solution_full;
   std::vector<std::vector<Tensor<2, dim>>> exact_face_velocity_gradients;
+  std::vector<std::vector<double>>         exact_face_velocity_divergences;
   std::vector<std::vector<double>>         exact_face_pressure_values;
 
   /**
@@ -817,6 +955,9 @@ public:
   double temperature_ref;
   double alpha_r;
   double beta_r;
+
+  std::vector<std::vector<double>> face_input_pressure_values;
+
 
   // Variable density, also used by CHNS models
   std::vector<double> density;
@@ -842,8 +983,10 @@ public:
 
   std::vector<std::vector<double>> present_face_temperature_values;
   std::vector<std::vector<double>> present_face_temperature_absolute_values;
+  std::vector<std::vector<Tensor<1, dim>>> exact_face_temperature_gradients;
   std::vector<std::vector<std::vector<double>>> phi_T_face;
-
+  std::vector<std::vector<std::vector<Tensor<1, dim>>>> grad_phi_T_face;
+  std::vector<std::vector<Tensor<1, dim>>> present_face_temperature_gradients;
   /**
    * Pseudo-solid and ALE
    */

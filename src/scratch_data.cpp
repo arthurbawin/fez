@@ -80,7 +80,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   const Quadrature<dim - 1>  &face_quadrature,
   const std::vector<double>  &bdf_coefficients,
   const ParameterReader<dim> &param)
-  : use_quads(param.finite_elements.use_quads)
+  : param(param)
+  , use_quads(param.finite_elements.use_quads)
   , ordering(ordering)
   , n_components(ordering.n_components)
   , enable_pseudo_solid(enable_pseudo_solid)
@@ -165,7 +166,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   const hp::QCollection<dim - 1>   &face_quadrature_collection,
   const std::vector<double>        &bdf_coefficients,
   const ParameterReader<dim>       &param)
-  : use_quads(param.finite_elements.use_quads)
+  : param(param)
+  , use_quads(param.finite_elements.use_quads)
   , ordering(ordering)
   , n_components(ordering.n_components)
   , enable_pseudo_solid(enable_pseudo_solid)
@@ -264,7 +266,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
 
 template <int dim, bool has_hp_capabilities>
 ScratchData<dim, has_hp_capabilities>::ScratchData(const ScratchData &other)
-  : use_quads(other.use_quads)
+  : param(other.param)
+  , use_quads(other.use_quads)
   , ordering(other.ordering)
   , n_components(other.n_components)
   , enable_pseudo_solid(other.enable_pseudo_solid)
@@ -503,6 +506,19 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
   present_face_velocity_values.resize(
     n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
 
+  present_face_velocity_gradients.resize(
+    n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
+
+  present_face_velocity_sym_gradients.resize(
+    n_faces, std::vector<SymmetricTensor<2, dim>>(n_faces_q_points));
+  
+  present_face_velocity_divergence.resize(
+    n_faces, std::vector<double>(n_faces_q_points));
+  
+  present_face_pressure_values.resize(
+    n_faces, std::vector<double>(n_faces_q_points));
+
+
   phi_u.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
   grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
   sym_grad_phi_u.resize(n_q_points,
@@ -514,16 +530,39 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
                     std::vector<std::vector<Tensor<1, dim>>>(
                       n_faces_q_points,
                       std::vector<Tensor<1, dim>>(dofs_per_cell)));
+          
+  phi_p_face.resize(n_faces,
+                      std::vector<std::vector<double>>(
+                        n_faces_q_points,
+                        std::vector<double>(dofs_per_cell)));
+  
+  grad_phi_u_face.resize(n_faces,
+                      std::vector<std::vector<Tensor<2, dim>>>(n_faces_q_points,
+                      std::vector<Tensor<2, dim>>(dofs_per_cell)));
+  sym_grad_phi_u_face.resize(n_faces,
+                      std::vector<std::vector<SymmetricTensor<2, dim>>>(n_faces_q_points,
+                      std::vector<SymmetricTensor<2, dim>>(dofs_per_cell)));
+
+  div_phi_u_face.resize(n_faces,
+                        std::vector<std::vector<double>>(n_faces_q_points,
+                        std::vector<double>(dofs_per_cell)));
 
   source_term_full_moving.resize(n_q_points, Vector<double>(n_components));
   source_term_velocity.resize(n_q_points);
   source_term_pressure.resize(n_q_points);
+
+  exact_solution_full_cell.resize(n_q_points, Vector<double>(n_components));
+  exact_velocity_values_cell.resize(n_q_points);
+  exact_pressure_values_cell.resize(n_q_points);
+  exact_temperature_values_cell.resize(n_q_points);
 
   exact_solution_full.resize(n_faces_q_points, Vector<double>(n_components));
   grad_exact_solution_full.resize(n_faces_q_points,
                                   std::vector<Tensor<1, dim>>(n_components));
   exact_face_velocity_gradients.resize(
     n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
+  exact_face_velocity_divergences.resize(
+    n_faces, std::vector<double>(n_faces_q_points));
   exact_face_pressure_values.resize(n_faces,
                                     std::vector<double>(n_faces_q_points));
 
@@ -636,14 +675,25 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     present_face_temperature_values.resize(
       n_faces, std::vector<double>(n_faces_q_points));
+    present_face_temperature_gradients.resize(
+      n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
     present_face_temperature_absolute_values.resize(
       n_faces, std::vector<double>(n_faces_q_points));
+    exact_face_temperature_gradients.resize(
+      n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+
+    face_input_pressure_values.resize(
+                                      n_faces, std::vector<double>(n_faces_q_points));
     
     phi_T_face.resize(n_faces,
                       std::vector<std::vector<double>>(
                         n_faces_q_points,
                         std::vector<double>(dofs_per_cell)));
-    
+
+    grad_phi_T_face.resize(n_faces,
+                    std::vector<std::vector<Tensor<1, dim>>>(n_faces_q_points,
+                    std::vector<Tensor<1, dim>>(dofs_per_cell)));
+
     density.resize(n_q_points);
 
     a_p.resize(n_q_points);

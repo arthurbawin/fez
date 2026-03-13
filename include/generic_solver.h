@@ -280,6 +280,10 @@ void GenericSolver<VectorType>::run_convergence_loop()
       // This change is accounted for in the reset() function of each
       // derived solver
       time_param.dt *= mms_param.time_step_reduction_factor;
+
+      if (time_param.adaptation.enable)
+        for (auto &[variable, error] : time_param.adaptation.target_error)
+          error /= 2.;
     }
 
     this->run();

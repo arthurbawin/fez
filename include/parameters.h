@@ -342,6 +342,9 @@ namespace Parameters
       double max_timestep_reduction;
 
       std::map<SolverInfo::VariableType, double> target_error;
+
+      // Required times : the simulation must absolutely go through these
+      std::vector<double> required_times;
     } adaptation;
 
     void declare_parameters(ParameterHandler &prm);

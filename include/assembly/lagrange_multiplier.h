@@ -27,13 +27,12 @@ namespace Assembly
    *
    */
   template <bool with_moving_mesh = false, int dim, typename ScratchData>
-  void weakly_enforced_no_slip_matrix(
-    const ComponentOrdering                &component_ordering,
-    const unsigned int                      i_face,
-    const BoundaryConditions::FluidBC<dim> &fluid_boundary_condition,
-    const ScratchData                      &scratch_data,
-    const TimeHandler                      &time_handler,
-    FullMatrix<double>                     &local_matrix);
+  void
+  weakly_enforced_no_slip_matrix(const ComponentOrdering &component_ordering,
+                                 const unsigned int       i_face,
+                                 const ScratchData       &scratch_data,
+                                 const TimeHandler       &time_handler,
+                                 FullMatrix<double>      &local_matrix);
 
 } // namespace Assembly
 
@@ -96,12 +95,11 @@ void Assembly::weakly_enforced_no_slip_rhs(
 
 template <bool with_moving_mesh, int dim, typename ScratchData>
 void Assembly::weakly_enforced_no_slip_matrix(
-  const ComponentOrdering                &component_ordering,
-  const unsigned int                      i_face,
-  const BoundaryConditions::FluidBC<dim> &fluid_boundary_condition,
-  const ScratchData                      &scratch_data,
-  const TimeHandler                      &time_handler,
-  FullMatrix<double>                     &local_matrix)
+  const ComponentOrdering &component_ordering,
+  const unsigned int       i_face,
+  const ScratchData       &scratch_data,
+  const TimeHandler       &time_handler,
+  FullMatrix<double>      &local_matrix)
 {
   const unsigned int u_lower = component_ordering.u_lower;
   const unsigned int u_upper = component_ordering.u_upper;

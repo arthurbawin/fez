@@ -68,7 +68,7 @@ public:
   {}
 
 public:
-  void check_parameters(ParameterHandler &prm) const;
+  void check_parameters() const;
 
   void declare(ParameterHandler &prm)
   {
@@ -154,7 +154,7 @@ public:
     mms.read_parameters(prm);
     debug.read_parameters(prm);
 
-    check_parameters(prm);
+    check_parameters();
   }
 };
 

@@ -785,6 +785,10 @@ namespace Parameters
           "1e-1",
           Patterns::Double(),
           "Minimum ratio allowed between decreasing time steps");
+        prm.declare_entry("required times",
+                          "",
+                          Patterns::List(Patterns::Double()),
+                          "Times that the time integrator must hit exactly");
 
         for (unsigned int i = 0; i < SolverInfo::n_variables; ++i)
         {
@@ -839,6 +843,22 @@ namespace Parameters
           prm.get_double("max timestep increase");
         adaptation.max_timestep_reduction =
           prm.get_double("max timestep reduction");
+        adaptation.required_times = Utilities::string_to_double(
+          Utilities::split_string_list(prm.get("required times"), ","));
+
+        for (const auto time : adaptation.required_times)
+        {
+          AssertThrow(
+            time > t_initial,
+            ExcMessage(
+              "The required times should be greater than the starting time"));
+          AssertThrow(
+            time < t_end,
+            ExcMessage(
+              "The required times should be greater than the final time"));
+        }
+        std::sort(adaptation.required_times.begin(),
+                  adaptation.required_times.end());
 
         for (unsigned int i = 0; i < SolverInfo::n_variables; ++i)
           adaptation.target_error[SolverInfo::variable_types[i]] =

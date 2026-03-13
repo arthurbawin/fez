@@ -157,6 +157,16 @@ public:
       // Add time Lp norm to error table
       error_table.add_value(key, error);
     }
+
+    // When using an adaptive time step, add the total number of time steps,
+    // used to compute the convergence rates.
+    if (time_param.adaptation.enable)
+    {
+      const unsigned int n_steps = unsteady_errors.begin()->second.size();
+      for (const auto &[field, errors] : unsteady_errors)
+        AssertDimension(errors.size(), n_steps);
+      error_table.add_value("n_steps", n_steps);
+    }
   }
 
   /**
@@ -178,23 +188,27 @@ public:
         error_table.evaluate_convergence_rates(
           key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
       if (mms_param.type == Parameters::MMS::Type::time)
-        error_table.evaluate_convergence_rates(
-          key, "dt", ConvergenceTable::reduction_rate_log2, 1);
+      {
+        if (time_param.adaptation.enable)
+        {
+          // When using an adaptive time step, compute convergence rates based
+          // on the total number of time steps
+          error_table.evaluate_convergence_rates(
+            key, "n_steps", ConvergenceTable::reduction_rate_log2, 1);
+        }
+        else
+        {
+          // Without adaptivity, compute rates based on the constant time step
+          error_table.evaluate_convergence_rates(
+            key, "dt", ConvergenceTable::reduction_rate_log2, 1);
+        }
+      }
       error_table.set_precision(key, 4);
       error_table.set_scientific(key, true);
     }
   }
 
-  void write_rates()
-  {
-    // for(const auto &[field, errors]: unsteady_errors)
-    // {
-    //   std::cout << "Errors for " << field << std::endl;
-    //   for(const auto &[t,e] : errors)
-    //     std::cout << t << " : " << e << std::endl;
-    // }
-    error_table.write_text(std::cout);
-  }
+  void write_rates() { error_table.write_text(std::cout); }
 
 public:
   const Parameters::MMS             &mms_param;

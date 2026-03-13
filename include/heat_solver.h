@@ -17,6 +17,7 @@
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
+#include <post_processing_handler.h>
 #include <scratch_data_heat.h>
 #include <time_handler.h>
 #include <types.h>
@@ -41,6 +42,10 @@ public:
   virtual void run() override;
 
   void reset();
+
+  void initialize();
+
+  void finalize();
 
   void set_time();
 
@@ -100,6 +105,17 @@ public:
 
   void compute_recovery();
 
+private:
+  /**
+   * Get the complete description (names and numbers of components) of the
+   * variables handled by this solver.
+   */
+  std::vector<std::pair<std::string, unsigned int>>
+  get_variables_description() const
+  {
+    return {{"temperature", 1}};
+  }
+
 protected:
   std::shared_ptr<ComponentOrdering> ordering;
 
@@ -118,6 +134,8 @@ protected:
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler;
 
+  std::vector<unsigned char> dofs_to_component;
+
   FEValuesExtractors::Scalar temperature_extractor;
   ComponentMask              temperature_mask;
 
@@ -135,6 +153,8 @@ protected:
 
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
+
+  std::shared_ptr<PostProcessingHandler<dim>> postproc_handler;
 
 protected:
   /**

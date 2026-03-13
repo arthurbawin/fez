@@ -13,6 +13,7 @@
 #include <heat_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <post_processing_handler.h>
 #include <post_processing_tools.h>
 #include <solver_info.h>
 #include <utilities.h>
@@ -26,6 +27,7 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
                                      param.time_integration,
                                      param.mms_param,
                                      SolverInfo::SolverType::main_physics)
+  , ordering(std::make_shared<ComponentOrderingHeat>())
   , param(param)
   , fe(FE_SimplexP<dim>(param.finite_elements.temperature_degree), 1)
   , quadrature(QGaussSimplex<dim>(4))
@@ -58,7 +60,7 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   }
   else
   {
-    source_terms   = param.source_terms.fluid_source;
+    source_terms   = param.source_terms.temperature_source;
     exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(1);
   }
 
@@ -82,7 +84,11 @@ void HeatSolver<dim>::reset()
   param.mms_param.current_step = mms_param.current_step;
   param.mms_param.mesh_suffix  = mms_param.mesh_suffix;
   param.mesh.filename          = mesh_param.filename;
-  param.time_integration.dt    = time_param.dt;
+  param.time_integration       = time_param;
+
+  // Clear list of files in pvd
+  if (postproc_handler)
+    postproc_handler->clear();
 
   // Mesh
   triangulation.clear();
@@ -107,9 +113,24 @@ void HeatSolver<dim>::set_time()
 }
 
 template <int dim>
+void HeatSolver<dim>::initialize()
+{
+  // Create the post-processing handler.
+  // This requires the description of the variable from the derived solvers,
+  // so I don't think this can be done in the constructor of the base class.
+  if (!postproc_handler)
+  {
+    const auto description = get_variables_description();
+    postproc_handler       = std::make_shared<PostProcessingHandler<dim>>(
+      param, triangulation, dof_handler, description);
+  }
+}
+
+template <int dim>
 void HeatSolver<dim>::run()
 {
   reset();
+  initialize();
   read_mesh(triangulation, param);
   setup_dofs();
   create_zero_constraints();
@@ -146,16 +167,19 @@ void HeatSolver<dim>::run()
         solve_nonlinear_problem(false);
     }
 
-    postprocess_solution();
+    /////////
+    time_handler.set_next_timestep(*ordering,
+                                   present_solution,
+                                   previous_solutions,
+                                   locally_relevant_dofs,
+                                   dofs_to_component);
+    /////////
 
-    if (!time_handler.is_steady())
-    {
-      // Rotate solutions
-      for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-        previous_solutions[j] = previous_solutions[j - 1];
-      previous_solutions[0] = present_solution;
-    }
+    postprocess_solution();
+    time_handler.rotate_solutions(present_solution, previous_solutions);
   }
+
+  finalize();
 }
 
 template <int dim>
@@ -173,6 +197,9 @@ void HeatSolver<dim>::setup_dofs()
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
+
+  // Setup the dofs_to_component vector
+  fill_dofs_to_component(dof_handler, locally_relevant_dofs, dofs_to_component);
 
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
@@ -290,13 +317,7 @@ void HeatSolver<dim>::set_initial_conditions()
   present_solution = newton_update;
   evaluation_point = newton_update;
 
-  if (!time_handler.is_steady())
-  {
-    // Rotate solutions
-    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-      previous_solutions[j] = previous_solutions[j - 1];
-    previous_solutions[0] = present_solution;
-  }
+  time_handler.rotate_solutions(present_solution, previous_solutions);
 }
 
 template <int dim>
@@ -562,56 +583,7 @@ template <int dim>
 void HeatSolver<dim>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
-
-  if (param.output.write_results)
-  {
-    std::vector<std::string> solution_names(1, "temperature");
-
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        1, DataComponentInterpretation::component_is_scalar);
-
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(dof_handler);
-    data_out.add_data_vector(present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-    //
-    // Partition
-    //
-    Vector<float> subdomain(triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain,
-                             "subdomain",
-                             DataOut<dim>::type_cell_data);
-
-    data_out.build_patches(*mapping, 2);
-
-    // Export regular time step
-    data_out.write_vtu_with_pvtu_record(param.output.output_dir,
-                                        param.output.output_prefix,
-                                        time_handler.current_time_iteration,
-                                        mpi_communicator,
-                                        2);
-
-    // Output results on prescribed boundary
-    PostProcessingTools::DataOutFacesOnBoundary<dim> data_out_boundary(
-      triangulation, 0);
-    data_out_boundary.attach_dof_handler(dof_handler);
-    data_out_boundary.add_data_vector(present_solution,
-                                      solution_names,
-                                      DataOutFaces<dim>::type_dof_data,
-                                      data_component_interpretation);
-    data_out_boundary.build_patches(*mapping, 2);
-    data_out_boundary.write_vtu_with_pvtu_record(
-      param.output.output_dir,
-      param.output.output_prefix + "_bdr",
-      time_handler.current_time_iteration,
-      mpi_communicator,
-      2);
-  }
+  postproc_handler->output_fields(*mapping, present_solution, time_handler);
 }
 
 template <int dim>
@@ -690,6 +662,12 @@ void HeatSolver<dim>::postprocess_solution()
     compute_errors();
 
   // compute_recovery();
+}
+
+template <int dim>
+void HeatSolver<dim>::finalize()
+{
+  postproc_handler->write_pvd();
 }
 
 // Explicit instantiation

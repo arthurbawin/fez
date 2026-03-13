@@ -3,6 +3,7 @@
 
 #include <deal.II/base/exceptions.h>
 
+#include <array>
 #include <string>
 #include <string_view>
 

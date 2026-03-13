@@ -21,18 +21,18 @@ public:
   {}
 
   /**
-   * Create an entry in the error table, that is, an L^p norm in space and/or in
-   * time for a given field. For instance, error_handler.create_entry("L2_u").
+   * Create an entry in the error table to store an error norm in space and/or
+   * in time for a given field.
    */
-  void create_entry(const std::string &error_name)
+  void create_entry(const std::string &field_name)
   {
-    ordered_keys.push_back(error_name);
-    domain_errors.insert({error_name, std::make_unique<double>()});
+    ordered_field_keys.push_back(field_name);
+    domain_errors.insert({field_name, std::make_unique<double>()});
 
     // TODO: Reserve vectors with an estimate on the number of time steps?
     // This is easy if only constant time steps are expected for convergence
     // studies, because then the number of time steps is known.
-    unsteady_errors[error_name].clear();
+    unsteady_errors[field_name].clear();
   }
 
   /**
@@ -60,7 +60,7 @@ public:
    *
    * If it is unsteady, this stores the spatial error at time t. The prescribed
    * L^p norm in time is computed at the end of the simulation.
-   * The error at all times are kept, e.g. to be plotted in postprocessing.
+   * The error at all times are kept, e.g., to be plotted in postprocessing.
    */
   void add_error(const std::string &field_name,
                  const double       error_val,
@@ -125,7 +125,7 @@ public:
   // Compute the temporal or spacetime error if needed
   void compute_temporal_error()
   {
-    for (const auto &key : ordered_keys)
+    for (const auto &key : ordered_field_keys)
     {
       auto &error_vec = unsteady_errors.at(key);
 
@@ -181,7 +181,7 @@ public:
   template <int dim>
   void compute_rates()
   {
-    for (const auto &key : ordered_keys)
+    for (const auto &key : ordered_field_keys)
     {
       if (mms_param.type == Parameters::MMS::Type::space ||
           mms_param.type == Parameters::MMS::Type::spacetime)
@@ -222,7 +222,7 @@ public:
   ConvergenceTable error_table;
 
   // Use vector of keys to maintain prescribed errors order
-  std::vector<std::string>                       ordered_keys;
+  std::vector<std::string>                       ordered_field_keys;
   std::map<std::string, std::unique_ptr<double>> domain_errors;
 };
 

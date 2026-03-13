@@ -1,0 +1,267 @@
+Number of MPI processes: 1
+Convergence test with manufactured solution:
+Mesh file was changed to 1.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 32
+ boundary indicators: 0(4 faces) 1(4 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 25
+
+Time step 1 - Advancing to t = 0.1 with time step 0.1.
+
+Time step 2 - Advancing to t = 0.2 with time step 0.1.
+Max error for variable temperature is 0.00757576
+
+Time step 3 - Advancing to t = 0.314891 with time step 0.114891.
+Max error for variable temperature is 0.00760519
+
+Time step 4 - Advancing to t = 0.446636 with time step 0.131744.
+Max error for variable temperature is 0.00760385
+
+Time step 5 - Advancing to t = 0.597718 with time step 0.151083.
+Max error for variable temperature is 0.00753397
+
+Time step 6 - Advancing to t = 0.77178 with time step 0.174062.
+Max error for variable temperature is 0.00745946
+
+Time step 7 - Advancing to t = 0.973315 with time step 0.201534.
+Max error for variable temperature is 0.00733858
+
+Time step 8 - Advancing to t = 1.20857 with time step 0.235257.
+Max error for variable temperature is 0.00723484
+
+Time step 9 - Advancing to t = 1.48516 with time step 0.276585.
+Max error for variable temperature is 0.00712361
+
+Time step 10 - Advancing to t = 1.81286 with time step 0.327702.
+Max error for variable temperature is 0.00701056
+
+Time step 11 - Advancing to t = 2 with time step 0.187141.
+Max error for variable temperature is 0.00166999
+Mesh info:
+ dimension: 2
+ no. of cells: 32
+ boundary indicators: 0(4 faces) 1(4 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 25
+
+Time step 1 - Advancing to t = 0.05 with time step 0.05.
+
+Time step 2 - Advancing to t = 0.1 with time step 0.05.
+Max error for variable temperature is 0.0021645
+
+Time step 3 - Advancing to t = 0.175993 with time step 0.0759934.
+Max error for variable temperature is 0.00425973
+
+Time step 4 - Advancing to t = 0.258326 with time step 0.0823323.
+Max error for variable temperature is 0.00416437
+
+Time step 5 - Advancing to t = 0.348541 with time step 0.0902153.
+Max error for variable temperature is 0.00407848
+
+Time step 6 - Advancing to t = 0.44843 with time step 0.0998886.
+Max error for variable temperature is 0.00405955
+
+Time step 7 - Advancing to t = 0.559286 with time step 0.110857.
+Max error for variable temperature is 0.00404641
+
+Time step 8 - Advancing to t = 0.682515 with time step 0.123229.
+Max error for variable temperature is 0.00401905
+
+Time step 9 - Advancing to t = 0.819962 with time step 0.137447.
+Max error for variable temperature is 0.00398384
+
+Time step 10 - Advancing to t = 0.973944 with time step 0.153982.
+Max error for variable temperature is 0.00395053
+
+Time step 11 - Advancing to t = 1.14718 with time step 0.173232.
+Max error for variable temperature is 0.00391664
+
+Time step 12 - Advancing to t = 1.3429 with time step 0.195729.
+Max error for variable temperature is 0.00388243
+
+Time step 13 - Advancing to t = 1.56503 with time step 0.222121.
+Max error for variable temperature is 0.0038463
+
+Time step 14 - Advancing to t = 1.81828 with time step 0.253251.
+Max error for variable temperature is 0.00380808
+
+Time step 15 - Advancing to t = 2 with time step 0.181723.
+Max error for variable temperature is 0.00152273
+Mesh info:
+ dimension: 2
+ no. of cells: 32
+ boundary indicators: 0(4 faces) 1(4 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 25
+
+Time step 1 - Advancing to t = 0.025 with time step 0.025.
+
+Time step 2 - Advancing to t = 0.05 with time step 0.025.
+Max error for variable temperature is 0.00058072
+
+Time step 3 - Advancing to t = 0.101871 with time step 0.0518712.
+Max error for variable temperature is 0.00245119
+
+Time step 4 - Advancing to t = 0.154256 with time step 0.0523851.
+Max error for variable temperature is 0.00205491
+
+Time step 5 - Advancing to t = 0.212037 with time step 0.0577805.
+Max error for variable temperature is 0.00216578
+
+Time step 6 - Advancing to t = 0.274116 with time step 0.062079.
+Max error for variable temperature is 0.00216203
+
+Time step 7 - Advancing to t = 0.340871 with time step 0.066755.
+Max error for variable temperature is 0.00215206
+
+Time step 8 - Advancing to t = 0.41282 with time step 0.0719492.
+Max error for variable temperature is 0.00214471
+
+Time step 9 - Advancing to t = 0.4905 with time step 0.0776804.
+Max error for variable temperature is 0.00214149
+
+Time step 10 - Advancing to t = 0.574431 with time step 0.0839311.
+Max error for variable temperature is 0.00213313
+
+Time step 11 - Advancing to t = 0.665294 with time step 0.0908624.
+Max error for variable temperature is 0.00212312
+
+Time step 12 - Advancing to t = 0.763892 with time step 0.0985979.
+Max error for variable temperature is 0.00211323
+
+Time step 13 - Advancing to t = 0.871133 with time step 0.107242.
+Max error for variable temperature is 0.00210345
+
+Time step 14 - Advancing to t = 0.988048 with time step 0.116914.
+Max error for variable temperature is 0.00209372
+
+Time step 15 - Advancing to t = 1.1158 with time step 0.127755.
+Max error for variable temperature is 0.00208371
+
+Time step 16 - Advancing to t = 1.25574 with time step 0.139936.
+Max error for variable temperature is 0.00207332
+
+Time step 17 - Advancing to t = 1.4094 with time step 0.153662.
+Max error for variable temperature is 0.00206241
+
+Time step 18 - Advancing to t = 1.57858 with time step 0.16918.
+Max error for variable temperature is 0.00205096
+
+Time step 19 - Advancing to t = 1.76537 with time step 0.186784.
+Max error for variable temperature is 0.00203893
+
+Time step 20 - Advancing to t = 1.97219 with time step 0.206828.
+Max error for variable temperature is 0.00202628
+
+Time step 21 - Advancing to t = 2 with time step 0.027806.
+Max error for variable temperature is 3.13565e-05
+Mesh info:
+ dimension: 2
+ no. of cells: 32
+ boundary indicators: 0(4 faces) 1(4 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 25
+
+Time step 1 - Advancing to t = 0.0125 with time step 0.0125.
+
+Time step 2 - Advancing to t = 0.025 with time step 0.0125.
+Max error for variable temperature is 0.000150557
+
+Time step 3 - Advancing to t = 0.0610176 with time step 0.0360176.
+Max error for variable temperature is 0.00147812
+
+Time step 4 - Advancing to t = 0.0941394 with time step 0.0331219.
+Max error for variable temperature is 0.000921957
+
+Time step 5 - Advancing to t = 0.132706 with time step 0.0385669.
+Max error for variable temperature is 0.00113114
+
+Time step 6 - Advancing to t = 0.173249 with time step 0.0405426.
+Max error for variable temperature is 0.00113043
+
+Time step 7 - Advancing to t = 0.215882 with time step 0.0426329.
+Max error for variable temperature is 0.00112484
+
+Time step 8 - Advancing to t = 0.260824 with time step 0.0449422.
+Max error for variable temperature is 0.00112298
+
+Time step 9 - Advancing to t = 0.30824 with time step 0.0474158.
+Max error for variable temperature is 0.00112102
+
+Time step 10 - Advancing to t = 0.358309 with time step 0.0500693.
+Max error for variable temperature is 0.00111893
+
+Time step 11 - Advancing to t = 0.41123 with time step 0.0529207.
+Max error for variable temperature is 0.00111774
+
+Time step 12 - Advancing to t = 0.467194 with time step 0.0559642.
+Max error for variable temperature is 0.00111625
+
+Time step 13 - Advancing to t = 0.526416 with time step 0.0592224.
+Max error for variable temperature is 0.00111326
+
+Time step 14 - Advancing to t = 0.589171 with time step 0.0627542.
+Max error for variable temperature is 0.00111067
+
+Time step 15 - Advancing to t = 0.655745 with time step 0.0665741.
+Max error for variable temperature is 0.0011078
+
+Time step 16 - Advancing to t = 0.726462 with time step 0.0707178.
+Max error for variable temperature is 0.00110518
+
+Time step 17 - Advancing to t = 0.801671 with time step 0.0752087.
+Max error for variable temperature is 0.00110245
+
+Time step 18 - Advancing to t = 0.881755 with time step 0.0800835.
+Max error for variable temperature is 0.00109975
+
+Time step 19 - Advancing to t = 0.967134 with time step 0.0853791.
+Max error for variable temperature is 0.00109694
+
+Time step 20 - Advancing to t = 1.05828 with time step 0.0911414.
+Max error for variable temperature is 0.00109405
+
+Time step 21 - Advancing to t = 1.1557 with time step 0.097421.
+Max error for variable temperature is 0.00109104
+
+Time step 22 - Advancing to t = 1.25997 with time step 0.104277.
+Max error for variable temperature is 0.00108793
+
+Time step 23 - Advancing to t = 1.37175 with time step 0.111774.
+Max error for variable temperature is 0.00108469
+
+Time step 24 - Advancing to t = 1.49174 with time step 0.11999.
+Max error for variable temperature is 0.00108132
+
+Time step 25 - Advancing to t = 1.62075 with time step 0.12901.
+Max error for variable temperature is 0.00107783
+
+Time step 26 - Advancing to t = 1.75968 with time step 0.138932.
+Max error for variable temperature is 0.00107419
+
+Time step 27 - Advancing to t = 1.90955 with time step 0.149871.
+Max error for variable temperature is 0.00107041
+
+Time step 28 - Advancing to t = 2 with time step 0.0904505.
+Max error for variable temperature is 0.000339638
+
+L2_norm
+n_elm n_dof   dt          T        n_steps 
+   32    25 0.1000 2.1634e-03    -      11 
+   32    25 0.0500 1.5486e-03 1.08      15 
+   32    25 0.0250 1.1735e-03 0.82      21 
+   32    25 0.0125 8.7734e-04 1.01      28

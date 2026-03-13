@@ -95,6 +95,7 @@ public:
   virtual void reset_solver_specific_data() override;
 
   virtual void setup_dofs() override;
+  virtual void set_active_fe_indices() override;
 
   /**
    * Create the constraints specific to this solver:

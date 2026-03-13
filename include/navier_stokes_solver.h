@@ -94,6 +94,11 @@ public:
   virtual void setup_dofs();
 
   /**
+   *
+   */
+  virtual void set_active_fe_indices(){};
+
+  /**
    * Reinitialize the ghosted parallel vectors.
    * This should be called whenever additional ghost dofs are explicitly added
    * to the vector of locally relevant dofs.
@@ -259,6 +264,28 @@ public:
    * checkpoint().
    */
   void restart();
+
+  /**
+   *
+   */
+  template <class Archive>
+  void save(Archive &ar, const unsigned int version) const;
+
+  /**
+   *
+   */
+  template <class Archive>
+  void load(Archive &ar, const unsigned int version);
+
+  /**
+   *
+   */
+  // template <class Archive>
+  // void serialize(Archive &ar, const unsigned int version);
+
+  // Tell Boost to use the split functions save/load rather than serialize for
+  // both saving and loading.
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
 
 private:
   /**

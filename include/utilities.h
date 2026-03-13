@@ -428,5 +428,34 @@ inline void constrain_matrix_row(
     matrix.set(dof_index, coupled_entry, -coeff);
 }
 
+/**
+ * Compute the divided difference of order 2 associated to the arrays
+ * @p times and @p values.
+ */
+inline double divided_difference_order_2(const std::array<double, 3> &times,
+                                         const std::array<double, 3> &values)
+{
+  const double d01 = (values[1] - values[0]) / (times[1] - times[0]);
+  const double d12 = (values[2] - values[1]) / (times[2] - times[1]);
+
+  return (d12 - d01) / (times[2] - times[0]);
+}
+
+/**
+ * Compute the divided difference of order 3 associated to the arrays
+ * @p times and @p values.
+ */
+inline double divided_difference_order_3(const std::array<double, 4> &times,
+                                         const std::array<double, 4> &values)
+{
+  const double d01 = (values[1] - values[0]) / (times[1] - times[0]);
+  const double d12 = (values[2] - values[1]) / (times[2] - times[1]);
+  const double d23 = (values[3] - values[2]) / (times[3] - times[2]);
+
+  const double d012 = (d12 - d01) / (times[2] - times[0]);
+  const double d123 = (d23 - d12) / (times[3] - times[1]);
+
+  return (d123 - d012) / (times[3] - times[0]);
+}
 
 #endif

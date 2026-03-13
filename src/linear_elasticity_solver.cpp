@@ -15,6 +15,7 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <post_processing_tools.h>
+#include <solver_info.h>
 #include <utilities.h>
 
 template <int dim>
@@ -26,7 +27,7 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
                                      param.mesh,
                                      param.time_integration,
                                      param.mms_param,
-                                     SolverType::linear_elasticity)
+                                     SolverInfo::SolverType::linear_elasticity)
   , param(param)
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)

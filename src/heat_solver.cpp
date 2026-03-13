@@ -14,6 +14,7 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <post_processing_tools.h>
+#include <solver_info.h>
 #include <utilities.h>
 
 template <int dim>
@@ -24,7 +25,7 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
                                      param.mesh,
                                      param.time_integration,
                                      param.mms_param,
-                                     SolverType::main_physics)
+                                     SolverInfo::SolverType::main_physics)
   , param(param)
   , fe(FE_SimplexP<dim>(param.finite_elements.temperature_degree), 1)
   , quadrature(QGaussSimplex<dim>(4))

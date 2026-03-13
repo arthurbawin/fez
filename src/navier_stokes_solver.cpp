@@ -10,6 +10,7 @@
 #include <mesh.h>
 #include <navier_stokes_solver.h>
 #include <post_processing_handler.h>
+#include <solver_info.h>
 #include <utilities.h>
 
 template <int dim, bool with_moving_mesh>
@@ -21,7 +22,7 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                                      param.mesh,
                                      param.time_integration,
                                      param.mms_param,
-                                     SolverType::main_physics)
+                                     SolverInfo::SolverType::main_physics)
   , param(param)
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)

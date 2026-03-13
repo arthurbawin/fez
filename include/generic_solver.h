@@ -14,6 +14,7 @@
 #include <newton_solver.h>
 #include <nonlinear_solver.h>
 #include <parameter_reader.h>
+#include <solver_info.h>
 #include <types.h>
 
 using namespace dealii;
@@ -38,7 +39,7 @@ public:
                 const Parameters::Mesh            &mesh_param,
                 const Parameters::TimeIntegration &time_param,
                 const Parameters::MMS             &mms_param,
-                const SolverType                   solver_type);
+                const SolverInfo::SolverType       solver_type);
 
   /**
    * Destructor.
@@ -148,7 +149,7 @@ public:
   TimerOutput        computing_timer;
 
 protected:
-  SolverType solver_type;
+  SolverInfo::SolverType solver_type;
 
   // If parallel vector type, these are vectors with ghost entries (read only)
   VectorType present_solution;
@@ -186,7 +187,7 @@ GenericSolver<VectorType>::GenericSolver(
   const Parameters::Mesh            &mesh_param,
   const Parameters::TimeIntegration &time_param,
   const Parameters::MMS             &mms_param,
-  const SolverType                   solver_type)
+  const SolverInfo::SolverType       solver_type)
   : mpi_communicator(MPI_COMM_WORLD)
   , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
   , mpi_size(Utilities::MPI::n_mpi_processes(mpi_communicator))

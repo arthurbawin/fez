@@ -2,6 +2,7 @@
 #define COMPONENT_ORDERING_H
 
 #include <deal.II/base/types.h>
+#include <solver_info.h>
 
 /**
  * A ComponentOrdering describes the lower and upper component indices for a
@@ -70,6 +71,27 @@ public:
   inline bool is_temperature(const unsigned int component) const
   {
     return t_lower == component;
+  }
+
+  inline SolverInfo::VariableType
+  component_to_variable_type(const unsigned int component)
+  {
+    if (is_velocity(component))
+      return SolverInfo::VariableType::velocity;
+    else if (is_pressure(component))
+      return SolverInfo::VariableType::pressure;
+    else if (is_position(component))
+      return SolverInfo::VariableType::mesh_position;
+    else if (is_lambda(component))
+      return SolverInfo::VariableType::lagrange_mult;
+    else if (is_tracer(component))
+      return SolverInfo::VariableType::phase_tracer;
+    else if (is_potential(component))
+      return SolverInfo::VariableType::phase_potential;
+    else if (is_temperature(component))
+      return SolverInfo::VariableType::temperature;
+    else
+      DEAL_II_ASSERT_UNREACHABLE();
   }
 };
 

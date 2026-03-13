@@ -1,9 +1,11 @@
 #ifndef TIME_HANDLER_H
 #define TIME_HANDLER_H
 
+#include <components_ordering.h>
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/types.h>
 #include <parameters.h>
+#include <solver_info.h>
 
 using namespace dealii;
 
@@ -118,6 +120,15 @@ public:
   void update_parameters_after_restart(
     const Parameters::TimeIntegration &new_parameters);
 
+private:
+  /**
+   *
+   */
+  template <typename VectorType>
+  void
+  compute_error_estimator(const VectorType              &present_solution,
+                          const std::vector<VectorType> &previous_solutions);
+
 public:
   Parameters::TimeIntegration time_parameters;
 
@@ -204,4 +215,61 @@ void TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
   ar &bdf_coefficients;
 }
 
+template <typename VectorType>
+void TimeHandler::compute_error_estimator(
+  const VectorType                 &present_solution,
+  const std::vector<VectorType>    &previous_solutions,
+  const IndexSet                   &locally_relevant_dofs,
+  const std::vector<unsigned char> &dofs_to_component)
+{
+  Assert(dofs_to_component.size() > 0,
+         ExcMessage("dofs_to_component should be filled"));
+
+  std::map<SolverInfo::VariableType, double> max_error;
+  for (const auto var : SolverInfo::variable_types)
+    max_error[var] = 0.;
+
+  // const unsigned int local_size = present_solution.locally_owned_size();
+
+  if (scheme == Parameters::TimeIntegration::Scheme::BDF1)
+  {
+    constexpr unsigned int n_sol = 3;
+    AssertDimension(previous_times.size(), n_sol);
+
+    const unsigned int p    = 1;
+    const double       tnp1 = previous_times[0];
+    const double       tn   = previous_times[1];
+    const double       h    = tnp1 - tn;
+    const double       H1   = h;
+
+    std::array<double, n_sol> times, values;
+    for (unsigned int i = 0; i < n_sol; ++i)
+      times[i] = previous_times[i];
+
+    for (const auto &dof : locally_relevant_dofs)
+    {
+      values[0] = present_solution[dof];
+      for (unsigned int i = 0; i < n_sol - 1; ++i)
+        values[i + 1] = previous_solutions[i][dof];
+
+      // FIXME: error proportional to h^3 ???
+      const double error = h * bdf_coefficients[1] * h * h *
+                           divided_difference_order_2(times, values);
+
+      // Get dof component, then variable type of this component
+      const auto comp =
+        dofs_to_component[locally_relevant_dofs.index_within_set(dof)];
+      const auto type    = ComponentOrdering::component_to_variable_type(comp);
+      max_error.at(type) = std::max(max_error.at(type), error);
+    }
+
+    // Synchronize the max errors across ranks
+    // TODO
+  }
+  else if (scheme == Parameters::TimeIntegration::Scheme::BDF2) {}
+  else
+  {
+    DEAL_II_NOT_IMPLEMENTED();
+  }
+}
 #endif

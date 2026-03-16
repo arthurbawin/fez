@@ -77,14 +77,55 @@ public:
                    std::vector<LA::ParVectorType> &previous_solutions) const;
 
   /**
-   * Determine and apply the next time step.
+   * Attach solver data to the error estimator.
+   * If adaptive time stepping is enabled, this function must be called before
+   * the first call to is_timestep_accepted(), which relies on the error
+   * estimates to accept or reject a step.
    */
-  void
-  set_next_timestep(const ComponentOrdering              &ordering,
-                    const LA::ParVectorType              &present_solution,
-                    const std::vector<LA::ParVectorType> &previous_solutions,
-                    const IndexSet                       &locally_relevant_dofs,
-                    const std::vector<unsigned char>     &dofs_to_component);
+  void attach_data_to_error_estimator(
+    const ComponentOrdering          &ordering,
+    const IndexSet                   &locally_relevant_dofs,
+    const std::vector<unsigned char> &dofs_to_component);
+
+  /**
+   * Return the vector of the last computed error estimator at each dof.
+   *
+   * The goal of this function is to provide the error estimator in a format
+   * compatible with the L^p error norm routines, e.g., to compute the
+   * discrepancy between the error estimator and the true error. Consequently,
+   * this function is only available if compute_error_on_estimator is enabled in
+   * the parameter file.
+   */
+  const LA::ParVectorType &get_error_estimator_as_solution() const;
+
+  /**
+   * Checks if the solution obtained at this step after the nonlinear solve is
+   * acceptable or not.
+   *
+   * If adaptive time stepping is disabled or if the simulation is steady-state,
+   * this function always returns true.
+   *
+   * If adaptive time stepping is enabled, this compares the estimated
+   * truncation error to the specified target error for each variable. If the
+   * estimated error is too high, the step is rejected and we try again with a
+   * smaller time step. The passed @p present_solution is set to first vector in
+   * @p previous_solutions, and the current time, time step and step counter are
+   * rolled back to their previous values. If the estimated error is low enough,
+   * the step is accepted and the next time step is set based on the most
+   * critical truncation error estimate.
+   *
+   * Since truncation error is not computed during the starting steps, these
+   * steps are always accepted and the time step is not modified.
+   *
+   * If the time step is rejected too many times in a row, the simulation stops.
+   *
+   * FIXME: Maybe set the maximum number of rejections as a user parameter.
+   * FIXME: Also allow reducing the time step if the Newton method did not
+   * converge.
+   */
+  bool is_timestep_accepted(
+    LA::ParVectorType                    &present_solution,
+    const std::vector<LA::ParVectorType> &previous_solutions);
 
   /**
    * Compute the approximation of the time derivative of the field associated to
@@ -141,6 +182,12 @@ public:
   void update_parameters_after_restart(
     const Parameters::TimeIntegration &new_parameters);
 
+private:
+  /**
+   * Determine and apply the next time step.
+   */
+  void set_next_timestep();
+
 public:
   Parameters::TimeIntegration time_parameters;
 
@@ -158,6 +205,11 @@ public:
 
   unsigned int        n_previous_solutions;
   std::vector<double> bdf_coefficients;
+  unsigned int        bdf_order;
+
+  bool         rolledback_step;
+  unsigned int n_consecutive_rejected_steps;
+  unsigned int n_rejected_steps;
 
 public:
   std::shared_ptr<BDFErrorEstimator> error_estimator;

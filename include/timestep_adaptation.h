@@ -32,7 +32,7 @@ using namespace dealii;
  *
  * Letting \epsilon denote the target error e_{n+1}, this yield the time step
  *
- *  h_{n+1} \approx \left(\frac{\epsilon}{e_n}\right)^{\frac{1}{p+1}}.
+ *  h_{n+1} \approx h_n * \left(\frac{\epsilon}{e_n}\right)^{\frac{1}{p+1}}.
  *
  * The estimation of e_n requires an additional solution vector, which is
  * stored in this class.
@@ -45,6 +45,16 @@ public:
    */
   BDFErrorEstimator(const Parameters::TimeIntegration &time_parameters,
                     const TimeHandler                 &time_handler);
+
+  /**
+   * Attach solver data to this object.
+   * This function is called by attach_data_to_error_estimator in the
+   * TimeHandler, which must be called once before computing the first error
+   * estimates.
+   */
+  void attach_data(const ComponentOrdering          &ordering,
+                   const IndexSet                   &locally_relevant_dofs,
+                   const std::vector<unsigned char> &dofs_to_component);
 
   /**
    * Rotate the stored simulation times t_{n+1} through t_{n+1-(p+1)}.
@@ -66,16 +76,44 @@ public:
    * This time step is clamped by the TimeHandler to respect the user bounds
    * (min/max time step, max increase/decrease between two time steps).
    */
-  double compute_next_timestep_from_error_estimator(
+  void compute_error_estimator(
     const TimeHandler                    &time_handler,
-    const ComponentOrdering              &ordering,
     const LA::ParVectorType              &present_solution,
-    const std::vector<LA::ParVectorType> &previous_solutions,
-    const IndexSet                       &locally_relevant_dofs,
-    const std::vector<unsigned char>     &dofs_to_component);
+    const std::vector<LA::ParVectorType> &previous_solutions);
+
+  /**
+   * Return the maximum error estimate for each variable.
+   */
+  const std::map<SolverInfo::VariableType, double> &get_max_errors() const;
+
+  /**
+   * Compute and return the next time step based on the stored error estimates.
+   * This time step is:
+   *
+   * h_{n+1} = h_n * \left(\frac{\epsilon}{e_n}\right)^{\frac{1}{p+1}},
+   *
+   * where e_n is the computed truncation error and h_n is @p current_timestep.
+   */
+  double get_next_timestep(const double current_timestep) const;
+
+  /**
+   * Return the vector of the last computed error estimator at each dof.
+   *
+   * The goal of this function is to provide the error estimator in a format
+   * compatible with the L^p error norm routines, e.g., to compute the
+   * discrepancy between the error estimator and the true error. Consequently,
+   * this function is only available if compute_error_on_estimator is enabled in
+   * the parameter file.
+   */
+  const LA::ParVectorType &get_error_estimator_as_solution() const;
 
 private:
   const Parameters::TimeIntegration &time_parameters;
+
+  // Non-owning pointers
+  const ComponentOrdering          *ordering              = nullptr;
+  const IndexSet                   *locally_relevant_dofs = nullptr;
+  const std::vector<unsigned char> *dofs_to_component     = nullptr;
 
   // Order p of the used BDF method
   unsigned int bdf_order;
@@ -94,6 +132,19 @@ private:
 
   // Variables present in the solution vector
   std::vector<SolverInfo::VariableType> handled_variables;
+
+  // For each variable, the maximum error over the dofs of this variable
+  std::map<SolverInfo::VariableType, double> max_error;
+
+  // Tracks whether a full vector of estimator should be stored
+  bool save_full_error_estimator;
+
+  // The IndexSet of locally owned dofs, needed to initialize the vectors below
+  IndexSet locally_owned_elements;
+
+  // The ghosted and fully distributed vectors of error estimator at each dof
+  LA::ParVectorType error_estimator;
+  LA::ParVectorType fully_distributed_error_estimator;
 };
 
 #endif

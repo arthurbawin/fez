@@ -1,5 +1,6 @@
 
 #include <components_ordering.h>
+#include <solver_info.h>
 #include <time_handler.h>
 #include <timestep_adaptation.h>
 
@@ -18,16 +19,22 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , initial_dt(time_parameters.dt)
   , current_dt(time_parameters.dt)
   , scheme(time_parameters.scheme)
+  , rolledback_step(false)
+  , n_consecutive_rejected_steps(0)
+  , n_rejected_steps(0)
 {
   switch (scheme)
   {
     case STAT:
+      bdf_order            = 0;
       n_previous_solutions = 0;
       break;
     case BDF1:
+      bdf_order            = 1;
       n_previous_solutions = 1;
       break;
     case BDF2:
+      bdf_order            = 2;
       n_previous_solutions = 2;
       break;
   }
@@ -100,11 +107,12 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
   if (scheme != STAT)
   {
     // Rotate the times and time steps
-    for (unsigned int i = n_previous_solutions; i >= 1; --i)
-    {
-      simulation_times[i] = simulation_times[i - 1];
-      time_steps[i]       = time_steps[i - 1];
-    }
+    if (!rolledback_step)
+      for (unsigned int i = n_previous_solutions; i >= 1; --i)
+      {
+        simulation_times[i] = simulation_times[i - 1];
+        time_steps[i]       = time_steps[i - 1];
+      }
 
     if (scheme == BDF1)
     {
@@ -177,6 +185,8 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
   // Advance the time tables in the error estimator
   if (!is_steady() && time_parameters.adaptation.enable)
     error_estimator->advance(*this);
+
+  rolledback_step = false;
 }
 
 void TimeHandler::rotate_solutions(
@@ -194,6 +204,115 @@ void TimeHandler::rotate_solutions(
       previous_solutions[j] = previous_solutions[j - 1];
     previous_solutions[0] = present_solution;
   }
+}
+
+void TimeHandler::attach_data_to_error_estimator(
+  const ComponentOrdering          &ordering,
+  const IndexSet                   &locally_relevant_dofs,
+  const std::vector<unsigned char> &dofs_to_component)
+{
+  if (error_estimator)
+    error_estimator->attach_data(ordering,
+                                 locally_relevant_dofs,
+                                 dofs_to_component);
+}
+
+const LA::ParVectorType &TimeHandler::get_error_estimator_as_solution() const
+{
+  return error_estimator->get_error_estimator_as_solution();
+}
+
+bool TimeHandler::is_timestep_accepted(
+  LA::ParVectorType                    &present_solution,
+  const std::vector<LA::ParVectorType> &previous_solutions)
+{
+  if (is_steady() || !time_parameters.adaptation.enable)
+    // Steady, or unsteady but without adaptation : nothing to do
+    return true;
+
+  // Do not do anything in the starting steps
+  const unsigned int n_starting_steps = bdf_order - 1;
+  if (current_time_iteration < bdf_order + 1 + n_starting_steps)
+    return true;
+
+  // Compute the error estimator for this time step
+  error_estimator->compute_error_estimator(*this,
+                                           present_solution,
+                                           previous_solutions);
+
+  const unsigned int mpi_rank =
+    Utilities::MPI::this_mpi_process(present_solution.get_mpi_communicator());
+
+  if (time_parameters.adaptation.reject_timestep_with_large_error)
+  // &&
+  // current_time_iteration > bdf_order + 1 + n_starting_steps)
+  {
+    const auto &max_errors    = error_estimator->get_max_errors();
+    const auto &target_errors = time_parameters.adaptation.target_error;
+
+    bool reject_step = false;
+    for (const auto &[variable, error] : max_errors)
+    {
+      Assert(target_errors.count(variable) > 0, ExcInternalError());
+      const double error_ratio = error / target_errors.at(variable);
+
+      if (error_ratio > time_parameters.adaptation.reject_factor)
+      {
+        reject_step = true;
+        if (mpi_rank == 0)
+          std::cout << "Rejecting step because error ratio for variable \"" +
+                         SolverInfo::to_string(variable) + "\" is = "
+                    << error_ratio << std::endl;
+        break;
+      }
+    }
+
+    if (reject_step)
+    {
+      rolledback_step = true;
+      n_consecutive_rejected_steps++;
+      n_rejected_steps++;
+
+      // Exit with failure if we already rejected too many steps
+      const unsigned int max_rejections = 5;
+      if (n_consecutive_rejected_steps > max_rejections)
+      {
+        throw std::runtime_error(
+          "Could not find an acceptable time step after " +
+          std::to_string(max_rejections) +
+          " step rejections. Aborting simulation.");
+      }
+
+      // Reduce the time step based on the error estimate from this rejected
+      // step, and apply a slight safety factor to avoid multiple rejections
+      // in a row.
+      const double reduction_factor = 0.9;
+      const double new_timestep =
+        reduction_factor * error_estimator->get_next_timestep(current_dt);
+      // , /* compute_from_previous_errors = */ false);
+
+      Assert(new_timestep < current_dt, ExcInternalError());
+
+      // Rollback the changes from this time step
+      present_solution = previous_solutions[0];
+      current_time_iteration--;
+      current_time -= current_dt;
+      current_dt = new_timestep;
+
+      if (mpi_rank == 0)
+        std::cout << "Rejecting step and trying again with dt = " << current_dt
+                  << std::endl;
+      return false;
+    }
+    else
+    {
+      // Reset counter
+      n_consecutive_rejected_steps = 0;
+    }
+  }
+
+  set_next_timestep();
+  return true;
 }
 
 double clamp_timestep(const double                       current_timestep,
@@ -220,28 +339,13 @@ double clamp_timestep(const double                       current_timestep,
   return clamped_timestep;
 }
 
-void TimeHandler::set_next_timestep(
-  const ComponentOrdering              &ordering,
-  const LA::ParVectorType              &present_solution,
-  const std::vector<LA::ParVectorType> &previous_solutions,
-  const IndexSet                       &locally_relevant_dofs,
-  const std::vector<unsigned char>     &dofs_to_component)
+void TimeHandler::set_next_timestep()
 {
-  const auto &adapt = time_parameters.adaptation;
-
-  if (is_steady() || !adapt.enable)
-    // Steady, or unsteady but without adaptation : nothing to do
-    return;
-
-  // Determine the next time step based on the error estimator
+  // Error estimator was already computed when checking for whether or not
+  // the last time step should be accepted.
+  // Simply compute the next time step from the stored errors.
   const double target_time_step =
-    error_estimator->compute_next_timestep_from_error_estimator(
-      *this,
-      ordering,
-      present_solution,
-      previous_solutions,
-      locally_relevant_dofs,
-      dofs_to_component);
+    error_estimator->get_next_timestep(current_dt);
 
   // Bound progression ratio and absolute time step
   double next_timestep =

@@ -40,10 +40,10 @@ public:
     const bool verbose =
       this->param.verbosity == Parameters::Verbosity::verbose;
 
+    solver->evaluation_point = solver->present_solution;
+
     while (!stop)
     {
-      solver->evaluation_point = solver->present_solution;
-
       // Assemble residual and check if tolerance is reached
       // Linfty norm does not scale with the number of RHS entries
       if (recompute_rhs)
@@ -163,24 +163,27 @@ public:
           // solve. Continue with smaller alpha.
           last_ls_residual = norm_ls_residual;
         }
+
+        if (!stop)
+          // Update present solution for the next line search
+          solver->present_solution = solver->evaluation_point;
       }
       else
       {
         // Increment solution and go to next iteration
-        solver->local_evaluation_point = solver->present_solution;
+        solver->local_evaluation_point = solver->evaluation_point;
         solver->local_evaluation_point.add(1., solver->newton_update);
         solver->distribute_nonzero_constraints();
         solver->evaluation_point = solver->local_evaluation_point;
         last_residual            = norm_residual;
       }
 
-
-      solver->present_solution = solver->evaluation_point;
-      ++iter;
-
-      if (iter > this->param.max_iterations)
+      if (++iter > this->param.max_iterations)
         stop = true;
     }
+
+    // Update present solution
+    solver->present_solution = solver->evaluation_point;
 
     if (iter > this->param.max_iterations &&
         norm_residual > this->param.tolerance)

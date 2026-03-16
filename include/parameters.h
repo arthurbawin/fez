@@ -343,8 +343,18 @@ namespace Parameters
 
       std::map<SolverInfo::VariableType, double> target_error;
 
+      bool   reject_timestep_with_large_error;
+      double reject_factor;
+
+      // FIXME: Both parameters below are currently unused:
+      // required_times because it is tricky to adjust or merge the time steps
+      // to reach the required times without considering corner cases, and
+      // compute_error_on_estimator because we may or may not want to compute
+      // the convergence of the error estimator w.r.t. the true error.
+
       // Required times : the simulation must absolutely go through these
       std::vector<double> required_times;
+      bool                compute_error_on_estimator;
     } adaptation;
 
     void declare_parameters(ParameterHandler &prm);

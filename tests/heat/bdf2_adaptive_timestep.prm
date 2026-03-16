@@ -25,7 +25,8 @@ subsection Time integration
   set scheme           = BDF2
 
   subsection Adaptation
-    set enable = true
+    set verbosity = verbose
+    set enable    = true
 
     #
     # Do not bound the time step above or below, to not alter the 

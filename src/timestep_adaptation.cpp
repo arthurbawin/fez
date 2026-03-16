@@ -5,12 +5,19 @@
 
 #include <algorithm>
 
+DeclExceptionMsg(ExcDataNotAttached,
+                 "You are trying to use a BDFErrorEstimator which has "
+                 "uninitialized data. Call attach_data_to_error_estimator() "
+                 "from the TimeHandler before using the error estimator.");
+
 BDFErrorEstimator::BDFErrorEstimator(
   const Parameters::TimeIntegration &time_parameters,
   const TimeHandler                 &time_handler)
   : time_parameters(time_parameters)
   , n_previous_solutions(time_handler.n_previous_solutions + 1)
   , simulation_times(time_handler.simulation_times.size() + 1)
+  , save_full_error_estimator(
+      time_parameters.adaptation.compute_error_on_estimator)
 {
   if (time_handler.scheme == Parameters::TimeIntegration::Scheme::BDF1)
     bdf_order = 1;
@@ -20,14 +27,22 @@ BDFErrorEstimator::BDFErrorEstimator(
     DEAL_II_NOT_IMPLEMENTED();
 }
 
+void BDFErrorEstimator::attach_data(
+  const ComponentOrdering          &ordering,
+  const IndexSet                   &locally_relevant_dofs,
+  const std::vector<unsigned char> &dofs_to_component)
+{
+  this->ordering              = &ordering;
+  this->locally_relevant_dofs = &locally_relevant_dofs;
+  this->dofs_to_component     = &dofs_to_component;
+}
+
 void BDFErrorEstimator::advance(const TimeHandler &time_handler)
 {
   // Rotate the times
-  for (unsigned int i = n_previous_solutions; i >= 1; --i)
-  {
-    simulation_times[i] = simulation_times[i - 1];
-    // time_steps[i]     = time_steps[i - 1];
-  }
+  if (!time_handler.rolledback_step)
+    for (unsigned int i = n_previous_solutions; i >= 1; --i)
+      simulation_times[i] = simulation_times[i - 1];
   simulation_times[0] = time_handler.simulation_times[0];
 }
 
@@ -39,36 +54,45 @@ void BDFErrorEstimator::rotate_additional_solution(
   additional_solution = solution;
 }
 
-double BDFErrorEstimator::compute_next_timestep_from_error_estimator(
+void BDFErrorEstimator::compute_error_estimator(
   const TimeHandler                    &time_handler,
-  const ComponentOrdering              &ordering,
   const LA::ParVectorType              &present_solution,
-  const std::vector<LA::ParVectorType> &previous_solutions,
-  const IndexSet                       &locally_relevant_dofs,
-  const std::vector<unsigned char>     &dofs_to_component)
+  const std::vector<LA::ParVectorType> &previous_solutions)
 {
-  const unsigned int n_starting_steps = bdf_order - 1;
-  if (time_handler.current_time_iteration < bdf_order + 1 + n_starting_steps)
-    return time_handler.current_dt;
+  // Check that attach_data() was called
+  Assert(ordering, ExcDataNotAttached());
+  Assert(locally_relevant_dofs, ExcDataNotAttached());
+  Assert(dofs_to_component, ExcDataNotAttached());
 
   Assert(additional_solution.size() > 0, ExcInternalError());
-  Assert(dofs_to_component.size() > 0,
+  Assert(dofs_to_component->size() > 0,
          ExcMessage("The vector dofs_to_component should be filled before "
                     "entering this function."));
+
+  // If the full vector of error estimates for each dof must be stored and
+  // it has not yet been initialized, do it now
+  if (error_estimator.size() == 0)
+    if (save_full_error_estimator)
+    {
+      locally_owned_elements = present_solution.locally_owned_elements();
+      error_estimator.reinit(locally_owned_elements,
+                             *locally_relevant_dofs,
+                             present_solution.get_mpi_communicator());
+      fully_distributed_error_estimator.reinit(
+        locally_owned_elements, present_solution.get_mpi_communicator());
+    }
 
   // Set the handled variables the first time we enter here
   if (handled_variables.empty())
     for (const auto var : SolverInfo::variable_types)
-      if (ordering.has_variable(var))
+      if (ordering->has_variable(var))
       {
         handled_variables.push_back(var);
-        // std::cout << "Solver has variable " + SolverInfo::to_string(var)
-        //           << std::endl;
+        max_error[var] = 0.;
       }
 
   Assert(!handled_variables.empty(), ExcInternalError());
 
-  std::map<SolverInfo::VariableType, double> max_error;
   for (const auto var : handled_variables)
     max_error[var] = 0.;
 
@@ -90,12 +114,14 @@ double BDFErrorEstimator::compute_next_timestep_from_error_estimator(
     const double Hi = simulation_times[0] - simulation_times[i];
     coeff += alpha[i] * std::pow(Hi, bdf_order + 1);
   }
+  // FIXME: Probalby useless if taking the abs below
   coeff *= (bdf_order % 2 == 0) ? -1. : 1.;
 
   // Current time step
   const double h = simulation_times[0] - simulation_times[1];
 
-  for (const auto &dof : locally_relevant_dofs)
+  // Compute trunaction error for each relevant dof
+  for (const auto &dof : *locally_relevant_dofs)
   {
     // Solution at times t_{n+1} through t_{n+1-(p+1)}.
     values[0] = present_solution[dof];
@@ -113,11 +139,21 @@ double BDFErrorEstimator::compute_next_timestep_from_error_estimator(
 
     const double error = std::abs(h * coeff * dd);
 
+    if (save_full_error_estimator)
+      if (locally_owned_elements.is_element(dof))
+        fully_distributed_error_estimator[dof] = error;
+
     // Get dof component, then variable associated with this component
     const auto comp =
-      dofs_to_component[locally_relevant_dofs.index_within_set(dof)];
-    const auto var    = ordering.component_to_variable_type(comp);
+      (*dofs_to_component)[locally_relevant_dofs->index_within_set(dof)];
+    const auto var    = ordering->component_to_variable_type(comp);
     max_error.at(var) = std::max(max_error.at(var), error);
+  }
+
+  if (save_full_error_estimator)
+  {
+    fully_distributed_error_estimator.compress(VectorOperation::insert);
+    error_estimator = fully_distributed_error_estimator;
   }
 
   // Synchronize the max errors across ranks
@@ -130,32 +166,47 @@ double BDFErrorEstimator::compute_next_timestep_from_error_estimator(
       std::cout << "Max error for variable " + SolverInfo::to_string(var)
                 << " is " << max_error.at(var) << std::endl;
   }
+}
 
-  // Compute the next time step ratios
-  const double                               timestep = time_handler.current_dt;
-  std::map<SolverInfo::VariableType, double> next_timesteps;
+const std::map<SolverInfo::VariableType, double> &
+BDFErrorEstimator::get_max_errors() const
+{
+  Assert(!max_error.empty(), ExcInternalError());
+  return max_error;
+}
+
+double BDFErrorEstimator::get_next_timestep(const double current_timestep) const
+{
+  Assert(!handled_variables.empty(), ExcInternalError());
+  Assert(!max_error.empty(), ExcInternalError());
+
+  std::map<SolverInfo::VariableType, double> target_steps;
+
+  // Compute next time step ratios
   for (const auto var : handled_variables)
   {
     const double eps = time_parameters.adaptation.target_error.at(var);
     const double ratio =
       std::pow(eps / std::max(1e-15, max_error.at(var)), 1. / (bdf_order + 1));
-    next_timesteps[var] = timestep * ratio;
-    // std::cout << "Ratio for " + SolverInfo::to_string(var) << " is " << ratio
-    //           << " - Next timestep = " << next_timesteps[var] << std::endl;
+    target_steps[var] = current_timestep * ratio;
   }
 
-  // Get key and value of the minimum timestep
-  auto it = std::min_element(next_timesteps.begin(),
-                             next_timesteps.end(),
-                             [](const auto &a, const auto &b) {
-                               return a.second < b.second;
-                             });
+  Assert(!target_steps.empty(), ExcInternalError());
 
-
-  // std::cout << "Min next timestep is " << it->second
-  //           << " and is due to variable " << SolverInfo::to_string(it->first)
-  //           << std::endl;
+  // Get key and value of minimum timestep
+  const auto it = std::min_element(target_steps.begin(),
+                                   target_steps.end(),
+                                   [](const auto &a, const auto &b) {
+                                     return a.second < b.second;
+                                   });
 
   // Return the smallest prescribed timestep
   return it->second;
+}
+
+const LA::ParVectorType &
+BDFErrorEstimator::get_error_estimator_as_solution() const
+{
+  Assert(save_full_error_estimator, ExcInternalError());
+  return fully_distributed_error_estimator;
 }

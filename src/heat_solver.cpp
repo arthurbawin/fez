@@ -141,43 +141,51 @@ void HeatSolver<dim>::run()
 
   while (!time_handler.is_finished())
   {
-    time_handler.advance(pcout);
-    set_time();
-    update_boundary_conditions();
-
-    if (time_handler.is_starting_step() &&
-        param.time_integration.bdfstart ==
-          Parameters::TimeIntegration::BDFStart::initial_condition)
+    do
     {
-      if (param.mms_param.enable || param.debug.apply_exact_solution)
-        // Convergence study: start with exact solution at first time step
-        set_exact_solution();
-      else
-        // Repeat initial condition
-        set_initial_conditions();
-    }
-    else
-    {
-      if (param.debug.compare_analytical_jacobian_with_fd)
-        compare_analytical_matrix_with_fd();
+      time_handler.advance(pcout);
+      set_time();
+      update_boundary_conditions();
 
-      if (param.debug.apply_exact_solution)
-        set_exact_solution();
+      if (time_handler.is_starting_step() &&
+          param.time_integration.bdfstart ==
+            Parameters::TimeIntegration::BDFStart::initial_condition)
+      {
+        if (param.mms_param.enable || param.debug.apply_exact_solution)
+          // Convergence study: start with exact solution at first time step
+          set_exact_solution();
+        else
+          // Repeat initial condition
+          set_initial_conditions();
+      }
       else
-        solve_nonlinear_problem(false);
-    }
+      {
+        if (param.debug.compare_analytical_jacobian_with_fd)
+          compare_analytical_matrix_with_fd();
 
-    /////////
-    time_handler.set_next_timestep(*ordering,
-                                   present_solution,
-                                   previous_solutions,
-                                   locally_relevant_dofs,
-                                   dofs_to_component);
-    /////////
+        if (param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          solve_nonlinear_problem(false);
+      }
+    }
+    while (
+      !time_handler.is_timestep_accepted(present_solution, previous_solutions));
 
     postprocess_solution();
     time_handler.rotate_solutions(present_solution, previous_solutions);
   }
+
+  /////////////////////////////
+  if (mpi_rank == 0)
+    if (param.time_integration.adaptation.verbosity ==
+        Parameters::Verbosity::verbose)
+    {
+      // Print error table
+      for (auto &[norm, handler] : error_handlers)
+        handler->write_errors();
+    }
+  /////////////////////////////
 
   finalize();
 }
@@ -200,6 +208,11 @@ void HeatSolver<dim>::setup_dofs()
 
   // Setup the dofs_to_component vector
   fill_dofs_to_component(dof_handler, locally_relevant_dofs, dofs_to_component);
+
+  // Attach data to time error estimator
+  time_handler.attach_data_to_error_estimator(*ordering,
+                                              locally_relevant_dofs,
+                                              dofs_to_component);
 
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);

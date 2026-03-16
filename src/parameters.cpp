@@ -799,6 +799,24 @@ namespace Parameters
                             "Target temporal error for variable " +
                               std::string(SolverInfo::variable_names[i]));
         }
+        prm.declare_entry("reject timestep with large error",
+                          "false",
+                          Patterns::Bool(),
+                          "Reject time steps with error estimate larger than "
+                          "target times given factor");
+        // The reject factor is the ratio (estimated_error / target error),
+        // and if this ratio is too high, the time step is rejected.
+        // The ratio for which a step is rejected should be > 1, since the
+        // step adaptation aims for steps with a ratio = 1.
+        prm.declare_entry("error ratio to reject",
+                          "2.",
+                          Patterns::Double(1.),
+                          "Time step is rejected if its error estimate exceeds "
+                          "this value times the target error");
+        prm.declare_entry("compute error on estimator",
+                          "false",
+                          Patterns::Bool(),
+                          "");
       }
       prm.leave_subsection();
     }
@@ -864,6 +882,11 @@ namespace Parameters
           adaptation.target_error[SolverInfo::variable_types[i]] =
             prm.get_double("target error on " +
                            std::string(SolverInfo::variable_names[i]));
+        adaptation.reject_timestep_with_large_error =
+          prm.get_bool("reject timestep with large error");
+        adaptation.reject_factor = prm.get_double("error ratio to reject");
+        adaptation.compute_error_on_estimator =
+          prm.get_bool("compute error on estimator");
       }
       prm.leave_subsection();
     }

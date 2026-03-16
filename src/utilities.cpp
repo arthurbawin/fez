@@ -76,16 +76,9 @@ void replace_temporary_files(const std::string directory,
                              const std::string final_filename_prefix,
                              const MPI_Comm   &mpi_communicator)
 {
-  // Create a shared-memory communicator (one per node)
-  MPI_Comm shm_comm;
-  MPI_Comm_split_type(
-    mpi_communicator, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &shm_comm);
-
-  int shm_rank;
-  MPI_Comm_rank(shm_comm, &shm_rank);
-
-  // Only one rank per shared-memory node touches the filesystem
-  if (shm_rank == 0)
+  const unsigned int mpi_rank =
+    Utilities::MPI::this_mpi_process(mpi_communicator);
+  if (mpi_rank == 0)
   {
     std::list<std::string> tmp_checkpoint_files;
     for (const auto &dir_entry : std::filesystem::directory_iterator(directory))
@@ -103,9 +96,8 @@ void replace_temporary_files(const std::string directory,
     }
   }
 
-  // Ensure all ranks see the renamed files
+  // FIXME: check if this barrier is really needed
   MPI_Barrier(mpi_communicator);
-  MPI_Comm_free(&shm_comm);
 }
 
 template <int dim>
@@ -122,7 +114,6 @@ void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,
    */
   const unsigned int n_relevant_dofs = locally_relevant_dofs.n_elements();
   dofs_to_component.resize(n_relevant_dofs, static_cast<unsigned char>(-1));
-  std::set<types::global_dof_index>    foo;
   std::vector<types::global_dof_index> dof_indices;
   for (const auto &cell : dof_handler.active_cell_iterators())
   {
@@ -132,7 +123,6 @@ void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,
     for (unsigned int i = 0; i < dof_indices.size(); ++i)
     {
       const types::global_dof_index dof = dof_indices[i];
-      foo.insert(dof);
       AssertThrow(locally_relevant_dofs.is_element(dof), ExcInternalError());
       dofs_to_component[locally_relevant_dofs.index_within_set(dof)] =
         cell->get_fe().system_to_component_index(i).first;

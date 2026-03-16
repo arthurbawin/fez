@@ -1,7 +1,7 @@
 
+#include <fsi_solver.h>
 #include <parameter_reader.h>
 #include <utilities.h>
-#include <fsi_solver.h>
 
 int main(int argc, char *argv[])
 {
@@ -10,8 +10,8 @@ int main(int argc, char *argv[])
     using namespace dealii;
 
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-    ConditionalOStream pcout(
-        std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
+    ConditionalOStream               pcout(
+      std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
 
     if (argc < 2)
     {
@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
     Parameters::BoundaryConditionsData bc_data;
     read_number_of_boundary_conditions(parameter_file, bc_data);
 
-    if(dim == 2)
+    if (dim == 2)
     {
       ParameterHandler   prm;
       ParameterReader<2> param(bc_data);
@@ -38,12 +38,12 @@ int main(int argc, char *argv[])
       param.read(prm);
 
       FSISolverLessLambda<2> problem(param);
-      if(param.mms_param.enable)
+      if (param.mms_param.enable)
         problem.run_convergence_loop<2>();
       else
         problem.run();
     }
-    else if(dim == 3)
+    else if (dim == 3)
     {
       ParameterHandler   prm;
       ParameterReader<3> param(bc_data);
@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
       param.read(prm);
 
       FSISolverLessLambda<3> problem(param);
-      if(param.mms_param.enable)
+      if (param.mms_param.enable)
         problem.run_convergence_loop<3>();
       else
         problem.run();

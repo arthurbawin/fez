@@ -8,7 +8,7 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = false
+  set write vtu results    = false
   set output directory = ../data/mms/
   set output prefix    = solution
 end
@@ -31,8 +31,10 @@ subsection Nonlinear solver
 end
 
 subsection Linear solver
-  set verbosity      = quiet
-  set method         = direct_mumps
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+  end
 end
 
 subsection FiniteElements

@@ -9,16 +9,19 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <navier_stokes_solver.h>
+#include <post_processing_handler.h>
 #include <utilities.h>
 
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
+  : GenericSolver<LA::ParVectorType>(param.output,
+                                     param.nonlinear_solver,
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,
-                                     param.mms_param)
+                                     param.mms_param,
+                                     SolverType::main_physics)
   , param(param)
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)
@@ -49,6 +52,22 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
     std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 }
 
+
+template <int dim, bool with_moving_mesh>
+std::vector<std::pair<std::string, unsigned int>>
+NavierStokesSolver<dim, with_moving_mesh>::get_variables_description() const
+{
+  std::vector<std::pair<std::string, unsigned int>> description;
+  description.push_back({"velocity", dim});
+  description.push_back({"pressure", 1});
+  if constexpr (with_moving_mesh)
+    description.push_back({"mesh_position", dim});
+  const auto additional_description = get_additional_variables_description();
+  for (const auto &additional : additional_description)
+    description.push_back(additional);
+  return description;
+};
+
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::reset()
 {
@@ -59,6 +78,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
   param.mms_param.mesh_suffix  = mms_param.mesh_suffix;
   param.mesh.filename          = mesh_param.filename;
   param.time_integration.dt    = time_param.dt;
+
+  // Clear list of files in pvd
+  if (postproc_handler)
+    postproc_handler->clear();
 
   // Mesh
   triangulation.clear();
@@ -100,14 +123,29 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_time()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::initialize()
+{
+  // Create the post-processing handler.
+  // This requires the description of the variable from the derived solvers,
+  // so I don't think this can be done in the constructor of the base class.
+  if (!postproc_handler)
+  {
+    const auto description = get_variables_description();
+    postproc_handler       = std::make_shared<PostProcessingHandler<dim>>(
+      param, triangulation, dof_handler, description);
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::run()
 {
   reset();
+  initialize();
 
   /**
-   * If starting from zero, read the mesh the setup the dof_handler and vectors.
-   * If restarting, setup_dofs() is called in the restart() function, after
-   * loading the mesh.
+   * If starting from zero, read the mesh then setup the dof_handler and
+   * vectors. If restarting, setup_dofs() is called in the restart() function,
+   * after loading the mesh.
    */
   if (!param.checkpoint_restart.restart)
   {
@@ -382,6 +420,21 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
     if (!homogeneous && param.mms_param.enable)
       set_to_zero = false;
 
+    if constexpr (with_moving_mesh)
+    {
+      // Update the location of the support point of constrained pressure dof
+      // FIXME: this calls map_dofs_to_support_points, but is only done for MMS
+      if (!set_to_zero &&
+          constrained_pressure_dof != numbers::invalid_dof_index &&
+          locally_relevant_dofs.is_element(constrained_pressure_dof))
+      {
+        const auto support_points =
+          DoFTools::map_dofs_to_support_points(*moving_mapping, dof_handler);
+        constrained_pressure_support_point =
+          support_points.at(constrained_pressure_dof);
+      }
+    }
+
     BoundaryConditions::constrain_pressure_point(
       dof_handler,
       locally_relevant_dofs,
@@ -571,13 +624,15 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system(
   const bool /*apply_inhomogeneous_constraints*/)
 {
-  if (param.linear_solver.method ==
+  const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
+
+  if (linear_solver_param.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    if (param.linear_solver.reuse)
+    if (linear_solver_param.reuse)
     {
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints,
@@ -585,16 +640,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system(
     }
     else
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints);
   }
-  else if (param.linear_solver.method ==
+  else if (linear_solver_param.method ==
            Parameters::LinearSolver::Method::gmres)
   {
     solve_linear_system_iterative(this,
-                                  param.linear_solver,
+                                  linear_solver_param,
                                   system_matrix,
                                   locally_owned_dofs,
                                   zero_constraints);
@@ -648,8 +703,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
     {
       error_handlers.at(norm)->add_reference_data(
         "n_elm", triangulation.n_global_active_cells());
-      error_handlers.at(norm)->add_reference_data("n_dof",
-                                                  dof_handler.n_dofs());
+
+      // FIXME: Remove the dofs from the convergence table in 3d as long as the
+      // hp bug is in deal.II, to allow tests with the docker
+      if (!(dim == 3 && dof_handler.has_hp_capabilities()))
+        error_handlers.at(norm)->add_reference_data("n_dof",
+                                                    dof_handler.n_dofs());
     }
 
   /**
@@ -730,9 +789,115 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::output_results()
+{
+  TimerOutput::Scope t(computing_timer, "Write outputs");
+
+  // Compute mesh velocity and add it to the DataOut of the postproc handler
+  // FIXME: do this without placeholders
+  if constexpr (with_moving_mesh)
+  {
+    if (postproc_handler->should_output_volume_fields(time_handler))
+    {
+      LA::ParVectorType mesh_velocity;
+      mesh_velocity.reinit(locally_owned_dofs, mpi_communicator);
+
+      IndexSet owned_position_dofs =
+        DoFTools::extract_dofs(dof_handler, position_mask);
+      owned_position_dofs = owned_position_dofs & locally_owned_dofs;
+
+      for (const auto &dof : owned_position_dofs)
+        mesh_velocity[dof] =
+          time_handler.compute_time_derivative(dof,
+                                               present_solution,
+                                               previous_solutions);
+      mesh_velocity.compress(VectorOperation::insert);
+
+      auto variable_names = postproc_handler->get_field_names();
+      for (auto &name : variable_names)
+      {
+        if (name == "mesh_position")
+          name = "mesh_velocity";
+        else
+          name = "unused_" + name;
+      }
+
+      postproc_handler->add_dof_data_vector(mesh_velocity, variable_names);
+    }
+  }
+
+  // Let the derived solvers add their own relevant cell and/or dof-based
+  // data, to output either in the volume or on the prescribed boundary (skin).
+  add_solver_specific_postprocessing_data();
+
+  // Then finally output the fields. This function already checks whether
+  // we should output at this time step or not.
+  postproc_handler->output_fields(*moving_mapping,
+                                  present_solution,
+                                  time_handler);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::compute_forces()
+{
+  TimerOutput::Scope t(computing_timer, "Compute forces");
+
+  if (uses_hp_capabilities())
+  {
+    postproc_handler->compute_forces(*ordering,
+                                     dof_handler,
+                                     *get_moving_mapping_collection(),
+                                     *get_face_quadrature_collection(),
+                                     present_solution,
+                                     time_handler);
+  }
+  else
+  {
+    postproc_handler->compute_forces(*ordering,
+                                     dof_handler,
+                                     *moving_mapping,
+                                     *face_quadrature,
+                                     present_solution,
+                                     time_handler);
+  }
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim,
+                        with_moving_mesh>::compute_structure_mean_position()
+{
+  if (uses_hp_capabilities())
+  {
+    postproc_handler->compute_structure_mean_position(
+      *ordering,
+      dof_handler,
+      *get_moving_mapping_collection(),
+      *get_face_quadrature_collection(),
+      present_solution,
+      time_handler);
+  }
+  else
+  {
+    postproc_handler->compute_structure_mean_position(*ordering,
+                                                      dof_handler,
+                                                      *moving_mapping,
+                                                      *face_quadrature,
+                                                      present_solution,
+                                                      time_handler);
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 {
   output_results();
+
+  if (param.postprocessing.forces.enable)
+    compute_forces();
+
+  if constexpr (with_moving_mesh)
+    if (param.postprocessing.structure_position.enable)
+      compute_structure_mean_position();
 
   if (param.mms_param.enable)
     compute_errors();
@@ -743,13 +908,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::finalize()
 {
-  if (param.output.write_results)
-  {
-    // Write .pvd output
-    std::ofstream pvd_output(param.output.output_dir +
-                             param.output.output_prefix + ".pvd");
-    DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
-  }
+  postproc_handler->write_pvd();
 }
 
 template <int dim, bool with_moving_mesh>
@@ -777,10 +936,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
   /**
    * Prepare to write the present and previous solutions
    */
-  std::vector<const LA::ParVectorType *> vectors_to_checkpoint;
-  vectors_to_checkpoint.emplace_back(&present_solution);
-  for (const auto &sol : previous_solutions)
-    vectors_to_checkpoint.emplace_back(&sol);
+  std::vector<const LA::ParVectorType *> vectors_to_checkpoint(
+    previous_solutions.size() + 1);
+  vectors_to_checkpoint[0] = &present_solution;
+  for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+    vectors_to_checkpoint[i + 1] = &previous_solutions[i];
 
   SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
   solution_transfer.prepare_for_serialization(vectors_to_checkpoint);
@@ -811,19 +971,22 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
   triangulation.load(checkpoint_prefix);
 
+  // Update the time handler
+  time_handler.update_parameters_after_restart(param.time_integration);
+
   // Setup the dofhandler and parallel vectors here
   setup_dofs();
 
   // SolutionTransfer deserializes to a vector of ptrs to fully distributed
   // vectors (without ghosts), but the present and previous solutions have
-  // ghosts
+  // ghosts, so they must be set after the call to deserialize
   const unsigned int             n_vec = time_handler.n_previous_solutions + 1;
   std::vector<LA::ParVectorType> vectors_to_read(n_vec);
   std::vector<LA::ParVectorType *> ptrs_to_vectors_to_read(n_vec);
   for (unsigned int i = 0; i < n_vec; ++i)
   {
-    vectors_to_read[i].reinit(locally_owned_dofs,
-                              mpi_communicator); // <==================
+    // Fully distributed vector
+    vectors_to_read[i].reinit(locally_owned_dofs, mpi_communicator);
     ptrs_to_vectors_to_read[i] = &vectors_to_read[i];
   }
 

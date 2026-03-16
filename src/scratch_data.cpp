@@ -452,6 +452,7 @@ void ScratchData<dim, has_hp_capabilities>::initialize_cahn_hilliard()
   sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
   body_force            = cahn_hilliard_param.body_force;
+  tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -591,7 +592,12 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     phi_x.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
     grad_phi_x.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
+    sym_grad_phi_x.resize(n_q_points,
+                          std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
+    grad_phi_x_moving.resize(n_q_points,
+                             std::vector<Tensor<2, dim>>(dofs_per_cell));
     div_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    trace_grad_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
     phi_x_face.resize(n_faces,
                       std::vector<std::vector<Tensor<1, dim>>>(
                         n_faces_q_points,
@@ -622,6 +628,9 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
                       std::vector<std::vector<Tensor<1, dim>>>(
                         n_faces_q_points,
                         std::vector<Tensor<1, dim>>(dofs_per_cell)));
+
+    input_face_rigid_body_rotation_velocity.resize(
+      n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
   }
 
   if (enable_cahn_hilliard)
@@ -633,6 +642,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     tracer_values.resize(n_q_points);
     tracer_gradients.resize(n_q_points);
+    tracer_values_fixed.resize(n_q_points);
+    tracer_gradients_fixed.resize(n_q_points);
     potential_values.resize(n_q_points);
     potential_gradients.resize(n_q_points);
     previous_tracer_values.resize(bdf_coefficients.size() - 1,
@@ -640,10 +651,12 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     diffusive_flux.resize(n_q_points);
     velocity_dot_tracer_gradient.resize(n_q_points);
-
     shape_phi.resize(n_q_points, std::vector<double>(dofs_per_cell));
     grad_shape_phi.resize(n_q_points,
                           std::vector<Tensor<1, dim>>(dofs_per_cell));
+    shape_phi_fixed.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    grad_shape_phi_fixed.resize(n_q_points,
+                                std::vector<Tensor<1, dim>>(dofs_per_cell));
     shape_mu.resize(n_q_points, std::vector<double>(dofs_per_cell));
     grad_shape_mu.resize(n_q_points,
                          std::vector<Tensor<1, dim>>(dofs_per_cell));

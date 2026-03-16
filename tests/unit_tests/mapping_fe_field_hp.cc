@@ -12,9 +12,9 @@
 //
 // ------------------------------------------------------------------------
 
-#include <deal.II/base/timer.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/quadrature_lib.h>
+#include <deal.II/base/timer.h>
 #include <deal.II/dofs/dof_accessor.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -123,8 +123,8 @@ void test(const bool with_hp, const bool with_simplices)
   deallog << "With hp : " << with_hp << std::endl;
 
   TimerOutput computing_timer(std::cout,
-                      TimerOutput::summary,
-                      TimerOutput::wall_times);
+                              TimerOutput::summary,
+                              TimerOutput::wall_times);
 
   TimerOutput::Scope t(computing_timer, "Run");
 
@@ -272,16 +272,16 @@ void test(const bool with_hp, const bool with_simplices)
                              field_mask);
 
     // Get the shape functions and their gradients
-    hp::FEValues hp_fe_values(moving_mapping_collection,
+    hp::FEValues     hp_fe_values(moving_mapping_collection,
                               fe_collection,
                               q_collection,
                               update_values | update_gradients |
                                 update_JxW_values);
     hp::FEFaceValues hp_fe_face_values(moving_mapping_collection,
-                              fe_collection,
-                              face_q_collection,
-                              update_values | update_gradients |
-                                update_JxW_values);
+                                       fe_collection,
+                                       face_q_collection,
+                                       update_values | update_gradients |
+                                         update_JxW_values);
 
     // std::ofstream outfile_f("values_f_" + std::to_string(with_hp) + ".txt");
     // std::ofstream outfile_x("values_x_" + std::to_string(with_hp) + ".txt");
@@ -300,7 +300,7 @@ void test(const bool with_hp, const bool with_simplices)
       hp_fe_values.reinit(cell);
       const auto &fe_values = hp_fe_values.get_present_fe_values();
 
-      const auto        &fe       = fe_values.get_fe();
+      const auto &fe = fe_values.get_fe();
       // outfile_f << "======== Partition " << fe_index
       //           << " ===========" << std::endl;
       // outfile_x << "======== Partition " << fe_index
@@ -329,7 +329,7 @@ void test(const bool with_hp, const bool with_simplices)
         {
           const double JxW = fe_values.JxW(q);
 
-          A   += JxW;
+          A += JxW;
           I_f += f_val[q] * JxW;
           // I_x += x_val[q] * JxW;
           I_grad_f += f_grad[q] * JxW;
@@ -362,16 +362,19 @@ void test(const bool with_hp, const bool with_simplices)
           {
             hp_fe_face_values.reinit(cell, i_face);
             const unsigned int fe_index = cell->active_fe_index();
-            const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
-            const auto        &fe       = fe_face_values.get_fe();
+            const auto        &fe_face_values =
+              hp_fe_face_values.get_present_fe_values();
+            const auto &fe = fe_face_values.get_fe();
 
-            std::vector<double>         f_val(face_q_collection[fe_index].size());
-            std::vector<Tensor<1, dim>> f_grad(face_q_collection[fe_index].size());
+            std::vector<double> f_val(face_q_collection[fe_index].size());
+            std::vector<Tensor<1, dim>> f_grad(
+              face_q_collection[fe_index].size());
 
             fe_face_values[field].get_function_values(solution, f_val);
             fe_face_values[field].get_function_gradients(solution, f_grad);
 
-            for (unsigned int q = 0; q < face_q_collection[fe_index].size(); ++q)
+            for (unsigned int q = 0; q < face_q_collection[fe_index].size();
+                 ++q)
             {
               const double face_JxW = fe_face_values.JxW(q);
 
@@ -389,7 +392,7 @@ void test(const bool with_hp, const bool with_simplices)
             }
           }
         }
-      } 
+      }
     }
 
     std::cout << "Domain area                      = " << A << std::endl;
@@ -397,22 +400,29 @@ void test(const bool with_hp, const bool with_simplices)
     std::cout << "Integral over domain of grad f   = " << I_grad_f << std::endl;
     std::cout << "Boundary area                    = " << A_bord << std::endl;
     std::cout << "Integral over boundary of      f = " << I_f_bord << std::endl;
-    std::cout << "Integral over boundary of grad f = " << I_grad_f_bord << std::endl;
+    std::cout << "Integral over boundary of grad f = " << I_grad_f_bord
+              << std::endl;
 
     // outfile_x << "Integral over domain of      x = " << I_x << std::endl;
-    // outfile_x << "Integral over domain of grad x = " << I_grad_x << std::endl;
+    // outfile_x << "Integral over domain of grad x = " << I_grad_x <<
+    // std::endl;
 
     for (const auto &m : moving_mapping_collection)
     {
-      Assert((dynamic_cast<const typename dealii::MappingFEFieldHp2<dim>*>(&m) != nullptr), ExcInternalError());
-      const typename dealii::MappingFEFieldHp2<dim> &my_mapping = static_cast<
-          const typename dealii::MappingFEFieldHp2<dim>&>(m);
-      std::cout << "Realloced cell data: " << my_mapping.n_realloc_cell_data << std::endl;
-      std::cout << "Realloced face data: " << my_mapping.n_realloc_face_data << std::endl;
-      std::cout << "Kept      cell data: " << my_mapping.n_kept_cell_data << std::endl;
-      std::cout << "Kept      face data: " << my_mapping.n_kept_face_data << std::endl;
+      Assert((dynamic_cast<const typename dealii::MappingFEFieldHp2<dim> *>(
+                &m) != nullptr),
+             ExcInternalError());
+      const typename dealii::MappingFEFieldHp2<dim> &my_mapping =
+        static_cast<const typename dealii::MappingFEFieldHp2<dim> &>(m);
+      std::cout << "Realloced cell data: " << my_mapping.n_realloc_cell_data
+                << std::endl;
+      std::cout << "Realloced face data: " << my_mapping.n_realloc_face_data
+                << std::endl;
+      std::cout << "Kept      cell data: " << my_mapping.n_kept_cell_data
+                << std::endl;
+      std::cout << "Kept      face data: " << my_mapping.n_kept_face_data
+                << std::endl;
     }
-
   }
   else
   {
@@ -436,19 +446,20 @@ void test(const bool with_hp, const bool with_simplices)
                              solution,
                              field_mask);
 
-    const auto &fe = *fe0;
-    const auto &quadrature = q_collection[0];
+    const auto &fe              = *fe0;
+    const auto &quadrature      = q_collection[0];
     const auto &face_quadrature = face_q_collection[0];
 
     // Get the shape functions and their gradients
-    FEValues fe_values(*mapping,
+    FEValues     fe_values(*mapping,
                        fe,
                        quadrature,
                        update_values | update_gradients | update_JxW_values);
     FEFaceValues fe_face_values(*mapping,
-                       fe,
-                       face_quadrature,
-                       update_values | update_gradients | update_JxW_values);
+                                fe,
+                                face_quadrature,
+                                update_values | update_gradients |
+                                  update_JxW_values);
 
     // Compute integrals and fields, gradients
     // std::ofstream outfile_f("values_f_" + std::to_string(with_hp) + ".txt");
@@ -499,7 +510,7 @@ void test(const bool with_hp, const bool with_simplices)
           // I_x += x_val[q] * JxW;
           I_grad_f += f_grad[q] * JxW;
           // I_grad_x += x_grad[q] * JxW;
-          
+
           // outfile_f << "JxW " << q << " = " << JxW << std::endl;
 
           for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
@@ -551,7 +562,7 @@ void test(const bool with_hp, const bool with_simplices)
             }
           }
         }
-      } 
+      }
     }
 
     std::cout << "Domain area                      = " << A << std::endl;
@@ -559,10 +570,12 @@ void test(const bool with_hp, const bool with_simplices)
     std::cout << "Integral over domain of grad f   = " << I_grad_f << std::endl;
     std::cout << "Boundary area                    = " << A_bord << std::endl;
     std::cout << "Integral over boundary of      f = " << I_f_bord << std::endl;
-    std::cout << "Integral over boundary of grad f = " << I_grad_f_bord << std::endl;
+    std::cout << "Integral over boundary of grad f = " << I_grad_f_bord
+              << std::endl;
 
     // outfile_x << "Integral over domain of      x = " << I_x << std::endl;
-    // outfile_x << "Integral over domain of grad x = " << I_grad_x << std::endl;
+    // outfile_x << "Integral over domain of grad x = " << I_grad_x <<
+    // std::endl;
   }
 
   std::vector<std::string> solution_names(dim, "position");

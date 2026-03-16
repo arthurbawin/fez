@@ -64,21 +64,6 @@ public:
   virtual void create_sparsity_pattern() override;
 
   /**
-   *
-   */
-  virtual void output_results() override;
-
-  /**
-   * 
-   */
-  virtual void compute_solver_specific_errors() override;
-
-  /**
-   * Get the FESystem of the derived solver
-   */
-  virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
-
-  /**
    * Assemble the linearized Jacobian matrix at the current evaluation point
    */
   virtual void assemble_matrix() override;
@@ -92,7 +77,7 @@ public:
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchData                                          &scratchData,
     CopyData                                             &copy_data);
-  
+
   void assemble_local_matrix_finite_differences(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchData                                          &scratchData,
@@ -124,6 +109,24 @@ public:
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
+  /**
+   * 
+   */
+  virtual void compute_solver_specific_errors() override;
+
+protected:
+  virtual std::vector<std::pair<std::string, unsigned int>>
+  get_additional_variables_description() const override
+  {
+    std::vector<std::pair<std::string, unsigned int>> description;
+    description.push_back({"temperature", 1});
+    return description;
+  }
+
+  virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
+
+  virtual bool uses_hp_capabilities() const override { return false; };
+
 protected:
   std::shared_ptr<FESystem<dim>> fe;
 
@@ -131,7 +134,7 @@ protected:
   const Mapping<dim> *mapping;
 
   FEValuesExtractors::Scalar temperature_extractor;
-  ComponentMask temperature_mask;
+  ComponentMask              temperature_mask;
 
   /**
    * Exact solution when performing a convergence study with a manufactured

@@ -1,4 +1,5 @@
 #include <compare_matrix.h>
+#include <compressible_ns_solver.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_renumbering.h>
@@ -12,26 +13,27 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
-#include <compressible_ns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
 template <int dim>
-CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &param)
+CompressibleNSSolver<dim>::CompressibleNSSolver(
+  const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param)
 {
   if (param.finite_elements.use_quads)
     fe = std::make_shared<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree) ^dim, // Velocity
-      FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
-      FE_Q<dim>(param.finite_elements.temperature_degree)); // Temperature
+      FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
+      FE_Q<dim>(param.finite_elements.pressure_degree),       // Pressure
+      FE_Q<dim>(param.finite_elements.temperature_degree));   // Temperature
   else
     fe = std::make_shared<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^dim, // Velocity
-      FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
-      FE_SimplexP<dim>(param.finite_elements.temperature_degree)); // Temperature
+      FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
+      FE_SimplexP<dim>(param.finite_elements.pressure_degree),       // Pressure
+      FE_SimplexP<dim>(
+        param.finite_elements.temperature_degree)); // Temperature
 
   this->ordering = std::make_shared<ComponentOrderingCompressibleNS<dim>>();
 
@@ -39,12 +41,11 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &para
     FEValuesExtractors::Vector(this->ordering->u_lower);
   this->pressure_extractor =
     FEValuesExtractors::Scalar(this->ordering->p_lower);
-  temperature_extractor =
-    FEValuesExtractors::Scalar(this->ordering->t_lower);
+  temperature_extractor = FEValuesExtractors::Scalar(this->ordering->t_lower);
 
   this->velocity_mask = fe->component_mask(this->velocity_extractor);
   this->pressure_mask = fe->component_mask(this->pressure_extractor);
-  temperature_mask = fe->component_mask(temperature_extractor);
+  temperature_mask    = fe->component_mask(temperature_extractor);
 
   this->field_names_and_masks["velocity"] = this->velocity_mask;
   this->field_names_and_masks["pressure"] = this->pressure_mask;
@@ -68,8 +69,9 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &para
   if (param.mms_param.enable)
   {
     // Assign the manufactured solution
-    this->exact_solution = std::make_shared<CompressibleNSSolver<dim>::MMSSolution>(
-      this->time_handler.current_time, *this->ordering, param.mms);
+    this->exact_solution =
+      std::make_shared<CompressibleNSSolver<dim>::MMSSolution>(
+        this->time_handler.current_time, *this->ordering, param.mms);
 
     if (param.mms_param.force_source_term)
     {
@@ -81,11 +83,12 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &para
     {
       // Create the source term function for the given MMS and override source
       // terms
-      this->source_terms = std::make_shared<CompressibleNSSolver<dim>::MMSSourceTerm>(
-        this->time_handler.current_time,
-        *this->ordering,
-        param.physical_properties,
-        param.mms);
+      this->source_terms =
+        std::make_shared<CompressibleNSSolver<dim>::MMSSourceTerm>(
+          this->time_handler.current_time,
+          *this->ordering,
+          param.physical_properties,
+          param.mms);
     }
 
     // Create entry in error handler for temperature
@@ -101,11 +104,12 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(const ParameterReader<dim> &para
 }
 
 template <int dim>
-void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
-                                                Vector<double>   &values) const
+void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
+  const Point<dim> &p,
+  Vector<double>   &values) const
 {
   // AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
-  const double mu = physical_properties.fluids[0].dynamic_viscosity_fluid;
+  const double mu = physical_properties.fluids[0].dynamic_viscosity;
   const double k = physical_properties.fluids[0].thermal_conductivity;
   const double R = physical_properties.fluids[0].gas_constant;
   const double cp = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
@@ -342,9 +346,10 @@ void CompressibleNSSolver<dim>::assemble_matrix()
       "for parallel matrix and vectors, which are not thread safe."));
 #endif
 
-  auto assembly_ptr = this->param.nonlinear_solver.analytic_jacobian ?
-                      &CompressibleNSSolver::assemble_local_matrix :
-                      &CompressibleNSSolver::assemble_local_matrix_finite_differences;
+  auto assembly_ptr =
+    this->param.nonlinear_solver.analytic_jacobian ?
+      &CompressibleNSSolver::assemble_local_matrix :
+      &CompressibleNSSolver::assemble_local_matrix_finite_differences;
 
   // Assemble matrix (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -396,7 +401,7 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   local_matrix       = 0;
 
   const double mu =
-    this->param.physical_properties.fluids[0].dynamic_viscosity_fluid; 
+    this->param.physical_properties.fluids[0].dynamic_viscosity; 
   const double k =
     this->param.physical_properties.fluids[0].thermal_conductivity;
   const double R_gas =
@@ -694,7 +699,8 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
 }
 
 template <int dim>
-void CompressibleNSSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
+void CompressibleNSSolver<dim>::copy_local_to_global_matrix(
+  const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
@@ -791,7 +797,7 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   local_rhs       = 0;
 
   const double mu =
-    this->param.physical_properties.fluids[0].dynamic_viscosity_fluid;
+    this->param.physical_properties.fluids[0].dynamic_viscosity;
   const double k =
     this->param.physical_properties.fluids[0].thermal_conductivity;
   const double cp =
@@ -1034,7 +1040,8 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
 }
 
 template <int dim>
-void CompressibleNSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
+void CompressibleNSSolver<dim>::copy_local_to_global_rhs(
+  const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
@@ -1044,52 +1051,52 @@ void CompressibleNSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_da
                                                     this->system_rhs);
 }
 
-template <int dim>
-void CompressibleNSSolver<dim>::output_results()
-{
-  TimerOutput::Scope t(this->computing_timer, "Write outputs");
+// template <int dim>
+// void CompressibleNSSolver<dim>::output_results()
+// {
+//   TimerOutput::Scope t(this->computing_timer, "Write outputs");
 
-  if (this->param.output.write_results)
-  {
-    std::vector<std::string> solution_names(dim, "velocity");
-    solution_names.push_back("pressure");
-    solution_names.push_back("temperature");
+//   if (this->param.output.write_results)
+//   {
+//     std::vector<std::string> solution_names(dim, "velocity");
+//     solution_names.push_back("pressure");
+//     solution_names.push_back("temperature");
 
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        dim, DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
+//     std::vector<DataComponentInterpretation::DataComponentInterpretation>
+//       data_component_interpretation(
+//         dim, DataComponentInterpretation::component_is_part_of_vector);
+//     data_component_interpretation.push_back(
+//       DataComponentInterpretation::component_is_scalar);
+//     data_component_interpretation.push_back(
+//       DataComponentInterpretation::component_is_scalar);
 
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(this->dof_handler);
-    data_out.add_data_vector(this->present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-    //
-    // Partition
-    //
-    Vector<float> subdomain(this->triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = this->triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain");
+//     DataOut<dim> data_out;
+//     data_out.attach_dof_handler(this->dof_handler);
+//     data_out.add_data_vector(this->present_solution,
+//                              solution_names,
+//                              DataOut<dim>::type_dof_data,
+//                              data_component_interpretation);
+//     //
+//     // Partition
+//     //
+//     Vector<float> subdomain(this->triangulation.n_active_cells());
+//     for (unsigned int i = 0; i < subdomain.size(); ++i)
+    //   subdomain(i) = this->triangulation.locally_owned_subdomain();
+    // data_out.add_data_vector(subdomain, "subdomain");
 
-    data_out.build_patches(*mapping, 2);
+//     data_out.build_patches(*mapping, 2);
 
-    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      this->param.output.output_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
+//     const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
+//       this->param.output.output_dir,
+//       this->param.output.output_prefix,
+//       this->time_handler.current_time_iteration,
+//       this->mpi_communicator,
+//       2);
 
-    this->visualization_times_and_names.emplace_back(
-      this->time_handler.current_time, pvtu_file);
-  }
-}
+//     this->visualization_times_and_names.emplace_back(
+//       this->time_handler.current_time, pvtu_file);
+//   }
+// }
 
 template <int dim>
 void CompressibleNSSolver<dim>::compute_solver_specific_errors()

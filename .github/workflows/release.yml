@@ -1,0 +1,56 @@
+# Adapted from both the deal.II "linux.yml" and Lethe "release.yml" workflow
+# Credit goes to their respective authors
+
+name: ci-release
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  N_JOBS: 4
+  CTEST_OUTPUT_ON_FAILURE: 1
+  CTEST_PARALLEL_LEVEL: 1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      # FIXME: There are debug errors occuring for the hp solvers on master-noble
+      # master-jammy, in map_dofs_to_support_points, which works on v9.7.1.
+      image: dealii/dealii:v9.7.1-noble
+      # options: --user root
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure and build release
+        run: |
+          mkdir build && cd build
+          cmake -D CMAKE_BUILD_TYPE=Release \
+                -D ENABLE_TESTING=1 \
+                -D DEAL_II_WITH_HP_IDENTITIES_BUG=1 \
+                .. \
+                -G Ninja
+          ninja -j ${{ env.N_JOBS }}
+
+      # Run the serial tests in parallel 
+      - name: Run serial tests in release
+        run: |
+          cd build
+          ctest -V --output-on-failure -E "mpirun=[2-9]" -j ${{ env.N_JOBS }}
+
+      # Run the parallel tests one at a time 
+      - name: Run parallel tests in release
+        run: |
+          cd build
+          # incompressible_ns_lambda/steady_cylinder_3d fails on 6 procs with a MUMPS -9 error,
+          # possibly due to insufficient memory on the github runner
+          ctest -V --output-on-failure -R "mpirun=[2-9]" -E "incompressible_ns_lambda/steady_cylinder_3d" -j 1

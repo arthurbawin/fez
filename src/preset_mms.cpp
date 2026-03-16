@@ -353,7 +353,10 @@ namespace ManufacturedSolutions
         // z entries. Zero them out. Tensor is symmetric, so only need to zero
         // one non-diagonal entry.
         for (unsigned int d = 0; d < dim; ++d)
+        {
           drdxx[d][2] = 0.;
+          drdxx[2][d] = 0.;
+        }
 
     SymmetricTensor<2, dim> hess;
     for (unsigned int di = 0; di < dim; ++di)

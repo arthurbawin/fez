@@ -12,6 +12,7 @@
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
 #include <parameters.h>
+#include <types.h>
 
 #include <cmath>
 #include <limits>
@@ -353,6 +354,79 @@ template <int dim>
 void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,
                             const IndexSet             &locally_relevant_dofs,
                             std::vector<unsigned char> &dofs_to_component);
+
+/**
+ *
+ */
+inline std::vector<LA::ConstMatrixIterator>
+get_matrix_rows(const LA::ParMatrixType      &matrix,
+                const types::global_dof_index dof_index)
+{
+  std::vector<LA::ConstMatrixIterator> row_entries;
+  for (auto it = matrix.begin(dof_index); it != matrix.end(dof_index); ++it)
+    // If row is empty, iterator is equal to end
+    row_entries.push_back(it);
+  return row_entries;
+}
+
+/**
+ * Add the constraint dof_index + coupling_coefficient * coupled_entry = 0
+ * to the given matrix, where dof_index is coupled to a single other entry.
+ * This only accounts for the matrix modification of the row associated to
+ * dof_index, thus RHS(dof_index) should also be set to zero.
+ */
+inline void
+constrain_matrix_row(LA::ParMatrixType                          &matrix,
+                     const types::global_dof_index               dof_index,
+                     const std::vector<LA::ConstMatrixIterator> &row_indices,
+                     const types::global_dof_index               coupled_entry,
+                     const double coupling_coefficient)
+{
+  // Set all column entries (i,j) to zero
+  for (auto it : row_indices)
+    matrix.set(dof_index, it->column(), 0.0);
+
+  // Set (i,i) to 1
+  matrix.set(dof_index, dof_index, 1.);
+
+  // Set relevant (i,j) to prescribed coefficient
+  matrix.set(dof_index, coupled_entry, coupling_coefficient);
+}
+
+/**
+ * Same as abovem but here dof_index is coupled to a vector of entries.
+ *
+ * FIXME, maybe
+ * Important : it is assumed here that the coupling coefficients are given
+ * to represent as in deal.II the affine constraint :
+ *
+ * dof_index = sum_i coupling_coefficients_i * coupled_entry_i,
+ *
+ * and not
+ *
+ * dof_index + sum_i coupling_coefficients_i * coupled_entry_i = 0.
+ *
+ * Thus, the entry (i,j) receives -coupling_coefficients_i, contrary to the
+ * function above.
+ */
+inline void constrain_matrix_row(
+  LA::ParMatrixType                          &matrix,
+  const types::global_dof_index               dof_index,
+  const std::vector<LA::ConstMatrixIterator> &row_indices,
+  const std::vector<std::pair<types::global_dof_index, double>>
+    &coupling_coefficients)
+{
+  // Set all column entries (i,j) to zero
+  for (auto it : row_indices)
+    matrix.set(dof_index, it->column(), 0.0);
+
+  // Set (i,i) to 1
+  matrix.set(dof_index, dof_index, 1.);
+
+  // Set relevant (i,j) to prescribed coefficients
+  for (const auto &[coupled_entry, coeff] : coupling_coefficients)
+    matrix.set(dof_index, coupled_entry, -coeff);
+}
 
 
 #endif

@@ -4,13 +4,40 @@ subsection Dimension
 end
 
 subsection Timer
-  set enable timer = true
+  set enable timer = false
 end
 
 subsection Output
-  set write results    = true
+  set write vtu results    = true
   set output directory = results/
   set output prefix    = flow_cylinder
+
+  subsection skin
+    set write vtu results    = true
+    set boundary id       = 7
+    set output prefix     = skin
+    set output frequency  = 1
+  end
+end
+
+subsection Postprocessing
+  subsection forces computation
+    set enable             = true
+    set boundary id        = 7
+    set output prefix      = forces
+    set output frequency   = 1
+    set computation method = stress vector
+  end
+
+  subsection slicing
+    set enable           = true
+    set boundary id      = 7
+    set output prefix    = slices
+    set output frequency = 1
+    set along which axis = z
+    set number of slices = 10
+    set compute forces   = true
+  end
 end
 
 subsection Mesh
@@ -19,9 +46,6 @@ end
 
 subsection Time integration
   set verbosity        = verbose
-  set dt               = 0.1
-  set t_initial        = 0
-  set t_end            = 0.1
   set scheme           = stationary
 end
 
@@ -45,9 +69,11 @@ subsection Nonlinear solver
 end
 
 subsection Linear solver
-  set verbosity      = quiet
-  set method         = direct_mumps
-  set reuse          = true
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
 end
 
 subsection FiniteElements

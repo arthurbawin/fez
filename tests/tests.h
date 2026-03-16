@@ -21,9 +21,8 @@
 // Common includes for tests.
 //
 
-#include <deal.II/base/config.h>
-
 #include <deal.II/base/bounding_box.h>
+#include <deal.II/base/config.h>
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/job_identifier.h>
 #include <deal.II/base/logstream.h>
@@ -33,7 +32,6 @@
 #include <deal.II/base/point.h>
 #include <deal.II/base/thread_management.h>
 #include <deal.II/base/utilities.h>
-
 #include <deal.II/grid/cell_data.h>
 
 #include <cmath>
@@ -86,40 +84,41 @@ using namespace dealii;
  * Go through the input stream @p in and filter out binary data for the key @p key .
  * The filtered stream is returned in @p out.
  */
-void
-filter_out_xml_key(std::istream &in, const std::string &key, std::ostream &out)
+void filter_out_xml_key(std::istream      &in,
+                        const std::string &key,
+                        std::ostream      &out)
 {
   std::string       line;
   bool              found   = false;
   const std::string opening = "<" + key;
   const std::string closing = "</" + key;
   while (std::getline(in, line))
+  {
+    if (line.find(opening) != std::string::npos &&
+        line.find("binary") != std::string::npos)
     {
-      if (line.find(opening) != std::string::npos &&
-          line.find("binary") != std::string::npos)
-        {
-          found = true;
-          // remove everything after ">" but keep things after "</"
-          const auto pos = line.find(closing);
-          if (pos != std::string::npos)
-            {
-              line  = line.substr(0, line.find(">", 0) + 1) + line.substr(pos);
-              found = false;
-            }
-          else
-            line = line.substr(0, line.find(">", 0) + 1);
-          out << line << std::endl;
-        }
-      else if (line.find(closing) != std::string::npos)
-        {
-          found = false;
-          // remove everything before "<"
-          line = line.substr(line.find("<", 0));
-          out << line << std::endl;
-        }
-      else if (!found)
-        out << line << std::endl;
+      found = true;
+      // remove everything after ">" but keep things after "</"
+      const auto pos = line.find(closing);
+      if (pos != std::string::npos)
+      {
+        line  = line.substr(0, line.find(">", 0) + 1) + line.substr(pos);
+        found = false;
+      }
+      else
+        line = line.substr(0, line.find(">", 0) + 1);
+      out << line << std::endl;
     }
+    else if (line.find(closing) != std::string::npos)
+    {
+      found = false;
+      // remove everything before "<"
+      line = line.substr(line.find("<", 0));
+      out << line << std::endl;
+    }
+    else if (!found)
+      out << line << std::endl;
+  }
 }
 
 
@@ -143,8 +142,7 @@ get_real_assert_zero_imag(const PETScWrappers::internal::VectorReference &a)
  * part is zero.
  */
 template <typename number>
-number
-get_real_assert_zero_imag(const std::complex<number> &a)
+number get_real_assert_zero_imag(const std::complex<number> &a)
 {
   Assert(a.imag() == 0.0, ExcInternalError());
   return a.real();
@@ -156,8 +154,7 @@ get_real_assert_zero_imag(const std::complex<number> &a)
  * part is zero.
  */
 template <typename number>
-number
-get_real_assert_zero_imag(const number &a)
+number get_real_assert_zero_imag(const number &a)
 {
   return a;
 }
@@ -188,8 +185,7 @@ namespace Testing
    * 3. $min<=a+b<=max$: No overflow.
    */
   template <typename Number>
-  Number
-  nonoverflow_add(Number a, Number b)
+  Number nonoverflow_add(Number a, Number b)
   {
     constexpr Number max = std::numeric_limits<Number>::max();
     constexpr Number min = std::numeric_limits<Number>::min();
@@ -200,48 +196,47 @@ namespace Testing
     return a + b;
   }
 
-  int
-  rand(const bool reseed = false, const int seed = 1)
+  int rand(const bool reseed = false, const int seed = 1)
   {
     static int  r[32];
     static int  k;
     static bool inited = false;
 
     if (!inited || reseed)
+    {
+      // srand treats a seed 0 as 1 for some reason
+      r[0]          = (seed == 0) ? 1 : seed;
+      long int word = r[0];
+
+      for (int i = 1; i < 31; ++i)
       {
-        // srand treats a seed 0 as 1 for some reason
-        r[0]          = (seed == 0) ? 1 : seed;
-        long int word = r[0];
-
-        for (int i = 1; i < 31; ++i)
-          {
-            // This does:
-            //   r[i] = (16807 * r[i-1]) % 2147483647;
-            // but avoids overflowing 31 bits.
-            const long int hi = word / 127773;
-            const long int lo = word % 127773;
-            word              = 16807 * lo - 2836 * hi;
-            if (word < 0)
-              word += 2147483647;
-            r[i] = word;
-          }
-        k = 31;
-        for (int i = 31; i < 34; ++i)
-          {
-            r[k % 32] = r[(k + 32 - 31) % 32];
-            k         = (k + 1) % 32;
-          }
-
-        for (int i = 34; i < 344; ++i)
-          {
-            r[k % 32] =
-              nonoverflow_add(r[(k + 32 - 31) % 32], r[(k + 32 - 3) % 32]);
-            k = (k + 1) % 32;
-          }
-        inited = true;
-        if (reseed == true)
-          return 0; // do not generate new no
+        // This does:
+        //   r[i] = (16807 * r[i-1]) % 2147483647;
+        // but avoids overflowing 31 bits.
+        const long int hi = word / 127773;
+        const long int lo = word % 127773;
+        word              = 16807 * lo - 2836 * hi;
+        if (word < 0)
+          word += 2147483647;
+        r[i] = word;
       }
+      k = 31;
+      for (int i = 31; i < 34; ++i)
+      {
+        r[k % 32] = r[(k + 32 - 31) % 32];
+        k         = (k + 1) % 32;
+      }
+
+      for (int i = 34; i < 344; ++i)
+      {
+        r[k % 32] =
+          nonoverflow_add(r[(k + 32 - 31) % 32], r[(k + 32 - 3) % 32]);
+        k = (k + 1) % 32;
+      }
+      inited = true;
+      if (reseed == true)
+        return 0; // do not generate new no
+    }
 
     r[k % 32] = nonoverflow_add(r[(k + 32 - 31) % 32], r[(k + 32 - 3) % 32]);
     int ret   = r[k % 32];
@@ -250,8 +245,7 @@ namespace Testing
   }
 
   // reseed our random number generator
-  void
-  srand(const int seed)
+  void srand(const int seed)
   {
     rand(true, seed);
   }
@@ -262,8 +256,8 @@ namespace Testing
  * Get a uniformly distributed random value between min and max
  */
 template <typename T = double>
-T
-random_value(const T &min = static_cast<T>(0), const T &max = static_cast<T>(1))
+T random_value(const T &min = static_cast<T>(0),
+               const T &max = static_cast<T>(1))
 {
   return min + (max - min) *
                  (static_cast<T>(Testing::rand()) / static_cast<T>(RAND_MAX));
@@ -275,8 +269,7 @@ random_value(const T &min = static_cast<T>(0), const T &max = static_cast<T>(1))
  * between min and max.
  */
 template <int dim>
-inline Point<dim>
-random_point(const double &min = 0.0, const double &max = 1.0)
+inline Point<dim> random_point(const double &min = 0.0, const double &max = 1.0)
 {
   Assert(max >= min, ExcMessage("Make sure max>=min"));
   Point<dim> p;
@@ -291,8 +284,8 @@ random_point(const double &min = 0.0, const double &max = 1.0)
  * between min and max.
  */
 template <int dim>
-inline BoundingBox<dim>
-random_box(const double &min = 0.0, const double &max = 1.0)
+inline BoundingBox<dim> random_box(const double &min = 0.0,
+                                   const double &max = 1.0)
 {
   Assert(max >= min, ExcMessage("Make sure max>=min"));
   std::vector<Point<dim>> p = {random_point<dim>(min, max),
@@ -304,8 +297,7 @@ random_box(const double &min = 0.0, const double &max = 1.0)
 /**
  * Given the name of a file, copy it to deallog and then delete it.
  */
-void
-cat_file(const char *filename)
+void cat_file(const char *filename)
 {
   {
     std::ifstream in(filename);
@@ -325,8 +317,7 @@ cat_file(const char *filename)
  * This function does just that with the file given. All streams writing
  * to this should be closed when calling this function.
  */
-void
-sort_file_contents(const std::string &filename)
+void sort_file_contents(const std::string &filename)
 {
   int error = std::system(
     (std::string("LC_ALL=C sort ") + filename + " -o " + filename).c_str());
@@ -338,8 +329,7 @@ sort_file_contents(const std::string &filename)
  * Simple ADLER32 checksum for a range of chars.
  */
 template <class IT>
-unsigned int
-checksum(const IT &begin, const IT &end)
+unsigned int checksum(const IT &begin, const IT &end)
 {
   AssertThrow(sizeof(unsigned int) == 4, ExcInternalError());
   AssertThrow(sizeof(*begin) == 1, ExcInternalError());
@@ -350,11 +340,11 @@ checksum(const IT &begin, const IT &end)
   IT it = begin;
 
   while (it != end)
-    {
-      a = (a + static_cast<unsigned char>(*it)) % 65521;
-      b = (a + b) % 65521;
-      ++it;
-    }
+  {
+    a = (a + static_cast<unsigned char>(*it)) % 65521;
+    b = (a + b) % 65521;
+    ++it;
+  }
 
   return (b << 16) | a;
 }
@@ -367,8 +357,7 @@ checksum(const IT &begin, const IT &end)
  * Also, while GCC prepends the name by "virtual " if the function is virtual,
  * Intel's ICC does not do that, so filter that out as well.
  */
-std::string
-unify_pretty_function(const std::string &text)
+std::string unify_pretty_function(const std::string &text)
 {
   std::string t = text;
   t             = Utilities::replace_in_string(t, " &", " & ");
@@ -388,30 +377,30 @@ unify_pretty_function(const std::string &text)
  * MIN_ALLOWED, MAX_ALLOWED is the inclusive range of allowed iteration
  * steps.
  */
-#define check_solver_within_range(SolverType_COMMAND,                \
-                                  CONTROL_COMMAND,                   \
-                                  MIN_ALLOWED,                       \
-                                  MAX_ALLOWED)                       \
-  {                                                                  \
-    const unsigned int previous_depth = deallog.depth_file(0);       \
-    try                                                              \
-      {                                                              \
-        SolverType_COMMAND;                                          \
-      }                                                              \
-    catch (SolverControl::NoConvergence & exc)                       \
-      {}                                                             \
-    deallog.depth_file(previous_depth);                              \
-    const unsigned int steps = CONTROL_COMMAND;                      \
-    if (steps >= MIN_ALLOWED && steps <= MAX_ALLOWED)                \
-      {                                                              \
-        deallog << "Solver stopped within " << MIN_ALLOWED << " - "  \
-                << MAX_ALLOWED << " iterations" << std::endl;        \
-      }                                                              \
-    else                                                             \
-      {                                                              \
-        deallog << "Solver stopped after " << steps << " iterations" \
-                << std::endl;                                        \
-      }                                                              \
+#define check_solver_within_range(SolverType_COMMAND,              \
+                                  CONTROL_COMMAND,                 \
+                                  MIN_ALLOWED,                     \
+                                  MAX_ALLOWED)                     \
+  {                                                                \
+    const unsigned int previous_depth = deallog.depth_file(0);     \
+    try                                                            \
+    {                                                              \
+      SolverType_COMMAND;                                          \
+    }                                                              \
+    catch (SolverControl::NoConvergence & exc)                     \
+    {}                                                             \
+    deallog.depth_file(previous_depth);                            \
+    const unsigned int steps = CONTROL_COMMAND;                    \
+    if (steps >= MIN_ALLOWED && steps <= MAX_ALLOWED)              \
+    {                                                              \
+      deallog << "Solver stopped within " << MIN_ALLOWED << " - "  \
+              << MAX_ALLOWED << " iterations" << std::endl;        \
+    }                                                              \
+    else                                                           \
+    {                                                              \
+      deallog << "Solver stopped after " << steps << " iterations" \
+              << std::endl;                                        \
+    }                                                              \
   }
 
 
@@ -422,8 +411,7 @@ unify_pretty_function(const std::string &text)
  * have set for numdiff (that is appropriate for double variables).
  */
 template <typename Number>
-Number
-filter_out_small_numbers(const Number number, const double tolerance)
+Number filter_out_small_numbers(const Number number, const double tolerance)
 {
   if (std::abs(number) < tolerance)
     return Number();
@@ -437,8 +425,7 @@ filter_out_small_numbers(const Number number, const double tolerance)
  * vector to deallog:
  */
 template <class T>
-LogStream &
-operator<<(LogStream &out, const std::vector<T> &v)
+LogStream &operator<<(LogStream &out, const std::vector<T> &v)
 {
   for (std::size_t i = 0; i < v.size(); ++i)
     out << v[i] << (i == v.size() - 1 ? "" : " ");
@@ -458,21 +445,20 @@ operator<<(LogStream &out, const std::vector<T> &v)
  * the test. The number defaults to 3 but can be overridden by the
  * environment variable TEST_N_THREADS.
  */
-inline unsigned int
-testing_max_num_threads()
+inline unsigned int testing_max_num_threads()
 {
   const int default_n_threads = 3;
 
   if (const char *penv = std::getenv("TEST_N_THREADS"))
     try
-      {
-        const int n_threads = Utilities::string_to_int(std::string(penv));
-        return n_threads > 0 ? n_threads : default_n_threads;
-      }
+    {
+      const int n_threads = Utilities::string_to_int(std::string(penv));
+      return n_threads > 0 ? n_threads : default_n_threads;
+    }
     catch (...)
-      {
-        return default_n_threads;
-      }
+    {
+      return default_n_threads;
+    }
   else
     return default_n_threads;
 }
@@ -510,8 +496,7 @@ struct LimitConcurrency
 
 struct PETScReferenceCountContext
 {
-  static PetscErrorCode
-  construct(PetscLogHandler handler)
+  static PetscErrorCode construct(PetscLogHandler handler)
   {
     handler->data               = new PETScReferenceCountContext();
     handler->ops->destroy       = destruct;
@@ -522,16 +507,15 @@ struct PETScReferenceCountContext
   }
 
 
-  static PetscErrorCode
-  destruct(PetscLogHandler handler)
+  static PetscErrorCode destruct(PetscLogHandler handler)
   {
     delete reinterpret_cast<PETScReferenceCountContext *>(handler->data);
     return PETSC_SUCCESS;
   }
 
 
-  static PetscErrorCode
-  log_object_constructor(PetscLogHandler handler, PetscObject obj)
+  static PetscErrorCode log_object_constructor(PetscLogHandler handler,
+                                               PetscObject     obj)
   {
     const char    *classname = nullptr;
     PetscErrorCode ierr      = PetscObjectGetClassName(obj, &classname);
@@ -543,8 +527,8 @@ struct PETScReferenceCountContext
   }
 
 
-  static PetscErrorCode
-  log_object_destructor(PetscLogHandler handler, PetscObject obj)
+  static PetscErrorCode log_object_destructor(PetscLogHandler handler,
+                                              PetscObject     obj)
   {
     const char    *classname = nullptr;
     PetscErrorCode ierr      = PetscObjectGetClassName(obj, &classname);
@@ -578,10 +562,9 @@ std::ofstream deallogfile;
  * switch off screen output. If screen output is desired, provide the
  * optional first argument as 'true'.
  */
-void
-initlog(const bool                    console = false,
-        const std::ios_base::fmtflags flags   = std::ios::showpoint |
-                                              std::ios::left)
+void initlog(const bool                    console = false,
+             const std::ios_base::fmtflags flags   = std::ios::showpoint |
+                                                   std::ios::left)
 {
   deallogname = "output";
   deallogfile.open(deallogname);
@@ -601,20 +584,19 @@ initlog(const bool                    console = false,
  * switch off screen output. If screen output is desired, provide the
  * optional first argument as 'true'.
  */
-inline void
-mpi_initlog(const bool                    console = false,
-            const std::ios_base::fmtflags flags   = std::ios::showpoint |
-                                                  std::ios::left)
+inline void mpi_initlog(
+  const bool                    console = false,
+  const std::ios_base::fmtflags flags   = std::ios::showpoint | std::ios::left)
 {
 #ifdef DEAL_II_WITH_MPI
   unsigned int myid = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
   if (myid == 0)
-    {
-      deallogname = "output";
-      deallogfile.open(deallogname.c_str());
-      deallog.attach(deallogfile, true, flags);
-      deallog.depth_console(console ? 10 : 0);
-    }
+  {
+    deallogname = "output";
+    deallogfile.open(deallogname.c_str());
+    deallog.attach(deallogfile, true, flags);
+    deallog.depth_console(console ? 10 : 0);
+  }
 #else
   (void)console;
   (void)flags;
@@ -642,19 +624,19 @@ struct MPILogInitAll
     constexpr unsigned int myid = 0;
 #endif
     if (myid == 0)
+    {
+      if (!deallog.has_file())
       {
-        if (!deallog.has_file())
-          {
-            deallogfile.open("output");
-            deallog.attach(deallogfile, true, flags);
-          }
-      }
-    else
-      {
-        deallogname = "output" + Utilities::int_to_string(myid);
-        deallogfile.open(deallogname.c_str());
+        deallogfile.open("output");
         deallog.attach(deallogfile, true, flags);
       }
+    }
+    else
+    {
+      deallogname = "output" + Utilities::int_to_string(myid);
+      deallogfile.open(deallogname.c_str());
+      deallog.attach(deallogfile, true, flags);
+    }
 
     deallog.depth_console(console ? 10 : 0);
 
@@ -684,10 +666,10 @@ struct MPILogInitAll
     const unsigned int nproc = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
 
     if (myid != 0)
-      {
-        deallog.detach();
-        deallogfile.close();
-      }
+    {
+      deallog.detach();
+      deallogfile.close();
+    }
 
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -700,13 +682,13 @@ struct MPILogInitAll
       reinterpret_cast<PETScReferenceCountContext *>(petsc_log->data);
     for (const auto &pair : context->ctor_dtor_map)
       if (pair.second.first != pair.second.second)
-        {
-          leaks = true;
-          std::cerr << "ERROR: PETSc objects leaking of type '" << pair.first
-                    << "'"
-                    << " with " << pair.second.first << " creations and only "
-                    << pair.second.second << " destructions." << std::endl;
-        }
+      {
+        leaks = true;
+        std::cerr << "ERROR: PETSc objects leaking of type '" << pair.first
+                  << "'"
+                  << " with " << pair.second.first << " creations and only "
+                  << pair.second.second << " destructions." << std::endl;
+      }
     ierr = PetscLogHandlerDestroy(&petsc_log);
     AssertThrow(ierr == 0, ExcPETScError(ierr));
 #    else
@@ -725,21 +707,20 @@ struct MPILogInitAll
            dealii::ExcInternalError());
 
     for (int i = 0; i < stageLog->stageInfo->classLog->numClasses; ++i)
+    {
+      if (stageLog->stageInfo->classLog->classInfo[i].destructions !=
+          stageLog->stageInfo->classLog->classInfo[i].creations)
       {
-        if (stageLog->stageInfo->classLog->classInfo[i].destructions !=
-            stageLog->stageInfo->classLog->classInfo[i].creations)
-          {
-            leaks = true;
-            std::cerr
-              << "ERROR: PETSc objects leaking of type '"
-              << stageLog->classLog->classInfo[i].name << "'"
-              << " with "
-              << stageLog->stageInfo->classLog->classInfo[i].creations
-              << " creations and only "
-              << stageLog->stageInfo->classLog->classInfo[i].destructions
-              << " destructions." << std::endl;
-          }
+        leaks = true;
+        std::cerr << "ERROR: PETSc objects leaking of type '"
+                  << stageLog->classLog->classInfo[i].name << "'"
+                  << " with "
+                  << stageLog->stageInfo->classLog->classInfo[i].creations
+                  << " creations and only "
+                  << stageLog->stageInfo->classLog->classInfo[i].destructions
+                  << " destructions." << std::endl;
       }
+    }
 #    endif
 
     // The test should fail if there are PETSc leaks, so abort at this point and
@@ -750,13 +731,13 @@ struct MPILogInitAll
 
     MPI_Barrier(MPI_COMM_WORLD);
     if (myid == 0)
+    {
+      for (unsigned int i = 1; i < nproc; ++i)
       {
-        for (unsigned int i = 1; i < nproc; ++i)
-          {
-            std::string filename = "output" + Utilities::int_to_string(i);
-            cat_file(filename.c_str());
-          }
+        std::string filename = "output" + Utilities::int_to_string(i);
+        cat_file(filename.c_str());
       }
+    }
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
   }
@@ -786,11 +767,10 @@ namespace deal_II_exceptions
 DEAL_II_NAMESPACE_CLOSE
 
 
-void
-new_tbb_assertion_handler(const char *file,
-                          int         line,
-                          const char *expr,
-                          const char *comment)
+void new_tbb_assertion_handler(const char *file,
+                               int         line,
+                               const char *expr,
+                               const char *comment)
 {
   // Print out the original assertion message
   std::cerr << "TBB assertion:" << std::endl;

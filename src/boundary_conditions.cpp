@@ -1,5 +1,8 @@
 
 #include <boundary_conditions.h>
+#include <deal.II/base/exceptions.h>
+#include <deal.II/base/utilities.h>
+#include <deal.II/fe/mapping.h>
 #include <deal.II/grid/grid_tools_geometry.h>
 
 namespace BoundaryConditions
@@ -28,12 +31,13 @@ namespace BoundaryConditions
   void FluidBC<dim>::declare_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry("type",
-                      "none",
-                      Patterns::Selection(
-                        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
-                        "velocity_mms|velocity_flux_mms|pressure_mms|open_mms"),
-                      "Type of fluid boundary condition");
+    prm.declare_entry(
+      "type",
+      "none",
+      Patterns::Selection(
+        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
+        "velocity_mms|velocity_flux_mms|pressure_mms|open_mms|no_tangential_flow"),
+      "Type of fluid boundary condition");
 
     prm.declare_entry("impose velocity",
                       "true",
@@ -61,6 +65,30 @@ namespace BoundaryConditions
     prm.enter_subsection("p");
     p->declare_parameters(prm);
     prm.leave_subsection();
+    
+    prm.declare_entry(
+      "weak no slip tolerance",
+      "1e-12",
+      Patterns::Double(),
+      "Throw an error if the velocity constraint on a no-slip boundary "
+      "enforced with a Lagrange multiplier exceeds this tolerance");
+
+    prm.enter_subsection("rigid body rotation");
+    {
+      prm.declare_entry("enable",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable/disable rigid-body rotation on this boundary");
+      const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
+      prm.declare_entry("center of rotation",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Center of rotation");
+      prm.enter_subsection("angular velocity");
+      angular_velocity->declare_parameters(prm, (dim == 2) ? 1 : dim);
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
   }
 
   template <int dim>
@@ -72,23 +100,25 @@ namespace BoundaryConditions
     const std::string parsed_type = prm.get("type");
     if (parsed_type == "input_function")
       type = Type::input_function;
-    if (parsed_type == "outflow")
+    else if (parsed_type == "outflow")
       type = Type::outflow;
-    if (parsed_type == "no_slip")
+    else if (parsed_type == "no_tangential_flow")
+      type = Type::no_tangential_flow;
+    else if (parsed_type == "no_slip")
       type = Type::no_slip;
-    if (parsed_type == "weak_no_slip")
+    else if (parsed_type == "weak_no_slip")
       type = Type::weak_no_slip;
-    if (parsed_type == "slip")
+    else if (parsed_type == "slip")
       type = Type::slip;
-    if (parsed_type == "velocity_mms")
+    else if (parsed_type == "velocity_mms")
       type = Type::velocity_mms;
-    if (parsed_type == "velocity_flux_mms")
+    else if (parsed_type == "velocity_flux_mms")
       type = Type::velocity_flux_mms;
-    if (parsed_type == "pressure_mms")
+    else if (parsed_type == "pressure_mms")
       type = Type::pressure_mms;
-    if (parsed_type == "open_mms")
+    else if (parsed_type == "open_mms")
       type = Type::open_mms;
-    if (parsed_type == "none")
+    else if (parsed_type == "none")
       throw std::runtime_error(
         "Fluid boundary condition for boundary " + std::to_string(this->id) +
         " is set to \"none\".\n"
@@ -115,7 +145,18 @@ namespace BoundaryConditions
     p->parse_parameters(prm);
     prm.leave_subsection();
 
-    // std::cout<<p->value(Point<dim>())<<std::endl;
+    weak_no_slip_tolerance = prm.get_double("weak no slip tolerance");
+
+    prm.enter_subsection("rigid body rotation");
+    {
+      enable_rigid_body_rotation = prm.get_bool("enable");
+      center_of_rotation =
+        parse_rank_1_tensor<dim>(prm.get("center of rotation"));
+      prm.enter_subsection("angular velocity");
+      angular_velocity->parse_parameters(prm);
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
   }
 
   template <int dim>
@@ -128,28 +169,42 @@ namespace BoundaryConditions
                         "none|fixed|coupled_to_fluid|no_flux|input_function|"
                         "position_mms|position_flux_mms"),
                       "Type of pseudosolid boundary condition");
+
+    // Input component functions, same pattern as FluidBC u/v/w
+    prm.enter_subsection("x");
+    x->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("y");
+    y->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("z");
+    z->declare_parameters(prm);
+    prm.leave_subsection();
   }
 
   template <int dim>
   void PseudosolidBC<dim>::read_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::read_parameters(prm);
-    physics_type                  = PhysicsType::pseudosolid;
-    physics_str                   = "pseudosolid";
+    physics_type = PhysicsType::pseudosolid;
+    physics_str  = "pseudosolid";
+
     const std::string parsed_type = prm.get("type");
     if (parsed_type == "fixed")
       type = Type::fixed;
-    if (parsed_type == "coupled_to_fluid")
+    else if (parsed_type == "coupled_to_fluid")
       type = Type::coupled_to_fluid;
-    if (parsed_type == "no_flux")
+    else if (parsed_type == "no_flux")
       type = Type::no_flux;
-    if (parsed_type == "input_function")
+    else if (parsed_type == "input_function")
       type = Type::input_function;
-    if (parsed_type == "position_mms")
+    else if (parsed_type == "position_mms")
       type = Type::position_mms;
-    if (parsed_type == "position_flux_mms")
+    else if (parsed_type == "position_flux_mms")
       type = Type::position_flux_mms;
-    if (parsed_type == "none")
+    else if (parsed_type == "none")
       throw std::runtime_error(
         "Pseudosolid boundary condition for boundary " +
         std::to_string(this->id) +
@@ -157,6 +212,18 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed pseudosolid boundary conditions is smaller than "
         "the specified \"number\" field.");
+
+    prm.enter_subsection("x");
+    x->parse_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("y");
+    y->parse_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("z");
+    z->parse_parameters(prm);
+    prm.leave_subsection();
   }
 
   template <int dim>
@@ -255,6 +322,7 @@ namespace BoundaryConditions
       dof_handler.get_fe().component_mask(velocity);
 
     std::set<types::boundary_id> no_flux_boundaries;
+    std::set<types::boundary_id> no_tangential_flow_boundaries;
     std::set<types::boundary_id> velocity_normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *>
                                  velocity_normal_flux_functions;
@@ -289,7 +357,7 @@ namespace BoundaryConditions
             mapping,
             dof_handler,
             bc.id,
-            ComponentwiseFlowVelocity<dim>(
+            VectorFunctionFromComponents<dim>(
               u_lower, n_components, bc.u, bc.v, bc.w),
             constraints,
             velocity_mask);
@@ -314,6 +382,8 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);
+      if (bc.type == BoundaryConditions::Type::no_tangential_flow)
+        no_tangential_flow_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
         // Enforce both the normal and tangential flux to be well-posed
@@ -326,15 +396,29 @@ namespace BoundaryConditions
 
     // Add no velocity flux constraints
     VectorTools::compute_no_normal_flux_constraints(
-      dof_handler, u_lower, no_flux_boundaries, constraints, mapping);
-    // Add nonzero normal flux velocity constraints
+      dof_handler,
+      u_lower,
+      no_flux_boundaries,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
+    VectorTools::compute_normal_flux_constraints(
+      dof_handler,
+      u_lower,
+      no_tangential_flow_boundaries,
+      constraints,
+      mapping,
+      /*use_manifold_for_normal=*/false);
+
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,
       u_lower,
       velocity_normal_flux_boundaries,
       velocity_normal_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
+
     // Add nonzero tangential flux velocity constraints
     VectorTools::compute_nonzero_tangential_flux_constraints(
       dof_handler,
@@ -342,7 +426,8 @@ namespace BoundaryConditions
       velocity_tangential_flux_boundaries,
       velocity_tangential_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>
@@ -433,17 +518,18 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
-        // TODO: Prescribed but non-fixed mesh position?
-        if (!homogeneous)
-          DEAL_II_NOT_IMPLEMENTED();
-
-        VectorTools::interpolate_boundary_values(mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 constraints,
-                                                 position_mask);
+        if (homogeneous)
+          VectorTools::interpolate_boundary_values(
+            mapping, dof_handler, bc.id, zero_fun, constraints, position_mask);
+        else
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            VectorFunctionFromComponents<dim>(
+              x_lower, n_components, bc.x, bc.y, bc.z),
+            constraints,
+            position_mask);
       }
       if (bc.type == BoundaryConditions::Type::position_mms)
       {
@@ -472,7 +558,8 @@ namespace BoundaryConditions
       normal_flux_boundaries,
       position_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
 
     // Add position nonzero flux constraints from manufactured solution
     // (tangential movement)
@@ -482,7 +569,8 @@ namespace BoundaryConditions
       mms_normal_flux_boundaries,
       mms_position_flux_functions,
       constraints,
-      mapping);
+      mapping,
+      /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>
@@ -624,7 +712,8 @@ namespace BoundaryConditions
       fill_dofs_to_component(dof_handler,
                              locally_relevant_dofs,
                              dofs_to_component);
-    AssertDimension(dofs_to_component.size(), locally_relevant_dofs.n_elements());
+    AssertDimension(dofs_to_component.size(),
+                    locally_relevant_dofs.n_elements());
     for (const auto dof : gathered_dofs_flattened)
       dofs_to_component[locally_relevant_dofs.index_within_set(dof)] = p_lower;
 

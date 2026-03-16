@@ -1,4 +1,5 @@
 
+#include <assembly/lagrange_multiplier.h>
 #include <boundary_conditions.h>
 #include <compare_matrix.h>
 #include <components_ordering.h>
@@ -19,9 +20,11 @@
 #include <errors.h>
 #include <fe_simplex_p_with_3d_hp.h>
 #include <incompressible_ns_solver_lambda.h>
+#include <lagrange_multiplier_tools.h>
 #include <linear_solver.h>
 #include <mesh.h>
 #include <mesh_and_dof_tools.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
@@ -273,11 +276,12 @@ void NSSolverLambda<dim>::setup_dofs()
   // Initialize dof handler
   this->dof_handler.distribute_dofs(*fe);
 
-  // Optional: Plot active fe index after ghosts were updated in distribute_dofs
-  // write_partition_gmsh_with_active_fe_index(this->dof_handler, this->param);
-
-  this->pcout << "Number of degrees of freedom: " << this->dof_handler.n_dofs()
-              << std::endl;
+  // The number of dofs in 3d changes if the hp line identities are correctly
+  // applied. Do not print the number of dofs in 3d, as they will differ between
+  // the docker and the fixed version and the tests will fail.
+  if (dim == 2)
+    this->pcout << "Number of degrees of freedom: "
+                << this->dof_handler.n_dofs() << std::endl;
 
   this->locally_owned_dofs = this->dof_handler.locally_owned_dofs();
   this->locally_relevant_dofs =
@@ -313,7 +317,10 @@ void NSSolverLambda<dim>::setup_dofs()
     {
       handler->add_reference_data("n_elm",
                                   this->triangulation.n_global_active_cells());
-      handler->add_reference_data("n_dof", this->dof_handler.n_dofs());
+      // FIXME: Remove the dofs from the convergence table in 3d as long as the
+      // hp bug is in deal.II, to allow tests with the docker
+      if (dim == 2)
+        handler->add_reference_data("n_dof", this->dof_handler.n_dofs());
       handler->add_time_step(this->time_handler.initial_dt);
     }
 }
@@ -416,6 +423,7 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
   }
 }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
 template <int dim>
 void NSSolverLambda<dim>::create_hp_line_dof_identities()
 {
@@ -539,6 +547,7 @@ void NSSolverLambda<dim>::create_hp_line_dof_identities()
     }
   }
 }
+#endif
 
 template <int dim>
 void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
@@ -575,18 +584,17 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
 
   if constexpr (running_in_debug_mode())
   {
-    // Check consistency of constraints for RELEVANT (not active) dofs before
-    // removing
+    // Check constraints consistency before removing
     {
       const bool consistent = constraints.is_consistent_in_parallel(
         Utilities::MPI::all_gather(this->mpi_communicator,
                                    this->locally_owned_dofs),
-        this->locally_relevant_dofs,
-        // DoFTools::extract_locally_active_dofs(this->dof_handler),
+        // this->locally_relevant_dofs,
+        DoFTools::extract_locally_active_dofs(this->dof_handler),
         this->mpi_communicator,
         true);
-      Assert(consistent,
-             ExcMessage("Constraints are not consistent before removing"));
+      AssertThrow(consistent,
+                  ExcMessage("Constraints are not consistent before removing"));
     }
   }
 
@@ -620,18 +628,17 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
 
   if constexpr (running_in_debug_mode())
   {
-    // Check consistency of constraints for RELEVANT (not active) dofs after
-    // removing
+    // Check constraints consistency after removing
     {
       const bool consistent = constraints.is_consistent_in_parallel(
         Utilities::MPI::all_gather(this->mpi_communicator,
                                    this->locally_owned_dofs),
-        this->locally_relevant_dofs,
-        // DoFTools::extract_locally_active_dofs(this->dof_handler),
+        // this->locally_relevant_dofs,
+        DoFTools::extract_locally_active_dofs(this->dof_handler),
         this->mpi_communicator,
         true);
-      Assert(consistent,
-             ExcMessage("Constraints are not consistent after removing"));
+      AssertThrow(consistent,
+                  ExcMessage("Constraints are not consistent after removing"));
     }
 
     // Check that boundary dofs were correctly removed
@@ -649,6 +656,7 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
   }
 }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
 template <int dim>
 void NSSolverLambda<dim>::add_hp_identities_constraints(
   AffineConstraints<double> &constraints) const
@@ -672,6 +680,7 @@ void NSSolverLambda<dim>::add_hp_identities_constraints(
     hp_constraints,
     AffineConstraints<double>::MergeConflictBehavior::right_object_wins);
 }
+#endif
 
 template <int dim>
 void NSSolverLambda<dim>::create_solver_specific_zero_constraints()
@@ -694,10 +703,12 @@ void NSSolverLambda<dim>::create_solver_specific_zero_constraints()
       remove_cylinder_velocity_constraints(this->zero_constraints);
     }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
   add_hp_identities_constraints(this->zero_constraints);
+#endif
 }
 
 template <int dim>
@@ -717,10 +728,12 @@ void NSSolverLambda<dim>::create_solver_specific_nonzero_constraints()
       remove_cylinder_velocity_constraints(this->nonzero_constraints);
     }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
   add_hp_identities_constraints(this->nonzero_constraints);
+#endif
 }
 
 template <int dim>
@@ -794,7 +807,7 @@ void NSSolverLambda<dim>::assemble_matrix()
 template <int dim>
 void NSSolverLambda<dim>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData                                          &scratchData,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -802,11 +815,11 @@ void NSSolverLambda<dim>::assemble_local_matrix(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(cell,
-                     this->evaluation_point,
-                     this->previous_solutions,
-                     this->source_terms,
-                     this->exact_solution);
+  scratch_data.reinit(cell,
+                      this->evaluation_point,
+                      this->previous_solutions,
+                      this->source_terms,
+                      this->exact_solution);
 
   const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
@@ -820,30 +833,30 @@ void NSSolverLambda<dim>::assemble_local_matrix(
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
-    const double JxW_moving = scratchData.JxW_moving[q];
+    const double JxW_moving = scratch_data.JxW_moving[q];
 
-    const auto &phi_u          = scratchData.phi_u[q];
-    const auto &grad_phi_u     = scratchData.grad_phi_u[q];
-    const auto &sym_grad_phi_u = scratchData.sym_grad_phi_u[q];
-    const auto &div_phi_u      = scratchData.div_phi_u[q];
-    const auto &phi_p          = scratchData.phi_p[q];
+    const auto &phi_u          = scratch_data.phi_u[q];
+    const auto &grad_phi_u     = scratch_data.grad_phi_u[q];
+    const auto &sym_grad_phi_u = scratch_data.sym_grad_phi_u[q];
+    const auto &div_phi_u      = scratch_data.div_phi_u[q];
+    const auto &phi_p          = scratch_data.phi_p[q];
 
     const auto &present_velocity_values =
-      scratchData.present_velocity_values[q];
+      scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
-      scratchData.present_velocity_gradients[q];
+      scratch_data.present_velocity_gradients[q];
 
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      const unsigned int comp_i = scratchData.components[i];
+      const unsigned int comp_i = scratch_data.components[i];
       const bool         i_is_u = this->ordering->is_velocity(comp_i);
       const bool         i_is_p = this->ordering->is_pressure(comp_i);
 
-      for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
+      for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
-        const unsigned int comp_j = scratchData.components[j];
+        const unsigned int comp_j = scratch_data.components[j];
         const bool         j_is_u = this->ordering->is_velocity(comp_j);
         const bool         j_is_p = this->ordering->is_pressure(comp_j);
 
@@ -902,38 +915,13 @@ void NSSolverLambda<dim>::assemble_local_matrix(
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
-        for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-        {
-          const double face_JxW_moving = scratchData.face_JxW_moving[i_face][q];
-
-          const auto &phi_u = scratchData.phi_u_face[i_face][q];
-          const auto &phi_l = scratchData.phi_l_face[i_face][q];
-
-          for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-          {
-            const unsigned int comp_i = scratchData.components[i];
-            const bool         i_is_u = this->ordering->is_velocity(comp_i);
-            const bool         i_is_l = this->ordering->is_lambda(comp_i);
-
-            for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
-            {
-              const unsigned int comp_j = scratchData.components[j];
-              const bool         j_is_u = this->ordering->is_velocity(comp_j);
-              const bool         j_is_l = this->ordering->is_lambda(comp_j);
-
-              double local_matrix_ij = 0.;
-
-              if (i_is_u && j_is_l)
-                local_matrix_ij += -(phi_l[j] * phi_u[i]);
-
-              if (i_is_l && j_is_u)
-                local_matrix_ij += -phi_u[j] * phi_l[i];
-
-              local_matrix_ij *= face_JxW_moving;
-              local_matrix(i, j) += local_matrix_ij;
-            }
-          }
-        }
+        Assembly::weakly_enforced_no_slip_matrix(*this->ordering,
+                                                 i_face,
+                                                 this->param.fluid_bc.at(
+                                                   weak_no_slip_boundary_id),
+                                                 scratch_data,
+                                                 this->time_handler,
+                                                 local_matrix);
       }
     }
   }
@@ -1021,7 +1009,7 @@ void NSSolverLambda<dim>::assemble_rhs()
 template <int dim>
 void NSSolverLambda<dim>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData                                          &scratchData,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -1029,11 +1017,11 @@ void NSSolverLambda<dim>::assemble_local_rhs(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(cell,
-                     this->evaluation_point,
-                     this->previous_solutions,
-                     this->source_terms,
-                     this->exact_solution);
+  scratch_data.reinit(cell,
+                      this->evaluation_point,
+                      this->previous_solutions,
+                      this->source_terms,
+                      this->exact_solution);
 
   const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
@@ -1045,36 +1033,36 @@ void NSSolverLambda<dim>::assemble_local_rhs(
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
 
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
     //
     // Flow related data
     //
-    const double JxW_moving = scratchData.JxW_moving[q];
+    const double JxW_moving = scratch_data.JxW_moving[q];
 
     const auto &present_velocity_values =
-      scratchData.present_velocity_values[q];
+      scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
-      scratchData.present_velocity_gradients[q];
+      scratch_data.present_velocity_gradients[q];
     const auto &present_velocity_sym_gradients =
-      scratchData.present_velocity_sym_gradients[q];
+      scratch_data.present_velocity_sym_gradients[q];
     const auto &present_pressure_values =
-      scratchData.present_pressure_values[q];
-    const auto  &source_term_velocity = scratchData.source_term_velocity[q];
-    const auto  &source_term_pressure = scratchData.source_term_pressure[q];
+      scratch_data.present_pressure_values[q];
+    const auto  &source_term_velocity = scratch_data.source_term_velocity[q];
+    const auto  &source_term_pressure = scratch_data.source_term_pressure[q];
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
 
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratchData.previous_velocity_values);
+        q, present_velocity_values, scratch_data.previous_velocity_values);
 
-    const auto &phi_p      = scratchData.phi_p[q];
-    const auto &phi_u      = scratchData.phi_u[q];
-    const auto &grad_phi_u = scratchData.grad_phi_u[q];
-    const auto &div_phi_u  = scratchData.div_phi_u[q];
+    const auto &phi_p      = scratch_data.phi_p[q];
+    const auto &phi_u      = scratch_data.phi_u[q];
+    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
+    const auto &div_phi_u  = scratch_data.div_phi_u[q];
 
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       double local_rhs_i = -(
         // Transient
@@ -1119,62 +1107,37 @@ void NSSolverLambda<dim>::assemble_local_rhs(
         //
         if (cell_has_lambda(cell))
           if (face->boundary_id() == weak_no_slip_boundary_id)
-            for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-            {
-              //
-              // Flow related data (no-slip)
-              //
-              const double face_JxW_moving =
-                scratchData.face_JxW_moving[i_face][q];
-              const auto &phi_u = scratchData.phi_u_face[i_face][q];
-              const auto &phi_l = scratchData.phi_l_face[i_face][q];
-
-              const auto &present_u =
-                scratchData.present_face_velocity_values[i_face][q];
-              const auto &present_l =
-                scratchData.present_face_lambda_values[i_face][q];
-
-              for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-              {
-                double local_rhs_i = 0.;
-
-                const unsigned int comp_i = scratchData.components[i];
-                const bool         i_is_u = this->ordering->is_velocity(comp_i);
-                const bool         i_is_l = this->ordering->is_lambda(comp_i);
-
-                if (i_is_u)
-                  local_rhs_i -= -phi_u[i] * present_l;
-
-                if (i_is_l)
-                  local_rhs_i -= -present_u * phi_l[i];
-
-                local_rhs_i *= face_JxW_moving;
-                local_rhs(i) += local_rhs_i;
-              }
-            }
+          {
+            Assembly::weakly_enforced_no_slip_rhs(*this->ordering,
+                                                  i_face,
+                                                  this->param.fluid_bc.at(
+                                                    weak_no_slip_boundary_id),
+                                                  scratch_data,
+                                                  local_rhs);
+          }
 
         /**
          * Traction boundary condition with prescribed manufactured solution.
          */
-        if (this->param.fluid_bc.at(scratchData.face_boundary_id[i_face])
+        if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
               .type == BoundaryConditions::Type::open_mms)
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
             const double face_JxW_moving =
-              scratchData.face_JxW_moving[i_face][q];
-            const auto &n = scratchData.face_normals_moving[i_face][q];
+              scratch_data.face_JxW_moving[i_face][q];
+            const auto &n = scratch_data.face_normals_moving[i_face][q];
 
             const auto &grad_u_exact =
-              scratchData.exact_face_velocity_gradients[i_face][q];
+              scratch_data.exact_face_velocity_gradients[i_face][q];
             const double p_exact =
-              scratchData.exact_face_pressure_values[i_face][q];
+              scratch_data.exact_face_pressure_values[i_face][q];
 
             const auto sigma_dot_n =
               -p_exact * n + 2. * nu * symmetrize(grad_u_exact) * n;
 
-            const auto &phi_u = scratchData.phi_u_face[i_face][q];
+            const auto &phi_u = scratch_data.phi_u_face[i_face][q];
 
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
               local_rhs(i) -= -phi_u[i] * sigma_dot_n * face_JxW_moving;
           }
       }
@@ -1196,22 +1159,23 @@ void NSSolverLambda<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 template <int dim>
 void NSSolverLambda<dim>::check_velocity_boundary() const
 {
-  IndexSet relevant_boundary_velocity_dofs =
-    DoFTools::extract_boundary_dofs(this->dof_handler,
-                                    this->velocity_mask,
-                                    {weak_no_slip_boundary_id});
-  double local_max_boundary_velocity = 0.;
-  for (auto dof : relevant_boundary_velocity_dofs)
-    local_max_boundary_velocity =
-      std::max(local_max_boundary_velocity,
-               std::abs(this->present_solution[dof]));
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           mapping_collection,
+                           quadrature_collection,
+                           face_quadrature_collection,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
 
-  const double max_boundary_velocity =
-    Utilities::MPI::max(local_max_boundary_velocity, this->mpi_communicator);
-
-  AssertThrow(max_boundary_velocity < 1e-12,
-              ExcMessage("Velocity on weak no-slip boundary is too large : " +
-                         std::to_string(max_boundary_velocity)));
+  LagrangeMultiplierTools::check_no_slip_on_boundary<dim>(
+    this->param,
+    scratch_data,
+    this->dof_handler,
+    this->evaluation_point,
+    this->previous_solutions,
+    this->source_terms,
+    this->exact_solution,
+    weak_no_slip_boundary_id);
 }
 
 template <int dim>
@@ -1369,112 +1333,6 @@ void NSSolverLambda<dim>::compute_solver_specific_errors()
 }
 
 template <int dim>
-void NSSolverLambda<dim>::output_results()
-{
-  if (this->param.output.write_results)
-  {
-    //
-    // Plot FE solution
-    //
-    std::vector<std::string> solution_names(dim, "velocity");
-    solution_names.push_back("pressure");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("lambda");
-
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        dim, DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-    for (unsigned int d = 0; d < dim; ++d)
-      data_component_interpretation.push_back(
-        DataComponentInterpretation::component_is_part_of_vector);
-
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(this->dof_handler);
-    data_out.add_data_vector(this->present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-    //
-    // Partition
-    //
-    Vector<float> subdomain(this->triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = this->triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain");
-
-    data_out.build_patches(*this->moving_mapping, 2);
-    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      this->param.output.output_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
-
-    this->visualization_times_and_names.emplace_back(
-      this->time_handler.current_time, pvtu_file);
-  }
-}
-
-template <int dim>
-void NSSolverLambda<dim>::compute_forces(const bool export_table)
-{
-  Tensor<1, dim> lambda_integral, lambda_integral_local;
-
-  hp::FEFaceValues hp_fe_face_values(mapping_collection,
-                                     *fe,
-                                     face_quadrature_collection,
-                                     update_values | update_quadrature_points |
-                                       update_JxW_values |
-                                       update_normal_vectors);
-
-  const unsigned int n_faces_q_points =
-    face_quadrature_collection[index_fe_with_lambda].size();
-  std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-    {
-      const auto &face = cell->face(i_face);
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        hp_fe_face_values.reinit(cell, i_face);
-        const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
-        fe_face_values[lambda_extractor].get_function_values(
-          this->present_solution, lambda_values);
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-          lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
-      }
-    }
-  }
-
-  for (unsigned int d = 0; d < dim; ++d)
-    lambda_integral[d] =
-      Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
-
-  // Forces on the cylinder are the NEGATIVE of the integral of lambda
-  this->forces_table.add_value("time", this->time_handler.current_time);
-  for (unsigned int d = 0; d < dim; ++d)
-    this->forces_table.add_value("F_comp" + std::to_string(d),
-                                 -lambda_integral[d]);
-
-  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "Computed forces: " << -lambda_integral << std::endl;
-
-  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
-  {
-    std::ofstream outfile(this->param.output.output_dir + "forces.txt");
-    this->forces_table.write_text(outfile);
-  }
-}
-
-template <int dim>
 void NSSolverLambda<dim>::solver_specific_post_processing()
 {
   /**
@@ -1496,11 +1354,6 @@ void NSSolverLambda<dim>::solver_specific_post_processing()
             Parameters::TimeIntegration::BDFStart::initial_condition))
       check_velocity_boundary();
   }
-
-  const bool export_force_table =
-    this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 5) == 0);
-  compute_forces(export_force_table);
 }
 
 // Explicit instantiation

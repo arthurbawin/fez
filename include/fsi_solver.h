@@ -80,7 +80,9 @@ public:
     if (this->param.fsi.enable_coupling)
       create_position_lagrange_mult_coupling_data();
     create_lagrange_multiplier_constraints();
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
     create_hp_line_dof_identities();
+#endif
   }
 
   /**
@@ -91,6 +93,7 @@ public:
     const bool                 remove_velocity_constraints,
     const bool                 remove_position_constraints) const;
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   /**
    * Constrain duplicated hp dofs to be the same. For each pair (dof1, dof2)
    * identified by create_hp_line_dof_identities() and stored in
@@ -99,6 +102,7 @@ public:
    */
   void
   add_hp_identities_constraints(AffineConstraints<double> &constraints) const;
+#endif
 
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;
@@ -170,11 +174,6 @@ public:
   /**
    *
    */
-  virtual void output_results() override;
-
-  /**
-   *
-   */
   void compare_forces_and_position_on_obstacle() const;
 
   /**
@@ -184,16 +183,14 @@ public:
 
   virtual void solver_specific_post_processing() override;
 
-  /**
-   * Compute the "raw" forces on the obstacle.
-   * These need to nondimensionalized to obtain the force coefficients.
-   */
-  void compute_forces(const bool export_table);
-
-  /**
-   *
-   */
-  void write_cylinder_position(const bool export_table);
+protected:
+  virtual std::vector<std::pair<std::string, unsigned int>>
+  get_additional_variables_description() const override
+  {
+    std::vector<std::pair<std::string, unsigned int>> description;
+    description.push_back({"lambda", dim});
+    return description;
+  }
 
   /**
    * FIXME: This function should probably be templated to work with
@@ -208,6 +205,37 @@ public:
     return *fe_with_lambda;
   }
 
+  virtual bool uses_hp_capabilities() const override { return true; };
+
+  virtual const hp::FECollection<dim> *get_fe_collection() const override
+  {
+    return fe.get();
+  };
+
+  virtual const hp::MappingCollection<dim> *
+  get_fixed_mapping_collection() const override
+  {
+    return &fixed_mapping_collection;
+  };
+
+  virtual const hp::MappingCollection<dim> *
+  get_moving_mapping_collection() const override
+  {
+    return &moving_mapping_collection;
+  };
+
+  virtual const hp::QCollection<dim> *
+  get_cell_quadrature_collection() const override
+  {
+    return &quadrature_collection;
+  };
+
+  virtual const hp::QCollection<dim - 1> *
+  get_face_quadrature_collection() const override
+  {
+    return &face_quadrature_collection;
+  };
+
 protected:
   enum
   {
@@ -220,11 +248,10 @@ protected:
   {
     return cell->material_id() == with_lambda_domain_id;
   }
-  
+
   std::shared_ptr<FESystem<dim>>         fe_with_lambda;
   std::shared_ptr<FESystem<dim>>         fe_without_lambda;
   std::shared_ptr<hp::FECollection<dim>> fe;
-  // std::shared_ptr<FESystem<dim>> fe;
 
   hp::MappingCollection<dim> fixed_mapping_collection;
   hp::MappingCollection<dim> moving_mapping_collection;
@@ -243,7 +270,6 @@ protected:
   types::boundary_id weak_no_slip_boundary_id = numbers::invalid_unsigned_int;
 
   AffineConstraints<double> lambda_constraints;
-  IndexSet                  additional_relevant_dofs;
 
   std::set<std::pair<types::global_dof_index, types::global_dof_index>>
     hp_dof_identities;
@@ -251,16 +277,20 @@ protected:
   // Position-lambda constraints on the cylinder
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
   std::vector<std::vector<std::pair<unsigned int, double>>>
-                                                  position_lambda_coeffs;
+                                                  lambda_integral_coeffs;
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
 
-  // The master position dofs on this rank.
-  // All other position dofs on the cylinder on this rank are constrained
-  // to be equal to these ones.
-  bool has_chunk_of_cylinder           = false;
-  bool has_global_master_position_dofs = false;
+  bool         has_local_position_master       = false;
+  bool         has_local_lambda_accumulator    = false;
+  bool         has_global_master_position_dofs = false;
+  unsigned int n_ranks_with_position_master;
+  unsigned int n_ranks_with_lambda_accumulator;
+
   std::array<types::global_dof_index, dim> local_position_master_dofs;
   std::array<types::global_dof_index, dim> global_position_master_dofs;
+
+  std::array<types::global_dof_index, dim>          local_lambda_accumulators;
+  std::vector<std::vector<types::global_dof_index>> all_lambda_accumulators;
 
   TableHandler cylinder_position_table;
 

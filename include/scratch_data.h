@@ -136,6 +136,10 @@ private:
                                             present_velocity_values);
     fe_values[velocity].get_function_gradients(current_solution,
                                                present_velocity_gradients);
+    fe_values[velocity].get_function_symmetric_gradients(
+      current_solution, present_velocity_sym_gradients);
+    fe_values[velocity].get_function_divergences(current_solution,
+                                                 present_velocity_divergence);
     fe_values[pressure].get_function_values(current_solution,
                                             present_pressure_values);
 
@@ -182,10 +186,6 @@ private:
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       JxW_moving[q] = fe_values.JxW(q);
-
-      present_velocity_sym_gradients[q] =
-        symmetrize(present_velocity_gradients[q]);
-      present_velocity_divergence[q] = trace(present_velocity_gradients[q]);
 
       for (int d = 0; d < dim; ++d)
         source_term_velocity[q][d] = source_term_full_moving[q](u_lower + d);
@@ -399,6 +399,7 @@ private:
   template <typename VectorType>
   void reinit_pseudo_solid_cell(
     const FEValues<dim>                  &fe_values_fixed,
+    const FEValues<dim>                  &fe_values_moving,
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
@@ -462,9 +463,12 @@ private:
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_x[q][k]      = fe_values_fixed[position].value(k, q);
-        grad_phi_x[q][k] = fe_values_fixed[position].gradient(k, q);
-        div_phi_x[q][k]  = fe_values_fixed[position].divergence(k, q);
+        phi_x[q][k]             = fe_values_fixed[position].value(k, q);
+        grad_phi_x[q][k]        = fe_values_fixed[position].gradient(k, q);
+        sym_grad_phi_x[q][k]    = symmetrize(grad_phi_x[q][k]);
+        trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
+        div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
+        grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
       }
     }
   }
@@ -472,8 +476,8 @@ private:
   template <typename VectorType>
   void reinit_pseudo_solid_face(
     const unsigned int             i_face,
-    const FEFaceValues<dim>       &fe_face_values,
     const FEFaceValues<dim>       &fe_face_values_fixed,
+    const FEFaceValues<dim>       &fe_face_values,
     const VectorType              &current_solution,
     const std::vector<VectorType> &previous_solutions,
     const std::shared_ptr<Function<dim>> & /*source_terms*/,
@@ -650,6 +654,7 @@ private:
   template <typename VectorType>
   void reinit_lagrange_multiplier_face(
     const unsigned int       i_face,
+    const FEFaceValues<dim> &fe_face_values_fixed,
     const FEFaceValues<dim> &fe_face_values,
     const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
@@ -662,46 +667,106 @@ private:
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
         phi_l_face[i_face][q][k] = fe_face_values[lambda].value(k, q);
+
+    // Rigid-body rotation
+    const auto &fluid_bc = param.fluid_bc.at(face_boundary_id[i_face]);
+    if (fluid_bc.enable_rigid_body_rotation)
+    {
+      const Point<dim> &center = fluid_bc.center_of_rotation;
+
+      /**
+       * Rigid-body rotation can be applied on fixed or moving mesh: if
+       * enable_pseudo_solid is true, then the rotation velocity is evaluated on
+       * the fixed mesh, with constant center of rotation. If false, then
+       * rotation velocity is evaluated on "moving" mesh, but the model does not
+       * solve for the pseudosolid and thus does not move the mesh, and the
+       * center of rotation is also constant.
+       *
+       * This allows keeping a constant center of rotation for both cases.
+       *
+       * The TL;DR is that "moving" refers to the current configuration, and is
+       * a misnomer for solvers which do not solve for the mesh position, as in
+       * that case the "moving" mesh remains fixed for the whole simulation...
+       */
+      const auto &qpoints = enable_pseudo_solid ?
+                              fe_face_values_fixed.get_quadrature_points() :
+                              fe_face_values.get_quadrature_points();
+
+      Tensor<1, dim>        pos_vector;
+      angular_velocity_type omega;
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+      {
+        pos_vector = qpoints[q] - center;
+
+        // Cartesian velocity on fixed mesh is omega \times (X - Xc)
+        if constexpr (dim == 2)
+        {
+          omega = fluid_bc.angular_velocity->value(qpoints[q]);
+
+          // cross_product_2d returns the product with (0, 0, 1)
+          input_face_rigid_body_rotation_velocity[i_face][q] =
+            -omega * cross_product_2d(pos_vector);
+        }
+        else
+        {
+          for (unsigned int d = 0; d < dim; ++d)
+            omega[d] = fluid_bc.angular_velocity->value(qpoints[q], d);
+          input_face_rigid_body_rotation_velocity[i_face][q] =
+            cross_product_3d(omega, pos_vector);
+        }
+      }
+    }
   }
 
   template <typename VectorType>
   void reinit_cahn_hilliard_cell(
-    const FEValues<dim>                  &fe_values,
+    const FEValues<dim>                  &fe_values_fixed,
+    const FEValues<dim>                  &fe_values_moving,
     const VectorType                     &current_solution,
     const std::vector<VectorType>        &previous_solutions,
     const std::shared_ptr<Function<dim>> &source_terms,
     const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
-    fe_values[tracer].get_function_values(current_solution, tracer_values);
-    fe_values[tracer].get_function_gradients(current_solution,
-                                             tracer_gradients);
-    fe_values[potential].get_function_values(current_solution,
-                                             potential_values);
-    fe_values[potential].get_function_gradients(current_solution,
-                                                potential_gradients);
+    fe_values_moving[tracer].get_function_values(current_solution,
+                                                 tracer_values);
+    fe_values_moving[tracer].get_function_gradients(current_solution,
+                                                    tracer_gradients);
+
+    if (enable_pseudo_solid)
+    {
+      fe_values_fixed[tracer].get_function_values(current_solution,
+                                                  tracer_values_fixed);
+      fe_values_fixed[tracer].get_function_gradients(current_solution,
+                                                     tracer_gradients_fixed);
+    }
+
+    fe_values_moving[potential].get_function_values(current_solution,
+                                                    potential_values);
+    fe_values_moving[potential].get_function_gradients(current_solution,
+                                                       potential_gradients);
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
-      fe_values[tracer].get_function_values(previous_solutions[i],
-                                            previous_tracer_values[i]);
+      fe_values_moving[tracer].get_function_values(previous_solutions[i],
+                                                   previous_tracer_values[i]);
 
-    source_terms->vector_value_list(fe_values.get_quadrature_points(),
+    source_terms->vector_value_list(fe_values_moving.get_quadrature_points(),
                                     source_term_full_moving);
 
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       // Physical properties based on tracer, filter if applicable
-      const double filtered_phi = tracer_values[q];
+      const double filtered_phi = tracer_limiter(tracer_values[q]);
       density[q] =
-        cahn_hilliard_linear_mixing(filtered_phi, density0, density1);
-      dynamic_viscosity[q] = cahn_hilliard_linear_mixing(filtered_phi,
+        CahnHilliard::linear_mixing(filtered_phi, density0, density1);
+      dynamic_viscosity[q] = CahnHilliard::linear_mixing(filtered_phi,
                                                          dynamic_viscosity0,
                                                          dynamic_viscosity1);
       derivative_density_wrt_tracer[q] =
-        cahn_hilliard_linear_mixing_derivative(filtered_phi,
+        CahnHilliard::linear_mixing_derivative(filtered_phi,
                                                density0,
                                                density1);
       derivative_dynamic_viscosity_wrt_tracer[q] =
-        cahn_hilliard_linear_mixing_derivative(filtered_phi,
+        CahnHilliard::linear_mixing_derivative(filtered_phi,
                                                dynamic_viscosity0,
                                                dynamic_viscosity1);
 
@@ -711,15 +776,29 @@ private:
       diffusive_flux[q] = diffusive_flux_factor *
                           present_velocity_gradients[q] *
                           potential_gradients[q];
-      velocity_dot_tracer_gradient[q] =
-        present_velocity_values[q] * tracer_gradients[q];
+
+      if (enable_pseudo_solid)
+        velocity_dot_tracer_gradient[q] =
+          (present_velocity_values[q] - present_mesh_velocity_values[q]) *
+          tracer_gradients[q];
+      else
+        velocity_dot_tracer_gradient[q] =
+          present_velocity_values[q] * tracer_gradients[q];
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        shape_phi[q][k]      = fe_values[tracer].value(k, q);
-        grad_shape_phi[q][k] = fe_values[tracer].gradient(k, q);
-        shape_mu[q][k]       = fe_values[potential].value(k, q);
-        grad_shape_mu[q][k]  = fe_values[potential].gradient(k, q);
+        // Shape functions on moving mesh
+        shape_phi[q][k]      = fe_values_moving[tracer].value(k, q);
+        grad_shape_phi[q][k] = fe_values_moving[tracer].gradient(k, q);
+        shape_mu[q][k]       = fe_values_moving[potential].value(k, q);
+        grad_shape_mu[q][k]  = fe_values_moving[potential].gradient(k, q);
+
+        // Shape functions on fixed mesh
+        if (enable_pseudo_solid)
+        {
+          shape_phi_fixed[q][k]      = fe_values_fixed[tracer].value(k, q);
+          grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
+        }
       }
     }
   }
@@ -771,17 +850,18 @@ public:
 
     if (enable_pseudo_solid)
       reinit_pseudo_solid_cell(*active_fe_values_fixed,
+                               *active_fe_values,
                                current_solution,
                                previous_solutions,
                                source_terms,
                                exact_solution);
     if (enable_cahn_hilliard)
-      reinit_cahn_hilliard_cell(*active_fe_values,
+      reinit_cahn_hilliard_cell(*active_fe_values_fixed,
+                                *active_fe_values,
                                 current_solution,
                                 previous_solutions,
                                 source_terms,
                                 exact_solution);
-
     /**
      * Face contributions
      */
@@ -816,14 +896,15 @@ public:
                                       exact_solution);
           if (enable_pseudo_solid)
             reinit_pseudo_solid_face(i_face,
-                                     *active_fe_face_values,
                                      *active_fe_face_values_fixed,
+                                     *active_fe_face_values,
                                      current_solution,
                                      previous_solutions,
                                      source_terms,
                                      exact_solution);
           if (enable_lagrange_multiplier)
             reinit_lagrange_multiplier_face(i_face,
+                                            *active_fe_face_values_fixed,
                                             *active_fe_face_values,
                                             current_solution,
                                             previous_solutions,
@@ -834,9 +915,9 @@ public:
   }
 
 private:
-  const ParameterReader<dim>&param;
-  const bool              use_quads;
-  const ComponentOrdering ordering;
+  const ParameterReader<dim> &param;
+  const bool                  use_quads;
+  const ComponentOrdering     ordering;
 
   unsigned int n_components;
   unsigned int u_lower;
@@ -847,11 +928,13 @@ private:
   unsigned int mu_lower;
   unsigned int t_lower;
 
+public:
   const bool enable_pseudo_solid;
   const bool enable_lagrange_multiplier;
   const bool enable_cahn_hilliard;
   const bool enable_compressible;
 
+private:
   Parameters::PhysicalProperties<dim> physical_properties;
   Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
@@ -949,7 +1032,7 @@ public:
   FEValuesExtractors::Scalar temperature;
   double thermal_conductivity;
   double gas_constant;
-  double dynamic_viscosity_fluid;
+  double dynamic_viscosity;
   double heat_capacity_at_constant_pressure;
   double pressure_ref;
   double temperature_ref;
@@ -1008,9 +1091,12 @@ public:
     previous_face_position_values;
 
   // Shape functions and gradients for each quad node and each dof
-  std::vector<std::vector<Tensor<1, dim>>> phi_x;
-  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x;
-  std::vector<std::vector<double>>         div_phi_x;
+  std::vector<std::vector<Tensor<1, dim>>>          phi_x;
+  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x;
+  std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
+  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x_moving;
+  std::vector<std::vector<double>>                  div_phi_x;
+  std::vector<std::vector<double>>                  trace_grad_phi_x;
 
   // Shape functions on faces for relevant faces, each quad node and each dof
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_x_face;
@@ -1039,6 +1125,12 @@ public:
   std::vector<std::vector<Tensor<1, dim>>> present_face_lambda_values;
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_l_face;
 
+  // Rigid-body rotation enforced with Lagrange multiplier
+  // The prescribed angular velocity is scalar in 2D and a vector in 3D
+  using angular_velocity_type = Tensor<dim == 2 ? 0 : 1, dim>;
+  std::vector<std::vector<Tensor<1, dim>>>
+    input_face_rigid_body_rotation_velocity;
+
   /**
    * Cahn-Hilliard
    */
@@ -1055,21 +1147,29 @@ public:
   double         diffusive_flux_factor;
   Tensor<1, dim> body_force;
 
+  CahnHilliard::TracerLimiterFunction tracer_limiter;
+
   std::vector<double> derivative_density_wrt_tracer;
   std::vector<double> dynamic_viscosity;
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
 
+  // Tracer on current and fixed (reference) mesh
   std::vector<double>              tracer_values;
   std::vector<Tensor<1, dim>>      tracer_gradients;
-  std::vector<double>              potential_values;
-  std::vector<Tensor<1, dim>>      potential_gradients;
+  std::vector<double>              tracer_values_fixed;
+  std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
   std::vector<std::vector<double>> previous_tracer_values;
+  // Potential on current mesh
+  std::vector<double>         potential_values;
+  std::vector<Tensor<1, dim>> potential_gradients;
 
   std::vector<Tensor<1, dim>> diffusive_flux;
   std::vector<double>         velocity_dot_tracer_gradient;
 
   std::vector<std::vector<double>>         shape_phi;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
+  std::vector<std::vector<double>>         shape_phi_fixed;
+  std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi_fixed;
   std::vector<std::vector<double>>         shape_mu;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_mu;
 
@@ -1246,15 +1346,14 @@ public:
   /**
    * Constructor
    */
-  ScratchDataFSI_hp(
-    const ComponentOrdering          &ordering,
-    const hp::FECollection<dim>      &fe_collection,
-    const hp::MappingCollection<dim> &fixed_mapping_collection,
-    const hp::MappingCollection<dim> &moving_mapping_collection,
-    const hp::QCollection<dim>       &cell_quadrature_collection,
-    const hp::QCollection<dim - 1>   &face_quadrature_collection,
-    const std::vector<double>        &bdf_coefficients,
-    const ParameterReader<dim>       &param)
+  ScratchDataFSI_hp(const ComponentOrdering          &ordering,
+                    const hp::FECollection<dim>      &fe_collection,
+                    const hp::MappingCollection<dim> &fixed_mapping_collection,
+                    const hp::MappingCollection<dim> &moving_mapping_collection,
+                    const hp::QCollection<dim>     &cell_quadrature_collection,
+                    const hp::QCollection<dim - 1> &face_quadrature_collection,
+                    const std::vector<double>      &bdf_coefficients,
+                    const ParameterReader<dim>     &param)
     : ScratchData<dim, true>(ordering,
                              /*enable_pseudo_solid = */ true,
                              /*enable_lagrange_multiplier = */ true,
@@ -1272,8 +1371,7 @@ public:
   /**
    * Copy constructor
    */
-  ScratchDataFSI_hp(
-    const ScratchDataFSI_hp &other)
+  ScratchDataFSI_hp(const ScratchDataFSI_hp &other)
     : ScratchData<dim, true>(other)
   {}
 };

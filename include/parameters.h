@@ -1,9 +1,32 @@
 #ifndef PARAMETERS_H
 #define PARAMETERS_H
 
+#include <deal.II/base/exceptions.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/numerics/vector_tools_common.h>
 #include <parsed_function_symengine.h>
+
+// TODO: maybe use magic_enum
+enum SolverType : unsigned int
+{
+  // One of the physics solvers : (in)compressible (CH)NS, FSI, etc.
+  main_physics = 0,
+  // Dedicated linear elasticity solver, mostly used to adapt the mesh
+  // to an initial source term.
+  linear_elasticity = 1
+};
+
+inline SolverType get_solver_type(const std::string &solver_name)
+{
+  if (solver_name == "main physics")
+    return SolverType::main_physics;
+  else if (solver_name == "linear elasticity")
+    return SolverType::linear_elasticity;
+  else
+    AssertThrow(false,
+                dealii::StandardExceptions::ExcMessage(
+                  "The requested solver type does not exist : " + solver_name));
+}
 
 /**
  * This namespace contains the parameters used to control the various
@@ -44,6 +67,8 @@ namespace Parameters
 
   struct BoundaryConditionsData
   {
+    Verbosity fluid_verbosity;
+
     // These are parsed in utilities.h
     unsigned int n_fluid_bc         = 0;
     unsigned int n_pseudosolid_bc   = 0;
@@ -79,12 +104,78 @@ namespace Parameters
 
   struct Output
   {
-    bool        write_results;
-    std::string output_dir;
-    std::string output_prefix;
+    bool         write_results;
+    std::string  output_dir;
+    std::string  output_prefix;
+    unsigned int vtu_output_frequency;
 
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
+    // A "skin" is a codimension 1 boundary on which we wish to extract data
+    // for visualization and/or postprocessing
+    struct Skin
+    {
+      bool               write_results;
+      types::boundary_id boundary_id;
+      std::string        output_prefix;
+      unsigned int       output_frequency;
+    } skin;
+
+    static void declare_parameters(ParameterHandler &prm);
+    void        read_parameters(ParameterHandler &prm);
+  };
+
+  struct PostProcessing
+  {
+    // A small base struct for postprocessed quantities which can be
+    // outputted to a file
+    struct PostProcessingBase
+    {
+      Verbosity verbosity;
+
+      // Enable/disable this postprocessing
+      bool enable;
+
+      // Output the results of this postprocessing to a file
+      bool         write_results;
+      std::string  output_prefix;
+      unsigned int output_frequency;
+      unsigned int precision;
+    };
+
+    // Derived class for postprocessing on a boundary
+    struct PostProcessingBaseBoundary : public PostProcessingBase
+    {
+      types::boundary_id boundary_id;
+    };
+
+    // Hydrodynamic forces on a single boundary
+    struct Forces : public PostProcessingBaseBoundary
+    {
+      // The method used to evaluate the forces on a boundary
+      enum class ComputationMethod
+      {
+        stress_vector,
+        lagrange_multiplier
+      } method;
+    } forces;
+
+    // For the FSI solver, compute and export the position of the structure's
+    // geometric center.
+    struct StructurePosition : public PostProcessingBaseBoundary
+    {
+      // No additional members for now
+    } structure_position;
+
+    // Cut structure into slices and compute forces on each individual slice
+    // Used e.g. to measure correlation of forces coefficients along cylinder
+    struct Slices : public PostProcessingBaseBoundary
+    {
+      std::string  along_which_axis;
+      unsigned int n_slices;
+      bool         compute_forces_on_slices;
+    } slices;
+
+    static void declare_parameters(ParameterHandler &prm);
+    void        read_parameters(ParameterHandler &prm);
   };
 
   template <int dim>
@@ -138,7 +229,7 @@ namespace Parameters
     // Density used by incompressible solver; in compressible it is a state equation
     double density;
     double kinematic_viscosity;
-    double dynamic_viscosity_fluid;
+    double dynamic_viscosity;
     double thermal_conductivity;
     double heat_capacity_at_constant_pressure;
     double gas_constant;
@@ -213,18 +304,37 @@ namespace Parameters
     enum class Method
     {
       direct_mumps,
+      cg,
       gmres
     } method;
 
+    // Tolerance and max number of iterations for iterative solvers
     double       tolerance;
     unsigned int max_iterations;
+
+    // Fill-in levels for ILU preconditioner
     unsigned int ilu_fill_level;
 
-    bool renumber;
+    /**
+     * When using MUMPS as solver, "reuse" the symbolic factorization of the
+     * system matrix across the solves. If the sparsity pattern does not change,
+     * then the symbolic factorization can be conserved, saving time.
+     *
+     * This is done through an extension of deal.II's PETSc interface to MUMPS,
+     * which, as a beneficial side effect, also checks the MUMPS error code,
+     * which is not done in deal.II. This allows throwing an error when the
+     * matrix is singular, instead of getting "nan" results.
+     *
+     * TODO: the associated MUMPS solver should be looked into, as it is
+     * unclear that the factorization is indeed reused and/or that it is more
+     * efficient. Unlike Pardiso, the symbolic factorization step is not cleanly
+     * separated from the actual factorization and solve steps.
+     */
     bool reuse;
 
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
+    void declare_parameters(ParameterHandler  &prm,
+                            const std::string &solver_type);
+    void read_parameters(ParameterHandler &prm, const std::string &solver_type);
   };
 
   struct TimeIntegration
@@ -265,6 +375,13 @@ namespace Parameters
     double mobility;
     double surface_tension;
     double epsilon_interface;
+    bool   with_tracer_limiter;
+
+    // Mesh forcing parameters : these parameters control the behavior of the
+    // source term in the pseudosolid equation, in the CHNS-ALE model
+    // FIXME: use more explicit names, when the formulation has been decided
+    double alpha;
+    double beta;
 
     /**
      * We differentiate between the body force which is multiplied by the
@@ -272,6 +389,26 @@ namespace Parameters
      * for manufactured solutions) which is not.
      */
     Tensor<1, dim> body_force;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  struct LinearElasticity
+  {
+    // If true, then the provided position source term is to be evaluated on
+    // the current mesh, and not on the reference mesh where the elasticity
+    // equation is solved (that is, we evaluate f(x(X)) instead of f(X).
+    bool enable_source_term_on_current_mesh;
+
+    // The source term on current mesh is enforced with a continuation method,
+    // starting at min_coeff * f(x(X)) and progressing until max_coeff * f(x(X))
+    double min_current_mesh_source_term_multiplier;
+    double max_current_mesh_source_term_multiplier;
+
+    // Number of steps to use in the continuation method when the source term
+    // is applied on the current configuration.
+    unsigned int n_continuation_steps;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -295,6 +432,7 @@ namespace Parameters
   {
     bool enable;
 
+    // The type of study to perform : refinement in space and/or time
     enum class Type
     {
       space,
@@ -302,6 +440,9 @@ namespace Parameters
       spacetime
     } type;
 
+    // The Lp norm used to compute the error in time
+    // The norm for the error in space is given through norms_to_compute
+    // FIXME: do the same for the time
     enum class TimeLpNorm
     {
       L1,
@@ -309,16 +450,26 @@ namespace Parameters
       Linfty
     } time_norm;
 
+    // Subtract the mean value from the exact pressure solution.
+    // This must be enabled when performing a convergence study while also
+    // enforcing a zero-mean pressure solution, otherwise both functions
+    // differ by the constant mean.
     bool subtract_mean_pressure;
 
+    // Force the use of the provided source term in the "Source terms" section,
+    // even during a convergence study. This can be used when the provided exact
+    // solution is really a solution of the system of PDEs for the given source
+    // terms. In that case, the source terms obtained from the MMS are not set.
     bool force_source_term;
 
     unsigned int n_convergence;
     unsigned int current_step = 0;
     int          run_only_step;
 
-    bool         use_deal_ii_cube_mesh;
-    bool         use_deal_ii_holed_plate_mesh;
+    // FIXME: remove these, and use only the options from the "Mesh" section
+    bool use_deal_ii_cube_mesh;
+    bool use_deal_ii_holed_plate_mesh;
+
     std::string  mesh_prefix;
     unsigned int first_mesh_index;
     unsigned int mesh_suffix = 0;
@@ -328,6 +479,11 @@ namespace Parameters
     bool         use_space_convergence_mesh;
     unsigned int spatial_mesh_index;
     double       time_step_reduction_factor;
+
+    // Options to write the convergence rates to a file
+    bool        write_convergence_table_to_file;
+    std::string convergence_file_prefix;
+    bool        compute_rates_only_at_end;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {
@@ -341,6 +497,7 @@ namespace Parameters
   /**
    * Fluid-structure interaction
    */
+  template <int dim>
   struct FSI
   {
     Verbosity verbosity;
@@ -352,6 +509,8 @@ namespace Parameters
 
     double cylinder_radius;
     double cylinder_length;
+
+    Point<dim> cylinder_center;
 
     bool fix_z_component;
 
@@ -367,6 +526,7 @@ namespace Parameters
   struct Debug
   {
     Verbosity    verbosity;
+    bool         write_dealii_mesh_as_msh;
     bool         write_partition_pos_gmsh;
     bool         apply_exact_solution;
     bool         compare_analytical_jacobian_with_fd;

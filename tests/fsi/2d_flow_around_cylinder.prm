@@ -8,7 +8,7 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = false
+  set write vtu results    = false
   set output directory = ../data/test/
   set output prefix    = solution
 end
@@ -33,9 +33,11 @@ subsection Nonlinear solver
 end
 
 subsection Linear solver
-  set verbosity      = quiet
-  set method         = direct_mumps
-  set reuse          = true
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
 end
 
 subsection FiniteElements
@@ -78,6 +80,7 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
+  set verbosity = verbose
   set number = 4
   subsection boundary 0
     set id   = 1
@@ -129,5 +132,31 @@ subsection Pseudosolid boundary conditions
     set id   = 4
     set name = InnerBoundary
     set type = coupled_to_fluid
+  end
+end
+
+subsection Postprocessing
+  #
+  # Compute and print the forces on the cylinder
+  #
+  subsection forces computation
+    set verbosity          = verbose
+    set enable             = true
+    set boundary id        = 4
+    set write results      = false
+    set computation method = lagrange multiplier
+    set precision          = 12
+  end
+
+  #
+  # Compute and print the position of the center of the cylinder
+  #
+  subsection structure position
+    set enable           = true
+    set boundary id      = 4
+    set write results    = false
+    set output prefix    = center
+    set output frequency = 1
+    set precision        = 10
   end
 end

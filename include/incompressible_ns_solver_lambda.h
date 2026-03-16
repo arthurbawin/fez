@@ -67,6 +67,7 @@ public:
    */
   void create_lagrange_multiplier_constraints();
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   /**
    * When defining an hp partition, deal.II first creates dofs on the elements
    * as if they were discontinuous, then identifies dofs from adjacent elements
@@ -85,6 +86,7 @@ public:
    * necessary anymore.
    */
   void create_hp_line_dof_identities();
+#endif
 
   /**
    * Reset the vector hp_dof_identities.
@@ -103,7 +105,9 @@ public:
   virtual void create_solver_specific_constraints_data() override
   {
     create_lagrange_multiplier_constraints();
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
     create_hp_line_dof_identities();
+#endif
   }
 
   /**
@@ -117,6 +121,7 @@ public:
   void remove_cylinder_velocity_constraints(
     AffineConstraints<double> &constraints) const;
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   /**
    * Constrain duplicated hp dofs to be the same. For each pair (dof1, dof2)
    * identified by create_hp_line_dof_identities() and stored in
@@ -125,6 +130,7 @@ public:
    */
   void
   add_hp_identities_constraints(AffineConstraints<double> &constraints) const;
+#endif
 
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;
@@ -184,11 +190,6 @@ public:
   virtual void compute_solver_specific_errors() override;
 
   /**
-   *
-   */
-  virtual void output_results() override;
-
-  /**
    * Check that the maximum velocity dof on the boundary with weakly enforced
    * no-slip is small emough.
    */
@@ -196,11 +197,14 @@ public:
 
   virtual void solver_specific_post_processing() override;
 
-  /**
-   * Compute the "raw" forces on the obstacle.
-   * These need to nondimensionalized to obtain the force coefficients.
-   */
-  void compute_forces(const bool export_table);
+protected:
+  virtual std::vector<std::pair<std::string, unsigned int>>
+  get_additional_variables_description() const override
+  {
+    std::vector<std::pair<std::string, unsigned int>> description;
+    description.push_back({"lambda", dim});
+    return description;
+  }
 
   virtual const FESystem<dim> &get_fe_system() const override
   {
@@ -216,6 +220,37 @@ public:
         "distributing the hp dofs."));
     return *fe_with_lambda;
   }
+
+  virtual bool uses_hp_capabilities() const override { return true; };
+
+  virtual const hp::FECollection<dim> *get_fe_collection() const override
+  {
+    return fe.get();
+  };
+
+  virtual const hp::MappingCollection<dim> *
+  get_fixed_mapping_collection() const override
+  {
+    return &mapping_collection;
+  };
+
+  virtual const hp::MappingCollection<dim> *
+  get_moving_mapping_collection() const override
+  {
+    return &mapping_collection;
+  };
+
+  virtual const hp::QCollection<dim> *
+  get_cell_quadrature_collection() const override
+  {
+    return &quadrature_collection;
+  };
+
+  virtual const hp::QCollection<dim - 1> *
+  get_face_quadrature_collection() const override
+  {
+    return &face_quadrature_collection;
+  };
 
 protected:
   enum

@@ -1,7 +1,4 @@
 
-#include "error_estimation/patches.h"
-#include "error_estimation/solution_recovery.h"
-
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_simplex_p.h>
@@ -11,12 +8,14 @@
 
 #include "../tests.h"
 
+#include "error_estimation/patches.h"
+#include "error_estimation/solution_recovery.h"
 #include "mesh.h"
-#include "types.h"
 #include "parameter_reader.h"
+#include "types.h"
 
 /**
- * This tests 
+ * This tests
  */
 
 template <int dim>
@@ -30,7 +29,7 @@ public:
   virtual double value(const Point<dim>  &p,
                        const unsigned int component = 0) const override
   {
-    if constexpr(dim == 2)
+    if constexpr (dim == 2)
       return sin(M_PI * p[0]) * cos(M_PI * p[1]);
     else
       return sin(M_PI * p[0]) * cos(M_PI * p[1]) * sin(M_PI * p[2]);
@@ -64,8 +63,9 @@ void test_fitting(const unsigned int field_polynomial_degree)
   dof_handler.distribute_dofs(fe);
 
   // Initialize solution vectors
-  IndexSet locally_owned_dofs    = dof_handler.locally_owned_dofs();
-  IndexSet locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
+  IndexSet locally_owned_dofs = dof_handler.locally_owned_dofs();
+  IndexSet locally_relevant_dofs =
+    DoFTools::extract_locally_relevant_dofs(dof_handler);
   LA::ParVectorType solution, local_solution;
   solution.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
   local_solution.reinit(locally_owned_dofs, mpi_communicator);
@@ -77,12 +77,12 @@ void test_fitting(const unsigned int field_polynomial_degree)
 
   // Create the patches of dof support points and print the sorted patches
   // for each owned mesh vertex
-  ErrorEstimation::PatchHandler patch_handler(triangulation,
-                                   mapping,
-                                   dof_handler,
-                                   field_polynomial_degree + 1,
-                                   fe.component_mask(
-                                     FEValuesExtractors::Scalar(0)));
+  ErrorEstimation::PatchHandler     patch_handler(triangulation,
+                                              mapping,
+                                              dof_handler,
+                                              field_polynomial_degree + 1,
+                                              fe.component_mask(
+                                                FEValuesExtractors::Scalar(0)));
   ErrorEstimation::SolutionRecovery recovery(patch_handler,
                                              solution,
                                              fe,

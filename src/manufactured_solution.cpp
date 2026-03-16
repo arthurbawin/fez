@@ -24,7 +24,8 @@ namespace ManufacturedSolutions
         "none",
         Patterns::Selection(
           "none|time_dependent_vector|rigid_motion_kernel|moving radial kernel|"
-          "normal_radial_kernel|vector radial kernel|vector one minus radial kernel"),
+          "normal_radial_kernel|vector radial kernel|vector one minus radial "
+          "kernel"),
         "");
 
       //

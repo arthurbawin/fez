@@ -175,24 +175,8 @@ public:
  * Components ordering for the quasi-incompressible Cahn-Hilliard Navier-Stokes
  * solver without ALE.
  */
-template <int dim>
-class ComponentOrderingCHNS : public ComponentOrdering
-{
-public:
-  ComponentOrderingCHNS()
-    : ComponentOrdering()
-  {
-    n_components = dim + 3;
-    u_lower      = 0;
-    u_upper      = dim;
-    p_lower      = dim;
-    p_upper      = dim + 1;
-    phi_lower    = dim + 1;
-    phi_upper    = dim + 2;
-    mu_lower     = dim + 2;
-    mu_upper     = dim + 3;
-  }
-};
+
+
 
 template <int dim, bool with_moving_mesh = false>
 class ConstexprComponentOrderingCHNS
@@ -200,12 +184,13 @@ class ConstexprComponentOrderingCHNS
 public:
   constexpr ConstexprComponentOrderingCHNS() = default;
 
-  static constexpr unsigned int n_components = dim + 3;
-  static constexpr unsigned int u_lower      = 0;
-  static constexpr unsigned int u_upper      = dim;
-  static constexpr unsigned int p_lower      = dim;
-  static constexpr unsigned int p_upper      = dim + 1;
-  static constexpr unsigned int x_lower      = dim + 1;
+  static constexpr unsigned int n_components =
+    with_moving_mesh ? (2 * dim + 3) : (dim + 3);
+  static constexpr unsigned int u_lower = 0;
+  static constexpr unsigned int u_upper = dim;
+  static constexpr unsigned int p_lower = dim;
+  static constexpr unsigned int p_upper = dim + 1;
+  static constexpr unsigned int x_lower = dim + 1;
   static constexpr unsigned int x_upper =
     with_moving_mesh ? 2 * dim + 1 : dim + 1;
   static constexpr unsigned int phi_lower =
@@ -216,6 +201,28 @@ public:
     with_moving_mesh ? 2 * dim + 2 : dim + 2;
   static constexpr unsigned int mu_upper =
     with_moving_mesh ? 2 * dim + 3 : dim + 3;
+};
+
+template <int dim, bool with_moving_mesh>
+class ComponentOrderingCHNS : public ComponentOrdering
+{
+public:
+  ComponentOrderingCHNS()
+  {
+    using C      = ConstexprComponentOrderingCHNS<dim, with_moving_mesh>;
+    n_components = C::n_components;
+
+    u_lower   = C::u_lower;
+    u_upper   = C::u_upper;
+    p_lower   = C::p_lower;
+    p_upper   = C::p_upper;
+    x_lower   = C::x_lower;
+    x_upper   = C::x_upper;
+    phi_lower = C::phi_lower;
+    phi_upper = C::phi_upper;
+    mu_lower  = C::mu_lower;
+    mu_upper  = C::mu_upper;
+  }
 };
 
 #endif

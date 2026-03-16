@@ -49,16 +49,6 @@ public:
   virtual void compute_solver_specific_errors() override;
 
   /**
-   *
-   */
-  virtual void output_results() override;
-
-  /**
-   * Get the FESystem of the derived solver
-   */
-  virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
-
-  /**
    * Assemble the linearized Jacobian matrix at the current evaluation point
    */
   virtual void assemble_matrix() override;
@@ -69,6 +59,16 @@ public:
    * (i.e., if using thread-safe matrix and vector wrappers).
    */
   void assemble_local_matrix(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    ScratchData                                          &scratchData,
+    CopyData                                             &copy_data);
+
+  /**
+   * Compute the element-wise matrix using finite differences.
+   * FIXME: Rethink this to handle the finite difference computations
+   * in the base class and not in derived solvers.
+   */
+  void assemble_local_matrix_finite_differences(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchData                                          &scratchData,
     CopyData                                             &copy_data);
@@ -98,6 +98,20 @@ public:
    * See copy_local_to_global_matrix.
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
+
+protected:
+  virtual std::vector<std::pair<std::string, unsigned int>>
+  get_additional_variables_description() const override
+  {
+    std::vector<std::pair<std::string, unsigned int>> description;
+    description.push_back({"tracer", 1});
+    description.push_back({"potential", 1});
+    return description;
+  }
+
+  virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
+
+  virtual bool uses_hp_capabilities() const override { return false; };
 
 protected:
   std::shared_ptr<FESystem<dim>> fe;
@@ -135,7 +149,12 @@ protected:
     {
       // source_terms.fluid_source is a function with dim+1 components
       for (unsigned int d = 0; d < dim; ++d)
+      {
         values[ordering.u_lower + d] = source_terms.fluid_source->value(p, d);
+        if constexpr (with_moving_mesh)
+          values[ordering.x_lower + d] =
+            source_terms.pseudosolid_source->value(p, d);
+      }
       values[ordering.p_lower] = source_terms.fluid_source->value(p, dim);
       values[ordering.phi_lower] =
         source_terms.cahnhilliard_source->value(p, 0);
@@ -162,6 +181,7 @@ protected:
       , n_components(ordering.n_components)
       , u_lower(ordering.u_lower)
       , p_lower(ordering.p_lower)
+      , x_lower(ordering.x_lower)
       , phi_lower(ordering.phi_lower)
       , mu_lower(ordering.mu_lower)
       , mms(mms)
@@ -181,6 +201,10 @@ protected:
                          const unsigned int component = 0) const override
     {
       Assert(component < n_components, ExcMessage("Component mismatch"));
+      if constexpr (with_moving_mesh)
+        if (ordering.is_position(component))
+          return mms.exact_mesh_position->value(p,
+                                                component - ordering.x_lower);
       if (ordering.is_velocity(component))
         return mms.exact_velocity->value(p, component - ordering.u_lower);
       else if (ordering.is_pressure(component))
@@ -198,7 +222,11 @@ protected:
     {
       Assert(values.size() == n_components, ExcMessage("Component mismatch"));
       for (unsigned int d = 0; d < dim; ++d)
+      {
         values[u_lower + d] = mms.exact_velocity->value(p, d);
+        if constexpr (with_moving_mesh)
+          values[x_lower + d] = mms.exact_mesh_position->value(p, d);
+      }
       values[p_lower]   = mms.exact_pressure->value(p);
       values[phi_lower] = mms.exact_tracer->value(p);
       values[mu_lower]  = mms.exact_potential->value(p);
@@ -212,6 +240,11 @@ protected:
              const unsigned int component = 0) const override
     {
       Assert(component < n_components, ExcMessage("Component mismatch"));
+      if constexpr (with_moving_mesh)
+        if (ordering.is_position(component))
+          return mms.exact_mesh_position->gradient(p,
+                                                   component -
+                                                     ordering.x_lower);
       if (ordering.is_velocity(component))
         return mms.exact_velocity->gradient(p, component - ordering.u_lower);
       else if (ordering.is_pressure(component))
@@ -231,7 +264,11 @@ protected:
       Assert(gradients.size() == n_components,
              ExcMessage("Component mismatch"));
       for (unsigned int d = 0; d < dim; ++d)
+      {
         gradients[u_lower + d] = mms.exact_velocity->gradient(p, d);
+        if constexpr (with_moving_mesh)
+          gradients[x_lower + d] = mms.exact_mesh_position->gradient(p, d);
+      }
       gradients[p_lower]   = mms.exact_pressure->gradient(p);
       gradients[phi_lower] = mms.exact_tracer->gradient(p);
       gradients[mu_lower]  = mms.exact_potential->gradient(p);
@@ -242,6 +279,7 @@ protected:
     const unsigned int                               n_components;
     const unsigned int                               u_lower;
     const unsigned int                               p_lower;
+    const unsigned int                               x_lower;
     const unsigned int                               phi_lower;
     const unsigned int                               mu_lower;
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
@@ -262,6 +300,7 @@ protected:
       , n_components(ordering.n_components)
       , u_lower(ordering.u_lower)
       , p_lower(ordering.p_lower)
+      , x_lower(ordering.x_lower)
       , phi_lower(ordering.phi_lower)
       , mu_lower(ordering.mu_lower)
       , physical_properties(param.physical_properties)
@@ -282,6 +321,7 @@ protected:
     const unsigned int                               n_components;
     const unsigned int                               u_lower;
     const unsigned int                               p_lower;
+    const unsigned int                               x_lower;
     const unsigned int                               phi_lower;
     const unsigned int                               mu_lower;
     const Parameters::PhysicalProperties<dim>       &physical_properties;

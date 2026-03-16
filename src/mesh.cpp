@@ -242,9 +242,6 @@ void create_rectangle(Triangulation<dim> &tria,
     const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
     GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
   }
-
-  GridOut grid_out;
-  grid_out.write_msh(tria, "tria.msh");
 }
 
 template <int dim>
@@ -293,9 +290,6 @@ void create_holed_plate(Triangulation<dim> &tria,
     const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
     GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
   }
-
-  GridOut grid_out;
-  grid_out.write_msh(tria, "tria.msh");
 }
 
 
@@ -606,6 +600,13 @@ void read_mesh(
                   ExcMessage("Mesh creation for deal.II preset geometry \"" +
                              param.mesh.deal_ii_preset_mesh +
                              "\" is not implemented."));
+    }
+
+    if (param.debug.write_dealii_mesh_as_msh)
+    {
+      GridOut grid_out;
+      grid_out.write_msh(serial_triangulation,
+                         param.output.output_dir + "mesh_from_dealii.msh");
     }
   }
   else

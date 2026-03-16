@@ -1,4 +1,5 @@
 
+#include <assembly/boundary_forms.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -16,6 +17,7 @@
 #include <incompressible_ns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
@@ -466,31 +468,19 @@ void NSSolver<dim>::assemble_local_rhs(
       const auto &face = cell->face(i_face);
       if (face->at_boundary())
       {
+        const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
+
         // Open boundary condition with prescribed manufactured solution
         if (this->param.fluid_bc.at(scratchData.face_boundary_id[i_face])
               .type == BoundaryConditions::Type::open_mms)
         {
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-          {
-            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-            const auto  &n        = scratchData.face_normals_moving[i_face][q];
-
-            const auto &grad_u_exact =
-              scratchData.exact_face_velocity_gradients[i_face][q];
-            const double p_exact =
-              scratchData.exact_face_pressure_values[i_face][q];
-
-            // This is an open boundary condition, not a traction,
-            // involving only grad_u_exact and not the symmetric gradient.
-            const auto sigma_dot_n = -p_exact * n + nu * grad_u_exact * n;
-
-            const auto &phi_u_face = scratchData.phi_u_face[i_face][q];
-
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-            {
-              local_rhs(i) -= -phi_u_face[i] * sigma_dot_n * face_JxW;
-            }
-          }
+          Assembly::traction_boundary_mms_rhs(*this->ordering,
+                                              i_face,
+                                              fluid_bc,
+                                              nu,
+                                              scratchData,
+                                              local_rhs,
+                                              /* full_traction = */ false);
         }
       }
     }
@@ -507,50 +497,6 @@ void NSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
   this->zero_constraints.distribute_local_to_global(copy_data.local_rhs,
                                                     copy_data.local_dof_indices,
                                                     this->system_rhs);
-}
-
-template <int dim>
-void NSSolver<dim>::output_results()
-{
-  TimerOutput::Scope t(this->computing_timer, "Write outputs");
-
-  if (this->param.output.write_results)
-  {
-    std::vector<std::string> solution_names(dim, "velocity");
-    solution_names.push_back("pressure");
-
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        dim, DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(this->dof_handler);
-    data_out.add_data_vector(this->present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-    //
-    // Partition
-    //
-    Vector<float> subdomain(this->triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = this->triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain");
-
-    data_out.build_patches(*mapping, 2);
-
-    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      this->param.output.output_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
-
-    this->visualization_times_and_names.emplace_back(
-      this->time_handler.current_time, pvtu_file);
-  }
 }
 
 // Explicit instantiation

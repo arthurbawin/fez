@@ -18,11 +18,13 @@
 
 template <int dim>
 HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
+  : GenericSolver<LA::ParVectorType>(param.output,
+                                     param.nonlinear_solver,
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,
-                                     param.mms_param)
+                                     param.mms_param,
+                                     SolverType::main_physics)
   , param(param)
   , fe(FE_SimplexP<dim>(param.finite_elements.temperature_degree), 1)
   , quadrature(QGaussSimplex<dim>(4))
@@ -519,13 +521,15 @@ template <int dim>
 void HeatSolver<dim>::solve_linear_system(
   const bool /*apply_inhomogeneous_constraints*/)
 {
-  if (param.linear_solver.method ==
+  const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
+
+  if (linear_solver_param.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    if (param.linear_solver.reuse)
+    if (linear_solver_param.reuse)
     {
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints,
@@ -533,16 +537,16 @@ void HeatSolver<dim>::solve_linear_system(
     }
     else
       solve_linear_system_direct(this,
-                                 param.linear_solver,
+                                 linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints);
   }
-  else if (param.linear_solver.method ==
+  else if (linear_solver_param.method ==
            Parameters::LinearSolver::Method::gmres)
   {
     solve_linear_system_iterative(this,
-                                  param.linear_solver,
+                                  linear_solver_param,
                                   system_matrix,
                                   locally_owned_dofs,
                                   zero_constraints);

@@ -1,0 +1,37 @@
+Number of MPI processes: 6
+Mesh info:
+ dimension: 3
+ no. of cells: 1182
+ boundary indicators: 1(69 faces) 2(69 faces) 3(16 faces) 4(16 faces) 5(8 faces) 6(8 faces) 7(284 faces) 
+ID 1 -> Back
+ID 2 -> Front
+ID 3 -> Bottom
+ID 4 -> Top
+ID 5 -> Inlet
+ID 6 -> Outlet
+ID 7 -> Cylinder
+ID 8 -> Domain
+Number of degrees of freedom: 6477
+Newton iter.  0:          nonlinear residual = 8.43213200e+00
+Newton iter.  1:          nonlinear residual = 1.86194198e+00	(M)
+Newton iter.  2:          nonlinear residual = 7.54395525e-03	(M)
+Newton iter.  3:          nonlinear residual = 1.38570875e-07	(M)
+Newton iter.  4:          nonlinear residual = 2.16169094e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Forces on boundary with id 7 computed with method : stress_vector
+Fx = +4.692306e+01
+Fy = +2.242712e-01
+Fz = +1.147250e-02
+
+Forces per slice on boundary with id 7:
+Slice 0: Fx = +4.758916e+00	Fy = +5.403697e-02	Fz = +2.859927e-03	
+Slice 1: Fx = +3.991675e+00	Fy = -1.740722e-02	Fz = +1.256726e-02	
+Slice 2: Fx = +5.585963e+00	Fy = -4.202516e-02	Fz = +3.299590e-03	
+Slice 3: Fx = +4.064276e+00	Fy = -2.051529e-03	Fz = +5.135964e-03	
+Slice 4: Fx = +5.420150e+00	Fy = +1.014381e-02	Fz = +1.136442e-02	
+Slice 5: Fx = +4.080970e+00	Fy = +6.072988e-02	Fz = +8.056101e-04	
+Slice 6: Fx = +4.121339e+00	Fy = +1.985491e-02	Fz = -7.394610e-03	
+Slice 7: Fx = +5.464532e+00	Fy = +1.314770e-02	Fz = +3.036542e-03	
+Slice 8: Fx = +4.619700e+00	Fy = +4.832439e-02	Fz = -1.225295e-02	
+Slice 9: Fx = +4.815536e+00	Fy = +7.951740e-02	Fz = -7.949248e-03

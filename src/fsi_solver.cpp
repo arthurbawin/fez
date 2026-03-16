@@ -1,4 +1,6 @@
 
+#include <assembly/boundary_forms.h>
+#include <assembly/lagrange_multiplier.h>
 #include <compare_matrix.h>
 #include <components_ordering.h>
 #include <copy_data.h>
@@ -18,16 +20,19 @@
 #include <errors.h>
 #include <fe_simplex_p_with_3d_hp.h>
 #include <fsi_solver.h>
+#include <lagrange_multiplier_tools.h>
 #include <linear_solver.h>
 #include <mapping_fe_field_hp2.h>
 #include <mesh.h>
 #include <mesh_and_dof_tools.h>
+#include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
 template <int dim>
 FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, true>(param)
+  , all_lambda_accumulators(dim)
 {
   if (param.finite_elements.use_quads)
   {
@@ -225,13 +230,15 @@ void FSISolverLessLambda<dim>::MMSSourceTerm::vector_value(
   }
 
   // Use convention (grad_u)_ij := dvj/dxi
-  Tensor<2, dim> grad_u    = mms.exact_velocity->gradient_vj_xi(p);
-  Tensor<1, dim> lap_u     = mms.exact_velocity->vector_laplacian(p);
-  Tensor<1, dim> grad_p    = mms.exact_pressure->gradient(p);
-  Tensor<1, dim> uDotGradu = u * grad_u;
+  Tensor<2, dim> grad_u     = mms.exact_velocity->gradient_vj_xi(p);
+  Tensor<1, dim> lap_u      = mms.exact_velocity->vector_laplacian(p);
+  Tensor<1, dim> grad_div_u = mms.exact_velocity->grad_div(p);
+  Tensor<1, dim> grad_p     = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> uDotGradu  = u * grad_u;
 
   // Velocity source term
-  Tensor<1, dim> f = -(dudt_eulerian + uDotGradu + grad_p - nu * lap_u);
+  Tensor<1, dim> f =
+    -(dudt_eulerian + uDotGradu + grad_p - nu * (lap_u + grad_div_u));
   for (unsigned int d = 0; d < dim; ++d)
     values[ordering.u_lower + d] = f[d];
 
@@ -290,8 +297,13 @@ void FSISolverLessLambda<dim>::setup_dofs()
   // Initialize dof handler
   this->dof_handler.distribute_dofs(*fe);
 
-  this->pcout << "Number of degrees of freedom: " << this->dof_handler.n_dofs()
-              << std::endl;
+  // The number of dofs in 3d changes if the hp line identities are correctly
+  // applied. Do not print the number of dofs in 3d, as they will differ between
+  // the docker and the fixed version and the tests will fail.
+  if (dim == 2)
+    this->pcout << "Number of degrees of freedom: "
+                << this->dof_handler.n_dofs() << std::endl;
+
 
   this->locally_owned_dofs = this->dof_handler.locally_owned_dofs();
   this->locally_relevant_dofs =
@@ -371,17 +383,21 @@ template <int dim>
 void FSISolverLessLambda<dim>::reset_solver_specific_data()
 {
   // Position - lambda constraints
-  for (auto &vec : position_lambda_coeffs)
+  for (auto &vec : lambda_integral_coeffs)
     vec.clear();
-  position_lambda_coeffs.clear();
+  lambda_integral_coeffs.clear();
   coupled_position_dofs.clear();
-  has_chunk_of_cylinder           = false;
+  has_local_position_master       = false;
+  has_local_lambda_accumulator    = false;
   has_global_master_position_dofs = false;
   for (unsigned int d = 0; d < dim; ++d)
   {
     local_position_master_dofs[d]  = numbers::invalid_unsigned_int;
     global_position_master_dofs[d] = numbers::invalid_unsigned_int;
+    local_lambda_accumulators[d]   = numbers::invalid_unsigned_int;
+    all_lambda_accumulators[d].clear();
   }
+  // hp_dof_identities.clear();
 }
 
 template <int dim>
@@ -417,11 +433,27 @@ void FSISolverLessLambda<dim>::create_lagrange_multiplier_constraints()
       for (unsigned int i = 0; i < local_dofs.size(); ++i)
       {
         types::global_dof_index dof = local_dofs[i];
-        unsigned int comp = fe_with_lambda->system_to_component_index(i).first;
-        if (this->ordering->is_lambda(comp))
-          if (this->locally_relevant_dofs.is_element(dof))
-            if (!relevant_boundary_dofs.is_element(dof))
-              lambda_constraints.constrain_dof_to_zero(dof);
+
+        // If using the coupling method with accumulators and if dof is a local
+        // accumulator, do not constrain it
+        bool skip_dof = false;
+        if (this->param.debug.fsi_coupling_option == 3)
+          for (unsigned int d = 0; d < dim; ++d)
+            if (local_lambda_accumulators[d] == dof)
+            {
+              skip_dof = true;
+              break;
+            }
+
+        if (!skip_dof)
+        {
+          unsigned int comp =
+            fe_with_lambda->system_to_component_index(i).first;
+          if (this->ordering->is_lambda(comp))
+            if (this->locally_relevant_dofs.is_element(dof))
+              if (!relevant_boundary_dofs.is_element(dof))
+                lambda_constraints.constrain_dof_to_zero(dof);
+        }
       }
     }
   }
@@ -444,12 +476,12 @@ void FSISolverLessLambda<dim>::create_lagrange_multiplier_constraints()
 
     const unsigned int total_constrained_owned_dofs =
       Utilities::MPI::sum(constrained_owned_dofs, this->mpi_communicator);
-    std::cout << total_constrained_owned_dofs
-              << " constrained owned lambda dofs" << std::endl;
+    this->pcout << total_constrained_owned_dofs
+                << " constrained owned lambda dofs" << std::endl;
     const unsigned int total_unconstrained_owned_dofs =
       Utilities::MPI::sum(unconstrained_owned_dofs, this->mpi_communicator);
-    std::cout << total_unconstrained_owned_dofs
-              << " unconstrained owned lambda dofs" << std::endl;
+    this->pcout << total_unconstrained_owned_dofs
+                << " unconstrained owned lambda dofs" << std::endl;
 
     {
       // Print constrainted lambda dofs
@@ -503,6 +535,7 @@ void FSISolverLessLambda<dim>::create_lagrange_multiplier_constraints()
   }
 }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
 template <int dim>
 void FSISolverLessLambda<dim>::create_hp_line_dof_identities()
 {
@@ -642,6 +675,7 @@ void FSISolverLessLambda<dim>::create_hp_line_dof_identities()
     }
   }
 }
+#endif
 
 /**
  * On the cylinder, we have
@@ -670,158 +704,422 @@ void FSISolverLessLambda<dim>::create_hp_line_dof_identities()
 template <int dim>
 void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
 {
-  //
-  // Get and synchronize the lambda DoFs on the cylinder
-  //
-  IndexSet local_lambda_dofs =
-    DoFTools::extract_boundary_dofs(this->dof_handler,
-                                    lambda_mask,
-                                    {weak_no_slip_boundary_id});
+  /**
+   * Get the owned position dofs on the cylinder.
+   * We might be missing some owned dofs, e.g., on boundary edges for which
+   * no cell face touches the cylinder in 3D. Also add them here.
+   */
   IndexSet local_position_dofs =
     DoFTools::extract_boundary_dofs(this->dof_handler,
                                     this->position_mask,
                                     {weak_no_slip_boundary_id});
-
-  /**
-   * We might be missing some owned dofs, on boundary edges
-   * (see also comment in the remove_constraints function below).
-   * Add them here.
-   */
+  local_position_dofs = local_position_dofs & this->locally_owned_dofs;
   {
-    std::vector<std::vector<types::global_dof_index>> gathered_lambda_bdr_dofs =
-      Utilities::MPI::all_gather(this->mpi_communicator,
-                                 local_lambda_dofs.get_index_vector());
     std::vector<std::vector<types::global_dof_index>> gathered_pos_bdr_dofs =
       Utilities::MPI::all_gather(this->mpi_communicator,
                                  local_position_dofs.get_index_vector());
-
-    for (const auto &vec : gathered_lambda_bdr_dofs)
-      for (const auto dof : vec)
-        if (this->locally_relevant_dofs.is_element(dof))
-          local_lambda_dofs.add_index(dof);
     for (const auto &vec : gathered_pos_bdr_dofs)
       for (const auto dof : vec)
-        if (this->locally_relevant_dofs.is_element(dof))
+        if (this->locally_owned_dofs.is_element(dof))
           local_position_dofs.add_index(dof);
   }
 
-  const unsigned int n_local_lambda_dofs = local_lambda_dofs.n_elements();
-
-  local_lambda_dofs   = local_lambda_dofs & this->locally_owned_dofs;
-  local_position_dofs = local_position_dofs & this->locally_owned_dofs;
-
-  // Gather all lists to all processes
-  std::vector<std::vector<types::global_dof_index>> gathered_dofs =
-    Utilities::MPI::all_gather(this->mpi_communicator,
-                               local_lambda_dofs.get_index_vector());
-
-  std::vector<types::global_dof_index> gathered_dofs_flattened;
-  for (const auto &vec : gathered_dofs)
-    gathered_dofs_flattened.insert(gathered_dofs_flattened.end(),
-                                   vec.begin(),
-                                   vec.end());
-
-  std::sort(gathered_dofs_flattened.begin(), gathered_dofs_flattened.end());
-
-  // Add the lambda DoFs to the list of locally relevant
-  // DoFs: Do this only if partition contains a chunk of the cylinder
-  if (n_local_lambda_dofs > 0)
-  {
-    additional_relevant_dofs.set_size(this->dof_handler.n_dofs());
-    additional_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
-                                         gathered_dofs_flattened.end());
-    this->locally_relevant_dofs.add_indices(additional_relevant_dofs);
-    this->locally_relevant_dofs.compress();
-  }
+  const bool has_owned_position_dofs_on_boundary =
+    local_position_dofs.n_elements() > 0;
 
   /**
-   * Reinitialize the ghosted parallel vectors with the additional ghosts.
+   * The coupling options 0, 1 and 2 all couple one or more position dofs
+   * to *all* lambda dofs, which requires adding these dofs as ghosts on
+   * the partitions which own a piece of the cylinder.
    */
-  this->present_solution.reinit(this->locally_owned_dofs,
-                                this->locally_relevant_dofs,
-                                this->mpi_communicator);
-  this->evaluation_point.reinit(this->locally_owned_dofs,
-                                this->locally_relevant_dofs,
-                                this->mpi_communicator);
-  this->present_solution = this->local_evaluation_point;
-  this->evaluation_point = this->local_evaluation_point;
+  const bool requires_lambda_ghosts = this->param.debug.fsi_coupling_option < 3;
 
-  for (auto &previous_sol : this->previous_solutions)
+  if (requires_lambda_ghosts)
   {
-    // Create a temporary, fully distributed copy of the previous solution to
-    // reapply after resizing. This is needed for checkpointing, because the
-    // previous solutions won't be zero when restarting.
-    LA::ParVectorType tmp_prev_sol(this->locally_owned_dofs,
-                                   this->mpi_communicator);
-    tmp_prev_sol = previous_sol;
-    previous_sol.reinit(this->locally_owned_dofs,
-                        this->locally_relevant_dofs,
-                        this->mpi_communicator);
-    previous_sol = tmp_prev_sol;
+    // Collect the (relevant) lambda dofs
+    IndexSet boundary_lambda_dofs =
+      DoFTools::extract_boundary_dofs(this->dof_handler,
+                                      this->lambda_mask,
+                                      {weak_no_slip_boundary_id});
+
+    std::vector<std::vector<types::global_dof_index>> gathered =
+      Utilities::MPI::all_gather(this->mpi_communicator,
+                                 boundary_lambda_dofs.get_index_vector());
+
+    std::vector<types::global_dof_index> all_boundary_lambda_dofs;
+    for (const auto &vec : gathered)
+      all_boundary_lambda_dofs.insert(all_boundary_lambda_dofs.end(),
+                                      vec.begin(),
+                                      vec.end());
+
+    if (has_owned_position_dofs_on_boundary)
+    {
+      this->locally_relevant_dofs.add_indices(all_boundary_lambda_dofs.begin(),
+                                              all_boundary_lambda_dofs.end());
+      this->locally_relevant_dofs.compress();
+    }
+
+    // Reinitialize the ghosted parallel vectors with the additional ghosts.
+    this->reinit_vectors();
   }
 
-  if (this->param.debug.fsi_coupling_option == 1)
+  if (this->param.debug.fsi_coupling_option > 0)
   {
     // Set the local_position_master_dofs
     // Simply take the first owned position dofs on the cylinder
     // Here it's assumed that local_position_dofs is organized as
     // x_0, y_0, z_0, x_1, y_1, z_1, ...,
     // and we take the first dim.
-    const auto index_vector = local_position_dofs.get_index_vector();
-    if (index_vector.size() > 0)
+    const auto pos_index_vector = local_position_dofs.get_index_vector();
+    if (pos_index_vector.size() > 0)
     {
-      has_chunk_of_cylinder = true;
-      AssertThrow(index_vector.size() >= dim,
+      has_local_position_master = true;
+      AssertThrow(pos_index_vector.size() >= dim,
                   ExcMessage(
                     "This partition has position dofs on the cylinder, but has "
                     "less than dim position dofs, which should not happen. It "
                     "should have n * dim position dofs on this boundary."));
       for (unsigned int d = 0; d < dim; ++d)
-        local_position_master_dofs[d] = index_vector[d];
+      {
+        local_position_master_dofs[d] = pos_index_vector[d];
+        Assert(this->locally_owned_dofs.is_element(pos_index_vector[d]),
+               ExcMessage("Local position master dof " +
+                          std::to_string(pos_index_vector[d]) +
+                          " is not owned. This should not happen!"));
+      }
     }
-  }
-  else if (this->param.debug.fsi_coupling_option == 2)
-  {
-    // Set local master position dofs (smallest on cylinder on this rank)
-    // Then set global master position dofs (smallest of all on cylinder)
-    const auto index_vector = local_position_dofs.get_index_vector();
-    if (index_vector.size() > 0)
-    {
-      has_chunk_of_cylinder = true;
-      AssertThrow(index_vector.size() >= dim,
-                  ExcMessage(
-                    "This partition has position dofs on the cylinder, but has "
-                    "less than dim position dofs, which should not happen. It "
-                    "should have n * dim position dofs on this boundary."));
-      for (unsigned int d = 0; d < dim; ++d)
-        local_position_master_dofs[d] = index_vector[d];
-    }
-
-    // The global master dofs are those on the lowest rank among the ranks on
-    // which the local position dofs is defined
-    const unsigned int candidate_rank =
-      has_chunk_of_cylinder ? this->mpi_rank :
-                              std::numeric_limits<unsigned int>::max();
-    const unsigned int owner_rank =
-      Utilities::MPI::min(candidate_rank, this->mpi_communicator);
-    has_global_master_position_dofs = (this->mpi_rank == owner_rank);
-
-    for (unsigned int d = 0; d < dim; ++d)
-      global_position_master_dofs[d] = local_position_master_dofs[d];
 
     if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-      this->pcout << "Global master is on rank " << owner_rank << std::endl;
-
-    Utilities::MPI::broadcast(global_position_master_dofs.data(),
-                              dim,
-                              owner_rank,
-                              this->mpi_communicator);
+    {
+      n_ranks_with_position_master =
+        Utilities::MPI::sum(has_local_position_master ? 1 : 0,
+                            this->mpi_communicator);
+      this->pcout << "There are " << n_ranks_with_position_master
+                  << " ranks with local position master dofs" << std::endl;
+    }
   }
 
-  //
-  // Compute the weights c_ij and identify the constrained position DOFs.
-  // Done only once as cylinder is rigid and those weights will not change.
-  //
+  switch (this->param.debug.fsi_coupling_option)
+  {
+    case 1:
+      // Couple all local position dofs to local master
+      // Then couple local master to all (global) lambda dofs
+      // Nothing else to do : the local position master was set,
+      // and the lambda dofs on cylinder have been added as ghosts
+      break;
+    case 2:
+    {
+      // Couple all local position dofs to local master, then to global master
+      // Couple global master to all (global) lambda dofs
+      // We still have to determine the global position master :
+      // it is simply taken as the local master on the lowest rank
+      // among those with a local position master:
+      const unsigned int candidate_rank =
+        has_local_position_master ? this->mpi_rank :
+                                    std::numeric_limits<unsigned int>::max();
+      const unsigned int owner_rank =
+        Utilities::MPI::min(candidate_rank, this->mpi_communicator);
+      has_global_master_position_dofs = (this->mpi_rank == owner_rank);
+
+      if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+        this->pcout << "Global position master is on rank " << owner_rank
+                    << std::endl;
+
+      // Set the global position dofs and broadcast them to all ranks
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        global_position_master_dofs[d] = numbers::invalid_unsigned_int;
+        if (has_global_master_position_dofs)
+          global_position_master_dofs[d] = local_position_master_dofs[d];
+      }
+
+      Utilities::MPI::broadcast(global_position_master_dofs.data(),
+                                dim,
+                                owner_rank,
+                                this->mpi_communicator);
+
+      if constexpr (running_in_debug_mode())
+      {
+        for (unsigned int d = 0; d < dim; ++d)
+          Assert(global_position_master_dofs[d] !=
+                   numbers::invalid_unsigned_int,
+                 ExcMessage(
+                   "The global position master is invalid after broadcast"));
+      }
+
+      break;
+    }
+    case 3:
+    {
+      // Couple all local position dofs to local master,
+      // and use local accumulators to sum the lambda integrals on owned faces
+      // Then, couple each local master to all lambda accumulators
+
+      // Normally, this coupling would require adding "dim" dofs per
+      // partition to store the integral of each component (accumulators).
+      // But we can ruse a little bit: since we are already storing more lambda
+      // dofs than required (even in hp mode), we can just use "dim" of these
+      // useless dofs to store the force on this proc,
+      // while being careful not to affect the no-slip constraint.
+      // The global dof indices of these dofs are stored in
+      // local_lambda_accumulators.
+
+      // Set the accumulator dofs from among the unused lambda dofs:
+      // This rank should have a lambda accumulator if it has at least
+      // one owned face on the cylinder
+      for (const auto &cell : this->dof_handler.active_cell_iterators())
+        if (cell->is_locally_owned())
+          if (cell->at_boundary())
+            for (const auto &face : cell->face_iterators())
+              if (face->at_boundary() &&
+                  face->boundary_id() == weak_no_slip_boundary_id)
+              {
+                has_local_lambda_accumulator = true;
+                goto reduce_accumulators;
+              }
+    reduce_accumulators:
+      n_ranks_with_lambda_accumulator =
+        Utilities::MPI::sum(has_local_lambda_accumulator ? 1 : 0,
+                            this->mpi_communicator);
+      if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+        this->pcout << "There are " << n_ranks_with_lambda_accumulator
+                    << " ranks with local lambda accumulators" << std::endl;
+
+      for (unsigned int d = 0; d < dim; ++d)
+        local_lambda_accumulators[d] = numbers::invalid_unsigned_int;
+
+      // Now actually set the dofs for the accumulators, if possible
+      if (has_local_lambda_accumulator)
+      {
+        // We can take as accumulators the first dim lambda dofs on this
+        // partition that would otherwise be constrained to zero
+
+        // Impact on the no-slip enforcement:
+        // The lambda equations on the relevant boundaries are assembled by
+        // looping over the cell dofs, not only the face dofs, so if we choose
+        // lambda dofs from a cell adjacent to these boundaries, this will
+        // affect the no-slip enforcement. To avoid that we can take lambda dofs
+        // from a cell that touches the boundary by a vertex only, and take dofs
+        // which are not shared which a directly adjacent cell to the boundary.
+
+        std::vector<types::global_dof_index> face_dofs(
+          fe_with_lambda->n_dofs_per_face());
+        unsigned int n_accumulators = 0;
+        for (const auto &cell : this->dof_handler.active_cell_iterators())
+          if (cell->is_locally_owned())
+            if (cell_has_lambda(cell))
+            {
+              bool skip_cell = false;
+
+              // Skip if this cell altogether if it touches the target boundary
+              // with a face
+              for (const auto &face : cell->face_iterators())
+                if (face->at_boundary() &&
+                    face->boundary_id() == weak_no_slip_boundary_id)
+                {
+                  skip_cell = true;
+                  break;
+                };
+
+              if (!skip_cell)
+                for (const auto i_face : cell->face_indices())
+                {
+                  const auto &face      = cell->face(i_face);
+                  bool        skip_face = false;
+
+                  // Skip face if neighbouring cell through this face touches
+                  // the target boundary
+                  auto neighbor = cell->neighbor(i_face);
+                  if (neighbor->state() == IteratorState::IteratorStates::valid)
+                    for (const auto neighbor_i_face : neighbor->face_indices())
+                    {
+                      const auto &neighbor_face =
+                        neighbor->face(neighbor_i_face);
+                      if (neighbor_face->at_boundary() &&
+                          neighbor_face->boundary_id() ==
+                            weak_no_slip_boundary_id)
+                      {
+                        skip_face = true;
+                        break;
+                      }
+                    }
+
+                  if (!skip_face)
+                  {
+                    face->get_dof_indices(face_dofs, index_fe_with_lambda);
+                    for (unsigned int i = 0; i < face_dofs.size(); ++i)
+                    {
+                      types::global_dof_index dof = face_dofs[i];
+                      unsigned int            comp =
+                        fe_with_lambda
+                          ->face_system_to_component_index(i, i_face)
+                          .first;
+                      unsigned int base =
+                        fe_with_lambda
+                          ->face_system_to_component_index(i, i_face)
+                          .second;
+
+                      // FIXME:
+                      // Hardcoded to the first P2 dof of the first face whose
+                      // neighbouring cell does not touch the boundary Its shape
+                      // functions index (base) is 2 in 2D (P2 dof on a line)
+                      // and 3 in 3D (P2 dof on triangle). This is for simplices
+                      // only...
+                      AssertThrow(
+                        !this->param.finite_elements.use_quads &&
+                          this->param.finite_elements.mesh_position_degree == 2,
+                        ExcMessage(
+                          "This coupling option for the forces-position on the "
+                          "cylinder for now assumes a P2 Lagrange multiplier "
+                          "on simplices only. If this changes, the lambda dofs "
+                          "chosen as accumulators should be generalized "
+                          "accordingly."));
+                      unsigned int target_base = (dim == 2) ? 2 : 3;
+                      if (base == target_base)
+                        if (this->ordering->is_lambda(comp))
+                          /**
+                           * The accumulator must be an owned dof. It might not
+                           * be possible to assign an accumulator, based on the
+                           * partition used, see the assert below.
+                           */
+                          if (this->locally_owned_dofs.is_element(dof))
+                          {
+                            local_lambda_accumulators[n_accumulators++] = dof;
+                            if (n_accumulators == dim)
+                              goto accumulators_found;
+                          }
+                    }
+                  }
+                }
+            }
+      accumulators_found:
+        if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+        {
+          if constexpr (dim == 2)
+          {
+            std::cout << "Set lambda accumulator at dof "
+                      << local_lambda_accumulators[0] << " - "
+                      << local_lambda_accumulators[1] << std::endl;
+          }
+          else
+          {
+            std::cout << "Set lambda accumulator at dof "
+                      << local_lambda_accumulators[0] << " - "
+                      << local_lambda_accumulators[1] << " - "
+                      << local_lambda_accumulators[2] << std::endl;
+          }
+        }
+        for (unsigned int d = 0; d < dim; ++d)
+          /**
+           * On some weird partitions (typically with "too many" MPI procs),
+           * there are owned cells on the boundary, but no owned lambda dof that
+           * can be used to accumulate the local integral.
+           *
+           * This is technically an issue with the coupling method itself, as
+           * accumulators should be defined on their own, without using
+           * otherwise unused lambda dofs. Note that allowing accumulators on a
+           * non-boundary face of elements touching the boundary is not
+           * sufficient, because in some cases the *only* owned lambda dofs are
+           * on a boundary face, and there is really no way to define an
+           * accumulator without modifying the flow solution.
+           */
+          AssertThrow(
+            local_lambda_accumulators[d] != numbers::invalid_unsigned_int,
+            ExcMessage(
+              "\n This rank owns at least one cell touching a boundary where "
+              "no-slip should be enforced with a Lagrange multiplier (lambda). "
+              "But it doesn't own any lambda degree of freedom that can be "
+              "used to safely accumulate the force integral on this rank (all "
+              "its lambda dofs are either ghosts, or owned but on the "
+              "prescribed "
+              "boundary)."
+              "\n\n This can happen on somewhat pathological mesh partitions "
+              "with isolated elements touching the boundary, and it probably "
+              "indicates that the mesh has too few elements for the number of "
+              "MPI processes used."
+              "\n\n To go around this issue, try running with another number "
+              "of MPI processes."));
+
+#if defined(DEBUG_PRINTS)
+        {
+          // Print accumulators
+          std::map<types::global_dof_index, Point<dim>> support_points =
+            DoFTools::map_dofs_to_support_points(fixed_mapping_collection,
+                                                 this->dof_handler);
+
+          {
+            std::ofstream outfile(this->param.output.output_dir +
+                                  "accumulators_dofs" +
+                                  std::to_string(this->mpi_rank) + ".pos");
+            outfile << "View \"accumulators_dofs" << this->mpi_rank << "\"{"
+                    << std::endl;
+            for (const auto dof : local_lambda_accumulators)
+            {
+              const Point<dim> &pt = support_points.at(dof);
+              if constexpr (dim == 2)
+                outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
+                        << std::endl;
+              else
+                outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2]
+                        << "){1};" << std::endl;
+            }
+            outfile << "};" << std::endl;
+            outfile.close();
+          }
+        }
+#endif
+      }
+
+      // Lastly, add accumulators as ghosts on all procs with a position master
+      // and reinit the parallel vectors with these additional ghosts
+      {
+        std::vector<std::array<types::global_dof_index, dim>> gathered =
+          Utilities::MPI::all_gather(this->mpi_communicator,
+                                     local_lambda_accumulators);
+        // all_lambda_accumulators.resize(dim);
+        for (unsigned int rank = 0; rank < gathered.size(); ++rank)
+          for (unsigned int d = 0; d < dim; ++d)
+            if (gathered[rank][d] != numbers::invalid_unsigned_int)
+              all_lambda_accumulators[d].push_back(gathered[rank][d]);
+      }
+
+      if constexpr (running_in_debug_mode())
+      {
+        // Check that there are indeed n_ranks_with_lambda_accumulator dofs for
+        // each dimension
+        for (unsigned int d = 0; d < dim; ++d)
+          Assert(all_lambda_accumulators[d].size() ==
+                   n_ranks_with_lambda_accumulator,
+                 ExcMessage(
+                   "There are " +
+                   std::to_string(all_lambda_accumulators[d].size()) +
+                   "lambda accumulators in the local vector on this rank, "
+                   "but there are " +
+                   std::to_string(n_ranks_with_lambda_accumulator) +
+                   " ranks with an accumulator."));
+      }
+
+      if (has_local_lambda_accumulator)
+      {
+        for (unsigned int d = 0; d < dim; ++d)
+          this->locally_relevant_dofs.add_indices(
+            all_lambda_accumulators[d].begin(),
+            all_lambda_accumulators[d].end());
+        this->locally_relevant_dofs.compress();
+      }
+
+      this->reinit_vectors();
+
+      break;
+    }
+    default:
+      DEAL_II_NOT_IMPLEMENTED();
+  }
+
+  /**
+   * Compute the weights c_ij and identify the constrained position DOFs.
+   * Done only once as cylinder is rigid and those weights will not change.
+   */
   std::vector<std::map<types::global_dof_index, double>> coeffs(dim);
 
   hp::FEFaceValues hp_fe_face_values_fixed(fixed_mapping_collection,
@@ -848,9 +1146,6 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
      *   boundary of the obstacle. Thus, we never loop over these faces and
      * cannot get these owned dofs. They are added afterwards after gathering
      * the coupled dofs from other ranks.
-     *
-     *   TODO: Check if it's possible to loop over edges, but I doubt it since
-     * the boundary ID is ill defined on edges.
      */
     if (cell->is_locally_owned())
     {
@@ -865,7 +1160,6 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
         const unsigned int fe_index = cell->active_fe_index();
 
         hp_fe_face_values_fixed.reinit(cell, face);
-        // fe_face_values_fixed.reinit(cell, face);
 
         const FEFaceValues<dim> &fe_face_values_fixed =
           hp_fe_face_values_fixed.get_present_fe_values();
@@ -887,6 +1181,7 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
 
             // Here we need to account for ghost DoF (not only owned), which
             // contribute to the integral on this element
+            // FIXME: This should never happen, to check and remove
             if (!this->locally_relevant_dofs.is_element(face_dofs[i_dof]))
               continue;
 
@@ -928,9 +1223,10 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
   }
 
   /**
-   * We might be missing some owned coupled dofs, on boundary edges
-   * (see also comment in the remove_constraints function below).
+   * Once again we might be missing some owned coupled dofs, on boundary edges
    * Add them here.
+   * They are added only if they are already relevant (does not add ghosts).
+   * FIXME: Can this be done only once instead?
    */
   {
     using MessageType =
@@ -996,30 +1292,38 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
     }
   }
 
-  //
-  // Gather the constraint weights
-  //
-  position_lambda_coeffs.resize(dim);
-  std::vector<std::map<types::global_dof_index, double>> gathered_coeffs_map(
-    dim);
-
-  for (unsigned int d = 0; d < dim; ++d)
+  /**
+   * Either store the local coefficients of the lambda integral (option 3),
+   * or reduce them into a single vector
+   */
+  lambda_integral_coeffs.resize(dim);
+  if (this->param.debug.fsi_coupling_option == 3)
   {
-    std::vector<std::pair<types::global_dof_index, double>> coeffs_vector(
-      coeffs[d].begin(), coeffs[d].end());
-    std::vector<std::vector<std::pair<types::global_dof_index, double>>>
-      gathered =
-        Utilities::MPI::all_gather(this->mpi_communicator, coeffs_vector);
+    for (unsigned int d = 0; d < dim; ++d)
+      lambda_integral_coeffs[d] =
+        std::vector<std::pair<unsigned int, double>>(coeffs[d].begin(),
+                                                     coeffs[d].end());
+  }
+  else
+  {
+    for (unsigned int d = 0; d < dim; ++d)
+    {
+      const auto gathered = Utilities::MPI::all_gather(
+        this->mpi_communicator,
+        std::vector<std::pair<types::global_dof_index, double>>(
+          coeffs[d].begin(), coeffs[d].end()));
 
-    // Put back into map and sum contributions to same DoF from different
-    // processes
-    for (const auto &vec : gathered)
-      for (const auto &[lambda_dof, weight] : vec)
-        gathered_coeffs_map[d][lambda_dof] += weight;
+      std::map<types::global_dof_index, double> coeffs_map;
 
-    position_lambda_coeffs[d].insert(position_lambda_coeffs[d].end(),
-                                     gathered_coeffs_map[d].begin(),
-                                     gathered_coeffs_map[d].end());
+      // Accumulate contributions
+      for (const auto &vec : gathered)
+        for (const auto &[lambda_dof, weight] : vec)
+          coeffs_map[lambda_dof] += weight;
+
+      lambda_integral_coeffs[d].insert(lambda_integral_coeffs[d].end(),
+                                       coeffs_map.begin(),
+                                       coeffs_map.end());
+    }
   }
 }
 
@@ -1167,10 +1471,13 @@ void FSISolverLessLambda<dim>::remove_cylinder_velocity_constraints(
           "boundary have conflicting prescribed boundary conditions."));
 }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
 template <int dim>
 void FSISolverLessLambda<dim>::add_hp_identities_constraints(
   AffineConstraints<double> &constraints) const
 {
+  // AssertThrow(false, ExcMessage("Not needed"));
+
   AffineConstraints<double> hp_constraints(this->locally_owned_dofs,
                                            this->locally_relevant_dofs);
 
@@ -1184,6 +1491,7 @@ void FSISolverLessLambda<dim>::add_hp_identities_constraints(
     hp_constraints,
     AffineConstraints<double>::MergeConflictBehavior::right_object_wins);
 }
+#endif
 
 template <int dim>
 void FSISolverLessLambda<dim>::create_solver_specific_zero_constraints()
@@ -1227,10 +1535,12 @@ void FSISolverLessLambda<dim>::create_solver_specific_zero_constraints()
     }
   }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
   add_hp_identities_constraints(this->zero_constraints);
+#endif
 }
 
 template <int dim>
@@ -1261,10 +1571,12 @@ void FSISolverLessLambda<dim>::create_solver_specific_nonzero_constraints()
     }
   }
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   // Add the hp dof identities as constraints
   // This won't be required as soon as the line dof identities are applied in
   // deal.II (in dof_handler.distribute_dofs())
   add_hp_identities_constraints(this->nonzero_constraints);
+#endif
 }
 
 template <int dim>
@@ -1305,11 +1617,6 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
                                   dsp,
                                   this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
-
-  const unsigned int s0 = dsp.n_nonzero_elements();
-  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz"
-                << std::endl;
 
   {
     // Manually add the lambda coupling on the relevant boundary faces
@@ -1363,14 +1670,14 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
       }
   }
 
-  const unsigned int s1 = dsp.n_nonzero_elements();
-  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz - "
-                << s1 - s0 << std::endl;
+  // Add the couplings on the cylinder depending on the chosen coupling scheme
+  // Regardless of the method, couple position dofs to local master if there is
+  // one Local position masters are already coupled to themselves from the
+  // coupling table
+  if (has_local_position_master)
+    for (const auto &[position_dof, d] : coupled_position_dofs)
+      dsp.add(position_dof, local_position_master_dofs[d]);
 
-  /**
-   * FIXME: Still testing for better coupling betwen x and lambda.
-   */
   switch (this->param.debug.fsi_coupling_option)
   {
     case 0:
@@ -1381,74 +1688,69 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
       // Note : this is highly inefficient, and will be removed atfer testing
       // for alternatives.
       for (const auto &[position_dof, d] : coupled_position_dofs)
-        for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
+        for (const auto &[lambda_dof, weight] : lambda_integral_coeffs[d])
           dsp.add(position_dof, lambda_dof);
       break;
     }
     case 1:
     {
-      if (has_chunk_of_cylinder)
-      {
-        // Add position-lambda couplings *only* for local master position dofs
+      // Add position-lambda couplings only for local master position dofs
+      if (has_local_position_master)
         for (unsigned int d = 0; d < dim; ++d)
-        {
           // Couple the local master position dof in dimension d to the lambda
           // of same dimension (one-way coupling)
-          for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
+          for (const auto &[lambda_dof, weight] : lambda_integral_coeffs[d])
             dsp.add(local_position_master_dofs[d], lambda_dof);
-        }
-        // Couple the remaining owned position dofs to the local master dof
-        // This coupling is local to the partition (also a one-way coupling)
-        for (const auto &[position_dof, d] : coupled_position_dofs)
-          dsp.add(position_dof, local_position_master_dofs[d]);
-      }
       break;
     }
     case 2:
     {
-      if (has_chunk_of_cylinder)
+      if (has_local_position_master)
       {
         if (has_global_master_position_dofs)
-        {
           // Add position-lambda couplings *only* for global master pos dofs
           for (unsigned int d = 0; d < dim; ++d)
-          {
             // Couple the global master position dof in dimension d to the
             // lambda of same dimension (one-way coupling)
-            for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
+            for (const auto &[lambda_dof, weight] : lambda_integral_coeffs[d])
               dsp.add(global_position_master_dofs[d], lambda_dof);
-          }
-        }
         else
-        {
           // If this rank does not own the global master position dofs,
           // couple its position dofs to it
           for (unsigned int d = 0; d < dim; ++d)
-          {
             // Couple the global master position dof in dimension d to the
             // lambda of same dimension (one-way coupling)
             dsp.add(local_position_master_dofs[d],
                     global_position_master_dofs[d]);
-          }
+      }
+      break;
+    }
+    case 3:
+    {
+      if (has_local_position_master)
+        // Couple local position master to all lambda accumulators (one way)
+        for (unsigned int d = 0; d < dim; ++d)
+        {
+          // dsp.add(local_position_master_dofs[d],
+          // local_position_master_dofs[d]);
+          for (const auto &lambda_accumulator : all_lambda_accumulators[d])
+            dsp.add(local_position_master_dofs[d], lambda_accumulator);
         }
 
-        // For all ranks with a piece of cylinder, couple the remaining owned
-        // position dofs to the local master dof On the rank with the global
-        // master, the local masters are also the global. This coupling is local
-        // to the partition (also a one-way coupling)
-        for (const auto &[position_dof, d] : coupled_position_dofs)
-          dsp.add(position_dof, local_position_master_dofs[d]);
-      }
+      if (has_local_lambda_accumulator)
+        // Couple local lambda accumulators (one per dimension) to themselves
+        // and to local lambdas of same dimension
+        for (unsigned int d = 0; d < dim; ++d)
+        {
+          dsp.add(local_lambda_accumulators[d], local_lambda_accumulators[d]);
+          for (const auto &[lambda_dof, weight] : lambda_integral_coeffs[d])
+            dsp.add(local_lambda_accumulators[d], lambda_dof);
+        }
       break;
     }
     default:
       DEAL_II_ASSERT_UNREACHABLE();
   }
-
-  const unsigned int s2 = dsp.n_nonzero_elements();
-  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "DSP has " << dsp.n_nonzero_elements() << " nnz - "
-                << s2 - s1 << std::endl;
 
   SparsityTools::distribute_sparsity_pattern(dsp,
                                              this->locally_owned_dofs,
@@ -1461,9 +1763,10 @@ void FSISolverLessLambda<dim>::create_sparsity_pattern()
                              this->mpi_communicator);
 
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "Matrix has " << this->system_matrix.n_nonzero_elements()
-                << " nnz and size " << this->system_matrix.m() << " x "
-                << this->system_matrix.n() << std::endl;
+    if (dim == 2)
+      this->pcout << "Matrix has " << this->system_matrix.n_nonzero_elements()
+                  << " nnz and size " << this->system_matrix.m() << " x "
+                  << this->system_matrix.n() << std::endl;
 }
 
 template <int dim>
@@ -1534,7 +1837,17 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
-  // std::cout << "Assembling on volume" << std::endl;
+  std::vector<Tensor<1, dim>> to_multiply_by_phi_u_i_momentum(
+    scratch_data.dofs_per_cell);
+  std::vector<Tensor<1, dim>> to_multiply_by_phi_u_i_position(
+    scratch_data.dofs_per_cell);
+  std::vector<double> trace_gradu_dot_grad_phi_x_j(scratch_data.dofs_per_cell);
+  std::vector<Tensor<2, dim>> sym_gradu_dot_grad_phi_x_j(
+    scratch_data.dofs_per_cell);
+
+  const auto u_lower = const_ordering.u_lower;
+  const auto x_lower = const_ordering.x_lower;
+
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
     const double lame_mu     = scratch_data.lame_mu[q];
@@ -1543,18 +1856,22 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
     const double JxW_moving = scratch_data.JxW_moving[q];
     const double JxW_fixed  = scratch_data.JxW_fixed[q];
 
-    const auto &phi_u      = scratch_data.phi_u[q];
-    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
-    const auto &div_phi_u  = scratch_data.div_phi_u[q];
-    const auto &phi_p      = scratch_data.phi_p[q];
-    const auto &phi_x      = scratch_data.phi_x[q];
-    const auto &grad_phi_x = scratch_data.grad_phi_x[q];
-    const auto &div_phi_x  = scratch_data.div_phi_x[q];
+    const auto &phi_u            = scratch_data.phi_u[q];
+    const auto &grad_phi_u       = scratch_data.grad_phi_u[q];
+    const auto &div_phi_u        = scratch_data.div_phi_u[q];
+    const auto &phi_p            = scratch_data.phi_p[q];
+    const auto &phi_x            = scratch_data.phi_x[q];
+    const auto &grad_phi_x       = scratch_data.grad_phi_x[q];
+    const auto &sym_grad_phi_x   = scratch_data.sym_grad_phi_x[q];
+    const auto &div_phi_x        = scratch_data.div_phi_x[q];
+    const auto &trace_grad_phi_x = scratch_data.trace_grad_phi_x[q];
 
     const auto &present_velocity_values =
       scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratch_data.present_velocity_gradients[q];
+    const auto &present_velocity_sym_gradients =
+      scratch_data.present_velocity_sym_gradients[q];
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
     const double present_pressure_values =
@@ -1566,12 +1883,39 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
     const auto u_dot_grad_u_ale = present_velocity_gradients * u_ale;
 
     // BDF: current dudt
-    Tensor<1, dim> dudt =
+    const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, present_velocity_values, scratch_data.previous_velocity_values);
 
+    // Precompute quantities depending only on j
+    for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
+    {
+      const auto &phi_u_j      = phi_u[j];
+      const auto &grad_phi_u_j = grad_phi_u[j];
+
+      to_multiply_by_phi_u_i_momentum[j] = bdf_c0 * phi_u_j +
+                                           grad_phi_u_j * u_ale +
+                                           present_velocity_gradients * phi_u_j;
+
+      const auto &phi_x_j            = phi_x[j];
+      const auto &grad_phi_x_j       = grad_phi_x[j];
+      const auto  trace_grad_phi_x_j = trace_grad_phi_x[j];
+
+      const auto gradu_dot_grad_phi_x_j =
+        present_velocity_gradients * grad_phi_x_j;
+
+      trace_gradu_dot_grad_phi_x_j[j] = trace(gradu_dot_grad_phi_x_j);
+
+      sym_gradu_dot_grad_phi_x_j[j] =
+        present_velocity_sym_gradients * grad_phi_x_j;
+
+      to_multiply_by_phi_u_i_position[j] =
+        (dudt + u_dot_grad_u_ale) * trace_grad_phi_x_j -
+        gradu_dot_grad_phi_x_j * u_ale -
+        present_velocity_gradients * bdf_c0 * phi_x_j;
+    }
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-    // for (auto i : scratch_data.dofs_without_lambda)
     {
       const unsigned int comp_i = scratch_data.components[i];
       const bool         i_is_u =
@@ -1579,6 +1923,12 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
       const bool i_is_p = comp_i == const_ordering.p_lower;
       const bool i_is_x =
         const_ordering.x_lower <= comp_i && comp_i < const_ordering.x_upper;
+      const bool i_is_l =
+        const_ordering.l_lower <= comp_i && comp_i < const_ordering.l_upper;
+      if (i_is_l)
+        continue;
+
+      const auto &coupling_row = this->coupling_table[comp_i];
 
       const auto &phi_u_i      = phi_u[i];
       const auto &grad_phi_u_i = grad_phi_u[i];
@@ -1587,13 +1937,21 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
       const auto &grad_phi_x_i = grad_phi_x[i];
       const auto &div_phi_x_i  = div_phi_x[i];
 
+      const Tensor<2, dim> sym_grad_u_dot_grad_phi_u_i =
+        present_velocity_sym_gradients * grad_phi_u_i;
+      const double trace_sym_grad_u_dot_grad_phi_u_i =
+        trace(sym_grad_u_dot_grad_phi_u_i);
+
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
-      // for (auto j : scratch_data.dofs_without_lambda)
       {
         const unsigned int comp_j = scratch_data.components[j];
-        bool               assemble =
-          this->coupling_table[comp_i][comp_j] == DoFTools::always;
-        if (!assemble)
+
+        // If lambda dof, continue before reading the coupling table
+        const bool j_is_l =
+          const_ordering.l_lower <= comp_j && comp_j < const_ordering.l_upper;
+        if (j_is_l)
+          continue;
+        if (coupling_row[comp_j] != DoFTools::always)
           continue;
         const bool j_is_u =
           const_ordering.u_lower <= comp_j && comp_j < const_ordering.u_upper;
@@ -1601,33 +1959,30 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
         const bool j_is_x =
           const_ordering.x_lower <= comp_j && comp_j < const_ordering.x_upper;
 
-        const auto &phi_u_j            = phi_u[j];
-        const auto &grad_phi_u_j       = grad_phi_u[j];
-        const auto &div_phi_u_j        = div_phi_u[j];
-        const auto &phi_p_j            = phi_p[j];
-        const auto &phi_x_j            = phi_x[j];
-        const auto &grad_phi_x_j       = grad_phi_x[j];
-        const auto  trace_grad_phi_x_j = trace(grad_phi_x_j);
-        const auto &div_phi_x_j        = div_phi_x[j];
+        // Account for the pressure gradient when initializing
+        double local_flow_matrix_ij = j_is_p ? -div_phi_u_i * phi_p[j] : 0.;
 
-        double local_flow_matrix_ij = 0.;
-        double local_ps_matrix_ij   = 0.;
-
+        /**
+         * Momentum equation
+         */
         if (i_is_u)
         {
           if (j_is_u)
           {
+            const auto &gui = grad_phi_u_i[comp_i];
+            const auto &guj = grad_phi_u[j][comp_j];
+
             // Time derivative, convection (including ALE) and diffusion
             local_flow_matrix_ij +=
-              phi_u_i * (bdf_c0 * phi_u_j + grad_phi_u_j * u_ale +
-                         present_velocity_gradients * phi_u_j) +
-              nu * scalar_product(grad_phi_u_j, grad_phi_u_i);
-          }
+              phi_u_i * to_multiply_by_phi_u_i_momentum[j]
 
-          if (j_is_p)
-          {
-            // Pressure gradient
-            local_flow_matrix_ij += -div_phi_u_i * phi_p_j;
+              // The following is the diffusion term
+              // 2. * nu * scalar_product(sym_grad_phi_u[j], sym_grad_phi_u_i),
+              // explicited for the symmetric gradient of Lagrange shape
+              // functions
+              + nu * (gui[comp_j - u_lower] * guj[comp_i - u_lower]);
+            if (comp_i == comp_j)
+              local_flow_matrix_ij += nu * gui * guj;
           }
 
           if (j_is_x)
@@ -1637,28 +1992,28 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
             // term is only needed for manufactured solutions, and slows down
             // the assembly. Ommitting it does not seem to affect convergence of
             // the nonlinear solver.
-            const Tensor<2, dim> d_grad_phi_u = -grad_phi_u_i * grad_phi_x_j;
-            const auto           gradu_dot_grad_phi_x_j =
-              present_velocity_gradients * grad_phi_x_j;
+            const auto trace_grad_phi_x_j = trace_grad_phi_x[j];
+
             local_flow_matrix_ij +=
-              phi_u_i * ((dudt + u_dot_grad_u_ale) * trace_grad_phi_x_j -
-                         gradu_dot_grad_phi_x_j * u_ale -
-                         present_velocity_gradients * bdf_c0 * phi_x_j) +
-              nu * scalar_product(-gradu_dot_grad_phi_x_j, grad_phi_u_i) +
-              nu * scalar_product(present_velocity_gradients,
-                                  d_grad_phi_u +
-                                    grad_phi_u_i * trace_grad_phi_x_j) -
-              present_pressure_values *
-                (trace(d_grad_phi_u) + div_phi_u_i * trace_grad_phi_x_j);
+              phi_u_i * to_multiply_by_phi_u_i_position[j] +
+              2. * nu *
+                (-2. * scalar_product(sym_grad_phi_x[j],
+                                      sym_grad_u_dot_grad_phi_u_i) +
+                 trace_grad_phi_x_j * trace_sym_grad_u_dot_grad_phi_u_i) -
+              present_pressure_values * (trace(-grad_phi_u_i * grad_phi_x[j]) +
+                                         div_phi_u_i * trace_grad_phi_x_j);
           }
         }
 
+        /**
+         * Continuity equation
+         */
         if (i_is_p)
         {
           if (j_is_u)
           {
             // Continuity : variation w.r.t. u
-            local_flow_matrix_ij += -phi_p_i * div_phi_u_j;
+            local_flow_matrix_ij += -phi_p_i * div_phi_u[j];
           }
 
           if (j_is_x)
@@ -1668,28 +2023,36 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
             // term is only needed for manufactured solutions, and slows down
             // the assembly. Ommitting it does not seem to affect convergence of
             // the nonlinear solver.
-            const auto gradu_dot_grad_phi_x_j =
-              present_velocity_gradients * grad_phi_x_j;
             local_flow_matrix_ij +=
-              phi_p_i * (trace(gradu_dot_grad_phi_x_j) -
-                         present_velocity_divergence * trace_grad_phi_x_j);
+              phi_p_i * (trace_gradu_dot_grad_phi_x_j[j] -
+                         present_velocity_divergence * trace_grad_phi_x[j]);
           }
         }
 
-        //
-        // Pseudo-solid
-        //
+        /**
+         * Pseudo-solid equation
+         */
+        double local_ps_matrix_ij = 0.;
         if (i_is_x && j_is_x)
         {
+          const auto &gxi = grad_phi_x_i[comp_i - x_lower];
+          const auto &gxj = grad_phi_x[j][comp_j - x_lower];
+
           // Linear elasticity
           local_ps_matrix_ij +=
-            lame_lambda * div_phi_x_j * div_phi_x_i +
-            lame_mu * scalar_product((grad_phi_x_j + transpose(grad_phi_x_j)),
-                                     grad_phi_x_i);
+            lame_lambda * div_phi_x[j] * div_phi_x_i
+
+            // The following is the double contraction
+            // 2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i)
+            // explicited for the symmetric gradient of Lagrange shape functions
+            + lame_mu * gxi[comp_j - x_lower] * gxj[comp_i - x_lower];
+          if (comp_i == comp_j)
+            local_ps_matrix_ij += lame_mu * gxi * gxj;
+
+          local_ps_matrix_ij *= JxW_fixed;
         }
 
         local_flow_matrix_ij *= JxW_moving;
-        local_ps_matrix_ij *= JxW_fixed;
         local_matrix(i, j) += local_flow_matrix_ij + local_ps_matrix_ij;
       }
     }
@@ -1698,7 +2061,6 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
   //
   // Face contributions (Lagrange multiplier)
   //
-  cell->get_dof_indices(local_dof_indices);
   if (cell->at_boundary())
   {
     for (const auto i_face : cell->face_indices())
@@ -1708,85 +2070,13 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
-        for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
-        {
-          const double face_JxW_moving =
-            scratch_data.face_JxW_moving[i_face][q];
-
-          const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-          const auto &phi_x = scratch_data.phi_x_face[i_face][q];
-          const auto &phi_l = scratch_data.phi_l_face[i_face][q];
-
-          const auto &present_u =
-            scratch_data.present_face_velocity_values[i_face][q];
-          const auto &present_w =
-            scratch_data.present_face_mesh_velocity_values[i_face][q];
-          const auto  u_ale = present_u - present_w;
-          const auto &present_l =
-            scratch_data.present_face_lambda_values[i_face][q];
-
-          for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-          {
-            const unsigned int comp_i = scratch_data.components[i];
-            const bool         i_is_u = const_ordering.u_lower <= comp_i &&
-                                comp_i < const_ordering.u_upper;
-            const bool i_is_l = const_ordering.l_lower <= comp_i &&
-                                comp_i < const_ordering.l_upper;
-
-            const auto &phi_u_i = phi_u[i];
-            const auto &phi_l_i = phi_l[i];
-
-            const auto lambda_dot_phi_u_i = present_l * phi_u_i;
-
-            for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
-            {
-              const unsigned int comp_j = scratch_data.components[j];
-              const bool         j_is_u = const_ordering.u_lower <= comp_j &&
-                                  comp_j < const_ordering.u_upper;
-              const bool j_is_x = const_ordering.x_lower <= comp_j &&
-                                  comp_j < const_ordering.x_upper;
-              const bool j_is_l = const_ordering.l_lower <= comp_j &&
-                                  comp_j < const_ordering.l_upper;
-
-              const bool assemble = (i_is_u and (j_is_x or j_is_l)) or
-                                    (i_is_l and (j_is_u or j_is_x));
-              if (!assemble)
-                continue;
-
-              const auto &phi_u_j = phi_u[j];
-              const auto &phi_x_j = phi_x[j];
-              const auto &phi_l_j = phi_l[j];
-
-              const double delta_dx_j = scratch_data.delta_dx[i_face][q][j];
-
-              double local_matrix_ij = 0.;
-
-              if (i_is_u && j_is_x)
-              {
-                local_matrix_ij += -lambda_dot_phi_u_i * delta_dx_j;
-              }
-
-              if (i_is_u && j_is_l)
-              {
-                local_matrix_ij += -phi_l_j * phi_u_i;
-              }
-
-              if (i_is_l && j_is_u)
-              {
-                local_matrix_ij += -phi_u_j * phi_l_i;
-              }
-
-              if (i_is_l && j_is_x)
-              {
-                local_matrix_ij +=
-                  phi_l_i * (bdf_c0 * phi_x_j + u_ale * delta_dx_j);
-              }
-
-              local_matrix_ij *= face_JxW_moving;
-              local_matrix(i, j) += local_matrix_ij;
-            }
-          }
-        }
+        Assembly::weakly_enforced_no_slip_matrix<true>(
+          *this->ordering,
+          i_face,
+          this->param.fluid_bc.at(weak_no_slip_boundary_id),
+          scratch_data,
+          this->time_handler,
+          local_matrix);
       }
     }
   }
@@ -1915,6 +2205,8 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
       scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
       scratch_data.present_velocity_gradients[q];
+    const auto &present_velocity_sym_gradients =
+      scratch_data.present_velocity_sym_gradients[q];
     const auto &present_pressure_values =
       scratch_data.present_pressure_values[q];
     const auto &present_mesh_velocity_values =
@@ -1928,10 +2220,10 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, present_velocity_values, scratch_data.previous_velocity_values);
 
-    const auto &phi_p      = scratch_data.phi_p[q];
-    const auto &phi_u      = scratch_data.phi_u[q];
-    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
-    const auto &div_phi_u  = scratch_data.div_phi_u[q];
+    const auto &phi_p          = scratch_data.phi_p[q];
+    const auto &phi_u          = scratch_data.phi_u[q];
+    const auto &sym_grad_phi_u = scratch_data.sym_grad_phi_u[q];
+    const auto &div_phi_u      = scratch_data.div_phi_u[q];
 
     //
     // Pseudo-solid related data
@@ -1957,50 +2249,51 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
     const auto to_multiply_by_phi_u_i =
       (dudt + u_dot_grad_u_ale + source_term_velocity);
 
-    const auto &phi_x      = scratch_data.phi_x[q];
-    const auto &grad_phi_x = scratch_data.grad_phi_x[q];
-    const auto &div_phi_x  = scratch_data.div_phi_x[q];
+    const auto &phi_x          = scratch_data.phi_x[q];
+    const auto &sym_grad_phi_x = scratch_data.sym_grad_phi_x[q];
+    const auto &div_phi_x      = scratch_data.div_phi_x[q];
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-    // for (auto i : scratch_data.dofs_without_lambda)
     {
       const unsigned int comp_i = scratch_data.components[i];
       const bool         i_is_u =
         const_ordering.u_lower <= comp_i && comp_i < const_ordering.u_upper;
+      const bool i_is_p = comp_i == const_ordering.p_lower;
       const bool i_is_x =
         const_ordering.x_lower <= comp_i && comp_i < const_ordering.x_upper;
+      const bool i_is_l =
+        const_ordering.l_lower <= comp_i && comp_i < const_ordering.l_upper;
 
-      const auto &phi_u_i      = phi_u[i];
-      const auto &grad_phi_u_i = grad_phi_u[i];
-      const auto &div_phi_u_i  = div_phi_u[i];
-      const auto &phi_p_i      = phi_p[i];
+      if (i_is_l)
+        continue;
 
       //
       // Flow residual
       //
-
       double local_rhs_flow_i =
-
-        // Time derivative, convective acceleration and velocity source term
-        -(phi_u_i * to_multiply_by_phi_u_i
-
-          // Pressure gradient
-          - div_phi_u_i * present_pressure_values
-
-          // Continuity and pressure source term
-          + phi_p_i * (-present_velocity_divergence + source_term_pressure));
+        i_is_p ?
+          -phi_p[i] * (-present_velocity_divergence + source_term_pressure) :
+          0.;
 
       if (i_is_u)
       {
-        // Diffusion : only compute double contraction if needed
-        local_rhs_flow_i -=
-          nu * scalar_product(present_velocity_gradients, grad_phi_u_i);
+        local_rhs_flow_i -= (
+          // Time derivative, convective acceleration and velocity source term
+          phi_u[i] * to_multiply_by_phi_u_i
+
+          // Pressure gradient
+          - div_phi_u[i] * present_pressure_values
+
+          // Diffusion
+          +
+          2. * nu *
+            scalar_product(present_velocity_sym_gradients, sym_grad_phi_u[i]));
       }
 
       local_rhs_flow_i *= JxW_moving;
 
       //
-      // Pseudo-solid
+      // Pseudo-solid residual
       //
       double local_rhs_ps_i = 0.;
 
@@ -2009,7 +2302,7 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
         local_rhs_ps_i -= (
           // Linear elasticity : only compute double contraction if needed
           lame_lambda * present_trace_strain * div_phi_x[i] +
-          2. * lame_mu * scalar_product(present_strain, grad_phi_x[i])
+          2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i])
           // Linear elasticity source term
           + phi_x[i] * source_term_position);
         local_rhs_ps_i *= JxW_fixed;
@@ -2029,75 +2322,23 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
 
       if (face->at_boundary())
       {
-        //
+        const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
+
         // Lagrange multiplier for no-slip
-        //
         if (face->boundary_id() == weak_no_slip_boundary_id)
         {
-          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
-          {
-            //
-            // Flow related data (no-slip)
-            //
-            const double face_JxW_moving =
-              scratch_data.face_JxW_moving[i_face][q];
-            const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-            const auto &phi_l = scratch_data.phi_l_face[i_face][q];
-
-            const auto &present_u =
-              scratch_data.present_face_velocity_values[i_face][q];
-            const auto &present_w =
-              scratch_data.present_face_mesh_velocity_values[i_face][q];
-            const auto &present_l =
-              scratch_data.present_face_lambda_values[i_face][q];
-            const auto u_ale = present_u - present_w;
-
-            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-            {
-              double local_rhs_i = 0.;
-
-              const unsigned int comp_i = scratch_data.components[i];
-              const bool         i_is_u = this->ordering->is_velocity(comp_i);
-              const bool         i_is_l = this->ordering->is_lambda(comp_i);
-
-              if (i_is_u)
-                local_rhs_i -= -(phi_u[i] * present_l);
-
-              if (i_is_l)
-                local_rhs_i -= -u_ale * phi_l[i];
-
-              local_rhs_i *= face_JxW_moving;
-              local_rhs(i) += local_rhs_i;
-            }
-          }
+          Assembly::weakly_enforced_no_slip_rhs<true>(
+            *this->ordering, i_face, fluid_bc, scratch_data, local_rhs);
         }
 
-        /**
-         * Open boundary condition with prescribed manufactured solution.
-         * Applied on moving mesh.
-         */
+        // Open boundary condition with prescribed manufactured solution.
+        // Applied on moving mesh.
         if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
               .type == BoundaryConditions::Type::open_mms)
-          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
-          {
-            const double face_JxW_moving =
-              scratch_data.face_JxW_moving[i_face][q];
-            const auto &n = scratch_data.face_normals_moving[i_face][q];
-
-            const auto &grad_u_exact =
-              scratch_data.exact_face_velocity_gradients[i_face][q];
-            const double p_exact =
-              scratch_data.exact_face_pressure_values[i_face][q];
-
-            // This is an open boundary condition, not a traction,
-            // involving only grad_u_exact and not the symmetric gradient.
-            const auto quasisigma_dot_n = -p_exact * n + nu * grad_u_exact * n;
-
-            const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-
-            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-              local_rhs(i) -= -phi_u[i] * quasisigma_dot_n * face_JxW_moving;
-          }
+        {
+          Assembly::traction_boundary_mms_rhs(
+            *this->ordering, i_face, fluid_bc, nu, scratch_data, local_rhs);
+        }
       }
     }
   cell->get_dof_indices(local_dof_indices);
@@ -2123,19 +2364,25 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
   //
   // Add algebraic constraints position-lambda
   //
-  std::map<types::global_dof_index, std::vector<LA::ConstMatrixIterator>>
-    position_row_entries;
   // Get row entries for each pos_dof
+  std::map<types::global_dof_index, std::vector<LA::ConstMatrixIterator>>
+    position_rows, master_position_rows;
   for (const auto &[pos_dof, d] : coupled_position_dofs)
     if (this->locally_owned_dofs.is_element(pos_dof))
-    {
-      std::vector<LA::ConstMatrixIterator> row_entries;
-      for (auto it = this->system_matrix.begin(pos_dof);
-           it != this->system_matrix.end(pos_dof);
-           ++it)
-        row_entries.push_back(it);
-      position_row_entries[pos_dof] = row_entries;
-    }
+      position_rows[pos_dof] = get_matrix_rows(this->system_matrix, pos_dof);
+
+  if (has_global_master_position_dofs)
+  {
+    for (unsigned int d = 0; d < dim; ++d)
+      master_position_rows[global_position_master_dofs[d]] =
+        get_matrix_rows(this->system_matrix, global_position_master_dofs[d]);
+  }
+  else if (has_local_position_master)
+  {
+    for (unsigned int d = 0; d < dim; ++d)
+      master_position_rows[local_position_master_dofs[d]] =
+        get_matrix_rows(this->system_matrix, local_position_master_dofs[d]);
+  }
 
   switch (this->param.debug.fsi_coupling_option)
   {
@@ -2145,76 +2392,41 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
       // Constrain each owned coupled position dof to the sum of lambdas
       for (const auto &[pos_dof, d] : coupled_position_dofs)
         if (this->locally_owned_dofs.is_element(pos_dof))
-        {
-          for (auto it : position_row_entries.at(pos_dof))
-            this->system_matrix.set(pos_dof, it->column(), 0.0);
-
-          // Set constraint row: x_i - sum_j c_ij * lambda_j = 0
-          this->system_matrix.set(pos_dof, pos_dof, 1.);
-          for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
-            this->system_matrix.set(pos_dof, lambda_dof, -weight);
-        }
+          constrain_matrix_row(this->system_matrix,
+                               pos_dof,
+                               position_rows.at(pos_dof),
+                               lambda_integral_coeffs[d]);
       break;
     }
     case 1:
     {
-      if (has_chunk_of_cylinder)
+      if (has_local_position_master)
       {
         // Constrain matrix
         // - Constrain the local master position dofs to the sum of lambda
         // - Constrain each other coupled position dofs to the local master
-
-        // Get the rows for the local master position dofs
-        std::map<types::global_dof_index, std::vector<LA::ConstMatrixIterator>>
-          master_position_row_entries;
         for (unsigned int d = 0; d < dim; ++d)
-        {
-          std::vector<LA::ConstMatrixIterator> row_entries;
-          for (auto it =
-                 this->system_matrix.begin(local_position_master_dofs[d]);
-               it != this->system_matrix.end(local_position_master_dofs[d]);
-               ++it)
-            row_entries.push_back(it);
-          master_position_row_entries[local_position_master_dofs[d]] =
-            row_entries;
-        }
+          constrain_matrix_row(this->system_matrix,
+                               local_position_master_dofs[d],
+                               master_position_rows.at(
+                                 local_position_master_dofs[d]),
+                               lambda_integral_coeffs[d]);
 
-        for (unsigned int d = 0; d < dim; ++d)
-        {
-          for (auto it :
-               master_position_row_entries.at(local_position_master_dofs[d]))
-            this->system_matrix.set(local_position_master_dofs[d],
-                                    it->column(),
-                                    0.0);
-
-          // Set constraint row: x_master - sum_j c_j * lambda_j = 0
-          this->system_matrix.set(local_position_master_dofs[d],
-                                  local_position_master_dofs[d],
-                                  1.);
-          for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
-            this->system_matrix.set(local_position_master_dofs[d],
-                                    lambda_dof,
-                                    -weight);
-        }
         // Set x_i - x_master = 0 for the other coupled position dofs
         for (const auto &[pos_dof, d] : coupled_position_dofs)
           if (this->locally_owned_dofs.is_element(pos_dof) &&
               pos_dof != local_position_master_dofs[d])
-          {
-            for (auto it : position_row_entries.at(pos_dof))
-              this->system_matrix.set(pos_dof, it->column(), 0.0);
-
-            this->system_matrix.set(pos_dof, pos_dof, 1.);
-            this->system_matrix.set(pos_dof,
-                                    local_position_master_dofs[d],
-                                    -1.);
-          }
+            constrain_matrix_row(this->system_matrix,
+                                 pos_dof,
+                                 position_rows.at(pos_dof),
+                                 local_position_master_dofs[d],
+                                 -1.);
       }
       break;
     }
     case 2:
     {
-      if (has_chunk_of_cylinder)
+      if (has_local_position_master)
       {
         // Constrain matrix
         // - Constrain the local master position dofs to the sum of lambda
@@ -2222,74 +2434,23 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
 
         if (has_global_master_position_dofs)
         {
-          // Get the rows for the global master position dofs
-          std::map<types::global_dof_index,
-                   std::vector<LA::ConstMatrixIterator>>
-            master_position_row_entries;
           for (unsigned int d = 0; d < dim; ++d)
-          {
-            std::vector<LA::ConstMatrixIterator> row_entries;
-            for (auto it =
-                   this->system_matrix.begin(global_position_master_dofs[d]);
-                 it != this->system_matrix.end(global_position_master_dofs[d]);
-                 ++it)
-              row_entries.push_back(it);
-            master_position_row_entries[global_position_master_dofs[d]] =
-              row_entries;
-          }
-
-          for (unsigned int d = 0; d < dim; ++d)
-          {
-            for (auto it :
-                 master_position_row_entries.at(global_position_master_dofs[d]))
-              this->system_matrix.set(global_position_master_dofs[d],
-                                      it->column(),
-                                      0.0);
-
-            // Set constraint row: x_master - sum_j c_j * lambda_j = 0
-            this->system_matrix.set(global_position_master_dofs[d],
-                                    global_position_master_dofs[d],
-                                    1.);
-            for (const auto &[lambda_dof, weight] : position_lambda_coeffs[d])
-              this->system_matrix.set(global_position_master_dofs[d],
-                                      lambda_dof,
-                                      -weight);
-          }
+            constrain_matrix_row(this->system_matrix,
+                                 global_position_master_dofs[d],
+                                 master_position_rows.at(
+                                   global_position_master_dofs[d]),
+                                 lambda_integral_coeffs[d]);
         }
         else
         {
-          // Get the rows for the local master position dofs
-          std::map<types::global_dof_index,
-                   std::vector<LA::ConstMatrixIterator>>
-            master_position_row_entries;
-          for (unsigned int d = 0; d < dim; ++d)
-          {
-            std::vector<LA::ConstMatrixIterator> row_entries;
-            for (auto it =
-                   this->system_matrix.begin(local_position_master_dofs[d]);
-                 it != this->system_matrix.end(local_position_master_dofs[d]);
-                 ++it)
-              row_entries.push_back(it);
-            master_position_row_entries[local_position_master_dofs[d]] =
-              row_entries;
-          }
-
           // Constrain local to global
           for (unsigned int d = 0; d < dim; ++d)
-          {
-            for (auto it :
-                 master_position_row_entries.at(local_position_master_dofs[d]))
-              this->system_matrix.set(local_position_master_dofs[d],
-                                      it->column(),
-                                      0.0);
-
-            this->system_matrix.set(local_position_master_dofs[d],
-                                    local_position_master_dofs[d],
-                                    1.);
-            this->system_matrix.set(local_position_master_dofs[d],
-                                    global_position_master_dofs[d],
-                                    -1.);
-          }
+            constrain_matrix_row(this->system_matrix,
+                                 local_position_master_dofs[d],
+                                 master_position_rows.at(
+                                   local_position_master_dofs[d]),
+                                 global_position_master_dofs[d],
+                                 -1.);
         }
 
         // In any case, set remaining pos dofs to local master
@@ -2298,16 +2459,79 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
         for (const auto &[pos_dof, d] : coupled_position_dofs)
           if (this->locally_owned_dofs.is_element(pos_dof) &&
               pos_dof != local_position_master_dofs[d])
+            constrain_matrix_row(this->system_matrix,
+                                 pos_dof,
+                                 position_rows.at(pos_dof),
+                                 local_position_master_dofs[d],
+                                 -1.);
+      }
+      break;
+    }
+    case 3:
+    {
+      std::map<types::global_dof_index, std::vector<LA::ConstMatrixIterator>>
+        accumulator_rows;
+      if (has_local_lambda_accumulator)
+      {
+        for (unsigned int d = 0; d < dim; ++d)
+          if (local_lambda_accumulators[d] != numbers::invalid_unsigned_int)
           {
-            for (auto it : position_row_entries.at(pos_dof))
-              this->system_matrix.set(pos_dof, it->column(), 0.0);
+            AssertThrow(
+              this->locally_owned_dofs.is_element(local_lambda_accumulators[d]),
+              ExcMessage("Local accumulator is not locally owned " +
+                         std::to_string(local_lambda_accumulators[d])));
 
-            this->system_matrix.set(pos_dof, pos_dof, 1.);
-            this->system_matrix.set(pos_dof,
-                                    local_position_master_dofs[d],
-                                    -1.);
+            accumulator_rows[local_lambda_accumulators[d]] =
+              get_matrix_rows(this->system_matrix,
+                              local_lambda_accumulators[d]);
           }
       }
+
+      if (has_local_position_master)
+      {
+        // Set x_i - x_master = 0 for the other coupled position dofs
+        for (const auto &[pos_dof, d] : coupled_position_dofs)
+          if (this->locally_owned_dofs.is_element(pos_dof) &&
+              pos_dof != local_position_master_dofs[d])
+            constrain_matrix_row(this->system_matrix,
+                                 pos_dof,
+                                 position_rows.at(pos_dof),
+                                 local_position_master_dofs[d],
+                                 -1.);
+
+        // Couple local master to all lambda accumulators:
+        // Constrain: x_master - sum_{i_rank} accumulator_{i_rank} = 0
+        for (unsigned int d = 0; d < dim; ++d)
+        {
+          if (this->locally_owned_dofs.is_element(
+                local_position_master_dofs[d]))
+          {
+            std::vector<std::pair<types::global_dof_index, double>>
+              accumulator_coeffs;
+            for (auto lambda_accumulator : all_lambda_accumulators[d])
+              accumulator_coeffs.push_back({lambda_accumulator, 1.});
+            constrain_matrix_row(this->system_matrix,
+                                 local_position_master_dofs[d],
+                                 master_position_rows.at(
+                                   local_position_master_dofs[d]),
+                                 accumulator_coeffs);
+          }
+        }
+      }
+
+      if (has_local_lambda_accumulator)
+      {
+        // Couple local accumulator to local lambda dofs
+        // Constrain: local_accumulator - sum_j c_j * lambda_j = 0
+        for (unsigned int d = 0; d < dim; ++d)
+          if (this->locally_owned_dofs.is_element(local_lambda_accumulators[d]))
+            constrain_matrix_row(this->system_matrix,
+                                 local_lambda_accumulators[d],
+                                 accumulator_rows.at(
+                                   local_lambda_accumulators[d]),
+                                 lambda_integral_coeffs[d]);
+      }
+
       break;
     }
   }
@@ -2322,6 +2546,12 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_rhs()
   for (const auto &[pos_dof, d] : coupled_position_dofs)
     if (this->locally_owned_dofs.is_element(pos_dof))
       this->system_rhs(pos_dof) = 0.;
+
+  // Set RHS to zero for local lambda accumulator
+  if (this->param.debug.fsi_coupling_option == 3)
+    for (const auto accumulator_dof : local_lambda_accumulators)
+      if (this->locally_owned_dofs.is_element(accumulator_dof))
+        this->system_rhs(accumulator_dof) = 0.;
 
   this->system_rhs.compress(VectorOperation::insert);
 }
@@ -2465,7 +2695,7 @@ void FSISolverLessLambda<dim>::compare_forces_and_position_on_obstacle() const
 
     // Check that the ratio of both terms in the position
     // boundary condition is -spring_constant
-    if (std::abs(cylinder_displacement[d]) > 1e-10)
+    if (std::abs(cylinder_displacement[d]) > 1e-7)
       ratio[d] = lambda_integral[d] / cylinder_displacement[d];
   }
 
@@ -2516,102 +2746,24 @@ void FSISolverLessLambda<dim>::compare_forces_and_position_on_obstacle() const
 template <int dim>
 void FSISolverLessLambda<dim>::check_velocity_boundary() const
 {
-  // Assumes the same number of quadrature points in the collection
-  AssertDimension(face_quadrature_collection[0].size(),
-                  face_quadrature_collection[1].size());
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           fixed_mapping_collection,
+                           moving_mapping_collection,
+                           quadrature_collection,
+                           face_quadrature_collection,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
 
-  // Check difference between uh and dxhdt
-  double l2_local = 0;
-  double li_local = 0;
-
-  hp::FEFaceValues<dim> hp_fe_face_values_fixed(fixed_mapping_collection,
-                                                *fe,
-                                                face_quadrature_collection,
-                                                update_values |
-                                                  update_quadrature_points |
-                                                  update_JxW_values);
-  hp::FEFaceValues<dim> hp_fe_face_values(moving_mapping_collection,
-                                          *fe,
-                                          face_quadrature_collection,
-                                          update_values |
-                                            update_quadrature_points |
-                                            update_JxW_values);
-
-  const unsigned int n_faces_q_points = face_quadrature_collection[0].size();
-
-  const auto &bdf_coefficients = this->time_handler.bdf_coefficients;
-
-  std::vector<std::vector<Tensor<1, dim>>> position_values(
-    bdf_coefficients.size(), std::vector<Tensor<1, dim>>(n_faces_q_points));
-  std::vector<Tensor<1, dim>> mesh_velocity_values(n_faces_q_points);
-  std::vector<Tensor<1, dim>> fluid_velocity_values(n_faces_q_points);
-  Tensor<1, dim>              diff;
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        hp_fe_face_values_fixed.reinit(cell, i_face);
-        hp_fe_face_values.reinit(cell, i_face);
-        const auto &fe_face_values_fixed =
-          hp_fe_face_values_fixed.get_present_fe_values();
-        const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
-
-        // Get current and previous FE solution values on the face
-        fe_face_values[this->velocity_extractor].get_function_values(
-          this->present_solution, fluid_velocity_values);
-        fe_face_values_fixed[this->position_extractor].get_function_values(
-          this->present_solution, position_values[0]);
-        for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
-          fe_face_values_fixed[this->position_extractor].get_function_values(
-            this->previous_solutions[iBDF - 1], position_values[iBDF]);
-
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-        {
-          // Compute FE mesh velocity at node
-          mesh_velocity_values[q] = 0;
-          for (unsigned int iBDF = 0; iBDF < bdf_coefficients.size(); ++iBDF)
-            mesh_velocity_values[q] +=
-              bdf_coefficients[iBDF] * position_values[iBDF][q];
-
-          diff = mesh_velocity_values[q] - fluid_velocity_values[q];
-
-          // u_h - w_h
-          l2_local += diff * diff * fe_face_values_fixed.JxW(q);
-          li_local = std::max(li_local, std::abs(diff.norm()));
-        }
-      }
-    }
-  }
-
-  const double l2_error =
-    std::sqrt(Utilities::MPI::sum(l2_local, this->mpi_communicator));
-  const double li_error = Utilities::MPI::max(li_local, this->mpi_communicator);
-
-  if (this->param.fsi.verbosity == Parameters::Verbosity::verbose)
-  {
-    this->pcout << "Checking no-slip enforcement on cylinder:" << std::endl;
-    this->pcout << "||uh - wh||_L2 = " << l2_error << std::endl;
-    this->pcout << "||uh - wh||_Li = " << li_error << std::endl;
-  }
-
-  if (!this->param.debug.fsi_apply_erroneous_coupling)
-  {
-    AssertThrow(l2_error < 1e-12,
-                ExcMessage("L2 norm of uh - wh is too large : " +
-                           std::to_string(l2_error)));
-    AssertThrow(li_error < 1e-12,
-                ExcMessage("Linf norm of uh - wh is too large : " +
-                           std::to_string(li_error)));
-  }
+  LagrangeMultiplierTools::check_no_slip_on_boundary<dim>(
+    this->param,
+    scratch_data,
+    this->dof_handler,
+    this->evaluation_point,
+    this->previous_solutions,
+    this->source_terms,
+    this->exact_solution,
+    weak_no_slip_boundary_id);
 }
 
 template <int dim>
@@ -2954,217 +3106,6 @@ void FSISolverLessLambda<dim>::compute_solver_specific_errors()
 }
 
 template <int dim>
-void FSISolverLessLambda<dim>::output_results()
-{
-  if (this->param.output.write_results)
-  {
-    //
-    // Plot FE solution
-    //
-    std::vector<std::string> solution_names(dim, "velocity");
-    solution_names.push_back("pressure");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("mesh_position");
-    for (unsigned int d = 0; d < dim; ++d)
-      solution_names.push_back("lambda");
-
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        dim, DataComponentInterpretation::component_is_part_of_vector);
-    data_component_interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-    for (unsigned int d = 0; d < 2 * dim; ++d)
-      data_component_interpretation.push_back(
-        DataComponentInterpretation::component_is_part_of_vector);
-
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(this->dof_handler);
-    data_out.add_data_vector(this->present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-
-    //
-    // Compute mesh velocity in post-processing
-    // This is not ideal, this is done by modifying the displacement and
-    // reexporting.
-    //
-    LA::ParVectorType mesh_velocity;
-    mesh_velocity.reinit(this->locally_owned_dofs, this->mpi_communicator);
-    IndexSet disp_dofs =
-      DoFTools::extract_dofs(this->dof_handler, this->position_mask);
-
-    for (const auto &i : disp_dofs)
-      if (this->locally_owned_dofs.is_element(i))
-        mesh_velocity[i] =
-          this->time_handler.compute_time_derivative(i,
-                                                     this->present_solution,
-                                                     this->previous_solutions);
-    mesh_velocity.compress(VectorOperation::insert);
-
-    std::vector<std::string> mesh_velocity_name(dim, "ph_velocity");
-    mesh_velocity_name.emplace_back("ph_pressure");
-    for (unsigned int i = 0; i < dim; ++i)
-      mesh_velocity_name.push_back("mesh_velocity");
-    for (unsigned int i = 0; i < dim; ++i)
-      mesh_velocity_name.push_back("ph_lambda");
-
-    data_out.add_data_vector(mesh_velocity,
-                             mesh_velocity_name,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-
-    //
-    // Partition
-    //
-    Vector<float> subdomain(this->triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = this->triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain, "subdomain");
-
-    // // Active fe indices
-    // Vector<float> fe_indices(this->triangulation.n_active_cells());
-    // for (const auto &cell : this->dof_handler.active_cell_iterators())
-    //   fe_indices(cell->id().get_coarse_cell_id()) = cell->active_fe_index();
-    // data_out.add_data_vector(fe_indices, "fe_indices");
-
-    data_out.build_patches(moving_mapping_collection, 2);
-    const std::string pvtu_file = data_out.write_vtu_with_pvtu_record(
-      this->param.output.output_dir,
-      this->param.output.output_prefix,
-      this->time_handler.current_time_iteration,
-      this->mpi_communicator,
-      2);
-
-    this->visualization_times_and_names.emplace_back(
-      this->time_handler.current_time, pvtu_file);
-  }
-}
-
-template <int dim>
-void FSISolverLessLambda<dim>::compute_forces(const bool export_table)
-{
-  Tensor<1, dim> lambda_integral, lambda_integral_local;
-
-  hp::FEFaceValues hp_fe_face_values(moving_mapping_collection,
-                                     *fe,
-                                     face_quadrature_collection,
-                                     update_values | update_quadrature_points |
-                                       update_JxW_values |
-                                       update_normal_vectors);
-
-  const unsigned int n_faces_q_points =
-    face_quadrature_collection[index_fe_with_lambda].size();
-  std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-    {
-      const auto &face = cell->face(i_face);
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        hp_fe_face_values.reinit(cell, i_face);
-        const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
-        fe_face_values[lambda_extractor].get_function_values(
-          this->present_solution, lambda_values);
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-          lambda_integral_local += lambda_values[q] * fe_face_values.JxW(q);
-      }
-    }
-  }
-
-  for (unsigned int d = 0; d < dim; ++d)
-    lambda_integral[d] =
-      Utilities::MPI::sum(lambda_integral_local[d], this->mpi_communicator);
-
-  // Forces on the cylinder are the NEGATIVE of the integral of lambda
-  this->forces_table.add_value("time", this->time_handler.current_time);
-  for (unsigned int d = 0; d < dim; ++d)
-    this->forces_table.add_value("F_comp" + std::to_string(d),
-                                 -lambda_integral[d]);
-
-  if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-    this->pcout << "Computed forces: " << -lambda_integral << std::endl;
-
-  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
-  {
-    std::ofstream outfile(this->param.output.output_dir + "forces.txt");
-    this->forces_table.write_text(outfile);
-  }
-}
-
-template <int dim>
-void FSISolverLessLambda<dim>::write_cylinder_position(const bool export_table)
-{
-  Tensor<1, dim> average_position, position_integral_local;
-  double         boundary_measure_local = 0.;
-
-  hp::FEFaceValues<dim> hp_fe_face_values_fixed(fixed_mapping_collection,
-                                                *fe,
-                                                face_quadrature_collection,
-                                                update_values |
-                                                  update_JxW_values);
-
-  const unsigned int          n_faces_q_points = this->face_quadrature->size();
-  std::vector<Tensor<1, dim>> position_values(n_faces_q_points);
-
-  for (auto cell : this->dof_handler.active_cell_iterators())
-  {
-    if (!cell->is_locally_owned())
-      continue;
-
-    for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        hp_fe_face_values_fixed.reinit(cell, i_face);
-        const auto &fe_face_values_fixed =
-          hp_fe_face_values_fixed.get_present_fe_values();
-
-        // Get FE solution values on the face
-        fe_face_values_fixed[this->position_extractor].get_function_values(
-          this->present_solution, position_values);
-
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
-        {
-          boundary_measure_local += fe_face_values_fixed.JxW(q);
-          position_integral_local +=
-            position_values[q] * fe_face_values_fixed.JxW(q);
-        }
-      }
-    }
-  }
-
-  const double boundary_measure =
-    Utilities::MPI::sum(boundary_measure_local, this->mpi_communicator);
-  for (unsigned int d = 0; d < dim; ++d)
-    average_position[d] =
-      1. / boundary_measure *
-      Utilities::MPI::sum(position_integral_local[d], this->mpi_communicator);
-
-  cylinder_position_table.add_value("time", this->time_handler.current_time);
-  cylinder_position_table.add_value("xc", average_position[0]);
-  cylinder_position_table.add_value("yc", average_position[1]);
-  if constexpr (dim == 3)
-    cylinder_position_table.add_value("zc", average_position[2]);
-
-  if (export_table && this->param.output.write_results && this->mpi_rank == 0)
-  {
-    std::ofstream outfile(this->param.output.output_dir +
-                          "cylinder_center.txt");
-    cylinder_position_table.write_text(outfile);
-  }
-}
-
-template <int dim>
 void FSISolverLessLambda<dim>::solver_specific_post_processing()
 {
   if (this->param.mms_param.enable)
@@ -3196,15 +3137,6 @@ void FSISolverLessLambda<dim>::solver_specific_post_processing()
             Parameters::TimeIntegration::BDFStart::initial_condition))
       check_velocity_boundary();
   }
-
-  const bool export_force_table =
-    this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 1) == 0);
-  compute_forces(export_force_table);
-  const bool export_position_table =
-    this->time_handler.is_steady() ||
-    ((this->time_handler.current_time_iteration % 1) == 0);
-  write_cylinder_position(export_position_table);
 }
 
 // Explicit instantiation

@@ -22,6 +22,7 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , rolledback_step(false)
   , n_consecutive_rejected_steps(0)
   , n_rejected_steps(0)
+  , last_nonlinear_solver_converged(true)
 {
   switch (scheme)
   {
@@ -40,6 +41,7 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   }
 
   simulation_times.resize(n_previous_solutions + 1, initial_time);
+  all_simulation_times.push_back(initial_time);
   time_steps.resize(n_previous_solutions + 1, initial_dt);
   bdf_coefficients.resize(n_previous_solutions + 1, 0.);
 
@@ -222,16 +224,41 @@ const LA::ParVectorType &TimeHandler::get_error_estimator_as_solution() const
   return error_estimator->get_error_estimator_as_solution();
 }
 
+void TimeHandler::set_last_nonlinear_solve_status(const bool flag) const
+{
+  last_nonlinear_solver_converged = flag;
+}
+
 bool TimeHandler::is_timestep_accepted(
   LA::ParVectorType                    &present_solution,
   const std::vector<LA::ParVectorType> &previous_solutions)
 {
   if (is_steady() || !time_parameters.adaptation.enable)
+  {
+    // If nonlinear solver diverged, we should have thrown in there
+    AssertThrow(last_nonlinear_solver_converged, ExcInternalError());
     // Steady, or unsteady but without adaptation : nothing to do
     return true;
+  }
 
-  // Do not do anything in the starting steps
   const unsigned int n_starting_steps = bdf_order - 1;
+  const unsigned int mpi_rank =
+    Utilities::MPI::this_mpi_process(present_solution.get_mpi_communicator());
+
+  // Start by dealing with the case where the nonlinear solver failed, as this
+  // can happed in the starting steps during which we don't compute an estimate
+  // for the truncation error. Rollback and try again with a smaller time step.
+  if (!last_nonlinear_solver_converged)
+  {
+    if (mpi_rank == 0)
+      std::cout
+        << "Rejecting step because nonlinear solver failed to find a solution"
+        << std::endl;
+    goto reject_step;
+  }
+
+  // Do not do anything in the starting steps (accept step and don't update
+  // time step since we don't yet have an error estimate).
   if (current_time_iteration < bdf_order + 1 + n_starting_steps)
     return true;
 
@@ -240,9 +267,6 @@ bool TimeHandler::is_timestep_accepted(
                                            present_solution,
                                            previous_solutions);
 
-  const unsigned int mpi_rank =
-    Utilities::MPI::this_mpi_process(present_solution.get_mpi_communicator());
-
   if (time_parameters.adaptation.reject_timestep_with_large_error)
   // &&
   // current_time_iteration > bdf_order + 1 + n_starting_steps)
@@ -250,7 +274,6 @@ bool TimeHandler::is_timestep_accepted(
     const auto &max_errors    = error_estimator->get_max_errors();
     const auto &target_errors = time_parameters.adaptation.target_error;
 
-    bool reject_step = false;
     for (const auto &[variable, error] : max_errors)
     {
       Assert(target_errors.count(variable) > 0, ExcInternalError());
@@ -258,61 +281,69 @@ bool TimeHandler::is_timestep_accepted(
 
       if (error_ratio > time_parameters.adaptation.reject_factor)
       {
-        reject_step = true;
         if (mpi_rank == 0)
           std::cout << "Rejecting step because error ratio for variable \"" +
                          SolverInfo::to_string(variable) + "\" is = "
                     << error_ratio << std::endl;
-        break;
+        goto reject_step;
       }
-    }
-
-    if (reject_step)
-    {
-      rolledback_step = true;
-      n_consecutive_rejected_steps++;
-      n_rejected_steps++;
-
-      // Exit with failure if we already rejected too many steps
-      const unsigned int max_rejections = 5;
-      if (n_consecutive_rejected_steps > max_rejections)
-      {
-        throw std::runtime_error(
-          "Could not find an acceptable time step after " +
-          std::to_string(max_rejections) +
-          " step rejections. Aborting simulation.");
-      }
-
-      // Reduce the time step based on the error estimate from this rejected
-      // step, and apply a slight safety factor to avoid multiple rejections
-      // in a row.
-      const double reduction_factor = 0.9;
-      const double new_timestep =
-        reduction_factor * error_estimator->get_next_timestep(current_dt);
-      // , /* compute_from_previous_errors = */ false);
-
-      Assert(new_timestep < current_dt, ExcInternalError());
-
-      // Rollback the changes from this time step
-      present_solution = previous_solutions[0];
-      current_time_iteration--;
-      current_time -= current_dt;
-      current_dt = new_timestep;
-
-      if (mpi_rank == 0)
-        std::cout << "Rejecting step and trying again with dt = " << current_dt
-                  << std::endl;
-      return false;
-    }
-    else
-    {
-      // Reset counter
-      n_consecutive_rejected_steps = 0;
     }
   }
 
+  // Accepting step : reset counter and update time step
+  n_consecutive_rejected_steps = 0;
+  all_simulation_times.push_back(current_time);
   set_next_timestep();
   return true;
+
+reject_step:
+  rolledback_step = true;
+  n_consecutive_rejected_steps++;
+  n_rejected_steps++;
+
+  // Exit with failure if we already rejected too many steps
+  const unsigned int max_rejections = 5;
+  if (n_consecutive_rejected_steps > max_rejections)
+  {
+    throw std::runtime_error("Could not find an acceptable time step after " +
+                             std::to_string(max_rejections) +
+                             " step rejections. Aborting simulation.");
+  }
+
+  // Set time step to retry this step
+  double new_timestep;
+  if (!last_nonlinear_solver_converged)
+  {
+    // Heuristic for when the nonlinear solver failed
+    // Simply halve the last time step
+    new_timestep = 0.5 * current_dt;
+  }
+  else
+  {
+    // Reduce the time step based on the error estimate from this rejected
+    // step, and apply a slight safety factor to avoid multiple rejections
+    // in a row.
+    const double reduction_factor = 0.9;
+    new_timestep =
+      reduction_factor * error_estimator->get_next_timestep(current_dt);
+  }
+
+  Assert(new_timestep < current_dt, ExcInternalError());
+
+  // Rollback the changes from this time step
+  present_solution = previous_solutions[0];
+  current_time_iteration--;
+  current_time -= current_dt;
+  current_dt = new_timestep;
+
+  if (mpi_rank == 0)
+    std::cout << "Trying again with time step = " << current_dt << std::endl;
+  return false;
+}
+
+unsigned int TimeHandler::get_n_rejected_steps() const
+{
+  return n_rejected_steps;
 }
 
 double clamp_timestep(const double                       current_timestep,
@@ -397,6 +428,18 @@ double TimeHandler::compute_time_derivative_at_quadrature_node(
     return value_dot;
   }
   DEAL_II_ASSERT_UNREACHABLE();
+}
+
+void TimeHandler::write_timestep_history(std::ostream &out) const
+{
+  for (unsigned int i = 0; i < all_simulation_times.size(); ++i)
+  {
+    const double time = all_simulation_times[i];
+    if (i > 0)
+      out << time << " " << time - all_simulation_times[i - 1] << std::endl;
+    else
+      out << time << " " << std::endl;
+  }
 }
 
 void TimeHandler::save() const

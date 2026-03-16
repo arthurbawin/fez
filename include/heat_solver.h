@@ -69,7 +69,7 @@ public:
   void set_initial_conditions();
   void set_exact_solution();
 
-  virtual void solve_linear_system(const bool /* */) override;
+  virtual void solve_linear_system() override;
 
   virtual void assemble_matrix() override;
 

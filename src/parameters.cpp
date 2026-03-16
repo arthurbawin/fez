@@ -1101,6 +1101,18 @@ namespace Parameters
                         Patterns::Bool(),
                         "If disabled, compute and write convergence rates at "
                         "each convergence step.");
+      prm.declare_entry("print error at timesteps in console",
+                        "false",
+                        Patterns::Bool(),
+                        "");
+      prm.declare_entry("print error at timesteps to file",
+                        "false",
+                        Patterns::Bool(),
+                        "");
+      prm.declare_entry("error at timesteps file prefix",
+                        "unsteady_errors",
+                        Patterns::Anything(),
+                        "");
       prm.enter_subsection("Space convergence");
       {
         prm.declare_entry("use dealii cube mesh",
@@ -1178,6 +1190,11 @@ namespace Parameters
         prm.get_bool("write convergence table to file");
       convergence_file_prefix   = prm.get("convergence file prefix");
       compute_rates_only_at_end = prm.get_bool("compute rates only at end");
+      print_unsteady_errors_to_console =
+        prm.get_bool("print error at timesteps in console");
+      print_unsteady_errors_to_file =
+        prm.get_bool("print error at timesteps to file");
+      unsteady_errors_file_prefix = prm.get("error at timesteps file prefix");
       prm.enter_subsection("Space convergence");
       {
         use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");

@@ -1,0 +1,62 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 1304
+ boundary indicators: 1(10 faces) 2(10 faces) 3(40 faces) 4(40 faces) 
+ID 1 -> Outlet
+ID 2 -> Inlet
+ID 3 -> NoFlux
+ID 4 -> InnerBoundary
+ID 5 -> Domain
+Number of degrees of freedom: 6118
+
+Time step 1 - Advancing to t = 200 with time step 200.
+Newton iter.  0:          nonlinear residual = 3.38511359e-01
+Newton iter.  1:          nonlinear residual = 1.78109030e-01	(M)
+Newton iter.  2:          nonlinear residual = 1.14480831e-01	(M)
+Newton iter.  3:          nonlinear residual = 5.58015152e-02	(M)
+Newton iter.  4:          nonlinear residual = 2.09633930e-01	(M)
+Newton iter.  5:          nonlinear residual = 1.10548881e+00	(M)
+Newton iter.  6:          nonlinear residual = 7.18186099e-01	(M)
+Newton iter.  7:          nonlinear residual = 3.98073992e-01	(M)
+Newton iter.  8:          nonlinear residual = 8.53502167e-01	(M)
+Newton iter.  9:          nonlinear residual = 3.83353171e-01	(M)
+Newton iter. 10:          nonlinear residual = 7.23915701e+00	(M)
+Newton iter. 11:          nonlinear residual = 8.87933592e+00	(M)
+Newton iter. 12:          nonlinear residual = 6.36272750e+02	(M)
+Newton iter. 13:          nonlinear residual = 2.53292693e+02	(M)
+Newton iter. 14:          nonlinear residual = 1.00430769e+05	(M)
+Rejecting step because nonlinear solver failed to find a solution
+Trying again with time step = 1.00000000e+02
+
+Time step 1 - Advancing to t = 1.00000000e+02 with time step 1.00000000e+02.
+Newton iter.  0:          nonlinear residual = 3.38511359e-01
+Newton iter.  1:          nonlinear residual = 1.78453888e-01	(M)
+Newton iter.  2:          nonlinear residual = 9.53551689e-02	(M)
+Newton iter.  3:          nonlinear residual = 9.67340508e-02	(M)
+Newton iter.  4:          nonlinear residual = 3.47166297e-02	(M)
+Newton iter.  5:          nonlinear residual = 6.01727056e-03	(M)
+Newton iter.  6:          nonlinear residual = 5.83393362e-04	(M)
+Newton iter.  7:          nonlinear residual = 9.94124916e-06	(M)
+Newton iter.  8:          nonlinear residual = 3.21152003e-09	(M)
+Newton iter.  9:          nonlinear residual = 1.86959232e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Forces on boundary with id 4 computed with method : stress_vector
+Fx = +5.208148725605e-01
+Fy = -1.626986846572e-03
+
+Time step 2 - Advancing to t = 2.00e+02 with time step 1.00e+02.
+Newton iter.  0:          nonlinear residual = 1.61197597e-02
+Newton iter.  1:          nonlinear residual = 1.55653401e-02	(M)
+Newton iter.  2:          nonlinear residual = 2.15607131e-03	(M)
+Newton iter.  3:          nonlinear residual = 5.78892609e-05	(M)
+Newton iter.  4:          nonlinear residual = 2.02513732e-08	(M)
+Newton iter.  5:          nonlinear residual = 6.13306850e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+Max error for variable velocity is 6.61e-01
+Max error for variable pressure is 2.89e-01
+
+Forces on boundary with id 4 computed with method : stress_vector
+Fx = +4.967376748708e-01
+Fy = +1.808422704539e-04

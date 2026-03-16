@@ -166,7 +166,7 @@ void HeatSolver<dim>::run()
         if (param.debug.apply_exact_solution)
           set_exact_solution();
         else
-          solve_nonlinear_problem(false);
+          solve_nonlinear_problem(time_handler);
       }
     }
     while (
@@ -175,17 +175,6 @@ void HeatSolver<dim>::run()
     postprocess_solution();
     time_handler.rotate_solutions(present_solution, previous_solutions);
   }
-
-  /////////////////////////////
-  if (mpi_rank == 0)
-    if (param.time_integration.adaptation.verbosity ==
-        Parameters::Verbosity::verbose)
-    {
-      // Print error table
-      for (auto &[norm, handler] : error_handlers)
-        handler->write_errors();
-    }
-  /////////////////////////////
 
   finalize();
 }
@@ -553,8 +542,7 @@ void HeatSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 }
 
 template <int dim>
-void HeatSolver<dim>::solve_linear_system(
-  const bool /*apply_inhomogeneous_constraints*/)
+void HeatSolver<dim>::solve_linear_system()
 {
   const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
 

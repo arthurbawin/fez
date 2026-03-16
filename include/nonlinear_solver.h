@@ -7,6 +7,7 @@
 
 #include <deal.II/base/observer_pointer.h>
 #include <parameters.h>
+#include <time_handler.h>
 
 using namespace dealii;
 
@@ -49,8 +50,13 @@ public:
   /**
    * Solve the nonlinear problem (with e.g. Newton's method in the associated
    * derived class).
+   *
+   * If the simulation is steady-state or if adaptive time stepping is disabled,
+   * the solver will throw is no solution was found. For unsteady simulations
+   * with adaptive time steps, the solver does not throw on failure, to allow
+   * trying again with a smaller time step.
    */
-  virtual void solve(const bool first_step) = 0;
+  virtual void solve(const TimeHandler &time_handler) = 0;
 };
 
 #endif

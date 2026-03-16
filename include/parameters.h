@@ -484,6 +484,11 @@ namespace Parameters
     std::string convergence_file_prefix;
     bool        compute_rates_only_at_end;
 
+    // Print the errors for each time step in console
+    bool        print_unsteady_errors_to_console;
+    bool        print_unsteady_errors_to_file;
+    std::string unsteady_errors_file_prefix;
+
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {
       mesh_param.filename = mesh_prefix + std::to_string(index) + ".msh";

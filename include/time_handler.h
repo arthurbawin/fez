@@ -99,6 +99,11 @@ public:
   const LA::ParVectorType &get_error_estimator_as_solution() const;
 
   /**
+   * Inform this object of the sucess of the last nonlinear solve.
+   */
+  void set_last_nonlinear_solve_status(const bool flag) const;
+
+  /**
    * Checks if the solution obtained at this step after the nonlinear solve is
    * acceptable or not.
    *
@@ -126,6 +131,11 @@ public:
   bool is_timestep_accepted(
     LA::ParVectorType                    &present_solution,
     const std::vector<LA::ParVectorType> &previous_solutions);
+
+  /**
+   * Return the total number of rejected time steps so far.
+   */
+  unsigned int get_n_rejected_steps() const;
 
   /**
    * Compute the approximation of the time derivative of the field associated to
@@ -158,6 +168,11 @@ public:
     const unsigned int                              quadrature_node_index,
     const Tensor<1, dim>                           &present_solution,
     const std::vector<std::vector<Tensor<1, dim>>> &previous_solutions) const;
+
+  /**
+   * Write the complete times and time steps history to the given stream.
+   */
+  void write_timestep_history(std::ostream &out = std::cout) const;
 
   /**
    * Save the time integration data to a file.
@@ -196,6 +211,7 @@ public:
   double              initial_time;
   double              final_time;
   std::vector<double> simulation_times;
+  std::vector<double> all_simulation_times;
 
   double              initial_dt;
   double              current_dt;
@@ -210,6 +226,8 @@ public:
   bool         rolledback_step;
   unsigned int n_consecutive_rejected_steps;
   unsigned int n_rejected_steps;
+
+  mutable bool last_nonlinear_solver_converged;
 
 public:
   std::shared_ptr<BDFErrorEstimator> error_estimator;

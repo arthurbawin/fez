@@ -113,6 +113,8 @@ subsection Manufactured solution
   set enable            = true
   set type              = time
   set convergence steps = 3
+  
+  set print error at timesteps in console = true
 
   subsection Space convergence
     set use dealii cube mesh = true

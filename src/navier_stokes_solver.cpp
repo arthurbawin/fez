@@ -199,7 +199,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
         if (param.debug.apply_exact_solution)
           set_exact_solution();
         else
-          solve_nonlinear_problem(false);
+          solve_nonlinear_problem(time_handler);
       }
     }
     while (
@@ -224,17 +224,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
       checkpoint();
     }
   }
-
-  /////////////////////////////
-  if (mpi_rank == 0)
-    if (param.time_integration.adaptation.enable && param.time_integration.adaptation.verbosity ==
-        Parameters::Verbosity::verbose)
-    {
-      // Print error table
-      for (auto &[norm, handler] : error_handlers)
-        handler->write_errors();
-    }
-  /////////////////////////////
 
   finalize();
 }
@@ -637,8 +626,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::update_boundary_conditions()
 }
 
 template <int dim, bool with_moving_mesh>
-void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system(
-  const bool /*apply_inhomogeneous_constraints*/)
+void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system()
 {
   const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
 

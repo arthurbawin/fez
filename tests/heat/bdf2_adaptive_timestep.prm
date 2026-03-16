@@ -110,6 +110,8 @@ subsection Manufactured solution
   set type                   = time
   set convergence steps      = 4
 
+  set print error at timesteps in console = true
+
   subsection Space convergence
     set norms to compute = L2_norm
   end

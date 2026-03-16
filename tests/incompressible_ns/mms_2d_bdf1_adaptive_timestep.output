@@ -15,7 +15,7 @@ Time step 4 - Advancing to t = 1.60417 with time step 0.736811.
 Max error for variable velocity is 0.404909
 Max error for variable pressure is 3.06896
 Rejecting step because error ratio for variable "pressure" is = 3.06896
-Rejecting step and trying again with dt = 0.378532
+Trying again with time step = 0.378532
 
 Time step 4 - Advancing to t = 1.2459 with time step 0.378532.
 Max error for variable velocity is 0.100337
@@ -25,7 +25,7 @@ Time step 5 - Advancing to t = 1.67732 with time step 0.431421.
 Max error for variable velocity is 0.174989
 Max error for variable pressure is 1.33583
 Rejecting step because error ratio for variable "pressure" is = 1.33583
-Rejecting step and trying again with dt = 0.335945
+Trying again with time step = 0.335945
 
 Time step 5 - Advancing to t = 1.58184 with time step 0.335945.
 Max error for variable velocity is 0.105305
@@ -35,7 +35,7 @@ Time step 6 - Advancing to t = 1.9582 with time step 0.37636.
 Max error for variable velocity is 0.140112
 Max error for variable pressure is 1.34669
 Rejecting step because error ratio for variable "pressure" is = 1.34669
-Rejecting step and trying again with dt = 0.291885
+Trying again with time step = 0.291885
 
 Time step 6 - Advancing to t = 1.87373 with time step 0.291885.
 Max error for variable velocity is 0.0844975
@@ -70,7 +70,7 @@ Time step 4 - Advancing to t = 1.18792 with time step 0.716368.
 Max error for variable velocity is 0.416799
 Max error for variable pressure is 1.87213
 Rejecting step because error ratio for variable "pressure" is = 3.74427
-Rejecting step and trying again with dt = 0.333193
+Trying again with time step = 0.333193
 
 Time step 4 - Advancing to t = 0.804744 with time step 0.333193.
 Max error for variable velocity is 0.0985101
@@ -80,7 +80,7 @@ Time step 5 - Advancing to t = 1.19387 with time step 0.389129.
 Max error for variable velocity is 0.109852
 Max error for variable pressure is 0.735991
 Rejecting step because error ratio for variable "pressure" is = 1.47198
-Rejecting step and trying again with dt = 0.288659
+Trying again with time step = 0.288659
 
 Time step 5 - Advancing to t = 1.0934 with time step 0.288659.
 Max error for variable velocity is 0.0587088
@@ -90,7 +90,7 @@ Time step 6 - Advancing to t = 1.41417 with time step 0.320767.
 Max error for variable velocity is 0.0911784
 Max error for variable pressure is 0.668971
 Rejecting step because error ratio for variable "pressure" is = 1.33794
-Rejecting step and trying again with dt = 0.249582
+Trying again with time step = 0.249582
 
 Time step 6 - Advancing to t = 1.34299 with time step 0.249582.
 Max error for variable velocity is 0.0546185
@@ -135,7 +135,7 @@ Time step 4 - Advancing to t = 0.742884 with time step 0.501685.
 Max error for variable velocity is 0.234383
 Max error for variable pressure is 0.53184
 Rejecting step because error ratio for variable "pressure" is = 2.12736
-Rejecting step and trying again with dt = 0.309566
+Trying again with time step = 0.309566
 
 Time step 4 - Advancing to t = 0.550765 with time step 0.309566.
 Max error for variable velocity is 0.0915937
@@ -145,7 +145,7 @@ Time step 5 - Advancing to t = 0.907968 with time step 0.357203.
 Max error for variable velocity is 0.106659
 Max error for variable pressure is 0.456902
 Rejecting step because error ratio for variable "pressure" is = 1.82761
-Rejecting step and trying again with dt = 0.237802
+Trying again with time step = 0.237802
 
 Time step 5 - Advancing to t = 0.788567 with time step 0.237802.
 Max error for variable velocity is 0.0485748
@@ -159,7 +159,7 @@ Time step 7 - Advancing to t = 1.28317 with time step 0.236011.
 Max error for variable velocity is 0.0477826
 Max error for variable pressure is 0.359894
 Rejecting step because error ratio for variable "pressure" is = 1.43958
-Rejecting step and trying again with dt = 0.177035
+Trying again with time step = 0.177035
 
 Time step 7 - Advancing to t = 1.22419 with time step 0.177035.
 Max error for variable velocity is 0.0265994
@@ -173,7 +173,7 @@ Time step 9 - Advancing to t = 1.60932 with time step 0.192652.
 Max error for variable velocity is 0.0365621
 Max error for variable pressure is 0.320383
 Rejecting step because error ratio for variable "pressure" is = 1.28153
-Rejecting step and trying again with dt = 0.153162
+Trying again with time step = 0.153162
 
 Time step 9 - Advancing to t = 1.56983 with time step 0.153162.
 Max error for variable velocity is 0.0230737

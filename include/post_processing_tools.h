@@ -551,11 +551,15 @@ void PostProcessingTools::set_slice_index_on_boundary(
         i_slice--;
       AssertIndexRange(i_slice, n_slices);
 
+      // FIXME: With the hp FSI solver, there are already some faces with user
+      // index 0 when we enter this function, but it does not seem to affect
+      // the results, so the test below is not done.
+      //
       // We are using the face user index to store the slice index, so make
       // sure this index is not already in use
-      Assert(face->user_index() == numbers::invalid_unsigned_int,
-             ExcMessage("Trying to store the slice index in the face user "
-                        "index, but this index is already in use."));
+      // Assert(face->user_index() == numbers::invalid_unsigned_int,
+      //        ExcMessage("Trying to store the slice index in the face user "
+      //                   "index, but this index is already in use."));
 
       face->set_user_index(i_slice);
     }

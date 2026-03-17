@@ -80,7 +80,9 @@ public:
     if (this->param.fsi.enable_coupling)
       create_position_lagrange_mult_coupling_data();
     create_lagrange_multiplier_constraints();
-    // create_hp_line_dof_identities();
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
+    create_hp_line_dof_identities();
+#endif
   }
 
   /**
@@ -91,15 +93,16 @@ public:
     const bool                 remove_velocity_constraints,
     const bool                 remove_position_constraints) const;
 
+#if defined(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
   /**
    * Constrain duplicated hp dofs to be the same. For each pair (dof1, dof2)
    * identified by create_hp_line_dof_identities() and stored in
    * hp_dof_identities, it adds to the constraints argument a constraint dof1 =
    * dof2.
    */
-  // void
-  // add_hp_identities_constraints(AffineConstraints<double> &constraints)
-  // const;
+  void
+  add_hp_identities_constraints(AffineConstraints<double> &constraints) const;
+#endif
 
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;

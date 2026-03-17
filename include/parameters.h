@@ -238,16 +238,62 @@ namespace Parameters
   class PseudoSolid
   {
   public:
+    enum class StiffnessModel
+    {
+      direct_lame,
+      young_from_phi
+    };
+    enum class ConstitutiveModel
+    {
+      linear_lame,
+      neo_hookean
+    };
+
+    double evaluate_distance_to_phi0(const double phi,
+                                 const double epsilon_interface) const;
+
+    double evaluate_stiffness_factor_from_phi(
+      const double phi,
+      const double epsilon_interface,
+      const double stiffness_min_factor) const;
+
+    double evaluate_stiffness_factor_derivative_from_phi(
+      const double phi,
+      const double epsilon_interface,
+      const double stiffness_min_factor) const;
+
+    std::pair<double,double> evaluate_lame_from_phi_value(
+      const double phi,
+      const double epsilon_interface,
+      const double lame_lambda_base,
+      const double lame_mu_base) const;
+
+    std::pair<double,double> evaluate_lame_derivatives_from_phi_value(
+      const double phi,
+      const double epsilon_interface,
+      const double lame_lambda_base,
+      const double lame_mu_base) const;
+
+    double d_phi_0 = 0.0;
+    double lambda_min_factor = 0.4;
+    double mu_min_factor     = 0.4;
+    StiffnessModel stiffness_model = StiffnessModel::direct_lame;
+    ConstitutiveModel constitutive_model = ConstitutiveModel::linear_lame;
+    
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_lambda_fun;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_mu_fun;
+
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
+      phi_for_stiffness_fun;
 
   public:
     void set_time(const double newtime)
     {
       lame_lambda_fun->set_time(newtime);
       lame_mu_fun->set_time(newtime);
+      phi_for_stiffness_fun->set_time(newtime);
     }
     void declare_parameters(ParameterHandler &prm, unsigned int index);
     void read_parameters(ParameterHandler &prm, unsigned int index);
@@ -376,7 +422,6 @@ namespace Parameters
     double alpha;
     double beta;
     double gamma;
-    int mesh_forcing_type;
 
     /**
      * We differentiate between the body force which is multiplied by the
@@ -433,6 +478,7 @@ namespace Parameters
   {
     bool enable;
 
+    // The type of study to perform : refinement in space and/or time
     enum class Type
     {
       space,
@@ -440,6 +486,9 @@ namespace Parameters
       spacetime
     } type;
 
+    // The Lp norm used to compute the error in time
+    // The norm for the error in space is given through norms_to_compute
+    // FIXME: do the same for the time
     enum class TimeLpNorm
     {
       L1,
@@ -447,16 +496,26 @@ namespace Parameters
       Linfty
     } time_norm;
 
+    // Subtract the mean value from the exact pressure solution.
+    // This must be enabled when performing a convergence study while also
+    // enforcing a zero-mean pressure solution, otherwise both functions
+    // differ by the constant mean.
     bool subtract_mean_pressure;
 
+    // Force the use of the provided source term in the "Source terms" section,
+    // even during a convergence study. This can be used when the provided exact
+    // solution is really a solution of the system of PDEs for the given source
+    // terms. In that case, the source terms obtained from the MMS are not set.
     bool force_source_term;
 
     unsigned int n_convergence;
     unsigned int current_step = 0;
     int          run_only_step;
 
-    bool         use_deal_ii_cube_mesh;
-    bool         use_deal_ii_holed_plate_mesh;
+    // FIXME: remove these, and use only the options from the "Mesh" section
+    bool use_deal_ii_cube_mesh;
+    bool use_deal_ii_holed_plate_mesh;
+
     std::string  mesh_prefix;
     unsigned int first_mesh_index;
     unsigned int mesh_suffix = 0;
@@ -466,6 +525,11 @@ namespace Parameters
     bool         use_space_convergence_mesh;
     unsigned int spatial_mesh_index;
     double       time_step_reduction_factor;
+
+    // Options to write the convergence rates to a file
+    bool        write_convergence_table_to_file;
+    std::string convergence_file_prefix;
+    bool        compute_rates_only_at_end;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {
@@ -522,5 +586,5 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 } // namespace Parameters
-
+#include "pseudosolid_material.impl.h"
 #endif

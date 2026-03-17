@@ -1,6 +1,9 @@
 #ifndef SCRATCH_DATA_H
 #define SCRATCH_DATA_H
 
+#include <cmath>
+#include <sstream>
+
 #include <cahn_hilliard.h>
 #include <components_ordering.h>
 #include <deal.II/base/quadrature.h>
@@ -122,6 +125,10 @@ private:
                                             present_velocity_values);
     fe_values[velocity].get_function_gradients(current_solution,
                                                present_velocity_gradients);
+    fe_values[velocity].get_function_symmetric_gradients(
+      current_solution, present_velocity_sym_gradients);
+    fe_values[velocity].get_function_divergences(current_solution,
+                                                 present_velocity_divergence);
     fe_values[pressure].get_function_values(current_solution,
                                             present_pressure_values);
 
@@ -138,10 +145,6 @@ private:
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       JxW_moving[q] = fe_values.JxW(q);
-
-      present_velocity_sym_gradients[q] =
-        symmetrize(present_velocity_gradients[q]);
-      present_velocity_divergence[q] = trace(present_velocity_gradients[q]);
 
       for (int d = 0; d < dim; ++d)
         source_term_velocity[q][d] = source_term_full_moving[q](u_lower + d);
@@ -257,6 +260,26 @@ private:
                   ExcMessage("Lamé coefficient mu should be positive"));
       // AssertThrow(lame_lambda[q] >= 0,
       //             ExcMessage("Lamé coefficient lambda should be positive"));
+      
+      //Neo-hookean
+      const Tensor<2, dim> &F = present_position_gradients[q];
+      present_position_J[q] = determinant(F);
+      if (physical_properties.pseudosolids[0].constitutive_model ==
+          Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
+        AssertThrow(
+          std::isfinite(present_position_J[q]) && present_position_J[q] > 0.0,
+          ExcMessage(([&]() {
+            std::ostringstream message;
+            message
+              << "Invalid pseudo-solid deformation in CHNS solver: det(F)="
+              << present_position_J[q]
+              << " at reference quadrature point " << q_point << ".";
+            return message.str();
+          })()));
+
+      present_position_inv_gradients[q]   = invert(F);
+      present_position_inv_gradients_T[q] =
+        transpose(present_position_inv_gradients[q]);
 
       for (int d = 0; d < dim; ++d)
         source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
@@ -265,6 +288,8 @@ private:
       {
         phi_x[q][k]             = fe_values_fixed[position].value(k, q);
         grad_phi_x[q][k]        = fe_values_fixed[position].gradient(k, q);
+        sym_grad_phi_x[q][k]    = symmetrize(grad_phi_x[q][k]);
+        trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
         div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
         grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
       }
@@ -549,10 +574,13 @@ private:
                                                    previous_tracer_values[i]);
       fe_values_moving[tracer].get_function_gradients(previous_solutions[i],
                                                   previous_tracer_gradients[i]);
-      fe_values_fixed[tracer].get_function_values(previous_solutions[i],
-                                                              previous_tracer_values_fixed[i]);
-      fe_values_fixed[tracer].get_function_gradients(previous_solutions[i],
-                                                                previous_tracer_gradients_fixed[i]);
+      if (enable_pseudo_solid)
+      {
+        fe_values_fixed[tracer].get_function_values(
+          previous_solutions[i], previous_tracer_values_fixed[i]);
+        fe_values_fixed[tracer].get_function_gradients(
+          previous_solutions[i], previous_tracer_gradients_fixed[i]);
+      }
     }
     
 
@@ -633,6 +661,8 @@ public:
     active_fe_values = this->reinit(cell, false);
     if (enable_pseudo_solid)
       active_fe_values_fixed = this->reinit(cell, true);
+    else
+      active_fe_values_fixed = active_fe_values;
 
     dofs_per_cell = active_fe_values->dofs_per_cell;
     for (const unsigned int i : active_fe_values->dof_indices())
@@ -679,6 +709,8 @@ public:
           active_fe_face_values = this->reinit(cell, i_face, false);
           if (enable_pseudo_solid)
             active_fe_face_values_fixed = this->reinit(cell, i_face, true);
+          else
+            active_fe_face_values_fixed = active_fe_face_values;
 
           reinit_navier_stokes_face(i_face,
                                     *active_fe_face_values,
@@ -832,6 +864,11 @@ public:
   std::vector<std::vector<Tensor<1, dim>>> previous_position_values;
   std::vector<std::vector<Tensor<2, dim>>> previous_position_gradients;
 
+  //Neo-hookean
+  std::vector<double>         present_position_J;
+  std::vector<Tensor<2, dim>> present_position_inv_gradients;
+  std::vector<Tensor<2, dim>> present_position_inv_gradients_T;
+
   // Current and previous values on faces
   std::vector<std::vector<Tensor<1, dim>>> present_face_position_values;
   std::vector<std::vector<Tensor<2, dim>>> present_face_position_gradient;
@@ -840,10 +877,12 @@ public:
     previous_face_position_values;
 
   // Shape functions and gradients for each quad node and each dof
-  std::vector<std::vector<Tensor<1, dim>>> phi_x;
-  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x;
-  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x_moving;
-  std::vector<std::vector<double>>         div_phi_x;
+  std::vector<std::vector<Tensor<1, dim>>>          phi_x;
+  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x;
+  std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
+  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x_moving;
+  std::vector<std::vector<double>>                  div_phi_x;
+  std::vector<std::vector<double>>                  trace_grad_phi_x;
 
   // Shape functions on faces for relevant faces, each quad node and each dof
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_x_face;

@@ -1,3 +1,4 @@
+#include <cmath>
 
 #include <compare_matrix.h>
 #include <deal.II/base/work_stream.h>
@@ -20,7 +21,8 @@
 template <int dim>
 LinearElasticitySolver<dim>::LinearElasticitySolver(
   const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
+  : GenericSolver<LA::ParVectorType>(param.output,
+                                     param.nonlinear_solver,
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,
@@ -132,15 +134,15 @@ void LinearElasticitySolver<dim>::run()
       param.linear_elasticity.max_current_mesh_source_term_multiplier;
     const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
 
-    source_term_moving_mesh_multiplier = c_min;
-    source_term_fixed_mesh_multiplier  = 0.;
+    const double step_size =
+      n_steps > 1 ? (c_max - c_min) / static_cast<double>(n_steps - 1) : 0.0;
 
-    // Use a geometric progression to increase the continuation parameter
-    const double r =
-      n_steps > 1 ? std::pow(c_max / c_min, 1.0 / (n_steps - 1)) : 1.;
+    source_term_fixed_mesh_multiplier  = 0.;
 
     for (unsigned int n = 0; n < n_steps; ++n)
     {
+      source_term_moving_mesh_multiplier = c_min + n * step_size;
+
       pcout << std::endl;
       pcout << "Continuation method - Step " << n + 1 << "/" << n_steps
             << " : source term multiplier = "
@@ -150,8 +152,6 @@ void LinearElasticitySolver<dim>::run()
       if (param.debug.compare_analytical_jacobian_with_fd)
         compare_analytical_matrix_with_fd();
       solve_nonlinear_problem(false);
-
-      source_term_moving_mesh_multiplier *= r;
     }
   }
   else
@@ -289,7 +289,6 @@ void LinearElasticitySolver<dim>::assemble_matrix()
   TimerOutput::Scope t(computing_timer, "Assemble matrix");
 
   system_matrix = 0;
-
   ScratchData scratch_data(*fe, *mapping, *quadrature, *face_quadrature, param);
   CopyData    copyData(fe->n_dofs_per_cell());
 
@@ -349,6 +348,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
   local_matrix       = 0;
 
   const double alpha = source_term_moving_mesh_multiplier;
+  const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
 
   //
   // Volume contributions
@@ -358,30 +358,125 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
     const double JxW         = scratch_data.JxW[q];
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
+
+    double lame_mu_eff     = lame_mu;
+    double lame_lambda_eff = lame_lambda;
+
+    const auto &ps = param.physical_properties.pseudosolids[0];
+
+    const bool use_var_lame =
+      (ps.stiffness_model ==
+      Parameters::PseudoSolid<dim>::StiffnessModel::young_from_phi);
+
+    const bool use_nh =
+      (ps.constitutive_model ==
+      Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+
+    const double epsilon_interface = param.cahn_hilliard.epsilon_interface;
+    Tensor<1, dim> grad_phi_stiff;
+    double dlame_lambda_dphi = 0.0;
+    double dlame_mu_dphi     = 0.0;
+    if (ps.stiffness_model ==
+        Parameters::PseudoSolid<dim>::StiffnessModel::young_from_phi)
+    {
+      const Point<dim> x_q = scratch_data.qpoints_current_mesh[q];
+      const double phi_stiff = ps.phi_for_stiffness_fun->value(x_q);
+
+      const auto [lambda_eff, mu_eff] =
+        ps.evaluate_lame_from_phi_value(phi_stiff,
+                                        epsilon_interface,
+                                        lame_lambda,
+                                        lame_mu);
+
+      const auto [dlambda_dphi, dmu_dphi] =
+        ps.evaluate_lame_derivatives_from_phi_value(phi_stiff,
+                                                    epsilon_interface,
+                                                    lame_lambda,
+                                                    lame_mu);
+
+      lame_lambda_eff = lambda_eff;
+      lame_mu_eff     = mu_eff;
+      dlame_lambda_dphi = dlambda_dphi;
+      dlame_mu_dphi     = dmu_dphi;
+      grad_phi_stiff    = ps.phi_for_stiffness_fun->gradient(x_q);
+    }
+
     const auto  &phi_x       = scratch_data.phi_x[q];
     const auto  &grad_phi_x  = scratch_data.grad_phi_x[q];
     const auto  &div_phi_x   = scratch_data.div_phi_x[q];
 
     const Tensor<2, dim> &grad_source_current_mesh =
       scratch_data.grad_source_term_position_current_mesh[q];
+    const auto &position_sym_gradient = scratch_data.position_sym_gradients[q];
+    const auto strain       = position_sym_gradient - identity_tensor;
+    const auto trace_strain = trace(strain);
+
+    //Neo-Hookean
+    const Tensor<2, dim> &F       = scratch_data.position_gradients[q];
+    const double          J       = scratch_data.position_J[q];
+    const Tensor<2, dim> &F_inv = scratch_data.position_inv_gradients[q];
+    const Tensor<2, dim> &F_inv_T = scratch_data.position_inv_gradients_T[q];
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       const auto &phi_x_i          = phi_x[i];
-      const auto &sym_grad_phi_x_i = symmetrize(grad_phi_x[i]);
+      const auto &grad_phi_x_i     = grad_phi_x[i];
+      const auto &sym_grad_phi_x_i = symmetrize(grad_phi_x_i);
       const auto &div_phi_x_i      = div_phi_x[i];
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
         const auto &phi_x_j          = phi_x[j];
-        const auto &sym_grad_phi_x_j = symmetrize(grad_phi_x[j]);
+        const auto &grad_phi_x_j     = grad_phi_x[j];
+        const auto &sym_grad_phi_x_j = symmetrize(grad_phi_x_j);
         const auto &div_phi_x_j      = div_phi_x[j];
 
-        local_matrix(i, j) +=
-          (lame_lambda * div_phi_x_j * div_phi_x_i +
-           2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
-           alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
-          JxW;
+        if (!use_nh)
+        {
+          local_matrix(i, j) +=
+            (lame_lambda_eff * div_phi_x_j * div_phi_x_i +
+            2. * lame_mu_eff *
+              scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
+            alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
+            JxW;
+
+          if (use_var_lame)
+          {
+            const double dphi_dxj = grad_phi_stiff * phi_x_j;
+
+            local_matrix(i, j) +=
+              dphi_dxj *
+              (dlame_lambda_dphi * trace_strain * div_phi_x_i +
+              2.0 * dlame_mu_dphi * scalar_product(strain, sym_grad_phi_x_i)) *
+              JxW;
+          }
+        }
+        else
+        {
+          const Tensor<2, dim> dF = grad_phi_x_j;
+
+          const Tensor<2, dim> dP =
+            lame_mu_eff * dF +
+            (lame_mu_eff - lame_lambda_eff * std::log(J)) *
+              (F_inv_T * transpose(dF) * F_inv_T) +
+            lame_lambda_eff * trace(F_inv * dF) * F_inv_T;
+
+          local_matrix(i, j) +=
+            (scalar_product(dP, grad_phi_x_i) +
+            alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) * JxW;
+
+          if (use_var_lame)
+          {
+            const double dphi_dxj = grad_phi_stiff * phi_x_j;
+
+            const Tensor<2, dim> dP_dphi =
+              dlame_mu_dphi * (F - F_inv_T) +
+              dlame_lambda_dphi * std::log(J) * F_inv_T;
+
+            local_matrix(i, j) +=
+              dphi_dxj * scalar_product(dP_dphi, grad_phi_x_i) * JxW;
+          }
+        }
       }
     }
   }
@@ -437,7 +532,6 @@ void LinearElasticitySolver<dim>::assemble_rhs()
   TimerOutput::Scope t(computing_timer, "Assemble RHS");
 
   system_rhs = 0;
-
   ScratchData scratch_data(*fe, *mapping, *quadrature, *face_quadrature, param);
   CopyData    copyData(fe->n_dofs_per_cell());
 
@@ -487,12 +581,38 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
 
+    double lame_mu_eff     = lame_mu;
+    double lame_lambda_eff = lame_lambda;
+
+    const auto &ps = param.physical_properties.pseudosolids[0];
+
+    const bool use_nh =
+      (ps.constitutive_model ==
+      Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+
+    const double epsilon_interface = param.cahn_hilliard.epsilon_interface;
+
+    if (ps.stiffness_model ==
+        Parameters::PseudoSolid<dim>::StiffnessModel::young_from_phi)
+    {
+      const Point<dim> x_q = scratch_data.qpoints_current_mesh[q];
+      const double phi_stiff = ps.phi_for_stiffness_fun->value(x_q);
+
+      const auto [lambda_eff, mu_eff] =
+        ps.evaluate_lame_from_phi_value(phi_stiff,
+                                        epsilon_interface,
+                                        lame_lambda,
+                                        lame_mu);
+
+      lame_lambda_eff = lambda_eff;
+      lame_mu_eff     = mu_eff;
+    }
+
     const auto &position_sym_gradient = scratch_data.position_sym_gradients[q];
     const auto &source_term_position_moving_mesh =
       scratch_data.source_term_position_current_mesh[q];
     const auto &source_term_position_fixed_mesh =
       scratch_data.source_term_position[q];
-
     // The source term to use : using coefficients which cannot be both nonzero
     // avois using a condition
     const auto source_term = alpha * source_term_position_moving_mesh +
@@ -505,12 +625,29 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const auto &grad_phi_x = scratch_data.grad_phi_x[q];
     const auto &div_phi_x  = scratch_data.div_phi_x[q];
 
+    const Tensor<2, dim> &F       = scratch_data.position_gradients[q];
+    const double          J       = scratch_data.position_J[q];
+    const Tensor<2, dim> &F_inv_T = scratch_data.position_inv_gradients_T[q];
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      local_rhs(i) -= (lame_lambda * trace_strain * div_phi_x[i] +
-                       2. * lame_mu * scalar_product(strain, grad_phi_x[i]) +
-                       phi_x[i] * source_term) *
-                      JxW;
+     if (!use_nh)
+      {
+        local_rhs(i) -=
+          (lame_lambda_eff * trace_strain * div_phi_x[i] +
+          2. * lame_mu_eff * scalar_product(strain, grad_phi_x[i]) +
+          phi_x[i] * source_term) * JxW;
+      }
+        else
+        {
+          const Tensor<2, dim> P =
+            lame_mu_eff * (F - F_inv_T) +
+            lame_lambda_eff * std::log(J) * F_inv_T;
+
+        local_rhs(i) -=
+          (scalar_product(P, grad_phi_x[i]) +
+          phi_x[i] * source_term) * JxW;
+      }
     }
   }
 

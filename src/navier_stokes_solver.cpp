@@ -15,7 +15,8 @@
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
-  : GenericSolver<LA::ParVectorType>(param.nonlinear_solver,
+  : GenericSolver<LA::ParVectorType>(param.output,
+                                     param.nonlinear_solver,
                                      param.timer,
                                      param.mesh,
                                      param.time_integration,
@@ -60,7 +61,7 @@ NavierStokesSolver<dim, with_moving_mesh>::get_variables_description() const
   description.push_back({"velocity", dim});
   description.push_back({"pressure", 1});
   if constexpr (with_moving_mesh)
-    description.push_back({"mesh position", dim});
+    description.push_back({"mesh_position", dim});
   const auto additional_description = get_additional_variables_description();
   for (const auto &additional : additional_description)
     description.push_back(additional);
@@ -701,8 +702,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
     {
       error_handlers.at(norm)->add_reference_data(
         "n_elm", triangulation.n_global_active_cells());
-      error_handlers.at(norm)->add_reference_data("n_dof",
-                                                  dof_handler.n_dofs());
+
+      // FIXME: Remove the dofs from the convergence table in 3d as long as the
+      // hp bug is in deal.II, to allow tests with the docker
+      if (!(dim == 3 && dof_handler.has_hp_capabilities()))
+        error_handlers.at(norm)->add_reference_data("n_dof",
+                                                    dof_handler.n_dofs());
     }
 
   /**
@@ -810,8 +815,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
       auto variable_names = postproc_handler->get_field_names();
       for (auto &name : variable_names)
       {
-        if (name == "mesh position")
-          name = "mesh velocity";
+        if (name == "mesh_position")
+          name = "mesh_velocity";
         else
           name = "unused_" + name;
       }

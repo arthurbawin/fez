@@ -434,11 +434,11 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   double                             JxW_fixed, lame_mu = 0., lame_lambda = 0.;
   const double                       alpha = this->param.cahn_hilliard.alpha;
   const double                       beta  = this->param.cahn_hilliard.beta;
-  const int                          forcing_type = this->param.cahn_hilliard.mesh_forcing_type;
   const double gamma   = this->param.cahn_hilliard.gamma;
   const double epsilon = this->param.cahn_hilliard.epsilon_interface;
   const std::vector<Tensor<1, dim>> *phi_x;
-  const std::vector<Tensor<2, dim>> *grad_phi_x, *grad_phi_x_moving;
+  const std::vector<Tensor<2, dim>> *grad_phi_x;
+  const std::vector<Tensor<2, dim>> *grad_phi_x_moving;
   const std::vector<double>         *div_phi_x;
   const std::vector<double>         *shape_phi_fixed;
   const std::vector<Tensor<1, dim>> *grad_shape_phi_fixed;
@@ -449,10 +449,16 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   double                div_phi_x_i, div_phi_x_j;
   double                shape_phi_fixed_j;
   const Tensor<1, dim> *grad_shape_phi_fixed_j;
+  const Tensor<2, dim>              *present_position_gradients;
+  double                             present_displacement_divergence;
+  double                             present_trace_strain;
+  Tensor<2, dim>                     present_strain;
   double                             prev_tracer_value;
   const Tensor<1, dim>              *prev_tracer_gradients;
   double                             tracer_values_fixed;
   const Tensor<1, dim>              *tracer_gradient_fixed;
+  Tensor<1, dim>        to_multiply_by_phi_u_i_tr_G;
+  double                to_multipliy_by_phi_phi_i_tr_G;
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
@@ -490,6 +496,11 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
       div_phi_x             = &scratch_data.div_phi_x[q];
       shape_phi_fixed       = &scratch_data.shape_phi_fixed[q];
       grad_shape_phi_fixed  = &scratch_data.grad_shape_phi_fixed[q];
+      present_position_gradients = &scratch_data.present_position_gradients[q];
+      present_displacement_divergence = trace(*present_position_gradients);
+      present_strain =
+        symmetrize(*present_position_gradients) - unit_symmetric_tensor<dim>();
+      present_trace_strain  = present_displacement_divergence - (double)dim;
       source_term_velocity  = &scratch_data.source_term_velocity[q];
       source_term_pressure  = scratch_data.source_term_pressure[q];
       source_term_tracer    = scratch_data.source_term_tracer[q];
@@ -527,6 +538,44 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
     const auto &potential_value    = scratch_data.potential_values[q];
     const auto &potential_gradient = scratch_data.potential_gradients[q];
     const auto &u_dot_grad_phi = scratch_data.velocity_dot_tracer_gradient[q];
+    
+    double lame_lambda_eff = lame_lambda;
+    double lame_mu_eff     = lame_mu;
+    bool   use_nh          = false;
+    const Parameters::PseudoSolid<dim> *ps_ptr = nullptr;
+    Tensor<2, dim>                      F;
+    Tensor<2, dim>                      F_inv;
+    Tensor<2, dim>                      F_inv_T;
+    double                              J                 = 1.0;
+    double                              epsilon_interface = 0.0;
+
+    if constexpr (with_moving_mesh)
+    {
+      const auto &ps = this->param.physical_properties.pseudosolids[0];
+      ps_ptr         = &ps;
+      use_nh =
+        (ps.constitutive_model ==
+         Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+
+      F                 = scratch_data.present_position_gradients[q];
+      J                 = scratch_data.present_position_J[q];
+      F_inv             = scratch_data.present_position_inv_gradients[q];
+      F_inv_T           = scratch_data.present_position_inv_gradients_T[q];
+      epsilon_interface = this->param.cahn_hilliard.epsilon_interface;
+
+      if (ps.stiffness_model ==
+          Parameters::PseudoSolid<dim>::StiffnessModel::young_from_phi)
+      {
+        const double phi_stiff = tracer_value;
+        const auto [lambda_eff, mu_eff] =
+          ps.evaluate_lame_from_phi_value(phi_stiff,
+                                          epsilon_interface,
+                                          lame_lambda,
+                                          lame_mu);
+        lame_lambda_eff = lambda_eff;
+        lame_mu_eff     = mu_eff;
+      }
+    }
 
     const double dphidt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
@@ -536,11 +585,14 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
     const auto to_multiply_by_phi_u_i_phi_phi_j =
       (drhodphi * (dudt + u_dot_grad_u - body_force) + potential_gradient);
 
-    const auto to_multiply_by_phi_u_i_tr_G =
-      rho * (dudt - body_force + present_velocity_gradients * u_conv) +
-      *source_term_velocity;
-    const auto to_multipliy_by_phi_phi_i_tr_G =
-      dphidt + u_conv * tracer_gradient + source_term_tracer;
+    if constexpr (with_moving_mesh)
+    {
+      to_multiply_by_phi_u_i_tr_G =
+        rho * (dudt - body_force + present_velocity_gradients * u_conv) +
+        *source_term_velocity;
+      to_multipliy_by_phi_phi_i_tr_G =
+        dphidt + u_conv * tracer_gradient + source_term_tracer;
+    }
 
     for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
     {
@@ -802,68 +854,37 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
          */
         if constexpr (with_moving_mesh)
         {
-          //mesh forcing factor switch
-          double mff      = 0.0;
-          double mff_second = 0.0;
+          //Mesh forcing factor
+          // const double phi_s = std::tanh(tracer_value);
+          // const double phi_s_prime = 1.0 - phi_s * phi_s; // sech^2(z)
+          // const double B = 1.0 - gamma * gamma * phi_s * phi_s;
 
-          //Clamp phi for some forcing type
-          const double safe_phi = std::max(-1.0, std::min(1.0, tracer_value));
+          // const double mff = phi_s / B;
+          // const double mff_second =
+          //               phi_s_prime *
+          //               (1.0 + gamma * gamma * phi_s * phi_s) /
+          //               (B * B);
 
-          switch (forcing_type)
-          {
-            case 0: // Standard: phi * grad(phi)
-              mff = tracer_value;
-              mff_second = 1.0;
-              break;
+          const double phi_max_user = 0.999;
 
-            case 1: // Gamma (atanh): phi * grad(phi) / (1 - gamma^2 * phi^2)
-              mff = safe_phi / (1.0 - gamma*gamma * safe_phi*safe_phi);
-              mff_second = (1.0 + gamma*gamma * safe_phi*safe_phi)/((1.0 - gamma*gamma * safe_phi*safe_phi)*(1.0 - gamma*gamma * safe_phi*safe_phi));
-              break;
+          // sécurité optionnelle si gamma > 1
+          const double phi_max_safe =
+          std::min(phi_max_user, 0.98 / std::max(gamma, 1e-14));
 
-            case 2: // Gamma Localisée
-            {
-              const double num  = safe_phi * (1.0 - safe_phi*safe_phi);
-              const double dnum = 1.0 - 3.0 * safe_phi*safe_phi;
-              const double ddenom = -2.0 * gamma*gamma * safe_phi;
+          const double z = tracer_value / phi_max_safe;
+          const double t = std::tanh(z);
 
-              mff      = num / (1.0 - gamma*gamma * safe_phi*safe_phi);
-              mff_second = (dnum * (1.0 - gamma*gamma * safe_phi*safe_phi) - num * ddenom) / ((1.0 - gamma*gamma * safe_phi*safe_phi)*(1.0 - gamma*gamma * safe_phi*safe_phi));
-              break;
-            }
-            case 4: // Sharp-Clip Gamma (Analytique, Lisse, NORMALISÉ)
-            {
-              const double phi_max = 0.99999;
-              const int n = 256;
+          const double phi_s = phi_max_safe * t;
+          const double phi_s_prime = 1.0 - t * t; // sech^2(z)
 
-              const double phi_over_max = tracer_value / phi_max;
-              
-              const double P = std::pow(phi_over_max, n);
-              const double D = 1.0 + P;
+          const double B = 1.0 - gamma * gamma * phi_s * phi_s;
 
-              const double D_inv_n = std::pow(D, -1.0 / n);
-              const double phi_c = tracer_value * D_inv_n;
-
-              const double phi_c_prime = std::pow(D, -(n + 1.0) / n);
-              const double P_prime_base = std::pow(phi_over_max, n - 1);
-              const double phi_c_second = -((n + 1.0) / phi_max) * P_prime_base * std::pow(D, -(2.0 * n + 1.0) / n);
-
-              // CORRECTION : Suppression du gamma au numérateur pour respecter la normalisation
-              const double N = tracer_value * phi_c_prime;
-              const double B = 1.0 - gamma * gamma * phi_c * phi_c;
-              mff = N / B;
-
-              // CORRECTION : La dérivée de N n'a plus de gamma non plus
-              const double N_prime = phi_c_prime + tracer_value * phi_c_second;
-              const double B_prime = -2.0 * gamma * gamma * phi_c * phi_c_prime;
-              mff_second = (N_prime * B - N * B_prime) / (B * B);
-              
-              break;
-            }
-
-            default:
-              AssertThrow(false, ExcMessage("It look's like you are trying tu use a mesh forcing type that has not been implemented yet !"));
-          }
+          const double mff = phi_s / B;
+          const double mff_second =
+          phi_s_prime *
+            (1.0 + gamma * gamma * phi_s * phi_s) /
+              (B * B);
+          ///
 
           if (const_ordering.x_lower <= comp_i &&
               comp_i < const_ordering.x_upper)
@@ -880,12 +901,27 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
             {
               const Tensor<2, dim> &G = (*grad_phi_x_moving)[j];
 
-              // Linear elasticity
-              local_ps_ij +=
-                lame_lambda * div_phi_x_j * div_phi_x_i +
-                lame_mu *
-                  scalar_product(*grad_phi_x_j + transpose(*grad_phi_x_j),
-                                 *grad_phi_x_i);
+              // Pseudo solid model
+              if (!use_nh)
+              {
+                local_ps_ij +=
+                  lame_lambda_eff * div_phi_x_j * div_phi_x_i +
+                  lame_mu_eff *
+                    scalar_product(*grad_phi_x_j + transpose(*grad_phi_x_j),
+                                  *grad_phi_x_i);
+              }
+              else
+              {
+                const Tensor<2, dim> dF = *grad_phi_x_j;
+
+                const Tensor<2, dim> dP =
+                  lame_mu_eff * dF +
+                  (lame_mu_eff - lame_lambda_eff * std::log(J)) *
+                    (F_inv_T * transpose(dF) * F_inv_T) +
+                  lame_lambda_eff * trace(F_inv * dF) * F_inv_T;
+
+                local_ps_ij += scalar_product(dP, *grad_phi_x_i);
+              }
 
               local_ps_ij -=
                 (*phi_x_i) *
@@ -902,6 +938,30 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
             }
             if (comp_j == const_ordering.phi_lower)
             {
+              const auto [dlame_lambda_dphi, dlame_mu_dphi] =
+                ps_ptr->evaluate_lame_derivatives_from_phi_value(tracer_value,
+                                                                 epsilon_interface,
+                                                                 lame_lambda,
+                                                                 lame_mu);
+
+              // dérivée des coefficients de Lamé dépendant de phi
+              if (!use_nh)
+              {
+                local_ps_ij +=
+                  phi_phi_j *
+                  (dlame_lambda_dphi * present_trace_strain * div_phi_x_i +
+                  2.0 * dlame_mu_dphi *
+                    scalar_product(present_strain, *grad_phi_x_i));
+              }
+              else
+              {
+                const Tensor<2, dim> dP_dphi =
+                  dlame_mu_dphi * (F - F_inv_T) +
+                  dlame_lambda_dphi * std::log(J) * F_inv_T;
+
+                local_ps_ij +=
+                  phi_phi_j * scalar_product(dP_dphi, *grad_phi_x_i);
+              }
 
               local_ps_ij -=
                 (*phi_x_i) *
@@ -1051,6 +1111,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
 
     const auto u_dot_grad_u = present_velocity_gradients * u_conv;
 
+    const double bdf_c0 = this->time_handler.bdf_coefficients[0];
+    
     const auto &present_pressure_values =
       scratch_data.present_pressure_values[q];
     const auto &source_term_velocity  = scratch_data.source_term_velocity[q];
@@ -1102,7 +1164,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
     double                             lame_mu = 0., lame_lambda = 0.;
     const double                       alpha = this->param.cahn_hilliard.alpha;
     const double                       beta  = this->param.cahn_hilliard.beta;
-    const int                          forcing_type = this->param.cahn_hilliard.mesh_forcing_type;
     const double gamma   = this->param.cahn_hilliard.gamma;
     const double epsilon = this->param.cahn_hilliard.epsilon_interface;
     double                             present_displacement_divergence;
@@ -1142,6 +1203,40 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
       prev_tracer_gradients_fixed = &scratch_data.previous_tracer_gradients_fixed[0][q];
     }
 
+    double lame_lambda_eff = lame_lambda;
+    double lame_mu_eff     = lame_mu;
+    bool   use_nh          = false;
+    Tensor<2, dim>         F;
+    Tensor<2, dim>         F_inv_T;
+    double                 J                 = 1.0;
+    double                 epsilon_interface = 0.0;
+
+    if constexpr (with_moving_mesh)
+    {
+      const auto &ps = this->param.physical_properties.pseudosolids[0];
+      use_nh =
+        (ps.constitutive_model ==
+         Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+
+      F                 = scratch_data.present_position_gradients[q];
+      J                 = scratch_data.present_position_J[q];
+      F_inv_T           = scratch_data.present_position_inv_gradients_T[q];
+      epsilon_interface = this->param.cahn_hilliard.epsilon_interface;
+
+      if (ps.stiffness_model ==
+          Parameters::PseudoSolid<dim>::StiffnessModel::young_from_phi)
+      {
+        const double phi_stiff = tracer_value;
+        const auto [lambda_eff, mu_eff] =
+          ps.evaluate_lame_from_phi_value(phi_stiff,
+                                          epsilon_interface,
+                                          lame_lambda,
+                                          lame_mu);
+        lame_lambda_eff = lambda_eff;
+        lame_mu_eff     = mu_eff;
+      }
+    }
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       const auto &phi_u_i          = phi_u[i];
@@ -1177,60 +1272,47 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
       double local_rhs_ps_i = 0.;
       if constexpr (with_moving_mesh)
       {
+        //Mesh forcing factor
+        // const double phi_s = std::tanh(tracer_value);
+        // const double B = 1.0 - gamma * gamma * phi_s * phi_s;
 
-        double mff      = 0.0;
-       //Clamp the Phi to be sure it never divide by zero
-        const double safe_tracer = std::max(-1.0, std::min(1.0, tracer_value));
+        // const double mff = phi_s / B;
+        ///
+        const double phi_max_user = 0.999;
 
-        // Switch Factor of mesh forcaging
-        switch (forcing_type)
-        {
-          case 0: // Standard: phi * grad(phi)
-            mff = tracer_value;
-            break;
+        const double phi_max_safe =
+        std::min(phi_max_user, 0.98 / std::max(gamma, 1e-14));
 
-          case 1: // Gamma (atanh): phi * grad(phi) / (1 - gamma^2 * phi^2)
-            mff = safe_tracer / (1.0 - gamma*gamma * safe_tracer*safe_tracer);
-            break;
+        const double z = tracer_value / phi_max_safe;
+        const double t = std::tanh(z);
 
-          case 2: // Gamma Localisée
-            mff = (safe_tracer * (1.0 - safe_tracer*safe_tracer)) / (1.0 - gamma*gamma * safe_tracer*safe_tracer);
-            break;
+        const double phi_s = phi_max_safe * t;
+        const double B = 1.0 - gamma * gamma * phi_s * phi_s;
 
-          case 4: // Sharp-Clip Gamma NORMALISÉ (Second Membre - RHS)
-          {
-            const double phi_max = 0.99999;
-            const int n = 256; 
+        const double mff = phi_s / B;
 
-            const double phi_over_max = tracer_value / phi_max;
-            
-            const double P = std::pow(phi_over_max, n);
-            const double D = 1.0 + P;
-
-            const double D_inv_n = std::pow(D, -1.0 / n);
-            const double phi_c = tracer_value * D_inv_n;
-            const double phi_c_prime = std::pow(D, -(n + 1.0) / n);
-            
-            // CORRECTION : Suppression du gamma au numérateur
-            const double N = tracer_value * phi_c_prime;
-            const double B = 1.0 - gamma * gamma * phi_c * phi_c;
-            
-            mff = N / B;
-            break;
-          }
-          
-          default:
-            AssertThrow(false, ExcMessage("Type de forçage non implémenté !"));
-        }
        //mesh forcing
         mesh_forcing = (alpha*(epsilon)) *mff * tracer_gradient+
            (beta*(epsilon*epsilon)) * ((u_conv * tracer_gradient) * tracer_gradient);;
 
-        // Linear elasticity
-        local_rhs_ps_i +=
-          lame_lambda * present_trace_strain * (*div_phi_x)[i] +
-          2 * lame_mu * scalar_product(present_strain, (*grad_phi_x)[i]) +
-          (*phi_x)[i] * (*source_term_position - mesh_forcing);
+        //PSEUDO SOLID MODEL
+        if (!use_nh)
+        {
+          local_rhs_ps_i +=
+            lame_lambda_eff * present_trace_strain * (*div_phi_x)[i] +
+            2.0 * lame_mu_eff * scalar_product(present_strain, (*grad_phi_x)[i]) +
+            (*phi_x)[i] * (*source_term_position - mesh_forcing);
+        }
+        else
+        {
+          const Tensor<2, dim> P =
+            lame_mu_eff * (F - F_inv_T) +
+            lame_lambda_eff * std::log(J) * F_inv_T;
+
+          local_rhs_ps_i +=
+            scalar_product(P, (*grad_phi_x)[i]) +
+            (*phi_x)[i] * (*source_term_position - mesh_forcing);
+        }
         
         local_rhs_ps_i *= scratch_data.JxW_fixed[q];
       }

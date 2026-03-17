@@ -868,7 +868,7 @@ namespace ErrorEstimation
         out << "Mesh vertex " << global_vertices[i] << std::endl;
         out << "Least-squares matrix" << std::endl;
         global_ls_matrices[i].print_formatted(
-          out, 3, true, 0, " ", 1., 0., " ");
+          out, 3, true, 0, "0.", 1., 0., " ");
         out << "Polynomial coefficients" << std::endl;
         global_recovery_coeffs[i].print(out, 3, true, true);
       }

@@ -1,0 +1,238 @@
+
+#
+# Unsteady flow around a massless circular cylinder mounted on a spring
+#
+
+subsection Dimension
+  set dimension = 3
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write vtu results = true
+  set output directory  = results/
+  set output prefix     = flow_cylinder_spring
+
+  subsection skin
+    set write vtu results = true
+    set boundary id       = 7
+    set output prefix     = skin
+    set output frequency  = 1
+  end
+end
+
+subsection Postprocessing
+  subsection forces computation
+    set enable             = true
+    set boundary id        = 7
+    set output prefix      = forces
+    set output frequency   = 1
+    set computation method = lagrange multiplier
+  end
+
+  subsection slicing
+    set enable           = true
+    set boundary id      = 7
+    set output prefix    = slices
+    set output frequency = 1
+    set along which axis = z
+    set number of slices = 10
+    set compute forces   = true
+  end
+
+  subsection structure position
+    set enable           = true
+    set boundary id      = 7
+    set output prefix    = center
+    set output frequency = 1
+  end
+end
+
+subsection Mesh
+  set mesh file = ./cylinder.msh
+  # set mesh file = ./cylinder_finer.msh
+  # set mesh file = ./coarse.msh
+  # set mesh file = ./cyl_not_confined_3d_very_coarse.msh
+  # set mesh file = ./cyl_not_confined_3d_coarse.msh
+  # set mesh file = ./cyl_not_confined_3d_tiny.msh
+end
+
+subsection Time integration
+  set verbosity        = verbose
+  set dt               = 0.1
+  set t_initial        = 0
+  set t_end            = 0.1
+  set scheme           = BDF1
+  set bdf start method = BDF1
+end
+
+subsection Checkpoint Restart
+  set enable checkpoint    = false
+  set restart              = false
+  set checkpoint file      = checkpoint
+  set checkpoint frequency = 10
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 50
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+
+  subsection reassembly heuristic
+    set decrease tolerance = 0 #0.1
+  end
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set use quads                  = false
+  set Velocity degree            = 2
+  set Pressure degree            = 1
+  set Mesh position degree       = 1
+  set Lagrange multiplier degree = 2
+
+  subsection Quadrature rule
+    set rule for simplices                     = gauss
+    set number of 1d nodes for cell quadrature = 3
+    set number of 1d nodes for face quadrature = 3
+  end
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 0.005
+  end
+
+  set number of pseudosolids = 1
+  subsection Pseudosolid 0
+    subsection lame lambda
+      set Function expression = 1
+    end
+    subsection lame mu
+      set Function expression = 1
+    end
+  end
+end
+
+subsection FSI
+  set verbosity       = verbose
+  set enable coupling = true
+  set spring constant = 1
+  set cylinder radius = 0.5
+  set cylinder length = 8
+  set fix z component = true
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 7
+  subsection boundary 0
+    set id   = 1
+    set name = Back
+    set type = slip
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = Front
+    set type = slip
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = Bottom
+    set type = slip
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = Top
+    set type = slip
+  end
+  subsection boundary 4
+    set id   = 5
+    set name = Inlet
+    set type = input_function
+
+    subsection u
+      set Function expression = 1
+    end
+    subsection v
+      set Function expression = 0
+    end
+    subsection w
+      set Function expression = 0
+    end
+  end
+  subsection boundary 5
+    set id   = 6
+    set name = Outlet
+    set type = outflow
+  end
+  subsection boundary 6
+    set id   = 7
+    set name = Cylinder
+    set type = weak_no_slip
+  end
+end
+
+subsection Pseudosolid boundary conditions
+  set number = 7
+  subsection boundary 0
+    set id   = 1
+    set name = Back
+    set type = no_flux
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = Front
+    set type = no_flux
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = Bottom
+    set type = no_flux
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = Top
+    set type = no_flux
+  end
+  subsection boundary 4
+    set id   = 5
+    set name = Inlet
+    set type = fixed
+  end
+  subsection boundary 5
+    set id   = 6
+    set name = Outlet
+    set type = fixed
+  end
+  subsection boundary 6
+    set id   = 7
+    set name = Cylinder
+    set type = coupled_to_fluid
+  end
+end
+
+subsection Debug
+  set verbosity            = verbose
+  set fsi_coupling_option  = 1
+  set write partition gmsh = true
+end

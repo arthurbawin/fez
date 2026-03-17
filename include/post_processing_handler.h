@@ -269,6 +269,7 @@ private:
   const Parameters::MMS                     &mms_param;
 
   const Triangulation<dim> &triangulation;
+  const DoFHandler<dim>    &dof_handler;
   MPI_Comm                  mpi_communicator;
 
   std::unique_ptr<DataOut<dim>> data_out;
@@ -387,6 +388,17 @@ void PostProcessingHandler<dim>::output_skin_fields(
   const VectorType   &solution,
   const TimeHandler  &time_handler)
 {
+  // build_patches is not (yet) implemented for DataOutFaces in hp context
+  AssertThrow(
+    !dof_handler.has_hp_capabilities(),
+    ExcMessage(
+      "\nYou are using a solver with hp capabilities (i.e., "
+      "incompressible_ns_lambda or fsi), and you are also trying "
+      "to export results on a boundary (with the \"skin\" "
+      "subsection). Unfortunately, this feature is currently not yet "
+      "implemented in deal.II when using structures with hp capabilities. "
+      "Exportation on a skin is supported with the other non-hp solvers."));
+
   data_out_skin->add_data_vector(solution,
                                  solution_names,
                                  DataOutFaces<dim>::type_dof_data,
@@ -506,10 +518,12 @@ void PostProcessingHandler<dim>::compute_forces(
   // Add forces to forces table and write if time step matches frequency
   {
     add_force_to_table(forces, time_handler, forces_table);
-    std::ofstream outfile(output_param.output_dir +
-                          post_proc_param.forces.output_prefix + ".txt");
     if (should_output_forces(time_handler))
+    {
+      std::ofstream outfile(output_param.output_dir +
+                            post_proc_param.forces.output_prefix + ".txt");
       write_table(outfile, forces_table, post_proc_param.forces);
+    }
   }
 
   // Compute forces on each slice of given boundary
@@ -562,10 +576,15 @@ void PostProcessingHandler<dim>::compute_forces(
     }
 
     // Write to file
-    std::ofstream slices_outfile(output_param.output_dir +
-                                 post_proc_param.forces.output_prefix + "_" +
-                                 slices_param.output_prefix + ".txt");
-    write_table(slices_outfile, forces_table_per_slice, post_proc_param.forces);
+    if (should_output_postprocessing(time_handler, slices_param))
+    {
+      std::ofstream slices_outfile(output_param.output_dir +
+                                   post_proc_param.forces.output_prefix + "_" +
+                                   slices_param.output_prefix + ".txt");
+      write_table(slices_outfile,
+                  forces_table_per_slice,
+                  post_proc_param.forces);
+    }
 
     // Check that sum of forces on slices is the force on boundary
     {
@@ -630,13 +649,15 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
   add_position_to_table(mean_position,
                         time_handler,
                         structure_mean_position_table);
-  std::ofstream outfile(output_param.output_dir +
-                        post_proc_param.structure_position.output_prefix +
-                        ".txt");
   if (should_output_mean_position(time_handler))
+  {
+    std::ofstream outfile(output_param.output_dir +
+                          post_proc_param.structure_position.output_prefix +
+                          ".txt");
     write_table(outfile,
                 structure_mean_position_table,
                 post_proc_param.structure_position);
+  }
 }
 
 #endif

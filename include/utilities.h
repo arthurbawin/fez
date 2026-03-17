@@ -299,7 +299,7 @@ double compute_boundary_volume(const DoFHandler<dim>     &dof_handler,
           for (unsigned int q = 0; q < face_quadrature.size(); ++q)
             I += fe_face_values.JxW(q);
         }
-  return Utilities::MPI::sum(I, dof_handler.get_communicator());
+  return Utilities::MPI::sum(I, dof_handler.get_mpi_communicator());
 }
 
 /**
@@ -331,7 +331,7 @@ double compute_boundary_volume(const DoFHandler<dim>            &dof_handler,
           for (unsigned int q = 0; q < face_quadrature[fe_index].size(); ++q)
             I += fe_face_values.JxW(q);
         }
-  return Utilities::MPI::sum(I, dof_handler.get_communicator());
+  return Utilities::MPI::sum(I, dof_handler.get_mpi_communicator());
 }
 
 /**
@@ -428,5 +428,49 @@ inline void constrain_matrix_row(
     matrix.set(dof_index, coupled_entry, -coeff);
 }
 
+/**
+ * Compute the divided difference associated with the vectors @p times and
+ * @p values. The base template is deleted, and one must call one of the
+ * specializations below.
+ */
+template <int order>
+double divided_difference(const std::vector<double> &times,
+                          const std::vector<double> &values) = delete;
+
+/**
+ * Compute the divided difference of order 2 associated with the vectors
+ * @p times and @p values.
+ */
+template <>
+inline double divided_difference<2>(const std::vector<double> &times,
+                                    const std::vector<double> &values)
+{
+  AssertDimension(times.size(), 3);
+  AssertDimension(values.size(), 3);
+  const double d01 = (values[1] - values[0]) / (times[1] - times[0]);
+  const double d12 = (values[2] - values[1]) / (times[2] - times[1]);
+
+  return (d12 - d01) / (times[2] - times[0]);
+}
+
+/**
+ * Compute the divided difference of order 3 associated with the vectors
+ * @p times and @p values.
+ */
+template <>
+inline double divided_difference<3>(const std::vector<double> &times,
+                                    const std::vector<double> &values)
+{
+  AssertDimension(times.size(), 4);
+  AssertDimension(values.size(), 4);
+  const double d01 = (values[1] - values[0]) / (times[1] - times[0]);
+  const double d12 = (values[2] - values[1]) / (times[2] - times[1]);
+  const double d23 = (values[3] - values[2]) / (times[3] - times[2]);
+
+  const double d012 = (d12 - d01) / (times[2] - times[0]);
+  const double d123 = (d23 - d12) / (times[3] - times[1]);
+
+  return (d123 - d012) / (times[3] - times[0]);
+}
 
 #endif

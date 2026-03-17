@@ -1706,13 +1706,11 @@ void FSISolver<dim>::assemble_local_matrix(
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
-        Assembly::weakly_enforced_no_slip_matrix<true>(
-          *this->ordering,
-          i_face,
-          this->param.fluid_bc.at(weak_no_slip_boundary_id),
-          scratch_data,
-          this->time_handler,
-          local_matrix);
+        Assembly::weakly_enforced_no_slip_matrix<true, dim>(*this->ordering,
+                                                            i_face,
+                                                            scratch_data,
+                                                            this->time_handler,
+                                                            local_matrix);
       }
     }
   }
@@ -1964,11 +1962,10 @@ void FSISolver<dim>::assemble_local_rhs(
 
         // Open boundary condition with prescribed manufactured solution.
         // Applied on moving mesh.
-        if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
-              .type == BoundaryConditions::Type::open_mms)
+        if (fluid_bc.type == BoundaryConditions::Type::open_mms)
         {
           Assembly::traction_boundary_mms_rhs(
-            *this->ordering, i_face, fluid_bc, nu, scratch_data, local_rhs);
+            *this->ordering, i_face, nu, scratch_data, local_rhs);
         }
       }
     }

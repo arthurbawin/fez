@@ -1,5 +1,10 @@
 
+#include <components_ordering.h>
+#include <solver_info.h>
 #include <time_handler.h>
+#include <timestep_adaptation.h>
+
+#include <algorithm>
 
 constexpr auto STAT = Parameters::TimeIntegration::Scheme::stationary;
 constexpr auto BDF1 = Parameters::TimeIntegration::Scheme::BDF1;
@@ -14,24 +19,38 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , initial_dt(time_parameters.dt)
   , current_dt(time_parameters.dt)
   , scheme(time_parameters.scheme)
+  , rolledback_step(false)
+  , n_consecutive_rejected_steps(0)
+  , n_rejected_steps(0)
+  , last_nonlinear_solver_converged(true)
 {
   switch (scheme)
   {
     case STAT:
+      bdf_order            = 0;
       n_previous_solutions = 0;
       break;
     case BDF1:
+      bdf_order            = 1;
       n_previous_solutions = 1;
       break;
     case BDF2:
+      bdf_order            = 2;
       n_previous_solutions = 2;
       break;
   }
 
-  previous_times.resize(n_previous_solutions + 1, initial_time);
+  simulation_times.resize(n_previous_solutions + 1, initial_time);
+  all_simulation_times.push_back(initial_time);
   time_steps.resize(n_previous_solutions + 1, initial_dt);
   bdf_coefficients.resize(n_previous_solutions + 1, 0.);
+
+  if (!is_steady() && time_parameters.adaptation.enable)
+    error_estimator =
+      std::make_shared<BDFErrorEstimator>(time_parameters, *this);
 }
+
+TimeHandler::~TimeHandler() = default;
 
 void TimeHandler::set_bdf_coefficients(
   const bool                                force_scheme,
@@ -63,6 +82,16 @@ void TimeHandler::set_bdf_coefficients(
   }
 }
 
+bool TimeHandler::is_steady() const
+{
+  return scheme == Parameters::TimeIntegration::Scheme::stationary;
+}
+
+bool TimeHandler::is_starting_step() const
+{
+  return current_time_iteration < n_previous_solutions;
+}
+
 bool TimeHandler::is_finished() const
 {
   if (scheme == STAT)
@@ -80,18 +109,19 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
   if (scheme != STAT)
   {
     // Rotate the times and time steps
-    for (unsigned int i = n_previous_solutions - 1; i >= 1; --i)
-    {
-      previous_times[i] = previous_times[i - 1];
-      time_steps[i]     = time_steps[i - 1];
-    }
+    if (!rolledback_step)
+      for (unsigned int i = n_previous_solutions; i >= 1; --i)
+      {
+        simulation_times[i] = simulation_times[i - 1];
+        time_steps[i]       = time_steps[i - 1];
+      }
 
     if (scheme == BDF1)
     {
       // Self-starting: update values and coefficients and proceed
       current_time += current_dt;
-      previous_times[0] = current_time;
-      time_steps[0]     = current_dt;
+      simulation_times[0] = current_time;
+      time_steps[0]       = current_dt;
       set_bdf_coefficients();
     }
 
@@ -107,8 +137,8 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
         {
           current_dt = initial_dt * starting_step_ratio;
           current_time += current_dt;
-          previous_times[0] = current_time;
-          time_steps[0]     = current_dt;
+          simulation_times[0] = current_time;
+          time_steps[0]       = current_dt;
 
           // Force scheme to BDF1
           set_bdf_coefficients(true);
@@ -118,8 +148,8 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
           // Previous step was starting step
           current_dt = initial_dt * (1. - starting_step_ratio);
           current_time += current_dt;
-          previous_times[0] = current_time;
-          time_steps[0]     = current_dt;
+          simulation_times[0] = current_time;
+          time_steps[0]       = current_dt;
           set_bdf_coefficients();
           current_dt = initial_dt;
         }
@@ -127,25 +157,258 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
         {
           // Continue with regular time step
           current_time += current_dt;
-          previous_times[0] = current_time;
-          time_steps[0]     = current_dt;
+          simulation_times[0] = current_time;
+          time_steps[0]       = current_dt;
           set_bdf_coefficients();
         }
       }
       else
       {
         current_time += current_dt;
-        previous_times[0] = current_time;
-        time_steps[0]     = current_dt;
+        simulation_times[0] = current_time;
+        time_steps[0]       = current_dt;
         set_bdf_coefficients();
       }
     }
 
     if (time_parameters.verbosity == Parameters::Verbosity::verbose)
+    {
       pcout << std::endl
             << "Time step " << current_time_iteration
-            << " - Advancing to t = " << current_time << '.' << std::endl;
+            << " - Advancing to t = " << current_time;
+      if (time_parameters.adaptation.enable &&
+          time_parameters.adaptation.verbosity ==
+            Parameters::Verbosity::verbose)
+        pcout << " with time step " << current_dt;
+      pcout << '.' << std::endl;
+    }
   }
+
+  // Advance the time tables in the error estimator
+  if (!is_steady() && time_parameters.adaptation.enable)
+    error_estimator->advance(*this);
+
+  rolledback_step = false;
+}
+
+void TimeHandler::rotate_solutions(
+  const LA::ParVectorType        &present_solution,
+  std::vector<LA::ParVectorType> &previous_solutions) const
+{
+  if (!this->is_steady())
+  {
+    // Rotate the additional solution vector in the error estimator
+    // Do this first, before overwriting the last solution
+    if (!is_steady() && time_parameters.adaptation.enable)
+      error_estimator->rotate_additional_solution(previous_solutions.back());
+
+    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
+      previous_solutions[j] = previous_solutions[j - 1];
+    previous_solutions[0] = present_solution;
+  }
+}
+
+void TimeHandler::attach_data_to_error_estimator(
+  const ComponentOrdering          &ordering,
+  const IndexSet                   &locally_relevant_dofs,
+  const std::vector<unsigned char> &dofs_to_component)
+{
+  if (error_estimator)
+    error_estimator->attach_data(ordering,
+                                 locally_relevant_dofs,
+                                 dofs_to_component);
+}
+
+const LA::ParVectorType &TimeHandler::get_error_estimator_as_solution() const
+{
+  return error_estimator->get_error_estimator_as_solution();
+}
+
+void TimeHandler::set_last_nonlinear_solve_status(const bool flag) const
+{
+  last_nonlinear_solver_converged = flag;
+}
+
+bool TimeHandler::is_timestep_accepted(
+  LA::ParVectorType                    &present_solution,
+  const std::vector<LA::ParVectorType> &previous_solutions)
+{
+  if (is_steady() || !time_parameters.adaptation.enable)
+  {
+    // If nonlinear solver diverged, we should have thrown in there
+    AssertThrow(last_nonlinear_solver_converged, ExcInternalError());
+    // Steady, or unsteady but without adaptation : nothing to do
+    return true;
+  }
+
+  const unsigned int n_starting_steps = bdf_order - 1;
+  const unsigned int mpi_rank =
+    Utilities::MPI::this_mpi_process(present_solution.get_mpi_communicator());
+
+  // Start by dealing with the case where the nonlinear solver failed, as this
+  // can happed in the starting steps during which we don't compute an estimate
+  // for the truncation error. Rollback and try again with a smaller time step.
+  if (!last_nonlinear_solver_converged)
+  {
+    if (mpi_rank == 0)
+      std::cout
+        << "Rejecting step because nonlinear solver failed to find a solution"
+        << std::endl;
+    goto reject_step;
+  }
+
+  // Do not do anything in the starting steps (accept step and don't update
+  // time step since we don't yet have an error estimate).
+  if (current_time_iteration < bdf_order + 1 + n_starting_steps)
+    return true;
+
+  // Compute the error estimator for this time step
+  error_estimator->compute_error_estimator(*this,
+                                           present_solution,
+                                           previous_solutions);
+
+  if (time_parameters.adaptation.reject_timestep_with_large_error)
+  // &&
+  // current_time_iteration > bdf_order + 1 + n_starting_steps)
+  {
+    const auto &max_errors    = error_estimator->get_max_errors();
+    const auto &target_errors = time_parameters.adaptation.target_error;
+
+    for (const auto &[variable, error] : max_errors)
+    {
+      Assert(target_errors.count(variable) > 0, ExcInternalError());
+      const double error_ratio = error / target_errors.at(variable);
+
+      if (error_ratio > time_parameters.adaptation.reject_factor)
+      {
+        if (mpi_rank == 0)
+          std::cout << "Rejecting step because error ratio for variable \"" +
+                         SolverInfo::to_string(variable) + "\" is = "
+                    << error_ratio << std::endl;
+        goto reject_step;
+      }
+    }
+  }
+
+  // Accepting step : reset counter and update time step
+  n_consecutive_rejected_steps = 0;
+  all_simulation_times.push_back(current_time);
+  set_next_timestep();
+  return true;
+
+reject_step:
+  rolledback_step = true;
+  n_consecutive_rejected_steps++;
+  n_rejected_steps++;
+
+  // Exit with failure if we already rejected too many steps
+  const unsigned int max_rejections = 5;
+  if (n_consecutive_rejected_steps > max_rejections)
+  {
+    throw std::runtime_error("Could not find an acceptable time step after " +
+                             std::to_string(max_rejections) +
+                             " step rejections. Aborting simulation.");
+  }
+
+  // Set time step to retry this step
+  double new_timestep;
+  if (!last_nonlinear_solver_converged)
+  {
+    // Heuristic for when the nonlinear solver failed
+    // Simply halve the last time step
+    new_timestep = 0.5 * current_dt;
+  }
+  else
+  {
+    // Reduce the time step based on the error estimate from this rejected
+    // step, and apply a slight safety factor to avoid multiple rejections
+    // in a row.
+    const double reduction_factor = 0.9;
+    new_timestep =
+      reduction_factor * error_estimator->get_next_timestep(current_dt);
+  }
+
+  Assert(new_timestep < current_dt, ExcInternalError());
+
+  // Rollback the changes from this time step
+  present_solution = previous_solutions[0];
+  current_time_iteration--;
+  current_time -= current_dt;
+  current_dt = new_timestep;
+
+  if (mpi_rank == 0)
+    std::cout << "Trying again with time step = " << current_dt << std::endl;
+  return false;
+}
+
+unsigned int TimeHandler::get_n_rejected_steps() const
+{
+  return n_rejected_steps;
+}
+
+double clamp_timestep(const double                       current_timestep,
+                      const double                       next_timestep,
+                      const Parameters::TimeIntegration &time_parameters)
+{
+  double clamped_timestep = next_timestep;
+
+  // Bound the increase/decrease ratio
+  double ratio = next_timestep / current_timestep;
+  ratio        = std::min(time_parameters.adaptation.max_timestep_increase,
+                   std::max(time_parameters.adaptation.max_timestep_reduction,
+                            ratio));
+  // Bound by the BDF2 swing factor if needed
+  if (time_parameters.scheme == BDF2)
+    ratio = std::min(1. + sqrt(2.), ratio);
+  clamped_timestep = ratio * current_timestep;
+
+  // Bound the absolute time step
+  clamped_timestep = std::min(time_parameters.adaptation.max_timestep,
+                              std::max(time_parameters.adaptation.min_timestep,
+                                       clamped_timestep));
+
+  return clamped_timestep;
+}
+
+void TimeHandler::set_next_timestep()
+{
+  // Error estimator was already computed when checking for whether or not
+  // the last time step should be accepted.
+  // Simply compute the next time step from the stored errors.
+  const double target_time_step =
+    error_estimator->get_next_timestep(current_dt);
+
+  // Bound progression ratio and absolute time step
+  double next_timestep =
+    clamp_timestep(current_dt, target_time_step, time_parameters);
+
+  // TODO: Do not account for required times right now, as this comes
+  // with a plethora of corner cases to ensure we do not reach tiny time steps
+  // if the next required time is just before/after the next predicted time.
+  // The tiny time steps should be merged, and if not possible, maybe the
+  // accepted time step should be halved, to obtain a time step within bounds
+  // at the next step.
+
+  // auto next_required = std::upper_bound(adapt.required_times.begin(),
+  //                                       adapt.required_times.end(),
+  //                                       current_time);
+  // if (next_required != adapt.required_times.end())
+  // {
+  //   if (*next_required < current_time + next_timestep)
+  //   {
+  //     double timestep_to_required = *next_required - current_time;
+  //   }
+  //   else
+  //   {
+  //     // Next required time is after the next predicted time.
+  //   }
+  // }
+
+  // FIXME: Same considerations when limiting the time step to reach t_end
+  // Should maybe merge a small final time step, if possible.
+  next_timestep = std::min(next_timestep, final_time - current_time);
+
+  current_dt = next_timestep;
 }
 
 double TimeHandler::compute_time_derivative_at_quadrature_node(
@@ -165,6 +428,18 @@ double TimeHandler::compute_time_derivative_at_quadrature_node(
     return value_dot;
   }
   DEAL_II_ASSERT_UNREACHABLE();
+}
+
+void TimeHandler::write_timestep_history(std::ostream &out) const
+{
+  for (unsigned int i = 0; i < all_simulation_times.size(); ++i)
+  {
+    const double time = all_simulation_times[i];
+    if (i > 0)
+      out << time << " " << time - all_simulation_times[i - 1] << std::endl;
+    else
+      out << time << " " << std::endl;
+  }
 }
 
 void TimeHandler::save() const

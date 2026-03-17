@@ -2,6 +2,7 @@
 #define COMPONENT_ORDERING_H
 
 #include <deal.II/base/types.h>
+#include <solver_info.h>
 
 /**
  * A ComponentOrdering describes the lower and upper component indices for a
@@ -43,6 +44,9 @@ public:
   unsigned int t_lower = invalid;
   unsigned int t_upper = invalid;
 
+  /**
+   * Return true if @p component is the queried variable
+   */
   inline bool is_velocity(const unsigned int component) const
   {
     return u_lower <= component && component < u_upper;
@@ -70,6 +74,66 @@ public:
   inline bool is_temperature(const unsigned int component) const
   {
     return t_lower == component;
+  }
+
+  /**
+   * Return true if the solver with this ordering support the queried variable
+   */
+  inline bool has_variable(const SolverInfo::VariableType variable_type) const
+  {
+    using Type = SolverInfo::VariableType;
+    if (variable_type == Type::velocity)
+      return u_lower != invalid;
+    else if (variable_type == Type::pressure)
+      return p_lower != invalid;
+    else if (variable_type == Type::mesh_position)
+      return x_lower != invalid;
+    else if (variable_type == Type::lagrange_mult)
+      return l_lower != invalid;
+    else if (variable_type == Type::phase_tracer)
+      return phi_lower != invalid;
+    else if (variable_type == Type::phase_potential)
+      return mu_lower != invalid;
+    else if (variable_type == Type::temperature)
+      return t_lower != invalid;
+    else
+      DEAL_II_ASSERT_UNREACHABLE();
+  }
+
+  inline SolverInfo::VariableType
+  component_to_variable_type(const unsigned int component) const
+  {
+    if (is_velocity(component))
+      return SolverInfo::VariableType::velocity;
+    else if (is_pressure(component))
+      return SolverInfo::VariableType::pressure;
+    else if (is_position(component))
+      return SolverInfo::VariableType::mesh_position;
+    else if (is_lambda(component))
+      return SolverInfo::VariableType::lagrange_mult;
+    else if (is_tracer(component))
+      return SolverInfo::VariableType::phase_tracer;
+    else if (is_potential(component))
+      return SolverInfo::VariableType::phase_potential;
+    else if (is_temperature(component))
+      return SolverInfo::VariableType::temperature;
+    else
+      DEAL_II_ASSERT_UNREACHABLE();
+  }
+};
+
+/**
+ * Components ordering for the heat equation solver.
+ */
+class ComponentOrderingHeat : public ComponentOrdering
+{
+public:
+  ComponentOrderingHeat()
+    : ComponentOrdering()
+  {
+    n_components = 1;
+    t_lower      = 0;
+    t_upper      = 1;
   }
 };
 

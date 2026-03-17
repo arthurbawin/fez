@@ -6,6 +6,7 @@
  */
 
 #include <nonlinear_solver.h>
+#include <time_handler.h>
 
 /**
  * Generic Newton nonlinear solver.
@@ -26,10 +27,11 @@ public:
   /**
    * Solve the nonlinear problem with Newton-Raphson's method.
    */
-  void solve(const bool first_step) override
+  void solve(const TimeHandler &time_handler) override
   {
-    bool         stop = false;
-    unsigned int iter = 0;
+    bool         solution_found = false;
+    bool         stop           = false;
+    unsigned int iter           = 0;
     // double       norm_increment = 0;
     double norm_residual = 0;
     double last_residual;
@@ -40,10 +42,15 @@ public:
     const bool verbose =
       this->param.verbosity == Parameters::Verbosity::verbose;
 
+    // If time adaptation is enabled, do not throw on failure and try a samller
+    // time step instead.
+    const bool throw_on_failure =
+      !(solver->get_time_parameters().adaptation.enable);
+
+    solver->evaluation_point = solver->present_solution;
+
     while (!stop)
     {
-      solver->evaluation_point = solver->present_solution;
-
       // Assemble residual and check if tolerance is reached
       // Linfty norm does not scale with the number of RHS entries
       if (recompute_rhs)
@@ -70,7 +77,10 @@ public:
         // throw std::runtime_error("Nonlinear solver diverged: " +
         // std::to_string(norm_residual) " > divergence tolerance = " +
         // std::to_string(this->param.divergence_tolerance));
-        throw std::runtime_error("Nonlinear solver diverged");
+        if (throw_on_failure)
+          throw std::runtime_error("Nonlinear solver diverged");
+        else
+          break;
       }
 
       if (iter == 0)
@@ -83,6 +93,7 @@ public:
             << "Stopping because residual is below prescribed tolerance ("
             << std::setprecision(2) << this->param.tolerance << ")"
             << std::endl;
+        solution_found = true;
         break;
       }
 
@@ -90,7 +101,7 @@ public:
       assemble = this->reassembly_heuristic(norm_residual, last_residual);
       if (assemble)
         solver->assemble_matrix();
-      solver->solve_linear_system(first_step);
+      solver->solve_linear_system();
       // norm_increment = solver->newton_update.linfty_norm();
 
       if (this->param.enable_line_search)
@@ -127,7 +138,8 @@ public:
                             << std::setprecision(2) << this->param.tolerance
                             << ")" << std::endl;
             // last_residual = norm_ls_residual;
-            stop = true;
+            stop           = true;
+            solution_found = true;
             break;
           }
 
@@ -163,30 +175,34 @@ public:
           // solve. Continue with smaller alpha.
           last_ls_residual = norm_ls_residual;
         }
+
+        if (!stop)
+          // Update present solution for the next line search
+          solver->present_solution = solver->evaluation_point;
       }
       else
       {
         // Increment solution and go to next iteration
-        solver->local_evaluation_point = solver->present_solution;
+        solver->local_evaluation_point = solver->evaluation_point;
         solver->local_evaluation_point.add(1., solver->newton_update);
         solver->distribute_nonzero_constraints();
         solver->evaluation_point = solver->local_evaluation_point;
         last_residual            = norm_residual;
       }
 
-
-      solver->present_solution = solver->evaluation_point;
-      ++iter;
-
-      if (iter > this->param.max_iterations)
+      if (++iter > this->param.max_iterations)
         stop = true;
     }
 
+    // Update present solution
+    solver->present_solution = solver->evaluation_point;
+
     if (iter > this->param.max_iterations &&
         norm_residual > this->param.tolerance)
-    {
-      throw std::runtime_error("Nonlinear solver did not converge");
-    }
+      if (throw_on_failure)
+        throw std::runtime_error("Nonlinear solver did not converge");
+
+    time_handler.set_last_nonlinear_solve_status(solution_found);
   }
 
 private:

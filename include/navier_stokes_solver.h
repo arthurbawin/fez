@@ -181,7 +181,7 @@ public:
   /**
    * Solve the linear system for a single nonlinear solver iteration.
    */
-  virtual void solve_linear_system(const bool /* */) override;
+  virtual void solve_linear_system() override;
 
   /**
    * Post-process the numerical solution: output for visualization,

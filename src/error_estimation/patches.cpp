@@ -488,8 +488,8 @@ namespace ErrorEstimation
 
   template <int dim>
   void PatchHandler<dim>::write_element_patch_gmsh(
-    const types::global_vertex_index vertex_index,
-    const unsigned int               layer) const
+    const types::global_vertex_index /*vertex_index*/,
+    const unsigned int /*layer*/) const
   {
     // const auto &patch_elements = patches_of_elements[vertex_index];
     // const auto &patches_support_points =

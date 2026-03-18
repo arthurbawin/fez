@@ -311,11 +311,11 @@ namespace Parameters
 
   struct TimeIntegration
   {
+    Verbosity verbosity;
+
     double dt;
     double t_initial;
     double t_end;
-    // unsigned int n_constant_timesteps; // To remove
-    Verbosity verbosity;
 
     enum class Scheme
     {
@@ -330,21 +330,40 @@ namespace Parameters
       initial_condition
     } bdfstart;
 
+    // For BDF2 scheme using BDF1 a starting scheme, the BDF1 step is
+    // done with this value times the initial time step.
+    double bdf_starting_step_ratio;
+
     struct Adaptation
     {
       Verbosity verbosity;
 
       bool enable;
 
+      // Implemented strategies for time step adaptation:
+      // - adapt based on an estimate of the BDF truncation error
+      // - adapt based on the maximum CFL number (only for solvers with
+      //   a velocity variable)
+      enum class AdaptationStrategy
+      {
+        BDFTruncationError,
+        CFL
+      } strategy;
+
       double max_timestep;
       double min_timestep;
       double max_timestep_increase;
       double max_timestep_reduction;
 
+      // Parameters for adaptation based on BDF truncation error
       std::map<SolverInfo::VariableType, double> target_error;
-
       bool   reject_timestep_with_large_error;
-      double reject_factor;
+      double reject_error_factor;
+
+      // Parameters for adaptation based on CFL
+      double target_cfl;
+      bool   reject_timestep_with_large_cfl;
+      double reject_cfl_factor;
 
       // FIXME: Both parameters below are currently unused:
       // required_times because it is tricky to adjust or merge the time steps

@@ -755,6 +755,12 @@ namespace Parameters
                         "initial condition",
                         Patterns::Selection("initial condition|BDF1"),
                         "Starting method for BDF schemes of order > 1.");
+      prm.declare_entry(
+        "bdf start step ratio",
+        "0.1",
+        Patterns::Double(0.),
+        "If using BDF1 as starting method for the BDF2, the first step is set "
+        "to this vlue times the initial time step");
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
 
       // Time adaptation parameters
@@ -765,6 +771,10 @@ namespace Parameters
                           "false",
                           Patterns::Bool(),
                           "Enable adaptive time stepping");
+        prm.declare_entry("adaptation strategy",
+                          "bdf truncation error",
+                          Patterns::Selection("bdf truncation error|cfl"),
+                          "Strategy used to drive timestep adaptation");
         // Set the maximum absolute time step to the arbitrary value of 100
         prm.declare_entry("max timestep",
                           "100.",
@@ -817,6 +827,20 @@ namespace Parameters
                           "false",
                           Patterns::Bool(),
                           "");
+        prm.declare_entry("target cfl number",
+                          "1.",
+                          Patterns::Double(),
+                          "Target CFL number for timestep adaptation");
+        prm.declare_entry("reject timestep with large cfl",
+                          "false",
+                          Patterns::Bool(),
+                          "Reject time steps with CFL number larger than "
+                          "target times given factor");
+        prm.declare_entry("cfl ratio to reject",
+                          "2.",
+                          Patterns::Double(1.),
+                          "Time step is rejected if its CFL number exceeds "
+                          "this value times the target CFL");
       }
       prm.leave_subsection();
     }
@@ -830,6 +854,10 @@ namespace Parameters
       dt        = prm.get_double("dt");
       t_initial = prm.get_double("t_initial");
       t_end     = prm.get_double("t_end");
+
+      AssertThrow(dt <= t_end,
+                  ExcMessage("The initial time step should not be greater than "
+                             "the simulation end time."));
 
       const std::string parsed_scheme = prm.get("scheme");
       if (parsed_scheme == "stationary")
@@ -849,12 +877,22 @@ namespace Parameters
       else
         throw std::runtime_error("Unknown BDF starting method : " +
                                  parsed_startup);
+      bdf_starting_step_ratio = prm.get_double("bdf start step ratio");
       READ_VERBOSITY_PARAM(prm, verbosity)
 
       prm.enter_subsection("Adaptation");
       {
         READ_VERBOSITY_PARAM(prm, adaptation.verbosity)
-        adaptation.enable       = prm.get_bool("enable");
+        adaptation.enable          = prm.get_bool("enable");
+        const auto parsed_strategy = prm.get("adaptation strategy");
+        if (parsed_strategy == "bdf truncation error")
+          adaptation.strategy =
+            Adaptation::AdaptationStrategy::BDFTruncationError;
+        else if (parsed_strategy == "cfl")
+          adaptation.strategy = Adaptation::AdaptationStrategy::CFL;
+        else
+          throw std::runtime_error("Unknown timestep adaptation method : " +
+                                   parsed_strategy);
         adaptation.max_timestep = prm.get_double("max timestep");
         adaptation.min_timestep = prm.get_double("min timestep");
         adaptation.max_timestep_increase =
@@ -884,9 +922,14 @@ namespace Parameters
                            std::string(SolverInfo::variable_names[i]));
         adaptation.reject_timestep_with_large_error =
           prm.get_bool("reject timestep with large error");
-        adaptation.reject_factor = prm.get_double("error ratio to reject");
+        adaptation.reject_error_factor =
+          prm.get_double("error ratio to reject");
         adaptation.compute_error_on_estimator =
           prm.get_bool("compute error on estimator");
+        adaptation.target_cfl = prm.get_double("target cfl number");
+        adaptation.reject_timestep_with_large_cfl =
+          prm.get_bool("reject timestep with large cfl");
+        adaptation.reject_cfl_factor = prm.get_double("cfl ratio to reject");
       }
       prm.leave_subsection();
     }

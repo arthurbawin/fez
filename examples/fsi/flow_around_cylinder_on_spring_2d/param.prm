@@ -43,9 +43,27 @@ subsection Time integration
   set verbosity        = verbose
   set dt               = 0.1
   set t_initial        = 0
-  set t_end            = 0.1
+  set t_end            = 0.5
   set scheme           = BDF2
   set bdf start method = BDF1
+
+  #
+  # Time step adaptation based on max CFL number
+  #
+  subsection Adaptation
+    set verbosity = verbose
+    set enable    = true
+
+    set max timestep = 1.
+    set min timestep = 1e-3
+    set max timestep increase = 10
+    set max timestep reduction = 1e-1
+
+    set adaptation strategy = cfl
+    set target cfl number   = 1
+    set reject timestep with large cfl = true
+    set cfl ratio to reject = 2
+  end
 end
 
 subsection Checkpoint Restart

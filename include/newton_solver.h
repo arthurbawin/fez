@@ -42,10 +42,15 @@ public:
     const bool verbose =
       this->param.verbosity == Parameters::Verbosity::verbose;
 
-    // If time adaptation is enabled, do not throw on failure and try a samller
-    // time step instead.
+    // Throw on failure for these cases:
+    // - simulation is steady-state
+    // - time adaptation is disabled
+    // - this step or the previous was a BDF starting step
     const bool throw_on_failure =
-      !(solver->get_time_parameters().adaptation.enable);
+      time_handler.is_steady() ||
+      !(solver->get_time_parameters().adaptation.enable) ||
+      time_handler.is_starting_step() ||
+      time_handler.last_step_was_starting_step();
 
     solver->evaluation_point = solver->present_solution;
 

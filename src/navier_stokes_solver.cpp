@@ -135,6 +135,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize()
     postproc_handler       = std::make_shared<PostProcessingHandler<dim>>(
       param, triangulation, dof_handler, description);
   }
+  time_handler.validate_parameters(*ordering);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -201,6 +202,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
         else
           solve_nonlinear_problem(time_handler);
       }
+
+      compute_max_cfl();
     }
     while (
       !time_handler.is_timestep_accepted(present_solution, previous_solutions));
@@ -839,6 +842,25 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
   postproc_handler->output_fields(*moving_mapping,
                                   present_solution,
                                   time_handler);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::compute_max_cfl()
+{
+  if (param.time_integration.adaptation.strategy ==
+      Parameters::TimeIntegration::Adaptation::AdaptationStrategy::CFL)
+  {
+    TimerOutput::Scope               t(computing_timer, "Compute CFL");
+    const FEValuesExtractors::Vector velocity_extractor(ordering->u_lower);
+    const double                     cfl =
+      PostProcessingTools::compute_max_cfl(time_handler.current_dt,
+                                           *moving_mapping,
+                                           dof_handler,
+                                           *quadrature,
+                                           present_solution,
+                                           velocity_extractor);
+    time_handler.set_max_cfl(cfl);
+  }
 }
 
 template <int dim, bool with_moving_mesh>

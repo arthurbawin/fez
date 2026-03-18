@@ -124,6 +124,7 @@ void HeatSolver<dim>::initialize()
     postproc_handler       = std::make_shared<PostProcessingHandler<dim>>(
       param, triangulation, dof_handler, description);
   }
+  time_handler.validate_parameters(*ordering);
 }
 
 template <int dim>

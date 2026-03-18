@@ -31,20 +31,18 @@ public:
   /**
    * The destructor is the default destructor, but because this class stores a
    * pointer to a forward declared BDFErrorEstimator, the destructor is declared
-   * here but implemented in time_handler.cpp. This is because the poiner's
+   * here but implemented in time_handler.cpp. This is because the pointer's
    * destructor needs to know the sizeof the object it is pointing to, which is
    * not known in this file.
    */
   ~TimeHandler();
 
   /**
-   * Update the BDF coefficients given the current and previous
-   * time steps.
+   * Validate the parameters depending on the derived solver using this object.
+   * This prevents for instance using CFL as a time step adaptation criterion
+   * with solvers that do not have the fluid velocity as a variable.
    */
-  void
-  set_bdf_coefficients(const bool force_scheme = false,
-                       const Parameters::TimeIntegration::Scheme forced_scheme =
-                         Parameters::TimeIntegration::Scheme::BDF1);
+  void validate_parameters(const ComponentOrdering &ordering) const;
 
   /**
    * Returns true if the time integration scheme is "stationary"
@@ -56,6 +54,12 @@ public:
    * "starting step" (none for BDF1, first for BDF2).
    */
   bool is_starting_step() const;
+
+  /**
+   * For BDF methods, return true if the previous time step was a
+   * "starting step".
+   */
+  bool last_step_was_starting_step() const;
 
   /**
    * Returns true if the simulation should stop:
@@ -138,6 +142,11 @@ public:
   unsigned int get_n_rejected_steps() const;
 
   /**
+   * Update the max CFL number.
+   */
+  void set_max_cfl(const double max_cfl);
+
+  /**
    * Compute the approximation of the time derivative of the field associated to
    * the index-th dof, e.g. the sum c_i * u^(n - i) where c_i are the BDF
    * coefficients. This only makes sense for nodal finite elements, for which
@@ -199,9 +208,18 @@ public:
 
 private:
   /**
+   * Update the BDF coefficients given the current and previous
+   * time steps.
+   */
+  void
+  set_bdf_coefficients(const bool force_scheme = false,
+                       const Parameters::TimeIntegration::Scheme forced_scheme =
+                         Parameters::TimeIntegration::Scheme::BDF1);
+
+  /**
    * Determine and apply the next time step.
    */
-  void set_next_timestep();
+  void set_next_timestep(const bool step_was_accepted);
 
 public:
   Parameters::TimeIntegration time_parameters;
@@ -228,6 +246,8 @@ public:
   unsigned int n_rejected_steps;
 
   mutable bool last_nonlinear_solver_converged;
+
+  double max_cfl_number;
 
 public:
   std::shared_ptr<BDFErrorEstimator> error_estimator;

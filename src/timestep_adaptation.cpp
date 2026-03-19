@@ -63,6 +63,8 @@ void BDFErrorEstimator::compute_error_estimator(
   Assert(ordering, ExcDataNotAttached());
   Assert(locally_relevant_dofs, ExcDataNotAttached());
   Assert(dofs_to_component, ExcDataNotAttached());
+  AssertDimension(dofs_to_component->size(),
+                  locally_relevant_dofs->n_elements());
 
   Assert(additional_solution.size() > 0, ExcInternalError());
   Assert(dofs_to_component->size() > 0,

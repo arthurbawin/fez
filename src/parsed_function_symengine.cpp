@@ -17,6 +17,7 @@ namespace ManufacturedSolutions
     , function_object(n_components)
     , dfdt(n_components)
     , d2fdt2(n_components)
+    , d3fdt3(n_components)
     , grad_function_object(n_components)
     , hess_function_object(n_components)
     , function_of_time_only(n_components)
@@ -208,7 +209,8 @@ namespace ManufacturedSolutions
     const bool                          time_dependent)
   {
     // Semicolon separated list of time derivatives (one per vector component)
-    std::string time_derivatives, time_second_derivatives;
+    std::string time_derivatives, time_second_derivatives,
+      time_third_derivatives;
 
     for (unsigned int i_comp = 0; i_comp < n_components; ++i_comp)
     {
@@ -275,8 +277,9 @@ namespace ManufacturedSolutions
       //
       // Get time derivatives
       //
-      const Expression fdot  = f.differentiate(time);
-      const Expression fddot = fdot.differentiate(time);
+      const Expression fdot   = f.differentiate(time);
+      const Expression fddot  = fdot.differentiate(time);
+      const Expression fdddot = fddot.differentiate(time);
       {
         std::stringstream sstream;
         sstream << fdot;
@@ -287,10 +290,19 @@ namespace ManufacturedSolutions
         sstream << fddot;
         time_second_derivatives += replace_all_exponents(sstream.str()) + ";";
       }
+      {
+        std::stringstream sstream;
+        sstream << fdddot;
+        time_third_derivatives += replace_all_exponents(sstream.str()) + ";";
+      }
     }
     dfdt.initialize(variables, time_derivatives, constants, time_dependent);
     d2fdt2.initialize(variables,
                       time_second_derivatives,
+                      constants,
+                      time_dependent);
+    d3fdt3.initialize(variables,
+                      time_third_derivatives,
                       constants,
                       time_dependent);
   }

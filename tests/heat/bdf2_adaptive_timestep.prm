@@ -1,0 +1,125 @@
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write vtu results = false
+end
+
+subsection Mesh
+  set dealii preset mesh     = rectangle
+  set dealii mesh parameters = 2, 2 : 0., 0. : 1, 1 : true
+  set refinement level       = 2
+end
+
+subsection Time integration
+  set verbosity        = verbose
+  set dt               = 0.1
+  set t_initial        = 0
+  set t_end            = 2.
+  set scheme           = BDF2
+
+  subsection Adaptation
+    set verbosity = verbose
+    set enable    = true
+
+    #
+    # Do not bound the time step above or below, to not alter the 
+    # convergence rates
+    #
+    set max timestep = 100.
+    set min timestep = 1e-6
+    set max timestep increase = 100.
+    set max timestep reduction = 1e-6
+
+    # Initial target error, divided by 2 at each convergence study step
+    set target error on temperature = 1e-2
+  end
+end
+
+subsection Nonlinear solver
+  set verbosity            = quiet
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set Temperature degree = 1
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 1
+  end
+end
+
+subsection Initial conditions
+  set to mms = true
+end
+
+subsection Heat boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = dirichlet_mms
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type = dirichlet_mms
+  end
+end
+
+subsection Exact solution
+  subsection exact temperature
+    set Function expression = 1/(1 + t)
+  end
+end
+
+subsection Manufactured solution
+  set enable                 = true
+  set type                   = time
+  set convergence steps      = 4
+
+  set print error at timesteps in console = true
+
+  subsection Space convergence
+    set norms to compute = L2_norm
+  end
+
+  subsection Time convergence
+    set norm                 = Linfty
+    set use spatial mesh     = true
+    set spatial mesh index   = 1
+    set time step reduction  = 0.5
+  end
+end

@@ -15,29 +15,25 @@ namespace Assembly
   /**
    *
    */
-  template <int dim, typename ScratchData>
-  void traction_boundary_mms_rhs(
-    const ComponentOrdering                &component_ordering,
-    const unsigned int                      i_face,
-    const BoundaryConditions::FluidBC<dim> &fluid_boundary_condition,
-    const double                            viscosity,
-    const ScratchData                      &scratch_data,
-    Vector<double>                         &local_rhs,
-    const bool                              full_traction = true);
-
+  template <typename ScratchData>
+  void traction_boundary_mms_rhs(const ComponentOrdering &component_ordering,
+                                 const unsigned int       i_face,
+                                 const double             viscosity,
+                                 const ScratchData       &scratch_data,
+                                 Vector<double>          &local_rhs,
+                                 const bool               full_traction = true);
 } // namespace Assembly
 
 /* ---------------- Template functions ----------------- */
 
-template <int dim, typename ScratchData>
+template <typename ScratchData>
 void Assembly::traction_boundary_mms_rhs(
-  const ComponentOrdering                &component_ordering,
-  const unsigned int                      i_face,
-  const BoundaryConditions::FluidBC<dim> &fluid_boundary_condition,
-  const double                            viscosity,
-  const ScratchData                      &scratch_data,
-  Vector<double>                         &local_rhs,
-  const bool                              full_traction)
+  const ComponentOrdering & /*component_ordering*/,
+  const unsigned int i_face,
+  const double       viscosity,
+  const ScratchData &scratch_data,
+  Vector<double>    &local_rhs,
+  const bool         full_traction)
 {
   for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
   {

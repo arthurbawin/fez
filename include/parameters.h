@@ -6,28 +6,7 @@
 #include <deal.II/base/parsed_function.h>
 #include <deal.II/numerics/vector_tools_common.h>
 #include <parsed_function_symengine.h>
-
-// TODO: maybe use magic_enum
-enum SolverType : unsigned int
-{
-  // One of the physics solvers : (in)compressible (CH)NS, FSI, etc.
-  main_physics = 0,
-  // Dedicated linear elasticity solver, mostly used to adapt the mesh
-  // to an initial source term.
-  linear_elasticity = 1
-};
-
-inline SolverType get_solver_type(const std::string &solver_name)
-{
-  if (solver_name == "main physics")
-    return SolverType::main_physics;
-  else if (solver_name == "linear elasticity")
-    return SolverType::linear_elasticity;
-  else
-    AssertThrow(false,
-                dealii::StandardExceptions::ExcMessage(
-                  "The requested solver type does not exist : " + solver_name));
-}
+#include <solver_info.h>
 
 /**
  * This namespace contains the parameters used to control the various
@@ -333,11 +312,11 @@ namespace Parameters
 
   struct TimeIntegration
   {
+    Verbosity verbosity;
+
     double dt;
     double t_initial;
     double t_end;
-    // unsigned int n_constant_timesteps; // To remove
-    Verbosity verbosity;
 
     enum class Scheme
     {
@@ -351,6 +330,52 @@ namespace Parameters
       BDF1,
       initial_condition
     } bdfstart;
+
+    // For BDF2 scheme using BDF1 a starting scheme, the BDF1 step is
+    // done with this value times the initial time step.
+    double bdf_starting_step_ratio;
+
+    struct Adaptation
+    {
+      Verbosity verbosity;
+
+      bool enable;
+
+      // Implemented strategies for time step adaptation:
+      // - adapt based on an estimate of the BDF truncation error
+      // - adapt based on the maximum CFL number (only for solvers with
+      //   a velocity variable)
+      enum class AdaptationStrategy
+      {
+        BDFTruncationError,
+        CFL
+      } strategy;
+
+      double max_timestep;
+      double min_timestep;
+      double max_timestep_increase;
+      double max_timestep_reduction;
+
+      // Parameters for adaptation based on BDF truncation error
+      std::map<SolverInfo::VariableType, double> target_error;
+      bool   reject_timestep_with_large_error;
+      double reject_error_factor;
+
+      // Parameters for adaptation based on CFL
+      double target_cfl;
+      bool   reject_timestep_with_large_cfl;
+      double reject_cfl_factor;
+
+      // FIXME: Both parameters below are currently unused:
+      // required_times because it is tricky to adjust or merge the time steps
+      // to reach the required times without considering corner cases, and
+      // compute_error_on_estimator because we may or may not want to compute
+      // the convergence of the error estimator w.r.t. the true error.
+
+      // Required times : the simulation must absolutely go through these
+      std::vector<double> required_times;
+      bool                compute_error_on_estimator;
+    } adaptation;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -478,6 +503,11 @@ namespace Parameters
     bool        write_convergence_table_to_file;
     std::string convergence_file_prefix;
     bool        compute_rates_only_at_end;
+
+    // Print the errors for each time step in console
+    bool        print_unsteady_errors_to_console;
+    bool        print_unsteady_errors_to_file;
+    std::string unsteady_errors_file_prefix;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {

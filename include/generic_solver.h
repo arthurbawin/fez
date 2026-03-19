@@ -14,6 +14,8 @@
 #include <newton_solver.h>
 #include <nonlinear_solver.h>
 #include <parameter_reader.h>
+#include <solver_info.h>
+#include <time_handler.h>
 #include <types.h>
 
 using namespace dealii;
@@ -38,7 +40,7 @@ public:
                 const Parameters::Mesh            &mesh_param,
                 const Parameters::TimeIntegration &time_param,
                 const Parameters::MMS             &mms_param,
-                const SolverType                   solver_type);
+                const SolverInfo::SolverType       solver_type);
 
   /**
    * Destructor.
@@ -82,8 +84,7 @@ public:
   /**
    * Solve the linear system described by the assembly functions above.
    */
-  virtual void
-  solve_linear_system(const bool apply_inhomogeneous_constraints) = 0;
+  virtual void solve_linear_system() = 0;
 
   /**
    * Solve the nonlinear problem NL(U) = 0, where NL is the weak formulation of
@@ -91,9 +92,9 @@ public:
    * augmented with additional equations for the mesh movement, phase tracer,
    * etc., depending on the derived solver.
    */
-  void solve_nonlinear_problem(const bool first_step)
+  void solve_nonlinear_problem(const TimeHandler &time_handler)
   {
-    nonlinear_solver->solve(first_step);
+    nonlinear_solver->solve(time_handler);
   }
 
   /**
@@ -148,7 +149,7 @@ public:
   TimerOutput        computing_timer;
 
 protected:
-  SolverType solver_type;
+  SolverInfo::SolverType solver_type;
 
   // If parallel vector type, these are vectors with ghost entries (read only)
   VectorType present_solution;
@@ -186,7 +187,7 @@ GenericSolver<VectorType>::GenericSolver(
   const Parameters::Mesh            &mesh_param,
   const Parameters::TimeIntegration &time_param,
   const Parameters::MMS             &mms_param,
-  const SolverType                   solver_type)
+  const SolverInfo::SolverType       solver_type)
   : mpi_communicator(MPI_COMM_WORLD)
   , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
   , mpi_size(Utilities::MPI::n_mpi_processes(mpi_communicator))
@@ -279,6 +280,10 @@ void GenericSolver<VectorType>::run_convergence_loop()
       // This change is accounted for in the reset() function of each
       // derived solver
       time_param.dt *= mms_param.time_step_reduction_factor;
+
+      if (time_param.adaptation.enable)
+        for (auto &[variable, error] : time_param.adaptation.target_error)
+          error /= 2.;
     }
 
     this->run();
@@ -286,7 +291,19 @@ void GenericSolver<VectorType>::run_convergence_loop()
     // If unsteady, compute the Lp time norm for this convergence step
     if (time_param.scheme != Parameters::TimeIntegration::Scheme::stationary)
       for (auto &[norm, handler] : error_handlers)
+      {
         handler->compute_temporal_error();
+
+        // Print the errors at all timesteps if required
+        if (mms_param.print_unsteady_errors_to_console)
+          handler->write_errors();
+        if (mms_param.print_unsteady_errors_to_file)
+        {
+          std::ofstream outfile(output_param.output_dir +
+                                mms_param.unsteady_errors_file_prefix + ".txt");
+          handler->write_errors(outfile);
+        }
+      }
 
     // If requested, compute and write convergence rates as soon as available
     if (is_last_step || !mms_param.compute_rates_only_at_end)

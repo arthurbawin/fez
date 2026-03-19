@@ -181,7 +181,7 @@ public:
   /**
    * Solve the linear system for a single nonlinear solver iteration.
    */
-  virtual void solve_linear_system(const bool /* */) override;
+  virtual void solve_linear_system() override;
 
   /**
    * Post-process the numerical solution: output for visualization,
@@ -213,6 +213,18 @@ public:
    */
   void         output_results();
   virtual void add_solver_specific_postprocessing_data() {}
+
+  /**
+   * Compute the maximum CFL number based on the current mesh and solution.
+   * This is the max over all mesh elements and quadrature nodes of
+   *
+   *  CFL = ||u|| * dt/ h,
+   *
+   * where ||u|| is the velocity norm and h is the (isotropic) cell size.
+   * The result is stored in the TimeHandler, to be used for time step
+   * adaptation.
+   */
+  void compute_max_cfl();
 
   /**
    * Compute the hydrodynamic forces on the desired boundary.

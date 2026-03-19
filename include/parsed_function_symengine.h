@@ -26,7 +26,7 @@ namespace ManufacturedSolutions
    * only possible to create such a function with n_components = 1 or dim.
    *
    * Because it is easily available, this function also provides second
-   * time derivatives for each component (unlike MMSFunctions).
+   * and third time derivatives for each component (unlike MMSFunctions).
    */
   template <int dim>
   class ParsedFunctionSDBase : public MMSFunction<dim>
@@ -80,6 +80,7 @@ namespace ManufacturedSolutions
       this->function_object.set_time(newtime);
       dfdt.set_time(newtime);
       d2fdt2.set_time(newtime);
+      d3fdt3.set_time(newtime);
       for (unsigned int i_comp = 0; i_comp < n_components; ++i_comp)
       {
         grad_function_object[i_comp]->set_time(newtime);
@@ -97,10 +98,18 @@ namespace ManufacturedSolutions
       return dfdt.value(p, component);
     }
 
-    double time_second_derivative(const Point<dim>  &p,
-                                  const unsigned int component = 0) const
+    virtual double
+    time_second_derivative(const Point<dim>  &p,
+                           const unsigned int component = 0) const override
     {
       return d2fdt2.value(p, component);
+    }
+
+    virtual double
+    time_third_derivative(const Point<dim>  &p,
+                          const unsigned int component = 0) const override
+    {
+      return d3fdt3.value(p, component);
     }
 
     virtual Tensor<1, dim>
@@ -144,6 +153,7 @@ namespace ManufacturedSolutions
     FunctionParser<dim> function_object;
     FunctionParser<dim> dfdt;
     FunctionParser<dim> d2fdt2;
+    FunctionParser<dim> d3fdt3;
     // FunctionParser<dim> are not copyable : using smart pointers instead
     std::vector<std::shared_ptr<FunctionParser<dim>>> grad_function_object;
     std::vector<std::shared_ptr<FunctionParser<dim>>> hess_function_object;

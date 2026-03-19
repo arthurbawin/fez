@@ -367,6 +367,20 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
     this->locally_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
                                             gathered_dofs_flattened.end());
     this->locally_relevant_dofs.compress();
+
+    // (Re-)create the dofs_to_component map and specify that
+    // the added non-local dofs are lambda dofs
+    fill_dofs_to_component(this->dof_handler,
+                           this->locally_relevant_dofs,
+                           this->dofs_to_component);
+    AssertDimension(this->dofs_to_component.size(),
+                    this->locally_relevant_dofs.n_elements());
+    // FIXME: all the added lambda dofs are added as "l_lower", i.e., the
+    // first lambda component. They should be added with their proper
+    // component...
+    for (const auto dof : gathered_dofs_flattened)
+      this->dofs_to_component[locally_relevant_dofs.index_within_set(dof)] =
+        this->ordering->l_lower;
   }
 
   /**

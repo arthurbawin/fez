@@ -379,7 +379,8 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
     // first lambda component. They should be added with their proper
     // component...
     for (const auto dof : gathered_dofs_flattened)
-      this->dofs_to_component[locally_relevant_dofs.index_within_set(dof)] =
+      this
+        ->dofs_to_component[this->locally_relevant_dofs.index_within_set(dof)] =
         this->ordering->l_lower;
   }
 

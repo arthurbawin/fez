@@ -184,6 +184,9 @@ namespace Parameters
     // If true, use hypercubes, otherwise use simplices (default).
     bool use_quads;
 
+    // If true, enable residual-based stabilization terms.
+    bool stabilization;
+
     // Degree of the velocity interpolation
     unsigned int velocity_degree;
 
@@ -250,36 +253,36 @@ namespace Parameters
     };
 
     double evaluate_distance_to_phi0(const double phi,
-                                 const double epsilon_interface) const;
+                                     const double epsilon_interface) const;
 
-    double evaluate_stiffness_factor_from_phi(
-      const double phi,
-      const double epsilon_interface,
-      const double stiffness_min_factor) const;
+    double
+    evaluate_stiffness_factor_from_phi(const double phi,
+                                       const double epsilon_interface,
+                                       const double stiffness_min_factor) const;
 
     double evaluate_stiffness_factor_derivative_from_phi(
       const double phi,
       const double epsilon_interface,
       const double stiffness_min_factor) const;
 
-    std::pair<double,double> evaluate_lame_from_phi_value(
-      const double phi,
-      const double epsilon_interface,
-      const double lame_lambda_base,
-      const double lame_mu_base) const;
+    std::pair<double, double>
+    evaluate_lame_from_phi_value(const double phi,
+                                 const double epsilon_interface,
+                                 const double lame_lambda_base,
+                                 const double lame_mu_base) const;
 
-    std::pair<double,double> evaluate_lame_derivatives_from_phi_value(
-      const double phi,
-      const double epsilon_interface,
-      const double lame_lambda_base,
-      const double lame_mu_base) const;
+    std::pair<double, double>
+    evaluate_lame_derivatives_from_phi_value(const double phi,
+                                             const double epsilon_interface,
+                                             const double lame_lambda_base,
+                                             const double lame_mu_base) const;
 
-    double d_phi_0 = 0.0;
-    double lambda_min_factor = 0.4;
-    double mu_min_factor     = 0.4;
-    StiffnessModel stiffness_model = StiffnessModel::direct_lame;
+    double            d_phi_0            = 0.0;
+    double            lambda_min_factor  = 0.4;
+    double            mu_min_factor      = 0.4;
+    StiffnessModel    stiffness_model    = StiffnessModel::direct_lame;
     ConstitutiveModel constitutive_model = ConstitutiveModel::linear_lame;
-    
+
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_lambda_fun;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
@@ -449,7 +452,7 @@ namespace Parameters
     // Number of steps to use in the continuation method when the source term
     // is applied on the current configuration.
     unsigned int n_continuation_steps;
-    
+
     // If true, runs the linear elasticity solver as a pre-processing step
     // to compute an initial mesh deformation. The resulting position field
     // is used to initialize the ALE mesh of the CHNS solver, typically when

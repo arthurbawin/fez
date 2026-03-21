@@ -1,9 +1,6 @@
 #ifndef SCRATCH_DATA_H
 #define SCRATCH_DATA_H
 
-#include <cmath>
-#include <sstream>
-
 #include <cahn_hilliard.h>
 #include <components_ordering.h>
 #include <deal.II/base/quadrature.h>
@@ -17,7 +14,12 @@
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <parameter_reader.h>
+#include <stabilization_utils.h>
 #include <types.h>
+
+#include <algorithm>
+#include <cmath>
+#include <sstream>
 
 using namespace dealii;
 
@@ -93,6 +95,29 @@ public:
 private:
   void allocate();
 
+  template <typename ValueType>
+  ValueType compute_bdf_time_derivative(
+    const ValueType              &current_value,
+    const std::vector<ValueType> &previous_values) const
+  {
+    ValueType time_derivative = bdf_coefficients[0] * current_value;
+    for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
+      time_derivative += bdf_coefficients[i] * previous_values[i - 1];
+    return time_derivative;
+  }
+
+  template <typename ValueType>
+  ValueType compute_bdf_time_derivative(
+    const ValueType                           &current_value,
+    const std::vector<std::vector<ValueType>> &previous_values,
+    const unsigned int                         q) const
+  {
+    ValueType time_derivative = bdf_coefficients[0] * current_value;
+    for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
+      time_derivative += bdf_coefficients[i] * previous_values[i - 1][q];
+    return time_derivative;
+  }
+
   void initialize_navier_stokes();
   void initialize_pseudo_solid();
   void initialize_lagrange_multiplier();
@@ -113,6 +138,18 @@ private:
          const unsigned int                                    face_no,
          const bool                                            fixed_mapping);
 
+  // ── Reinit layer 1 (always first) ───────────────────────────────────────
+  // Fills NS fields on the moving mesh: velocities, pressure, shape functions,
+  // and — when enable_stabilization — the base strong residual
+  // (strong_residual_momentum_no_ale) and τ for the single-fluid case.
+  //
+  // Subsequent layers (CHNS, pseudo-solid) may override these quantities:
+  //   reinit_cahn_hilliard_cell overrides strong_residual_momentum_no_ale
+  //     with the variable-density/viscosity version and recalculates τ.
+  //   reinit_pseudo_solid_cell adds strong_residual_momentum_ale and
+  //     recalculates τ with u_conv = u − w_mesh.
+  //
+  // Invariant: must be called before any other reinit_*_cell.
   template <typename VectorType>
   void reinit_navier_stokes_cell(
     const FEValues<dim>                  &fe_values,
@@ -131,6 +168,26 @@ private:
                                                  present_velocity_divergence);
     fe_values[pressure].get_function_values(current_solution,
                                             present_pressure_values);
+    fe_values[pressure].get_function_gradients(current_solution,
+                                               present_pressure_gradients);
+
+    if (enable_stabilization)
+    {
+      // Δu per quadrature point 
+      fe_values[velocity].get_function_laplacians(current_solution,
+                                                  present_velocity_laplacians);
+
+      // ∇(∇·u) from the full hessian
+      std::vector<Tensor<3, dim>> hess_u(n_q_points);
+      fe_values[velocity].get_function_hessians(current_solution, hess_u);
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        present_velocity_grad_divergences[q] = Tensor<1, dim>();
+        for (unsigned int c = 0; c < dim; ++c)
+          for (unsigned int d = 0; d < dim; ++d)
+            present_velocity_grad_divergences[q][d] += hess_u[q][c][c][d];
+      }
+    }
 
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
@@ -157,6 +214,62 @@ private:
         sym_grad_phi_u[q][k] = symmetrize(grad_phi_u[q][k]);
         div_phi_u[q][k]      = fe_values[velocity].divergence(k, q);
         phi_p[q][k]          = fe_values[pressure].value(k, q);
+
+        if (enable_stabilization)
+        {
+          grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
+          // (Δφ_u)_c     = Σ_d Hk[c][d][d]   (trace on last two indices)
+          // (∇div φ_u)_d = Σ_c Hk[c][c][d]   (trace on first two indices)
+          const Tensor<3, dim> Hk = fe_values[velocity].hessian(k, q);
+          Tensor<1, dim>       lap_k, grad_div_k;
+          for (unsigned int c = 0; c < dim; ++c)
+            for (unsigned int d = 0; d < dim; ++d)
+            {
+              lap_k[c]      += Hk[c][d][d];
+              grad_div_k[d] += Hk[c][c][d];
+            }
+
+          // Divergence form is used when enable_lagrange_multiplier is true,
+          // consistent with the Galerkin viscous operator of the lambda solver.
+          diffusion_phi_u[q][k] =
+            (enable_lagrange_multiplier || enable_cahn_hilliard) ?
+              lap_k + grad_div_k : lap_k;
+        }
+      }
+
+      if (enable_stabilization)
+      {
+        const Tensor<1, dim> u_conv = present_velocity_values[q];
+        const double nu = param.physical_properties.fluids[0].kinematic_viscosity;
+
+        // Δu + ∇(∇·u) — pure differential quantity, physic-independent.
+        // Stored for reuse in CHNS Jacobian (supg_pspg_matrix_chns_phi).
+        present_velocity_lap_plus_graddiv[q] =
+          present_velocity_laplacians[q] + present_velocity_grad_divergences[q];
+
+        // Viscous operator: ν Δu (Laplacian form) or ν(Δu + ∇div u)
+        // (divergence form, used by lambda-solver and CHNS).
+        const Tensor<1, dim> viscous_operator =
+          (enable_lagrange_multiplier || enable_cahn_hilliard) ?
+            present_velocity_lap_plus_graddiv[q] :
+            present_velocity_laplacians[q];
+
+        strong_residual_momentum_no_ale[q] =
+          compute_bdf_time_derivative(present_velocity_values[q],
+                                      previous_velocity_values, q) +
+          present_velocity_gradients[q] * u_conv - nu * viscous_operator +
+          present_pressure_gradients[q] + source_term_velocity[q];
+        strong_residual_momentum_ale[q] = Tensor<1, dim>();
+        strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
+
+        const double h_tau =
+          Stabilization::compute_streamline_length(u_conv, grad_phi_u[q],
+                                                   components, u_lower,
+                                                   cell_diameter);
+        stabilization_tau_momentum[q] = Stabilization::compute_tau(
+          param.time_integration.dt,
+          param.time_integration.is_steady(),
+          u_conv.norm(), nu, h_tau);
       }
     }
   }
@@ -197,6 +310,17 @@ private:
     }
   }
 
+  // ── Reinit layer 2a (pseudo-solid / ALE) ────────────────────────────────
+  // Requires: reinit_navier_stokes_cell already called (reads
+  //   present_velocity_gradients, strong_residual_momentum_no_ale).
+  // Fills: mesh position and velocity fields; adds the ALE convective
+  //   correction to strong_residual_momentum_ale and updates
+  //   strong_residual_momentum = no_ale + ale; recalculates τ with u_conv.
+  //
+  // If reinit_cahn_hilliard_cell is also needed (ALE-CHNS), call order is:
+  //   1. reinit_navier_stokes_cell
+  //   2. reinit_pseudo_solid_cell       ← fills present_mesh_velocity_values
+  //   3. reinit_cahn_hilliard_cell      ← uses present_mesh_velocity_values
   template <typename VectorType>
   void reinit_pseudo_solid_cell(
     const FEValues<dim>                  &fe_values_fixed,
@@ -292,6 +416,29 @@ private:
         trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
         div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
         grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
+      }
+
+      if (enable_stabilization)
+      {
+        strong_residual_momentum_ale[q] =
+          -(present_velocity_gradients[q] * present_mesh_velocity_values[q]);
+        strong_residual_momentum[q] =
+          strong_residual_momentum_no_ale[q] + strong_residual_momentum_ale[q];
+
+        const Tensor<1, dim> advection_velocity =
+          present_velocity_values[q] - present_mesh_velocity_values[q];
+        const double h_tau =
+          Stabilization::compute_streamline_length(advection_velocity,
+                                                   grad_phi_u[q],
+                                                   components,
+                                                   u_lower,
+                                                   cell_diameter);
+        stabilization_tau_momentum[q] = Stabilization::compute_tau(
+          param.time_integration.dt,
+          param.time_integration.is_steady(),
+          advection_velocity.norm(),
+          param.physical_properties.fluids[0].kinematic_viscosity,
+          h_tau);
       }
     }
   }
@@ -541,6 +688,20 @@ private:
     }
   }
 
+  // ── Reinit layer 2b (Cahn-Hilliard) ─────────────────────────────────────
+  // Requires: reinit_navier_stokes_cell already called (reads velocity,
+  //   pressure, present_velocity_laplacians/grad_divergences,
+  //   present_velocity_lap_plus_graddiv, source_term_velocity).
+  //   If with_moving_mesh, reinit_pseudo_solid_cell must have been called
+  //   first so that present_mesh_velocity_values is available.
+  //
+  // Fills: tracer/potential fields, variable material properties (ρ, η, dρ/dφ,
+  //   dη/dφ), CHNS strong residuals (overrides strong_residual_momentum_no_ale
+  //   with the variable-density/viscosity expression), τ_momentum (with ν_eff)
+  //   and τ_tracer.
+  //
+  // After this call, strong_residual_momentum = no_ale + ale (ale was set
+  // either by reinit_pseudo_solid_cell or left zero for Eulerian).
   template <typename VectorType>
   void reinit_cahn_hilliard_cell(
     const FEValues<dim>                  &fe_values_fixed,
@@ -567,6 +728,9 @@ private:
                                                     potential_values);
     fe_values_moving[potential].get_function_gradients(current_solution,
                                                        potential_gradients);
+    if (enable_stabilization)
+      fe_values_moving[potential].get_function_laplacians(current_solution,
+                                                          potential_laplacians);
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
     {
@@ -612,13 +776,12 @@ private:
                           present_velocity_gradients[q] *
                           potential_gradients[q];
 
-      if (enable_pseudo_solid)
-        velocity_dot_tracer_gradient[q] =
-          (present_velocity_values[q] - present_mesh_velocity_values[q]) *
-          tracer_gradients[q];
-      else
-        velocity_dot_tracer_gradient[q] =
-          present_velocity_values[q] * tracer_gradients[q];
+      // u_conv = u − w_mesh.  present_mesh_velocity_values[q] was filled by
+      // reinit_pseudo_solid_cell, or is zero when enable_pseudo_solid is false.
+      const Tensor<1, dim> u_conv =
+        present_velocity_values[q] - present_mesh_velocity_values[q];
+
+      velocity_dot_tracer_gradient[q] = u_conv * tracer_gradients[q];
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -634,6 +797,59 @@ private:
           shape_phi_fixed[q][k]      = fe_values_fixed[tracer].value(k, q);
           grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
         }
+
+        // Δμ_k = trace(H_k);
+        if (enable_stabilization)
+          laplacian_shape_mu[q][k] =
+            trace(fe_values_moving[potential].hessian(k, q));
+      }
+
+      if (enable_stabilization)
+      {
+        const double nu_eff  = dynamic_viscosity[q] / std::max(density[q], 1e-14);
+        const double inv_rho = 1. / std::max(density[q], 1e-14);
+
+        const Tensor<1, dim> dudt =
+          compute_bdf_time_derivative(present_velocity_values[q],
+                                      previous_velocity_values, q);
+        const Tensor<1, dim> convective_term =
+          present_velocity_gradients[q] * u_conv;
+
+        const Tensor<1, dim> div_viscous_scaled =
+          nu_eff * present_velocity_lap_plus_graddiv[q] +
+          2. * inv_rho * derivative_dynamic_viscosity_wrt_tracer[q] *
+            tracer_gradients[q] * present_velocity_sym_gradients[q];
+
+        strong_residual_momentum_no_ale[q] =
+          (dudt + convective_term - body_force) +
+          inv_rho * (diffusive_flux[q] +
+                    tracer_values[q] * potential_gradients[q] +
+                    present_pressure_gradients[q] +
+                    source_term_velocity[q]) -
+          div_viscous_scaled;
+        strong_residual_momentum_ale[q] = Tensor<1, dim>();
+        strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
+
+        const double dphidt =
+          compute_bdf_time_derivative(tracer_values[q],
+                                      previous_tracer_values, q);
+        strong_residual_tracer[q] =
+          dphidt + velocity_dot_tracer_gradient[q] -
+          mobility * potential_laplacians[q] + source_term_tracer[q];
+
+        // τ — recalculated with ν_eff (momentum) and mobility (tracer).
+        const double h_tau =
+          Stabilization::compute_streamline_length(u_conv, grad_phi_u[q],
+                                                  components, u_lower,
+                                                  cell_diameter);
+        stabilization_tau_momentum[q] =
+          Stabilization::compute_tau(param.time_integration.dt,
+                                    param.time_integration.is_steady(),
+                                    u_conv.norm(), nu_eff, h_tau);
+        stabilization_tau_tracer[q] =
+          Stabilization::compute_tau(param.time_integration.dt,
+                                    param.time_integration.is_steady(),
+                                    u_conv.norm(), mobility, h_tau);
       }
     }
   }
@@ -663,6 +879,8 @@ public:
       active_fe_values_fixed = this->reinit(cell, true);
     else
       active_fe_values_fixed = active_fe_values;
+
+    cell_diameter = cell->diameter();
 
     dofs_per_cell = active_fe_values->dofs_per_cell;
     for (const unsigned int i : active_fe_values->dof_indices())
@@ -741,7 +959,9 @@ public:
 private:
   const ParameterReader<dim> &param;
   const bool                  use_quads;
+  const bool                  enable_stabilization;
   const ComponentOrdering     ordering;
+  double                      cell_diameter = 0.;
 
   unsigned int n_components;
   unsigned int u_lower;
@@ -806,7 +1026,14 @@ public:
   std::vector<SymmetricTensor<2, dim>>     present_velocity_sym_gradients;
   std::vector<double>                      present_velocity_divergence;
   std::vector<double>                      present_pressure_values;
+  std::vector<Tensor<1, dim>>              present_pressure_gradients;
   std::vector<std::vector<Tensor<1, dim>>> previous_velocity_values;
+  std::vector<Tensor<1, dim>>              present_velocity_laplacians;
+  std::vector<Tensor<1, dim>>              present_velocity_grad_divergences;
+  // Δu + ∇(∇·u) : pre-computed when enable_stabilization, used by the CHNS
+  // Jacobian (supg_pspg_matrix_chns_phi) so it need not be recomputed per
+  // quadrature point in the assembly loop.
+  std::vector<Tensor<1, dim>>              present_velocity_lap_plus_graddiv;
 
   // Current values on faces (each face, each quad node)
   std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
@@ -817,6 +1044,8 @@ public:
   std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_u;
   std::vector<std::vector<double>>                  div_phi_u;
   std::vector<std::vector<double>>                  phi_p;
+  std::vector<std::vector<Tensor<1, dim>>>          grad_phi_p;
+  std::vector<std::vector<Tensor<1, dim>>>          diffusion_phi_u;
 
   // Shape functions on faces (each face, quad node and dof)
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
@@ -864,7 +1093,7 @@ public:
   std::vector<std::vector<Tensor<1, dim>>> previous_position_values;
   std::vector<std::vector<Tensor<2, dim>>> previous_position_gradients;
 
-  //Neo-hookean
+  // Neo-hookean
   std::vector<double>         present_position_J;
   std::vector<Tensor<2, dim>> present_position_inv_gradients;
   std::vector<Tensor<2, dim>> present_position_inv_gradients_T;
@@ -938,19 +1167,19 @@ public:
   std::vector<double> derivative_density_wrt_tracer;
   std::vector<double> dynamic_viscosity;
   std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
-
   // Tracer on current and fixed (reference) mesh
   std::vector<double>                      tracer_values;
   std::vector<Tensor<1, dim>>              tracer_gradients;
   std::vector<double>                      tracer_values_fixed;
   std::vector<Tensor<1, dim>>              tracer_gradients_fixed;
-  std::vector<std::vector<double>>              previous_tracer_values_fixed;
-  std::vector<std::vector<Tensor<1, dim>>>      previous_tracer_gradients_fixed;
+  std::vector<std::vector<double>>         previous_tracer_values_fixed;
+  std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients_fixed;
   std::vector<std::vector<double>>         previous_tracer_values;
   std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients;
   // Potential on current mesh
   std::vector<double>         potential_values;
   std::vector<Tensor<1, dim>> potential_gradients;
+  std::vector<double>         potential_laplacians;
 
   std::vector<Tensor<1, dim>> diffusive_flux;
   std::vector<double>         velocity_dot_tracer_gradient;
@@ -961,9 +1190,20 @@ public:
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi_fixed;
   std::vector<std::vector<double>>         shape_mu;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_mu;
+  std::vector<std::vector<double>>         laplacian_shape_mu;
 
   std::vector<double> source_term_tracer;
   std::vector<double> source_term_potential;
+
+  std::vector<Tensor<1, dim>> strong_residual_momentum;
+  std::vector<double>         strong_residual_tracer;
+  std::vector<double>         stabilization_tau_momentum;
+  std::vector<double>         stabilization_tau_tracer;
+
+private:
+  // Inter-layer communication: NS sets no_ale, pseudo-solid adds ale.
+  std::vector<Tensor<1, dim>> strong_residual_momentum_no_ale;
+  std::vector<Tensor<1, dim>> strong_residual_momentum_ale;
 };
 
 /**

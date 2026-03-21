@@ -117,6 +117,9 @@ void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,
   std::vector<types::global_dof_index> dof_indices;
   for (const auto &cell : dof_handler.active_cell_iterators())
   {
+    if (cell->is_artificial())
+      continue;
+
     dof_indices.resize(cell->get_fe().n_dofs_per_cell());
     cell->get_dof_indices(dof_indices);
 

@@ -16,11 +16,11 @@
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <generic_solver.h>
+#include <linear_elasticity_solver.h>
+#include <mesh_and_dof_tools.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <post_processing_handler.h>
-#include <linear_elasticity_solver.h>
-#include <mesh_and_dof_tools.h>
 #include <time_handler.h>
 #include <types.h>
 
@@ -146,21 +146,23 @@ public:
   /**
    * Overwrite SOlution from another solver
    */
-  void overwrite_position_from_presolver(LinearElasticitySolver<dim> &presolver);
+  void
+  overwrite_position_from_presolver(LinearElasticitySolver<dim> &presolver);
 
   void attach_presolver(LinearElasticitySolver<dim> *ps) { presolver = ps; }
-  //ANcienne approche de copie de la triangulation. Desormais on va copier le vecteur solution 
-  // parallel::fullydistributed::Triangulation<dim> &get_triangulation()
-  // {
-  //  return triangulation;
-  // }
+  // ANcienne approche de copie de la triangulation. Desormais on va copier le
+  // vecteur solution
+  //  parallel::fullydistributed::Triangulation<dim> &get_triangulation()
+  //  {
+  //   return triangulation;
+  //  }
 
   // void steal_mesh(LinearElasticitySolver<dim> &other_solver)
   // {
   //   auto &my_mesh = this->get_triangulation();
   //   auto &other_mesh = other_solver.get_triangulation();
   //   my_mesh.copy_triangulation(other_mesh);
-  //   //other_mesh.clear(); 
+  //   //other_mesh.clear();
   //   const auto &comm = mpi_communicator;
   //   const unsigned int rank =
   //     dealii::Utilities::MPI::this_mpi_process(comm);
@@ -182,7 +184,7 @@ public:
 
   //   std::cout << "rank " << rank
   //             << " owned_cells = " << local
-  //             << std::endl; 
+  //             << std::endl;
   // }
 
   /**
@@ -382,7 +384,7 @@ protected:
   std::shared_ptr<ComponentOrdering> ordering;
 
   LinearElasticitySolver<dim> *presolver = nullptr;
-  
+
   ParameterReader<dim> param;
 
   // Choose another quadrature rule for error computation

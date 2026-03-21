@@ -415,7 +415,7 @@ namespace ManufacturedSolutions
     exact_solution["velocity"]      = exact_velocity;
     exact_solution["pressure"]      = exact_pressure;
     exact_solution["mesh position"] = exact_mesh_position;
-    exact_solution["pressure"]      = exact_tracer;
+    exact_solution["tracer"]        = exact_tracer;
     exact_solution["potential"]     = exact_potential;
     exact_solution["temperature"]   = exact_temperature;
   }

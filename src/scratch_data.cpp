@@ -1,35 +1,23 @@
-
 #include <scratch_data.h>
 
 /**
  * Get the update flags for the FEValues, depending on the enabled features.
  */
 static UpdateFlags get_cell_update_flags(const bool enable_pseudo_solid,
-                                         const bool enable_lagrange_multiplier,
-                                         const bool enable_cahn_hilliard,
-                                         const bool enable_compressible)
+                                         const bool /*enable_lagrange_multiplier*/,
+                                         const bool /*enable_cahn_hilliard*/,
+                                         const bool /*enable_compressible*/,
+                                         const bool enable_stabilization)
 {
-  // Flags for Navier-Stokes on fixed mesh only
   UpdateFlags flags = update_values | update_gradients |
                       update_quadrature_points | update_JxW_values;
 
+  if (enable_stabilization)
+    flags |= update_hessians;
+
   if (enable_pseudo_solid)
-  {
-    // Also update full Jacobian matrix
     flags |= update_jacobians;
-  }
-  if (enable_lagrange_multiplier)
-  {
-    // No additional flag
-  }
-  if (enable_cahn_hilliard)
-  {
-    // No additional flag
-  }
-  if (enable_compressible)
-  {
-    // No additional flag
-  }
+
   return flags;
 }
 
@@ -37,32 +25,21 @@ static UpdateFlags get_cell_update_flags(const bool enable_pseudo_solid,
  * Get the update flags for the FEFaceValues.
  */
 static UpdateFlags get_face_update_flags(const bool enable_pseudo_solid,
-                                         const bool enable_lagrange_multiplier,
-                                         const bool enable_cahn_hilliard,
-                                         const bool enable_compressible)
+                                         const bool /*enable_lagrange_multiplier*/,
+                                         const bool /*enable_cahn_hilliard*/,
+                                         const bool /*enable_compressible*/,
+                                         const bool enable_stabilization)
 {
-  // Flags for Navier-Stokes on fixed mesh only
   UpdateFlags flags = update_values | update_gradients |
                       update_quadrature_points | update_JxW_values |
                       update_normal_vectors;
 
+  if (enable_stabilization)
+    flags |= update_hessians;
+
   if (enable_pseudo_solid)
-  {
-    // Also update full Jacobian matrix
     flags |= update_jacobians;
-  }
-  if (enable_lagrange_multiplier)
-  {
-    // No additional flag
-  }
-  if (enable_cahn_hilliard)
-  {
-    // No additional flag
-  }
-  if (enable_compressible)
-  {
-    // No additional flag
-  }
+
   return flags;
 }
 
@@ -82,6 +59,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   const ParameterReader<dim> &param)
   : param(param)
   , use_quads(param.finite_elements.use_quads)
+  , enable_stabilization(param.finite_elements.stabilization)
   , ordering(ordering)
   , n_components(ordering.n_components)
   , enable_pseudo_solid(enable_pseudo_solid)
@@ -97,7 +75,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_cell_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_stabilization)))
   , fe_values_fixed(std::make_unique<FEValues<dim>>(
       fixed_mapping,
       fe,
@@ -105,7 +84,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_cell_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_stabilization)))
   , fe_face_values(std::make_unique<FEFaceValues<dim>>(
       moving_mapping,
       fe,
@@ -113,7 +93,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_face_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_stabilization)))
   , fe_face_values_fixed(std::make_unique<FEFaceValues<dim>>(
       fixed_mapping,
       fe,
@@ -121,7 +102,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_face_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_stabilization)))
   , n_q_points(cell_quadrature.size())
   , n_faces(fe.reference_cell().n_faces())
   , n_faces_q_points(face_quadrature.size())
@@ -168,6 +150,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   const ParameterReader<dim>       &param)
   : param(param)
   , use_quads(param.finite_elements.use_quads)
+  , enable_stabilization(param.finite_elements.stabilization)
   , ordering(ordering)
   , n_components(ordering.n_components)
   , enable_pseudo_solid(enable_pseudo_solid)
@@ -183,7 +166,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_cell_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_stabilization)))
   , hp_fe_values_fixed(std::make_unique<hp::FEValues<dim>>(
       fixed_mapping_collection,
       fe_collection,
@@ -191,7 +175,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_cell_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_stabilization)))
   , hp_fe_face_values(std::make_unique<hp::FEFaceValues<dim>>(
       moving_mapping_collection,
       fe_collection,
@@ -199,7 +184,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_face_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_stabilization)))
   , hp_fe_face_values_fixed(std::make_unique<hp::FEFaceValues<dim>>(
       fixed_mapping_collection,
       fe_collection,
@@ -207,7 +193,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_face_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_stabilization)))
   , bdf_coefficients(bdf_coefficients)
 {
   if constexpr (!has_hp_capabilities)
@@ -268,6 +255,7 @@ template <int dim, bool has_hp_capabilities>
 ScratchData<dim, has_hp_capabilities>::ScratchData(const ScratchData &other)
   : param(other.param)
   , use_quads(other.use_quads)
+  , enable_stabilization(other.enable_stabilization)
   , ordering(other.ordering)
   , n_components(other.n_components)
   , enable_pseudo_solid(other.enable_pseudo_solid)
@@ -487,8 +475,11 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
   present_velocity_sym_gradients.resize(n_q_points);
   present_velocity_divergence.resize(n_q_points);
   present_pressure_values.resize(n_q_points);
+  present_pressure_gradients.resize(n_q_points);
   previous_velocity_values.resize(bdf_coefficients.size() - 1,
                                   std::vector<Tensor<1, dim>>(n_q_points));
+  present_velocity_laplacians.resize(n_q_points);
+  present_velocity_grad_divergences.resize(n_q_points);
 
   present_face_velocity_values.resize(
     n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
@@ -528,9 +519,9 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     previous_position_values.resize(bdf_coefficients.size() - 1,
                                     std::vector<Tensor<1, dim>>(n_q_points));
     previous_position_gradients.resize(bdf_coefficients.size() - 1,
-                                      std::vector<Tensor<2, dim>>(n_q_points));
+                                       std::vector<Tensor<2, dim>>(n_q_points));
 
-    //Neo-hookean
+    // Neo-hookean
     present_position_J.resize(n_q_points);
     present_position_inv_gradients.resize(n_q_points);
     present_position_inv_gradients_T.resize(n_q_points);
@@ -576,6 +567,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
                     std::vector<std::vector<double>>(
                       n_faces_q_points, std::vector<double>(dofs_per_cell)));
   }
+  else
+    present_mesh_velocity_values.assign(n_q_points, Tensor<1, dim>());
 
   if (enable_lagrange_multiplier)
   {
@@ -602,16 +595,17 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     tracer_values_fixed.resize(n_q_points);
     tracer_gradients_fixed.resize(n_q_points);
     previous_tracer_values_fixed.resize(bdf_coefficients.size() - 1,
-                                    std::vector<double>(n_q_points));
+                                        std::vector<double>(n_q_points));
 
-    previous_tracer_gradients_fixed.resize(bdf_coefficients.size() - 1,
-                                          std::vector<Tensor<1, dim>>(n_q_points));
+    previous_tracer_gradients_fixed.resize(
+      bdf_coefficients.size() - 1, std::vector<Tensor<1, dim>>(n_q_points));
     potential_values.resize(n_q_points);
     potential_gradients.resize(n_q_points);
+    potential_laplacians.resize(n_q_points);
     previous_tracer_values.resize(bdf_coefficients.size() - 1,
                                   std::vector<double>(n_q_points));
     previous_tracer_gradients.resize(bdf_coefficients.size() - 1,
-                                       std::vector<Tensor<1, dim>>(n_q_points));
+                                     std::vector<Tensor<1, dim>>(n_q_points));
 
     diffusive_flux.resize(n_q_points);
     velocity_dot_tracer_gradient.resize(n_q_points);
@@ -624,9 +618,31 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     shape_mu.resize(n_q_points, std::vector<double>(dofs_per_cell));
     grad_shape_mu.resize(n_q_points,
                          std::vector<Tensor<1, dim>>(dofs_per_cell));
+    laplacian_shape_mu.resize(n_q_points, std::vector<double>(dofs_per_cell));
 
     source_term_tracer.resize(n_q_points);
     source_term_potential.resize(n_q_points);
+  }
+
+  if (enable_stabilization)
+  {
+    // Differential quantities
+    present_velocity_lap_plus_graddiv.resize(n_q_points);
+
+    // Strong residuals (layered: NS base, ALE correction, combined)
+    strong_residual_momentum_no_ale.resize(n_q_points);
+    strong_residual_momentum_ale.resize(n_q_points);
+    strong_residual_momentum.resize(n_q_points);
+    strong_residual_tracer.resize(n_q_points);
+
+    // Stabilization parameters
+    stabilization_tau_momentum.resize(n_q_points);
+    stabilization_tau_tracer.resize(n_q_points);
+
+    // Shape-function contributions
+    grad_phi_p.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
+    diffusion_phi_u.resize(n_q_points,
+                           std::vector<Tensor<1, dim>>(dofs_per_cell));
   }
 
   if (enable_compressible)

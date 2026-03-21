@@ -39,13 +39,21 @@ namespace BoundaryConditions
         "velocity_mms|velocity_flux_mms|open_mms|no_tangential_flow"),
       "Type of fluid boundary condition");
 
-    //To specifie with component of the velocity you want to leave unconstrained
-    prm.declare_entry("constrain_u", "true", Patterns::Bool(),
-                  "Constrain x-velocity component on this boundary");
-    prm.declare_entry("constrain_v", "true", Patterns::Bool(),
+    // To specifie with component of the velocity you want to leave
+    // unconstrained
+    prm.declare_entry("constrain_u",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain x-velocity component on this boundary");
+    prm.declare_entry("constrain_v",
+                      "true",
+                      Patterns::Bool(),
                       "Constrain y-velocity component on this boundary");
-    prm.declare_entry("constrain_w", "true", Patterns::Bool(),
-                      "Constrain z-velocity component on this boundary (3D only)");
+    prm.declare_entry(
+      "constrain_w",
+      "true",
+      Patterns::Bool(),
+      "Constrain z-velocity component on this boundary (3D only)");
 
     // Imposed functions, if any
     prm.enter_subsection("u");
@@ -117,7 +125,7 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed fluid boundary conditions is smaller than "
         "the specified \"number\" field.");
-    
+
     constrain_u = prm.get_bool("constrain_u");
     constrain_v = prm.get_bool("constrain_v");
     constrain_w = prm.get_bool("constrain_w");
@@ -126,8 +134,9 @@ namespace BoundaryConditions
       constrain_w = false;
 
     AssertThrow(constrain_u || constrain_v || constrain_w,
-                ExcMessage("Fluid BC " + std::to_string(this->id) +
-                          ": at least one velocity component must be constrained."));
+                ExcMessage(
+                  "Fluid BC " + std::to_string(this->id) +
+                  ": at least one velocity component must be constrained."));
 
     prm.enter_subsection("u");
     u->parse_parameters(prm);
@@ -316,16 +325,18 @@ namespace BoundaryConditions
     const FEValuesExtractors::Vector velocity(u_lower);
     const ComponentMask              velocity_mask =
       dof_handler.get_fe().component_mask(velocity);
-    
+
     const auto make_partial_velocity_mask =
-      [&](const BoundaryConditions::FluidBC<dim> &bc) -> ComponentMask
-    {
+      [&](const BoundaryConditions::FluidBC<dim> &bc) -> ComponentMask {
       std::vector<bool> mask(n_components, false);
-      if (bc.constrain_u) mask[u_lower + 0] = true;
+      if (bc.constrain_u)
+        mask[u_lower + 0] = true;
       if constexpr (dim >= 2)
-        if (bc.constrain_v) mask[u_lower + 1] = true;
+        if (bc.constrain_v)
+          mask[u_lower + 1] = true;
       if constexpr (dim == 3)
-        if (bc.constrain_w) mask[u_lower + 2] = true;
+        if (bc.constrain_w)
+          mask[u_lower + 2] = true;
       return ComponentMask(mask);
     };
 

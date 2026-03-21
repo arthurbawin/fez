@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
         elasticity_solver1 = std::make_unique<LinearElasticitySolver<2>>(param);
         elasticity_solver1->run();
       }
-      
+
 
       CHNSSolver<2, true> problem(param);
 

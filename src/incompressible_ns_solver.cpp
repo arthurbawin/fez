@@ -1,5 +1,5 @@
-
 #include <assembly/boundary_forms.h>
+#include <assembly/stabilization_forms.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -267,15 +267,12 @@ void NSSolver<dim>::assemble_local_matrix(
         if (i_is_u && j_is_u)
         {
           assemble = true;
-
           // Time-dependent
           local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
-
           // Convection
           local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
                               present_velocity_gradients * phi_u[j]) *
                              phi_u[i];
-
           // Diffusion
           local_matrix_ij += nu * scalar_product(grad_phi_u[i], grad_phi_u[j]);
         }
@@ -283,7 +280,6 @@ void NSSolver<dim>::assemble_local_matrix(
         if (i_is_u && j_is_p)
         {
           assemble = true;
-
           // Pressure gradient
           local_matrix_ij += -div_phi_u[i] * phi_p[j];
         }
@@ -291,8 +287,7 @@ void NSSolver<dim>::assemble_local_matrix(
         if (i_is_p && j_is_u)
         {
           assemble = true;
-
-          // Continuity : variation w.r.t. u
+          // Continuity
           local_matrix_ij += -phi_p[i] * div_phi_u[j];
         }
 
@@ -304,6 +299,28 @@ void NSSolver<dim>::assemble_local_matrix(
       }
     }
   }
+
+  if (this->param.finite_elements.stabilization)
+    for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+    {
+      const double tau = scratchData.stabilization_tau_momentum[q];
+      if (tau <= 0.)
+        continue;
+
+      const double JxW = scratchData.JxW_moving[q];
+
+      for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+        for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
+        {
+          double stab_ij = 0.;
+          Assembly::supg_pspg_matrix<dim>(
+            *this->ordering, q, i, j, tau, nu, bdf_c0,
+            scratchData.present_velocity_values[q], scratchData, stab_ij);
+          if (stab_ij != 0.)
+            local_matrix(i, j) += stab_ij * JxW;
+        }
+    }
+
   cell->get_dof_indices(copy_data.local_dof_indices);
 }
 
@@ -432,32 +449,45 @@ void NSSolver<dim>::assemble_local_rhs(
 
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
     {
-      double local_rhs_i = -(
+      const double local_rhs_i = -(
         // Transient
         dudt * phi_u[i]
-
         // Convection
         + (present_velocity_gradients * present_velocity_values) * phi_u[i]
-
         // Diffusion
         + nu * scalar_product(present_velocity_gradients, grad_phi_u[i])
-
         // Pressure gradient
         - div_phi_u[i] * present_pressure_values
-
         // Momentum source term
         + source_term_velocity * phi_u[i]
-
         // Continuity
         - present_velocity_divergence * phi_p[i]
-
         // Pressure source term
         + source_term_pressure * phi_p[i]);
 
-      local_rhs_i *= JxW;
-      local_rhs(i) += local_rhs_i;
+      local_rhs(i) += local_rhs_i * JxW;
     }
   }
+
+  if (this->param.finite_elements.stabilization)
+    for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+    {
+      const double tau = scratchData.stabilization_tau_momentum[q];
+      if (tau <= 0.)
+        continue;
+
+      const double JxW = scratchData.JxW_moving[q];
+
+      for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+      {
+        double stab_i = 0.;
+        Assembly::supg_pspg_rhs<dim>(
+          *this->ordering, q, i, tau,
+          scratchData.present_velocity_values[q], scratchData, stab_i);
+        if (stab_i != 0.)
+          local_rhs(i) += stab_i * JxW;
+      }
+    }
 
   //
   // Face contributions

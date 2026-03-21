@@ -363,6 +363,10 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "If true, use quads/hexes instead of simplices");
+      prm.declare_entry("stabilization",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable residual-based stabilization terms");
       prm.declare_entry("Velocity degree",
                         "2",
                         Patterns::Integer(),
@@ -473,6 +477,7 @@ namespace Parameters
     prm.enter_subsection("FiniteElements");
     {
       use_quads            = prm.get_bool("use quads");
+      stabilization        = prm.get_bool("stabilization");
       velocity_degree      = prm.get_integer("Velocity degree");
       pressure_degree      = prm.get_integer("Pressure degree");
       mesh_position_degree = prm.get_integer("Mesh position degree");
@@ -538,8 +543,8 @@ namespace Parameters
     prm.enter_subsection("Pseudosolid " + std::to_string(index));
     {
       prm.declare_entry("stiffness model",
-                  "direct_lame",
-                  Patterns::Selection("direct_lame|young_from_phi"));
+                        "direct_lame",
+                        Patterns::Selection("direct_lame|young_from_phi"));
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->declare_parameters(prm);
       prm.leave_subsection();
@@ -552,21 +557,24 @@ namespace Parameters
       prm.leave_subsection();
 
       prm.declare_entry("d_phi_0",
-                  "0.02",
-                  Patterns::Double(0.0),
-                  "Distance characteristic around phi=0 over which the pseudosolid stiffness remains weak");
-      prm.declare_entry("lambda min factor",
-                  "0.4",
-                  Patterns::Double(0.0, 1.0),
-                  "Minimum multiplicative factor applied to lambda near phi=0");
-      prm.declare_entry("mu min factor",
-                  "0.4",
-                  Patterns::Double(0.0, 1.0),
-                  "Minimum multiplicative factor applied to mu near phi=0");
+                        "0.02",
+                        Patterns::Double(0.0),
+                        "Distance characteristic around phi=0 over which the "
+                        "pseudosolid stiffness remains weak");
+      prm.declare_entry(
+        "lambda min factor",
+        "0.4",
+        Patterns::Double(0.0, 1.0),
+        "Minimum multiplicative factor applied to lambda near phi=0");
+      prm.declare_entry(
+        "mu min factor",
+        "0.4",
+        Patterns::Double(0.0, 1.0),
+        "Minimum multiplicative factor applied to mu near phi=0");
       prm.declare_entry("constitutive model",
-                  "linear_lame",
-                  Patterns::Selection("linear_lame|neo_hookean"),
-                  "Constitutive law for the pseudosolid");
+                        "linear_lame",
+                        Patterns::Selection("linear_lame|neo_hookean"),
+                        "Constitutive law for the pseudosolid");
     }
     prm.leave_subsection();
   }
@@ -594,7 +602,7 @@ namespace Parameters
       phi_for_stiffness_fun->parse_parameters(prm);
       prm.leave_subsection();
 
-      d_phi_0 = prm.get_double("d_phi_0");
+      d_phi_0           = prm.get_double("d_phi_0");
       lambda_min_factor = prm.get_double("lambda min factor");
       mu_min_factor     = prm.get_double("mu min factor");
 
@@ -604,7 +612,8 @@ namespace Parameters
       else if (parsed_constitutive == "neo_hookean")
         constitutive_model = ConstitutiveModel::neo_hookean;
       else
-        AssertThrow(false, ExcMessage("Unknown pseudosolid constitutive model"));
+        AssertThrow(false,
+                    ExcMessage("Unknown pseudosolid constitutive model"));
     }
     prm.leave_subsection();
   }
@@ -628,11 +637,11 @@ namespace Parameters
         fluids[i].declare_parameters(prm, i);
 
       // Declare the pseudosolid subsections
-      prm.declare_entry(
-        "number of pseudosolids",
-        "0",
-        Patterns::Integer(),
-        "Number of pseudosolids (Linear elasticity elastic analogy for mesh movement)");
+      prm.declare_entry("number of pseudosolids",
+                        "0",
+                        Patterns::Integer(),
+                        "Number of pseudosolids (Linear elasticity elastic "
+                        "analogy for mesh movement)");
 
       pseudosolids.resize(max_pseudosolids);
       for (unsigned int i = 0; i < max_pseudosolids; ++i)
@@ -896,7 +905,8 @@ namespace Parameters
       prm.declare_entry("gamma",
                         "0.0",
                         Patterns::Double(),
-                        "Coefficient of pseudosolid source term when using mesh forcing type with band");
+                        "Coefficient of pseudosolid source term when using "
+                        "mesh forcing type with band");
     }
     prm.leave_subsection();
   }
@@ -979,7 +989,7 @@ namespace Parameters
                     ExcMessage("Max source term multiplier should be greater "
                                "than the min multiplier"));
         n_continuation_steps = prm.get_integer("continuation steps");
-        use_as_presolver = prm.get_bool("use as presolver");
+        use_as_presolver     = prm.get_bool("use as presolver");
       }
       prm.leave_subsection();
     }

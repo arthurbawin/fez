@@ -9,11 +9,11 @@ namespace Parameters
     const double phi,
     const double epsilon_interface) const
   {
-    constexpr double phi_clip = 0.999999;
-    const double phi_clamped =
-      std::max(-phi_clip, std::min(phi, phi_clip));
+    constexpr double phi_clip    = 0.999999;
+    const double     phi_clamped = std::max(-phi_clip, std::min(phi, phi_clip));
 
-    return std::sqrt(2.0) * epsilon_interface * std::abs(std::atanh(phi_clamped));
+    return std::sqrt(2.0) * epsilon_interface *
+           std::abs(std::atanh(phi_clamped));
   }
 
   // facteur de rigidité
@@ -28,9 +28,8 @@ namespace Parameters
 
     AssertThrow(d0 > 0.0, ExcMessage("d_phi_0 must be > 0"));
     AssertThrow(stiffness_min_factor >= 0.0 && stiffness_min_factor < 1.0,
-                ExcMessage(
-                  "Pseudo-solid stiffness minimum factor must satisfy "
-                  "0 <= factor < 1"));
+                ExcMessage("Pseudo-solid stiffness minimum factor must satisfy "
+                           "0 <= factor < 1"));
 
     const double s_core = (d * d) / (d * d + d0 * d0);
 
@@ -46,22 +45,19 @@ namespace Parameters
   {
     const double h = 1e-6;
 
-    const double sp =
-      evaluate_stiffness_factor_from_phi(phi + h,
-                                         epsilon_interface,
-                                         stiffness_min_factor);
-    const double sm =
-      evaluate_stiffness_factor_from_phi(phi - h,
-                                         epsilon_interface,
-                                         stiffness_min_factor);
+    const double sp = evaluate_stiffness_factor_from_phi(phi + h,
+                                                         epsilon_interface,
+                                                         stiffness_min_factor);
+    const double sm = evaluate_stiffness_factor_from_phi(phi - h,
+                                                         epsilon_interface,
+                                                         stiffness_min_factor);
 
     return (sp - sm) / (2.0 * h);
   }
 
   // lame calculation
   template <int dim>
-  std::pair<double,double>
-  PseudoSolid<dim>::evaluate_lame_from_phi_value(
+  std::pair<double, double> PseudoSolid<dim>::evaluate_lame_from_phi_value(
     const double phi,
     const double epsilon_interface,
     const double lame_lambda_base,
@@ -70,8 +66,10 @@ namespace Parameters
     if (stiffness_model == StiffnessModel::direct_lame)
       return {lame_lambda_base, lame_mu_base};
 
-    const double s_lambda = evaluate_stiffness_factor_from_phi(
-      phi, epsilon_interface, lambda_min_factor);
+    const double s_lambda =
+      evaluate_stiffness_factor_from_phi(phi,
+                                         epsilon_interface,
+                                         lambda_min_factor);
     const double s_mu =
       evaluate_stiffness_factor_from_phi(phi, epsilon_interface, mu_min_factor);
 
@@ -80,7 +78,7 @@ namespace Parameters
 
   // derivee des lame
   template <int dim>
-  std::pair<double,double>
+  std::pair<double, double>
   PseudoSolid<dim>::evaluate_lame_derivatives_from_phi_value(
     const double phi,
     const double epsilon_interface,
@@ -102,6 +100,6 @@ namespace Parameters
     return {dlambda_scale_dphi * lame_lambda_base,
             dmu_scale_dphi * lame_mu_base};
   }
-}
+} // namespace Parameters
 
 #endif

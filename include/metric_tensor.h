@@ -6,6 +6,9 @@
 #include <deal.II/base/tensor.h>
 #include <deal.II/base/tensor_function.h>
 #include <deal.II/grid/tria.h>
+#include <parameters.h>
+
+#include <sstream>
 
 #include <Eigen/Dense>
 
@@ -27,23 +30,6 @@ struct EigenReal<3>
 {
   using matrix_type = Eigen::Matrix3d;
   using vector_type = Eigen::Vector3d;
-};
-
-template <int dim>
-struct EigenComplex;
-
-template <>
-struct EigenComplex<2>
-{
-  using matrix_type = Eigen::Matrix2cd;
-  using vector_type = Eigen::Vector2cd;
-};
-
-template <>
-struct EigenComplex<3>
-{
-  using matrix_type = Eigen::Matrix3cd;
-  using vector_type = Eigen::Vector3cd;
 };
 
 /**
@@ -71,21 +57,19 @@ constexpr inline bool is_orthonormal(const Tensor<2, dim> &t)
   return (t * transpose(t) - unit_symmetric_tensor<dim>()).norm() < 1e-14;
 }
 
-// DeclExceptionMsg(ExcNotSPD,
-//                  "You are performing an operation on a metric tensor, which "
-//                  "should be symmetric and positive-definite (SPD) by "
-//                  "definition, but the underlying tensor is not SPD.");
-
 DeclExceptionMsg(
   ExcOperationMadeNotSPD,
   "You performed an operation on a metric tensor with an initial SPD "
   "underlying tensor which resulted in a non-SPD tensor.");
 
-DeclExceptionMsg(
+DeclException2(
   ExcAssignFromNotSPD,
+  std::string,
+  double,
   "You are trying to create a metric tensor, which should be symmetric and "
   "positive-definite (SPD) by definition, from a SymmetricTensor that is not "
-  "positive-definite.");
+  "positive-definite: "
+    << arg1 << "\n det = " << arg2);
 
 DeclExceptionMsg(
   ExcAssignFromNotSPDArray,
@@ -106,13 +90,20 @@ DeclException1(ExcEigenvectorsNotOrthonormal,
                   "not orthonormal: "
                << arg1);
 
-/**
- * #define AssertIsSPD(metric_tensor) \
- *   Assert(is_positive_definite(metric_tensor), ExcNotSPD())
- */
+DeclException1(ExcMultiplyByNonPositive,
+               double,
+               << "You are trying to multiply the entries of a metric tensor "
+                  "by a nonpositive real number : "
+               << arg1);
 
-#define AssertAssignFromSPD(symmetric_tensor) \
-  Assert(is_positive_definite(symmetric_tensor), ExcAssignFromNotSPD())
+#define AssertAssignFromSPD(symmetric_tensor)                              \
+  if constexpr (running_in_debug_mode())                                   \
+  {                                                                        \
+    std::ostringstream oss;                                                \
+    oss << symmetric_tensor;                                               \
+    Assert(is_positive_definite(symmetric_tensor),                         \
+           ExcAssignFromNotSPD(oss.str(), determinant(symmetric_tensor))); \
+  }
 
 #define AssertAssignFromSPDArray(metric_tensor) \
   Assert(is_positive_definite(metric_tensor), ExcAssignFromNotSPDArray())
@@ -120,6 +111,14 @@ DeclException1(ExcEigenvectorsNotOrthonormal,
 /**
  * A metric tensor is a positive-definite SymmetricTensor<2, dim, double>, with
  * additional member functions.
+ *
+ * Because most operations of metric tensors rely on their eigendecomposition,
+ * a real-valued matrix in Eigen's format is stored as well, to use Eigen's
+ * functions, such as their eigendecomposition, matrix logarithm, exponential,
+ * etc.
+ *
+ * FIXME: deal.II also provides eigendecomposition routines, so it's worth
+ * checking if the Eigen interface is really needed.
  */
 template <int dim>
 class MetricTensor : public SymmetricTensor<2, dim>
@@ -131,6 +130,22 @@ public:
   static constexpr unsigned int n_independent_components =
     SymmetricTensor<2, dim>::n_independent_components;
 
+  /**
+   * The space in which a metric spans a complete metric field with prescribed
+   * gradation. The chosen space determines if anisotropy is maintained as the
+   * distance increases.
+   *
+   * See also F. Alauzet's paper "Size gradation control of anisotropic meshes".
+   *
+   * FIXME: Add comments.
+   */
+  enum SpanningSpace
+  {
+    euclidean,
+    metric,
+    exp_metric
+  };
+
 public:
   /**
    * Constructor. Generate a MetricTensor from a SymmetricTensor. Assumes that
@@ -140,7 +155,8 @@ public:
    * Unlike SymmetricTensors, there is no constructor to create a default metric
    * tensor with arbitrary or zero values, since the tensor should be SPD.
    */
-  MetricTensor(const SymmetricTensor<2, dim> &t = unit_symmetric_tensor<dim>());
+  explicit MetricTensor(
+    const SymmetricTensor<2, dim> &t = unit_symmetric_tensor<dim>());
 
   /**
    * Constructor. Generate a MetricTensor from a Tensor. Assumes that @p t is
@@ -152,7 +168,7 @@ public:
    * symmetric in general, it is stored as a Tensor<2, dim> and not a
    * SymmetricTensor<2, dim>, and the result of QDQ^T is also a Tensor<2, dim>.
    */
-  MetricTensor(const Tensor<2, dim> &t);
+  explicit MetricTensor(const Tensor<2, dim> &t);
 
   /**
    * Constructor. Generate a MetricTensor from its eigendecomposition. Assumes
@@ -199,22 +215,67 @@ public:
   MetricTensor<dim> &operator=(const double (&array)[n_independent_components]);
 
   /**
-   * Return the eigenvalues as a Tensor<1, dim>
+   * Multiply all entries of this metric tensor by @p factor.
+   * This is the same operator as for SymmetricTensors, but in debug it also
+   * checks that factor is a positive real number.
+   */
+  constexpr MetricTensor<dim> &operator*=(const double &factor);
+
+  /**
+   * Divide all entries of this metric tensor by @p factor.
+   * This is the same operator as for SymmetricTensors, but in debug it also
+   * checks that factor is a positive real number.
+   */
+  constexpr MetricTensor<dim> &operator/=(const double &factor);
+
+  /**
+   * Although the sum of two positive-definite matrices remains a
+   * positive-definite matrix, metric tensors live on manifolds which are not
+   * necessarily vector spaces, so it does not make sense to add them in
+   * general, and the incrementation with another tensor is deleted.
+   */
+  constexpr MetricTensor<dim> &
+  operator+=(const SymmetricTensor<2, dim> &) = delete;
+
+  /**
+   * Same as above but deletes incremention with a MetricTensor<dim>.
+   */
+  constexpr MetricTensor<dim> &operator+=(const MetricTensor<dim> &) = delete;
+
+  /**
+   * In addition to the comments for the incrementation operator, decrementing
+   * does not preserve positive-definiteness in general, and is thus deleted.
+   */
+  constexpr MetricTensor<dim> &
+  operator-=(const SymmetricTensor<2, dim> &) = delete;
+
+  /**
+   * Same as above but deletes decremention with a MetricTensor<dim>.
+   */
+  constexpr MetricTensor<dim> &operator-=(const MetricTensor<dim> &) = delete;
+
+  /**
+   * Metric negation. Deleted for obvious reasons.
+   */
+  constexpr MetricTensor<dim> operator-() = delete;
+
+  /**
+   * Return the eigenvalues as a Tensor<1, dim>.
    */
   const Tensor<1, dim> &get_eigenvalues() const;
 
   /**
-   * Return the orthonormal eigenvectors as a Tensor<2, dim>
+   * Return the orthonormal eigenvectors as a Tensor<2, dim>.
    */
   const Tensor<2, dim> &get_eigenvectors() const;
 
   /**
-   * Return a const reference to the underlying Eigen matrix
+   * Return the underlying Eigen matrix.
    */
   const EigenRealMatrix &get_eigen_matrix() const;
 
   /**
-   * Return the eigenvalues as a vector in Eigen format
+   * Return the eigenvalues as a vector in Eigen format.
    */
   const EigenRealVector &get_eigenvalues_as_eigen() const;
 
@@ -245,8 +306,11 @@ public:
    * Return the matrix logarithm of the underlying matrix of this metric.
    * This is logm(M) := Q * log(D) * Q^T, which is not the componentwise
    * logarithm. Computed with Eigen's log().
+   *
+   * Note that the log of a metric is not a metric in general, e.g.,
+   * log I = 0.
    */
-  MetricTensor<dim> log() const;
+  SymmetricTensor<2, dim> log() const;
 
   /**
    * Return the matrix exponential of the underlying matrix of this metric.
@@ -256,24 +320,34 @@ public:
   MetricTensor<dim> exp() const;
 
   /**
-   * Compute metric intersection of this metric with other.
-   * Checks first if metrics are diagonal or multiple of one another.
-   * If not, compute their simultaneous reduction.
+   * Return the matrix square root of the underlying matrix of this metric.
+   * This is sqrtm(M) := Q * sqrt(D) * Q^T, which is not the componentwise
+   * square root. Computed with Eigen's sqrt().
    */
-  MetricTensor<dim> intersection(const MetricTensor<dim> &other,
-                                 const double             tolerance) const;
+  MetricTensor<dim> sqrt() const;
 
   /**
-   * Compute metric intersection of this metric with other using the routines
-   * from the MMG library.
+   * Return the matrix square root of the underlying matrix of this metric.
+   * This is isqrtm(M) := Q * D^{-1/2} * Q^T. Computed with Eigen's pow().
    */
-  MetricTensor<dim> intersection_mmg(const MetricTensor<dim> &other) const;
+  MetricTensor<dim> inverse_sqrt() const;
 
   /**
-   * Span a metric at distance pq with prescribed gradation.
+   * Compute metric intersection of this metric with @p other, using their
+   * simultaneous reduction M^{-1} * other.
+   * The intersection is computed with the routines from the MMG library.
    */
-  MetricTensor<dim> span_metric(const double          gradation,
-                                const Tensor<1, dim> &pq) const;
+  MetricTensor<dim> intersection(const MetricTensor<dim> &other) const;
+
+  /**
+   * Span a metric at prescribed @p distance vector with prescribed @p gradation
+   * and in the prescribed @p spanning_space.
+   *
+   * TODO: Add description.
+   */
+  MetricTensor<dim> span_metric(const SpanningSpace   spanning_space,
+                                const double          gradation,
+                                const Tensor<1, dim> &distance) const;
 
 private:
   // Matrix representation of the underlying tensor in Eigen format.
@@ -359,5 +433,116 @@ private:
 };
 
 /* ---------------- template and inline functions ----------------- */
+
+template <int dim>
+constexpr inline MetricTensor<dim> &
+MetricTensor<dim>::operator*=(const double &d)
+{
+  Assert(d > 0, ExcMultiplyByNonPositive(d));
+  SymmetricTensor<2, dim>::operator*=(d);
+  return *this;
+}
+
+template <int dim>
+constexpr inline MetricTensor<dim> &
+MetricTensor<dim>::operator/=(const double &d)
+{
+  Assert(d > 0, ExcMultiplyByNonPositive(d));
+  SymmetricTensor<2, dim>::operator/=(d);
+  return *this;
+}
+
+/* ----------------- Non-member functions operating on metric tensors. ------ */
+
+/**
+ * The sum of two MetricTensors is not meaningful in general (even though it
+ * preserves positive-definiteness), and is thus deleted.
+ */
+template <int dim>
+constexpr MetricTensor<dim> operator+(const MetricTensor<dim> &left,
+                                      const MetricTensor<dim> &right) = delete;
+
+/**
+ * Sum of SymmetricTensor and MetricTensor. See comment above.
+ */
+template <int dim>
+constexpr MetricTensor<dim> operator+(const SymmetricTensor<2, dim> &left,
+                                      const MetricTensor<dim> &right) = delete;
+
+/**
+ * Sum of MetricTensor and SymmetricTensor. See comment above.
+ */
+template <int dim>
+constexpr MetricTensor<dim>
+operator+(const MetricTensor<dim>       &left,
+          const SymmetricTensor<2, dim> &right) = delete;
+
+/**
+ * As mentionned in the comments for operator-=, subtracting metric tensors does
+ * not yield a metric tensor in general (simply take I - I = 0). However, it is
+ * useful to keep a subtraction operator between metrics and returning a
+ * SymmetricTensor, to measure differences between metrics, for instance. Since
+ * the constructor is marked explicit, implicit conversion from a
+ * SymmetricTensor to a MetricTensor is forbidden, so that if m1 and m2 are
+ * MetricTensors,
+ *
+ * SymmetricTensor<2, dim> res = m1 - m2;
+ *
+ * is allowed, but
+ *
+ * MetricTensor<dim> res = m1 - m2;
+ *
+ * is not. Note that this function is not really needed, since the operator- of
+ * the base class does the exact same thing already. It is simply here to
+ * emphasize that the difference of two metrics does not produce a MetricTensor.
+ */
+template <int dim>
+constexpr SymmetricTensor<2, dim> operator-(const MetricTensor<dim> &left,
+                                            const MetricTensor<dim> &right)
+{
+  return SymmetricTensor<2, dim>(left) - SymmetricTensor<2, dim>(right);
+}
+
+/**
+ * Multiplication of a metric tensor with a scalar from the right.
+ * The scalar should be positive, and this is checked in debug.
+ */
+template <int dim>
+constexpr inline MetricTensor<dim> operator*(const MetricTensor<dim> &m,
+                                             const double             factor)
+{
+  Assert(factor > 0, ExcMultiplyByNonPositive(factor));
+  MetricTensor<dim> mm(m);
+  mm *= factor;
+  return mm;
+}
+
+/**
+ * Multiplication of a metric tensor with a scalar from the right.
+ * The scalar should be positive, and this is checked in debug.
+ */
+template <int dim>
+constexpr inline MetricTensor<dim> operator*(const double             factor,
+                                             const MetricTensor<dim> &m)
+{
+  Assert(factor > 0, ExcMultiplyByNonPositive(factor));
+  MetricTensor<dim> mm(m);
+  mm *= factor;
+  return mm;
+}
+
+/**
+ * Division of a metric by a scalar.
+ * The scalar should be positive, and this is checked in debug.
+ */
+template <int dim>
+constexpr inline MetricTensor<dim> operator/(const MetricTensor<dim> &m,
+                                             const double             factor)
+{
+  Assert(factor > 0, ExcMultiplyByNonPositive(factor));
+  MetricTensor<dim> mm(m);
+  mm /= factor;
+  return mm;
+}
 
 #endif

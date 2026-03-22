@@ -80,6 +80,19 @@ using namespace dealii;
 // Utility functions used in tests.
 //
 
+// Print tensors on 2/3 lines instead of single line
+template <int dim, typename TensorType>
+void print_tensor_formatted(const TensorType &M, LogStream &out)
+{
+  for (unsigned int i = 0; i < dim; ++i)
+  {
+    out << "\t";
+    for (unsigned int j = 0; j < dim; ++j)
+      out << std::setw(12) << M[i][j] << " ";
+    out << std::endl;
+  }
+}
+
 /**
  * Go through the input stream @p in and filter out binary data for the key @p key .
  * The filtered stream is returned in @p out.

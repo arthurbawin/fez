@@ -4,6 +4,7 @@
 #include <boundary_conditions.h>
 #include <initial_conditions.h>
 #include <manufactured_solution.h>
+#include <metric_field_parameters.h>
 #include <parameters.h>
 #include <solver_info.h>
 #include <source_terms.h>
@@ -36,7 +37,7 @@ public:
   Parameters::LinearElasticity                               linear_elasticity;
   Parameters::MMS                                            mms_param;
   Parameters::Debug                                          debug;
-  Parameters::MetricFields<dim>                              metric_fields;
+  std::vector<Parameters::MetricField<dim>>                  metric_fields;
 
   //
   // Initial and boundary conditions
@@ -115,7 +116,8 @@ public:
     mms_param.declare_parameters(prm);
     mms.declare_parameters(prm);
     debug.declare_parameters(prm);
-    metric_fields.declare_parameters(prm);
+    metric_fields.resize(bc_data.n_metric_fields);
+    Parameters::declare_metric_fields<dim>(prm, bc_data.n_metric_fields);
   }
 
   /**
@@ -164,7 +166,7 @@ public:
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);
     debug.read_parameters(prm);
-    metric_fields.read_parameters(prm);
+    Parameters::read_metric_fields(prm, bc_data.n_metric_fields, metric_fields);
 
     check_parameters();
   }

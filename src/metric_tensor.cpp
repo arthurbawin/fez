@@ -80,6 +80,8 @@ MetricTensor<dim>::MetricTensor(const MetricTensor<dim> &m)
   , matrix_eigen(m.matrix_eigen)
   , eigenvalues(m.eigenvalues)
   , eigenvectors(m.eigenvectors)
+  , eigenvalues_t(m.eigenvalues_t)
+  , eigenvectors_t(m.eigenvectors_t)
 {
   AssertAssignFromSPD(m);
 }
@@ -89,9 +91,11 @@ MetricTensor<dim> &MetricTensor<dim>::operator=(const MetricTensor<dim> &m)
 {
   AssertAssignFromSPD(m);
   SymmetricTensor<2, dim>::operator=(m);
-  matrix_eigen = m.matrix_eigen;
-  eigenvalues  = m.eigenvalues;
-  eigenvectors = m.eigenvectors;
+  matrix_eigen   = m.matrix_eigen;
+  eigenvalues    = m.eigenvalues;
+  eigenvectors   = m.eigenvectors;
+  eigenvalues_t  = m.eigenvalues_t;
+  eigenvectors_t = m.eigenvectors_t;
   return *this;
 }
 
@@ -199,9 +203,9 @@ MetricTensor<dim>::bounded_eigenvalues(const double min_eigenvalue,
 }
 
 template <int dim>
-MetricTensor<dim> MetricTensor<dim>::log() const
+SymmetricTensor<2, dim> MetricTensor<dim>::log() const
 {
-  return MetricTensorTools::eigen2metric<dim>(matrix_eigen.log());
+  return MetricTensorTools::eigen2symtensor<dim>(matrix_eigen.log());
 }
 
 template <int dim>
@@ -211,22 +215,29 @@ MetricTensor<dim> MetricTensor<dim>::exp() const
 }
 
 template <int dim>
-MetricTensor<dim>
-MetricTensor<dim>::intersection(const MetricTensor<dim> &other,
-                                const double             tolerance) const
+MetricTensor<dim> MetricTensor<dim>::sqrt() const
 {
-  return MetricTensorTools::intersection(*this, other, tolerance);
+  return MetricTensorTools::eigen2metric<dim>(matrix_eigen.sqrt());
+}
+
+template <int dim>
+MetricTensor<dim> MetricTensor<dim>::inverse_sqrt() const
+{
+  return MetricTensorTools::eigen2metric<dim>(matrix_eigen.pow(-0.5));
 }
 
 template <int dim>
 MetricTensor<dim>
-MetricTensor<dim>::intersection_mmg(const MetricTensor<dim> &other) const
+MetricTensor<dim>::intersection(const MetricTensor<dim> &other) const
 {
+  // MMG accounts for min/max sizes directly in the intersection
+  // Give dummies for now
   const double hmin = 1e-15;
   const double hmax = 1e22;
 
   MetricTensor<dim> res;
 
+  // Forward the call to MMG5_intersecmet22 or 33
   if constexpr (dim == 2)
   {
     double    m[3] = {(*this)[0][0], (*this)[0][1], (*this)[1][1]};
@@ -268,14 +279,31 @@ MetricTensor<dim>::intersection_mmg(const MetricTensor<dim> &other) const
   return res;
 }
 
-// Span in metric space
 template <int dim>
-MetricTensor<dim> MetricTensor<dim>::span_metric(const double gradation,
-                                                 const Tensor<1, dim> &pq) const
+MetricTensor<dim>
+MetricTensor<dim>::span_metric(const SpanningSpace   spanning_space,
+                               const double          gradation,
+                               const Tensor<1, dim> &pq) const
 {
-  const double dotProd_M = pq * (*this) * pq;
-  double       eta       = 1. + std::sqrt(dotProd_M) * std::log(gradation);
-  return (*this) / (eta * eta);
+  if (spanning_space == euclidean)
+  {
+    // Span metric in euclidean space
+    DEAL_II_NOT_IMPLEMENTED();
+  }
+  else if (spanning_space == metric)
+  {
+    // Span metric in metric space: scale all entries equally
+    const double dot_prod = pq * (*this) * pq;
+    double       eta      = 1. + std::sqrt(dot_prod) * std::log(gradation);
+    return (*this) / (eta * eta);
+  }
+  else if (spanning_space == exp_metric)
+  {
+    DEAL_II_NOT_IMPLEMENTED();
+  }
+  else
+    DEAL_II_NOT_IMPLEMENTED();
+  return *this;
 }
 
 template class MetricTensor<2>;

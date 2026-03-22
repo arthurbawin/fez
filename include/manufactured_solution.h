@@ -159,9 +159,8 @@ namespace ManufacturedSolutions
     /**
      * Time second derivative
      */
-    virtual double
-    time_second_derivative(const Point<dim>  &p,
-                           const unsigned int component = 0) const
+    virtual double time_second_derivative(const Point<dim> &,
+                                          const unsigned int) const
     {
       Assert(false, ExcPureFunctionCalled());
       return 0.;
@@ -170,8 +169,8 @@ namespace ManufacturedSolutions
     /**
      * Time third derivative
      */
-    virtual double time_third_derivative(const Point<dim>  &p,
-                                         const unsigned int component = 0) const
+    virtual double time_third_derivative(const Point<dim> &,
+                                         const unsigned int) const
     {
       Assert(false, ExcPureFunctionCalled());
       return 0.;

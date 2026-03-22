@@ -14,6 +14,7 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <mesh_adaptation_tools.h>
+#include <metric_field.h>
 #include <post_processing_handler.h>
 #include <post_processing_tools.h>
 #include <solver_info.h>
@@ -177,7 +178,6 @@ void HeatSolver<dim>::run()
     postprocess_solution();
     time_handler.rotate_solutions(present_solution, previous_solutions);
   }
-
 
   adapt_mesh();
 
@@ -670,34 +670,21 @@ void HeatSolver<dim>::postprocess_solution()
   // compute_recovery();
 }
 
-#include <metric_field.h>
-
-template <int dim>
-class AnalyticalMetric : public TensorFunction<2, dim>
-{
-public:
-  AnalyticalMetric()
-    : TensorFunction<2, dim>()
-  {}
-
-  virtual Tensor<2, dim> value(const Point<dim> &p) const override
-  {
-    (void)p;
-    auto res  = unit_symmetric_tensor<dim>();
-    res[1][1] = 2;
-    res[0][1] = 1;
-    return res;
-  }
-};
-
 template <int dim>
 void HeatSolver<dim>::adapt_mesh()
 {
-  MetricField<dim> field(param, triangulation);
-  // field.set_metrics_from_function(AnalyticalMetric<dim>());
-  field.writeToVTU("my_metrics");
+  if (param.bc_data.n_metric_fields > 0)
+  {
+    MetricField<dim> field(param, triangulation);
+    field.compute_metrics();
+    field.write_pvtu("metrics_before_gradation");
+    field.write_metrics();
+    field.apply_gradation();
+    field.write_metrics();
+    field.write_pvtu("metrics_after_gradation");
 
-  // adapt_mesh_mmg(param, triangulation);
+    MeshAdaptation::adapt_with_mmg(param, triangulation, field);
+  }
 }
 
 template <int dim>

@@ -60,6 +60,6 @@ namespace Stabilization
     return (denom <= std::numeric_limits<double>::epsilon()) ? 0. : 1. / denom;
   }
 
-} // namespace Stabilization
+}
 
-#endif // STABILIZATION_UTILS_H
+#endif

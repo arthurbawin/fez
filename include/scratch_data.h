@@ -390,16 +390,15 @@ private:
       present_position_J[q] = determinant(F);
       if (physical_properties.pseudosolids[0].constitutive_model ==
           Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
-        AssertThrow(
-          std::isfinite(present_position_J[q]) && present_position_J[q] > 0.0,
-          ExcMessage(([&]() {
-            std::ostringstream message;
-            message
-              << "Invalid pseudo-solid deformation in CHNS solver: det(F)="
-              << present_position_J[q]
-              << " at reference quadrature point " << q_point << ".";
-            return message.str();
-          })()));
+      {
+        if (!std::isfinite(present_position_J[q]) || present_position_J[q] <= 0.0)
+        {
+          std::ostringstream message;
+          message << "Invalid pseudo-solid deformation: det(F)=" 
+                  << present_position_J[q] << " <= 0";
+          throw std::runtime_error(message.str());
+        }
+      }
 
       present_position_inv_gradients[q]   = invert(F);
       present_position_inv_gradients_T[q] =

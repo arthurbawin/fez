@@ -138,7 +138,7 @@ void LinearElasticitySolver<dim>::run()
     const double c_max =
       param.linear_elasticity.max_current_mesh_source_term_multiplier;
     const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
-
+    //Progession
     const double step_size =
       n_steps > 1 ? (c_max - c_min) / static_cast<double>(n_steps - 1) : 0.0;
 
@@ -156,13 +156,7 @@ void LinearElasticitySolver<dim>::run()
 
       if (param.debug.compare_analytical_jacobian_with_fd)
         compare_analytical_matrix_with_fd();
-<<<<<<< HEAD
       solve_nonlinear_problem(false);
-=======
-      solve_nonlinear_problem(time_handler);
-
-      source_term_moving_mesh_multiplier *= r;
->>>>>>> origin/master
     }
   }
   else

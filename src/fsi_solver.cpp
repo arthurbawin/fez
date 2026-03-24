@@ -757,6 +757,20 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
       this->locally_relevant_dofs.add_indices(all_boundary_lambda_dofs.begin(),
                                               all_boundary_lambda_dofs.end());
       this->locally_relevant_dofs.compress();
+
+      // (Re-)create the dofs_to_component map and specify that
+      // the added non-local dofs are lambda dofs
+      fill_dofs_to_component(this->dof_handler,
+                             this->locally_relevant_dofs,
+                             this->dofs_to_component);
+      AssertDimension(this->dofs_to_component.size(),
+                      this->locally_relevant_dofs.n_elements());
+      // FIXME: all the added lambda dofs are added as "l_lower", i.e., the
+      // first lambda component. They should be added with their proper
+      // component...
+      for (const auto dof : all_boundary_lambda_dofs)
+        this->dofs_to_component[this->locally_relevant_dofs.index_within_set(
+          dof)] = this->ordering->l_lower;
     }
 
     // Reinitialize the ghosted parallel vectors with the additional ghosts.
@@ -2070,13 +2084,11 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
-        Assembly::weakly_enforced_no_slip_matrix<true>(
-          *this->ordering,
-          i_face,
-          this->param.fluid_bc.at(weak_no_slip_boundary_id),
-          scratch_data,
-          this->time_handler,
-          local_matrix);
+        Assembly::weakly_enforced_no_slip_matrix<true, dim>(*this->ordering,
+                                                            i_face,
+                                                            scratch_data,
+                                                            this->time_handler,
+                                                            local_matrix);
       }
     }
   }
@@ -2337,7 +2349,7 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
               .type == BoundaryConditions::Type::open_mms)
         {
           Assembly::traction_boundary_mms_rhs(
-            *this->ordering, i_face, fluid_bc, nu, scratch_data, local_rhs);
+            *this->ordering, i_face, nu, scratch_data, local_rhs);
         }
       }
     }

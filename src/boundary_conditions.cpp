@@ -685,12 +685,11 @@ namespace BoundaryConditions
                                       gathered_dofs_flattened.end());
     locally_relevant_dofs.compress();
 
-    // If the dofs_to_component map was not created, create it and specify that
+    // (Re-)create the dofs_to_component map and specify that
     // the added non-local dofs are pressure dofs
-    if (dofs_to_component.empty())
-      fill_dofs_to_component(dof_handler,
-                             locally_relevant_dofs,
-                             dofs_to_component);
+    fill_dofs_to_component(dof_handler,
+                           locally_relevant_dofs,
+                           dofs_to_component);
     AssertDimension(dofs_to_component.size(),
                     locally_relevant_dofs.n_elements());
     for (const auto dof : gathered_dofs_flattened)

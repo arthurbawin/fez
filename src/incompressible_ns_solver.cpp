@@ -501,12 +501,10 @@ void NSSolver<dim>::assemble_local_rhs(
         const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
 
         // Open boundary condition with prescribed manufactured solution
-        if (this->param.fluid_bc.at(scratchData.face_boundary_id[i_face])
-              .type == BoundaryConditions::Type::open_mms)
+        if (fluid_bc.type == BoundaryConditions::Type::open_mms)
         {
           Assembly::traction_boundary_mms_rhs(*this->ordering,
                                               i_face,
-                                              fluid_bc,
                                               nu,
                                               scratchData,
                                               local_rhs,

@@ -2,7 +2,7 @@
 #include <parameter_reader.h>
 
 template <int dim>
-void ParameterReader<dim>::check_parameters(ParameterHandler &prm) const
+void ParameterReader<dim>::check_parameters() const
 {
   // Pressure nullspace
   AssertThrow(

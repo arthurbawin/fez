@@ -58,6 +58,34 @@ subsection Time integration
   set t_end            = 2
   set scheme           = BDF2
   set bdf start method = BDF1
+
+  #
+  # Time step adaptation based on CFL number
+  #
+  subsection Adaptation
+    set verbosity = verbose
+    set enable    = true
+
+    set max timestep = 1.
+    set min timestep = 1e-3
+    set max timestep increase = 10
+    set max timestep reduction = 1e-1
+
+    set adaptation strategy = cfl
+    set target cfl number   = 1
+    set reject timestep with large cfl = true
+    set cfl ratio to reject = 2
+  end
+end
+
+subsection Postprocessing
+  subsection forces computation
+    set enable             = true
+    set boundary id        = 4
+    set output prefix      = forces
+    set output frequency   = 1
+    set computation method = stress vector
+  end
 end
 
 #
@@ -66,7 +94,7 @@ end
 # by setting "restart" to true if the run was interrupted.
 #
 subsection Checkpoint Restart
-  set enable checkpoint    = true
+  set enable checkpoint    = false
   set restart              = false
   set checkpoint file      = checkpoint
   set checkpoint frequency = 5
@@ -118,7 +146,7 @@ subsection Physical properties
   set number of fluids = 1
   subsection Fluid 0
     set density             = 1
-    set kinematic viscosity = 1
+    set kinematic viscosity = 0.005
   end
 end
 

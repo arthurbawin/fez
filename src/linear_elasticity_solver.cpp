@@ -14,6 +14,7 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <post_processing_tools.h>
+#include <solver_info.h>
 #include <utilities.h>
 
 #include <cmath>
@@ -27,10 +28,11 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
                                      param.mesh,
                                      param.time_integration,
                                      param.mms_param,
-                                     SolverType::linear_elasticity)
+                                     SolverInfo::SolverType::linear_elasticity)
   , param(param)
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)
+  , time_handler(param.time_integration)
 {
   create_quadrature_rules(param.finite_elements,
                           quadrature,
@@ -106,6 +108,9 @@ void LinearElasticitySolver<dim>::reset()
   // Direct solver
   direct_solver_reuse =
     std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+
+  // Time handler (move assign a new time handler)
+  time_handler = TimeHandler(param.time_integration);
 }
 
 template <int dim>
@@ -151,7 +156,13 @@ void LinearElasticitySolver<dim>::run()
 
       if (param.debug.compare_analytical_jacobian_with_fd)
         compare_analytical_matrix_with_fd();
+<<<<<<< HEAD
       solve_nonlinear_problem(false);
+=======
+      solve_nonlinear_problem(time_handler);
+
+      source_term_moving_mesh_multiplier *= r;
+>>>>>>> origin/master
     }
   }
   else
@@ -164,7 +175,7 @@ void LinearElasticitySolver<dim>::run()
 
     if (param.debug.compare_analytical_jacobian_with_fd)
       compare_analytical_matrix_with_fd();
-    solve_nonlinear_problem(false);
+    solve_nonlinear_problem(time_handler);
   }
 
   postprocess_solution();
@@ -660,8 +671,7 @@ void LinearElasticitySolver<dim>::copy_local_to_global_rhs(
 }
 
 template <int dim>
-void LinearElasticitySolver<dim>::solve_linear_system(
-  const bool /*apply_inhomogeneous_constraints*/)
+void LinearElasticitySolver<dim>::solve_linear_system()
 {
   const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
 

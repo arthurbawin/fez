@@ -241,6 +241,8 @@ public:
   std::vector<double> bdf_coefficients;
   unsigned int        bdf_order;
 
+  bool with_adaptive_timestep;
+
   bool         rolledback_step;
   unsigned int n_consecutive_rejected_steps;
   unsigned int n_rejected_steps;
@@ -305,6 +307,7 @@ void TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
   ar &current_dt;
   ar &time_steps;
   ar &bdf_coefficients;
+  ar &with_adaptive_timestep;
 }
 
 #endif

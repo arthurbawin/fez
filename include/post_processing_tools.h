@@ -142,7 +142,7 @@ namespace PostProcessingTools
     const FEValuesExtractors::Vector &field_extractor);
 
   /**
-   * non-hp version of the function above.
+   * Non-hp version of the function above.
    */
   template <int dim, typename VectorType>
   Tensor<1, dim> compute_vector_mean_value_on_boundary(
@@ -152,6 +152,28 @@ namespace PostProcessingTools
     const VectorType                 &solution,
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &field_extractor);
+
+  /**
+   * Compute the maximum CFL number over the mesh cells.
+   */
+  template <int dim, typename VectorType>
+  double compute_max_cfl(const double                      timestep,
+                         const hp::MappingCollection<dim> &mapping_collection,
+                         const DoFHandler<dim>            &dof_handler,
+                         const hp::QCollection<dim> &cell_quadrature_collection,
+                         const VectorType           &solution,
+                         const FEValuesExtractors::Vector &velocity_extractor);
+
+  /**
+   * Non-hp version of the function above.
+   */
+  template <int dim, typename VectorType>
+  double compute_max_cfl(const double                      timestep,
+                         const Mapping<dim>               &mapping,
+                         const DoFHandler<dim>            &dof_handler,
+                         const Quadrature<dim>            &cell_quadrature,
+                         const VectorType                 &solution,
+                         const FEValuesExtractors::Vector &velocity_extractor);
 
   enum class SliceAxis : unsigned int
   {
@@ -564,6 +586,68 @@ void PostProcessingTools::set_slice_index_on_boundary(
       face->set_user_index(i_slice);
     }
   }
+}
+
+template <int dim, typename VectorType>
+double PostProcessingTools::compute_max_cfl(
+  const double                      timestep,
+  const hp::MappingCollection<dim> &mapping_collection,
+  const DoFHandler<dim>            &dof_handler,
+  const hp::QCollection<dim>       &cell_quadrature_collection,
+  const VectorType                 &solution,
+  const FEValuesExtractors::Vector &velocity_extractor)
+{
+  AssertDimension(solution.size(), dof_handler.n_dofs());
+
+  hp::FEValues<dim> hp_fe_values(mapping_collection,
+                                 dof_handler.get_fe_collection(),
+                                 cell_quadrature_collection,
+                                 UpdateFlags(update_values));
+
+  double                      local_max_cfl = 0.;
+  std::vector<Tensor<1, dim>> values;
+
+  for (const auto &cell : dof_handler.active_cell_iterators() |
+                            IteratorFilters::LocallyOwnedCell())
+  {
+    const double h = cell->diameter();
+
+    hp_fe_values.reinit(cell);
+    const FEValues<dim> &fe_values = hp_fe_values.get_present_fe_values();
+
+    values.resize(fe_values.n_quadrature_points);
+    fe_values[velocity_extractor].get_function_values(solution, values);
+    for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+    {
+      const double velocity_norm = values[q].norm();
+      local_max_cfl              = std::max(local_max_cfl, velocity_norm / h);
+    }
+  }
+
+  // Synchronize across ranks
+  const double max_cfl =
+    Utilities::MPI::max(local_max_cfl * timestep,
+                        dof_handler.get_mpi_communicator());
+
+  return max_cfl;
+}
+
+template <int dim, typename VectorType>
+double PostProcessingTools::compute_max_cfl(
+  const double                      timestep,
+  const Mapping<dim>               &mapping,
+  const DoFHandler<dim>            &dof_handler,
+  const Quadrature<dim>            &cell_quadrature,
+  const VectorType                 &solution,
+  const FEValuesExtractors::Vector &velocity_extractor)
+{
+  return PostProcessingTools::compute_max_cfl(
+    timestep,
+    hp::MappingCollection<dim>(mapping),
+    dof_handler,
+    hp::QCollection<dim>(cell_quadrature),
+    solution,
+    velocity_extractor);
 }
 
 #endif

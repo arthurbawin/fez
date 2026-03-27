@@ -99,6 +99,8 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
+  (void)p;
+  (void)values;
   AssertThrow(false,
               ExcMessage("Implement MMS source term for compressible NS"));
   // const double nu = physical_properties.fluids[0].kinematic_viscosity;

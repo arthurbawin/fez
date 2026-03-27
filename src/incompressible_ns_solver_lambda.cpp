@@ -921,13 +921,11 @@ void NSSolverLambda<dim>::assemble_local_matrix(
       if (face->at_boundary() &&
           face->boundary_id() == weak_no_slip_boundary_id)
       {
-        Assembly::weakly_enforced_no_slip_matrix(*this->ordering,
-                                                 i_face,
-                                                 this->param.fluid_bc.at(
-                                                   weak_no_slip_boundary_id),
-                                                 scratch_data,
-                                                 this->time_handler,
-                                                 local_matrix);
+        Assembly::weakly_enforced_no_slip_matrix<false, dim>(*this->ordering,
+                                                             i_face,
+                                                             scratch_data,
+                                                             this->time_handler,
+                                                             local_matrix);
       }
     }
   }

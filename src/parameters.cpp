@@ -1,5 +1,6 @@
 
 #include <parameters.h>
+#include <solver_info.h>
 #include <utilities.h>
 
 #define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
@@ -754,7 +755,94 @@ namespace Parameters
                         "initial condition",
                         Patterns::Selection("initial condition|BDF1"),
                         "Starting method for BDF schemes of order > 1.");
+      prm.declare_entry(
+        "bdf start step ratio",
+        "0.1",
+        Patterns::Double(0.),
+        "If using BDF1 as starting method for the BDF2, the first step is set "
+        "to this vlue times the initial time step");
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
+
+      // Time adaptation parameters
+      prm.enter_subsection("Adaptation");
+      {
+        DECLARE_VERBOSITY_PARAM(prm, "verbose")
+        prm.declare_entry("enable",
+                          "false",
+                          Patterns::Bool(),
+                          "Enable adaptive time stepping");
+        prm.declare_entry("adaptation strategy",
+                          "bdf truncation error",
+                          Patterns::Selection("bdf truncation error|cfl"),
+                          "Strategy used to drive timestep adaptation");
+        // Set the maximum absolute time step to the arbitrary value of 100
+        prm.declare_entry("max timestep",
+                          "100.",
+                          Patterns::Double(),
+                          "Maximum time step allowed");
+        // Set the minimum absolute time step to the arbitrary value of 1e-6
+        prm.declare_entry("min timestep",
+                          "1e-6",
+                          Patterns::Double(),
+                          "Minimum time step allowed");
+        prm.declare_entry(
+          "max timestep increase",
+          "10.",
+          Patterns::Double(),
+          "Maximum ratio allowed between increasing time steps");
+        prm.declare_entry(
+          "max timestep reduction",
+          "1e-1",
+          Patterns::Double(),
+          "Minimum ratio allowed between decreasing time steps");
+        prm.declare_entry("required times",
+                          "",
+                          Patterns::List(Patterns::Double()),
+                          "Times that the time integrator must hit exactly");
+
+        for (unsigned int i = 0; i < SolverInfo::n_variables; ++i)
+        {
+          prm.declare_entry("target error on " +
+                              std::string(SolverInfo::variable_names[i]),
+                            "1.",
+                            Patterns::Double(),
+                            "Target temporal error for variable " +
+                              std::string(SolverInfo::variable_names[i]));
+        }
+        prm.declare_entry("reject timestep with large error",
+                          "false",
+                          Patterns::Bool(),
+                          "Reject time steps with error estimate larger than "
+                          "target times given factor");
+        // The reject factor is the ratio (estimated_error / target error),
+        // and if this ratio is too high, the time step is rejected.
+        // The ratio for which a step is rejected should be > 1, since the
+        // step adaptation aims for steps with a ratio = 1.
+        prm.declare_entry("error ratio to reject",
+                          "2.",
+                          Patterns::Double(1.),
+                          "Time step is rejected if its error estimate exceeds "
+                          "this value times the target error");
+        prm.declare_entry("compute error on estimator",
+                          "false",
+                          Patterns::Bool(),
+                          "");
+        prm.declare_entry("target cfl number",
+                          "1.",
+                          Patterns::Double(),
+                          "Target CFL number for timestep adaptation");
+        prm.declare_entry("reject timestep with large cfl",
+                          "false",
+                          Patterns::Bool(),
+                          "Reject time steps with CFL number larger than "
+                          "target times given factor");
+        prm.declare_entry("cfl ratio to reject",
+                          "2.",
+                          Patterns::Double(1.),
+                          "Time step is rejected if its CFL number exceeds "
+                          "this value times the target CFL");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -767,18 +855,9 @@ namespace Parameters
       t_initial = prm.get_double("t_initial");
       t_end     = prm.get_double("t_end");
 
-      // Set the number of (constant) time steps.
-      // For now, we only consider an integer number of time steps.
-      // const double n_timesteps_estimate = (t_end - t_initial) / dt;
-      // n_constant_timesteps              = std::floor(n_timesteps_estimate);
-      // AssertThrow(
-      //   std::abs(n_timesteps_estimate - n_constant_timesteps) < 1e-2,
-      //   ExcMessage(
-      //     "The prescribed (constant) time step does not yield an integer
-      //     number " "of steps for the given time interval. The given time step
-      //     yields "
-      //     + std::to_string(n_timesteps_estimate) + " time steps. For now, we
-      //     only consider an integer number of constant " "time steps."));
+      AssertThrow(dt <= t_end,
+                  ExcMessage("The initial time step should not be greater than "
+                             "the simulation end time."));
 
       const std::string parsed_scheme = prm.get("scheme");
       if (parsed_scheme == "stationary")
@@ -798,7 +877,61 @@ namespace Parameters
       else
         throw std::runtime_error("Unknown BDF starting method : " +
                                  parsed_startup);
+      bdf_starting_step_ratio = prm.get_double("bdf start step ratio");
       READ_VERBOSITY_PARAM(prm, verbosity)
+
+      prm.enter_subsection("Adaptation");
+      {
+        READ_VERBOSITY_PARAM(prm, adaptation.verbosity)
+        adaptation.enable          = prm.get_bool("enable");
+        const auto parsed_strategy = prm.get("adaptation strategy");
+        if (parsed_strategy == "bdf truncation error")
+          adaptation.strategy =
+            Adaptation::AdaptationStrategy::BDFTruncationError;
+        else if (parsed_strategy == "cfl")
+          adaptation.strategy = Adaptation::AdaptationStrategy::CFL;
+        else
+          throw std::runtime_error("Unknown timestep adaptation method : " +
+                                   parsed_strategy);
+        adaptation.max_timestep = prm.get_double("max timestep");
+        adaptation.min_timestep = prm.get_double("min timestep");
+        adaptation.max_timestep_increase =
+          prm.get_double("max timestep increase");
+        adaptation.max_timestep_reduction =
+          prm.get_double("max timestep reduction");
+        adaptation.required_times = Utilities::string_to_double(
+          Utilities::split_string_list(prm.get("required times"), ","));
+
+        for (const auto time : adaptation.required_times)
+        {
+          AssertThrow(
+            time > t_initial,
+            ExcMessage(
+              "The required times should be greater than the starting time"));
+          AssertThrow(
+            time < t_end,
+            ExcMessage(
+              "The required times should be greater than the final time"));
+        }
+        std::sort(adaptation.required_times.begin(),
+                  adaptation.required_times.end());
+
+        for (unsigned int i = 0; i < SolverInfo::n_variables; ++i)
+          adaptation.target_error[SolverInfo::variable_types[i]] =
+            prm.get_double("target error on " +
+                           std::string(SolverInfo::variable_names[i]));
+        adaptation.reject_timestep_with_large_error =
+          prm.get_bool("reject timestep with large error");
+        adaptation.reject_error_factor =
+          prm.get_double("error ratio to reject");
+        adaptation.compute_error_on_estimator =
+          prm.get_bool("compute error on estimator");
+        adaptation.target_cfl = prm.get_double("target cfl number");
+        adaptation.reject_timestep_with_large_cfl =
+          prm.get_bool("reject timestep with large cfl");
+        adaptation.reject_cfl_factor = prm.get_double("cfl ratio to reject");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -1011,6 +1144,18 @@ namespace Parameters
                         Patterns::Bool(),
                         "If disabled, compute and write convergence rates at "
                         "each convergence step.");
+      prm.declare_entry("print error at timesteps in console",
+                        "false",
+                        Patterns::Bool(),
+                        "");
+      prm.declare_entry("print error at timesteps to file",
+                        "false",
+                        Patterns::Bool(),
+                        "");
+      prm.declare_entry("error at timesteps file prefix",
+                        "unsteady_errors",
+                        Patterns::Anything(),
+                        "");
       prm.enter_subsection("Space convergence");
       {
         prm.declare_entry("use dealii cube mesh",
@@ -1088,6 +1233,11 @@ namespace Parameters
         prm.get_bool("write convergence table to file");
       convergence_file_prefix   = prm.get("convergence file prefix");
       compute_rates_only_at_end = prm.get_bool("compute rates only at end");
+      print_unsteady_errors_to_console =
+        prm.get_bool("print error at timesteps in console");
+      print_unsteady_errors_to_file =
+        prm.get_bool("print error at timesteps to file");
+      unsteady_errors_file_prefix = prm.get("error at timesteps file prefix");
       prm.enter_subsection("Space convergence");
       {
         use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");

@@ -94,7 +94,7 @@ public:
   void set_initial_conditions();
   void set_exact_solution();
 
-  virtual void solve_linear_system(const bool /* */) override;
+  virtual void solve_linear_system() override;
 
   virtual void assemble_matrix() override;
 
@@ -142,6 +142,7 @@ protected:
   parallel::fullydistributed::Triangulation<dim> triangulation;
   std::shared_ptr<Mapping<dim>>                  mapping;
   DoFHandler<dim>                                dof_handler;
+  TimeHandler                                    time_handler; // dummy
 
   FEValuesExtractors::Vector position_extractor;
   ComponentMask              position_mask;

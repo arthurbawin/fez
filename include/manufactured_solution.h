@@ -120,6 +120,9 @@ namespace ManufacturedSolutions
   class MMSFunction : public Function<dim>
   {
   public:
+    /**
+     * Constructor.
+     */
     MMSFunction(const unsigned int n_components,
                 const bool         ignore_time_derivative = false,
                 const bool         ignore_hessian         = false,
@@ -152,6 +155,43 @@ namespace ManufacturedSolutions
      */
     virtual double time_derivative(const Point<dim>  &p,
                                    const unsigned int component = 0) const = 0;
+
+    /**
+     * Time second derivative
+     */
+    virtual double
+    time_second_derivative(const Point<dim>  &p,
+                           const unsigned int component = 0) const
+    {
+      Assert(false, ExcPureFunctionCalled());
+      return 0.;
+    }
+
+    /**
+     * Time third derivative
+     */
+    virtual double time_third_derivative(const Point<dim>  &p,
+                                         const unsigned int component = 0) const
+    {
+      Assert(false, ExcPureFunctionCalled());
+      return 0.;
+    }
+
+    double time_derivative_of_order(const unsigned int order,
+                                    const Point<dim>  &p,
+                                    const unsigned int component = 0) const
+    {
+      if (order == 1)
+        return time_derivative(p, component);
+      else if (order == 2)
+        return time_second_derivative(p, component);
+      else if (order == 3)
+        return time_third_derivative(p, component);
+      else
+        DEAL_II_NOT_IMPLEMENTED();
+      return 0.;
+    }
+
     /**
      * Laplacian (deal.II override)
      */

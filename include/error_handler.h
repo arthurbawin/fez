@@ -12,45 +12,28 @@ using namespace dealii;
 class ErrorHandler
 {
 public:
+  /**
+   * Constructor.
+   */
   ErrorHandler(const Parameters::MMS             &mms_parameters,
-               const Parameters::TimeIntegration &time_parameters)
-    : mms_param(mms_parameters)
-    , time_param(time_parameters)
-    , is_steady(time_parameters.scheme ==
-                Parameters::TimeIntegration::Scheme::stationary)
-  {}
+               const Parameters::TimeIntegration &time_parameters);
 
   /**
-   * Create an entry in the error table, that is, an L^p norm in space and/or in
-   * time for a given field. For instance, error_handler.create_entry("L2_u").
+   * Create an entry in the error table to store an error norm in space and/or
+   * in time for a given field.
    */
-  void create_entry(const std::string &error_name)
-  {
-    ordered_keys.push_back(error_name);
-    domain_errors.insert({error_name, std::make_unique<double>()});
-
-    // TODO: Reserve vectors with an estimate on the number of time steps?
-    // This is easy if only constant time steps are expected for convergence
-    // studies, because then the number of time steps is known.
-    unsteady_errors[error_name].clear();
-  }
+  void create_entry(const std::string &field_name);
 
   /**
    * Add an integer reference value (number of mesh elements or dof).
    * These values won't be printed in scientific notation.
    */
-  void add_reference_data(const std::string &name, const unsigned int value)
-  {
-    error_table.add_value(name, value);
-  }
+  void add_reference_data(const std::string &name, const unsigned int value);
 
   /**
    * Add the (constant) time step used for this step of convergence study.
    */
-  void add_time_step(double time_step)
-  {
-    error_table.add_value("dt", time_step);
-  }
+  void add_time_step(double time_step);
 
   /**
    * Add a spatial error entry.
@@ -60,141 +43,61 @@ public:
    *
    * If it is unsteady, this stores the spatial error at time t. The prescribed
    * L^p norm in time is computed at the end of the simulation.
-   * The error at all times are kept, e.g. to be plotted in postprocessing.
+   * The error at all times are kept, e.g., to be plotted in postprocessing.
    */
   void add_error(const std::string &field_name,
                  const double       error_val,
-                 const double       time = 0.)
-  {
-    if (is_steady)
-      add_steady_error(field_name, error_val);
-    else
-      add_unsteady_error(field_name, error_val, time);
-  }
+                 const double       time = 0.);
 
   /**
    * Return the unsteady errors (t, e(t)) for the given field.
    */
   const std::vector<std::pair<double, double>> &
-  get_unsteady_errors(const std::string &field_name) const
-  {
-    AssertThrow(
-      unsteady_errors.count(field_name) > 0,
-      ExcMessage(
-        "You requested the vector of unsteady errors for the field \"" +
-        field_name +
-        "\", but this ErrorHandler does not store errors for this field."));
-    return unsteady_errors.at(field_name);
-  }
+  get_unsteady_errors(const std::string &field_name) const;
+
+  /**
+   * Write the errors for all stored fields.
+   * If simulation is unsteady, print the errors for each time step.
+   */
+  void write_errors(std::ostream      &out       = std::cout,
+                    const unsigned int precision = 6) const;
+
+  /**
+   * Compute the temporal or spacetime error if needed
+   */
+  void compute_temporal_error();
+
+  /**
+   * Clear the t - error(t) table, e.g. in between two convergence steps.
+   */
+  void clear_error_history();
+
+  /**
+   * Compute the convergence rates with respect to the number of elements,
+   * number of dofs, time step or number of time steps, depending on the
+   * type of convergence study being run.
+   */
+  template <int dim>
+  void compute_rates();
+
+  /**
+   * Write the convergence table to the given stream.
+   * Simply forward the call to the underlying ConvergenceTable.
+   */
+  void write_rates(std::ostream &out = std::cout);
 
 private:
   /**
    * Add an error to the underlying error table to compute convergence.
    */
-  void add_steady_error(const std::string &error_name, const double error_val)
-  {
-    AssertThrow(
-      domain_errors.count(error_name) == 1,
-      ExcMessage(
-        "Cannot add steady error value for field " + error_name +
-        " because it does not exist in the error handler. Add it first."));
-    *(domain_errors.at(error_name)) = error_val;
-    error_table.add_value(error_name, error_val);
-  }
+  void add_steady_error(const std::string &error_name, const double error_val);
 
   /**
    * Store a spatial error at time t for an unsteady simulation.
    */
   void add_unsteady_error(const std::string &error_name,
                           const double       error_val,
-                          const double       time)
-  {
-    AssertThrow(
-      domain_errors.count(error_name) == 1,
-      ExcMessage(
-        "Cannot add unsteady error value for field " + error_name +
-        " because it does not exist in the error handler. Add it first."));
-    // *(domain_errors.at(error_name)) = error_val;
-    // error_table.add_value(error_name, error_val);
-
-    auto &error_vec = unsteady_errors.at(error_name);
-    error_vec.push_back({time, error_val});
-  }
-
-public:
-  // Compute the temporal or spacetime error if needed
-  void compute_temporal_error()
-  {
-    for (const auto &key : ordered_keys)
-    {
-      auto &error_vec = unsteady_errors.at(key);
-
-      double error = 0.;
-      switch (mms_param.time_norm)
-      {
-        case Parameters::MMS::TimeLpNorm::L1:
-        {
-          const double dt = std::abs(error_vec[1].first - error_vec[0].first);
-          for (const auto &[time, err] : error_vec)
-          {
-            error += dt * err;
-          }
-          break;
-        }
-        case Parameters::MMS::TimeLpNorm::L2:
-        {
-          DEAL_II_NOT_IMPLEMENTED();
-          break;
-        }
-        case Parameters::MMS::TimeLpNorm::Linfty:
-        {
-          for (const auto &[time, err] : error_vec)
-            error = std::max(error, err);
-          break;
-        }
-      }
-
-      // Add time Lp norm to error table
-      error_table.add_value(key, error);
-    }
-  }
-
-  /**
-   * Clear the t - error(t) table, e.g. in between two convergence steps.
-   */
-  void clear_error_history()
-  {
-    for (auto &[key, error_vec] : unsteady_errors)
-      error_vec.clear();
-  }
-
-  template <int dim>
-  void compute_rates()
-  {
-    for (const auto &key : ordered_keys)
-    {
-      if (mms_param.type == Parameters::MMS::Type::space ||
-          mms_param.type == Parameters::MMS::Type::spacetime)
-        error_table.evaluate_convergence_rates(
-          key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
-      if (mms_param.type == Parameters::MMS::Type::time)
-        error_table.evaluate_convergence_rates(
-          key, "dt", ConvergenceTable::reduction_rate_log2, 1);
-      error_table.set_precision(key, 4);
-      error_table.set_scientific(key, true);
-    }
-  }
-
-  void write_rates()
-  {
-    // for(const auto &[field, errors]: unsteady_errors)
-    // {
-    //   std::cout << "Errors for " << field << std::endl;
-    //   for(const auto &[t,e] : errors)
-    //     std::cout << t << " : " << e << std::endl;
-    // }
-    error_table.write_text(std::cout);
-  }
+                          const double       time);
 
 public:
   const Parameters::MMS             &mms_param;
@@ -208,8 +111,40 @@ public:
   ConvergenceTable error_table;
 
   // Use vector of keys to maintain prescribed errors order
-  std::vector<std::string>                       ordered_keys;
+  std::vector<std::string>                       ordered_field_keys;
   std::map<std::string, std::unique_ptr<double>> domain_errors;
 };
+
+/* ---------------- Template functions ----------------- */
+
+template <int dim>
+void ErrorHandler::compute_rates()
+{
+  for (const auto &key : ordered_field_keys)
+  {
+    if (mms_param.type == Parameters::MMS::Type::space ||
+        mms_param.type == Parameters::MMS::Type::spacetime)
+      error_table.evaluate_convergence_rates(
+        key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
+    if (mms_param.type == Parameters::MMS::Type::time)
+    {
+      if (time_param.adaptation.enable)
+      {
+        // When using an adaptive time step, compute convergence rates based
+        // on the total number of time steps
+        error_table.evaluate_convergence_rates(
+          key, "n_steps", ConvergenceTable::reduction_rate_log2, 1);
+      }
+      else
+      {
+        // Without adaptivity, compute rates based on the constant time step
+        error_table.evaluate_convergence_rates(
+          key, "dt", ConvergenceTable::reduction_rate_log2, 1);
+      }
+    }
+    error_table.set_precision(key, 4);
+    error_table.set_scientific(key, true);
+  }
+}
 
 #endif

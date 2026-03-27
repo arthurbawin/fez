@@ -22,6 +22,7 @@ namespace Parameters
       , linear_elasticity_source(
           std::make_shared<Functions::ParsedFunction<dim>>(dim))
       , cahnhilliard_source(std::make_shared<Functions::ParsedFunction<dim>>(2))
+      , temperature_source(std::make_shared<Functions::ParsedFunction<dim>>(1))
     {}
 
     void set_time(const double new_time)
@@ -31,6 +32,7 @@ namespace Parameters
       // Shouldn't be required as the LinearElasticitySolver is steady-state
       linear_elasticity_source->set_time(new_time);
       cahnhilliard_source->set_time(new_time);
+      temperature_source->set_time(new_time);
     }
 
   public:
@@ -69,6 +71,12 @@ namespace Parameters
      */
     std::shared_ptr<Functions::ParsedFunction<dim>> cahnhilliard_source;
 
+    /**
+     *
+     */
+    std::shared_ptr<Functions::ParsedFunction<dim>> temperature_source;
+
+
     void declare_parameters(ParameterHandler &prm)
     {
       prm.enter_subsection("Source terms");
@@ -81,6 +89,9 @@ namespace Parameters
         prm.leave_subsection();
         prm.enter_subsection("cahn hilliard");
         cahnhilliard_source->declare_parameters(prm, 2);
+        prm.leave_subsection();
+        prm.enter_subsection("temperature");
+        temperature_source->declare_parameters(prm, 1);
         prm.leave_subsection();
       }
       prm.leave_subsection();
@@ -107,6 +118,9 @@ namespace Parameters
         prm.leave_subsection();
         prm.enter_subsection("cahn hilliard");
         cahnhilliard_source->parse_parameters(prm);
+        prm.leave_subsection();
+        prm.enter_subsection("temperature");
+        temperature_source->parse_parameters(prm);
         prm.leave_subsection();
       }
       prm.leave_subsection();

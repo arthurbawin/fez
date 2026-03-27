@@ -1,0 +1,213 @@
+Number of MPI processes: 1
+Number of degrees of freedom: 187
+
+Time step 1 - Advancing to t = 0.1 with time step 0.1.
+
+Time step 2 - Advancing to t = 0.2 with time step 0.1.
+Max error for variable velocity is 0.00994175
+Max error for variable pressure is 0.022453
+
+Time step 3 - Advancing to t = 0.867364 with time step 0.667364.
+Max error for variable velocity is 0.406211
+Max error for variable pressure is 0.820377
+
+Time step 4 - Advancing to t = 1.60417 with time step 0.736811.
+Max error for variable velocity is 0.404909
+Max error for variable pressure is 3.06896
+Rejecting step because error ratio for variable "pressure" is = 3.06896
+Trying again with time step = 0.378532
+
+Time step 4 - Advancing to t = 1.2459 with time step 0.378532.
+Max error for variable velocity is 0.100337
+Max error for variable pressure is 0.769844
+
+Time step 5 - Advancing to t = 1.67732 with time step 0.431421.
+Max error for variable velocity is 0.174989
+Max error for variable pressure is 1.33583
+Rejecting step because error ratio for variable "pressure" is = 1.33583
+Trying again with time step = 0.335945
+
+Time step 5 - Advancing to t = 1.58184 with time step 0.335945.
+Max error for variable velocity is 0.105305
+Max error for variable pressure is 0.796763
+
+Time step 6 - Advancing to t = 1.9582 with time step 0.37636.
+Max error for variable velocity is 0.140112
+Max error for variable pressure is 1.34669
+Rejecting step because error ratio for variable "pressure" is = 1.34669
+Trying again with time step = 0.291885
+
+Time step 6 - Advancing to t = 1.87373 with time step 0.291885.
+Max error for variable velocity is 0.0844975
+Max error for variable pressure is 0.804627
+
+Time step 7 - Advancing to t = 2 with time step 0.126275.
+Max error for variable velocity is 0.0153993
+Max error for variable pressure is 0.183684
+
+Unsteady errors :
+	t	u	p	
++1.000000e-01	+1.791325e-05	+1.050361e-02	
++2.000000e-01	+1.611047e-05	+1.086743e-02	
++8.673638e-01	+2.647173e-05	+7.898661e-02	
++1.245896e+00	+3.419894e-05	+4.405561e-02	
++1.581840e+00	+5.856046e-05	+3.561540e-02	
++1.873725e+00	+6.741762e-05	+2.746590e-02	
++2.000000e+00	+3.272163e-05	+1.106687e-02	
+Number of degrees of freedom: 187
+
+Time step 1 - Advancing to t = 0.05 with time step 0.05.
+
+Time step 2 - Advancing to t = 0.1 with time step 0.05.
+Max error for variable velocity is 0.00249636
+Max error for variable pressure is 0.00905466
+
+Time step 3 - Advancing to t = 0.471551 with time step 0.371551.
+Max error for variable velocity is 0.134504
+Max error for variable pressure is 0.115596
+
+Time step 4 - Advancing to t = 1.18792 with time step 0.716368.
+Max error for variable velocity is 0.416799
+Max error for variable pressure is 1.87213
+Rejecting step because error ratio for variable "pressure" is = 3.74427
+Trying again with time step = 0.333193
+
+Time step 4 - Advancing to t = 0.804744 with time step 0.333193.
+Max error for variable velocity is 0.0985101
+Max error for variable pressure is 0.366584
+
+Time step 5 - Advancing to t = 1.19387 with time step 0.389129.
+Max error for variable velocity is 0.109852
+Max error for variable pressure is 0.735991
+Rejecting step because error ratio for variable "pressure" is = 1.47198
+Trying again with time step = 0.288659
+
+Time step 5 - Advancing to t = 1.0934 with time step 0.288659.
+Max error for variable velocity is 0.0587088
+Max error for variable pressure is 0.404911
+
+Time step 6 - Advancing to t = 1.41417 with time step 0.320767.
+Max error for variable velocity is 0.0911784
+Max error for variable pressure is 0.668971
+Rejecting step because error ratio for variable "pressure" is = 1.33794
+Trying again with time step = 0.249582
+
+Time step 6 - Advancing to t = 1.34299 with time step 0.249582.
+Max error for variable velocity is 0.0546185
+Max error for variable pressure is 0.407617
+
+Time step 7 - Advancing to t = 1.61941 with time step 0.276422.
+Max error for variable velocity is 0.0741569
+Max error for variable pressure is 0.607762
+
+Time step 8 - Advancing to t = 1.87013 with time step 0.250721.
+Max error for variable velocity is 0.0624476
+Max error for variable pressure is 0.619285
+
+Time step 9 - Advancing to t = 2 with time step 0.129872.
+Max error for variable velocity is 0.016253
+Max error for variable pressure is 0.193173
+
+Unsteady errors :
+	t	u	p	
++5.000000e-02	+9.129314e-06	+5.189739e-03	
++1.000000e-01	+8.954712e-06	+5.283854e-03	
++4.715514e-01	+4.341179e-05	+4.232217e-02	
++8.047439e-01	+9.364985e-06	+3.992801e-02	
++1.093403e+00	+1.689530e-05	+3.427340e-02	
++1.342985e+00	+3.149670e-05	+2.823631e-02	
++1.619407e+00	+5.151568e-05	+2.873708e-02	
++1.870128e+00	+5.832398e-05	+2.350804e-02	
++2.000000e+00	+3.346851e-05	+1.138737e-02	
+Number of degrees of freedom: 187
+
+Time step 1 - Advancing to t = 0.025 with time step 0.025.
+
+Time step 2 - Advancing to t = 0.05 with time step 0.025.
+Max error for variable velocity is 0.000624772
+Max error for variable pressure is 0.00427413
+
+Time step 3 - Advancing to t = 0.241199 with time step 0.191199.
+Max error for variable velocity is 0.0363119
+Max error for variable pressure is 0.0338044
+
+Time step 4 - Advancing to t = 0.742884 with time step 0.501685.
+Max error for variable velocity is 0.234383
+Max error for variable pressure is 0.53184
+Rejecting step because error ratio for variable "pressure" is = 2.12736
+Trying again with time step = 0.309566
+
+Time step 4 - Advancing to t = 0.550765 with time step 0.309566.
+Max error for variable velocity is 0.0915937
+Max error for variable pressure is 0.187765
+
+Time step 5 - Advancing to t = 0.907968 with time step 0.357203.
+Max error for variable velocity is 0.106659
+Max error for variable pressure is 0.456902
+Rejecting step because error ratio for variable "pressure" is = 1.82761
+Trying again with time step = 0.237802
+
+Time step 5 - Advancing to t = 0.788567 with time step 0.237802.
+Max error for variable velocity is 0.0485748
+Max error for variable pressure is 0.211418
+
+Time step 6 - Advancing to t = 1.04716 with time step 0.258592.
+Max error for variable velocity is 0.047514
+Max error for variable pressure is 0.300126
+
+Time step 7 - Advancing to t = 1.28317 with time step 0.236011.
+Max error for variable velocity is 0.0477826
+Max error for variable pressure is 0.359894
+Rejecting step because error ratio for variable "pressure" is = 1.43958
+Trying again with time step = 0.177035
+
+Time step 7 - Advancing to t = 1.22419 with time step 0.177035.
+Max error for variable velocity is 0.0265994
+Max error for variable pressure is 0.211497
+
+Time step 8 - Advancing to t = 1.41667 with time step 0.192476.
+Max error for variable velocity is 0.0348088
+Max error for variable pressure is 0.249542
+
+Time step 9 - Advancing to t = 1.60932 with time step 0.192652.
+Max error for variable velocity is 0.0365621
+Max error for variable pressure is 0.320383
+Rejecting step because error ratio for variable "pressure" is = 1.28153
+Trying again with time step = 0.153162
+
+Time step 9 - Advancing to t = 1.56983 with time step 0.153162.
+Max error for variable velocity is 0.0230737
+Max error for variable pressure is 0.207432
+
+Time step 10 - Advancing to t = 1.73798 with time step 0.168145.
+Max error for variable velocity is 0.0282117
+Max error for variable pressure is 0.256081
+
+Time step 11 - Advancing to t = 1.90411 with time step 0.166136.
+Max error for variable velocity is 0.0271563
+Max error for variable pressure is 0.291385
+
+Time step 12 - Advancing to t = 2 with time step 0.0958863.
+Max error for variable velocity is 0.00874336
+Max error for variable pressure is 0.109059
+
+Unsteady errors :
+	t	u	p	
++2.500000e-02	+4.486891e-06	+2.579412e-03	
++5.000000e-02	+4.675860e-06	+2.602526e-03	
++2.411991e-01	+3.000807e-05	+2.083518e-02	
++5.507651e-01	+2.851718e-05	+3.605155e-02	
++7.885675e-01	+5.810142e-06	+2.856062e-02	
++1.047159e+00	+1.267805e-05	+3.083639e-02	
++1.224194e+00	+1.818649e-05	+2.048635e-02	
++1.416670e+00	+2.855344e-05	+2.123978e-02	
++1.569832e+00	+2.839524e-05	+1.599528e-02	
++1.737977e+00	+3.626949e-05	+1.647700e-02	
++1.904114e+00	+4.013845e-05	+1.519775e-02	
++2.000000e+00	+2.486370e-05	+8.373654e-03	
+
+L2_norm
+n_elm n_dof   dt          u               p        n_steps 
+   32   187 0.1000 6.7418e-05    - 7.8987e-02    -       7 
+   32   187 0.0500 5.8324e-05 0.58 4.2322e-02 2.48       9 
+   32   187 0.0250 4.0138e-05 1.30 3.6052e-02 0.56      12

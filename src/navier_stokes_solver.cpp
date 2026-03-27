@@ -991,9 +991,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::load(
   evaluation_point       = present_solution;
 }
 
-/**
- * This checkpoint uses a boost::archive instead of SolutionTransfer
- */
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
 {

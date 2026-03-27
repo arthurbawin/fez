@@ -94,7 +94,7 @@ public:
   virtual void setup_dofs();
 
   /**
-   * For solvers with a moving mesh, initialize the MappingFEField from the 
+   * For solvers with a moving mesh, initialize the MappingFEField from the
    * mesh position part of the solution vector.
    */
   virtual void setup_mappings();
@@ -315,7 +315,7 @@ public:
   void load(Archive &ar, const unsigned int version);
 
   /**
-   * Tell Boost to use the split save/load functions above rather than a unique 
+   * Tell Boost to use the split save/load functions above rather than a unique
    * serialize function for both saving and loading.
    */
   BOOST_SERIALIZATION_SPLIT_MEMBER()

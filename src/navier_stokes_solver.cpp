@@ -159,6 +159,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
     restart();
   }
 
+  setup_mappings();
+
   if (param.bc_data.enforce_zero_mean_pressure)
     create_zero_mean_pressure_constraints_data();
   create_solver_specific_constraints_data();
@@ -234,7 +236,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 {
-  TimerOutput::Scope t(computing_timer, "Setup");
+  TimerOutput::Scope t(computing_timer, "Setup dofs");
 
   auto &comm = mpi_communicator;
 
@@ -268,18 +270,29 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
   previous_solutions.resize(time_handler.n_previous_solutions);
   for (auto &previous_sol : previous_solutions)
     previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::setup_mappings()
+{
+  TimerOutput::Scope t(computing_timer, "Setup mappings");
 
   if constexpr (with_moving_mesh)
   {
     // Initialize mesh position directly from the triangulation.
     // The parallel vector storing the mesh position is local_evaluation_point,
     // because this is the one to modify when computing finite differences.
-    VectorTools::get_position_vector(*fixed_mapping,
-                                     dof_handler,
-                                     local_evaluation_point,
-                                     position_mask);
-    local_evaluation_point.compress(VectorOperation::insert);
-    evaluation_point = local_evaluation_point;
+    // If the solution was restarted, the evaluation point already stores
+    // the current solution, so don't overwrite it.
+    if (!param.checkpoint_restart.restart)
+    {
+      VectorTools::get_position_vector(*fixed_mapping,
+                                       dof_handler,
+                                       local_evaluation_point,
+                                       position_mask);
+      local_evaluation_point.compress(VectorOperation::insert);
+      evaluation_point = local_evaluation_point;
+    }
 
     // Also store them in initial_positions, for postprocessing:
     initial_positions = DoFTools::map_dofs_to_support_points(*fixed_mapping,
@@ -309,7 +322,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_dofs()
 }
 
 template <int dim, bool with_moving_mesh>
-void NavierStokesSolver<dim, with_moving_mesh>::reinit_vectors()
+void NavierStokesSolver<dim, with_moving_mesh>::reinit_ghosted_vectors()
 {
   present_solution.reinit(locally_owned_dofs,
                           locally_relevant_dofs,
@@ -357,7 +370,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::
 
   // The mean pressure constraint added pressure ghost dofs,
   // so parallel vectors should be reinitialized to account for them.
-  reinit_vectors();
+  reinit_ghosted_vectors();
 }
 
 template <int dim, bool with_moving_mesh>
@@ -937,117 +950,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::finalize()
   postproc_handler->write_pvd();
 }
 
-// template <int dim, bool with_moving_mesh>
-// void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
-// {
-//   TimerOutput::Scope t(computing_timer, "Write checkpoint");
-
-//   pcout << std::endl;
-//   pcout << "--- Writing checkpoint... ---" << std::endl << std::endl;
-
-//   const std::string checkpoint_prefix =
-//     param.output.output_dir + param.checkpoint_restart.filename;
-//   const std::string tmp_checkpoint_prefix =
-//     param.output.output_dir + "tmp." + param.checkpoint_restart.filename;
-
-//   {
-//     // Save the time handler data
-//     std::ofstream checkpoint_file(tmp_checkpoint_prefix + ".timeinfo");
-//     AssertThrow(checkpoint_file,
-//                 ExcMessage("Could not write to the checkpoint file."));
-//     boost::archive::text_oarchive archive(checkpoint_file);
-//     archive << time_handler;
-//   }
-
-//   /**
-//    * Prepare to write the present and previous solutions
-//    */
-//   std::vector<const LA::ParVectorType *> vectors_to_checkpoint(
-//     previous_solutions.size() + 1);
-//   vectors_to_checkpoint[0] = &present_solution;
-//   for (unsigned int i = 0; i < previous_solutions.size(); ++i)
-//     vectors_to_checkpoint[i + 1] = &previous_solutions[i];
-
-//   SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
-//   solution_transfer.prepare_for_serialization(vectors_to_checkpoint);
-//   triangulation.save(tmp_checkpoint_prefix);
-
-//   replace_temporary_files(param.output.output_dir,
-//                           "tmp." + param.checkpoint_restart.filename,
-//                           param.checkpoint_restart.filename,
-//                           mpi_communicator);
-// }
-
-// template <int dim, bool with_moving_mesh>
-// void NavierStokesSolver<dim, with_moving_mesh>::restart()
-// {
-//   pcout << std::endl;
-//   pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
-
-//   const std::string checkpoint_prefix =
-//     param.output.output_dir + param.checkpoint_restart.filename;
-
-//   {
-//     std::ifstream checkpoint_file(checkpoint_prefix + ".timeinfo");
-//     AssertThrow(checkpoint_file,
-//                 ExcMessage("Could not read from the checkpoint file."));
-//     boost::archive::text_iarchive archive(checkpoint_file);
-//     archive >> time_handler;
-//   }
-
-//   pcout << "Loading triangulation" << std::endl;
-
-//   {
-//     unsigned int version, numcpus, attached_count_fixed,
-//     attached_count_variable, n_global_active_cells;
-//     {
-//       std::ifstream ifs_info(std::string(checkpoint_prefix) + ".info");
-//       AssertThrow(ifs_info.fail() == false, ExcIO());
-//       std::string firstline;
-//       std::getline(ifs_info, firstline);
-//       ifs_info >> version >> numcpus >> attached_count_fixed >>
-//         attached_count_variable >> n_global_active_cells;
-//       std::cout << "Proc " << mpi_rank << " : " << version << " - " <<
-//       numcpus << " - " <<  attached_count_fixed << " - " <<
-//         attached_count_variable << " - " <<  n_global_active_cells <<
-//         std::endl;
-//     }
-//   }
-
-//   triangulation.load(checkpoint_prefix);
-//   pcout << "Done" << std::endl;
-
-//   // Update the time handler
-//   time_handler.update_parameters_after_restart(param.time_integration);
-
-//   // Setup the dofhandler and parallel vectors here
-//   setup_dofs();
-
-//   // SolutionTransfer deserializes to a vector of ptrs to fully distributed
-//   // vectors (without ghosts), but the present and previous solutions have
-//   // ghosts, so they must be set after the call to deserialize
-//   const unsigned int             n_vec = time_handler.n_previous_solutions +
-//   1; std::vector<LA::ParVectorType> vectors_to_read(n_vec);
-//   std::vector<LA::ParVectorType *> ptrs_to_vectors_to_read(n_vec);
-//   for (unsigned int i = 0; i < n_vec; ++i)
-//   {
-//     // Fully distributed vector
-//     vectors_to_read[i].reinit(locally_owned_dofs, mpi_communicator);
-//     ptrs_to_vectors_to_read[i] = &vectors_to_read[i];
-//   }
-
-//   SolutionTransfer<dim, LA::ParVectorType> solution_transfer(dof_handler);
-//   solution_transfer.deserialize(ptrs_to_vectors_to_read);
-
-//   // Assign the fully distr. vectors to the existing ghosted ones
-//   present_solution = vectors_to_read[0];
-//   for (unsigned int i = 0; i < time_handler.n_previous_solutions; ++i)
-//     previous_solutions[i] = vectors_to_read[i + 1];
-
-//   local_evaluation_point = present_solution;
-//   evaluation_point       = present_solution;
-// }
-
 template <int dim, bool with_moving_mesh>
 template <class Archive>
 void NavierStokesSolver<dim, with_moving_mesh>::save(
@@ -1066,33 +968,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::load(
   Archive &ar,
   const unsigned int /* version */)
 {
-  // Initialize parallel vectors
-  present_solution.reinit(locally_owned_dofs,
-                          locally_relevant_dofs,
-                          mpi_communicator);
-  evaluation_point.reinit(locally_owned_dofs,
-                          locally_relevant_dofs,
-                          mpi_communicator);
-  local_evaluation_point.reinit(locally_owned_dofs, mpi_communicator);
-  newton_update.reinit(locally_owned_dofs, mpi_communicator);
-  system_rhs.reinit(locally_owned_dofs, mpi_communicator);
-
-  std::cout << "Loading present solution" << std::endl;
   ar &present_solution;
   present_solution.update_ghost_values();
 
   unsigned int n_previous_solutions;
   ar          &n_previous_solutions;
 
-  // Allocate for previous BDF solutions
-  previous_solutions.clear();
-  previous_solutions.resize(n_previous_solutions);
-  for (auto &previous_sol : previous_solutions)
-    previous_sol.reinit(locally_owned_dofs,
-                        locally_relevant_dofs,
-                        mpi_communicator);
+  AssertThrow(
+    n_previous_solutions == previous_solutions.size(),
+    ExcMessage("The number of previous solutions to read from checkpointed "
+               "data does not match the number of previous solutions used for "
+               "the current simulation. This probably indicates that you "
+               "changed the time integration method, which is not supported."));
 
-  std::cout << "Loading previous solutions" << std::endl;
   for (auto &previous_solution : previous_solutions)
   {
     ar &previous_solution;
@@ -1101,8 +989,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::load(
 
   local_evaluation_point = present_solution;
   evaluation_point       = present_solution;
-
-  std::cout << "Done loading" << std::endl;
 }
 
 /**
@@ -1116,15 +1002,14 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
   pcout << std::endl;
   pcout << "--- Writing checkpoint... ---" << std::endl << std::endl;
 
-  const std::string checkpoint_prefix =
-    param.output.output_dir + param.checkpoint_restart.filename;
   const std::string tmp_checkpoint_prefix =
     param.output.output_dir + "tmp." + param.checkpoint_restart.filename;
 
   {
-    // Save the time handler data
-    std::ofstream checkpoint_file(tmp_checkpoint_prefix +
-                                  std::to_string(mpi_rank) + "_timeinfo");
+    // Write a checkpoint file for each rank
+    // All ranks will read the same local range for their PETSc vector otherwise
+    std::ofstream checkpoint_file(tmp_checkpoint_prefix + "_rank" +
+                                  std::to_string(mpi_rank));
     AssertThrow(checkpoint_file,
                 ExcMessage("Could not write to the checkpoint file."));
     boost::archive::text_oarchive archive(checkpoint_file);
@@ -1134,8 +1019,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::checkpoint()
   }
 
   triangulation.save(tmp_checkpoint_prefix);
-  std::cout << "Saved tria with " << triangulation.n_cells() << " on proc "
-            << mpi_rank << std::endl;
 
   replace_temporary_files(param.output.output_dir,
                           "tmp." + param.checkpoint_restart.filename,
@@ -1152,38 +1035,18 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
   const std::string checkpoint_prefix =
     param.output.output_dir + param.checkpoint_restart.filename;
 
-  pcout << "Loading triangulation" << std::endl;
   triangulation.load(checkpoint_prefix);
-  std::cout << "Loaded tria with " << triangulation.n_cells() << " on proc "
-            << mpi_rank << std::endl;
+
+  // Setup up the dof handler and allocate parallel vectors before loading
+  // the stored solutions
+  setup_dofs();
 
   {
-    std::ifstream checkpoint_file(checkpoint_prefix + std::to_string(mpi_rank) +
-                                  "_timeinfo");
+    std::ifstream checkpoint_file(checkpoint_prefix + "_rank" +
+                                  std::to_string(mpi_rank));
     AssertThrow(checkpoint_file,
                 ExcMessage("Could not read from the checkpoint file."));
     boost::archive::text_iarchive archive(checkpoint_file);
-
-    // dof_handler.reinit(triangulation);
-    // dof_handler.set_hp_capabilities(false);
-
-    if (uses_hp_capabilities())
-    {
-      set_active_fe_indices();
-      dof_handler.distribute_dofs(*this->get_fe_collection());
-      pcout << "Number of degrees of freedom (hp) : " << dof_handler.n_dofs()
-            << std::endl;
-    }
-    else
-    {
-      dof_handler.distribute_dofs(this->get_fe_system());
-      pcout << "Number of degrees of freedom (non-hp) : "
-            << dof_handler.n_dofs() << std::endl;
-    }
-
-    locally_owned_dofs = dof_handler.locally_owned_dofs();
-    locally_relevant_dofs =
-      DoFTools::extract_locally_relevant_dofs(dof_handler);
 
     archive >> *this;
     archive >> time_handler;
@@ -1191,53 +1054,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
   // Update the time handler
   time_handler.update_parameters_after_restart(param.time_integration);
-
-  // Finish the call to setup dofs
-  // Initialize dof handler
-  // dof_handler.distribute_dofs(this->get_fe_system());
-
-  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
-        << std::endl;
-
-  if constexpr (with_moving_mesh)
-  {
-    // Initialize mesh position directly from the triangulation.
-    // The parallel vector storing the mesh position is local_evaluation_point,
-    // because this is the one to modify when computing finite differences.
-    VectorTools::get_position_vector(*fixed_mapping,
-                                     dof_handler,
-                                     local_evaluation_point,
-                                     position_mask);
-    local_evaluation_point.compress(VectorOperation::insert);
-    evaluation_point = local_evaluation_point;
-
-    // Also store them in initial_positions, for postprocessing:
-    initial_positions = DoFTools::map_dofs_to_support_points(*fixed_mapping,
-                                                             dof_handler,
-                                                             position_mask);
-
-    // Create the solution-dependent mapping
-    moving_mapping =
-      std::make_shared<MappingFEField<dim, dim, LA::ParVectorType>>(
-        dof_handler, evaluation_point, position_mask);
-  }
-  else
-  {
-    moving_mapping = fixed_mapping;
-  }
-
-  // For unsteady simulation, add the number of elements, dofs and/or the time
-  // step to the error handler, once per convergence run.
-  if (!time_handler.is_steady() && param.mms_param.enable)
-    for (auto &[norm, handler] : error_handlers)
-    {
-      handler->add_reference_data("n_elm",
-                                  triangulation.n_global_active_cells());
-      handler->add_reference_data("n_dof", dof_handler.n_dofs());
-      handler->add_time_step(time_handler.initial_dt);
-    }
-
-  std::cout << "Done restart" << std::endl;
 }
 
 // Explicit instantiation

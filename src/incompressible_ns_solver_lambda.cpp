@@ -273,7 +273,7 @@ void NSSolverLambda<dim>::set_active_fe_indices()
 template <int dim>
 void NSSolverLambda<dim>::setup_dofs()
 {
-  TimerOutput::Scope t(this->computing_timer, "Setup");
+  TimerOutput::Scope t(this->computing_timer, "Setup dofs");
 
   auto &comm = this->mpi_communicator;
 
@@ -312,6 +312,12 @@ void NSSolverLambda<dim>::setup_dofs()
     previous_sol.reinit(this->locally_owned_dofs,
                         this->locally_relevant_dofs,
                         comm);
+}
+
+template <int dim>
+void NSSolverLambda<dim>::setup_mappings()
+{
+  TimerOutput::Scope t(this->computing_timer, "Setup mappings");
 
   // Unused in this solver
   this->moving_mapping = this->fixed_mapping;

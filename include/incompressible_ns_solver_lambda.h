@@ -94,7 +94,20 @@ public:
    */
   virtual void reset_solver_specific_data() override;
 
+  /**
+   * See documentation in NavierStokesSolver base class.
+   */
   virtual void setup_dofs() override;
+
+  /**
+   * See documentation in NavierStokesSolver base class.
+   */
+  virtual void set_active_fe_indices() override;
+
+  /**
+   * See documentation in NavierStokesSolver base class.
+   */
+  virtual void setup_mappings() override;
 
   /**
    * Create the constraints specific to this solver:

@@ -263,17 +263,13 @@ void FSISolverLessLambda<dim>::MMSSourceTerm::vector_value(
 }
 
 template <int dim>
-void FSISolverLessLambda<dim>::setup_dofs()
+void FSISolverLessLambda<dim>::set_active_fe_indices()
 {
-  TimerOutput::Scope t(this->computing_timer, "Setup");
-
-  auto &comm = this->mpi_communicator;
-
   // Mark the cells on which the Lagrange multiplier is defined,
   // based on if they have a vertex touching the boundary.
-  // See also comments in incompressible_ns_solver_lambda.
+  // See also comments in incompressible_ns_solver_lambda.cpp
   {
-    std::set<Point<dim>, PointComparator<dim>> vertices_on_boundary =
+    std::set<Point<dim>, PointComparator<dim>> vertices_on_bdr =
       get_mesh_vertices_on_boundary(this->dof_handler,
                                     weak_no_slip_boundary_id);
 
@@ -284,7 +280,7 @@ void FSISolverLessLambda<dim>::setup_dofs()
         cell->set_active_fe_index(index_fe_without_lambda);
 
       for (const auto v : cell->vertex_indices())
-        if (vertices_on_boundary.count(cell->vertex(v)) > 0)
+        if (vertices_on_bdr.count(cell->vertex(v)) > 0)
         {
           cell->set_material_id(with_lambda_domain_id);
           if (cell->is_locally_owned())
@@ -293,6 +289,16 @@ void FSISolverLessLambda<dim>::setup_dofs()
         }
     }
   }
+}
+
+template <int dim>
+void FSISolverLessLambda<dim>::setup_dofs()
+{
+  TimerOutput::Scope t(this->computing_timer, "Setup dofs");
+
+  auto &comm = this->mpi_communicator;
+
+  set_active_fe_indices();
 
   // Initialize dof handler
   this->dof_handler.distribute_dofs(*fe);
@@ -328,25 +334,32 @@ void FSISolverLessLambda<dim>::setup_dofs()
     previous_sol.reinit(this->locally_owned_dofs,
                         this->locally_relevant_dofs,
                         comm);
+}
+
+template <int dim>
+void FSISolverLessLambda<dim>::setup_mappings()
+{
+  TimerOutput::Scope t(this->computing_timer, "Setup mappings");
 
   // Initialize mesh position directly from the triangulation.
   // The parallel vector storing the mesh position is local_evaluation_point,
   // because this is the one to modify when computing finite differences.
-
-  // FIXME: does get_position_vector work for hp context?
-  // Use interpolate instead
-  VectorTools::interpolate(fixed_mapping_collection,
-                           this->dof_handler,
-                           FixedMeshPosition<dim>(this->ordering->x_lower,
-                                                  this->ordering->n_components),
-                           this->local_evaluation_point,
-                           this->position_mask);
-  // VectorTools::get_position_vector(*fixed_mapping,
-  //                                  dof_handler,
-  //                                  local_evaluation_point,
-  //                                  position_mask);
-  this->local_evaluation_point.compress(VectorOperation::insert);
-  this->evaluation_point = this->local_evaluation_point;
+  // If the solution was restarted, the evaluation point already stores
+  // the current solution, so don't overwrite it.
+  if (!this->param.checkpoint_restart.restart)
+  {
+    // Using interpolate, as get_position_vector does not seem to be
+    // working in hp context yet.
+    VectorTools::interpolate(
+      fixed_mapping_collection,
+      this->dof_handler,
+      FixedMeshPosition<dim>(this->ordering->x_lower,
+                             this->ordering->n_components),
+      this->local_evaluation_point,
+      this->position_mask);
+    this->local_evaluation_point.compress(VectorOperation::insert);
+    this->evaluation_point = this->local_evaluation_point;
+  }
 
   // Also store them in initial_positions, for postprocessing:
   this->initial_positions =
@@ -757,10 +770,24 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
       this->locally_relevant_dofs.add_indices(all_boundary_lambda_dofs.begin(),
                                               all_boundary_lambda_dofs.end());
       this->locally_relevant_dofs.compress();
+
+      // (Re-)create the dofs_to_component map and specify that
+      // the added non-local dofs are lambda dofs
+      fill_dofs_to_component(this->dof_handler,
+                             this->locally_relevant_dofs,
+                             this->dofs_to_component);
+      AssertDimension(this->dofs_to_component.size(),
+                      this->locally_relevant_dofs.n_elements());
+      // FIXME: all the added lambda dofs are added as "l_lower", i.e., the
+      // first lambda component. They should be added with their proper
+      // component...
+      for (const auto dof : all_boundary_lambda_dofs)
+        this->dofs_to_component[this->locally_relevant_dofs.index_within_set(
+          dof)] = this->ordering->l_lower;
     }
 
     // Reinitialize the ghosted parallel vectors with the additional ghosts.
-    this->reinit_vectors();
+    this->reinit_ghosted_vectors();
   }
 
   if (this->param.debug.fsi_coupling_option > 0)
@@ -1108,7 +1135,7 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
         this->locally_relevant_dofs.compress();
       }
 
-      this->reinit_vectors();
+      this->reinit_ghosted_vectors();
 
       break;
     }

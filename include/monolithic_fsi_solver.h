@@ -51,8 +51,6 @@ public:
    */
   void create_lagrange_multiplier_constraints();
 
-  void check_dofs(const AffineConstraints<double> &constraints) const;
-
   /**
    *
    */

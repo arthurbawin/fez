@@ -232,8 +232,8 @@ bool TimeHandler::is_timestep_accepted(
     // First check that it threw correctly from there, if it was needed
     AssertThrow(!is_steady(), ExcInternalError());
     AssertThrow(time_parameters.adaptation.enable, ExcInternalError());
-    AssertThrow(is_starting_step(), ExcInternalError());
-    AssertThrow(last_step_was_starting_step(), ExcInternalError());
+    AssertThrow(!is_starting_step(), ExcInternalError());
+    AssertThrow(!last_step_was_starting_step(), ExcInternalError());
 
     // Then reject the step
     if (mpi_rank == 0)

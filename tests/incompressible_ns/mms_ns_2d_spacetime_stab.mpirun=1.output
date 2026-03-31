@@ -1,0 +1,58 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 8
+ boundary indicators: 1(2 faces) 2(2 faces) 3(2 faces) 4(2 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 27
+Mesh info:
+ dimension: 2
+ no. of cells: 32
+ boundary indicators: 1(4 faces) 2(4 faces) 3(4 faces) 4(4 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 75
+Mesh info:
+ dimension: 2
+ no. of cells: 128
+ boundary indicators: 1(8 faces) 2(8 faces) 3(8 faces) 4(8 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 243
+Mesh info:
+ dimension: 2
+ no. of cells: 512
+ boundary indicators: 1(16 faces) 2(16 faces) 3(16 faces) 4(16 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 867
+
+L2_norm
+n_elm n_dof   dt          u               p         
+    8    27 0.1000 1.9137e-02    - 3.3815e-01     - 
+   32    75 0.0500 6.2935e-03 1.60 1.1851e+00 -1.81 
+  128   243 0.0250 1.7059e-03 1.88 6.3150e-01  0.91 
+  512   867 0.0125 4.3186e-04 1.98 2.0753e-01  1.61 
+
+Linfty_norm
+n_elm n_dof   dt          u               p         
+    8    27 0.1000 3.1320e-02    - 5.6706e-01     - 
+   32    75 0.0500 1.1421e-02 1.46 2.0982e+00 -1.89 
+  128   243 0.0250 3.9759e-03 1.52 9.6703e-01  1.12 
+  512   867 0.0125 1.0671e-03 1.90 2.9144e-01  1.73 
+
+H1_seminorm
+n_elm n_dof   dt          u               p         
+    8    27 0.1000 1.3884e-01    - 1.6728e+00     - 
+   32    75 0.0500 7.9348e-02 0.81 3.7140e+00 -1.15 
+  128   243 0.0250 4.4111e-02 0.85 1.7876e+00  1.05 
+  512   867 0.0125 2.2267e-02 0.99 5.0109e-01  1.83 

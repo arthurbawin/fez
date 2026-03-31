@@ -1,0 +1,66 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 8
+ boundary indicators: 1(2 faces) 2(2 faces) 3(2 faces) 4(2 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 27
+0 constrained owned lambda dofs
+0 unconstrained owned lambda dofs
+Mesh info:
+ dimension: 2
+ no. of cells: 32
+ boundary indicators: 1(4 faces) 2(4 faces) 3(4 faces) 4(4 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 75
+0 constrained owned lambda dofs
+0 unconstrained owned lambda dofs
+Mesh info:
+ dimension: 2
+ no. of cells: 128
+ boundary indicators: 1(8 faces) 2(8 faces) 3(8 faces) 4(8 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 243
+0 constrained owned lambda dofs
+0 unconstrained owned lambda dofs
+Mesh info:
+ dimension: 2
+ no. of cells: 512
+ boundary indicators: 1(16 faces) 2(16 faces) 3(16 faces) 4(16 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+Number of degrees of freedom: 867
+0 constrained owned lambda dofs
+0 unconstrained owned lambda dofs
+
+L2_norm
+n_elm n_dof   dt          u               p               l        
+    8    27 0.1000 1.9137e-02    - 1.4033e+00     - 0.0000e+00   - 
+   32    75 0.0500 6.9670e-03 1.46 2.7577e+00 -0.97 0.0000e+00 nan 
+  128   243 0.0250 2.3517e-03 1.57 1.3709e+00  1.01 0.0000e+00 nan 
+  512   867 0.0125 6.6545e-04 1.82 4.1225e-01  1.73 0.0000e+00 nan 
+
+Linfty_norm
+n_elm n_dof   dt          u               p               l        
+    8    27 0.1000 3.1306e-02    - 2.4754e+00     - 0.0000e+00   - 
+   32    75 0.0500 1.1812e-02 1.41 3.8653e+00 -0.64 0.0000e+00 nan 
+  128   243 0.0250 5.1168e-03 1.21 1.9465e+00  0.99 0.0000e+00 nan 
+  512   867 0.0125 1.4865e-03 1.78 7.4867e-01  1.38 0.0000e+00 nan 
+
+H1_seminorm
+n_elm n_dof   dt          u               p               l        
+    8    27 0.1000 1.3884e-01    - 7.3697e+00     - 0.0000e+00   - 
+   32    75 0.0500 8.0424e-02 0.79 7.6517e+00 -0.05 0.0000e+00 nan 
+  128   243 0.0250 4.4740e-02 0.85 4.3607e+00  0.81 0.0000e+00 nan 
+  512   867 0.0125 2.2503e-02 0.99 2.2992e+00  0.92 0.0000e+00 nan 

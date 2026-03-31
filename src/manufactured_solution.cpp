@@ -5,6 +5,8 @@
 #include <preset_mms.h>
 #include <utilities.h>
 
+#include <cmath>
+
 namespace ManufacturedSolutions
 {
   /**
@@ -444,6 +446,57 @@ namespace ManufacturedSolutions
 
     return 2. * (mu * div_strain + grad_mu * strain) + lambda * grad_div_x +
            grad_lambda * trace(strain);
+  }
+
+  template <int dim>
+  Tensor<1, dim>
+  MMSFunction<dim>::divergence_neo_hookean_stress_variable_coefficients(
+    const Point<dim>                          &p,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const
+  {
+    const double         mu          = lame_mu->value(p);
+    const double         lambda      = lame_lambda->value(p);
+    const Tensor<1, dim> grad_mu     = lame_mu->gradient(p);
+    const Tensor<1, dim> grad_lambda = lame_lambda->gradient(p);
+
+    const Tensor<2, dim> F = gradient_vi_xj(p);
+    const double         J = determinant(F);
+
+    AssertThrow(std::isfinite(J) && J > 0.0,
+                ExcMessage("Neo-Hookean requires det(F) > 0."));
+
+    const Tensor<2, dim> F_inv   = invert(F);
+    const Tensor<2, dim> F_inv_T = transpose(F_inv);
+    const double         log_J   = std::log(J);
+
+    Tensor<1, dim> div_P = {};
+
+    for (unsigned int j = 0; j < dim; ++j)
+    {
+      Tensor<2, dim> dF_dXj;
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        const SymmetricTensor<2, dim> hessian_i = this->hessian(p, i);
+        for (unsigned int k = 0; k < dim; ++k)
+          dF_dXj[i][k] = hessian_i[j][k];
+      }
+
+      const double         d_log_J_dXj = trace(F_inv * dF_dXj);
+      const Tensor<2, dim> dF_inv_T_dXj =
+        -F_inv_T * transpose(dF_dXj) * F_inv_T;
+
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        div_P[i] +=
+          grad_mu[j] * (F[i][j] - F_inv_T[i][j]) +
+          mu * (dF_dXj[i][j] - dF_inv_T_dXj[i][j]) +
+          (grad_lambda[j] * log_J + lambda * d_log_J_dXj) * F_inv_T[i][j] +
+          lambda * log_J * dF_inv_T_dXj[i][j];
+      }
+    }
+
+    return div_P;
   }
 
   template <int dim>

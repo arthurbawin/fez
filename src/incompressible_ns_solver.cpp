@@ -314,8 +314,16 @@ void NSSolver<dim>::assemble_local_matrix(
         {
           double stab_ij = 0.;
           Assembly::supg_pspg_matrix<dim>(
-            *this->ordering, q, i, j, tau, nu, bdf_c0,
-            scratchData.present_velocity_values[q], scratchData, stab_ij);
+            *this->ordering,
+            q,
+            i,
+            j,
+            tau,
+            nu,
+            bdf_c0,
+            scratchData.present_velocity_values[q],
+            scratchData,
+            stab_ij);
           if (stab_ij != 0.)
             local_matrix(i, j) += stab_ij * JxW;
         }
@@ -481,9 +489,13 @@ void NSSolver<dim>::assemble_local_rhs(
       for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
       {
         double stab_i = 0.;
-        Assembly::supg_pspg_rhs<dim>(
-          *this->ordering, q, i, tau,
-          scratchData.present_velocity_values[q], scratchData, stab_i);
+        Assembly::supg_pspg_rhs<dim>(*this->ordering,
+                                     q,
+                                     i,
+                                     tau,
+                                     scratchData.present_velocity_values[q],
+                                     scratchData,
+                                     stab_i);
         if (stab_i != 0.)
           local_rhs(i) += stab_i * JxW;
       }

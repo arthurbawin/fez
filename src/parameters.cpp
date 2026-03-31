@@ -538,43 +538,17 @@ namespace Parameters
     lame_mu_fun =
       std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
 
-    phi_for_stiffness_fun =
-      std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
-
     prm.enter_subsection("Pseudosolid " + std::to_string(index));
     {
-      prm.declare_entry("stiffness model",
-                        "direct_lame",
-                        Patterns::Selection("direct_lame|young_from_phi"));
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->declare_parameters(prm);
       prm.leave_subsection();
       prm.enter_subsection("lame mu");
       lame_mu_fun->declare_parameters(prm);
       prm.leave_subsection();
-
-      prm.enter_subsection("phi for stiffness");
-      phi_for_stiffness_fun->declare_parameters(prm);
-      prm.leave_subsection();
-
-      prm.declare_entry("d_phi_0",
-                        "0.02",
-                        Patterns::Double(0.0),
-                        "Distance characteristic around phi=0 over which the "
-                        "pseudosolid stiffness remains weak");
-      prm.declare_entry(
-        "lambda min factor",
-        "0.4",
-        Patterns::Double(0.0, 1.0),
-        "Minimum multiplicative factor applied to lambda near phi=0");
-      prm.declare_entry(
-        "mu min factor",
-        "0.4",
-        Patterns::Double(0.0, 1.0),
-        "Minimum multiplicative factor applied to mu near phi=0");
       prm.declare_entry("constitutive model",
-                        "linear_lame",
-                        Patterns::Selection("linear_lame|neo_hookean"),
+                        "linear elasticity",
+                        Patterns::Selection("linear elasticity|neo hookean"),
                         "Constitutive law for the pseudosolid");
     }
     prm.leave_subsection();
@@ -586,31 +560,17 @@ namespace Parameters
   {
     prm.enter_subsection("Pseudosolid " + std::to_string(index));
     {
-      const std::string parsed_model = prm.get("stiffness model");
-      if (parsed_model == "direct_lame")
-        stiffness_model = StiffnessModel::direct_lame;
-      else if (parsed_model == "young_from_phi")
-        stiffness_model = StiffnessModel::young_from_phi;
-      else
-        AssertThrow(false, ExcMessage("Unknown pseudosolid stiffness model"));
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->parse_parameters(prm);
       prm.leave_subsection();
       prm.enter_subsection("lame mu");
       lame_mu_fun->parse_parameters(prm);
       prm.leave_subsection();
-      prm.enter_subsection("phi for stiffness");
-      phi_for_stiffness_fun->parse_parameters(prm);
-      prm.leave_subsection();
-
-      d_phi_0           = prm.get_double("d_phi_0");
-      lambda_min_factor = prm.get_double("lambda min factor");
-      mu_min_factor     = prm.get_double("mu min factor");
 
       const std::string parsed_constitutive = prm.get("constitutive model");
-      if (parsed_constitutive == "linear_lame")
-        constitutive_model = ConstitutiveModel::linear_lame;
-      else if (parsed_constitutive == "neo_hookean")
+      if (parsed_constitutive == "linear elasticity")
+        constitutive_model = ConstitutiveModel::linear_elasticity;
+      else if (parsed_constitutive == "neo hookean")
         constitutive_model = ConstitutiveModel::neo_hookean;
       else
         AssertThrow(false,
@@ -1058,9 +1018,9 @@ namespace Parameters
       body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
-      alpha = prm.get_double("alpha");
-      beta  = prm.get_double("beta");
-      gamma = prm.get_double("gamma");
+      alpha            = prm.get_double("alpha");
+      beta             = prm.get_double("beta");
+      gamma            = prm.get_double("gamma");
     }
     prm.leave_subsection();
   }

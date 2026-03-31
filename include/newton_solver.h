@@ -1,6 +1,8 @@
 #ifndef NEWTON_SOLVER_H
 #define NEWTON_SOLVER_H
 
+#include <cmath>
+
 /**
  * This structure and solve function are borrowed from the Lethe project.
  */
@@ -33,8 +35,8 @@ public:
     bool         stop           = false;
     unsigned int iter           = 0;
     // double       norm_increment = 0;
-    double norm_residual = 0;
-    double last_residual;
+    double norm_residual = 0.0;
+    double last_residual = 0.0;
     bool   recompute_rhs = true;
     bool   assemble      = false;
 
@@ -62,6 +64,12 @@ public:
       {
         solver->assemble_rhs();
         norm_residual = solver->system_rhs.l2_norm();
+
+        if (!std::isfinite(norm_residual))
+        {
+          stop = true;
+          break;
+        }
       }
 
       if (verbose)
@@ -111,10 +119,12 @@ public:
 
       if (this->param.enable_line_search)
       {
-        double norm_ls_residual;
-        double last_ls_residual = last_residual;
-        last_residual           = norm_residual;
-        unsigned int ls_iter    = 0;
+        double       norm_ls_residual = norm_residual;
+        double       best_ls_residual = norm_residual;
+        double       best_alpha       = 0.;
+        bool         accepted_step    = false;
+        last_residual                 = norm_residual;
+        unsigned int ls_iter          = 0;
 
         for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
         {
@@ -134,6 +144,16 @@ public:
                           << " : res = " << norm_ls_residual << std::endl;
           }
 
+          // Reject non-finite residuals and keep searching with a smaller step.
+          if (!std::isfinite(norm_ls_residual))
+            continue;
+
+          if (norm_ls_residual < best_ls_residual)
+          {
+            best_ls_residual = norm_ls_residual;
+            best_alpha       = alpha;
+          }
+
           // Exit if next residual is below tolerance
           if (norm_ls_residual <= this->param.tolerance)
           {
@@ -142,7 +162,9 @@ public:
                                "prescribed tolerance ("
                             << std::setprecision(2) << this->param.tolerance
                             << ")" << std::endl;
-            // last_residual = norm_ls_residual;
+            recompute_rhs  = false;
+            norm_residual  = norm_ls_residual;
+            accepted_step  = true;
             stop           = true;
             solution_found = true;
             break;
@@ -150,40 +172,49 @@ public:
 
           // Accept step if an Armijo-like sufficient condition is satisfied,
           // exit line search and continue Newton iterations.
-          if (norm_ls_residual <= 0.1 * last_ls_residual)
+          if (norm_ls_residual <= 0.1 * norm_residual)
           {
             // RHS was just computed, no need to recompute
             recompute_rhs = false;
-            // last_residual = norm_ls_residual;
             norm_residual = norm_ls_residual;
+            accepted_step = true;
             break;
           }
 
           // If residual increased, backtrack and exit
           // Do not reject first iteration
-          if (norm_ls_residual > last_ls_residual && ls_iter > 0)
+          if (norm_ls_residual > best_ls_residual && ls_iter > 0)
           {
             if (verbose)
               solver->pcout << "\tRejecting last step and backtracking"
                             << std::endl;
-            // RHS will need to be recomputed for backtracked solution
-            recompute_rhs = true;
-            alpha *= 2.;
-            solver->local_evaluation_point = solver->present_solution;
-            solver->local_evaluation_point.add(alpha, solver->newton_update);
-            solver->distribute_nonzero_constraints();
-            solver->evaluation_point = solver->local_evaluation_point;
             break;
           }
-
-          // Residual decreased, but not enough to accept step or finish Newton
-          // solve. Continue with smaller alpha.
-          last_ls_residual = norm_ls_residual;
         }
 
-        if (!stop)
-          // Update present solution for the next line search
+        if (!stop && !accepted_step && best_alpha > 0.)
+        {
+          solver->local_evaluation_point = solver->present_solution;
+          solver->local_evaluation_point.add(best_alpha, solver->newton_update);
+          solver->distribute_nonzero_constraints();
+          solver->evaluation_point = solver->local_evaluation_point;
+          norm_residual            = best_ls_residual;
+          recompute_rhs            = true;
+          accepted_step            = true;
+        }
+
+        if (!stop && accepted_step)
+          // Update present solution for the next Newton iteration
           solver->present_solution = solver->evaluation_point;
+        else if (!stop)
+        {
+          if (verbose)
+            solver->pcout << "\tLine search failed to find an acceptable "
+                             "step"
+                          << std::endl;
+          solver->evaluation_point = solver->present_solution;
+          stop                     = true;
+        }
       }
       else
       {
@@ -202,10 +233,8 @@ public:
     // Update present solution
     solver->present_solution = solver->evaluation_point;
 
-    if (iter > this->param.max_iterations &&
-        norm_residual > this->param.tolerance)
-      if (throw_on_failure)
-        throw std::runtime_error("Nonlinear solver did not converge");
+    if (!solution_found && throw_on_failure)
+      throw std::runtime_error("Nonlinear solver did not converge.");
 
     time_handler.set_last_nonlinear_solve_status(solution_found);
   }

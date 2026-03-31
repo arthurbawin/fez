@@ -313,6 +313,15 @@ namespace ManufacturedSolutions
       std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
 
     /**
+     * First Piola-Kirchhoff stress:
+     * P = mu * (F - F^{-T}) + lambda * ln(det(F)) * F^{-T}.
+     */
+    virtual Tensor<1, dim> divergence_neo_hookean_stress_variable_coefficients(
+      const Point<dim>                          &p,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
+
+    /**
      * Check that the provided time and spatial derivatives match
      * with their finite differences approximations.
      * This needs to be called from the constructor of each derived class.

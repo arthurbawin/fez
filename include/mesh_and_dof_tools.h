@@ -44,9 +44,8 @@ void extract_subsolution(
   const auto &fe_source = dof_handler_source.get_fe();
   const auto &fe_dest   = dof_handler_destination.get_fe();
 
-  // 1. Pré-calcul de la correspondance (mapping) sur la cellule de référence
-  // Pour chaque DoF local de la source, on trouve l'indice du DoF local de
-  // destination correspondant
+  // 1. pre-compute source-to-destination local dof mapping on the reference
+  // cell
   std::vector<unsigned int> source_to_dest_local_dof(
     fe_source.dofs_per_cell, numbers::invalid_unsigned_int);
 
@@ -59,29 +58,28 @@ void extract_subsolution(
   {
     const unsigned int comp_s = fe_source.system_to_component_index(i).first;
 
-    // Si cette composante source fait partie de celles qu'on veut extraire
+    // only process components that are part of the extraction map
     if (source_comp_to_dest_comp.find(comp_s) != source_comp_to_dest_comp.end())
     {
       const unsigned int target_comp_d = source_comp_to_dest_comp.at(comp_s);
 
-      // On cherche le DoF équivalent dans la cellule de destination
+      // find the matching dof in the destination cell
       for (unsigned int j = 0; j < fe_dest.dofs_per_cell; ++j)
       {
         const unsigned int comp_d = fe_dest.system_to_component_index(j).first;
 
-        // Correspondance parfaite : même composante (mappée) ET même position
-        // spatiale
+        // match: same (mapped) component AND same support point location
         if (comp_d == target_comp_d &&
             source_support_points[i].distance(dest_support_points[j]) < 1e-12)
         {
           source_to_dest_local_dof[i] = j;
-          break; // Trouvé, on passe au DoF source suivant
+          break;
         }
       }
     }
   }
 
-  // 2. Itération sur les cellules actives des deux DoFHandlers simultanément
+  // 2. iterate over active cells of both dof handlers simultaneously
   auto cell_source = dof_handler_source.begin_active();
   auto cell_dest   = dof_handler_destination.begin_active();
 
@@ -91,14 +89,13 @@ void extract_subsolution(
 
   for (; cell_source != dof_handler_source.end(); ++cell_source, ++cell_dest)
   {
-    // Important pour le MPI : on n'écrit que sur les cellules possédées
-    // localement
+    // only write on locally owned cells
     if (cell_dest->is_locally_owned())
     {
-      // Récupère les valeurs du vecteur source pour cette cellule
+      // read source values for this cell
       cell_source->get_dof_values(source, local_values_source);
 
-      // Récupère les indices globaux de destination pour cette cellule
+      // get destination global dof indices for this cell
       cell_dest->get_dof_indices(local_indices_dest);
 
       // On injecte les valeurs

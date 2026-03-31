@@ -220,62 +220,24 @@ namespace Parameters
   class PseudoSolid
   {
   public:
-    enum class StiffnessModel
-    {
-      direct_lame,
-      young_from_phi
-    };
     enum class ConstitutiveModel
     {
-      linear_lame,
+      linear_elasticity,
       neo_hookean
     };
 
-    double evaluate_distance_to_phi0(const double phi,
-                                     const double epsilon_interface) const;
-
-    double
-    evaluate_stiffness_factor_from_phi(const double phi,
-                                       const double epsilon_interface,
-                                       const double stiffness_min_factor) const;
-
-    double evaluate_stiffness_factor_derivative_from_phi(
-      const double phi,
-      const double epsilon_interface,
-      const double stiffness_min_factor) const;
-
-    std::pair<double, double>
-    evaluate_lame_from_phi_value(const double phi,
-                                 const double epsilon_interface,
-                                 const double lame_lambda_base,
-                                 const double lame_mu_base) const;
-
-    std::pair<double, double>
-    evaluate_lame_derivatives_from_phi_value(const double phi,
-                                             const double epsilon_interface,
-                                             const double lame_lambda_base,
-                                             const double lame_mu_base) const;
-
-    double            d_phi_0            = 0.0;
-    double            lambda_min_factor  = 0.4;
-    double            mu_min_factor      = 0.4;
-    StiffnessModel    stiffness_model    = StiffnessModel::direct_lame;
-    ConstitutiveModel constitutive_model = ConstitutiveModel::linear_lame;
+    ConstitutiveModel constitutive_model = ConstitutiveModel::linear_elasticity;
 
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_lambda_fun;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_mu_fun;
 
-    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
-      phi_for_stiffness_fun;
-
   public:
     void set_time(const double newtime)
     {
       lame_lambda_fun->set_time(newtime);
       lame_mu_fun->set_time(newtime);
-      phi_for_stiffness_fun->set_time(newtime);
     }
     void declare_parameters(ParameterHandler &prm, unsigned int index);
     void read_parameters(ParameterHandler &prm, unsigned int index);
@@ -450,7 +412,6 @@ namespace Parameters
     double alpha;
     double beta;
     double gamma;
-
     /**
      * We differentiate between the body force which is multiplied by the
      * mixture density (typically gravity), and the generic source term (e.g.,

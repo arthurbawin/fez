@@ -1,0 +1,66 @@
+Number of MPI processes: 1
+Convergence test with manufactured solution:
+Mesh file was changed to 0.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 64
+ boundary indicators: 0(8 faces) 1(8 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 315
+Convergence test with manufactured solution:
+Mesh file was changed to 1.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 256
+ boundary indicators: 0(16 faces) 1(16 faces) 2(8 faces) 3(8 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 1071
+Convergence test with manufactured solution:
+Mesh file was changed to 2.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 1024
+ boundary indicators: 0(32 faces) 1(32 faces) 2(16 faces) 3(16 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 3927
+Convergence test with manufactured solution:
+Mesh file was changed to 3.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 4096
+ boundary indicators: 0(64 faces) 1(64 faces) 2(32 faces) 3(32 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 15015
+
+L2_norm
+n_elm n_dof   dt          u               p               x              phi             mu        
+   64   315 0.1000 1.1144e-02    - 5.9118e-01    - 7.1506e-04    - 6.4219e-03    - 4.7792e-03    - 
+  256  1071 0.0500 3.3336e-03 1.74 1.7428e-01 1.76 1.9098e-04 1.90 1.7423e-03 1.88 1.1225e-03 2.09 
+ 1024  3927 0.0250 8.8459e-04 1.91 4.7106e-02 1.89 4.8598e-05 1.97 4.4489e-04 1.97 2.7368e-04 2.04 
+ 4096 15015 0.0125 2.2505e-04 1.97 1.2474e-02 1.92 1.2204e-05 1.99 1.1181e-04 1.99 6.7884e-05 2.01 
+
+Linfty_norm
+n_elm n_dof   dt          u               p               x              phi             mu        
+   64   315 0.1000 1.4366e-02    - 8.1211e-01    - 1.2457e-03    - 1.1820e-02    - 9.6238e-03    - 
+  256  1071 0.0500 4.6068e-03 1.64 2.6596e-01 1.61 3.7955e-04 1.71 3.2359e-03 1.87 2.4518e-03 1.97 
+ 1024  3927 0.0250 1.3766e-03 1.74 7.9767e-02 1.74 9.7828e-05 1.96 8.2708e-04 1.97 6.1381e-04 2.00 
+ 4096 15015 0.0125 3.6771e-04 1.90 2.7728e-02 1.52 2.4983e-05 1.97 2.0789e-04 1.99 1.5329e-04 2.00 
+
+H1_seminorm
+n_elm n_dof   dt          u               p               x              phi             mu        
+   64   315 0.1000 1.0874e-01    - 1.0031e+00    - 9.2449e-03    - 7.4254e-02    - 7.5915e-02    - 
+  256  1071 0.0500 5.5317e-02 0.98 5.0455e-01 0.99 4.7976e-03 0.95 3.8187e-02 0.96 3.8552e-02 0.98 
+ 1024  3927 0.0250 2.7474e-02 1.01 2.6294e-01 0.94 2.4214e-03 0.99 1.9233e-02 0.99 1.9286e-02 1.00 
+ 4096 15015 0.0125 1.3671e-02 1.01 1.6364e-01 0.68 1.2136e-03 1.00 9.6343e-03 1.00 9.6412e-03 1.00 

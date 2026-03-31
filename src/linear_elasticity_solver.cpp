@@ -18,6 +18,8 @@
 #include <utilities.h>
 
 #include <cmath>
+#include <deque>
+#include <iomanip>
 
 template <int dim>
 LinearElasticitySolver<dim>::LinearElasticitySolver(
@@ -84,11 +86,18 @@ void LinearElasticitySolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
-  Tensor<1, dim> f = mms.exact_mesh_position
-                       ->divergence_linear_elastic_stress_variable_coefficients(
-                         p,
-                         physical_properties.pseudosolids[0].lame_mu_fun,
-                         physical_properties.pseudosolids[0].lame_lambda_fun);
+  const auto    &pseudosolid = physical_properties.pseudosolids[0];
+  Tensor<1, dim> f;
+
+  if (pseudosolid.constitutive_model ==
+      Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
+    f = mms.exact_mesh_position
+          ->divergence_neo_hookean_stress_variable_coefficients(
+            p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
+  else
+    f = mms.exact_mesh_position
+          ->divergence_linear_elastic_stress_variable_coefficients(
+            p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[d] = f[d];
@@ -138,26 +147,124 @@ void LinearElasticitySolver<dim>::run()
     const double c_max =
       param.linear_elasticity.max_current_mesh_source_term_multiplier;
     const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
-    //Progession
+    // Progession
     const double step_size =
       n_steps > 1 ? (c_max - c_min) / static_cast<double>(n_steps - 1) : 0.0;
+    const double min_gap =
+      1e-8 * std::max(1.0, std::max(std::abs(c_min), std::abs(c_max)));
 
     source_term_fixed_mesh_multiplier = 0.;
 
+    std::deque<double> continuation_targets;
     for (unsigned int n = 0; n < n_steps; ++n)
+      continuation_targets.push_back(c_min + n * step_size);
+
+    LA::ParVectorType accepted_solution(locally_owned_dofs,
+                                        locally_relevant_dofs,
+                                        mpi_communicator);
+    LA::ParVectorType accepted_local_evaluation_point(locally_owned_dofs,
+                                                      mpi_communicator);
+    accepted_solution               = present_solution;
+    accepted_local_evaluation_point = local_evaluation_point;
+    double accepted_multiplier = 0.0;
+
+    auto restore_accepted_state = [&]() {
+      present_solution        = accepted_solution;
+      evaluation_point        = accepted_solution;
+      local_evaluation_point  = accepted_local_evaluation_point;
+      newton_update           = 0.;
+      system_rhs              = 0.;
+    };
+
+    auto reset_direct_solver = [&]() {
+      direct_solver_reuse =
+        std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    };
+
+    while (!continuation_targets.empty())
     {
-      source_term_moving_mesh_multiplier = c_min + n * step_size;
+      const double trial_multiplier = continuation_targets.front();
+      continuation_targets.pop_front();
+      const double progress = 100.0 * trial_multiplier / c_max;
+
+      restore_accepted_state();
+      source_term_moving_mesh_multiplier = trial_multiplier;
 
       pcout << std::endl;
-      pcout << "Continuation method - Step " << n + 1 << "/" << n_steps
-            << " : source term multiplier = "
-            << source_term_moving_mesh_multiplier << std::endl;
+      pcout << "[Continuation] alpha = " << std::scientific
+            << source_term_moving_mesh_multiplier << " / " << c_max << " ("
+            << std::fixed << std::setprecision(2) << progress << "%)"
+            << std::scientific << std::setprecision(8) << std::endl;
       pcout << std::endl;
 
-      if (param.debug.compare_analytical_jacobian_with_fd)
-        compare_analytical_matrix_with_fd();
-      solve_nonlinear_problem(false);
+      bool continuation_step_accepted = false;
+      try
+      {
+        if (param.debug.compare_analytical_jacobian_with_fd)
+          compare_analytical_matrix_with_fd();
+
+        solve_nonlinear_problem(time_handler);
+        const double solution_norm   = present_solution.l2_norm();
+        const double evaluation_norm = evaluation_point.l2_norm();
+        continuation_step_accepted =
+          std::isfinite(solution_norm) && std::isfinite(evaluation_norm);
+      }
+      catch (const std::exception &exc)
+      {
+        pcout << "Continuation step rejected at multiplier "
+              << trial_multiplier << " because Newton failed with: "
+              << exc.what() << std::endl;
+      }
+      catch (...)
+      {
+        pcout << "Continuation step rejected at multiplier "
+              << trial_multiplier
+              << " because Newton failed with an unknown exception."
+              << std::endl;
+      }
+
+      if (continuation_step_accepted)
+      {
+        accepted_solution               = present_solution;
+        accepted_local_evaluation_point = local_evaluation_point;
+        accepted_multiplier             = trial_multiplier;
+        continue;
+      }
+
+      const double gap = trial_multiplier - accepted_multiplier;
+      if (gap <= min_gap)
+      {
+        restore_accepted_state();
+        source_term_moving_mesh_multiplier = accepted_multiplier;
+
+        std::ostringstream message;
+        message << "Continuation failed in LinearElasticitySolver: could not "
+                   "reach source term multiplier "
+                << trial_multiplier << " from last accepted multiplier "
+                << accepted_multiplier << " because the continuation gap "
+                << gap << " is already below the minimum allowed gap "
+                << min_gap << ".";
+        throw std::runtime_error(message.str());
+      }
+
+      const double reduced_trial = accepted_multiplier + 0.5 * gap;
+      pcout << std::endl;
+      pcout << "[Continuation] rejected" << std::endl;
+      pcout << "  accepted alpha = " << std::scientific << accepted_multiplier
+            << std::endl;
+      pcout << "  failed alpha   = " << trial_multiplier << std::endl;
+      pcout << "  retry alpha    = " << reduced_trial << std::endl;
+      pcout << std::endl;
+
+      restore_accepted_state();
+      reset_direct_solver();
+
+      continuation_targets.push_front(trial_multiplier);
+      continuation_targets.push_front(reduced_trial);
     }
+
+    source_term_moving_mesh_multiplier = accepted_multiplier;
+    restore_accepted_state();
   }
   else
   {
@@ -352,8 +459,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
 
-  const double                  alpha = source_term_moving_mesh_multiplier;
-  const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
+  const double alpha = source_term_moving_mesh_multiplier;
 
   //
   // Volume contributions
@@ -364,44 +470,11 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
 
-    double lame_mu_eff     = lame_mu;
-    double lame_lambda_eff = lame_lambda;
-
     const auto &ps = param.physical_properties.pseudosolids[0];
-
-    const bool use_var_lame =
-      (ps.stiffness_model ==
-       Parameters::PseudoSolid<dim>::StiffnessModel::young_from_phi);
 
     const bool use_nh =
       (ps.constitutive_model ==
        Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
-
-    const double   epsilon_interface = param.cahn_hilliard.epsilon_interface;
-    Tensor<1, dim> grad_phi_stiff;
-    double         dlame_lambda_dphi = 0.0;
-    double         dlame_mu_dphi     = 0.0;
-    if (ps.stiffness_model ==
-        Parameters::PseudoSolid<dim>::StiffnessModel::young_from_phi)
-    {
-      const Point<dim> x_q       = scratch_data.qpoints_current_mesh[q];
-      const double     phi_stiff = ps.phi_for_stiffness_fun->value(x_q);
-
-      const auto [lambda_eff, mu_eff] = ps.evaluate_lame_from_phi_value(
-        phi_stiff, epsilon_interface, lame_lambda, lame_mu);
-
-      const auto [dlambda_dphi, dmu_dphi] =
-        ps.evaluate_lame_derivatives_from_phi_value(phi_stiff,
-                                                    epsilon_interface,
-                                                    lame_lambda,
-                                                    lame_mu);
-
-      lame_lambda_eff   = lambda_eff;
-      lame_mu_eff       = mu_eff;
-      dlame_lambda_dphi = dlambda_dphi;
-      dlame_mu_dphi     = dmu_dphi;
-      grad_phi_stiff    = ps.phi_for_stiffness_fun->gradient(x_q);
-    }
 
     const auto &phi_x      = scratch_data.phi_x[q];
     const auto &grad_phi_x = scratch_data.grad_phi_x[q];
@@ -409,12 +482,8 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
 
     const Tensor<2, dim> &grad_source_current_mesh =
       scratch_data.grad_source_term_position_current_mesh[q];
-    const auto &position_sym_gradient = scratch_data.position_sym_gradients[q];
-    const auto  strain                = position_sym_gradient - identity_tensor;
-    const auto  trace_strain          = trace(strain);
 
     // Neo-Hookean
-    const Tensor<2, dim> &F       = scratch_data.position_gradients[q];
     const double          J       = scratch_data.position_J[q];
     const Tensor<2, dim> &F_inv   = scratch_data.position_inv_gradients[q];
     const Tensor<2, dim> &F_inv_T = scratch_data.position_inv_gradients_T[q];
@@ -436,49 +505,26 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
         if (!use_nh)
         {
           local_matrix(i, j) +=
-            (lame_lambda_eff * div_phi_x_j * div_phi_x_i +
-             2. * lame_mu_eff *
+            (lame_lambda * div_phi_x_j * div_phi_x_i +
+             2. * lame_mu *
                scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
              alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
             JxW;
-
-          if (use_var_lame)
-          {
-            const double dphi_dxj = grad_phi_stiff * phi_x_j;
-
-            local_matrix(i, j) +=
-              dphi_dxj *
-              (dlame_lambda_dphi * trace_strain * div_phi_x_i +
-               2.0 * dlame_mu_dphi * scalar_product(strain, sym_grad_phi_x_i)) *
-              JxW;
-          }
         }
         else
         {
           const Tensor<2, dim> dF = grad_phi_x_j;
 
           const Tensor<2, dim> dP =
-            lame_mu_eff * dF +
-            (lame_mu_eff - lame_lambda_eff * std::log(J)) *
+            lame_mu * dF +
+            (lame_mu - lame_lambda * std::log(J)) *
               (F_inv_T * transpose(dF) * F_inv_T) +
-            lame_lambda_eff * trace(F_inv * dF) * F_inv_T;
+            lame_lambda * trace(F_inv * dF) * F_inv_T;
 
           local_matrix(i, j) +=
             (scalar_product(dP, grad_phi_x_i) +
              alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
             JxW;
-
-          if (use_var_lame)
-          {
-            const double dphi_dxj = grad_phi_stiff * phi_x_j;
-
-            const Tensor<2, dim> dP_dphi =
-              dlame_mu_dphi * (F - F_inv_T) +
-              dlame_lambda_dphi * std::log(J) * F_inv_T;
-
-            local_matrix(i, j) +=
-              dphi_dxj * scalar_product(dP_dphi, grad_phi_x_i) * JxW;
-          }
         }
       }
     }
@@ -584,29 +630,11 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
 
-    double lame_mu_eff     = lame_mu;
-    double lame_lambda_eff = lame_lambda;
-
     const auto &ps = param.physical_properties.pseudosolids[0];
 
     const bool use_nh =
       (ps.constitutive_model ==
        Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
-
-    const double epsilon_interface = param.cahn_hilliard.epsilon_interface;
-
-    if (ps.stiffness_model ==
-        Parameters::PseudoSolid<dim>::StiffnessModel::young_from_phi)
-    {
-      const Point<dim> x_q       = scratch_data.qpoints_current_mesh[q];
-      const double     phi_stiff = ps.phi_for_stiffness_fun->value(x_q);
-
-      const auto [lambda_eff, mu_eff] = ps.evaluate_lame_from_phi_value(
-        phi_stiff, epsilon_interface, lame_lambda, lame_mu);
-
-      lame_lambda_eff = lambda_eff;
-      lame_mu_eff     = mu_eff;
-    }
 
     const auto &position_sym_gradient = scratch_data.position_sym_gradients[q];
     const auto &source_term_position_moving_mesh =
@@ -634,15 +662,15 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
       if (!use_nh)
       {
         local_rhs(i) -=
-          (lame_lambda_eff * trace_strain * div_phi_x[i] +
-           2. * lame_mu_eff * scalar_product(strain, grad_phi_x[i]) +
+          (lame_lambda * trace_strain * div_phi_x[i] +
+           2. * lame_mu * scalar_product(strain, grad_phi_x[i]) +
            phi_x[i] * source_term) *
           JxW;
       }
       else
       {
         const Tensor<2, dim> P =
-          lame_mu_eff * (F - F_inv_T) + lame_lambda_eff * std::log(J) * F_inv_T;
+          lame_mu * (F - F_inv_T) + lame_lambda * std::log(J) * F_inv_T;
 
         local_rhs(i) -=
           (scalar_product(P, grad_phi_x[i]) + phi_x[i] * source_term) * JxW;
@@ -747,7 +775,6 @@ void LinearElasticitySolver<dim>::output_results()
 template <int dim>
 void LinearElasticitySolver<dim>::move_mesh()
 {
-  present_solution.compress(dealii::VectorOperation::insert);
   present_solution.update_ghost_values();
 
   const IndexSet locally_owned = dof_handler.locally_owned_dofs();
@@ -763,27 +790,26 @@ void LinearElasticitySolver<dim>::move_mesh()
         if (vertex_moved[vid])
           continue;
 
-        // Règle: ce rank "possède" le vertex si les dim dofs de position
-        // associés au vertex sont locally-owned.
+        // this rank owns the vertex if all dim position dofs are locally-owned
         bool i_own_vertex = true;
         for (unsigned int d = 0; d < dim; ++d)
           i_own_vertex = i_own_vertex &&
                          locally_owned.is_element(cell->vertex_dof_index(v, d));
 
-        // Marque qu'on a traité ce vertex (pour ne pas le revisiter)
+        // mark as visited so we don't process it again
         vertex_moved[vid] = true;
 
         if (!i_own_vertex)
           continue;
 
-        // Déplace le vertex
+        // move vertex to its new position
         for (unsigned int d = 0; d < dim; ++d)
           cell->vertex(v)[d] = present_solution(cell->vertex_dof_index(v, d));
 
         vertex_locally_moved[vid] = true;
       }
 
-  // Synchronise les vertices déplacés sur les frontières MPI
+  // sync moved vertices across MPI boundaries
   triangulation.communicate_locally_moved_vertices(vertex_locally_moved);
 }
 

@@ -113,7 +113,7 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> u;
     std::shared_ptr<Functions::ParsedFunction<dim>> v;
     std::shared_ptr<Functions::ParsedFunction<dim>> w;
-    
+
     bool constrain_u = true;
     bool constrain_v = true;
     bool constrain_w = true;

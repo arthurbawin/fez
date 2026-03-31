@@ -173,7 +173,7 @@ private:
 
     if (enable_stabilization)
     {
-      // Δu per quadrature point 
+      // Δu per quadrature point
       fe_values[velocity].get_function_laplacians(current_solution,
                                                   present_velocity_laplacians);
 
@@ -225,7 +225,7 @@ private:
           for (unsigned int c = 0; c < dim; ++c)
             for (unsigned int d = 0; d < dim; ++d)
             {
-              lap_k[c]      += Hk[c][d][d];
+              lap_k[c] += Hk[c][d][d];
               grad_div_k[d] += Hk[c][c][d];
             }
 
@@ -233,14 +233,16 @@ private:
           // consistent with the Galerkin viscous operator of the lambda solver.
           diffusion_phi_u[q][k] =
             (enable_lagrange_multiplier || enable_cahn_hilliard) ?
-              lap_k + grad_div_k : lap_k;
+              lap_k + grad_div_k :
+              lap_k;
         }
       }
 
       if (enable_stabilization)
       {
         const Tensor<1, dim> u_conv = present_velocity_values[q];
-        const double nu = param.physical_properties.fluids[0].kinematic_viscosity;
+        const double         nu =
+          param.physical_properties.fluids[0].kinematic_viscosity;
 
         // Δu + ∇(∇·u) — pure differential quantity, physic-independent.
         // Stored for reuse in CHNS Jacobian (supg_pspg_matrix_chns_phi).
@@ -256,20 +258,21 @@ private:
 
         strong_residual_momentum_no_ale[q] =
           compute_bdf_time_derivative(present_velocity_values[q],
-                                      previous_velocity_values, q) +
+                                      previous_velocity_values,
+                                      q) +
           present_velocity_gradients[q] * u_conv - nu * viscous_operator +
           present_pressure_gradients[q] + source_term_velocity[q];
         strong_residual_momentum_ale[q] = Tensor<1, dim>();
         strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
 
-        const double h_tau =
-          Stabilization::compute_streamline_length(u_conv, grad_phi_u[q],
-                                                   components, u_lower,
-                                                   cell_diameter);
-        stabilization_tau_momentum[q] = Stabilization::compute_tau(
-          param.time_integration.dt,
-          param.time_integration.is_steady(),
-          u_conv.norm(), nu, h_tau);
+        const double h_tau = Stabilization::compute_streamline_length(
+          u_conv, grad_phi_u[q], components, u_lower, cell_diameter);
+        stabilization_tau_momentum[q] =
+          Stabilization::compute_tau(param.time_integration.dt,
+                                     param.time_integration.is_steady(),
+                                     u_conv.norm(),
+                                     nu,
+                                     h_tau);
       }
     }
   }
@@ -384,23 +387,30 @@ private:
                   ExcMessage("Lamé coefficient mu should be positive"));
       // AssertThrow(lame_lambda[q] >= 0,
       //             ExcMessage("Lamé coefficient lambda should be positive"));
-      
-      //Neo-hookean
+
+      // Neo-hookean
       const Tensor<2, dim> &F = present_position_gradients[q];
-      present_position_J[q] = determinant(F);
+      present_position_J[q]   = determinant(F);
       if (physical_properties.pseudosolids[0].constitutive_model ==
           Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
       {
-        if (!std::isfinite(present_position_J[q]) || present_position_J[q] <= 0.0)
+        const double det_F_from_dealii = JxW_moving[q] / JxW_fixed[q];
+
+        if (std::abs(present_position_J[q] - det_F_from_dealii) > 1e-10)
         {
           std::ostringstream message;
-          message << "Invalid pseudo-solid deformation: det(F)=" 
-                  << present_position_J[q] << " <= 0";
+          message << "Mismatch in ALE pseudo-solid Jacobian:\n"
+                  << "det(F) from gradients      = " << present_position_J[q] << "\n"
+                  << "det(F) from deal.II JxW    = " << det_F_from_dealii << "\n"
+                  << "JxW_moving                = " << JxW_moving[q] << "\n"
+                  << "JxW_fixed                 = " << JxW_fixed[q] << "\n"
+                  << "q-point                   = " << fe_values_fixed.get_quadrature_points()[q];
           throw std::runtime_error(message.str());
         }
       }
 
-      present_position_inv_gradients[q]   = invert(F);
+
+      present_position_inv_gradients[q] = invert(F);
       present_position_inv_gradients_T[q] =
         transpose(present_position_inv_gradients[q]);
 
@@ -735,8 +745,8 @@ private:
     {
       fe_values_moving[tracer].get_function_values(previous_solutions[i],
                                                    previous_tracer_values[i]);
-      fe_values_moving[tracer].get_function_gradients(previous_solutions[i],
-                                                  previous_tracer_gradients[i]);
+      fe_values_moving[tracer].get_function_gradients(
+        previous_solutions[i], previous_tracer_gradients[i]);
       if (enable_pseudo_solid)
       {
         fe_values_fixed[tracer].get_function_values(
@@ -745,7 +755,7 @@ private:
           previous_solutions[i], previous_tracer_gradients_fixed[i]);
       }
     }
-    
+
 
     source_terms->vector_value_list(fe_values_moving.get_quadrature_points(),
                                     source_term_full_moving);
@@ -781,6 +791,7 @@ private:
         present_velocity_values[q] - present_mesh_velocity_values[q];
 
       velocity_dot_tracer_gradient[q] = u_conv * tracer_gradients[q];
+      present_convective_velocity[q]  = u_conv;
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -805,12 +816,16 @@ private:
 
       if (enable_stabilization)
       {
-        const double nu_eff  = dynamic_viscosity[q] / std::max(density[q], 1e-14);
-        const double inv_rho = 1. / std::max(density[q], 1e-14);
+        const double nu_eff =
+          dynamic_viscosity[q] / std::max(density[q], 1e-14);
+        const double inv_rho     = 1. / std::max(density[q], 1e-14);
+        stabilization_nu_eff[q]  = nu_eff;
+        stabilization_inv_rho[q] = inv_rho;
 
         const Tensor<1, dim> dudt =
           compute_bdf_time_derivative(present_velocity_values[q],
-                                      previous_velocity_values, q);
+                                      previous_velocity_values,
+                                      q);
         const Tensor<1, dim> convective_term =
           present_velocity_gradients[q] * u_conv;
 
@@ -821,34 +836,36 @@ private:
 
         strong_residual_momentum_no_ale[q] =
           (dudt + convective_term - body_force) +
-          inv_rho * (diffusive_flux[q] +
-                    tracer_values[q] * potential_gradients[q] +
-                    present_pressure_gradients[q] +
-                    source_term_velocity[q]) -
+          inv_rho *
+            (diffusive_flux[q] + tracer_values[q] * potential_gradients[q] +
+             present_pressure_gradients[q] + source_term_velocity[q]) -
           div_viscous_scaled;
         strong_residual_momentum_ale[q] = Tensor<1, dim>();
         strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
 
         const double dphidt =
           compute_bdf_time_derivative(tracer_values[q],
-                                      previous_tracer_values, q);
-        strong_residual_tracer[q] =
-          dphidt + velocity_dot_tracer_gradient[q] -
-          mobility * potential_laplacians[q] + source_term_tracer[q];
+                                      previous_tracer_values,
+                                      q);
+        strong_residual_tracer[q] = dphidt + velocity_dot_tracer_gradient[q] -
+                                    mobility * potential_laplacians[q] +
+                                    source_term_tracer[q];
 
         // τ — recalculated with ν_eff (momentum) and mobility (tracer).
-        const double h_tau =
-          Stabilization::compute_streamline_length(u_conv, grad_phi_u[q],
-                                                  components, u_lower,
-                                                  cell_diameter);
+        const double h_tau = Stabilization::compute_streamline_length(
+          u_conv, grad_phi_u[q], components, u_lower, cell_diameter);
         stabilization_tau_momentum[q] =
           Stabilization::compute_tau(param.time_integration.dt,
-                                    param.time_integration.is_steady(),
-                                    u_conv.norm(), nu_eff, h_tau);
+                                     param.time_integration.is_steady(),
+                                     u_conv.norm(),
+                                     nu_eff,
+                                     h_tau);
         stabilization_tau_tracer[q] =
           Stabilization::compute_tau(param.time_integration.dt,
-                                    param.time_integration.is_steady(),
-                                    u_conv.norm(), mobility, h_tau);
+                                     param.time_integration.is_steady(),
+                                     u_conv.norm(),
+                                     mobility,
+                                     h_tau);
       }
     }
   }
@@ -1032,7 +1049,7 @@ public:
   // Δu + ∇(∇·u) : pre-computed when enable_stabilization, used by the CHNS
   // Jacobian (supg_pspg_matrix_chns_phi) so it need not be recomputed per
   // quadrature point in the assembly loop.
-  std::vector<Tensor<1, dim>>              present_velocity_lap_plus_graddiv;
+  std::vector<Tensor<1, dim>> present_velocity_lap_plus_graddiv;
 
   // Current values on faces (each face, each quad node)
   std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
@@ -1182,6 +1199,8 @@ public:
 
   std::vector<Tensor<1, dim>> diffusive_flux;
   std::vector<double>         velocity_dot_tracer_gradient;
+  // u_conv = u − w_mesh (zero mesh velocity when not ALE)
+  std::vector<Tensor<1, dim>> present_convective_velocity;
 
   std::vector<std::vector<double>>         shape_phi;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
@@ -1198,6 +1217,9 @@ public:
   std::vector<double>         strong_residual_tracer;
   std::vector<double>         stabilization_tau_momentum;
   std::vector<double>         stabilization_tau_tracer;
+  // CHNS: precomputed to avoid repeated division in assembly
+  std::vector<double> stabilization_nu_eff;
+  std::vector<double> stabilization_inv_rho;
 
 private:
   // Inter-layer communication: NS sets no_ale, pseudo-solid adds ale.

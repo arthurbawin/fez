@@ -3,11 +3,12 @@
 /**
  * Get the update flags for the FEValues, depending on the enabled features.
  */
-static UpdateFlags get_cell_update_flags(const bool enable_pseudo_solid,
-                                         const bool /*enable_lagrange_multiplier*/,
-                                         const bool /*enable_cahn_hilliard*/,
-                                         const bool /*enable_compressible*/,
-                                         const bool enable_stabilization)
+static UpdateFlags
+get_cell_update_flags(const bool enable_pseudo_solid,
+                      const bool /*enable_lagrange_multiplier*/,
+                      const bool /*enable_cahn_hilliard*/,
+                      const bool /*enable_compressible*/,
+                      const bool enable_stabilization)
 {
   UpdateFlags flags = update_values | update_gradients |
                       update_quadrature_points | update_JxW_values;
@@ -24,11 +25,12 @@ static UpdateFlags get_cell_update_flags(const bool enable_pseudo_solid,
 /**
  * Get the update flags for the FEFaceValues.
  */
-static UpdateFlags get_face_update_flags(const bool enable_pseudo_solid,
-                                         const bool /*enable_lagrange_multiplier*/,
-                                         const bool /*enable_cahn_hilliard*/,
-                                         const bool /*enable_compressible*/,
-                                         const bool enable_stabilization)
+static UpdateFlags
+get_face_update_flags(const bool enable_pseudo_solid,
+                      const bool /*enable_lagrange_multiplier*/,
+                      const bool /*enable_cahn_hilliard*/,
+                      const bool /*enable_compressible*/,
+                      const bool enable_stabilization)
 {
   UpdateFlags flags = update_values | update_gradients |
                       update_quadrature_points | update_JxW_values |
@@ -590,6 +592,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     dynamic_viscosity.resize(n_q_points);
     derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
 
+    present_convective_velocity.resize(n_q_points);
+
     tracer_values.resize(n_q_points);
     tracer_gradients.resize(n_q_points);
     tracer_values_fixed.resize(n_q_points);
@@ -638,6 +642,10 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     // Stabilization parameters
     stabilization_tau_momentum.resize(n_q_points);
     stabilization_tau_tracer.resize(n_q_points);
+
+    // CHNS: nu_eff and inv_rho precomputed in reinit, reused in assembly
+    stabilization_nu_eff.resize(n_q_points);
+    stabilization_inv_rho.resize(n_q_points);
 
     // Shape-function contributions
     grad_phi_p.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));

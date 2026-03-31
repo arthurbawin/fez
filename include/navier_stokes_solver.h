@@ -96,11 +96,26 @@ public:
   virtual void setup_dofs();
 
   /**
+   * For solvers with a moving mesh, initialize the MappingFEField from the
+   * mesh position part of the solution vector.
+   */
+  virtual void setup_mappings();
+
+  /**
+   * For solvers with hp capabilities, set the active fe index on each owned
+   * mesh element.
+   */
+  virtual void set_active_fe_indices()
+  {
+    AssertThrow(false, ExcPureFunctionCalled());
+  };
+
+  /**
    * Reinitialize the ghosted parallel vectors.
    * This should be called whenever additional ghost dofs are explicitly added
    * to the vector of locally relevant dofs.
    */
-  void reinit_vectors();
+  void reinit_ghosted_vectors();
 
   /**
    * Create the data needed to enforce zero-mean pressure.
@@ -278,12 +293,28 @@ public:
   void compute_forces();
 
   /**
+   * Write the forces table to stream.
+   */
+  void write_forces(std::ostream &out = std::cout) const
+  {
+    postproc_handler->write_forces(out);
+  }
+
+  /**
    * If solving a fluid-structure interaction problem, compute the position of
    * the geometric center of the structure described by the given boundary id.
    * This is done by evaluating the average of the position field on that
    * boundary.
    */
   void compute_structure_mean_position();
+
+  /**
+   * Write the structure mean position table to stream.
+   */
+  void write_structure_mean_position(std::ostream &out = std::cout) const
+  {
+    postproc_handler->write_structure_mean_position(out);
+  }
 
   /**
    * This function initializes data requiring information from the derived
@@ -306,9 +337,6 @@ public:
    * time handler. All other data (dof_handler, finite element spaces,
    * constraints, etc.) can be recomputed when the simulation restarts. See also
    * step 83 for a discussion on this topic.
-   *
-   * Depending on the derived solver, more data could be required to be saved,
-   * which would be done by adding a serialize() function.
    */
   void checkpoint();
 
@@ -317,6 +345,26 @@ public:
    * checkpoint().
    */
   void restart();
+
+  /**
+   * Save this object to file. See also the comments for the checkpoint()
+   * function. This function currently only saves the present and previous
+   * solution vectors.
+   */
+  template <class Archive>
+  void save(Archive &ar, const unsigned int version) const;
+
+  /**
+   * Load the present and previous solution vectors from checkpointed data.
+   */
+  template <class Archive>
+  void load(Archive &ar, const unsigned int version);
+
+  /**
+   * Tell Boost to use the split save/load functions above rather than a unique
+   * serialize function for both saving and loading.
+   */
+  BOOST_SERIALIZATION_SPLIT_MEMBER()
 
 private:
   /**

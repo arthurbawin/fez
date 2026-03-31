@@ -68,7 +68,15 @@ public:
    */
   virtual void setup_dofs() override;
 
-  void check_dofs(const AffineConstraints<double> &constraints) const;
+  /**
+   * See documentation in NavierStokesSolver base class.
+   */
+  virtual void setup_mappings() override;
+
+  /**
+   * See documentation in NavierStokesSolver base class.
+   */
+  virtual void set_active_fe_indices() override;
 
   /**
    *

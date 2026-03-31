@@ -22,7 +22,6 @@ namespace Assembly
                                  const ScratchData       &scratch_data,
                                  Vector<double>          &local_rhs,
                                  const bool               full_traction = true);
-
 } // namespace Assembly
 
 /* ---------------- Template functions ----------------- */

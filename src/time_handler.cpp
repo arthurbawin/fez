@@ -19,6 +19,7 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , initial_dt(time_parameters.dt)
   , current_dt(time_parameters.dt)
   , scheme(time_parameters.scheme)
+  , with_adaptive_timestep(time_parameters.adaptation.enable)
   , rolledback_step(false)
   , n_consecutive_rejected_steps(0)
   , n_rejected_steps(0)
@@ -55,7 +56,7 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   time_steps.resize(n_previous_solutions + 1, initial_dt);
   bdf_coefficients.resize(n_previous_solutions + 1, 0.);
 
-  if (!is_steady() && time_parameters.adaptation.enable)
+  if (!is_steady() && with_adaptive_timestep)
     error_estimator =
       std::make_shared<BDFErrorEstimator>(time_parameters, *this);
 }
@@ -166,14 +167,14 @@ void TimeHandler::advance(const ConditionalOStream &pcout)
     pcout << std::endl
           << "Time step " << current_time_iteration
           << " - Advancing to t = " << current_time;
-    if (time_parameters.adaptation.enable &&
+    if (with_adaptive_timestep &&
         time_parameters.adaptation.verbosity == Parameters::Verbosity::verbose)
       pcout << " with time step " << current_dt;
     pcout << '.' << std::endl;
   }
 
   // Advance the time tables in the error estimator
-  if (time_parameters.adaptation.enable)
+  if (with_adaptive_timestep)
     error_estimator->advance(*this);
 
   rolledback_step = false;
@@ -187,7 +188,7 @@ void TimeHandler::rotate_solutions(
   {
     // Rotate the additional solution vector in the error estimator
     // Do this first, before overwriting the last solution
-    if (!is_steady() && time_parameters.adaptation.enable)
+    if (!is_steady() && with_adaptive_timestep)
       error_estimator->rotate_additional_solution(previous_solutions.back());
 
     for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
@@ -231,7 +232,7 @@ bool TimeHandler::is_timestep_accepted(
   {
     // First check that it threw correctly from there, if it was needed
     AssertThrow(!is_steady(), ExcInternalError());
-    AssertThrow(time_parameters.adaptation.enable, ExcInternalError());
+    AssertThrow(with_adaptive_timestep, ExcInternalError());
     AssertThrow(!is_starting_step(), ExcInternalError());
     AssertThrow(!last_step_was_starting_step(), ExcInternalError());
 
@@ -244,7 +245,7 @@ bool TimeHandler::is_timestep_accepted(
   }
 
   // Always accept steady-state step or unsteady step without adaptation
-  if (is_steady() || !time_parameters.adaptation.enable)
+  if (is_steady() || !with_adaptive_timestep)
     goto accept_step;
 
   // Also always accept BDF starting steps for now
@@ -398,7 +399,7 @@ void TimeHandler::set_next_timestep(const bool step_was_accepted)
 {
   // BDF starting steps are not modified, even when time step adaptation is
   // enabled. Set the next time step depending on the current iteration number.
-  if (!time_parameters.adaptation.enable || is_starting_step() ||
+  if (!with_adaptive_timestep || is_starting_step() ||
       last_step_was_starting_step())
   {
     if (scheme == BDF2 &&
@@ -548,9 +549,27 @@ void TimeHandler::update_parameters_after_restart(
   if (scheme == STAT)
     return;
 
+  // For now, both the interrupted and restarted simulation should agree
+  // on whether adaptive time steppin is used.
+  AssertThrow(
+    with_adaptive_timestep == new_parameters.adaptation.enable,
+    ExcMessage(
+      "When restarting a simulation from a checkpoint, both the interrupted "
+      "and the restarted simulations should agree on whether adaptive time "
+      "stepping is used. The parameters used for this restarted simulation do "
+      "not agree with the those from the checkpointed one (one was using "
+      "adaptive time stepping and this one does not, or vice versa)."));
+
   // Update time step and final time, then update BDF coefficients
-  final_time    = new_parameters.t_end;
-  current_dt    = new_parameters.dt;
-  time_steps[0] = new_parameters.dt;
+  final_time = new_parameters.t_end;
+
+  // If time step adaptation is enabled, keep the predicted time step
+  // stored in the checkpointed data. Otherwise, use the new dt.
+  if (!with_adaptive_timestep)
+  {
+    current_dt    = new_parameters.dt;
+    time_steps[0] = new_parameters.dt;
+  }
+
   set_bdf_coefficients();
 }

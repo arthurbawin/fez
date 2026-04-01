@@ -1,0 +1,145 @@
+#
+# Test parameter file for the compressible solver
+#
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write vtu results    = true
+  set output directory = ../tmp/results/cylinder_2d/Re100Mach0.1/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  set mesh file = /home/monet/p120488/code/fez/tmp/cylinder.msh
+end
+
+subsection Time integration
+  set verbosity = verbose
+  set dt        = 0.01
+  set t_initial = 0
+  set t_end     = 100
+  set scheme    = BDF2
+  set bdf start method = BDF1
+end
+
+subsection Nonlinear solver
+  set verbosity            = verbose
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+8
+  set max_iterations       = 25
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set Velocity degree            = 2
+  set Pressure degree            = 1
+  set Temperature degree         = 2
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set thermal conductivity = 0.01193
+    set heat capacity at constant pressure = 0.8533
+    set dynamic viscosity = 0.01
+    set density = 1
+    set pressure reference= 71.43
+    set temperature reference = 293
+  end
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 0; 0
+  end
+  subsection pressure
+    set Function expression = 0
+  end
+  subsection temperature
+    set Function expression = 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 4
+  set fix pressure constant = false
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id   = 1
+    set name = Outlet
+    set type = input_function
+    set impose pressure = true
+    set impose velocity = false
+    set constrain tangential velocity = true
+    set pressure treatment = weak_traction
+    subsection p
+      set Function expression = 0
+    end
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = Inlet
+    set type = input_function
+    set impose pressure = false
+    set impose velocity = true
+    subsection u
+      set Function expression = 1
+    end
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 2
+    set id = 3
+    set name = NoFlux
+    set type = slip
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = InnerBoundary
+    set type = no_slip
+  end
+end
+
+subsection Heat boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 1
+    set name = Outlet
+    set type = adiabatic
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = Inlet
+    set type = input_function
+    subsection temperature
+      set Function expression = 0
+    end
+  end
+  subsection boundary 2
+    set id = 3
+    set name = NoFlux
+    set type = adiabatic
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = InnerBoundary
+    set type = adiabatic
+  end
+end

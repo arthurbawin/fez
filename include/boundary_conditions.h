@@ -56,6 +56,10 @@ namespace BoundaryConditions
     // Set (-pI + nu*grad(u)) \cdot n = (-p_mmsI + nu*grad(u_mms)) \cdot n
     open_mms,
 
+    //Heat 
+    adiabatic,    // -k delta(T) * n = 0
+    heat_flux,    // -k delta(T) * n = q_n
+
     // Pseudo_solid
     fixed, // Enforce 0 displacement. Default when no BC is prescribed?
     coupled_to_fluid,  // Couple to lagrange mult
@@ -65,6 +69,12 @@ namespace BoundaryConditions
 
     // Cahn-Hilliard
     // no_flux
+  };
+
+  enum class PressureTreatment
+  {
+    weak_traction,
+    strong_dirichlet
   };
 
   /**
@@ -138,6 +148,9 @@ namespace BoundaryConditions
 
     bool impose_velocity = true;
     bool impose_pressure = false;
+    bool constrain_tangential_velocity = false;
+
+    PressureTreatment pressure_treatment = PressureTreatment::weak_traction;
 
     virtual void set_time(const double new_time) override
     {

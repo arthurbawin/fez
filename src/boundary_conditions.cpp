@@ -47,7 +47,17 @@ namespace BoundaryConditions
     prm.declare_entry("impose pressure",
                       "false",
                       Patterns::Bool(),
-                      "If true, impose pressre (p) for type=input_function.");
+                      "If true, impose pressure (p) for type=input_function.");
+    
+    prm.declare_entry("constrain tangential velocity",
+                      "false",
+                      Patterns::Bool(),
+                      "If true, enforce zero tangential velocity on this boundary.");
+
+    prm.declare_entry("pressure treatment",
+                  "weak_traction",
+                  Patterns::Selection("weak_traction|strong_dirichlet"),
+                  "How an imposed pressure is applied for type=input_function.");
 
     // Imposed functions, if any
     prm.enter_subsection("u");
@@ -129,6 +139,20 @@ namespace BoundaryConditions
     impose_velocity = prm.get_bool("impose velocity");
     impose_pressure = prm.get_bool("impose pressure");
 
+    constrain_tangential_velocity =
+      prm.get_bool("constrain tangential velocity");
+
+    const std::string pressure_treatment_str = prm.get("pressure treatment");
+
+    if (pressure_treatment_str == "weak_traction")
+      pressure_treatment = PressureTreatment::weak_traction;
+    else if (pressure_treatment_str == "strong_dirichlet")
+      pressure_treatment = PressureTreatment::strong_dirichlet;
+    else
+      throw std::runtime_error(
+        "Invalid pressure treatment on boundary id=" +
+        std::to_string(this->id) + " (" + this->gmsh_name + ").");
+
     prm.enter_subsection("u");
     u->parse_parameters(prm);
     prm.leave_subsection();
@@ -157,6 +181,38 @@ namespace BoundaryConditions
       prm.leave_subsection();
     }
     prm.leave_subsection();
+    // std::cout<<p->value(Point<dim>())<<std::endl;
+
+
+    // ------------------------------------------------------------
+    // Logic validation of Fluid BC parameters and of the type input_function
+    // ------------------------------------------------------------
+    if (type == Type::input_function)
+    {
+      if (!impose_velocity && !impose_pressure && !constrain_tangential_velocity)
+        throw std::runtime_error(
+          "Invalid fluid boundary condition on boundary id=" +
+          std::to_string(this->id) +
+          " (" + this->gmsh_name + "):\n"
+          "type = input_function requires at least one active condition.\n"
+          "Set at least one of:\n"
+          "  - impose velocity = true\n"
+          "  - impose pressure = true\n"
+          "  - constrain tangential velocity = true");
+        
+      if (impose_velocity && impose_pressure)
+        throw std::runtime_error(
+          "Invalid fluid boundary condition on boundary id=" +
+          std::to_string(this->id) +
+          " (" + this->gmsh_name + "):\n"
+          "Full strong velocity imposition and pressure imposition cannot both "
+          "be activated on the same input_function boundary.\n"
+          "Use one of the following instead:\n"
+          "  - impose velocity = true,  impose pressure = false\n"
+          "  - impose velocity = false, impose pressure = true\n"
+          "  - impose pressure = true together with\n"
+          "    constrain tangential velocity = true");
+    }
   }
 
   template <int dim>
@@ -263,7 +319,7 @@ namespace BoundaryConditions
     BoundaryCondition::declare_parameters(prm);
     prm.declare_entry("type",
                       "none",
-                      Patterns::Selection("none|input_function|dirichlet_mms"),
+                      Patterns::Selection("none|input_function|dirichlet_mms|adiabatic|heat_flux"),
                       "Type of temperature boundary condition");
     prm.enter_subsection("temperature");
     temperature->declare_parameters(prm);
@@ -281,6 +337,10 @@ namespace BoundaryConditions
       type = Type::input_function;
     if (parsed_type == "dirichlet_mms")
       type = Type::dirichlet_mms;
+    if (parsed_type == "adiabatic")
+      type = Type::adiabatic;
+    if (parsed_type == "heat_flux")
+      type = Type::heat_flux;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Temperature boundary condition for boundary " +
@@ -384,6 +444,8 @@ namespace BoundaryConditions
         no_flux_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::no_tangential_flow)
         no_tangential_flow_boundaries.insert(bc.id);
+      if (bc.type == BoundaryConditions::Type::input_function && bc.constrain_tangential_velocity)
+        no_tangential_flow_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
         // Enforce both the normal and tangential flux to be well-posed
@@ -441,39 +503,46 @@ namespace BoundaryConditions
     const Function<dim>       &exact_solution,
     AffineConstraints<double> &constraints)
   {
+    (void) exact_solution;
+
     const FEValuesExtractors::Scalar pressure(p_lower);
-    const ComponentMask pressure_mask = dof_handler.get_fe().component_mask(pressure);
+    const ComponentMask pressure_mask =
+      dof_handler.get_fe().component_mask(pressure);
 
     for (const auto &[boundary_id, bc] : fluid_bc)
     {
-      (void)boundary_id;
-      if (bc.type == BoundaryConditions::Type::input_function && bc.impose_pressure)
+      (void) boundary_id;
+
+      if (bc.type == BoundaryConditions::Type::input_function &&
+          bc.impose_pressure &&
+          bc.pressure_treatment == PressureTreatment::strong_dirichlet)
       {
-        // std::cout << "apply_pressure_boundary_conditions called on boundary " << bc.id << std::endl;
+        if (homogeneous)
+        {
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            Functions::ZeroFunction<dim>(n_components),
+            constraints,
+            pressure_mask);
+        }
+        else
+        {
+          AssertThrow(
+            bc.p != nullptr,
+            ExcMessage("Strong pressure BC requested (impose_pressure=true, "
+                       "pressure treatment=strong_dirichlet) but bc.p is null. "
+                       "Provide subsection 'p' in the .prm."));
 
-        // if (homogeneous)
-        // {
-        //   VectorTools::interpolate_boundary_values(mapping, dof_handler, bc.id,
-        //                                            Functions::ZeroFunction<dim>(n_components),
-        //                                            constraints, pressure_mask);
-        // }
-        // else
-        // {
-        //   AssertThrow(bc.p != nullptr,
-        //                   ExcMessage("Pressure BC requested (impose_pressure=true) "
-        //                              "but bc.p is null. Provide subsection 'p' in the .prm."));
-        //   VectorTools::interpolate_boundary_values(mapping, dof_handler, bc.id,
-        //                                            ComponentwiseFlowPressure<dim>(p_lower,n_components,*bc.p),
-        //                                            constraints, pressure_mask);
-        //   std::cout << "Pressure BC value at origin = " << bc.p->value(Point<dim>()) << std::endl;
-        // }
-
-    // ------------------------------------------------------------
-    // Cas Poiseuille / pression imposée faiblement :
-    // utilisée dans les termes de bord du résidu/Jacobien,
-    // PAS une contrainte forte sur les DOFs de p.
-    // ------------------------------------------------------------
-        continue;
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            ComponentwiseFlowPressure<dim>(p_lower, n_components, *bc.p),
+            constraints,
+            pressure_mask);
+        }
       }
     }
   }

@@ -1,0 +1,146 @@
+#
+# Test parameter file for the compressible solver
+#
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write vtu results    = true
+  set output directory = ../tmp/results/pressure_wave/
+  set output prefix    = solution
+end
+
+subsection Mesh
+  set mesh file = /home/monet/p120488/code/fez/tmp/pressure_wave.msh
+end
+
+subsection Time integration
+  set verbosity = verbose
+  set dt        = 1e-4
+  set t_initial = 0.0
+  set t_end     = 0.1
+  set scheme    = BDF2
+  set bdf start method = BDF1
+end
+
+subsection Nonlinear solver
+  set verbosity            = verbose
+  set tolerance            = 1e-9
+  set divergence_tolerance = 1e+8
+  set max_iterations       = 50
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set Velocity degree            = 2
+  set Pressure degree            = 1
+  set Temperature degree         = 2
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set thermal conductivity = 0.0256
+    set heat capacity at constant pressure = 1004.7
+    set dynamic viscosity = 1.81e-5
+    set density = 1.2049446433030884
+    set pressure reference= 101325
+    set temperature reference = 293
+  end
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 0 ; -1.0
+  end
+  subsection pressure
+    set Function expression = 0
+  end
+  subsection temperature
+    set Function expression = 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 4
+  set fix pressure constant = false
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id   = 1
+    set name = bottom
+    set type = input_function
+    set impose pressure = false
+    set impose velocity = true
+    subsection u
+      set Function expression = 0
+    end
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = right
+    set type = slip
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = top
+    set type = input_function
+    set impose pressure = false
+    set impose velocity = true
+    subsection u
+      set Function expression = 0
+    end
+    subsection v
+      set Function expression = -1.0
+    end
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = left
+    set type = slip
+  end
+end
+
+subsection Heat boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 1
+    set name = bottom
+    set type = adiabatic
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = right
+    set type = adiabatic
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = top
+    set type = input_function
+    subsection temperature
+      set Function expression = 0
+    end
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = left
+    set type = adiabatic
+  end
+end

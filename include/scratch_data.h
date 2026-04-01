@@ -121,16 +121,16 @@ private:
     // Layout/FE checks
     const unsigned int n_comp_fe = fe_values.get_fe().n_components();
 
-    AssertThrow(u_lower == 0, ExcMessage("Expected u_lower=0 for layout u-v-(w)-p-T."));
-    AssertThrow(p_lower == dim, ExcMessage("Expected p_lower=dim for layout u-v-(w)-p-T."));
-    if (enable_compressible)
-      AssertThrow(t_lower == dim + 1, ExcMessage("Expected t_lower=dim+1 for layout u-v-(w)-p-T."));
+    // AssertThrow(u_lower == 0, ExcMessage("Expected u_lower=0 for layout u-v-(w)-p-T."));
+    // AssertThrow(p_lower == dim, ExcMessage("Expected p_lower=dim for layout u-v-(w)-p-T."));
+    // if (enable_compressible)
+    //   AssertThrow(t_lower == dim + 1, ExcMessage("Expected t_lower=dim+1 for layout u-v-(w)-p-T."));
 
-    if (enable_compressible)
-      AssertThrow(n_comp_fe == dim + 2, ExcMessage("Compressible enabled but FE != dim+2 components."));
-    else
-      AssertThrow(n_comp_fe == dim + 1 || n_comp_fe == dim + 2,
-                  ExcMessage("Unexpected FE components count."));
+    // if (enable_compressible)
+    //   AssertThrow(n_comp_fe == dim + 2, ExcMessage("Compressible enabled but FE != dim+2 components."));
+    // else
+    //   AssertThrow(n_comp_fe == dim + 1 || n_comp_fe == dim + 2,
+    //               ExcMessage("Unexpected FE components count."));
 
     fe_values[velocity].get_function_values(current_solution,
                                             present_velocity_values);
@@ -153,34 +153,34 @@ private:
 
     const unsigned int n_comp_f = source_terms->n_components;
     // Assure que la sortie a la taille du FE
-    for (auto &v : source_term_full_moving)
-      v.reinit(n_comp_fe);
+    // for (auto &v : source_term_full_moving)
+    //   v.reinit(n_comp_fe);
 
     // Cas 1 : la Function a exactement la bonne taille
-    if (n_comp_f == n_comp_fe)
-    {
+    // if (n_comp_f == n_comp_fe)
+    // {
       source_terms->vector_value_list(fe_values.get_quadrature_points(),
                                       source_term_full_moving);
-    }
+    // }
     // Cas 2 : FE compressible (dim+2) mais source_terms fourni en (dim+1) => T=0
-    else if (enable_compressible && n_comp_fe == dim + 2 && n_comp_f == dim + 1)
-    {
-      std::vector<Vector<double>> tmp(n_q_points, Vector<double>(n_comp_f));
-      source_terms->vector_value_list(fe_values.get_quadrature_points(), tmp);
+    // else if (enable_compressible && n_comp_fe == dim + 2 && n_comp_f == dim + 1)
+    // {
+      // std::vector<Vector<double>> tmp(n_q_points, Vector<double>(n_comp_f));
+      // source_terms->vector_value_list(fe_values.get_quadrature_points(), tmp);
     
-      for (unsigned int q = 0; q < n_q_points; ++q)
-      {
-        for (unsigned int d = 0; d < dim; ++d)
-          source_term_full_moving[q](u_lower + d) = tmp[q](u_lower + d);
+      // for (unsigned int q = 0; q < n_q_points; ++q)
+      // {
+      //   for (unsigned int d = 0; d < dim; ++d)
+      //     source_term_full_moving[q](u_lower + d) = tmp[q](u_lower + d);
       
-        source_term_full_moving[q](p_lower) = tmp[q](p_lower);
-        source_term_full_moving[q](t_lower) = 0.0; // pas de source en T
-      }
-    }
-    else
-    {
-      AssertThrow(false, ExcMessage("source_terms has incompatible n_components with FE layout."));
-    }
+      //   source_term_full_moving[q](p_lower) = tmp[q](p_lower);
+      //   source_term_full_moving[q](t_lower) = 0.0; // pas de source en T
+      // }
+    // }
+    // else
+    // {
+    //   AssertThrow(false, ExcMessage("source_terms has incompatible n_components with FE layout."));
+    // }
 
     // Get jacobian, shape functions and set source terms
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -270,18 +270,18 @@ private:
     const std::shared_ptr<Function<dim>> & exact_solution)
   {
     // Layout/FE checks
-    const unsigned int n_comp_fe = fe_values.get_fe().n_components();
+    // const unsigned int n_comp_fe = fe_values.get_fe().n_components();
 
-    AssertThrow(u_lower == 0, ExcMessage("Expected u_lower=0 for layout u-v-(w)-p-T."));
-    AssertThrow(p_lower == dim, ExcMessage("Expected p_lower=dim for layout u-v-(w)-p-T."));
-    if (enable_compressible)
-      AssertThrow(t_lower == dim + 1, ExcMessage("Expected t_lower=dim+1 for layout u-v-(w)-p-T."));
+    // AssertThrow(u_lower == 0, ExcMessage("Expected u_lower=0 for layout u-v-(w)-p-T."));
+    // AssertThrow(p_lower == dim, ExcMessage("Expected p_lower=dim for layout u-v-(w)-p-T."));
+    // if (enable_compressible)
+    //   AssertThrow(t_lower == dim + 1, ExcMessage("Expected t_lower=dim+1 for layout u-v-(w)-p-T."));
 
-    if (enable_compressible)
-      AssertThrow(n_comp_fe == dim + 2, ExcMessage("Compressible enabled but FE != dim+2 components."));
-    else
-      AssertThrow(n_comp_fe == dim + 1 || n_comp_fe == dim + 2,
-                  ExcMessage("Unexpected FE components count."));
+    // if (enable_compressible)
+    //   AssertThrow(n_comp_fe == dim + 2, ExcMessage("Compressible enabled but FE != dim+2 components."));
+    // else
+    //   AssertThrow(n_comp_fe == dim + 1 || n_comp_fe == dim + 2,
+    //               ExcMessage("Unexpected FE components count."));
 
     // Present solutions
     fe_values[temperature].get_function_values(current_solution,
@@ -303,8 +303,8 @@ private:
                 
     // Exact solution at cell quadrature points (layout u-v-(w-)p-T)
     Assert(exact_solution != nullptr, ExcMessage("exact_solution is null"));
-    AssertThrow(exact_solution->n_components == fe_values.get_fe().n_components(),
-            ExcMessage("exact_solution n_components must match FE (u-v-(w)-p-T)."));
+    // AssertThrow(exact_solution->n_components == fe_values.get_fe().n_components(),
+    //         ExcMessage("exact_solution n_components must match FE (u-v-(w)-p-T)."));
     exact_solution->vector_value_list(fe_values.get_quadrature_points(),
                                       exact_solution_full_cell);
       
@@ -335,10 +335,23 @@ private:
       present_pressure_absolute_values[q] = p_tot;
       present_temperature_absolute_values[q] = T_tot;
 
+      const double denom_p = alpha_r * p_star + 1.0;
+      const double denom_T = beta_r * T_star + 1.0;
+
+      AssertThrow(std::isfinite(p_star), ExcMessage("p_star is not finite"));
+      AssertThrow(std::isfinite(T_star), ExcMessage("T_star is not finite"));
+      AssertThrow(denom_p > 1e-8, ExcMessage("alpha_r * p_star + 1 too small or negative"));
+      AssertThrow(denom_T > 1e-8, ExcMessage("beta_r * T_star + 1 too small or negative"));
+
+      AssertThrow((pressure_ref + p_star) > 0.0, ExcMessage("Absolute pressure became non-positive"));
+      AssertThrow((temperature_ref + T_star) > 0.0, ExcMessage("Absolute temperature became non-positive"));
+
       a_p[q] = alpha_r / (alpha_r * p_star + 1.0);
       b_T[q] = beta_r / (beta_r * T_star + 1.0);
 
-      density[q] = (pressure_ref / (gas_constant * temperature_ref)) * ((alpha_r * p_star + 1.0) / (beta_r * T_star + 1.));
+      density[q] = density_ref * ((alpha_r * p_star + 1.0) / (beta_r * T_star + 1.0));
+
+      AssertThrow(density[q] > 0.0, ExcMessage("Density became non-positive"));
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -371,16 +384,38 @@ private:
 
     const auto &quad_points = fe_face_values.get_quadrature_points();
 
-    // Get the fluid bc on this face
+    // -----------------------------
+    // Pressure BC data (fluid side)
+    // -----------------------------
     AssertThrow(param.fluid_bc.count(face_boundary_id[i_face]) > 0, ExcMessage("Trying to get a boundary condition on a face that has no boundary condition defined."));
     const auto &bc = param.fluid_bc.at(face_boundary_id[i_face]);
+
+    // -----------------------------
+    // Heat BC on this face
+    // -----------------------------
+    AssertThrow(param.heat_bc.count(face_boundary_id[i_face]) > 0,
+              ExcMessage("Trying to get a heat boundary condition on a face that has no heat boundary condition defined."));
+    const auto &bc_heat = param.heat_bc.at(face_boundary_id[i_face]);
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
       const double T_star = present_face_temperature_values[i_face][q];
       const double T_tot = temperature_ref + T_star;
       present_face_temperature_absolute_values[i_face][q] = T_tot;
-      face_input_pressure_values[i_face][q] = bc.p->value(quad_points[q]);
+
+      // Pressure data for fluid BC
+      if (bc.impose_pressure &&
+          bc.pressure_treatment == BoundaryConditions::PressureTreatment::weak_traction)
+        face_input_pressure_values[i_face][q] = bc.p->value(quad_points[q]);
+      else
+        face_input_pressure_values[i_face][q] = 0.0;
+
+      // Heat flux data for thermal Neumann BC
+      if (bc_heat.type == BoundaryConditions::Type::heat_flux)
+        face_input_heat_flux_values[i_face][q] =
+          bc_heat.temperature->value(quad_points[q]);
+      else
+        face_input_heat_flux_values[i_face][q] = 0.0;
 
       if (exact_solution != nullptr)
         exact_face_temperature_gradients[i_face][q] = 
@@ -1031,8 +1066,8 @@ public:
    */
   FEValuesExtractors::Scalar temperature;
   double thermal_conductivity;
-  double gas_constant;
-  double dynamic_viscosity;
+  double density_ref;
+  // double dynamic_viscosity_ref;
   double heat_capacity_at_constant_pressure;
   double pressure_ref;
   double temperature_ref;
@@ -1040,6 +1075,8 @@ public:
   double beta_r;
 
   std::vector<std::vector<double>> face_input_pressure_values;
+
+  std::vector<std::vector<double>> face_input_heat_flux_values;
 
 
   // Variable density, also used by CHNS models

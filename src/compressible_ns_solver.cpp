@@ -97,7 +97,10 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(
   }
   else
   {
-    this->source_terms   = param.source_terms.fluid_source;
+    this->source_terms   = std::make_shared<CompressibleNSSolver<dim>::SourceTerm>(
+      this->time_handler.current_time,
+      *this->ordering,
+      param.source_terms);
     this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
       this->ordering->n_components);
   }
@@ -111,7 +114,7 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
   // AssertThrow(false, ExcMessage("Implement MMS source term for compressible NS"));
   const double mu = physical_properties.fluids[0].dynamic_viscosity;
   const double k = physical_properties.fluids[0].thermal_conductivity;
-  const double R = physical_properties.fluids[0].gas_constant;
+  const double rho_ref = physical_properties.fluids[0].density;
   const double cp = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
   const double p_ref = physical_properties.fluids[0].pressure_ref;
   const double T_ref = physical_properties.fluids[0].temperature_ref;
@@ -146,49 +149,14 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
   const double a_p = alpha_r / (alpha_r * p_ex + 1.0);
   const double b_T = beta_r / (beta_r * T_ex + 1.0);
 
-  const double rho_ref = p_ref / (R * T_ref);
-
-  // double rho = rho_ref * (alpha_r * p_ex + 1.0) / (beta_r * T_ex + 1.0);
-  // // const double rho = rho_ref;
-
-  // // Navier-Stokes momentum (velocity) source term
-  // Tensor<1, dim> f = -(rho * (dudt_eulerian + Grad_uDot_u) + grad_p - mu * lap_u - mu * (1.0/3.0) * gradDiv_u);
-
-  // for (unsigned int d = 0; d < dim; ++d)
-  //   values[u_lower + d] = f[d];
-
-  // // Mass conservation (pressure) source term,
-  // // for div(u) + alpha_r/(alpha_r p^* + 1)[dp^*dt + u dot gradp^*] - beta_r/(beta_r T^* + 1)[dT^*dt + u dot gradT^*] - f = 0 
-  // // -> f = div(u_mms) + alpha_r/(alpha_r p^*_mms + 1)[dp^*_mmsdt + u_mms dot gradp^_mms*] - beta_r/(beta_r T^*_mms + 1)[dT^_mms*dt + u_mms dot gradT^*_mms]
-  // double source_mass = div_u + a_p * (dpdt_ex + uDotGrad_p)- b_T * (dTdt_ex + uDotGrad_T);
-  // // div_u + a_p * (dpdt_ex + uDotGrad_p)- b_T * (dTdt_ex + uDotGrad_T);
-  // values[p_lower] = -source_mass;
-
-  // // Energy equation (temperature) source term
-  // Tensor<2, dim> D = symmetrize(grad_u);
-  // const double DddotD = scalar_product(D, D);
-  
-  // double source_energy = rho * cp * (dTdt_ex + uDotGrad_T)
-  //                       - (dpdt_ex + uDotGrad_p)
-  //                       - k * lap_T
-  //                       - 2.0 * mu * DddotD + (2.0/3.0) * mu * div_u * div_u;
-  
-  // values[t_lower] = -source_energy;
-
-  // Incompressible equations at fixed density
   {
     double rho = rho_ref * (alpha_r * p_ex + 1.0) / (beta_r * T_ex + 1.0);
-    // const double rho = rho_ref;
 
     // Navier-Stokes momentum (velocity) source term
-    // Tensor<1, dim> f = -(rho * dudt_eulerian + grad_p - mu * (lap_u + 1.0/3.0 * gradDiv_u));
     Tensor<1, dim> f = -(rho * (dudt_eulerian + Grad_uDot_u) + grad_p - mu * (lap_u + 1.0/3.0 * gradDiv_u));
 
     for (unsigned int d = 0; d < dim; ++d)
       values[u_lower + d] = f[d];
-
-    // for (unsigned int d = 0; d < dim; ++d)
-    //   values[u_lower + d] = 0.0;
 
     // Mass conservation (pressure) source term,
     // for div(u) + alpha_r/(alpha_r p^* + 1)[dp^*dt + u dot gradp^*] - beta_r/(beta_r T^* + 1)[dT^*dt + u dot gradT^*] - f = 0 
@@ -205,7 +173,6 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
                           - 2.0 * mu * DddotD + (2.0/3.0) * mu * div_u * div_u;
     
     values[t_lower] = -source_energy;
-    // values[t_lower] = 0.0;
   }
 }
 
@@ -404,8 +371,8 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
     this->param.physical_properties.fluids[0].dynamic_viscosity; 
   const double k =
     this->param.physical_properties.fluids[0].thermal_conductivity;
-  const double R_gas =
-    this->param.physical_properties.fluids[0].gas_constant;
+  const double rho_ref =
+    this->param.physical_properties.fluids[0].density;
   const double cp =
     this->param.physical_properties.fluids[0].heat_capacity_at_constant_pressure;
   const double p_ref =
@@ -413,7 +380,6 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   const double T_ref =
     this->param.physical_properties.fluids[0].temperature_ref;
   
-  const double rho_ref = p_ref / (R_gas * T_ref);
   const double alpha_r = 1.0 / p_ref;
   const double beta_r = 1.0 / T_ref; 
 
@@ -595,7 +561,10 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
         }
         
         const auto &bc_fluid = this->param.fluid_bc.at(boundary_id);
-        if (bc_fluid.type == BoundaryConditions::Type::input_function && bc_fluid.impose_pressure)
+        if (bc_fluid.type == BoundaryConditions::Type::input_function &&
+            bc_fluid.impose_pressure &&
+            bc_fluid.pressure_treatment ==
+              BoundaryConditions::PressureTreatment::weak_traction)
         {
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
@@ -649,49 +618,49 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
           }
         }
 
-        // if (this->param.heat_bc.at(scratchData.face_boundary_id[i_face])
-        //       .type == BoundaryConditions::Type::input_function)
-        // {
-        //   for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-        //   {
-        //     const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-        //     const auto &n         = scratchData.face_normals_moving[i_face][q];
+        if (this->param.heat_bc.at(scratchData.face_boundary_id[i_face])
+              .type == BoundaryConditions::Type::input_function)
+        {
+          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+          {
+            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
+            const auto &n         = scratchData.face_normals_moving[i_face][q];
 
-        //     const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
-        //     const auto &grad_phi_T_face = scratchData.grad_phi_T_face[i_face][q];
+            const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
+            const auto &grad_phi_T_face = scratchData.grad_phi_T_face[i_face][q];
 
-        //     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-        //     {
-        //       const unsigned int component_i = scratchData.components[i];
-        //       const bool         i_is_u      = this->ordering->is_velocity(component_i);
-        //       const bool         i_is_p      = this->ordering->is_pressure(component_i);
-        //       const bool         i_is_T      = this->ordering->is_temperature(component_i);
+            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+            {
+              const unsigned int component_i = scratchData.components[i];
+              const bool         i_is_u      = this->ordering->is_velocity(component_i);
+              const bool         i_is_p      = this->ordering->is_pressure(component_i);
+              const bool         i_is_T      = this->ordering->is_temperature(component_i);
 
-        //       for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
-        //       {
-        //         const unsigned int component_j = scratchData.components[j];
-        //         const bool         j_is_u = this->ordering->is_velocity(component_j);
-        //         const bool         j_is_p = this->ordering->is_pressure(component_j);
-        //         const bool         j_is_T = this->ordering->is_temperature(component_j);
+              for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
+              {
+                const unsigned int component_j = scratchData.components[j];
+                const bool         j_is_u = this->ordering->is_velocity(component_j);
+                const bool         j_is_p = this->ordering->is_pressure(component_j);
+                const bool         j_is_T = this->ordering->is_temperature(component_j);
 
-        //         double local_matrix_ij = 0.0;
-        //         bool assemble = false;
+                double local_matrix_ij = 0.0;
+                bool assemble = false;
 
-        //         if (i_is_T && j_is_T)
-        //         {
-        //           assemble = true;
-        //           local_matrix_ij += -phi_T_face[i] * k * grad_phi_T_face[j] * n;
-        //         }
+                if (i_is_T && j_is_T)
+                {
+                  assemble = true;
+                  local_matrix_ij += -phi_T_face[i] * k * grad_phi_T_face[j] * n;
+                }
 
-        //         if (assemble)
-        //         {
-        //           local_matrix_ij *= face_JxW ;
-        //           local_matrix(i, j) += local_matrix_ij;
-        //         }
-        //       }
-        //     }
-        //   }
-        // }
+                if (assemble)
+                {
+                  local_matrix_ij *= face_JxW ;
+                  local_matrix(i, j) += local_matrix_ij;
+                }
+              }
+            }
+          }
+        }
       }
     }
 
@@ -802,8 +771,8 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
     this->param.physical_properties.fluids[0].thermal_conductivity;
   const double cp =
     this->param.physical_properties.fluids[0].heat_capacity_at_constant_pressure;
-  const double R_gas =
-    this->param.physical_properties.fluids[0].gas_constant;
+  const double rho_ref =
+    this->param.physical_properties.fluids[0].density;
   const double p_ref =
     this->param.physical_properties.fluids[0].pressure_ref;
   const double T_ref =
@@ -811,7 +780,6 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   
   const double alpha_r = 1.0 / p_ref;
   const double beta_r  = 1.0 / T_ref; 
-  const double rho_ref = p_ref / (R_gas * T_ref);
   
   //
   // Volume contributions
@@ -987,7 +955,10 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
         // Pressure condition on a face (traction)
         const auto boundary_id = scratchData.face_boundary_id[i_face];
         const auto &bc_fluid = this->param.fluid_bc.at(boundary_id);
-        if (bc_fluid.type == BoundaryConditions::Type::input_function && bc_fluid.impose_pressure)
+        if (bc_fluid.type == BoundaryConditions::Type::input_function &&
+            bc_fluid.impose_pressure &&
+            bc_fluid.pressure_treatment ==
+              BoundaryConditions::PressureTreatment::weak_traction)
         {
 
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
@@ -1012,27 +983,54 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
           }
         }
 
-        // Temperature condition (Neumann) on a face
-        // if (this->param.heat_bc.at(scratchData.face_boundary_id[i_face])
-        //       .type == BoundaryConditions::Type::input_function)
-        // {
-        //   for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-        //   {
-        //     const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
-        //     const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-        //     const auto  &n        =scratchData.face_normals_moving[i_face][q];
+        // Temperature condition on a face
+        if (this->param.heat_bc.at(scratchData.face_boundary_id[i_face])
+              .type == BoundaryConditions::Type::input_function)
+        {
+          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+          {
+            const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
+            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
+            const auto  &n        =scratchData.face_normals_moving[i_face][q];
 
-        //     const auto &present_face_temperature_gradients = scratchData.present_face_temperature_gradients[i_face][q];
+            const auto &present_face_temperature_gradients = scratchData.present_face_temperature_gradients[i_face][q];
 
-        //     const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
+            const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
 
-        //     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-        //     {
-        //       local_rhs(i) -= (k * (present_face_temperature_gradients * n) * phi_T_face[i]) * face_JxW;
-        //     }
-        //   }
-        // }
+            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+            {
+              local_rhs(i) -= (k * (present_face_temperature_gradients * n) * phi_T_face[i]) * face_JxW;
+            }
+          }
+        }
 
+        const auto boundary_id_heat = scratchData.face_boundary_id[i_face];
+        const auto &bc_heat = this->param.heat_bc.at(boundary_id_heat);
+
+        if (bc_heat.type == BoundaryConditions::Type::heat_flux)
+        {
+          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+          {
+            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
+            const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
+
+            const double q_n = scratchData.face_input_heat_flux_values[i_face][q];
+
+            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+            {
+              const unsigned int component_i = scratchData.components[i];
+              const bool i_is_T = this->ordering->is_temperature(component_i);
+
+              if (i_is_T)
+                local_rhs(i) -= q_n * phi_T_face[i] * face_JxW;
+            }
+          }
+        }
+
+        if (bc_heat.type == BoundaryConditions::Type::adiabatic)
+        {
+          // Nothing to add
+        }
       }
     }
 

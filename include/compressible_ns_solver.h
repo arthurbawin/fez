@@ -136,6 +136,41 @@ protected:
   FEValuesExtractors::Scalar temperature_extractor;
   ComponentMask              temperature_mask;
 
+protected:
+    /**
+   * Source term.
+   */
+  class SourceTerm : public Function<dim>
+  {
+  public:
+    SourceTerm(const double                        time,
+               const ComponentOrdering            &ordering,
+               const Parameters::SourceTerms<dim> &source_terms)
+      : Function<dim>(ordering.n_components, time)
+      , ordering(ordering)
+      , source_terms(source_terms)
+    {}
+
+    virtual void set_time(const double new_time) override
+    {
+      source_terms.set_time(new_time);
+    }
+
+    virtual void vector_value(const Point<dim> &p,
+                              Vector<double>   &values) const override
+    {
+      // source_terms.fluid_source is a function with dim+1 components
+      for (unsigned int d = 0; d < dim; ++d)
+        values[ordering.u_lower + d] = source_terms.fluid_source->value(p, d);
+      values[ordering.p_lower] = source_terms.fluid_source->value(p, dim);
+      values[ordering.t_lower] = source_terms.temperature_source->value(p);
+    }
+
+  protected:
+    const ComponentOrdering     &ordering;
+    Parameters::SourceTerms<dim> source_terms;
+  };
+
   /**
    * Exact solution when performing a convergence study with a manufactured
    * solution.

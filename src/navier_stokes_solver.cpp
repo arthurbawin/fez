@@ -12,6 +12,25 @@
 #include <post_processing_handler.h>
 #include <utilities.h>
 
+namespace
+{
+  template <int dim>
+  bool has_strong_pressure_dirichlet(
+    const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>> &fluid_bc)
+  {
+    for (const auto &[id, bc] : fluid_bc)
+    {
+      (void) id;
+      if (bc.type == BoundaryConditions::Type::input_function &&
+          bc.impose_pressure &&
+          bc.pressure_treatment ==
+            BoundaryConditions::PressureTreatment::strong_dirichlet)
+        return true;
+    }
+    return false;
+  }
+}
+
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
@@ -157,9 +176,18 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
     restart();
   }
 
+  const bool has_strong_pressure_bc =
+    has_strong_pressure_dirichlet<dim>(param.fluid_bc);
+
+  AssertThrow(
+    !(has_strong_pressure_bc && param.bc_data.enforce_zero_mean_pressure),
+    ExcMessage(
+      "Incompatible pressure constraints: a strong Dirichlet pressure boundary "
+      "condition is prescribed while 'enforce zero mean pressure = true'. "
+      "Use only one pressure reference mechanism."));
+
   if (param.bc_data.enforce_zero_mean_pressure)
     create_zero_mean_pressure_constraints_data();
-  create_solver_specific_constraints_data();
 
   create_zero_constraints();
   create_nonzero_constraints();
@@ -410,6 +438,25 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
     *exact_solution,
     *param.mms.exact_velocity,
     constraints);
+
+  const bool has_strong_pressure_bc =
+    has_strong_pressure_dirichlet<dim>(param.fluid_bc);
+    
+  AssertThrow(
+    !(has_strong_pressure_bc && param.bc_data.fix_pressure_constant),
+    ExcMessage(
+      "Incompatible pressure constraints: a strong Dirichlet pressure boundary "
+      "condition is prescribed while 'fix pressure constant = true'. "
+      "Disable 'fix pressure constant' when pressure is imposed strongly "
+      "on a boundary."));
+    
+  AssertThrow(
+    !(has_strong_pressure_bc && param.bc_data.enforce_zero_mean_pressure),
+    ExcMessage(
+      "Incompatible pressure constraints: a strong Dirichlet pressure boundary "
+      "condition is prescribed while 'enforce zero mean pressure = true'. "
+      "Disable 'enforce zero mean pressure' when pressure is imposed strongly "
+      "on a boundary."));
 
   if (param.bc_data.fix_pressure_constant)
   {

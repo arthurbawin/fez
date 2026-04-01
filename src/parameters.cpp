@@ -1,4 +1,5 @@
 
+#include <cmath>
 #include <parameters.h>
 #include <utilities.h>
 
@@ -503,7 +504,10 @@ namespace Parameters
   {
     prm.enter_subsection("Fluid " + std::to_string(index));
     {
-      prm.declare_entry("density", "1", Patterns::Double(), "Fluid density");
+      prm.declare_entry("density",
+                        "1",
+                        Patterns::Double(),
+                        "Fluid density for incompressible solvers and reference density for compressible solvers");
       prm.declare_entry("kinematic viscosity",
                         "1",
                         Patterns::Double(),
@@ -512,10 +516,6 @@ namespace Parameters
                         "1",
                         Patterns::Double(),
                         "Fluid dynamic viscosity");
-      prm.declare_entry("gas constant",
-                        "287",
-                        Patterns::Double(),
-                        "Specific gas constant");
       prm.declare_entry("thermal conductivity", 
                         "1", 
                         Patterns::Double(), 
@@ -527,11 +527,11 @@ namespace Parameters
       prm.declare_entry("pressure reference", 
                         "1",
                         Patterns::Double(),
-                        "Fluide pressure reference");
+                        "Fluid pressure reference");
       prm.declare_entry("temperature reference", 
                         "1",
                         Patterns::Double(),
-                        "Fluide temperature reference");
+                        "Fluid temperature reference");
     }
     prm.leave_subsection();
   }
@@ -543,11 +543,21 @@ namespace Parameters
       density                            = prm.get_double("density");
       kinematic_viscosity                = prm.get_double("kinematic viscosity");
       dynamic_viscosity                  = prm.get_double("dynamic viscosity");
-      gas_constant                       = prm.get_double("gas constant");
       thermal_conductivity               = prm.get_double("thermal conductivity");
       heat_capacity_at_constant_pressure = prm.get_double("heat capacity at constant pressure");
       pressure_ref                       = prm.get_double("pressure reference"); 
       temperature_ref                    = prm.get_double("temperature reference");
+
+      AssertThrow(density > 0.0, ExcMessage("density must be > 0"));
+      AssertThrow(pressure_ref > 0.0,
+                  ExcMessage("pressure reference must be > 0"));
+      AssertThrow(temperature_ref > 0.0,
+                  ExcMessage("temperature reference must be > 0"));
+
+      gas_constant = pressure_ref / (density * temperature_ref);
+
+      AssertThrow(std::isfinite(gas_constant) && gas_constant > 0.0,
+                  ExcMessage("Derived gas constant is invalid"));
     }
     prm.leave_subsection();
   }

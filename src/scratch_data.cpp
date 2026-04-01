@@ -473,8 +473,8 @@ void ScratchData<dim, has_hp_capabilities>::initialize_compressible()
           
   thermal_conductivity               = physical_properties.fluids[0].thermal_conductivity;
   heat_capacity_at_constant_pressure = physical_properties.fluids[0].heat_capacity_at_constant_pressure;
-  dynamic_viscosity_fluid            = physical_properties.fluids[0].dynamic_viscosity_fluid;
-  gas_constant                       = physical_properties.fluids[0].gas_constant;
+  // dynamic_viscosity_ref              = physical_properties.fluids[0].dynamic_viscosity;
+  density_ref                        = physical_properties.fluids[0].density;
   pressure_ref                       = physical_properties.fluids[0].pressure_ref;
   temperature_ref                    = physical_properties.fluids[0].temperature_ref;
   alpha_r                            = 1.0 / pressure_ref;
@@ -696,6 +696,9 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
       n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
 
     face_input_pressure_values.resize(
+                                      n_faces, std::vector<double>(n_faces_q_points));
+
+    face_input_heat_flux_values.resize(
                                       n_faces, std::vector<double>(n_faces_q_points));
     
     phi_T_face.resize(n_faces,

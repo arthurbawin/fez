@@ -82,13 +82,12 @@ end
 subsection Physical properties
   set number of fluids = 1
   subsection Fluid 0
-    set density             = 1
+    set density             = 0.003484320557491289
     set kinematic viscosity = 1
 
     set thermal conductivity = 1
     set heat capacity at constant pressure = 1
     set dynamic viscosity = 1
-    set gas constant = 287
     set pressure reference = 1
     set temperature reference = 1
   end

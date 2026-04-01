@@ -226,7 +226,7 @@ namespace Parameters
 
   struct Fluid
   {
-    // Density used by incompressible solver; in compressible it is a state equation
+    // Density used by incompressible solver; in compressible it stores the reference density
     double density;
     double kinematic_viscosity;
     double dynamic_viscosity;

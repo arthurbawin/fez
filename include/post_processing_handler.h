@@ -195,6 +195,16 @@ public:
     return data_component_interpretation;
   }
 
+  /**
+   * Write the forces table to stream.
+   */
+  void write_forces(std::ostream &out = std::cout) const;
+
+  /**
+   * Write the structure mean position table to stream.
+   */
+  void write_structure_mean_position(std::ostream &out = std::cout) const;
+
 private:
   /**
    * Return true if the passed postprocessing should be output at this time

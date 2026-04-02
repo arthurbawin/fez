@@ -210,12 +210,8 @@ void NSSolverLambda<dim>::reset_solver_specific_data()
 }
 
 template <int dim>
-void NSSolverLambda<dim>::setup_dofs()
+void NSSolverLambda<dim>::set_active_fe_indices()
 {
-  TimerOutput::Scope t(this->computing_timer, "Setup");
-
-  auto &comm = this->mpi_communicator;
-
   // Mark the cells on which the Lagrange multiplier is defined
   {
     /**
@@ -273,6 +269,16 @@ void NSSolverLambda<dim>::setup_dofs()
         }
     }
   }
+}
+
+template <int dim>
+void NSSolverLambda<dim>::setup_dofs()
+{
+  TimerOutput::Scope t(this->computing_timer, "Setup dofs");
+
+  auto &comm = this->mpi_communicator;
+
+  set_active_fe_indices();
 
   // Initialize dof handler
   this->dof_handler.distribute_dofs(*fe);
@@ -307,6 +313,12 @@ void NSSolverLambda<dim>::setup_dofs()
     previous_sol.reinit(this->locally_owned_dofs,
                         this->locally_relevant_dofs,
                         comm);
+}
+
+template <int dim>
+void NSSolverLambda<dim>::setup_mappings()
+{
+  TimerOutput::Scope t(this->computing_timer, "Setup mappings");
 
   // Unused in this solver
   this->moving_mapping = this->fixed_mapping;

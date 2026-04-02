@@ -174,5 +174,20 @@ void PostProcessingHandler<dim>::write_table(
   }
 }
 
+template <int dim>
+void PostProcessingHandler<dim>::write_forces(std::ostream &out) const
+{
+  write_table(out, forces_table, post_proc_param.forces);
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::write_structure_mean_position(
+  std::ostream &out) const
+{
+  write_table(out,
+              structure_mean_position_table,
+              post_proc_param.structure_position);
+}
+
 template class PostProcessingHandler<2>;
 template class PostProcessingHandler<3>;

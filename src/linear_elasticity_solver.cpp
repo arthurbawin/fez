@@ -18,8 +18,6 @@
 #include <utilities.h>
 
 #include <cmath>
-#include <deque>
-#include <iomanip>
 
 template <int dim>
 LinearElasticitySolver<dim>::LinearElasticitySolver(
@@ -147,122 +145,37 @@ void LinearElasticitySolver<dim>::run()
     const double c_max =
       param.linear_elasticity.max_current_mesh_source_term_multiplier;
     const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
-    // Progession
-    const double step_size =
-      n_steps > 1 ? (c_max - c_min) / static_cast<double>(n_steps - 1) : 0.0;
-    const double min_gap =
-      1e-8 * std::max(1.0, std::max(std::abs(c_min), std::abs(c_max)));
 
-    source_term_fixed_mesh_multiplier = 0.;
+    const bool use_nh =
+      (param.physical_properties.pseudosolids[0].constitutive_model ==
+       Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
 
-    std::deque<double> continuation_targets;
+    source_term_moving_mesh_multiplier = c_min;
+    source_term_fixed_mesh_multiplier  = 0.;
+
+    // Linear elasticity: geometric progression; neo-Hookean: arithmetic progression
+    const double r =
+      (!use_nh && n_steps > 1) ? std::pow(c_max / c_min, 1.0 / (n_steps - 1)) : 1.;
+    const double step =
+      (use_nh && n_steps > 1) ? (c_max - c_min) / static_cast<double>(n_steps - 1) : 0.;
+
     for (unsigned int n = 0; n < n_steps; ++n)
-      continuation_targets.push_back(c_min + n * step_size);
-
-    LA::ParVectorType accepted_solution(locally_owned_dofs,
-                                        locally_relevant_dofs,
-                                        mpi_communicator);
-    LA::ParVectorType accepted_local_evaluation_point(locally_owned_dofs,
-                                                      mpi_communicator);
-    accepted_solution               = present_solution;
-    accepted_local_evaluation_point = local_evaluation_point;
-    double accepted_multiplier      = 0.0;
-
-    auto restore_accepted_state = [&]() {
-      present_solution       = accepted_solution;
-      evaluation_point       = accepted_solution;
-      local_evaluation_point = accepted_local_evaluation_point;
-      newton_update          = 0.;
-      system_rhs             = 0.;
-    };
-
-    auto reset_direct_solver = [&]() {
-      direct_solver_reuse =
-        std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
-    };
-
-    while (!continuation_targets.empty())
     {
-      const double trial_multiplier = continuation_targets.front();
-      continuation_targets.pop_front();
-      const double progress = 100.0 * trial_multiplier / c_max;
-
-      restore_accepted_state();
-      source_term_moving_mesh_multiplier = trial_multiplier;
-
       pcout << std::endl;
-      pcout << "[Continuation] alpha = " << std::scientific
-            << source_term_moving_mesh_multiplier << " / " << c_max << " ("
-            << std::fixed << std::setprecision(2) << progress << "%)"
-            << std::scientific << std::setprecision(8) << std::endl;
+      pcout << "Continuation method - Step " << n + 1 << "/" << n_steps
+            << " : source term multiplier = "
+            << source_term_moving_mesh_multiplier << std::endl;
       pcout << std::endl;
 
-      bool continuation_step_accepted = false;
-      try
-      {
-        if (param.debug.compare_analytical_jacobian_with_fd)
-          compare_analytical_matrix_with_fd();
+      if (param.debug.compare_analytical_jacobian_with_fd)
+        compare_analytical_matrix_with_fd();
+      solve_nonlinear_problem(time_handler);
 
-        solve_nonlinear_problem(time_handler);
-        const double solution_norm   = present_solution.l2_norm();
-        const double evaluation_norm = evaluation_point.l2_norm();
-        continuation_step_accepted =
-          std::isfinite(solution_norm) && std::isfinite(evaluation_norm);
-      }
-      catch (const std::exception &exc)
-      {
-        pcout << "Continuation step rejected at multiplier " << trial_multiplier
-              << " because Newton failed with: " << exc.what() << std::endl;
-      }
-      catch (...)
-      {
-        pcout << "Continuation step rejected at multiplier " << trial_multiplier
-              << " because Newton failed with an unknown exception."
-              << std::endl;
-      }
-
-      if (continuation_step_accepted)
-      {
-        accepted_solution               = present_solution;
-        accepted_local_evaluation_point = local_evaluation_point;
-        accepted_multiplier             = trial_multiplier;
-        continue;
-      }
-
-      const double gap = trial_multiplier - accepted_multiplier;
-      if (gap <= min_gap)
-      {
-        restore_accepted_state();
-        source_term_moving_mesh_multiplier = accepted_multiplier;
-
-        std::ostringstream message;
-        message << "Continuation failed in LinearElasticitySolver: could not "
-                   "reach source term multiplier "
-                << trial_multiplier << " from last accepted multiplier "
-                << accepted_multiplier << " because the continuation gap "
-                << gap << " is already below the minimum allowed gap "
-                << min_gap << ".";
-        throw std::runtime_error(message.str());
-      }
-
-      const double reduced_trial = accepted_multiplier + 0.5 * gap;
-      pcout << std::endl;
-      pcout << "[Continuation] rejected" << std::endl;
-      pcout << "  accepted alpha = " << std::scientific << accepted_multiplier
-            << std::endl;
-      pcout << "  failed alpha   = " << trial_multiplier << std::endl;
-      pcout << "  retry alpha    = " << reduced_trial << std::endl;
-      pcout << std::endl;
-
-      restore_accepted_state();
-      reset_direct_solver();
-
-      continuation_targets.push_front(trial_multiplier);
-      continuation_targets.push_front(reduced_trial);
+      if (!use_nh)
+        source_term_moving_mesh_multiplier *= r;
+      else
+        source_term_moving_mesh_multiplier += step;
     }
-
-    source_term_moving_mesh_multiplier = accepted_multiplier;
-    restore_accepted_state();
   }
   else
   {

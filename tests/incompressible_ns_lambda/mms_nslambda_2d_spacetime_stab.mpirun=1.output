@@ -8,8 +8,6 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 27
-0 constrained owned lambda dofs
-0 unconstrained owned lambda dofs
 Mesh info:
  dimension: 2
  no. of cells: 32
@@ -19,8 +17,6 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 75
-0 constrained owned lambda dofs
-0 unconstrained owned lambda dofs
 Mesh info:
  dimension: 2
  no. of cells: 128
@@ -30,8 +26,6 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 243
-0 constrained owned lambda dofs
-0 unconstrained owned lambda dofs
 Mesh info:
  dimension: 2
  no. of cells: 512
@@ -41,8 +35,6 @@ ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 867
-0 constrained owned lambda dofs
-0 unconstrained owned lambda dofs
 
 L2_norm
 n_elm n_dof   dt          u               p               l        

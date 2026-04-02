@@ -1,4 +1,3 @@
-
 #include <compare_matrix.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -17,6 +16,8 @@
 #include <post_processing_tools.h>
 #include <solver_info.h>
 #include <utilities.h>
+
+#include <cmath>
 
 template <int dim>
 LinearElasticitySolver<dim>::LinearElasticitySolver(
@@ -83,11 +84,18 @@ void LinearElasticitySolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
-  Tensor<1, dim> f = mms.exact_mesh_position
-                       ->divergence_linear_elastic_stress_variable_coefficients(
-                         p,
-                         physical_properties.pseudosolids[0].lame_mu_fun,
-                         physical_properties.pseudosolids[0].lame_lambda_fun);
+  const auto    &pseudosolid = physical_properties.pseudosolids[0];
+  Tensor<1, dim> f;
+
+  if (pseudosolid.constitutive_model ==
+      Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
+    f = mms.exact_mesh_position
+          ->divergence_neo_hookean_stress_variable_coefficients(
+            p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
+  else
+    f = mms.exact_mesh_position
+          ->divergence_linear_elastic_stress_variable_coefficients(
+            p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[d] = f[d];
@@ -138,12 +146,18 @@ void LinearElasticitySolver<dim>::run()
       param.linear_elasticity.max_current_mesh_source_term_multiplier;
     const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
 
+    const bool use_nh =
+      (param.physical_properties.pseudosolids[0].constitutive_model ==
+       Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+
     source_term_moving_mesh_multiplier = c_min;
     source_term_fixed_mesh_multiplier  = 0.;
 
-    // Use a geometric progression to increase the continuation parameter
+    // Linear elasticity: geometric progression; neo-Hookean: arithmetic progression
     const double r =
-      n_steps > 1 ? std::pow(c_max / c_min, 1.0 / (n_steps - 1)) : 1.;
+      (!use_nh && n_steps > 1) ? std::pow(c_max / c_min, 1.0 / (n_steps - 1)) : 1.;
+    const double step =
+      (use_nh && n_steps > 1) ? (c_max - c_min) / static_cast<double>(n_steps - 1) : 0.;
 
     for (unsigned int n = 0; n < n_steps; ++n)
     {
@@ -157,7 +171,10 @@ void LinearElasticitySolver<dim>::run()
         compare_analytical_matrix_with_fd();
       solve_nonlinear_problem(time_handler);
 
-      source_term_moving_mesh_multiplier *= r;
+      if (!use_nh)
+        source_term_moving_mesh_multiplier *= r;
+      else
+        source_term_moving_mesh_multiplier += step;
     }
   }
   else
@@ -295,7 +312,6 @@ void LinearElasticitySolver<dim>::assemble_matrix()
   TimerOutput::Scope t(computing_timer, "Assemble matrix");
 
   system_matrix = 0;
-
   ScratchData scratch_data(*fe, *mapping, *quadrature, *face_quadrature, param);
   CopyData    copyData(fe->n_dofs_per_cell());
 
@@ -364,30 +380,62 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
     const double JxW         = scratch_data.JxW[q];
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
-    const auto  &phi_x       = scratch_data.phi_x[q];
-    const auto  &grad_phi_x  = scratch_data.grad_phi_x[q];
-    const auto  &div_phi_x   = scratch_data.div_phi_x[q];
+
+    const auto &ps = param.physical_properties.pseudosolids[0];
+
+    const bool use_nh =
+      (ps.constitutive_model ==
+       Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+
+    const auto &phi_x      = scratch_data.phi_x[q];
+    const auto &grad_phi_x = scratch_data.grad_phi_x[q];
+    const auto &div_phi_x  = scratch_data.div_phi_x[q];
 
     const Tensor<2, dim> &grad_source_current_mesh =
       scratch_data.grad_source_term_position_current_mesh[q];
 
+    // Neo-Hookean
+    const double          J       = scratch_data.position_J[q];
+    const Tensor<2, dim> &F_inv   = scratch_data.position_inv_gradients[q];
+    const Tensor<2, dim> &F_inv_T = scratch_data.position_inv_gradients_T[q];
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       const auto &phi_x_i          = phi_x[i];
-      const auto &sym_grad_phi_x_i = symmetrize(grad_phi_x[i]);
+      const auto &grad_phi_x_i     = grad_phi_x[i];
+      const auto &sym_grad_phi_x_i = symmetrize(grad_phi_x_i);
       const auto &div_phi_x_i      = div_phi_x[i];
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
         const auto &phi_x_j          = phi_x[j];
-        const auto &sym_grad_phi_x_j = symmetrize(grad_phi_x[j]);
+        const auto &grad_phi_x_j     = grad_phi_x[j];
+        const auto &sym_grad_phi_x_j = symmetrize(grad_phi_x_j);
         const auto &div_phi_x_j      = div_phi_x[j];
 
-        local_matrix(i, j) +=
-          (lame_lambda * div_phi_x_j * div_phi_x_i +
-           2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
-           alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
-          JxW;
+        if (!use_nh)
+        {
+          local_matrix(i, j) +=
+            (lame_lambda * div_phi_x_j * div_phi_x_i +
+             2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
+             alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
+            JxW;
+        }
+        else
+        {
+          const Tensor<2, dim> dF = grad_phi_x_j;
+
+          const Tensor<2, dim> dP =
+            lame_mu * dF +
+            (lame_mu - lame_lambda * std::log(J)) *
+              (F_inv_T * transpose(dF) * F_inv_T) +
+            lame_lambda * trace(F_inv * dF) * F_inv_T;
+
+          local_matrix(i, j) +=
+            (scalar_product(dP, grad_phi_x_i) +
+             alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
+            JxW;
+        }
       }
     }
   }
@@ -443,7 +491,6 @@ void LinearElasticitySolver<dim>::assemble_rhs()
   TimerOutput::Scope t(computing_timer, "Assemble RHS");
 
   system_rhs = 0;
-
   ScratchData scratch_data(*fe, *mapping, *quadrature, *face_quadrature, param);
   CopyData    copyData(fe->n_dofs_per_cell());
 
@@ -493,12 +540,17 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
 
+    const auto &ps = param.physical_properties.pseudosolids[0];
+
+    const bool use_nh =
+      (ps.constitutive_model ==
+       Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+
     const auto &position_sym_gradient = scratch_data.position_sym_gradients[q];
     const auto &source_term_position_moving_mesh =
       scratch_data.source_term_position_current_mesh[q];
     const auto &source_term_position_fixed_mesh =
       scratch_data.source_term_position[q];
-
     // The source term to use : using coefficients which cannot be both nonzero
     // avois using a condition
     const auto source_term = alpha * source_term_position_moving_mesh +
@@ -511,12 +563,28 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const auto &grad_phi_x = scratch_data.grad_phi_x[q];
     const auto &div_phi_x  = scratch_data.div_phi_x[q];
 
+    const Tensor<2, dim> &F       = scratch_data.position_gradients[q];
+    const double          J       = scratch_data.position_J[q];
+    const Tensor<2, dim> &F_inv_T = scratch_data.position_inv_gradients_T[q];
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      local_rhs(i) -= (lame_lambda * trace_strain * div_phi_x[i] +
-                       2. * lame_mu * scalar_product(strain, grad_phi_x[i]) +
-                       phi_x[i] * source_term) *
-                      JxW;
+      if (!use_nh)
+      {
+        local_rhs(i) -=
+          (lame_lambda * trace_strain * div_phi_x[i] +
+           2. * lame_mu * scalar_product(strain, grad_phi_x[i]) +
+           phi_x[i] * source_term) *
+          JxW;
+      }
+      else
+      {
+        const Tensor<2, dim> P =
+          lame_mu * (F - F_inv_T) + lame_lambda * std::log(J) * F_inv_T;
+
+        local_rhs(i) -=
+          (scalar_product(P, grad_phi_x[i]) + phi_x[i] * source_term) * JxW;
+      }
     }
   }
 
@@ -617,18 +685,44 @@ void LinearElasticitySolver<dim>::output_results()
 template <int dim>
 void LinearElasticitySolver<dim>::move_mesh()
 {
+  present_solution.update_ghost_values();
+
+  const IndexSet locally_owned = dof_handler.locally_owned_dofs();
+
   std::vector<bool> vertex_moved(triangulation.n_vertices(), false);
+  std::vector<bool> vertex_locally_moved(triangulation.n_vertices(), false);
+
   for (auto &cell : dof_handler.active_cell_iterators())
     if (cell->is_locally_owned())
       for (const auto v : cell->vertex_indices())
-        // if (owned_vertices[cell->vertex_index(v)])
-        if (!vertex_moved[cell->vertex_index(v)])
-        {
-          vertex_moved[cell->vertex_index(v)] = true;
-          for (unsigned int d = 0; d < dim; ++d)
-            cell->vertex(v)[d] = present_solution(cell->vertex_dof_index(v, d));
-        }
+      {
+        const auto vid = cell->vertex_index(v);
+        if (vertex_moved[vid])
+          continue;
+
+        // this rank owns the vertex if all dim position dofs are locally-owned
+        bool i_own_vertex = true;
+        for (unsigned int d = 0; d < dim; ++d)
+          i_own_vertex = i_own_vertex &&
+                         locally_owned.is_element(cell->vertex_dof_index(v, d));
+
+        // mark as visited so we don't process it again
+        vertex_moved[vid] = true;
+
+        if (!i_own_vertex)
+          continue;
+
+        // move vertex to its new position
+        for (unsigned int d = 0; d < dim; ++d)
+          cell->vertex(v)[d] = present_solution(cell->vertex_dof_index(v, d));
+
+        vertex_locally_moved[vid] = true;
+      }
+
+  // sync moved vertices across MPI boundaries
+  triangulation.communicate_locally_moved_vertices(vertex_locally_moved);
 }
+
 
 template <int dim>
 void LinearElasticitySolver<dim>::compute_errors()

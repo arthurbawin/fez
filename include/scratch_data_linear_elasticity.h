@@ -11,6 +11,9 @@
 #include <parameter_reader.h>
 #include <types.h>
 
+#include <cmath>
+#include <sstream>
+
 using namespace dealii;
 
 /**
@@ -70,6 +73,12 @@ private:
 
     position_values.resize(n_q_points);
     position_sym_gradients.resize(n_q_points);
+    position_gradients.resize(n_q_points);
+
+    // neo hookean
+    position_J.resize(n_q_points);
+    position_inv_gradients.resize(n_q_points);
+    position_inv_gradients_T.resize(n_q_points);
 
     phi_x.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
     grad_phi_x.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
@@ -100,6 +109,8 @@ public:
     fe_values[position].get_function_values(current_solution, position_values);
     fe_values[position].get_function_symmetric_gradients(
       current_solution, position_sym_gradients);
+    fe_values[position].get_function_gradients(current_solution,
+                                               position_gradients);
 
     const auto &quadrature_points = fe_values.get_quadrature_points();
     source_terms->vector_value_list(quadrature_points, source_term_full);
@@ -108,7 +119,9 @@ public:
     // The quadrature points in the current configuration are simply the
     // position field interpolated at the reference space quadrature points
     for (unsigned int q = 0; q < n_q_points; ++q)
+    {
       qpoints_current_mesh[q] = position_values[q];
+    }
     source_terms->vector_value_list(qpoints_current_mesh,
                                     source_term_full_current_mesh);
 
@@ -137,8 +150,28 @@ public:
 
       AssertThrow(lame_mu[q] >= 0,
                   ExcMessage("Lamé coefficient mu should be positive"));
-      AssertThrow(lame_lambda[q] >= 0,
-                  ExcMessage("Lamé coefficient lambda should be positive"));
+      // AssertThrow(lame_lambda[q] >= 0,
+      //             ExcMessage("Lamé coefficient lambda should be positive"));
+
+      // neo-hookean
+      const Tensor<2, dim> &F = position_gradients[q];
+      position_J[q]           = determinant(F);
+      // if (physical_properties.pseudosolids[0].constitutive_model ==
+      //     Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
+      //   AssertThrow(
+      //     std::isfinite(position_J[q]) && position_J[q] > 0.0,
+      //     ExcMessage(([&]() {
+      //       std::ostringstream message;
+      //       message << "Invalid pseudo-solid deformation in linear elasticity
+      //       "
+      //                  "presolver: det(F)="
+      //               << position_J[q] << " at reference quadrature point "
+      //               << quadrature_points[q] << ".";
+      //       return message.str();
+      //     })()));
+
+      position_inv_gradients[q]   = invert(F);
+      position_inv_gradients_T[q] = transpose(position_inv_gradients[q]);
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
@@ -168,6 +201,12 @@ public:
 
   std::vector<Tensor<1, dim>>          position_values;
   std::vector<SymmetricTensor<2, dim>> position_sym_gradients;
+  std::vector<Tensor<2, dim>>          position_gradients;
+
+  // neo-Hookean
+  std::vector<double>         position_J;
+  std::vector<Tensor<2, dim>> position_inv_gradients;
+  std::vector<Tensor<2, dim>> position_inv_gradients_T;
 
   std::vector<std::vector<Tensor<1, dim>>> phi_x;
   std::vector<std::vector<Tensor<2, dim>>> grad_phi_x;

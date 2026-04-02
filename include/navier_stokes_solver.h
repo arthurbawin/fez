@@ -16,6 +16,8 @@
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <generic_solver.h>
+#include <linear_elasticity_solver.h>
+#include <mesh_and_dof_tools.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <post_processing_handler.h>
@@ -155,6 +157,50 @@ public:
   {
     return nonzero_constraints;
   }
+
+  /**
+   * Overwrite SOlution from another solver
+   */
+  void
+  overwrite_position_from_presolver(LinearElasticitySolver<dim> &presolver);
+
+  void attach_presolver(LinearElasticitySolver<dim> *ps) { presolver = ps; }
+  // ANcienne approche de copie de la triangulation. Desormais on va copier le
+  // vecteur solution
+  //  parallel::fullydistributed::Triangulation<dim> &get_triangulation()
+  //  {
+  //   return triangulation;
+  //  }
+
+  // void steal_mesh(LinearElasticitySolver<dim> &other_solver)
+  // {
+  //   auto &my_mesh = this->get_triangulation();
+  //   auto &other_mesh = other_solver.get_triangulation();
+  //   my_mesh.copy_triangulation(other_mesh);
+  //   //other_mesh.clear();
+  //   const auto &comm = mpi_communicator;
+  //   const unsigned int rank =
+  //     dealii::Utilities::MPI::this_mpi_process(comm);
+
+  //   const unsigned long local =
+  //     my_mesh.n_locally_owned_active_cells();
+
+  //   const unsigned long sum =
+  //     dealii::Utilities::MPI::sum(local, comm);
+
+  //   if (rank == 0)
+  //   {
+  //     std::cout << "SUM locally_owned_active_cells = "
+  //               << sum
+  //               << " | global_active_cells = "
+  //               << my_mesh.n_global_active_cells()
+  //               << std::endl;
+  //   }
+
+  //   std::cout << "rank " << rank
+  //             << " owned_cells = " << local
+  //             << std::endl;
+  // }
 
   /**
    * Update the inhomogeneous boundary conditions for the current time, after
@@ -396,6 +442,8 @@ protected:
 
 protected:
   std::shared_ptr<ComponentOrdering> ordering;
+
+  LinearElasticitySolver<dim> *presolver = nullptr;
 
   ParameterReader<dim> param;
 

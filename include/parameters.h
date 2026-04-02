@@ -163,6 +163,9 @@ namespace Parameters
     // If true, use hypercubes, otherwise use simplices (default).
     bool use_quads;
 
+    // If true, enable residual-based stabilization terms.
+    bool stabilization;
+
     // Degree of the velocity interpolation
     unsigned int velocity_degree;
 
@@ -217,6 +220,14 @@ namespace Parameters
   class PseudoSolid
   {
   public:
+    enum class ConstitutiveModel
+    {
+      linear_elasticity,
+      neo_hookean
+    };
+
+    ConstitutiveModel constitutive_model = ConstitutiveModel::linear_elasticity;
+
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_lambda_fun;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
@@ -400,7 +411,7 @@ namespace Parameters
     // FIXME: use more explicit names, when the formulation has been decided
     double alpha;
     double beta;
-
+    double gamma;
     /**
      * We differentiate between the body force which is multiplied by the
      * mixture density (typically gravity), and the generic source term (e.g.,
@@ -427,6 +438,12 @@ namespace Parameters
     // Number of steps to use in the continuation method when the source term
     // is applied on the current configuration.
     unsigned int n_continuation_steps;
+
+    // If true, runs the linear elasticity solver as a pre-processing step
+    // to compute an initial mesh deformation. The resulting position field
+    // is used to initialize the ALE mesh of the CHNS solver, typically when
+    // mesh forcing is activated.
+    bool use_as_presolver;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -563,5 +580,5 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 } // namespace Parameters
-
+#include "pseudosolid_material.impl.h"
 #endif

@@ -1,4 +1,4 @@
-
+#include <assembly/stabilization_forms.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -310,6 +310,13 @@ void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
           (this->ordering->is_velocity(j) || this->ordering->is_position(j)))
         coupling_table[i][j] = DoFTools::always;
 
+      // PSPG: p couples to p, phi and mu
+      if (this->ordering->is_pressure(i) &&
+          (this->ordering->is_pressure(j) || this->ordering->is_tracer(j) ||
+           this->ordering->is_potential(j)) &&
+          this->param.finite_elements.stabilization)
+        coupling_table[i][j] = DoFTools::always;
+
       // x couples x,phi,u
       if constexpr (with_moving_mesh)
         if (this->ordering->is_position(i) &&
@@ -431,9 +438,11 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   const double diffusive_flux_factor = scratch_data.diffusive_flux_factor;
   const auto  &body_force            = scratch_data.body_force;
 
-  double                             JxW_fixed, lame_mu = 0., lame_lambda = 0.;
-  const double                       alpha = this->param.cahn_hilliard.alpha;
-  const double                       beta  = this->param.cahn_hilliard.beta;
+  double       JxW_fixed, lame_mu = 0., lame_lambda = 0.;
+  const double alpha   = this->param.cahn_hilliard.alpha;
+  const double beta    = this->param.cahn_hilliard.beta;
+  const double gamma   = this->param.cahn_hilliard.gamma;
+  const double epsilon = this->param.cahn_hilliard.epsilon_interface;
   const std::vector<Tensor<1, dim>> *phi_x;
   const std::vector<Tensor<2, dim>> *grad_phi_x;
   const std::vector<Tensor<2, dim>> *grad_phi_x_moving;
@@ -447,6 +456,14 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   double                div_phi_x_i, div_phi_x_j;
   double                shape_phi_fixed_j;
   const Tensor<1, dim> *grad_shape_phi_fixed_j;
+  const Tensor<2, dim> *present_position_gradients;
+  double                present_displacement_divergence;
+  double                present_trace_strain;
+  Tensor<2, dim>        present_strain;
+  double                prev_tracer_value;
+  const Tensor<1, dim> *prev_tracer_gradients;
+  double                tracer_values_fixed;
+  const Tensor<1, dim> *tracer_gradient_fixed;
   Tensor<1, dim>        to_multiply_by_phi_u_i_tr_G;
   double                to_multipliy_by_phi_phi_i_tr_G;
 
@@ -478,18 +495,27 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
 
     if constexpr (with_moving_mesh)
     {
-      lame_mu               = scratch_data.lame_mu[q];
-      lame_lambda           = scratch_data.lame_lambda[q];
-      phi_x                 = &scratch_data.phi_x[q];
-      grad_phi_x            = &scratch_data.grad_phi_x[q];
-      grad_phi_x_moving     = &scratch_data.grad_phi_x_moving[q];
-      div_phi_x             = &scratch_data.div_phi_x[q];
-      shape_phi_fixed       = &scratch_data.shape_phi_fixed[q];
-      grad_shape_phi_fixed  = &scratch_data.grad_shape_phi_fixed[q];
+      lame_mu                    = scratch_data.lame_mu[q];
+      lame_lambda                = scratch_data.lame_lambda[q];
+      phi_x                      = &scratch_data.phi_x[q];
+      grad_phi_x                 = &scratch_data.grad_phi_x[q];
+      grad_phi_x_moving          = &scratch_data.grad_phi_x_moving[q];
+      div_phi_x                  = &scratch_data.div_phi_x[q];
+      shape_phi_fixed            = &scratch_data.shape_phi_fixed[q];
+      grad_shape_phi_fixed       = &scratch_data.grad_shape_phi_fixed[q];
+      present_position_gradients = &scratch_data.present_position_gradients[q];
+      present_displacement_divergence = trace(*present_position_gradients);
+      present_strain =
+        symmetrize(*present_position_gradients) - unit_symmetric_tensor<dim>();
+      present_trace_strain  = present_displacement_divergence - (double)dim;
       source_term_velocity  = &scratch_data.source_term_velocity[q];
       source_term_pressure  = scratch_data.source_term_pressure[q];
       source_term_tracer    = scratch_data.source_term_tracer[q];
       source_term_potential = scratch_data.source_term_potential[q];
+      prev_tracer_value     = scratch_data.previous_tracer_values[0][q];
+      prev_tracer_gradients = &scratch_data.previous_tracer_gradients[0][q];
+      tracer_values_fixed   = scratch_data.tracer_values_fixed[q];
+      tracer_gradient_fixed = &scratch_data.tracer_gradients_fixed[q];
     }
 
     const auto &present_velocity_values =
@@ -502,13 +528,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
       scratch_data.present_velocity_divergence[q];
     const auto &present_pressure_values =
       scratch_data.present_pressure_values[q];
-
-    // Convective velocity (pure eulerian: u, ALE: u - w)
-    Tensor<1, dim> u_conv = present_velocity_values;
-    if constexpr (with_moving_mesh)
-      u_conv -= scratch_data.present_mesh_velocity_values[q];
-
-    const auto u_dot_grad_u = present_velocity_gradients * u_conv;
+    const auto &u_conv       = scratch_data.present_convective_velocity[q];
+    const auto  u_dot_grad_u = present_velocity_gradients * u_conv;
 
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
@@ -519,6 +540,24 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
     const auto &potential_value    = scratch_data.potential_values[q];
     const auto &potential_gradient = scratch_data.potential_gradients[q];
     const auto &u_dot_grad_phi = scratch_data.velocity_dot_tracer_gradient[q];
+
+    bool           use_nh = false;
+    Tensor<2, dim> F;
+    Tensor<2, dim> F_inv;
+    Tensor<2, dim> F_inv_T;
+    double         J = 1.0;
+
+    if constexpr (with_moving_mesh)
+    {
+      const auto &ps = this->param.physical_properties.pseudosolids[0];
+      use_nh         = (ps.constitutive_model ==
+                Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+
+      F       = scratch_data.present_position_gradients[q];
+      J       = scratch_data.present_position_J[q];
+      F_inv   = scratch_data.present_position_inv_gradients[q];
+      F_inv_T = scratch_data.present_position_inv_gradients_T[q];
+    }
 
     const double dphidt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
@@ -797,6 +836,36 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
          */
         if constexpr (with_moving_mesh)
         {
+          // Mesh forcing factor
+          //  const double phi_s = std::tanh(tracer_value);
+          //  const double phi_s_prime = 1.0 - phi_s * phi_s; // sech^2(z)
+          //  const double B = 1.0 - gamma * gamma * phi_s * phi_s;
+
+          // const double mff = phi_s / B;
+          // const double mff_second =
+          //               phi_s_prime *
+          //               (1.0 + gamma * gamma * phi_s * phi_s) /
+          //               (B * B);
+
+          const double phi_max_user = 0.998;
+
+          // optional safety clamp when gamma > 1
+          const double phi_max_safe =
+            std::min(phi_max_user, 0.98 / std::max(gamma, 1e-14));
+
+          const double z = tracer_value / phi_max_safe;
+          const double t = std::tanh(z);
+
+          const double phi_s       = phi_max_safe * t;
+          const double phi_s_prime = 1.0 - t * t; // sech^2(z)
+
+          const double B = 1.0 - gamma * gamma * phi_s * phi_s;
+
+          const double mff = phi_s / B;
+          const double mff_second =
+            phi_s_prime * (1.0 + gamma * gamma * phi_s * phi_s) / (B * B);
+          ///
+
           if (const_ordering.x_lower <= comp_i &&
               comp_i < const_ordering.x_upper)
           {
@@ -804,25 +873,44 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
                 comp_j < const_ordering.u_upper)
             {
               // Source term - Velocity part
-              local_ps_ij -= (*phi_x_i) * (beta * (phi_u_j * tracer_gradient) *
-                                           tracer_gradient);
+              local_ps_ij -=
+                (*phi_x_i) * ((beta * (epsilon * epsilon)) *
+                              (phi_u_j * tracer_gradient) * tracer_gradient);
             }
             if (const_ordering.x_lower <= comp_j &&
                 comp_j < const_ordering.x_upper)
             {
               const Tensor<2, dim> &G = (*grad_phi_x_moving)[j];
 
-              // Linear elasticity
-              local_ps_ij +=
-                lame_lambda * div_phi_x_j * div_phi_x_i +
-                lame_mu *
-                  scalar_product(*grad_phi_x_j + transpose(*grad_phi_x_j),
-                                 *grad_phi_x_i);
+              // Pseudo solid model
+              if (!use_nh)
+              {
+                local_ps_ij +=
+                  lame_lambda * div_phi_x_j * div_phi_x_i +
+                  lame_mu *
+                    scalar_product(*grad_phi_x_j + transpose(*grad_phi_x_j),
+                                   *grad_phi_x_i);
+              }
+              else
+              {
+                const Tensor<2, dim> dF = *grad_phi_x_j;
+
+                const Tensor<2, dim> dP =
+                  lame_mu * dF +
+                  (lame_mu - lame_lambda * std::log(J)) *
+                    (F_inv_T * transpose(dF) * F_inv_T) +
+                  lame_lambda * trace(F_inv * dF) * F_inv_T;
+
+                local_ps_ij += scalar_product(dP, *grad_phi_x_i);
+              }
+
+              local_ps_ij -= (*phi_x_i) * ((alpha * (epsilon)) * mff *
+                                           ((-transpose(G)) * tracer_gradient));
 
               // Variation of source term on current mesh
               local_ps_ij -=
                 (*phi_x_i) *
-                (beta *
+                ((beta * (epsilon * epsilon)) *
                  ((-bdf_c0) * (*phi_x_j) * tracer_gradient * tracer_gradient +
                   u_conv * ((-transpose(G)) * tracer_gradient) *
                     tracer_gradient +
@@ -831,12 +919,12 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
             if (comp_j == const_ordering.phi_lower)
             {
               local_ps_ij -=
-                (*phi_x_i) *
-                (alpha * (shape_phi_fixed_j * (*grad_shape_phi_fixed_j) +
-                          shape_phi_fixed_j * (*grad_shape_phi_fixed_j))
-
-                 + beta * ((u_conv * grad_phi_phi_j) * tracer_gradient +
-                           u_dot_grad_phi * grad_phi_phi_j));
+                (*phi_x_i) * ((alpha * (epsilon)) *
+                                (mff_second * phi_phi_j * tracer_gradient +
+                                 mff * grad_phi_phi_j) +
+                              (beta * (epsilon * epsilon)) *
+                                ((u_conv * grad_phi_phi_j) * tracer_gradient +
+                                 u_dot_grad_phi * grad_phi_phi_j));
             }
           }
 
@@ -847,6 +935,60 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
       }
     }
   }
+
+  //
+  // Stabilization contributions
+  //
+  if (this->param.finite_elements.stabilization)
+    for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
+    {
+      const double tau_momentum = scratch_data.stabilization_tau_momentum[q];
+      const double tau_tracer   = scratch_data.stabilization_tau_tracer[q];
+      if (tau_momentum <= 0. && tau_tracer <= 0.)
+        continue;
+
+      const double          JxW_moving = scratch_data.JxW_moving[q];
+      const double          nu_eff     = scratch_data.stabilization_nu_eff[q];
+      const double          inv_rho    = scratch_data.stabilization_inv_rho[q];
+      const Tensor<1, dim> &u_conv =
+        scratch_data.present_convective_velocity[q];
+
+      for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+        for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
+        {
+          double stab_ij = 0.;
+
+          if (tau_momentum > 0.)
+            Assembly::supg_pspg_matrix_chns_full<dim, with_moving_mesh>(
+              *this->ordering,
+              q,
+              i,
+              j,
+              tau_momentum,
+              nu_eff,
+              bdf_c0,
+              u_conv,
+              inv_rho,
+              scratch_data,
+              stab_ij);
+
+          if (tau_tracer > 0.)
+            Assembly::supg_tracer_matrix_full<dim, with_moving_mesh>(
+              *this->ordering,
+              q,
+              i,
+              j,
+              tau_tracer,
+              bdf_c0,
+              u_conv,
+              scratch_data,
+              stab_ij);
+
+          if (stab_ij != 0.)
+            local_matrix(i, j) += stab_ij * JxW_moving;
+        }
+    }
+
   cell->get_dof_indices(copy_data.local_dof_indices);
 }
 
@@ -973,12 +1115,9 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
     const auto &present_velocity_sym_gradients =
       scratch_data.present_velocity_sym_gradients[q];
 
-    // Convective velocity (pure eulerian: u, ALE: u - w)
-    Tensor<1, dim> u_conv = present_velocity_values;
-    if constexpr (with_moving_mesh)
-      u_conv -= scratch_data.present_mesh_velocity_values[q];
-
-    const auto u_dot_grad_u = present_velocity_gradients * u_conv;
+    // u_conv is set once in reinit_cahn_hilliard_cell (always, not stab-only)
+    const auto &u_conv       = scratch_data.present_convective_velocity[q];
+    const auto  u_dot_grad_u = present_velocity_gradients * u_conv;
 
     const auto &present_pressure_values =
       scratch_data.present_pressure_values[q];
@@ -1028,20 +1167,26 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
     //
     // Pseudo-solid related data
     //
-    double                             lame_mu = 0., lame_lambda = 0.;
-    const double                       alpha = this->param.cahn_hilliard.alpha;
-    const double                       beta  = this->param.cahn_hilliard.beta;
-    double                             present_displacement_divergence;
-    double                             present_trace_strain;
-    Tensor<2, dim>                     present_strain;
-    const Tensor<2, dim>              *present_position_gradients;
-    const Tensor<1, dim>              *source_term_position;
+    double                lame_mu = 0., lame_lambda = 0.;
+    const double          alpha   = this->param.cahn_hilliard.alpha;
+    const double          beta    = this->param.cahn_hilliard.beta;
+    const double          gamma   = this->param.cahn_hilliard.gamma;
+    const double          epsilon = this->param.cahn_hilliard.epsilon_interface;
+    double                present_displacement_divergence;
+    double                present_trace_strain;
+    Tensor<2, dim>        present_strain;
+    const Tensor<2, dim> *present_position_gradients;
+    const Tensor<1, dim> *source_term_position;
     const std::vector<Tensor<1, dim>> *phi_x;
     const std::vector<Tensor<2, dim>> *grad_phi_x;
     const std::vector<double>         *div_phi_x;
     Tensor<1, dim>                     mesh_forcing;
     double                             tracer_values_fixed;
     const Tensor<1, dim>              *tracer_gradient_fixed;
+    double                             prev_tracer_value;
+    const Tensor<1, dim>              *prev_tracer_gradients;
+    double                             prev_tracer_value_fixed;
+    const Tensor<1, dim>              *prev_tracer_gradients_fixed;
 
     if constexpr (with_moving_mesh)
     {
@@ -1054,10 +1199,31 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
       present_displacement_divergence = trace(*present_position_gradients);
       present_strain =
         symmetrize(*present_position_gradients) - unit_symmetric_tensor<dim>();
-      present_trace_strain  = present_displacement_divergence - (double)dim;
-      source_term_position  = &scratch_data.source_term_position[q];
-      tracer_values_fixed   = scratch_data.tracer_values_fixed[q];
-      tracer_gradient_fixed = &scratch_data.tracer_gradients_fixed[q];
+      present_trace_strain    = present_displacement_divergence - (double)dim;
+      source_term_position    = &scratch_data.source_term_position[q];
+      tracer_values_fixed     = scratch_data.tracer_values_fixed[q];
+      tracer_gradient_fixed   = &scratch_data.tracer_gradients_fixed[q];
+      prev_tracer_value       = scratch_data.previous_tracer_values[0][q];
+      prev_tracer_gradients   = &scratch_data.previous_tracer_gradients[0][q];
+      prev_tracer_value_fixed = scratch_data.previous_tracer_values_fixed[0][q];
+      prev_tracer_gradients_fixed =
+        &scratch_data.previous_tracer_gradients_fixed[0][q];
+    }
+
+    bool           use_nh = false;
+    Tensor<2, dim> F;
+    Tensor<2, dim> F_inv_T;
+    double         J = 1.0;
+
+    if constexpr (with_moving_mesh)
+    {
+      const auto &ps = this->param.physical_properties.pseudosolids[0];
+      use_nh         = (ps.constitutive_model ==
+                Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+
+      F       = scratch_data.present_position_gradients[q];
+      J       = scratch_data.present_position_J[q];
+      F_inv_T = scratch_data.present_position_inv_gradients_T[q];
     }
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
@@ -1095,17 +1261,48 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
       double local_rhs_ps_i = 0.;
       if constexpr (with_moving_mesh)
       {
-        // Body force to attract the mesh towards the tracer interface
-        // Still testing for a good model of body force
-        mesh_forcing =
-          alpha * (tracer_values_fixed * (*tracer_gradient_fixed)) +
-          beta * ((u_conv * tracer_gradient) * tracer_gradient);
+        // Mesh forcing factor
+        //  const double phi_s = std::tanh(tracer_value);
+        //  const double B = 1.0 - gamma * gamma * phi_s * phi_s;
 
-        // Linear elasticity
-        local_rhs_ps_i +=
-          lame_lambda * present_trace_strain * (*div_phi_x)[i] +
-          2 * lame_mu * scalar_product(present_strain, (*grad_phi_x)[i]) +
-          (*phi_x)[i] * (*source_term_position - mesh_forcing);
+        // const double mff = phi_s / B;
+        ///
+        const double phi_max_user = 0.998;
+
+        const double phi_max_safe =
+          std::min(phi_max_user, 0.98 / std::max(gamma, 1e-14));
+
+        const double z = tracer_value / phi_max_safe;
+        const double t = std::tanh(z);
+
+        const double phi_s = phi_max_safe * t;
+        const double B     = 1.0 - gamma * gamma * phi_s * phi_s;
+
+        const double mff = phi_s / B;
+
+        // mesh forcing
+        mesh_forcing = (alpha * (epsilon)) * mff * tracer_gradient +
+                       (beta * (epsilon * epsilon)) *
+                         ((u_conv * tracer_gradient) * tracer_gradient);
+        ;
+
+        // PSEUDO SOLID MODEL
+        if (!use_nh)
+        {
+          local_rhs_ps_i +=
+            lame_lambda * present_trace_strain * (*div_phi_x)[i] +
+            2.0 * lame_mu * scalar_product(present_strain, (*grad_phi_x)[i]) +
+            (*phi_x)[i] * (*source_term_position - mesh_forcing);
+        }
+        else
+        {
+          const Tensor<2, dim> P =
+            lame_mu * (F - F_inv_T) + lame_lambda * std::log(J) * F_inv_T;
+
+          local_rhs_ps_i +=
+            scalar_product(P, (*grad_phi_x)[i]) +
+            (*phi_x)[i] * (*source_term_position - mesh_forcing);
+        }
 
         local_rhs_ps_i *= scratch_data.JxW_fixed[q];
       }
@@ -1114,6 +1311,38 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
       local_rhs(i) -= local_rhs_flow_i + local_rhs_ps_i;
     }
   }
+
+  //
+  // Stabilization contributions
+  //
+  if (this->param.finite_elements.stabilization)
+    for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
+    {
+      const double tau_momentum = scratch_data.stabilization_tau_momentum[q];
+      const double tau_tracer   = scratch_data.stabilization_tau_tracer[q];
+      if (tau_momentum <= 0. && tau_tracer <= 0.)
+        continue;
+
+      const double          JxW_moving = scratch_data.JxW_moving[q];
+      const Tensor<1, dim> &u_conv =
+        scratch_data.present_convective_velocity[q];
+
+      for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+      {
+        double stab_i = 0.;
+
+        if (tau_momentum > 0.)
+          Assembly::supg_pspg_rhs<dim>(
+            *this->ordering, q, i, tau_momentum, u_conv, scratch_data, stab_i);
+
+        if (tau_tracer > 0.)
+          Assembly::supg_tracer_rhs<dim>(
+            *this->ordering, q, i, tau_tracer, u_conv, scratch_data, stab_i);
+
+        if (stab_i != 0.)
+          local_rhs(i) += stab_i * JxW_moving;
+      }
+    }
 
   //
   // Face contributions

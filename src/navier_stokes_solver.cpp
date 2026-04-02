@@ -533,9 +533,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
     VectorTools::interpolate(
       *fixed_mapping, dof_handler, *mesh_fun, newton_update, position_mask);
 
+    present_solution = newton_update;
+    if (this->presolver != nullptr)
+    {
+      pcout
+        << "Injecting initial mesh position from linear elasticity presolver..."
+        << std::endl;
+      overwrite_position_from_presolver(*(this->presolver));
+      newton_update = present_solution;
+    }
     // Update MappingFEField *BEFORE* interpolating velocity
     evaluation_point = newton_update;
   }
+
 
   // Set velocity with moving mapping
   VectorTools::interpolate(
@@ -1051,6 +1061,44 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
   // Update the time handler
   time_handler.update_parameters_after_restart(param.time_integration);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+  overwrite_position_from_presolver(LinearElasticitySolver<dim> &presolver)
+{
+  this->local_evaluation_point = this->present_solution;
+  // find the starting component index for position in the NS FESystem
+  unsigned int       pos_start_comp = 0;
+  const unsigned int n_comp         = this->dof_handler.get_fe().n_components();
+  for (unsigned int c = 0; c < n_comp; ++c)
+  {
+    if (this->position_mask[c])
+    {
+      pos_start_comp = c;
+      break;
+    }
+  }
+
+  // build component map: elasticity component -> NS component
+  std::map<unsigned int, unsigned int> comp_map;
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    comp_map[d] = pos_start_comp + d;
+  }
+
+  // extract and inject into the ghost-free vector (local_evaluation_point)
+  extract_subsolution<dim, LA::ParVectorType>(presolver.get_dof_handler(),
+                                              this->dof_handler,
+                                              presolver.get_present_solution(),
+                                              this->local_evaluation_point,
+                                              comp_map);
+
+  // compress and sync across MPI
+  this->local_evaluation_point.compress(VectorOperation::insert);
+
+  this->present_solution = this->local_evaluation_point;
+  this->evaluation_point = this->present_solution;
 }
 
 // Explicit instantiation

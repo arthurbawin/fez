@@ -45,7 +45,6 @@ jobs:
       - name: Run serial tests in release
         run: |
           cd build
-          cd build
           # The following test is excluded:
           # incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab
           ctest -V --output-on-failure -E "(mpirun=[2-9]|incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab)" -j ${{ env.N_JOBS }}

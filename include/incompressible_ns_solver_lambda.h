@@ -19,11 +19,15 @@
 #include <mumps_solver.h>
 #include <navier_stokes_solver.h>
 #include <parameter_reader.h>
-#include <scratch_data.h>
+// #include <scratch_data.h>
 #include <time_handler.h>
 #include <types.h>
 
 using namespace dealii;
+
+// Forward declaration
+template <int dim>
+class ScratchDataIncompressibleNSLambda;
 
 /**
  * Variant of the incompressible NS solver allowing to prescribe weak
@@ -300,7 +304,7 @@ protected:
    */
   types::boundary_id weak_no_slip_boundary_id = numbers::invalid_unsigned_int;
 
-protected:
+public:
   /**
    * Source term.
    */
@@ -367,7 +371,9 @@ protected:
         // For the exact Lagrange multiplier, call the function below.
         // It can only be called at quadrature nodes on faces, where
         // the normal is well-defined.
-        return 0.;
+        return mms.exact_lagrange_multiplier->value(p,
+                                                    component -
+                                                      ordering.l_lower);
       else
         DEAL_II_ASSERT_UNREACHABLE();
     }
@@ -399,7 +405,9 @@ protected:
       else if (ordering.is_pressure(component))
         return mms.exact_pressure->gradient(p);
       else if (ordering.is_lambda(component))
-        return Tensor<1, dim>();
+        return mms.exact_lagrange_multiplier->gradient(p,
+                                                       component -
+                                                         ordering.l_lower);
       else
         DEAL_II_ASSERT_UNREACHABLE();
     }

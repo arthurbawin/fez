@@ -57,6 +57,7 @@ namespace ManufacturedSolutions
       exact_tracer->set_time(new_time);
       exact_potential->set_time(new_time);
       exact_temperature->set_time(new_time);
+      exact_lagrange_multiplier->set_time(new_time);
     }
 
     void declare_parameters(ParameterHandler &prm);
@@ -69,6 +70,7 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> exact_tracer;
     std::shared_ptr<MMSFunction<dim>> exact_potential;
     std::shared_ptr<MMSFunction<dim>> exact_temperature;
+    std::shared_ptr<MMSFunction<dim>> exact_lagrange_multiplier;
 
     std::map<std::string, std::shared_ptr<MMSFunction<dim>>> exact_solution;
 
@@ -76,12 +78,13 @@ namespace ManufacturedSolutions
     std::map<std::string, bool> set_field_as_solution;
 
   private:
-    PresetMMS preset_velocity_type      = PresetMMS::none;
-    PresetMMS preset_pressure_type      = PresetMMS::none;
-    PresetMMS preset_mesh_position_type = PresetMMS::none;
-    PresetMMS preset_tracer_type        = PresetMMS::none;
-    PresetMMS preset_potential_type     = PresetMMS::none;
-    PresetMMS preset_temperature_type   = PresetMMS::none;
+    PresetMMS preset_velocity_type            = PresetMMS::none;
+    PresetMMS preset_pressure_type            = PresetMMS::none;
+    PresetMMS preset_mesh_position_type       = PresetMMS::none;
+    PresetMMS preset_tracer_type              = PresetMMS::none;
+    PresetMMS preset_potential_type           = PresetMMS::none;
+    PresetMMS preset_temperature_type         = PresetMMS::none;
+    PresetMMS preset_lagrange_multiplier_type = PresetMMS::none;
   };
 
   /**

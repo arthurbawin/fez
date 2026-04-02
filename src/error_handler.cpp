@@ -135,10 +135,13 @@ void ErrorHandler::compute_temporal_error()
     {
       case Parameters::MMS::TimeLpNorm::L1:
       {
-        const double dt = std::abs(error_vec[1].first - error_vec[0].first);
-        for (const auto &[time, err] : error_vec)
+        if (error_vec.size() >= 1)
         {
-          error += dt * err;
+          const double dt = std::abs(error_vec[1].first - error_vec[0].first);
+          for (const auto &[time, err] : error_vec)
+          {
+            error += dt * err;
+          }
         }
         break;
       }

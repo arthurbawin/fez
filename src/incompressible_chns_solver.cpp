@@ -1291,8 +1291,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
         {
           local_rhs_ps_i +=
             lame_lambda * present_trace_strain * (*div_phi_x)[i] +
-            2.0 * lame_mu *
-              scalar_product(present_strain, (*grad_phi_x)[i]) +
+            2.0 * lame_mu * scalar_product(present_strain, (*grad_phi_x)[i]) +
             (*phi_x)[i] * (*source_term_position - mesh_forcing);
         }
         else

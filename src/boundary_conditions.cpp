@@ -413,29 +413,18 @@ namespace BoundaryConditions
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
     }
-    // Add no velocity flux constraints
-    for (const auto &id : no_flux_boundaries)
-    {
-      const std::set<types::boundary_id> single_boundary = {id};
-      VectorTools::compute_no_normal_flux_constraints(
-        dof_handler,
-        u_lower,
-        single_boundary,
-        constraints,
-        mapping,
-        /*use_manifold_for_normal=*/false);
-    }
-    for (const auto &id : no_tangential_flow_boundaries)
-    {
-      const std::set<types::boundary_id> single_boundary = {id};
-      VectorTools::compute_normal_flux_constraints(
-        dof_handler,
-        u_lower,
-        single_boundary,
-        constraints,
-        mapping,
-        /*use_manifold_for_normal=*/false);
-    }
+    
+    VectorTools::compute_no_normal_flux_constraints(
+      dof_handler, u_lower, no_flux_boundaries, constraints, mapping, false);
+
+
+    VectorTools::compute_normal_flux_constraints(dof_handler,
+                                                 u_lower,
+                                                 no_tangential_flow_boundaries,
+                                                 constraints,
+                                                 mapping,
+                                                 false);
+
 
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,

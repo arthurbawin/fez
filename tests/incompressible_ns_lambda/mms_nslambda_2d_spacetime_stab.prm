@@ -14,7 +14,7 @@ subsection Output
 end
 
 subsection Mesh
-  set verbosity = quiet
+  set verbosity = verbose
 end
 
 subsection Time integration
@@ -27,7 +27,7 @@ subsection Time integration
 end
 
 subsection Nonlinear solver
-  set verbosity            = verbose
+  set verbosity            = quiet
   set tolerance            = 1e-8
   set divergence_tolerance = 1e+4
   set max_iterations       = 50
@@ -37,7 +37,7 @@ end
 
 subsection Linear solver
   subsection main physics
-    set verbosity      = verbose
+    set verbosity      = quiet
     set method         = direct_mumps
   end
 end
@@ -97,8 +97,7 @@ end
 subsection Manufactured solution
   set enable            = true
   set type              = spacetime
-  set convergence steps = 6
-  set compute rates only at end =false
+  set convergence steps = 4
 
   subsection Space convergence
     set use dealii cube mesh = true

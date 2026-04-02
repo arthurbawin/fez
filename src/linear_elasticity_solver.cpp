@@ -166,14 +166,14 @@ void LinearElasticitySolver<dim>::run()
                                                       mpi_communicator);
     accepted_solution               = present_solution;
     accepted_local_evaluation_point = local_evaluation_point;
-    double accepted_multiplier = 0.0;
+    double accepted_multiplier      = 0.0;
 
     auto restore_accepted_state = [&]() {
-      present_solution        = accepted_solution;
-      evaluation_point        = accepted_solution;
-      local_evaluation_point  = accepted_local_evaluation_point;
-      newton_update           = 0.;
-      system_rhs              = 0.;
+      present_solution       = accepted_solution;
+      evaluation_point       = accepted_solution;
+      local_evaluation_point = accepted_local_evaluation_point;
+      newton_update          = 0.;
+      system_rhs             = 0.;
     };
 
     auto reset_direct_solver = [&]() {
@@ -211,14 +211,12 @@ void LinearElasticitySolver<dim>::run()
       }
       catch (const std::exception &exc)
       {
-        pcout << "Continuation step rejected at multiplier "
-              << trial_multiplier << " because Newton failed with: "
-              << exc.what() << std::endl;
+        pcout << "Continuation step rejected at multiplier " << trial_multiplier
+              << " because Newton failed with: " << exc.what() << std::endl;
       }
       catch (...)
       {
-        pcout << "Continuation step rejected at multiplier "
-              << trial_multiplier
+        pcout << "Continuation step rejected at multiplier " << trial_multiplier
               << " because Newton failed with an unknown exception."
               << std::endl;
       }
@@ -506,8 +504,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
         {
           local_matrix(i, j) +=
             (lame_lambda * div_phi_x_j * div_phi_x_i +
-             2. * lame_mu *
-               scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
+             2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
              alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
             JxW;
         }

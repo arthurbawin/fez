@@ -162,7 +162,8 @@ public:
       //     std::isfinite(position_J[q]) && position_J[q] > 0.0,
       //     ExcMessage(([&]() {
       //       std::ostringstream message;
-      //       message << "Invalid pseudo-solid deformation in linear elasticity "
+      //       message << "Invalid pseudo-solid deformation in linear elasticity
+      //       "
       //                  "presolver: det(F)="
       //               << position_J[q] << " at reference quadrature point "
       //               << quadrature_points[q] << ".";

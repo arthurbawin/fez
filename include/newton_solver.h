@@ -119,12 +119,12 @@ public:
 
       if (this->param.enable_line_search)
       {
-        double       norm_ls_residual = norm_residual;
-        double       best_ls_residual = norm_residual;
-        double       best_alpha       = 0.;
-        bool         accepted_step    = false;
-        last_residual                 = norm_residual;
-        unsigned int ls_iter          = 0;
+        double norm_ls_residual = norm_residual;
+        double best_ls_residual = norm_residual;
+        double best_alpha       = 0.;
+        bool   accepted_step    = false;
+        last_residual           = norm_residual;
+        unsigned int ls_iter    = 0;
 
         for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
         {

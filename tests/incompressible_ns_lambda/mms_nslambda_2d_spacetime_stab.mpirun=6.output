@@ -9,8 +9,6 @@ ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 27
 0 constrained owned lambda dofs
-0 constrained owned lambda dofs
-0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
 0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
@@ -18,7 +16,9 @@ Number of degrees of freedom: 27
 0 unconstrained owned lambda dofs
 0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
+0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
+0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
 Mesh info:
  dimension: 2
@@ -51,7 +51,6 @@ ID 3 -> y_min
 ID 4 -> y_max
 Number of degrees of freedom: 243
 0 constrained owned lambda dofs
-0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
 0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
@@ -59,6 +58,7 @@ Number of degrees of freedom: 243
 0 unconstrained owned lambda dofs
 0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
+0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
 0 constrained owned lambda dofs
 0 unconstrained owned lambda dofs
@@ -103,4 +103,4 @@ n_elm n_dof   dt          u               p               l
     8    27 0.1000 1.3884e-01    - 7.3697e+00     - 0.0000e+00   - 
    32    75 0.0500 8.0424e-02 0.79 7.6517e+00 -0.05 0.0000e+00 nan 
   128   243 0.0250 4.4740e-02 0.85 4.3607e+00  0.81 0.0000e+00 nan 
-  512   867 0.0125 2.2503e-02 0.99 2.2992e+00  0.92 0.0000e+00 nan 
+  512   867 0.0125 2.2503e-02 0.99 2.2992e+00  0.92 0.0000e+00 nan

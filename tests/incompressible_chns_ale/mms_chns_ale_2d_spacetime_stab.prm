@@ -182,7 +182,7 @@ end
 subsection Manufactured solution
   set enable                 = true
   set type                   = spacetime
-  set convergence steps      = 4
+  set convergence steps      = 3
   set subtract mean pressure = false
 
   subsection Space convergence

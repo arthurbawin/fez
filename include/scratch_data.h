@@ -400,11 +400,14 @@ private:
         {
           std::ostringstream message;
           message << "Mismatch in ALE pseudo-solid Jacobian:\n"
-                  << "det(F) from gradients      = " << present_position_J[q] << "\n"
-                  << "det(F) from deal.II JxW    = " << det_F_from_dealii << "\n"
+                  << "det(F) from gradients      = " << present_position_J[q]
+                  << "\n"
+                  << "det(F) from deal.II JxW    = " << det_F_from_dealii
+                  << "\n"
                   << "JxW_moving                = " << JxW_moving[q] << "\n"
                   << "JxW_fixed                 = " << JxW_fixed[q] << "\n"
-                  << "q-point                   = " << fe_values_fixed.get_quadrature_points()[q];
+                  << "q-point                   = "
+                  << fe_values_fixed.get_quadrature_points()[q];
           throw std::runtime_error(message.str());
         }
       }

@@ -1018,9 +1018,9 @@ namespace Parameters
       body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
-      alpha            = prm.get_double("alpha");
-      beta             = prm.get_double("beta");
-      gamma            = prm.get_double("gamma");
+      alpha = prm.get_double("alpha");
+      beta  = prm.get_double("beta");
+      gamma = prm.get_double("gamma");
     }
     prm.leave_subsection();
   }

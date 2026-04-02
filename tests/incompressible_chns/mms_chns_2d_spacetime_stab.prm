@@ -29,7 +29,7 @@ subsection Time integration
 end
 
 subsection Nonlinear solver
-  set verbosity            = verbose
+  set verbosity            = quiet
   set tolerance            = 1e-10
   set divergence_tolerance = 1e+4
   set max_iterations       = 50
@@ -145,7 +145,7 @@ end
 subsection Manufactured solution
   set enable                 = true
   set type                   = spacetime
-  set convergence steps      = 4
+  set convergence steps      = 3
   set subtract mean pressure = false
 
   subsection Space convergence

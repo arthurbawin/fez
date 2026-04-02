@@ -18,11 +18,14 @@
 #include <mumps_solver.h>
 #include <navier_stokes_solver.h>
 #include <parameter_reader.h>
-#include <scratch_data.h>
 #include <time_handler.h>
 #include <types.h>
 
 using namespace dealii;
+
+// Forward declaration
+template <int dim>
+class ScratchDataFSI;
 
 /**
  * Derived class for the monolithic fluid-structure interaction solver.
@@ -200,7 +203,7 @@ protected:
   std::array<types::global_dof_index, dim> local_position_master_dofs;
   std::array<types::global_dof_index, dim> global_position_master_dofs;
 
-protected:
+public:
   /**
    * Source term.
    */
@@ -268,10 +271,35 @@ protected:
       else if (ordering.is_position(component))
         return mms.exact_mesh_position->value(p, component - ordering.x_lower);
       else if (ordering.is_lambda(component))
-        // For the exact Lagrange multiplier, call the function below.
-        // It can only be called at quadrature nodes on faces, where
+        // This exact solution should only be called when source terms are
+        // applied to the Lagrange multiplier equation, that is, if
+        // LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM is defined.
+        // Otherwise, the function lagrange_multiplier() below should be called.
+        // instead. It can only be called at quadrature nodes on faces, where
         // the normal is well-defined.
-        return 0.;
+        return mms.exact_lagrange_multiplier->value(p,
+                                                    component -
+                                                      ordering.l_lower);
+      else
+        DEAL_II_ASSERT_UNREACHABLE();
+    }
+
+    double time_derivative(const Point<dim>  &p,
+                           const unsigned int component = 0) const
+    {
+      if (ordering.is_velocity(component))
+        return mms.exact_velocity->time_derivative(p,
+                                                   component -
+                                                     ordering.u_lower);
+      else if (ordering.is_pressure(component))
+        return mms.exact_pressure->time_derivative(p);
+      else if (ordering.is_position(component))
+        return mms.exact_mesh_position->time_derivative(p,
+                                                        component -
+                                                          ordering.x_lower);
+      else if (ordering.is_lambda(component))
+        return mms.exact_lagrange_multiplier->time_derivative(
+          p, component - ordering.l_lower);
       else
         DEAL_II_ASSERT_UNREACHABLE();
     }
@@ -289,8 +317,6 @@ protected:
       const double pressure = mms.exact_pressure->value(p);
       for (unsigned int d = 0; d < dim; ++d)
         sigma[d][d] = -pressure;
-      // Tensor<2, dim> grad_u;
-      // mms.exact_velocity->gradient_vj_xi(p, grad_u);
       Tensor<2, dim> grad_u = mms.exact_velocity->gradient_vj_xi(p);
       sigma += mu_viscosity * (grad_u + transpose(grad_u));
       lambda = -sigma * normal_to_solid;

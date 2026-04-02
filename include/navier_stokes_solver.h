@@ -201,6 +201,16 @@ public:
                               const std::string                  &field_name);
 
   /**
+   * hp version of the function above.
+   */
+  void
+  compute_and_add_errors(const hp::MappingCollection<dim>   &mapping_collection,
+                         const Function<dim>                &exact_solution,
+                         Vector<double>                     &cellwise_errors,
+                         const ComponentSelectFunction<dim> &comp_function,
+                         const std::string                  &field_name);
+
+  /**
    * Compute the error on the velocity, pressure and mesh position for each of
    * the prescribed Sobolev norms. Errors on additional fields must be computed
    * in the overloaded function.

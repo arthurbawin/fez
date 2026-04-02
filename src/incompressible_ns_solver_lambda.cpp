@@ -1,4 +1,5 @@
 
+#include <assembly/boundary_forms.h>
 #include <assembly/lagrange_multiplier.h>
 #include <boundary_conditions.h>
 #include <compare_matrix.h>
@@ -401,24 +402,39 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
         DoFTools::map_dofs_to_support_points(mapping_collection,
                                              this->dof_handler);
 
-      std::ofstream outfile(this->param.output.output_dir +
-                            "constrained_lambda_dofs_proc" +
-                            std::to_string(this->mpi_rank) + ".pos");
-      outfile << "View \"constrained_lambda_dofs_proc" << this->mpi_rank
-              << "\"{" << std::endl;
-      for (const auto dof : lambda_dofs)
-        if (lambda_constraints.is_constrained(dof))
-        {
-          const Point<dim> &pt = support_points.at(dof);
-          if constexpr (dim == 2)
-            outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
-                    << std::endl;
-          else
-            outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2] << "){1};"
-                    << std::endl;
-        }
-      outfile << "};" << std::endl;
-      outfile.close();
+      if (this->dofs_to_component.empty())
+        fill_dofs_to_component(this->dof_handler,
+                               this->locally_relevant_dofs,
+                               this->dofs_to_component);
+
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        std::ofstream outfile(this->param.output.output_dir +
+                              "constrained_lambda_dofs_dim_" +
+                              std::to_string(d) + "_proc" +
+                              std::to_string(this->mpi_rank) + ".pos");
+        outfile << "View \"constrained_lambda_dofs_dim_" << d << "_proc"
+                << this->mpi_rank << "\"{" << std::endl;
+        for (const auto dof : lambda_dofs)
+          if (lambda_constraints.is_constrained(dof))
+          {
+            const unsigned char comp =
+              this->dofs_to_component[this->locally_relevant_dofs
+                                        .index_within_set(dof)];
+            if (comp - this->ordering->l_lower == d)
+            {
+              const Point<dim> &pt = support_points.at(dof);
+              if constexpr (dim == 2)
+                outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
+                        << std::endl;
+              else
+                outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2]
+                        << "){1};" << std::endl;
+            }
+          }
+        outfile << "};" << std::endl;
+        outfile.close();
+      }
     }
   }
 }
@@ -589,7 +605,6 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
       const bool consistent = constraints.is_consistent_in_parallel(
         Utilities::MPI::all_gather(this->mpi_communicator,
                                    this->locally_owned_dofs),
-        // this->locally_relevant_dofs,
         DoFTools::extract_locally_active_dofs(this->dof_handler),
         this->mpi_communicator,
         true);
@@ -1100,11 +1115,13 @@ void NSSolverLambda<dim>::assemble_local_rhs(
 
       if (face->at_boundary())
       {
+        const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
+
         //
         // Lagrange multiplier for no-slip
         //
         if (cell_has_lambda(cell))
-          if (face->boundary_id() == weak_no_slip_boundary_id)
+          if (fluid_bc.type == BoundaryConditions::Type::weak_no_slip)
           {
             Assembly::weakly_enforced_no_slip_rhs(*this->ordering,
                                                   i_face,
@@ -1117,27 +1134,11 @@ void NSSolverLambda<dim>::assemble_local_rhs(
         /**
          * Traction boundary condition with prescribed manufactured solution.
          */
-        if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
-              .type == BoundaryConditions::Type::open_mms)
-          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
-          {
-            const double face_JxW_moving =
-              scratch_data.face_JxW_moving[i_face][q];
-            const auto &n = scratch_data.face_normals_moving[i_face][q];
-
-            const auto &grad_u_exact =
-              scratch_data.exact_face_velocity_gradients[i_face][q];
-            const double p_exact =
-              scratch_data.exact_face_pressure_values[i_face][q];
-
-            const auto sigma_dot_n =
-              -p_exact * n + 2. * nu * symmetrize(grad_u_exact) * n;
-
-            const auto &phi_u = scratch_data.phi_u_face[i_face][q];
-
-            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-              local_rhs(i) -= -phi_u[i] * sigma_dot_n * face_JxW_moving;
-          }
+        if (fluid_bc.type == BoundaryConditions::Type::open_mms)
+        {
+          Assembly::traction_boundary_mms_rhs(
+            *this->ordering, i_face, nu, scratch_data, local_rhs);
+        }
       }
     }
   cell->get_dof_indices(local_dof_indices);
@@ -1199,10 +1200,6 @@ void NSSolverLambda<dim>::compute_lambda_error_on_boundary(
                                        update_normal_vectors);
 
   Tensor<1, dim> diff, exact;
-
-  // std::ofstream out("normals.pos");
-  // out << "View \"normals\" {\n";
-
   for (auto cell : this->dof_handler.active_cell_iterators())
   {
     if (!cell->is_locally_owned())
@@ -1249,12 +1246,11 @@ void NSSolverLambda<dim>::compute_lambda_error_on_boundary(
           // Solution<dim> computes lambda_exact = - sigma cdot ns, where n is
           // expected to be the normal to the SOLID.
 
-          // out << "VP(" << qpoint[0] << "," << qpoint[1] << "," << 0. <<
-          // "){"
-          //   << normal[0] << "," << normal[1] << "," << 0. << "};\n";
-
-          // exact_solution is a pointer to base class Function<dim>,
-          // so we have to ruse to use the specific function for lambda.
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+          for (unsigned int d = 0; d < dim; ++d)
+            exact[d] =
+              this->exact_solution->value(qpoint, this->ordering->l_lower + d);
+#else
           AssertThrow(dynamic_cast<NSSolverLambda<dim>::MMSSolution *>(
                         this->exact_solution.get()) != nullptr,
                       ExcInternalError());
@@ -1262,6 +1258,7 @@ void NSSolverLambda<dim>::compute_lambda_error_on_boundary(
             static_cast<NSSolverLambda<dim>::MMSSolution &>(
               *this->exact_solution);
           sol.lagrange_multiplier(qpoint, nu, normal_to_solid, exact);
+#endif
 
           diff = lambda_values[q] - exact;
 
@@ -1275,9 +1272,6 @@ void NSSolverLambda<dim>::compute_lambda_error_on_boundary(
       }
     }
   }
-
-  // out << "};\n";
-  // out.close();
 
   lambda_l2_error =
     Utilities::MPI::sum(lambda_l2_local, this->mpi_communicator);

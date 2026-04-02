@@ -62,13 +62,27 @@ void Assembly::weakly_enforced_no_slip_rhs(
       scratch_data.present_face_velocity_values[i_face][q];
     const auto &lambda = scratch_data.present_face_lambda_values[i_face][q];
 
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+    const auto &face_velocity_source_term =
+      scratch_data.face_velocity_source_term[i_face][q];
+#endif
+
     auto velocity_constraint = fluid_velocity;
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+    Tensor<1, dim> exact_constraint =
+      scratch_data.exact_face_velocity_values[i_face][q];
+#endif
 
     if constexpr (with_moving_mesh)
     {
       const auto &mesh_velocity =
         scratch_data.present_face_mesh_velocity_values[i_face][q];
       velocity_constraint -= mesh_velocity;
+
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+      exact_constraint -=
+        scratch_data.exact_face_mesh_velocity_values[i_face][q];
+#endif
     }
 
     if (enable_rigid_body_rotation)
@@ -83,10 +97,18 @@ void Assembly::weakly_enforced_no_slip_rhs(
       const bool         i_is_l = component_ordering.is_lambda(comp_i);
 
       if (i_is_u)
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+        local_rhs_i -= -phi_u[i] * (lambda - face_velocity_source_term);
+#else
         local_rhs_i -= -phi_u[i] * lambda;
+#endif
 
       if (i_is_l)
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+        local_rhs_i -= -(velocity_constraint - exact_constraint) * phi_l[i];
+#else
         local_rhs_i -= -velocity_constraint * phi_l[i];
+#endif
 
       local_rhs(i) += local_rhs_i * face_JxW_moving;
     }

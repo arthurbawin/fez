@@ -672,7 +672,10 @@ void FSISolver<dim>::remove_cylinder_velocity_constraints(
   const bool                 remove_position_constraints) const
 {
   if (weak_no_slip_boundary_id == numbers::invalid_unsigned_int)
+  {
+    this->pcout << "No constraint to remove" << std::endl;
     return;
+  }
 
   IndexSet relevant_boundary_velocity_dofs =
     DoFTools::extract_boundary_dofs(this->dof_handler,
@@ -1718,14 +1721,20 @@ void FSISolver<dim>::assemble_local_matrix(
     {
       const auto &face = cell->face(i_face);
 
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
+      if (face->at_boundary())
       {
-        Assembly::weakly_enforced_no_slip_matrix<true, dim>(*this->ordering,
-                                                            i_face,
-                                                            scratch_data,
-                                                            this->time_handler,
-                                                            local_matrix);
+        const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
+
+        // Lagrange multiplier for no-slip
+        if (fluid_bc.type == BoundaryConditions::Type::weak_no_slip)
+        {
+          Assembly::weakly_enforced_no_slip_matrix<true, dim>(
+            *this->ordering,
+            i_face,
+            scratch_data,
+            this->time_handler,
+            local_matrix);
+        }
       }
     }
   }
@@ -1969,7 +1978,7 @@ void FSISolver<dim>::assemble_local_rhs(
         const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
 
         // Lagrange multiplier for no-slip
-        if (face->boundary_id() == weak_no_slip_boundary_id)
+        if (fluid_bc.type == BoundaryConditions::Type::weak_no_slip)
         {
           Assembly::weakly_enforced_no_slip_rhs<true>(
             *this->ordering, i_face, fluid_bc, scratch_data, local_rhs);
@@ -2630,9 +2639,6 @@ void FSISolver<dim>::compute_lambda_error_on_boundary(
   std::vector<Tensor<1, dim>> lambda_values(n_faces_q_points);
   Tensor<1, dim>              diff, exact;
 
-  // std::ofstream out("normals.pos");
-  // out << "View \"normals\" {\n";
-
   for (auto cell : this->dof_handler.active_cell_iterators())
   {
     if (!cell->is_locally_owned())
@@ -2671,15 +2677,18 @@ void FSISolver<dim>::compute_lambda_error_on_boundary(
           // Solution<dim> computes lambda_exact = - sigma cdot ns, where n is
           // expected to be the normal to the SOLID.
 
-          // out << "VP(" << qpoint[0] << "," << qpoint[1] << "," << 0. <<
-          // "){"
-          //   << normal[0] << "," << normal[1] << "," << 0. << "};\n";
-
-          // exact_solution is a pointer to base class Function<dim>,
-          // so we have to ruse to use the specific function for lambda.
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+          // The lambda_MMS is also prescribed, use this solution
+          for (unsigned int d = 0; d < dim; ++d)
+            exact[d] =
+              this->exact_solution->value(qpoint, this->ordering->l_lower + d);
+#else
+          // lambda_MMS is not prescribed, the exact lambda is expected to be
+          // the traction
           std::static_pointer_cast<FSISolver<dim>::MMSSolution>(
             this->exact_solution)
             ->lagrange_multiplier(qpoint, mu, normal_to_solid, exact);
+#endif
 
           diff = lambda_values[q] - exact;
 
@@ -2694,9 +2703,6 @@ void FSISolver<dim>::compute_lambda_error_on_boundary(
       }
     }
   }
-
-  // out << "};\n";
-  // out.close();
 
   lambda_l2_error =
     Utilities::MPI::sum(lambda_l2_local, this->mpi_communicator);

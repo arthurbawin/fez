@@ -13,6 +13,8 @@
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/generic_linear_algebra.h>
+#include <incompressible_ns_solver_lambda.h>
+#include <monolithic_fsi_solver.h>
 #include <parameter_reader.h>
 #include <types.h>
 
@@ -457,10 +459,73 @@ private:
     const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
     const std::shared_ptr<Function<dim>> & /*source_terms*/,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+    const std::shared_ptr<Function<dim>> &exact_solution)
   {
     fe_face_values[lambda].get_function_values(
       current_solution, present_face_lambda_values[i_face]);
+
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+    /**
+     * Compute the data required to add source terms for the momentum
+     * and Lagrange multiplier equation.
+     */
+    const auto &quadrature_points = fe_face_values.get_quadrature_points();
+
+    // Get exact velocity on face
+    exact_solution->vector_value_list(quadrature_points, exact_solution_full);
+    exact_solution->vector_gradient_list(quadrature_points,
+                                         grad_exact_solution_full);
+
+    for (unsigned int q = 0; q < n_faces_q_points; ++q)
+    {
+      exact_face_pressure_values[i_face][q] = exact_solution_full[q][p_lower];
+      for (int d = 0; d < dim; ++d)
+      {
+        exact_face_velocity_values[i_face][q][d] =
+          exact_solution_full[q][u_lower + d];
+        exact_face_lambda_values[i_face][q][d] =
+          exact_solution_full[q][l_lower + d];
+        for (int dj = 0; dj < dim; ++dj)
+          exact_face_velocity_gradients[i_face][q][d][dj] =
+            grad_exact_solution_full[q][u_lower + d][dj];
+      }
+
+      Tensor<2, dim> sigma;
+      for (unsigned int d = 0; d < dim; ++d)
+        sigma[d][d] = -exact_face_pressure_values[i_face][q];
+      const Tensor<2, dim> &grad_u = exact_face_velocity_gradients[i_face][q];
+      const double nu = param.physical_properties.fluids[0].kinematic_viscosity;
+      sigma += nu * (grad_u + transpose(grad_u));
+      const auto &normal_to_solid = -fe_face_values.normal_vector(q);
+      const auto  stress_vector   = -sigma * normal_to_solid;
+
+      face_velocity_source_term[i_face][q] =
+        exact_face_lambda_values[i_face][q] - stress_vector;
+    }
+
+    // If using an FSI solver, get the exact mesh velocity
+    // FIXME: The exact_solution should be an MMSFunction, which
+    // has a time_derivative function.
+    const typename FSISolver<dim>::MMSSolution *sol = nullptr;
+    if (dynamic_cast<typename FSISolver<dim>::MMSSolution *>(
+          exact_solution.get()) != nullptr)
+      sol = dynamic_cast<const typename FSISolver<dim>::MMSSolution *>(
+        exact_solution.get());
+    if (sol != nullptr)
+    {
+      const auto &fixed_quadrature_points =
+        fe_face_values_fixed.get_quadrature_points();
+
+      // Compute time derivative of mesh position
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+      {
+        const auto &qpoint = fixed_quadrature_points[q];
+        for (int d = 0; d < dim; ++d)
+          exact_face_mesh_velocity_values[i_face][q][d] =
+            sol->time_derivative(qpoint, x_lower + d);
+      }
+    }
+#endif
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
@@ -790,6 +855,11 @@ public:
   std::vector<std::vector<Tensor<1, dim>>> grad_exact_solution_full;
   std::vector<std::vector<Tensor<2, dim>>> exact_face_velocity_gradients;
   std::vector<std::vector<double>>         exact_face_pressure_values;
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+  std::vector<std::vector<Tensor<1, dim>>> exact_face_velocity_values;
+  std::vector<std::vector<Tensor<1, dim>>> exact_face_lambda_values;
+  std::vector<std::vector<Tensor<1, dim>>> exact_face_mesh_velocity_values;
+#endif
 
   /**
    * Compressible NS
@@ -863,6 +933,9 @@ public:
   FEValuesExtractors::Vector               lambda;
   std::vector<std::vector<Tensor<1, dim>>> present_face_lambda_values;
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_l_face;
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+  std::vector<std::vector<Tensor<1, dim>>> face_velocity_source_term;
+#endif
 
   // Rigid-body rotation enforced with Lagrange multiplier
   // The prescribed angular velocity is scalar in 2D and a vector in 3D

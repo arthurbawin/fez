@@ -14,6 +14,11 @@ option(FEZ_FORCE_TRILINOS "Force Trilinos wrappers for linear algebra" OFF)
 # By default, specify that deal.II has the hp identities bug
 option(DEAL_II_WITH_HP_IDENTITIES_BUG "" ON)
 
+# Lagrange multiplier equations do not typically need a source term,
+# so there is none for speed. To be able to test with arbitrary manufactured
+# solutions, however, a source term is required and this option must be enabled.
+option(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM "" OFF)
+
 # Find deal.II
 find_package(deal.II 9.5.0 REQUIRED HINTS ${DEAL_II_DIR} CONFIG)
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
@@ -75,6 +80,10 @@ endif()
 
 if(DEAL_II_WITH_HP_IDENTITIES_BUG)
   add_compile_definitions(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
+endif()
+
+if(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+  add_compile_definitions(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
 endif()
 
 message(STATUS "FEZ_WITH_PETSC    = ${FEZ_WITH_PETSC}")

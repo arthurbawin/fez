@@ -78,6 +78,12 @@ DeclExceptionMsg(
   "represents a SymmetricTensor that is not positive-definite. "
   "You should maybe double check the ordering of the entries of the array.");
 
+DeclException2(ExcInterpolatedNotSPD,
+               std::string,
+               double,
+               "An interpolated metric tensor is not positive-definite: "
+                 << arg1 << "\n det = " << arg2);
+
 DeclException1(
   ExcEigenvalueNotPositive,
   double,

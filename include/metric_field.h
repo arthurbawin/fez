@@ -56,10 +56,21 @@ public:
   void set_metrics_from_function(const TensorFunction<2, dim> &function);
 
   /**
-   * Compute the metric field from either error on solution
-   * or given analytical derivatives.
+   * Compute the Riemannian metric minimizing an interpolation error estimate in
+   * W^{s,p} norm, as described by F. Alauzet & A. Loseille [ref] and J.-M.
+   * Mirebeau [ref]. This metric writes:
+   *
+   * M = c * (det Q) ^ (tau / 2 * p) * Q,
+   *
+   * where the metric Q is a measure of the anisotropy of the error estimate,
+   * tau := p * dim / (p * ((k + 1) - s) + dim) is a parameter originating from
+   * Hölder's inequality, and c is a global scaling factor.
+   *
+   * The metric Q is computed from the derivatives of order k+1 of the FE
+   * solution, which can be either recovered numerically or given through
+   * analytical derivatives callbacks.
    */
-  void compute_metrics();
+  void compute_optimal_multiscale_metric();
 
   /**
    * Return the vector of MetricTensors constituting this field.
@@ -69,8 +80,8 @@ public:
   /**
    * Apply gradation (smoothing) to the metric field.
    *
-   * Metric intersection is not a commutative operation, so if the metric is
-   * field is graded in parallel, the result depends on the mesh partitioning.
+   * Metric intersection is not a commutative operation, so if the metric field
+   * is graded in parallel, the result depends on the mesh partitioning.
    * The MetricField<dim> parameter "deterministic" specifies whether gradation
    * should be done so as to yield a unique result for all partitions (e.g., for
    * testing) or not. If deterministic is true, then all metrics are simply
@@ -93,9 +104,9 @@ public:
   void intersect_with(const MetricField<dim> &other);
 
   /**
-   * Compute integral on mesh of metric determinant.
+   * Gather the metrics and their associated mesh vertex to the root process.
    */
-  double compute_integral_determinant() const;
+  std::vector<std::pair<Point<dim>, MetricTensor<dim>>> gather_metrics() const;
 
 #if defined(FEZ_WITH_MMG)
   /**
@@ -103,12 +114,24 @@ public:
    * the MMG library. Specify that the solution is tensor-valued and assign the
    * metric at each mesh vertex.
    *
-   * This operation is for now done from the root process only, since MMG is
-   * serial.
+   * The input @p gathered_metrics should be the result of the function
+   * gather_metrics() above.
+   *
+   * This operation should for now be called from the root process only, since
+   * MMG is serial.
    */
-  void set_mmg_solution(MMG5_pMesh pointer_to_mesh,
-                        MMG5_pSol  pointer_to_sol) const;
+  void
+  set_mmg_solution(const std::vector<std::pair<Point<dim>, MetricTensor<dim>>>
+                             &gathered_metrics,
+                   MMG5_pMesh pointer_to_mesh,
+                   MMG5_pSol  pointer_to_sol) const;
 #endif
+
+  /**
+   * Return the number of owned mesh vertices on all rank, i.e., the total
+   * number of mesh vertices in the triangulation.
+   */
+  unsigned int get_n_total_owned_vertices() const;
 
   /**
    * Write the metrics and their associated mesh vertex to the given stream,
@@ -125,6 +148,12 @@ public:
    */
   void write_pvtu(const std::string &filename,
                   bool               write_inverse_metrics = true);
+
+  /**
+   * Multiply all the metrics in this field by @p factor, which should be
+   * a positive number (this is checked in debug).
+   */
+  MetricField<dim> &operator*=(const double &factor);
 
 private:
   /**
@@ -143,10 +172,39 @@ private:
   void apply_gradation_non_deterministic();
 
   /**
-   * Compute metric tensors assuming a linearly interpolated field.
-   * Optimal metric is the scaled absolute Hessian matrix.
+   * Compute the unscaled metric Q in the formulation of the optimal metric.
    */
-  void compute_metrics_P1();
+  void compute_anisotropic_measure();
+
+  /**
+   * Compute the unscaled metric Q assuming a linearly interpolated field.
+   * In this case, Q is simply the absolute value of the Hessian matrix.
+   */
+  void compute_anisotropic_measure_P1();
+
+  /**
+   * Compute the unscaled metric Q assuming a quadratic FE solution.
+   * This function is called in 2D only and uses J.-M. Mirebeau's analytical
+   * solution. Not sure there is an exact solution in 3D.
+   */
+  void compute_anisotropic_measure_P2();
+
+  /**
+   * Compute the unscaled metric Q for the general case of a FE solution of
+   * arbitrary polynomial degree, in 2D or 3D. Uses the log-simplex method
+   * from Coulaud & Loseille [ref].
+   */
+  void compute_anisotropic_measure_Pn();
+
+  /**
+   * Compute integral on mesh of metric determinant.
+   */
+  double compute_integral_determinant(const double exponent) const;
+
+  /**
+   * For each metric M in this field, perform M *= det(M) ^ @p exponent.
+   */
+  void multiply_each_metric_by_determinant_power(const double exponent);
 
   /**
    * Transfer the MetricTensor<dim> stored in the metrics std::vector to their
@@ -161,11 +219,6 @@ private:
    */
   void tensor_solution_to_metrics();
 
-  /**
-   * Gather the metrics and their associated mesh vertex to the root process.
-   */
-  std::vector<std::pair<Point<dim>, MetricTensor<dim>>> gather_metrics() const;
-
 private:
   const ParameterReader<dim> &param;
   const Triangulation<dim>   &triangulation;
@@ -177,6 +230,9 @@ private:
   // The FE space used for dummy computations
   std::shared_ptr<FiniteElement<dim>> fe;
   std::shared_ptr<Mapping<dim>>       mapping;
+
+  // The polynomial degree of the field used to compute this metric field
+  unsigned int solution_polynomial_degree;
 
   IndexSet locally_owned_dofs;
   IndexSet locally_relevant_dofs;
@@ -191,6 +247,8 @@ private:
 
   // A vector of flags indicating if the mesh vertex in [0, n_vertices) is owned
   std::vector<bool> owned_vertices;
+  unsigned int      n_owned_vertices;
+  unsigned int      n_total_owned_vertices;
 
   // The stored metric tensors
   std::vector<MetricTensor<dim>> metrics;
@@ -288,5 +346,23 @@ public:
 };
 
 /* ---------------- template and inline functions ----------------- */
+
+template <int dim>
+inline unsigned int MetricField<dim>::get_n_total_owned_vertices() const
+{
+  return n_total_owned_vertices;
+}
+
+template <int dim>
+inline MetricField<dim> &MetricField<dim>::operator*=(const double &d)
+{
+  Assert(d > 0, ExcMultiplyByNonPositive(d));
+  // Multiply each metric
+  for (auto &m : metrics)
+    m *= d;
+  // Synchronize the FE representation of the metrics
+  metrics_to_tensor_solution();
+  return *this;
+}
 
 #endif

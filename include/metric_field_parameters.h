@@ -39,6 +39,34 @@ namespace Parameters
       std::shared_ptr<Functions::ParsedFunction<dim>> callback;
     } analytical_metric;
 
+    /**
+     * Parameters for the computation of the optimal multiscale metric
+     * minimizing the W^{s,p} norm of the interpolation error (e.g., L^p norm
+     * for s = 0, H^1 seminorm for s = 1, p = 2). This metric is the one
+     * described by F. Alauzet & A. Loseille [ref], as well as J.-M. Mirebeau
+     * [ref].
+     */
+    struct MultiscaleMetric
+    {
+      enum TargetNorm
+      {
+        L1_norm,
+        L2_norm,
+        L4_norm,
+        Linfty_norm,
+        H1_seminorm
+      } target_norm;
+
+      // Target s of the W^{s,p} norm in which interpolation error is minimized
+      unsigned int s;
+
+      // Target p of the W^{s,p} norm in which interpolation error is minimized
+      unsigned int p;
+
+      // Target number of mesh vertices after adaptation (without gradation)
+      unsigned int n_target_vertices;
+    } multiscale;
+
     struct Gradation
     {
       bool enable;
@@ -78,26 +106,28 @@ namespace Parameters
     void set_time(const double newtime);
 
     /**
-     *
+     * Declare the parameters in the ParameterHandler for the index-th metric
+     * field
      */
     void declare_parameters(ParameterHandler  &prm,
                             const unsigned int index) const;
 
     /**
-     *
+     * Read the parameters from the ParameterHandler for the index-th metric
+     * field
      */
     void read_parameters(ParameterHandler &prm, const unsigned int index);
   };
 
   /**
-   *
+   * Declare all @p n_metric_fields metric fields.
    */
   template <int dim>
   void declare_metric_fields(ParameterHandler  &prm,
                              const unsigned int n_metric_fields);
 
   /**
-   *
+   * Read all @p n_metric_fields metric fields.
    */
   template <int dim>
   void

@@ -53,6 +53,20 @@ namespace Parameters
         analytical_field->declare_parameters(prm);
       }
       prm.leave_subsection();
+      prm.enter_subsection("Multiscale optimal metric for interpolation error");
+      {
+        prm.declare_entry("target norm",
+                          "L2_norm",
+                          Patterns::Selection(
+                            "L1_norm|L2_norm|L4_norm|Linfty_norm|H1_seminorm"),
+                          "Target norm for interpolation error minimization");
+        prm.declare_entry(
+          "n target vertices",
+          "1000",
+          Patterns::Integer(0),
+          "Target number of vertices after adaptation, assuming no gradation");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("Gradation");
       {
         prm.declare_entry("enable", "false", Patterns::Bool(), "");
@@ -97,6 +111,46 @@ namespace Parameters
       {
         // prm.declare_entry("enable", "false", Patterns::Bool(), "");
         analytical_field->parse_parameters(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("Multiscale optimal metric for interpolation error");
+      {
+        const std::string parsed_norm = prm.get("target norm");
+        if (parsed_norm == "L1_norm")
+        {
+          multiscale.target_norm = MultiscaleMetric::TargetNorm::L1_norm;
+          multiscale.s           = 0;
+          multiscale.p           = 1;
+        }
+        else if (parsed_norm == "L2_norm")
+        {
+          multiscale.target_norm = MultiscaleMetric::TargetNorm::L2_norm;
+          multiscale.s           = 0;
+          multiscale.p           = 2;
+        }
+        else if (parsed_norm == "L4_norm")
+        {
+          multiscale.target_norm = MultiscaleMetric::TargetNorm::L4_norm;
+          multiscale.s           = 0;
+          multiscale.p           = 4;
+        }
+        else if (parsed_norm == "Linfty_norm")
+        {
+          multiscale.target_norm = MultiscaleMetric::TargetNorm::Linfty_norm;
+          multiscale.s           = 0;
+          multiscale.p           = 100; // Unused
+        }
+        else if (parsed_norm == "H1_seminorm")
+        {
+          multiscale.target_norm = MultiscaleMetric::TargetNorm::H1_seminorm;
+          multiscale.s           = 1;
+          multiscale.p           = 2;
+        }
+        else
+          throw std::runtime_error(
+            "Unknown target norm for optimal multiscale metric: " +
+            parsed_norm);
+        multiscale.n_target_vertices = prm.get_integer("n target vertices");
       }
       prm.leave_subsection();
       prm.enter_subsection("Gradation");

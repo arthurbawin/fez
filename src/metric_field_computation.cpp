@@ -3,7 +3,64 @@
 #include <metric_tensor_tools.h>
 
 template <int dim>
-void MetricField<dim>::compute_metrics_P1()
+void MetricField<dim>::compute_optimal_multiscale_metric()
+{
+  // Compute the anisotropic measure Q
+  compute_anisotropic_measure();
+
+  // Add the global and local scaling coefficients
+  const double N = (double)param.metric_fields[0].multiscale.n_target_vertices;
+  const double n = (double)dim; // space dimension
+
+  double det_field;
+  if (param.metric_fields[0].multiscale.target_norm ==
+      Parameters::MetricField<dim>::MultiscaleMetric::TargetNorm::Linfty_norm)
+  {
+    // Special treatment for the Linfty norm, where the exponents are 1/2 and 0
+    det_field = compute_integral_determinant(0.5);
+  }
+  else
+  {
+    const double s =
+      (double)param.metric_fields[0].multiscale.s; // W^{s,p} norm
+    const double p = (double)param.metric_fields[0].multiscale.p;
+    const double m = (double)solution_polynomial_degree + 1;
+
+    const double exponent_for_integral =
+      (p * (m - s)) / (2. * (p * (m - s) + n));
+    const double exponent_for_determinant = -1. / (p * (m - s) + n);
+
+    det_field = compute_integral_determinant(exponent_for_integral);
+
+    // Local scaling by (det Q) ^ -(tau / (2 * p))
+    multiply_each_metric_by_determinant_power(exponent_for_determinant);
+  }
+
+  // Global scaling
+  (*this) *= std::pow(N / det_field, 2. / n);
+}
+
+template void MetricField<2>::compute_optimal_multiscale_metric();
+template void MetricField<3>::compute_optimal_multiscale_metric();
+
+template <int dim>
+void MetricField<dim>::compute_anisotropic_measure()
+{
+  Assert(solution_polynomial_degree > 0, ExcInternalError());
+
+  if (solution_polynomial_degree == 1)
+    compute_anisotropic_measure_P1();
+  else if (solution_polynomial_degree == 2)
+    compute_anisotropic_measure_P2();
+  else
+    compute_anisotropic_measure_Pn();
+}
+
+template void MetricField<2>::compute_anisotropic_measure();
+template void MetricField<3>::compute_anisotropic_measure();
+
+template <int dim>
+void MetricField<dim>::compute_anisotropic_measure_P1()
 {
   std::vector<SymmetricTensor<2, dim>> hessians(n_vertices);
   const std::vector<Point<dim>>       &vertices = triangulation.get_vertices();
@@ -13,28 +70,32 @@ void MetricField<dim>::compute_metrics_P1()
 
   // TODO: this is "embarrassingly parallel" and can be multithreaded
   for (unsigned int v = 0; v < n_vertices; ++v)
-  {
     if (owned_vertices[v])
-    {
-      // Get hessian at p, from exact solution or recovered derivatives
-      // if (useExactDerivatives)
-      // {
-      std::cout << "Hessian at " << vertices[v] << " = " << hessians[v]
-                << std::endl;
       metrics[v] = MetricTensorTools::absolute_value(
         hessians[v],
         param.metric_fields[0].min_eigenvalue,
         param.metric_fields[0].max_eigenvalue);
-      // }
-      // else
-      // {
-      //   // Use recovered derivatives
-      // }
-
-      // // TODO: Target Lp norm for now, add W1,p
-    }
-  }
 }
 
-template void MetricField<2>::compute_metrics_P1();
-template void MetricField<3>::compute_metrics_P1();
+template void MetricField<2>::compute_anisotropic_measure_P1();
+template void MetricField<3>::compute_anisotropic_measure_P1();
+
+template <int dim>
+void MetricField<dim>::compute_anisotropic_measure_P2()
+{
+  // Compute with Mirebeau's analytical solution
+  DEAL_II_NOT_IMPLEMENTED();
+}
+
+template void MetricField<2>::compute_anisotropic_measure_P2();
+template void MetricField<3>::compute_anisotropic_measure_P2();
+
+template <int dim>
+void MetricField<dim>::compute_anisotropic_measure_Pn()
+{
+  // Compute with the log-simplex method
+  DEAL_II_NOT_IMPLEMENTED();
+}
+
+template void MetricField<2>::compute_anisotropic_measure_Pn();
+template void MetricField<3>::compute_anisotropic_measure_Pn();

@@ -134,7 +134,7 @@ void HeatSolver<dim>::run()
 {
   reset();
   initialize();
-  read_mesh(triangulation, param);
+  MeshTools::read_mesh(triangulation, param);
   setup_dofs();
   create_zero_constraints();
   create_nonzero_constraints();
@@ -676,14 +676,12 @@ void HeatSolver<dim>::adapt_mesh()
   if (param.bc_data.n_metric_fields > 0)
   {
     MetricField<dim> field(param, triangulation);
-    field.compute_metrics();
+    field.compute_optimal_multiscale_metric();
     field.write_pvtu("metrics_before_gradation");
-    field.write_metrics();
     field.apply_gradation();
-    field.write_metrics();
     field.write_pvtu("metrics_after_gradation");
 
-    MeshAdaptation::adapt_with_mmg(param, triangulation, field);
+    MeshTools::adapt_with_mmg(param, triangulation, field);
   }
 }
 

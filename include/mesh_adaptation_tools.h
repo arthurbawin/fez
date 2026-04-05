@@ -7,7 +7,7 @@
 
 using namespace dealii;
 
-namespace MeshAdaptation
+namespace MeshTools
 {
   /**
    * Adapt the mesh with the MMG library.
@@ -16,6 +16,6 @@ namespace MeshAdaptation
   void adapt_with_mmg(const ParameterReader<dim> &param,
                       const Triangulation<dim>   &triangulation,
                       const MetricField<dim>     &metric_field);
-} // namespace MeshAdaptation
+} // namespace MeshTools
 
 #endif

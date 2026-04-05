@@ -32,6 +32,7 @@ MetricField<dim>::MetricField(const ParameterReader<dim> &param,
   , dof_handler(triangulation)
   , mpi_communicator(dof_handler.get_mpi_communicator())
   , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
+  , solution_polynomial_degree(1) // FIXME: Set from the FE solution
   , n_vertices(triangulation.n_vertices())
   , metrics(n_vertices)
   , deterministic_gradation(param.metric_fields[0].gradation.deterministic)
@@ -63,7 +64,12 @@ MetricField<dim>::MetricField(const ParameterReader<dim> &param,
                     mpi_communicator);
   local_metrics_fe.reinit(locally_owned_dofs, mpi_communicator);
 
+  // Get the total number of mesh vertices.
   get_owned_mesh_vertices(triangulation, mpi_rank, owned_vertices);
+  n_owned_vertices =
+    std::count(owned_vertices.begin(), owned_vertices.end(), true);
+  n_total_owned_vertices =
+    Utilities::MPI::sum(n_owned_vertices, mpi_communicator);
 
   // Create the maps from the vector of metrics to their FE representation
   vertex_to_metric_dofs.resize(n_vertices);
@@ -283,10 +289,11 @@ void MetricField<dim>::set_metrics_from_function(
 template <int dim>
 void MetricField<dim>::apply_gradation()
 {
-  if (deterministic_gradation)
-    apply_gradation_deterministic();
-  else
-    apply_gradation_non_deterministic();
+  if (param.metric_fields[0].gradation.enable)
+    if (deterministic_gradation)
+      apply_gradation_deterministic();
+    else
+      apply_gradation_non_deterministic();
 }
 
 template <int dim>
@@ -452,114 +459,157 @@ void MetricField<dim>::intersect_with(const MetricField<dim> &other)
 }
 
 template <int dim>
-void MetricField<dim>::compute_metrics()
+double
+MetricField<dim>::compute_integral_determinant(const double exponent) const
 {
-  // Compute raw metrics
-  compute_metrics_P1();
+  std::unique_ptr<Quadrature<dim>> quadrature;
+  if (param.finite_elements.use_quads)
+    quadrature = std::make_unique<QGauss<dim>>(4);
+  else
+    quadrature = std::make_unique<QGaussSimplex<dim>>(3);
 
-  // // Bound eigenvalues
-  // for (auto &metric : metrics)
-  //   metric.bound_eigenvalues(param.metric_fields[0].min_eigenvalue,
-  // param.metric_fields[0].max_eigenvalue);
+  FEValues<dim> fe_values(*mapping,
+                          *fe,
+                          *quadrature,
+                          update_values | update_JxW_values);
+
+  const FEValuesExtractors::SymmetricTensor<2> metric_extractor(0);
+
+  const unsigned int                   n_q_points = quadrature->size();
+  std::vector<SymmetricTensor<2, dim>> metric_values(n_q_points);
+
+  double local_integral = 0.;
+  for (const auto &cell : dof_handler.active_cell_iterators() |
+                            IteratorFilters::LocallyOwnedCell())
+  {
+    fe_values.reinit(cell);
+
+    // Approach 1 : simply interpolate the determinant.
+    // This does not always yield an SPD interpolated metric for quadratic
+    // or higher order interpolation.
+    fe_values[metric_extractor].get_function_values(metrics_fe, metric_values);
+
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      if constexpr (running_in_debug_mode())
+      {
+        // Check that the interpolated metric is SPD
+        const auto        &m = metric_values[q];
+        std::ostringstream oss;
+        oss << m;
+        Assert(is_positive_definite(m),
+               ExcInterpolatedNotSPD(oss.str(), determinant(m)));
+      }
+      local_integral +=
+        std::pow(determinant(metric_values[q]), exponent) * fe_values.JxW(q);
+    }
+  }
+  return Utilities::MPI::sum(local_integral, mpi_communicator);
 }
 
 template <int dim>
-double MetricField<dim>::compute_integral_determinant() const
+void MetricField<dim>::multiply_each_metric_by_determinant_power(
+  const double exponent)
 {
-  QGauss<dim>     quadrature_formula(2);
-  FE_Q<dim>       fe(1);
-  DoFHandler<dim> dof_handler(triangulation);
-  dof_handler.distribute_dofs(fe);
-
-  FEValues<dim> fe_values(fe,
-                          quadrature_formula,
-                          update_quadrature_points | update_JxW_values);
-
-  double integral = 0.0;
-
-  for (const auto &cell : dof_handler.active_cell_iterators())
-  {
-    fe_values.reinit(cell);
-    const auto &q_points = fe_values.get_quadrature_points();
-    const auto &JxW      = fe_values.get_JxW_values();
-
-    for (unsigned int q = 0; q < q_points.size(); ++q)
-    {
-      const Point<dim> &qp       = q_points[q];
-      double            min_dist = std::numeric_limits<double>::max();
-      unsigned int      closest_vertex_index = 0;
-
-      for (unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell; ++v)
-      {
-        const Point<dim> &vertex = cell->vertex(v);
-        double            dist   = vertex.distance(qp);
-        if (dist < min_dist)
-        {
-          min_dist             = dist;
-          closest_vertex_index = cell->vertex_index(v);
-        }
-      }
-
-      const Tensor<2, dim> &tensor = metrics[closest_vertex_index];
-      const double          det    = determinant(tensor);
-      integral += det * JxW[q];
-    }
-  }
-
-  return integral;
+  // Multiply each metric
+  for (auto &m : metrics)
+    m *= std::pow(determinant(m), exponent);
+  // Synchronize the FE representation of the metrics
+  metrics_to_tensor_solution();
 }
 
 #if defined(FEZ_WITH_MMG)
 template <int dim>
-void MetricField<dim>::set_mmg_solution(MMG5_pMesh pointer_to_mesh,
-                                        MMG5_pSol  pointer_to_sol) const
+void MetricField<dim>::set_mmg_solution(
+  const std::vector<std::pair<Point<dim>, MetricTensor<dim>>> &gathered_metrics,
+  MMG5_pMesh                                                   pointer_to_mesh,
+  MMG5_pSol pointer_to_sol) const
 {
-  // Get the total number of mesh vertices.
-  const auto n_owned_vertices =
-    std::count(owned_vertices.begin(), owned_vertices.end(), true);
-  const auto n_total_vertices =
-    Utilities::MPI::sum(n_owned_vertices, mpi_communicator);
+  // This function is called during the calls to MMG, which are done
+  // on the root process. Make sure only the root process comes here.
+  AssertThrow(mpi_rank == 0, ExcInternalError());
 
-  // Gather the metrics to the root process
-  const auto all_metrics = gather_metrics();
+  // The vertex ordering in the gathered_metrics does not match the one of the
+  // MMG mesh when the mesh is partitioned. Convert the gathered_metrics to a
+  // map, to identify the MMG vertices to the Point<dim>.
+  // Also there does not seem to be a unique vertex tag in the MMG structures,
+  // which would be safer/faster than comparing coordinates...
+  // FIXME: find a way to avoid using another data structure
+  std::map<Point<dim>, MetricTensor<dim>, PointComparator<dim>>
+    gathered_metrics_map(gathered_metrics.begin(), gathered_metrics.end());
 
-  // Do the mesh adaptation work from the root process
-  // Maybe look into using ParMMG, but it seems to be no longer in development
-  if (mpi_rank == 0)
+  int ier;
+  if constexpr (dim == 2)
   {
-    int ier;
+    // Give info for the sol structure: size field applied on vertex entities,
+    // number of vertices = n_total_owned_vertices, tensor-valued
+    ier = MMG2D_Set_solSize(pointer_to_mesh,
+                            pointer_to_sol,
+                            MMG5_Vertex,
+                            n_total_owned_vertices,
+                            MMG5_Tensor);
+    AssertThrow(ier == 1, ExcMessage("Error in MMG2D_Set_solSize"));
 
-    if constexpr (dim == 2)
+    // Set size field at vertices
+    for (MMG5_int i = 1; i <= n_total_owned_vertices; ++i)
     {
-      /** a) give info for the sol structure: sol applied on vertex entities,
-          number of vertices=4, the sol is scalar*/
-      ier = MMG2D_Set_solSize(pointer_to_mesh,
-                              pointer_to_sol,
-                              MMG5_Vertex,
-                              n_total_vertices,
-                              MMG5_Tensor);
-      AssertThrow(ier == 1, ExcMessage("Error in MMG2D_Set_solSize"));
+      // If mesh vertices indexing matches MMG's ordering, simply do:
+      // const auto &m = gathered_metrics[i - 1].second;
 
-      /** b) give solutions values and positions */
-      for (MMG5_int i = 1; i <= n_total_vertices; ++i)
-      {
-        // Default indexing for mesh vertices seems to match with MMG's ordering
-        const auto &m = all_metrics[i - 1].second;
-        ier = MMG2D_Set_tensorSol(pointer_to_sol, m[0][0], m[0][1], m[1][1], i);
-        AssertThrow(ier == 1, ExcMessage("Error in MMG2D_Set_tensorSol"));
-      }
+      const MMG5_pPoint pPoint = &pointer_to_mesh->point[i];
+      Point<dim>        pt(pPoint->c[0], pPoint->c[1]);
+      Assert(gathered_metrics_map.count(pt) > 0,
+             ExcMessage("MMG mesh vertex could not be found in the "
+                        "gathered_metrics structure."));
+      const auto &m = gathered_metrics_map.at(pt);
+
+      ier = MMG2D_Set_tensorSol(pointer_to_sol, m[0][0], m[0][1], m[1][1], i);
+      AssertThrow(ier == 1, ExcMessage("Error in MMG2D_Set_tensorSol"));
     }
-    else
+
+    if constexpr (running_in_debug_mode())
     {
-      DEAL_II_NOT_IMPLEMENTED();
+      ier = MMG2D_Chk_meshData(pointer_to_mesh, pointer_to_sol);
+      AssertThrow(ier == 1, ExcMessage("Error in MMG2D_Chk_meshData"));
+    }
+  }
+  else
+  {
+    ier = MMG3D_Set_solSize(pointer_to_mesh,
+                            pointer_to_sol,
+                            MMG5_Vertex,
+                            n_total_owned_vertices,
+                            MMG5_Tensor);
+    AssertThrow(ier == 1, ExcMessage("Error in MMG3D_Set_solSize"));
+
+    for (MMG5_int i = 1; i <= n_total_owned_vertices; ++i)
+    {
+      // If mesh vertices indexing matches MMG's ordering, simply do:
+      // const auto &m = gathered_metrics[i - 1].second;
+
+      const MMG5_pPoint pPoint = &pointer_to_mesh->point[i];
+      Point<dim>        pt(pPoint->c[0], pPoint->c[1], pPoint->c[2]);
+      Assert(gathered_metrics_map.count(pt) > 0,
+             ExcMessage("MMG mesh vertex could not be found in the "
+                        "gathered_metrics structure."));
+      const auto &m = gathered_metrics_map.at(pt);
+
+      ier = MMG3D_Set_tensorSol(pointer_to_sol,
+                                m[0][0],
+                                m[0][1],
+                                m[0][2],
+                                m[1][1],
+                                m[1][2],
+                                m[2][2],
+                                i);
+      AssertThrow(ier == 1, ExcMessage("Error in MMG3D_Set_tensorSol"));
     }
 
-    /** 4) (not mandatory): check if the number of given entities match with
-     * mesh size */
-    ier = MMG2D_Chk_meshData(pointer_to_mesh, pointer_to_sol);
-    AssertThrow(ier == 1, ExcMessage("Error in MMG2D_Chk_meshData"));
-
-    std::cout << "Successfully wrote sol structure" << std::endl;
+    if constexpr (running_in_debug_mode())
+    {
+      ier = MMG3D_Chk_meshData(pointer_to_mesh, pointer_to_sol);
+      AssertThrow(ier == 1, ExcMessage("Error in MMG3D_Chk_meshData"));
+    }
   }
 }
 #endif

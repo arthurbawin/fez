@@ -108,6 +108,18 @@ namespace MeshTools
       const std::string current_sizefield_file =
         adapt_dir + "current_sizefield.sol";
 
+      // Get the min and max mesh size from all metric fields
+      double min_meshsize = param.metric_fields[0].min_meshsize;
+      double max_meshsize = param.metric_fields[0].max_meshsize;
+      for (unsigned int i = 1; i < param.metric_fields.size(); ++i)
+      {
+        // Take the highest min size and the lowest max size
+        min_meshsize =
+          std::max(min_meshsize, param.metric_fields[i].min_meshsize);
+        max_meshsize =
+          std::min(max_meshsize, param.metric_fields[i].max_meshsize);
+      }
+
       if constexpr (dim == 2)
       {
         MMG2D_Init_mesh(MMG5_ARG_start,
@@ -149,7 +161,7 @@ namespace MeshTools
         ier = MMG2D_Set_dparameter(mmgMesh,
                                    mmgSol,
                                    MMG2D_DPARAM_hmax,
-                                   param.metric_fields[0].max_meshsize);
+                                   max_meshsize);
         AssertThrow(
           ier == 1,
           ExcMessage(
@@ -159,7 +171,7 @@ namespace MeshTools
         ier = MMG2D_Set_dparameter(mmgMesh,
                                    mmgSol,
                                    MMG2D_DPARAM_hmin,
-                                   param.metric_fields[0].min_meshsize);
+                                   min_meshsize);
         AssertThrow(
           ier == 1,
           ExcMessage(
@@ -245,7 +257,7 @@ namespace MeshTools
         ier = MMG3D_Set_dparameter(mmgMesh,
                                    mmgSol,
                                    MMG3D_DPARAM_hmax,
-                                   param.metric_fields[0].max_meshsize);
+                                   max_meshsize);
         AssertThrow(
           ier == 1,
           ExcMessage(
@@ -255,7 +267,7 @@ namespace MeshTools
         ier = MMG3D_Set_dparameter(mmgMesh,
                                    mmgSol,
                                    MMG3D_DPARAM_hmin,
-                                   param.metric_fields[0].min_meshsize);
+                                   min_meshsize);
         AssertThrow(
           ier == 1,
           ExcMessage(

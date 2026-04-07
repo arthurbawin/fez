@@ -25,9 +25,11 @@
 #include <random>
 
 template <int dim>
-MetricField<dim>::MetricField(const ParameterReader<dim> &param,
+MetricField<dim>::MetricField(const unsigned int          index,
+                              const ParameterReader<dim> &param,
                               const Triangulation<dim>   &triangulation)
-  : param(param)
+  : index(index)
+  , param(param)
   , triangulation(triangulation)
   , dof_handler(triangulation)
   , mpi_communicator(dof_handler.get_mpi_communicator())
@@ -35,7 +37,7 @@ MetricField<dim>::MetricField(const ParameterReader<dim> &param,
   , solution_polynomial_degree(1) // FIXME: Set from the FE solution
   , n_vertices(triangulation.n_vertices())
   , metrics(n_vertices)
-  , deterministic_gradation(param.metric_fields[0].gradation.deterministic)
+  , deterministic_gradation(param.metric_fields[index].gradation.deterministic)
 {
   constexpr unsigned int mapping_degree = 1;
 
@@ -127,7 +129,7 @@ MetricField<dim>::MetricField(const ParameterReader<dim> &param,
 
   // Metrics are initialized to the identity
   // If enabled, initialize to the given callback
-  const auto metric_param = param.metric_fields[0];
+  const auto metric_param = param.metric_fields[index];
 
   if (metric_param.analytical_metric.enable)
   {
@@ -289,7 +291,7 @@ void MetricField<dim>::set_metrics_from_function(
 template <int dim>
 void MetricField<dim>::apply_gradation()
 {
-  if (param.metric_fields[0].gradation.enable)
+  if (param.metric_fields[index].gradation.enable)
     if (deterministic_gradation)
       apply_gradation_deterministic();
     else
@@ -326,13 +328,13 @@ void MetricField<dim>::apply_gradation_deterministic()
       for (auto &[pt, metric] : vec)
         all_metrics[pt] = &metric;
 
-    const auto &metric_param   = param.metric_fields[0];
+    const auto &metric_param   = param.metric_fields[index];
     const auto  spanning_space = metric_param.gradation.spanning_space;
     const auto  gradation      = metric_param.gradation.gradation;
     const auto  max_iterations = metric_param.gradation.max_iterations;
     const auto  tolerance      = metric_param.gradation.tolerance;
 
-    if (param.metric_fields[0].verbosity == Parameters::Verbosity::verbose)
+    if (param.metric_fields[index].verbosity == Parameters::Verbosity::verbose)
     {
       std::cout << std::endl;
       std::cout
@@ -366,7 +368,8 @@ void MetricField<dim>::apply_gradation_deterministic()
         };
       }
 
-      if (param.metric_fields[0].verbosity == Parameters::Verbosity::verbose)
+      if (param.metric_fields[index].verbosity ==
+          Parameters::Verbosity::verbose)
         std::cout << "Sweep " << std::setw(3) << iter
                   << " - Number of modified edges: " << n_corrected
                   << std::endl;
@@ -384,7 +387,7 @@ void MetricField<dim>::apply_gradation_deterministic()
 template <int dim>
 void MetricField<dim>::apply_gradation_non_deterministic()
 {
-  const auto &metric_param   = param.metric_fields[0];
+  const auto &metric_param   = param.metric_fields[index];
   const auto  spanning_space = metric_param.gradation.spanning_space;
   const auto  gradation      = metric_param.gradation.gradation;
   const auto  max_iterations = metric_param.gradation.max_iterations;
@@ -513,17 +516,6 @@ MetricField<dim>::compute_integral_determinant(const double exponent) const
   return Utilities::MPI::sum(local_integral, mpi_communicator);
 }
 
-template <int dim>
-void MetricField<dim>::multiply_each_metric_by_determinant_power(
-  const double exponent)
-{
-  // Multiply each metric
-  for (auto &m : metrics)
-    m *= std::pow(determinant(m), exponent);
-  // Synchronize the FE representation of the metrics
-  metrics_to_tensor_solution();
-}
-
 #if defined(FEZ_WITH_MMG)
 template <int dim>
 void MetricField<dim>::set_mmg_solution(
@@ -544,6 +536,12 @@ void MetricField<dim>::set_mmg_solution(
   std::map<Point<dim>, MetricTensor<dim>, PointComparator<dim>>
     gathered_metrics_map(gathered_metrics.begin(), gathered_metrics.end());
 
+  Assert(n_total_owned_vertices <=
+           static_cast<unsigned int>(std::numeric_limits<MMG5_int>::max()),
+         ExcInternalError());
+  const MMG5_int int_n_total_owned_vertices =
+    static_cast<MMG5_int>(n_total_owned_vertices);
+
   int ier;
   if constexpr (dim == 2)
   {
@@ -557,7 +555,7 @@ void MetricField<dim>::set_mmg_solution(
     AssertThrow(ier == 1, ExcMessage("Error in MMG2D_Set_solSize"));
 
     // Set size field at vertices
-    for (MMG5_int i = 1; i <= n_total_owned_vertices; ++i)
+    for (MMG5_int i = 1; i <= int_n_total_owned_vertices; ++i)
     {
       // If mesh vertices indexing matches MMG's ordering, simply do:
       // const auto &m = gathered_metrics[i - 1].second;
@@ -588,7 +586,7 @@ void MetricField<dim>::set_mmg_solution(
                             MMG5_Tensor);
     AssertThrow(ier == 1, ExcMessage("Error in MMG3D_Set_solSize"));
 
-    for (MMG5_int i = 1; i <= n_total_owned_vertices; ++i)
+    for (MMG5_int i = 1; i <= int_n_total_owned_vertices; ++i)
     {
       // If mesh vertices indexing matches MMG's ordering, simply do:
       // const auto &m = gathered_metrics[i - 1].second;

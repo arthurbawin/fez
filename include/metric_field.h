@@ -40,9 +40,12 @@ class MetricField
 
 public:
   /**
-   * Constructor.
+   * Constructor. The parameter @p index specifies that this metric field is
+   * created from the index-th metric field parameters in param.metric_fields.
+   * A reference to the whole set of parameters is still kept for convenience.
    */
-  MetricField(const ParameterReader<dim> &param,
+  MetricField(const unsigned int          index,
+              const ParameterReader<dim> &param,
               const Triangulation<dim>   &triangulation);
 
   /**
@@ -54,6 +57,11 @@ public:
    * Set the metrics of this field to the analytical field described by @p function.
    */
   void set_metrics_from_function(const TensorFunction<2, dim> &function);
+
+  /**
+   * Compute integral on mesh of metric determinant.
+   */
+  double compute_integral_determinant(const double exponent) const;
 
   /**
    * Compute the Riemannian metric minimizing an interpolation error estimate in
@@ -197,16 +205,6 @@ private:
   void compute_anisotropic_measure_Pn();
 
   /**
-   * Compute integral on mesh of metric determinant.
-   */
-  double compute_integral_determinant(const double exponent) const;
-
-  /**
-   * For each metric M in this field, perform M *= det(M) ^ @p exponent.
-   */
-  void multiply_each_metric_by_determinant_power(const double exponent);
-
-  /**
    * Transfer the MetricTensor<dim> stored in the metrics std::vector to their
    * components stored as dofs in local_metrics_fe, then update the ghosted
    * metrics.
@@ -220,6 +218,7 @@ private:
   void tensor_solution_to_metrics();
 
 private:
+  const unsigned int          index;
   const ParameterReader<dim> &param;
   const Triangulation<dim>   &triangulation;
   DoFHandler<dim>             dof_handler;

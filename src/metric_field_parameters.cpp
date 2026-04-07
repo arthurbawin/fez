@@ -44,7 +44,8 @@ namespace Parameters
       prm.enter_subsection("Analytical metric");
       {
         prm.declare_entry("enable", "false", Patterns::Bool(), "");
-        analytical_metric.callback->declare_parameters(prm);
+        analytical_metric.callback->declare_parameters(
+          prm, analytical_metric.callback->n_components);
       }
       prm.leave_subsection();
       prm.enter_subsection("Analytical scalar field");

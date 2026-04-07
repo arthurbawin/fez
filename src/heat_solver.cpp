@@ -679,9 +679,8 @@ void HeatSolver<dim>::adapt_mesh()
   if (param.bc_data.n_metric_fields > 0)
   {
     computing_timer.enter_subsection("Create metric field");
-    MetricField<dim> field(param, *triangulation);
+    MetricField<dim> field(0, param, *triangulation);
     computing_timer.leave_subsection();
-
 
     computing_timer.enter_subsection("Compute optimal metric");
     field.compute_optimal_multiscale_metric();

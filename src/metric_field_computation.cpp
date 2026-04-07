@@ -7,13 +7,13 @@ void MetricField<dim>::compute_optimal_multiscale_metric()
 {
   using MultiscaleMetric =
     typename Parameters::MetricField<dim>::MultiscaleMetric;
-  const auto target_norm = param.metric_fields[0].multiscale.target_norm;
+  const auto target_norm = param.metric_fields[index].multiscale.target_norm;
 
   // Compute the anisotropic measure Q
   compute_anisotropic_measure();
 
   // Add the global and local scaling coefficients
-  double       N = (double)param.metric_fields[0].multiscale.n_target_vertices;
+  double N = (double)param.metric_fields[index].multiscale.n_target_vertices;
   const double n = (double)dim; // space dimension
 
   // If this is a convergence study with anisotropic adaptation, overwrite the
@@ -22,7 +22,7 @@ void MetricField<dim>::compute_optimal_multiscale_metric()
     N = (double)param.mms_param.n_target_vertices;
 
   if (mpi_rank == 0 &&
-      param.metric_fields[0].verbosity == Parameters::Verbosity::verbose)
+      param.metric_fields[index].verbosity == Parameters::Verbosity::verbose)
   {
     const std::string norm = MultiscaleMetric::to_string(target_norm);
     std::cout << std::endl;
@@ -35,6 +35,9 @@ void MetricField<dim>::compute_optimal_multiscale_metric()
               << solution_polynomial_degree << std::endl;
   }
 
+  // Need to update the FE solution to compute integral of determinant
+  metrics_to_tensor_solution();
+
   double det_field;
   if (target_norm == MultiscaleMetric::TargetNorm::Linfty_norm)
   {
@@ -44,8 +47,8 @@ void MetricField<dim>::compute_optimal_multiscale_metric()
   else
   {
     const double s =
-      (double)param.metric_fields[0].multiscale.s; // W^{s,p} norm
-    const double p = (double)param.metric_fields[0].multiscale.p;
+      (double)param.metric_fields[index].multiscale.s; // W^{s,p} norm
+    const double p = (double)param.metric_fields[index].multiscale.p;
     const double m = (double)solution_polynomial_degree + 1;
 
     const double exponent_for_integral =
@@ -55,10 +58,11 @@ void MetricField<dim>::compute_optimal_multiscale_metric()
     det_field = compute_integral_determinant(exponent_for_integral);
 
     // Local scaling by (det Q) ^ -(tau / (2 * p))
-    multiply_each_metric_by_determinant_power(exponent_for_determinant);
+    for (auto &metric : metrics)
+      metric *= std::pow(determinant(metric), exponent_for_determinant);
   }
 
-  // Global scaling
+  // Global scaling (operator *= includes update of the FE solution and ghosts)
   (*this) *= std::pow(N / det_field, 2. / n);
 }
 
@@ -88,15 +92,15 @@ void MetricField<dim>::compute_anisotropic_measure_P1()
   const std::vector<Point<dim>>       &vertices = triangulation.get_vertices();
 
   // Get the hessians at all mesh vertices
-  param.metric_fields[0].analytical_field->hessian_list(vertices, hessians);
+  param.metric_fields[index].analytical_field->hessian_list(vertices, hessians);
 
   // TODO: this is "embarrassingly parallel" and can be multithreaded
   for (unsigned int v = 0; v < n_vertices; ++v)
     if (owned_vertices[v])
       metrics[v] = MetricTensorTools::absolute_value(
         hessians[v],
-        param.metric_fields[0].min_eigenvalue,
-        param.metric_fields[0].max_eigenvalue);
+        param.metric_fields[index].min_eigenvalue,
+        param.metric_fields[index].max_eigenvalue);
 }
 
 template void MetricField<2>::compute_anisotropic_measure_P1();

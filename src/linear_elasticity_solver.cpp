@@ -116,7 +116,7 @@ template <int dim>
 void LinearElasticitySolver<dim>::run()
 {
   reset();
-  read_mesh(triangulation, param);
+  MeshTools::read_mesh(triangulation, param);
   setup_dofs();
   create_zero_constraints();
   create_nonzero_constraints();

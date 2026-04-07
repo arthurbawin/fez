@@ -28,10 +28,77 @@ struct PointComparator
   {
     for (unsigned int d = 0; d < dim; ++d)
     {
-      if (std::abs(a[d] - b[d]) > 1e-14)
-        return a[d] < b[d];
+      if (a[d] < b[d])
+        return true;
+      if (a[d] > b[d])
+        return false;
     }
     return false;
+  }
+};
+
+template <int dim>
+struct PointEdgeComparator
+{
+  bool operator()(const std::pair<Point<dim>, Point<dim>> &a,
+                  const std::pair<Point<dim>, Point<dim>> &b) const
+  {
+    PointComparator<dim> comp;
+    if (comp(a.first, b.first))
+      return true;
+    if (comp(b.first, a.first))
+      return false;
+    return comp(a.second, b.second);
+  }
+};
+
+template <int dim>
+struct PointEdgeCoordComparator
+{
+  const std::vector<Point<dim>> &vertices;
+
+  PointEdgeCoordComparator(const std::vector<Point<dim>> &vertices)
+    : vertices(vertices)
+  {}
+
+  bool operator()(
+    const std::pair<types::global_vertex_index, types::global_vertex_index> &a,
+    const std::pair<types::global_vertex_index, types::global_vertex_index> &b)
+    const
+  {
+    const PointComparator<dim> comp;
+
+    const Point<dim> &a0 = vertices[a.first];
+    const Point<dim> &a1 = vertices[a.second];
+    const Point<dim> &b0 = vertices[b.first];
+    const Point<dim> &b1 = vertices[b.second];
+
+    if (comp(a0, b0))
+      return true;
+    if (comp(b0, a0))
+      return false;
+
+    return comp(a1, b1);
+  }
+};
+
+template <int dim>
+struct PointEdgeEquality
+{
+  bool operator()(const std::pair<Point<dim>, Point<dim>> &a,
+                  const std::pair<Point<dim>, Point<dim>> &b) const
+  {
+    PointEdgeComparator<dim> comp;
+    return !comp(a, b) && !comp(b, a);
+  }
+};
+
+template <int dim, typename PairType>
+struct PointMetricComparator
+{
+  bool operator()(const PairType &a, const PairType &b) const
+  {
+    return PointComparator<dim>()(a.first, b.first);
   }
 };
 
@@ -126,6 +193,15 @@ read_number_of_boundary_conditions(const std::string &parameter_file,
   }
   prm.leave_subsection();
 
+  prm.enter_subsection("Metric tensor fields");
+  {
+    prm.declare_entry("number",
+                      "0",
+                      Patterns::Integer(),
+                      "Number of metric tensor fields");
+  }
+  prm.leave_subsection();
+
   // Read only these structures from the file
   prm.parse_input(parameter_file, /*last_line=*/"", /*skip_undefined=*/true);
 
@@ -144,6 +220,10 @@ read_number_of_boundary_conditions(const std::string &parameter_file,
 
   prm.enter_subsection("Heat boundary conditions");
   bc_data.n_heat_bc = prm.get_integer("number");
+  prm.leave_subsection();
+
+  prm.enter_subsection("Metric tensor fields");
+  bc_data.n_metric_fields = prm.get_integer("number");
   prm.leave_subsection();
 }
 

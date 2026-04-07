@@ -5,16 +5,38 @@
 template <int dim>
 void MetricField<dim>::compute_optimal_multiscale_metric()
 {
+  using MultiscaleMetric =
+    typename Parameters::MetricField<dim>::MultiscaleMetric;
+  const auto target_norm = param.metric_fields[0].multiscale.target_norm;
+
   // Compute the anisotropic measure Q
   compute_anisotropic_measure();
 
   // Add the global and local scaling coefficients
-  const double N = (double)param.metric_fields[0].multiscale.n_target_vertices;
+  double       N = (double)param.metric_fields[0].multiscale.n_target_vertices;
   const double n = (double)dim; // space dimension
 
+  // If this is a convergence study with anisotropic adaptation, overwrite the
+  // target number of vertices by the one from the MMS parameters.
+  if (param.mms_param.enable)
+    N = (double)param.mms_param.n_target_vertices;
+
+  if (mpi_rank == 0 &&
+      param.metric_fields[0].verbosity == Parameters::Verbosity::verbose)
+  {
+    const std::string norm = MultiscaleMetric::to_string(target_norm);
+    std::cout << std::endl;
+    std::cout << "Computing optimal Riemannian metric..." << std::endl;
+    std::cout << "Target number of mesh vertices                   : " << N
+              << std::endl;
+    std::cout << "Target norm for interpolation error minimization : " << norm
+              << std::endl;
+    std::cout << "Polynomial degree of the solution                : "
+              << solution_polynomial_degree << std::endl;
+  }
+
   double det_field;
-  if (param.metric_fields[0].multiscale.target_norm ==
-      Parameters::MetricField<dim>::MultiscaleMetric::TargetNorm::Linfty_norm)
+  if (target_norm == MultiscaleMetric::TargetNorm::Linfty_norm)
   {
     // Special treatment for the Linfty norm, where the exponents are 1/2 and 0
     det_field = compute_integral_determinant(0.5);

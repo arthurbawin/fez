@@ -81,6 +81,7 @@ namespace Parameters
   {
     prm.enter_subsection("Mesh");
     {
+      DECLARE_VERBOSITY_PARAM(prm, "verbose")
       prm.declare_entry("mesh file",
                         "",
                         Patterns::FileName(),
@@ -100,7 +101,47 @@ namespace Parameters
         "1",
         Patterns::Integer(),
         "Level of uniform refinement if using deal.II's meshing routines");
-      DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.enter_subsection("Adaptation");
+      {
+        DECLARE_VERBOSITY_PARAM(prm, "verbose")
+        prm.declare_entry("enable",
+                          "false",
+                          Patterns::Bool(),
+                          "Enable mesh adaptation");
+        prm.declare_entry(
+          "adaptation directory",
+          "adaptation",
+          Patterns::Anything(),
+          "Directory into which mesh adaptation-related files are written");
+        prm.declare_entry("adapted meshes extension",
+                          "adapted",
+                          Patterns::Anything(),
+                          "Root extension for the adapted meshes");
+        prm.declare_entry("strategy",
+                          "riemannian metric",
+                          Patterns::Selection("riemannian metric"),
+                          "Mesh adaptation strategy");
+        prm.enter_subsection("Metric");
+        {
+          prm.declare_entry("n fixed point",
+                            "1",
+                            Patterns::Integer(1),
+                            "Number of fixed point iterations to converge the "
+                            "mesh-solution pair");
+          prm.declare_entry(
+            "transfer solution",
+            "true",
+            Patterns::Bool(),
+            "Enable solution transfer to the adapted mesh (steady-state only, "
+            "always done for unsteady simulations)");
+          prm.declare_entry("mmg verbosity level",
+                            "1",
+                            Patterns::Integer(-1, 10),
+                            "Verbosity level of the MMG library");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -109,12 +150,36 @@ namespace Parameters
   {
     prm.enter_subsection("Mesh");
     {
+      READ_VERBOSITY_PARAM(prm, verbosity)
       filename              = prm.get("mesh file");
       use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
       deal_ii_preset_mesh   = prm.get("dealii preset mesh");
       deal_ii_mesh_param    = prm.get("dealii mesh parameters");
       refinement_level      = prm.get_integer("refinement level");
-      READ_VERBOSITY_PARAM(prm, verbosity)
+      prm.enter_subsection("Adaptation");
+      {
+        READ_VERBOSITY_PARAM(prm, adaptation.verbosity)
+        adaptation.enable                 = prm.get_bool("enable");
+        adaptation.adapt_dir              = prm.get("adaptation directory");
+        adaptation.adapted_mesh_extension = prm.get("adapted meshes extension");
+        const std::string parsed_strategy = prm.get("strategy");
+        if (parsed_strategy == "riemannian metric")
+          adaptation.strategy = Adaptation::Strategy::RiemannianMetric;
+        else
+          throw std::runtime_error("Unexpected mesh adaptation strategy: " +
+                                   parsed_strategy);
+
+        prm.enter_subsection("Metric");
+        {
+          adaptation.metric.n_fixed_point = prm.get_integer("n fixed point");
+          adaptation.metric.transfer_solution =
+            prm.get_bool("transfer solution");
+          adaptation.metric.mmg_verbosity =
+            prm.get_integer("mmg verbosity level");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -1165,6 +1230,13 @@ namespace Parameters
           Patterns::List(
             *Patterns::Tools::Convert<VectorTools::NormType>::to_pattern()),
           "A comma-separated list of norms (e.g., L2_norm, H1_norm)");
+        prm.declare_entry(
+          "initial target number of vertices",
+          "1000",
+          Patterns::Integer(),
+          "For a convergence study with metric-based anisotropic mesh "
+          "adaptation enabled, the initial target number of vertices in the "
+          "adapted mesh. This value is then doubled at each convergence step.");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1233,6 +1305,8 @@ namespace Parameters
         for (const auto &s : parsed_norms)
           norms_to_compute.push_back(
             Patterns::Tools::Convert<VectorTools::NormType>::to_value(s));
+        n_target_vertices =
+          prm.get_integer("initial target number of vertices");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");

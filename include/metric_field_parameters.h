@@ -48,6 +48,9 @@ namespace Parameters
      */
     struct MultiscaleMetric
     {
+      /**
+       * The Sobolev norm for which the interpolation error is minimized.
+       */
       enum TargetNorm
       {
         L1_norm,
@@ -57,10 +60,30 @@ namespace Parameters
         H1_seminorm
       } target_norm;
 
-      // Target s of the W^{s,p} norm in which interpolation error is minimized
-      unsigned int s;
+      /**
+       * Return a string version of the target norm.
+       */
+      static std::string to_string(const TargetNorm norm)
+      {
+        switch (norm)
+        {
+          case TargetNorm::L1_norm:
+            return "L1";
+          case TargetNorm::L2_norm:
+            return "L2";
+          case TargetNorm::L4_norm:
+            return "L4";
+          case TargetNorm::Linfty_norm:
+            return "Linfty";
+          case TargetNorm::H1_seminorm:
+            return "H1 seminorm";
+        }
+        DEAL_II_ASSERT_UNREACHABLE();
+        return "";
+      }
 
-      // Target p of the W^{s,p} norm in which interpolation error is minimized
+      // Target s and p of the target W^{s,p} norm above (e.g., L^2 = W^{0,2}).
+      unsigned int s;
       unsigned int p;
 
       // Target number of mesh vertices after adaptation (without gradation)

@@ -332,11 +332,14 @@ void MetricField<dim>::apply_gradation_deterministic()
     const auto  max_iterations = metric_param.gradation.max_iterations;
     const auto  tolerance      = metric_param.gradation.tolerance;
 
-    std::cout << "Applying metric gradation with :" << std::endl;
-    std::cout << "deterministic  = " << deterministic_gradation << std::endl;
-    std::cout << "gradation      = " << gradation << std::endl;
-    std::cout << "max_iterations = " << max_iterations << std::endl;
-    std::cout << "tolerance      = " << tolerance << std::endl;
+    if (param.metric_fields[0].verbosity == Parameters::Verbosity::verbose)
+    {
+      std::cout << std::endl;
+      std::cout
+        << "Applying partition-independent metric gradation on root process..."
+        << std::endl;
+      std::cout << "Target gradation value : " << gradation << std::endl;
+    }
 
     unsigned int iter = 0, n_corrected = 0;
     bool         correction = true;
@@ -362,8 +365,11 @@ void MetricField<dim>::apply_gradation_deterministic()
           correction = true;
         };
       }
-      std::cout << "Metric gradation: Sweep " << iter
-                << " - Number of modified edges: " << n_corrected << std::endl;
+
+      if (param.metric_fields[0].verbosity == Parameters::Verbosity::verbose)
+        std::cout << "Sweep " << std::setw(3) << iter
+                  << " - Number of modified edges: " << n_corrected
+                  << std::endl;
     }
   }
 

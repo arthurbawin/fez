@@ -36,9 +36,11 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   , error_quadrature(QWitherdenVincentSimplex<dim>((dim == 2) ? 6 : 5))
   , face_quadrature(QGaussSimplex<dim - 1>(4))
   , error_face_quadrature(QWitherdenVincentSimplex<dim - 1>((dim == 2) ? 6 : 5))
-  , triangulation(mpi_communicator)
+  , triangulation(
+      std::make_unique<parallel::fullydistributed::Triangulation<dim>>(
+        mpi_communicator))
   , mapping(new MappingFE<dim>(FE_SimplexP<dim>(1)))
-  , dof_handler(triangulation)
+  , dof_handler(*triangulation)
   , time_handler(param.time_integration)
 {
   temperature_extractor = FEValuesExtractors::Scalar(0);
@@ -83,17 +85,16 @@ void HeatSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
 template <int dim>
 void HeatSolver<dim>::reset()
 {
-  param.mms_param.current_step = mms_param.current_step;
-  param.mms_param.mesh_suffix  = mms_param.mesh_suffix;
-  param.mesh.filename          = mesh_param.filename;
-  param.time_integration       = time_param;
+  param.mms_param        = mms_param;
+  param.mesh             = mesh_param;
+  param.time_integration = time_param;
 
   // Clear list of files in pvd
   if (postproc_handler)
     postproc_handler->clear();
 
   // Mesh
-  triangulation.clear();
+  triangulation->clear();
 
   // Direct solver
   direct_solver_reuse =
@@ -123,8 +124,8 @@ void HeatSolver<dim>::initialize()
   if (!postproc_handler)
   {
     const auto description = get_variables_description();
-    postproc_handler       = std::make_shared<PostProcessingHandler<dim>>(
-      param, triangulation, dof_handler, description);
+    postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
+      param, *triangulation, dof_handler, description);
   }
   time_handler.validate_parameters(*ordering);
 }
@@ -134,7 +135,7 @@ void HeatSolver<dim>::run()
 {
   reset();
   initialize();
-  MeshTools::read_mesh(triangulation, param);
+  MeshTools::read_mesh(*triangulation, param);
   setup_dofs();
   create_zero_constraints();
   create_nonzero_constraints();
@@ -230,7 +231,7 @@ void HeatSolver<dim>::setup_dofs()
     for (auto &[norm, handler] : error_handlers)
     {
       handler->add_reference_data("n_elm",
-                                  triangulation.n_global_active_cells());
+                                  triangulation->n_global_active_cells());
       handler->add_reference_data("n_dof", dof_handler.n_dofs());
       handler->add_time_step(time_handler.initial_dt);
     }
@@ -330,6 +331,8 @@ void HeatSolver<dim>::set_initial_conditions()
 template <int dim>
 void HeatSolver<dim>::set_exact_solution()
 {
+  TimerOutput::Scope t(computing_timer, "Set exact solution");
+
   VectorTools::interpolate(*mapping,
                            dof_handler,
                            *exact_solution,
@@ -604,7 +607,7 @@ void HeatSolver<dim>::compute_and_add_errors(
   for (auto norm : param.mms_param.norms_to_compute)
   {
     const double err =
-      compute_error_norm<dim, LA::ParVectorType>(triangulation,
+      compute_error_norm<dim, LA::ParVectorType>(*triangulation,
                                                  mapping,
                                                  dof_handler,
                                                  present_solution,
@@ -622,14 +625,14 @@ void HeatSolver<dim>::compute_errors()
 {
   TimerOutput::Scope t(computing_timer, "Compute errors");
 
-  const unsigned int n_active_cells = triangulation.n_active_cells();
+  const unsigned int n_active_cells = triangulation->n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);
 
   if (time_handler.is_steady())
     for (auto norm : param.mms_param.norms_to_compute)
     {
       error_handlers.at(norm)->add_reference_data(
-        "n_elm", triangulation.n_global_active_cells());
+        "n_elm", triangulation->n_global_active_cells());
       error_handlers.at(norm)->add_reference_data("n_dof",
                                                   dof_handler.n_dofs());
     }
@@ -648,7 +651,7 @@ void HeatSolver<dim>::compute_recovery()
   TimerOutput::Scope t(computing_timer, "Compute recovery");
 
   ErrorEstimation::PatchHandler patch_handler(
-    triangulation,
+    *triangulation,
     *mapping,
     dof_handler,
     param.finite_elements.temperature_degree + 1,
@@ -664,7 +667,7 @@ void HeatSolver<dim>::postprocess_solution()
 {
   output_results();
 
-  if (param.mms_param.enable)
+  if (param.mms_param.enable && should_compute_errors())
     compute_errors();
 
   // compute_recovery();
@@ -675,13 +678,26 @@ void HeatSolver<dim>::adapt_mesh()
 {
   if (param.bc_data.n_metric_fields > 0)
   {
-    MetricField<dim> field(param, triangulation);
+    computing_timer.enter_subsection("Create metric field");
+    MetricField<dim> field(param, *triangulation);
+    computing_timer.leave_subsection();
+
+
+    computing_timer.enter_subsection("Compute optimal metric");
     field.compute_optimal_multiscale_metric();
+    computing_timer.leave_subsection();
+
     field.write_pvtu("metrics_before_gradation");
+
+    computing_timer.enter_subsection("Apply metric gradation");
     field.apply_gradation();
+    computing_timer.leave_subsection();
+
     field.write_pvtu("metrics_after_gradation");
 
-    MeshTools::adapt_with_mmg(param, triangulation, field);
+    computing_timer.enter_subsection("Adapt mesh with MMG");
+    MeshTools::adapt_with_mmg(param, *triangulation, field);
+    computing_timer.leave_subsection();
   }
 }
 

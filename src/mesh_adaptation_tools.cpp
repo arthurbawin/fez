@@ -21,7 +21,6 @@ namespace MeshTools
                       const MetricField<dim>     &metric_field)
   {
 #if defined(FEZ_WITH_MMG)
-
     // MMG is serial, so adaptation is performed from the root process
     // Maybe look into using ParMMG, but it seems to be no longer in development
 
@@ -33,31 +32,39 @@ namespace MeshTools
 
     if (mpi_rank == 0)
     {
-      const std::string adapt_dir = param.output.output_dir + "adaptation/";
+      std::string       current_meshfile = param.mesh.filename;
+      const std::string adapt_dir =
+        param.output.output_dir + param.mesh.adaptation.adapt_dir;
+      const std::string filename_out =
+        adapt_dir + param.mesh.adaptation.adapted_mesh_extension + ".msh";
+
+      if (param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose)
+      {
+        std::cout << "Adapting the mesh with Gmsh and MMG..." << std::endl;
+        std::cout << "Current mesh file                 : " << current_meshfile
+                  << std::endl;
+        std::cout << "Target mesh file after adaptation : " << filename_out
+                  << std::endl;
+      }
 
 #  if defined(DEAL_II_GMSH_WITH_API)
-      std::string current_meshfile = param.mesh.filename;
 
+      /**
+       * There seems to be a bug when using deal.II's write_msh with the Gmsh
+       * API, when the deal.II mesh is created wiht colorize=true and has
+       * physical entities. Until it's figured out, start from a .msh mesh
+       * when enabling adaptivity.
+       */
       bool use_deal_ii_mesh = param.mesh.deal_ii_preset_mesh != "none";
-
-      if (use_deal_ii_mesh)
-      {
-        /**
-         * There seems to be a bug when using deal.II's write_msh with the Gmsh
-         * API, when the deal.II mesh is created wiht colorize=true and has
-         * physical entities. Until it's figured out, start from a .msh mesh
-         * when enabling adaptivity.
-         */
-        AssertThrow(param.debug.write_dealii_mesh_as_msh,
-                    ExcMessage("Temporary: Need to write the serial mesh to "
-                               ".msh format for adaptation."));
-
-        current_meshfile = param.output.output_dir + "mesh_from_dealii.msh";
-      }
+      AssertThrow(!use_deal_ii_mesh,
+                  ExcMessage(
+                    "Temporary: anisotropic mesh adaptation is only available "
+                    "when starting from a Gmsh .msh mesh file."));
 
       // Write the current mesh to msh2 format using the Gmsh API
       // (MMG only takes .msh format 2.2 as input)
       gmsh::initialize();
+      gmsh::option::setNumber("General.Verbosity", 2);
       gmsh::open(current_meshfile);
 
       // MMG does not preserve the names of the physical entities after
@@ -96,9 +103,6 @@ namespace MeshTools
       MMG5_pSol  mmgSol  = NULL;
       int        ier;
 
-      std::cout << "dealii Mesh has " << triangulation.n_vertices()
-                << " vertices " << std::endl;
-
       const std::string filename                = adapt_dir + "to.msh2";
       const std::string current_mesh_medit_file = adapt_dir + "current.mesh";
       const std::string current_sizefield_file =
@@ -116,11 +120,18 @@ namespace MeshTools
         Assert(mmgMesh->np == 0, ExcInternalError());
         Assert(mmgSol->np == 0, ExcInternalError());
 
+        /* Set MMG Verbosity before everything else */
+        ier = MMG2D_Set_iparameter(mmgMesh,
+                                   mmgSol,
+                                   MMG2D_IPARAM_verbose,
+                                   param.mesh.adaptation.metric.mmg_verbosity);
+
         // Load the 2D mesh
         ier = MMG2D_loadMshMesh(mmgMesh, mmgSol, filename.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG2D_loadMshMesh"));
 
-        Assert(mmgMesh->np == metric_field.get_n_total_owned_vertices(),
+        Assert(static_cast<unsigned int>(mmgMesh->np) ==
+                 metric_field.get_n_total_owned_vertices(),
                ExcInternalError());
 
         // Write the tensor-valued MMG size field from the metric field
@@ -170,6 +181,28 @@ namespace MeshTools
             false, ExcMessage("BAD ENDING OF MMG2DLIB: UNABLE TO SAVE MESH\n"));
         else if (ier == MMG5_LOWFAILURE)
           AssertThrow(false, ExcMessage("BAD ENDING OF MMG2DLIB\n"));
+
+        if (param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose)
+        {
+          std::cout << "Successfully adapted the mesh" << std::endl;
+          std::cout << "Number of mesh vertices after adaptation : "
+                    << mmgMesh->np << std::endl;
+          std::cout << std::endl;
+        }
+
+        // Write the adapted mesh and size field
+        ier = MMG2D_saveMshMesh(mmgMesh, mmgSol, filename_out.c_str());
+        AssertThrow(ier == 1, ExcMessage("Error in MMG2D_saveMshMesh"));
+        ier = MMG2D_saveSol(mmgMesh, mmgSol, filename_out.c_str());
+        AssertThrow(ier == 1, ExcMessage("Error in MMG2D_saveSol"));
+
+        // Free the MMG structures
+        MMG2D_Free_all(MMG5_ARG_start,
+                       MMG5_ARG_ppMesh,
+                       &mmgMesh,
+                       MMG5_ARG_ppMet,
+                       &mmgSol,
+                       MMG5_ARG_end);
       }
       else
       {
@@ -183,11 +216,18 @@ namespace MeshTools
         Assert(mmgMesh->np == 0, ExcInternalError());
         Assert(mmgSol->np == 0, ExcInternalError());
 
+        /* Set MMG Verbosity before everything else */
+        ier = MMG3D_Set_iparameter(mmgMesh,
+                                   mmgSol,
+                                   MMG3D_IPARAM_verbose,
+                                   param.mesh.adaptation.metric.mmg_verbosity);
+
         // Load the 3D mesh
         ier = MMG3D_loadMshMesh(mmgMesh, mmgSol, filename.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG3D_loadMshMesh"));
 
-        Assert(mmgMesh->np == metric_field.get_n_total_owned_vertices(),
+        Assert(static_cast<unsigned int>(mmgMesh->np) ==
+                 metric_field.get_n_total_owned_vertices(),
                ExcInternalError());
 
         // Write the tensor-valued MMG size field from the metric field
@@ -237,28 +277,16 @@ namespace MeshTools
             false, ExcMessage("BAD ENDING OF MMG3DLIB: UNABLE TO SAVE MESH\n"));
         else if (ier == MMG5_LOWFAILURE)
           AssertThrow(false, ExcMessage("BAD ENDING OF MMG3DLIB\n"));
-      }
 
-      // Write the adapted mesh
-      std::string filename_out = adapt_dir + "adapted.msh";
+        if (param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose)
+        {
+          std::cout << "Successfully adapted the mesh" << filename_out
+                    << std::endl;
+          std::cout << "Number of mesh vertices after adaptation : "
+                    << mmgMesh->np << std::endl;
+        }
 
-      if constexpr (dim == 2)
-      {
-        ier = MMG2D_saveMshMesh(mmgMesh, mmgSol, filename_out.c_str());
-        AssertThrow(ier == 1, ExcMessage("Error in MMG2D_saveMshMesh"));
-        ier = MMG2D_saveSol(mmgMesh, mmgSol, filename_out.c_str());
-        AssertThrow(ier == 1, ExcMessage("Error in MMG2D_saveSol"));
-
-        // Free the MMG structures
-        MMG2D_Free_all(MMG5_ARG_start,
-                       MMG5_ARG_ppMesh,
-                       &mmgMesh,
-                       MMG5_ARG_ppMet,
-                       &mmgSol,
-                       MMG5_ARG_end);
-      }
-      else
-      {
+        // Write the adapted mesh and size field
         ier = MMG3D_saveMshMesh(mmgMesh, mmgSol, filename_out.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG3D_saveMshMesh"));
         ier = MMG3D_saveSol(mmgMesh, mmgSol, filename_out.c_str());
@@ -277,6 +305,7 @@ namespace MeshTools
       // MMG does not save the names of the physical entities, so re-assign them
       // here based on the saved my_description.
       gmsh::initialize();
+      gmsh::option::setNumber("General.Verbosity", 2); // Errors and warnings
       gmsh::open(filename_out);
 
       gmsh::vectorpair physical_groups;
@@ -321,6 +350,14 @@ namespace MeshTools
       gmsh::finalize();
 #  endif
     }
+
+    /**
+     * Important: wait for the mesh to be adapted and written to disk. Otherwise
+     * the other ranks will read a corrupted mesh file, leading to all sorts of
+     * problems.
+     */
+    MPI_Barrier(triangulation.get_mpi_communicator());
+
 #else
     AssertThrow(false,
                 ExcMessage(

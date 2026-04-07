@@ -40,18 +40,16 @@ namespace MeshTools
   {
     MPI_Comm comm = triangulation.get_mpi_communicator();
 
-    // Partition serial triangulation:
+    // Partition serial triangulation
     GridTools::partition_triangulation(Utilities::MPI::n_mpi_processes(comm),
                                        serial_triangulation);
 
-    // Create building blocks:
+    // Create building blocks
     const TriangulationDescription::Description<dim> description =
       TriangulationDescription::Utilities::
         create_description_from_triangulation(serial_triangulation, comm);
 
-    // Create a fully distributed triangulation:
-    // copy_triangulation does not seems to work, so maybe give reference to the
-    // mesh
+    // Create a fully distributed triangulation
     triangulation.create_triangulation(description);
   }
 

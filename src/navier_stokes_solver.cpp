@@ -51,6 +51,22 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   // Direct solver
   direct_solver_reuse =
     std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+
+  // Make sure that required boundary conditions were specified
+  AssertThrow(param.bc_data.n_fluid_bc > 0,
+              ExcMessage(
+                "You are running a simulation with a Navier-Stokes solver, but "
+                "no fluid boundary condition was specified.\n"
+                "Make sure that a \"subsection Fluid boundary conditions\" "
+                "is present in the parameter file."));
+  if constexpr (with_moving_mesh)
+    AssertThrow(
+      param.bc_data.n_pseudosolid_bc > 0,
+      ExcMessage(
+        "You are running a simulation with a Navier-Stokes solver with moving "
+        "mesh, but no mesh (pseudosolid) boundary condition was specified.\n"
+        "Make sure that a \"subsection Pseudosolid boundary conditions\" "
+        "is present in the parameter file."));
 }
 
 

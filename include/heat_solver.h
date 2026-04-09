@@ -41,69 +41,154 @@ public:
 public:
   virtual void run() override;
 
+  /**
+   *
+   */
   void reset();
 
+  /**
+   *
+   */
   void initialize();
 
+  /**
+   *
+   */
   void finalize();
 
+  /**
+   *
+   */
   void set_time();
 
+  /**
+   *
+   */
   void setup_dofs();
 
+  /**
+   *
+   */
   void create_base_constraints(const bool                 homogeneous,
                                AffineConstraints<double> &constraints);
 
+  /**
+   *
+   */
   void create_zero_constraints();
+
+  /**
+   *
+   */
   void create_nonzero_constraints();
 
+  /**
+   *
+   */
   virtual AffineConstraints<double> &get_nonzero_constraints() override
   {
     return nonzero_constraints;
   }
 
+  /**
+   *
+   */
   void update_boundary_conditions();
 
+  /**
+   *
+   */
   virtual void create_sparsity_pattern();
 
+  /**
+   *
+   */
   void set_initial_conditions();
+
+  /**
+   *
+   */
   void set_exact_solution();
 
+  /**
+   *
+   */
   virtual void solve_linear_system() override;
 
+  /**
+   *
+   */
   virtual void assemble_matrix() override;
 
+  /**
+   *
+   */
   void assemble_local_matrix(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchDataHeat<dim>                                 &scratchData,
     CopyData                                             &copy_data);
 
+  /**
+   *
+   */
   void copy_local_to_global_matrix(const CopyData &copy_data);
 
+  /**
+   *
+   */
   void compare_analytical_matrix_with_fd();
 
+  /**
+   *
+   */
   virtual void assemble_rhs() override;
 
+  /**
+   *
+   */
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
                      ScratchDataHeat<dim> &scratchData,
                      CopyData             &copy_data);
 
+  /**
+   *
+   */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
+  /**
+   *
+   */
   void postprocess_solution();
 
+  /**
+   *
+   */
   void compute_and_add_errors(const Mapping<dim>  &mapping,
                               const Function<dim> &exact_solution,
                               Vector<double>      &cellwise_errors,
                               const ComponentSelectFunction<dim> &comp_function,
                               const std::string                  &field_name);
 
+  /**
+   *
+   */
   void compute_errors();
 
+  /**
+   *
+   */
   virtual void output_results();
 
+  /**
+   *
+   */
   void compute_recovery();
+
+  /**
+   *
+   */
+  virtual void adapt_mesh() override;
 
 private:
   /**
@@ -129,10 +214,10 @@ protected:
   QSimplex<dim - 1> face_quadrature;
   QSimplex<dim - 1> error_face_quadrature;
 
-  parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::shared_ptr<Mapping<dim>>                  mapping;
-  DoFHandler<dim>                                dof_handler;
-  TimeHandler                                    time_handler;
+  std::unique_ptr<parallel::fullydistributed::Triangulation<dim>> triangulation;
+  std::shared_ptr<Mapping<dim>>                                   mapping;
+  DoFHandler<dim>                                                 dof_handler;
+  TimeHandler                                                     time_handler;
 
   std::vector<unsigned char> dofs_to_component;
 
@@ -154,7 +239,7 @@ protected:
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  std::shared_ptr<PostProcessingHandler<dim>> postproc_handler;
+  std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
 
 protected:
   /**

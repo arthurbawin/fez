@@ -114,6 +114,19 @@ public:
   }
 
   /**
+   *
+   */
+  virtual void adapt_mesh();
+
+  /**
+   * Return true if the solver should evaluate error norms. This is typically
+   * always true, except when adapting the mesh with a Riemannian metric, in
+   * which case a few fixed-point iterations are performed to converge to a
+   * mesh-solution pair, and the errors are computed only on the last solution.
+   */
+  bool should_compute_errors() const;
+
+  /**
    * Return the various vectors.
    */
   VectorType &get_present_solution() { return present_solution; }
@@ -220,6 +233,12 @@ template <typename VectorType>
 template <int dim>
 void GenericSolver<VectorType>::run_convergence_loop()
 {
+  const std::string initial_mesh_file = mesh_param.filename;
+  const bool        metric_based_adaptation =
+    mesh_param.adaptation.enable &&
+    mesh_param.adaptation.strategy ==
+      Parameters::Mesh::Adaptation::Strategy::RiemannianMetric;
+
   for (unsigned int i_conv = 0; i_conv < mms_param.n_convergence; ++i_conv)
   {
     const bool is_last_step = i_conv == mms_param.n_convergence - 1;
@@ -261,7 +280,21 @@ void GenericSolver<VectorType>::run_convergence_loop()
           mms_param.mesh_suffix = mms_param.run_only_step;
       }
 
-      if (!mms_param.use_deal_ii_cube_mesh)
+      if (metric_based_adaptation && i_conv > 0)
+      {
+        // Double the target number of mesh vertices
+        // FIXME: when GenericSolver is templatized over dim and stores the
+        // full parameter structure, double the target number of vertices in
+        // each metric field instead.
+        mms_param.n_target_vertices *= 2;
+
+        // Restart from the initial mesh. Alternatively we could also restart
+        // from the final adapted mesh from the previous convergence step.
+        mesh_param.filename = initial_mesh_file;
+        pcout << "Mesh file was changed to " << mesh_param.filename
+              << std::endl;
+      }
+      else if (!mms_param.use_deal_ii_cube_mesh)
       {
         mms_param.override_mesh_filename(mesh_param, mms_param.mesh_suffix);
         pcout << "Convergence test with manufactured solution:" << std::endl;
@@ -286,7 +319,32 @@ void GenericSolver<VectorType>::run_convergence_loop()
           error /= 2.;
     }
 
-    this->run();
+    // If mesh adaptation with a Riemannian metric is enabled, perform the
+    // required number of fixed-point iterations and compute the error on the
+    // last solution.
+    const unsigned int n_fixed_point_iterations =
+      metric_based_adaptation ? mesh_param.adaptation.metric.n_fixed_point : 1;
+
+    for (unsigned int ifp = 0; ifp < n_fixed_point_iterations; ++ifp)
+    {
+      mesh_param.adaptation.metric.current_fixed_point_iteration = ifp;
+
+      if (metric_based_adaptation)
+        pcout
+          << "Convergence test with mesh adaptation - Fixed-point iteration "
+          << ifp + 1 << "/" << n_fixed_point_iterations << std::endl;
+      if (ifp > 0)
+      {
+        // Set the updated mesh file for this fixed-point iteration
+        mesh_param.filename =
+          output_param.output_dir + mesh_param.adaptation.adapt_dir +
+          mesh_param.adaptation.adapted_mesh_extension + ".msh";
+        pcout << "Mesh file was changed to " << mesh_param.filename
+              << std::endl;
+      }
+
+      this->run();
+    }
 
     // If unsteady, compute the Lp time norm for this convergence step
     if (time_param.scheme != Parameters::TimeIntegration::Scheme::stationary)
@@ -334,6 +392,27 @@ void GenericSolver<VectorType>::run_convergence_loop()
     if (mms_param.run_only_step >= 0)
       break;
   }
+}
+
+template <typename VectorType>
+void GenericSolver<VectorType>::adapt_mesh()
+{
+  AssertThrow(false, ExcPureFunctionCalled());
+}
+
+template <typename VectorType>
+bool GenericSolver<VectorType>::should_compute_errors() const
+{
+  const bool metric_based_adaptation =
+    mesh_param.adaptation.enable &&
+    mesh_param.adaptation.strategy ==
+      Parameters::Mesh::Adaptation::Strategy::RiemannianMetric;
+
+  if (metric_based_adaptation &&
+      mesh_param.adaptation.metric.current_fixed_point_iteration <
+        mesh_param.adaptation.metric.n_fixed_point - 1)
+    return false;
+  return true;
 }
 
 template <typename VectorType>

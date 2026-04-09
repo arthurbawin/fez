@@ -33,7 +33,6 @@ namespace Assembly
                                  const ScratchData       &scratch_data,
                                  const TimeHandler       &time_handler,
                                  FullMatrix<double>      &local_matrix);
-
 } // namespace Assembly
 
 /* ---------------- Template functions ----------------- */

@@ -1,124 +1,127 @@
 
-#include <deal.II/base/function.h>
-#include <deal.II/lac/vector.h>
 #include <metric_field.h>
+#include <metric_tensor_tools.h>
 
 template <int dim>
-class ExactTestHessian : public Function<dim>
+void MetricField<dim>::compute_optimal_multiscale_metric()
 {
-public:
-  // Set number of components based on dim
-  ExactTestHessian()
-    : Function<dim>((dim == 2) ? 3 : 6)
-  {}
+  using MultiscaleMetric =
+    typename Parameters::MetricField<dim>::MultiscaleMetric;
+  const auto target_norm = param.metric_fields[index].multiscale.target_norm;
 
-  // Main function call to evaluate the function at a point
-  virtual void vector_value(const Point<dim> &p,
-                            Vector<double>   &values) const override
+  // Compute the anisotropic measure Q
+  compute_anisotropic_measure();
+
+  // Add the global and local scaling coefficients
+  double N = (double)param.metric_fields[index].multiscale.n_target_vertices;
+  const double n = (double)dim; // space dimension
+
+  // If this is a convergence study with anisotropic adaptation, overwrite the
+  // target number of vertices by the one from the MMS parameters.
+  if (param.mms_param.enable)
+    N = (double)param.mms_param.n_target_vertices;
+
+  if (mpi_rank == 0 &&
+      param.metric_fields[index].verbosity == Parameters::Verbosity::verbose)
   {
-    // Resize vector if needed
-    AssertDimension(values.size(), this->n_components);
-
-    const double x = p[0];
-    const double y = p[1];
-
-    const double d    = 1.;
-    const double valx = (2.0 * x - sin(y * 5.0));
-
-    const double uxx =
-      1.0 / (d * d) * tanh(valx / d) * (pow(tanh(valx / d), 2.0) - 1.0) * 8.0;
-    const double uxy = -1.0 / (d * d) * cos(y * 5.0) * tanh(valx / d) *
-                       (pow(tanh(valx / d), 2.0) - 1.0) * 2.0E+1;
-    const double uyy =
-      -(sin(y * 5.0) * (pow(tanh(valx / d), 2.0) - 1.0) * 2.5E+1) / d +
-      1.0 / (d * d) * pow(cos(y * 5.0), 2.0) * tanh(valx / d) *
-        (pow(tanh(valx / d), 2.0) - 1.0) * 5.0E+1;
-    const double uzz = 1.;
-    const double uxz = 0.;
-    const double uyz = 0.;
-
-    if constexpr (dim == 2)
-    {
-      // 2D case: 3 components for symmetric matrix
-      // Same ordering as dealii SymmetricTensor
-      values[0] = uxx;
-      values[1] = uyy;
-      values[2] = uxy;
-    }
-    else if constexpr (dim == 3)
-    {
-      // 3D case: 6 components
-      const double z = p[2];
-
-      // TODO: Check ordering for SymmetricTensor
-      values[0] = uxx;
-      values[1] = uyy;
-      values[2] = uzz;
-      values[3] = uxy; // Check ordering
-      values[4] = uxz; // Check ordering
-      values[5] = uyz; // Check ordering
-    }
-    else
-    {
-      AssertThrow(false, ExcNotImplemented());
-    }
+    const std::string norm = MultiscaleMetric::to_string(target_norm);
+    std::cout << std::endl;
+    std::cout << "Computing optimal Riemannian metric..." << std::endl;
+    std::cout << "Target number of mesh vertices                   : " << N
+              << std::endl;
+    std::cout << "Target norm for interpolation error minimization : " << norm
+              << std::endl;
+    std::cout << "Polynomial degree of the solution                : "
+              << solution_polynomial_degree << std::endl;
   }
 
-  // Optional: override all vector values at once (e.g., for quadrature points)
-  virtual void
-  vector_value_list(const std::vector<Point<dim>> &points,
-                    std::vector<Vector<double>>   &value_list) const override
+  // Need to update the FE solution to compute integral of determinant
+  metrics_to_tensor_solution();
+
+  double det_field;
+  if (target_norm == MultiscaleMetric::TargetNorm::Linfty_norm)
   {
-    AssertDimension(points.size(), value_list.size());
-    for (unsigned int i = 0; i < points.size(); ++i)
-      this->vector_value(points[i], value_list[i]);
+    // Special treatment for the Linfty norm, where the exponents are 1/2 and 0
+    det_field = compute_integral_determinant(0.5);
   }
-};
-
-template <int dim>
-void MetricField<dim>::computeMetricsP1()
-{
-  bool useExactDerivatives = true;
-
-  ExactTestHessian<dim> hessian;
-  Vector<double>        hessianAtP((dim == 2) ? 3 : 6);
-
-  // Check that derivatives were given if using analytical derivatives
-  // AssertThrow(, ExcMessage("Using analytical derivatives but none were
-  // provided"));
-
-  const std::vector<Point<dim>> &vertices   = triangulation.get_vertices();
-  const unsigned int             n_vertices = triangulation.n_vertices();
-
-  // TODO: Check if we can safely use OpenMP in postprocessing routines
-  for (unsigned int v = 0; v < n_vertices; ++v)
+  else
   {
-    const Point<dim> &p = vertices[v];
-    // MetricTensor<dim> &metric = _metrics[v];
-    auto &metric = _metrics[v];
+    const double s =
+      (double)param.metric_fields[index].multiscale.s; // W^{s,p} norm
+    const double p = (double)param.metric_fields[index].multiscale.p;
+    const double m = (double)solution_polynomial_degree + 1;
 
-    // Compute derivatives at p
-    if (useExactDerivatives)
-    {
-      hessian.vector_value(p, hessianAtP);
-    }
-    else
-    {
-      // Use recovered derivatives
-    }
+    const double exponent_for_integral =
+      (p * (m - s)) / (2. * (p * (m - s) + n));
+    const double exponent_for_determinant = -1. / (p * (m - s) + n);
 
-    // // TODO: Target Lp norm for now, add W1,p
+    det_field = compute_integral_determinant(exponent_for_integral);
 
-    std::cout << "Hessian is" << std::endl;
-    std::cout << hessianAtP << std::endl;
-
-    metric = absoluteValue<dim>(hessianAtP);
-    std::cout << "Metric  is" << std::endl;
-    std::cout << metric << std::endl;
-    std::cout << "Bounded Metric  is" << std::endl;
-    metric.boundEigenvalues(1. / (100. * 100.), 1. / (1e-10 * 1e-10));
-    std::cout << metric << std::endl;
+    // Local scaling by (det Q) ^ -(tau / (2 * p))
+    for (auto &metric : metrics)
+      metric *= std::pow(determinant(metric), exponent_for_determinant);
   }
+
+  // Global scaling (operator *= includes update of the FE solution and ghosts)
+  (*this) *= std::pow(N / det_field, 2. / n);
 }
 
-// #include <MetricField_inst.h>
+template void MetricField<2>::compute_optimal_multiscale_metric();
+template void MetricField<3>::compute_optimal_multiscale_metric();
+
+template <int dim>
+void MetricField<dim>::compute_anisotropic_measure()
+{
+  Assert(solution_polynomial_degree > 0, ExcInternalError());
+
+  if (solution_polynomial_degree == 1)
+    compute_anisotropic_measure_P1();
+  else if (solution_polynomial_degree == 2)
+    compute_anisotropic_measure_P2();
+  else
+    compute_anisotropic_measure_Pn();
+}
+
+template void MetricField<2>::compute_anisotropic_measure();
+template void MetricField<3>::compute_anisotropic_measure();
+
+template <int dim>
+void MetricField<dim>::compute_anisotropic_measure_P1()
+{
+  std::vector<SymmetricTensor<2, dim>> hessians(n_vertices);
+  const std::vector<Point<dim>>       &vertices = triangulation.get_vertices();
+
+  // Get the hessians at all mesh vertices
+  param.metric_fields[index].analytical_field->hessian_list(vertices, hessians);
+
+  // TODO: this is "embarrassingly parallel" and can be multithreaded
+  for (unsigned int v = 0; v < n_vertices; ++v)
+    if (owned_vertices[v])
+      metrics[v] = MetricTensorTools::absolute_value(
+        hessians[v],
+        param.metric_fields[index].min_eigenvalue,
+        param.metric_fields[index].max_eigenvalue);
+}
+
+template void MetricField<2>::compute_anisotropic_measure_P1();
+template void MetricField<3>::compute_anisotropic_measure_P1();
+
+template <int dim>
+void MetricField<dim>::compute_anisotropic_measure_P2()
+{
+  // Compute with Mirebeau's analytical solution
+  DEAL_II_NOT_IMPLEMENTED();
+}
+
+template void MetricField<2>::compute_anisotropic_measure_P2();
+template void MetricField<3>::compute_anisotropic_measure_P2();
+
+template <int dim>
+void MetricField<dim>::compute_anisotropic_measure_Pn()
+{
+  // Compute with the log-simplex method
+  DEAL_II_NOT_IMPLEMENTED();
+}
+
+template void MetricField<2>::compute_anisotropic_measure_Pn();
+template void MetricField<3>::compute_anisotropic_measure_Pn();

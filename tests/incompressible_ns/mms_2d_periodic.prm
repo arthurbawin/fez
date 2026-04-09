@@ -1,0 +1,109 @@
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write vtu results = false
+end
+
+subsection Mesh
+  set dealii preset mesh     = rectangle
+  set dealii mesh parameters = 4, 4 : 0., 0. : 1., 1. : true
+  set refinement level       = 1
+end
+
+subsection Time integration
+  set verbosity = quiet
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set verbosity            = quiet
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set Velocity degree = 2
+  set Pressure degree = 1
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 1
+  end
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 4
+  set fix pressure constant      = true
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = velocity_mms
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = velocity_mms
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type =  periodic
+    set matching periodic boundary = 3
+    set periodic direction = 1
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type =  periodic
+    set matching periodic boundary = 2
+    set periodic direction = 1
+  end
+end
+
+subsection Exact solution
+  subsection exact velocity
+    set Function expression = sin(2*pi*y) * (x + x^3); cos(2*pi*y) * exp(x)
+  end
+
+  subsection exact pressure
+    set Function expression = sin(2*pi*y) * exp(x)
+  end
+end
+
+subsection Manufactured solution
+  set enable            = true
+  set type              = space
+  set convergence steps = 2
+
+  subsection Space convergence
+    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+  end
+end

@@ -3,406 +3,469 @@
 
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
-#include <deal.II/lac/full_matrix.h>
-#include <deal.II/lac/vector.h>
+#include <deal.II/dofs/dof_tools.h>
 
 using namespace dealii;
 
-/**
- * SUPG/PSPG assembly contributions for incompressible NS and CHNS.
- *
- * All stabilization quantities (tau, strong residuals, diffusion_phi_u,
- * laplacian_shape_mu) are pre-computed by ScratchData::reinit*() and only
- * read here.
- *
- * Diffusion formulation:
- *   Laplacian form (plain NS, CHNS) : diffusion_phi_u = Δφ_u
- *   Divergence form (lambda solver) : diffusion_phi_u = Δφ_u + ∇(∇·φ_u)
- * The choice is encoded in scratch.diffusion_phi_u by ScratchData (driven by
- * enable_lagrange_multiplier); no switch parameter is needed here.
- *
- * Sign convention:  system_rhs = −G(u_h),  system_matrix = dG/du
- *   PSPG  RHS : += +τ R · ∇φ_p[i]
- *   SUPG  RHS : −= +τ (u·∇φ_i) · R
- *   Jacobian  : signs mirror RHS (PSPG −=, SUPG +=)
- *
- * τ linearisation w.r.t. u_j is omitted (quasi-Newton).
- *
- * Entry points:
- *   supg_pspg_rhs              — NS / NS_lambda / CHNS momentum RHS
- *   supg_pspg_matrix           — NS / NS_lambda momentum Jacobian
- *   supg_pspg_matrix_chns_full — CHNS momentum Jacobian
- *   supg_tracer_rhs            — CHNS tracer RHS
- *   supg_tracer_matrix_full    — CHNS tracer Jacobian
- */
 namespace Assembly
 {
-
-  // ── NS / CHNS momentum : SUPG + PSPG — RHS ───────────────────────────────
-
-  /**
-   * RHS contribution. Call after standard terms, before *= JxW.
-   * @param u_conv  u (Eulerian) or u − w_mesh (ALE).
-   */
-  template <int dim, typename ScratchData>
-  inline void supg_pspg_rhs(const ComponentOrdering &ordering,
-                            const unsigned int       q,
-                            const unsigned int       i,
-                            const double             tau,
-                            const Tensor<1, dim>    &u_conv,
-                            const ScratchData       &scratch,
-                            double                  &local_rhs_i)
+  template <int dim,
+            typename ScratchData,
+            typename CouplingTableType,
+            typename MatrixType>
+  inline void
+  assemble_ns_matrix_stabilization(const ComponentOrdering &ordering,
+                                   const CouplingTableType &coupling_table,
+                                   const ScratchData       &scratch,
+                                   const double             nu,
+                                   const double             bdf_c0,
+                                   const bool               stabilization_enabled,
+                                   MatrixType              &local_matrix)
   {
-    const unsigned int    comp_i = scratch.components[i];
-    const Tensor<1, dim> &R      = scratch.strong_residual_momentum[q];
-
-    if (ordering.is_pressure(comp_i))
-      local_rhs_i += tau * R * scratch.grad_phi_p[q][i];
-
-    if (ordering.is_velocity(comp_i))
-      local_rhs_i -= tau * (scratch.grad_phi_u[q][i] * u_conv) * R;
-  }
-
-  // ── NS / NS_lambda momentum : SUPG + PSPG — Jacobian ─────────────────────
-
-  /**
-   * Jacobian contribution. Call after standard terms, before *= JxW.
-   * Blocks: (i_p,j_u), (i_p,j_p), (i_u,j_u), (i_u,j_p).
-   *
-   * @param nu      ν (plain NS) or η/ρ (CHNS, passed by supg_pspg_matrix_chns_full).
-   * @param u_conv  u (Eulerian) or u − w_mesh (ALE).
-   * @param inv_rho 1/ρ (default 1 for single-fluid NS).
-   */
-  template <int dim, typename ScratchData>
-  inline void supg_pspg_matrix(const ComponentOrdering &ordering,
-                               const unsigned int       q,
-                               const unsigned int       i,
-                               const unsigned int       j,
-                               const double             tau,
-                               const double             nu,
-                               const double             bdf_c0,
-                               const Tensor<1, dim>    &u_conv,
-                               const ScratchData       &scratch,
-                               double                  &local_matrix_ij,
-                               const double             inv_rho = 1.0)
-  {
-    const unsigned int    comp_i = scratch.components[i];
-    const unsigned int    comp_j = scratch.components[j];
-    const bool            i_is_u = ordering.is_velocity(comp_i);
-    const bool            i_is_p = ordering.is_pressure(comp_i);
-    const bool            j_is_u = ordering.is_velocity(comp_j);
-    const bool            j_is_p = ordering.is_pressure(comp_j);
-    const Tensor<1, dim> &R      = scratch.strong_residual_momentum[q];
-
-    // dR/du_j  (diffusion_phi_u encodes Laplacian vs Divergence form)
-    const auto dR_du_j = [&]() -> Tensor<1, dim> {
-      return bdf_c0 * scratch.phi_u[q][j] + scratch.grad_phi_u[q][j] * u_conv +
-             scratch.present_velocity_gradients[q] * scratch.phi_u[q][j] -
-             nu * scratch.diffusion_phi_u[q][j];
-    };
-
-    if (i_is_p && j_is_u)
-      local_matrix_ij -= tau * dR_du_j() * scratch.grad_phi_p[q][i];
-
-    if (i_is_p && j_is_p)
-      local_matrix_ij -=
-        tau * (inv_rho * scratch.grad_phi_p[q][j]) * scratch.grad_phi_p[q][i];
-
-    if (i_is_u)
-    {
-      const Tensor<1, dim> supg_test_i = scratch.grad_phi_u[q][i] * u_conv;
-
-      if (j_is_u)
-      {
-        local_matrix_ij +=
-          tau * (scratch.grad_phi_u[q][i] * scratch.phi_u[q][j]) * R;
-        local_matrix_ij += tau * supg_test_i * dR_du_j();
-      }
-      if (j_is_p)
-        local_matrix_ij +=
-          tau * supg_test_i * (inv_rho * scratch.grad_phi_p[q][j]);
-    }
-  }
-
-  // ── CHNS tracer : SUPG — RHS ──────────────────────────────────────────────
-
-  /**
-   * RHS contribution. Call after standard terms, before *= JxW.
-   */
-  template <int dim, typename ScratchData>
-  inline void supg_tracer_rhs(const ComponentOrdering &ordering,
-                              const unsigned int       q,
-                              const unsigned int       i,
-                              const double             tau_tracer,
-                              const Tensor<1, dim>    &u_conv,
-                              const ScratchData       &scratch,
-                              double                  &local_rhs_i)
-  {
-    if (!ordering.is_tracer(scratch.components[i]))
+    if (!stabilization_enabled)
       return;
 
-    local_rhs_i -= tau_tracer * (u_conv * scratch.grad_shape_phi[q][i]) *
-                   scratch.strong_residual_tracer[q];
+    for (unsigned int q = 0; q < scratch.n_q_points; ++q)
+      {
+        const double tau = scratch.stabilization_tau_momentum[q];
+        if (tau <= 0.)
+          continue;
+
+        const auto &u_conv = scratch.present_velocity_values[q];
+        const auto &R      = scratch.strong_residual_momentum[q];
+        const auto &grad_u = scratch.present_velocity_gradients[q];
+
+        for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
+          {
+            const unsigned int comp_i = scratch.components[i];
+            const bool         i_is_u = ordering.is_velocity(comp_i);
+            const bool         i_is_p = ordering.is_pressure(comp_i);
+            if (!i_is_u && !i_is_p)
+              continue;
+
+            for (unsigned int j = 0; j < scratch.dofs_per_cell; ++j)
+              {
+                const unsigned int comp_j = scratch.components[j];
+                double             local_matrix_ij = 0.;
+
+                if (ordering.is_velocity(comp_j))
+                  {
+                    const Tensor<1, dim> dR_du_j =
+                      bdf_c0 * scratch.phi_u[q][j] +
+                      scratch.grad_phi_u[q][j] * u_conv +
+                      grad_u * scratch.phi_u[q][j] -
+                      nu * scratch.diffusion_phi_u[q][j];
+
+                    if (i_is_p)
+                      local_matrix_ij -=
+                        tau * dR_du_j * scratch.grad_phi_p[q][i];
+
+                    if (i_is_u)
+                      {
+                        const Tensor<1, dim> supg_test =
+                          scratch.grad_phi_u[q][i] * u_conv;
+                        local_matrix_ij +=
+                          tau * (scratch.grad_phi_u[q][i] * scratch.phi_u[q][j]) *
+                          R;
+                        local_matrix_ij += tau * supg_test * dR_du_j;
+                      }
+                  }
+
+                if (ordering.is_pressure(comp_j))
+                  {
+                    if (i_is_p)
+                      local_matrix_ij -=
+                        tau * scratch.grad_phi_p[q][j] * scratch.grad_phi_p[q][i];
+
+                    if (i_is_u)
+                      {
+                        const Tensor<1, dim> supg_test =
+                          scratch.grad_phi_u[q][i] * u_conv;
+                        local_matrix_ij +=
+                          tau * supg_test * scratch.grad_phi_p[q][j];
+                      }
+                  }
+
+                local_matrix(i, j) += local_matrix_ij * scratch.JxW_moving[q];
+              }
+          }
+      }
   }
 
-  // ── CHNS momentum : SUPG + PSPG — Jacobian, all column blocks ────────────
-  //
-  // Handles all column types (j_u, j_p, j_φ, j_μ, j_x) in one pass.
-  // with_moving_mesh must be explicit: supg_pspg_matrix_chns_full<dim,
-  // with_moving_mesh>(...).
-  //
-  // j_u / j_p  — plain-NS blocks (via supg_pspg_matrix) plus CHNS-specific
-  //              extra dR/du_j terms:
-  //                + inv_rho · M·(ρ1-ρ0)/2 · (∇φ_j · ∇μ)   [J-flux]
-  //                − 2·inv_rho·(dη/dφ) · ∇φ · sym(∇φ_j)     [variable
-  //                viscosity]
-  //
-  // j_φ  — dR/dφ_j, with linear mixing (d²η/dφ² = d²ρ/dφ² = 0):
-  //           φ_j · { d(1/ρ)/dφ·[...] + (1/ρ)·∇μ − d(ν_eff)/dφ·(Δu+∇div u) −
-  //           ... } − 2·(1/ρ)·(dη/dφ) · ε(u) · ∇φ_j
-  //
-  // j_μ  — dR/dμ_j = inv_rho · (M·(ρ1-ρ0)/2 · (∇u) + φ·Id) · ∇φ_μ_j
-  //
-  // j_x  — ALE geometry variation dR/dx_j (only when with_moving_mesh)
-  template <int dim, bool with_moving_mesh, typename ScratchData>
-  inline void supg_pspg_matrix_chns_full(const ComponentOrdering &ordering,
-                                         const unsigned int       q,
-                                         const unsigned int       i,
-                                         const unsigned int       j,
-                                         const double             tau,
-                                         const double             nu_eff,
-                                         const double             bdf_c0,
-                                         const Tensor<1, dim>    &u_conv,
-                                         const double             inv_rho,
-                                         const ScratchData       &scratch,
-                                         double &local_matrix_ij)
+  template <int dim, typename ScratchData, typename VectorType>
+  inline void
+  assemble_ns_rhs_stabilization(const ComponentOrdering &ordering,
+                                const ScratchData       &scratch,
+                                const bool               stabilization_enabled,
+                                VectorType              &local_rhs)
   {
-    const unsigned int comp_i = scratch.components[i];
-    const bool         i_is_u = ordering.is_velocity(comp_i);
-    const bool         i_is_p = ordering.is_pressure(comp_i);
-    if (!i_is_u && !i_is_p)
+    if (!stabilization_enabled)
       return;
 
-    const unsigned int comp_j   = scratch.components[j];
-    const bool         j_is_u   = ordering.is_velocity(comp_j);
-    const bool         j_is_phi = ordering.is_tracer(comp_j);
-    const bool         j_is_mu  = ordering.is_potential(comp_j);
-
-    // ── j_u / j_p : plain-NS blocks + CHNS extra dR/du_j ───────────────────
-    if (j_is_u || ordering.is_pressure(comp_j))
-    {
-      // plain-NS blocks; diffusion_phi_u is divergence form for CHNS
-      supg_pspg_matrix<dim>(ordering,
-                            q,
-                            i,
-                            j,
-                            tau,
-                            nu_eff,
-                            bdf_c0,
-                            u_conv,
-                            scratch,
-                            local_matrix_ij,
-                            inv_rho);
-
-      if (j_is_u)
+    for (unsigned int q = 0; q < scratch.n_q_points; ++q)
       {
-        // CHNS-specific extra residual contributions from variable ρ, η, and
-        // J-flux
-        const Tensor<1, dim> extra_dR =
-          inv_rho * scratch.diffusive_flux_factor *
-            (scratch.grad_phi_u[q][j] * scratch.potential_gradients[q]) -
-          2. * inv_rho * scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
-            Tensor<2, dim>(symmetrize(scratch.grad_phi_u[q][j])) *
-            scratch.tracer_gradients[q];
+        const double tau = scratch.stabilization_tau_momentum[q];
+        if (tau <= 0.)
+          continue;
 
-        if (i_is_p)
-          local_matrix_ij -= tau * extra_dR * scratch.grad_phi_p[q][i];
-        if (i_is_u)
-          local_matrix_ij +=
-            tau * (scratch.grad_phi_u[q][i] * u_conv) * extra_dR;
+        const auto &u_conv = scratch.present_velocity_values[q];
+
+        for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
+          {
+            const unsigned int comp_i = scratch.components[i];
+            double             local_rhs_i = 0.;
+
+            if (ordering.is_pressure(comp_i))
+              local_rhs_i += tau * scratch.strong_residual_momentum[q] *
+                             scratch.grad_phi_p[q][i];
+
+            if (ordering.is_velocity(comp_i))
+              local_rhs_i -=
+                tau * ((scratch.grad_phi_u[q][i] * u_conv) *
+                       scratch.strong_residual_momentum[q]);
+
+            local_rhs(i) += local_rhs_i * scratch.JxW_moving[q];
+          }
       }
-    }
-
-    // ── j_φ : dR/dφ_j ───────────────────────────────────────────────────────
-    if (j_is_phi)
-    {
-      const double drho_dphi = scratch.derivative_density_wrt_tracer[q];
-      const double deta_dphi =
-        scratch.derivative_dynamic_viscosity_wrt_tracer[q];
-      const double phi_j        = scratch.shape_phi[q][j];
-      const double dinvrho_dphi = -inv_rho * inv_rho * drho_dphi;
-      const double dnueff_dphi =
-        inv_rho * deta_dphi - nu_eff * inv_rho * drho_dphi;
-
-      const Tensor<1, dim> &grad_phi = scratch.tracer_gradients[q];
-      const Tensor<1, dim> &grad_mu  = scratch.potential_gradients[q];
-      const Tensor<2, dim>  eps_u =
-        Tensor<2, dim>(scratch.present_velocity_sym_gradients[q]);
-
-      const Tensor<1, dim> dR_dphi_j =
-        phi_j *
-          (dinvrho_dphi * (scratch.diffusive_flux_factor *
-                             (scratch.present_velocity_gradients[q] * grad_mu) +
-                           scratch.tracer_values[q] * grad_mu +
-                           scratch.present_pressure_gradients[q] +
-                           scratch.source_term_velocity[q]) +
-           inv_rho * grad_mu -
-           dnueff_dphi * scratch.present_velocity_lap_plus_graddiv[q] -
-           2. * dinvrho_dphi * deta_dphi * eps_u * grad_phi) -
-        2. * inv_rho * deta_dphi * eps_u * scratch.grad_shape_phi[q][j];
-
-      if (i_is_p)
-        local_matrix_ij -= tau * dR_dphi_j * scratch.grad_phi_p[q][i];
-      if (i_is_u)
-        // ∂(supg_test)/∂φ_j = 0 since supg_test = ∇φ_u[i]·u_conv does not
-        // depend on φ
-        local_matrix_ij +=
-          tau * (scratch.grad_phi_u[q][i] * u_conv) * dR_dphi_j;
-    }
-
-    // ── j_μ : dR/dμ_j ───────────────────────────────────────────────────────
-    if (j_is_mu)
-    {
-      const Tensor<1, dim> &grad_mu_j = scratch.grad_shape_mu[q][j];
-      const Tensor<1, dim>  dR_dmu_j =
-        inv_rho * (scratch.diffusive_flux_factor *
-                     (scratch.present_velocity_gradients[q] * grad_mu_j) +
-                   scratch.tracer_values[q] * grad_mu_j);
-
-      if (i_is_p)
-        local_matrix_ij -= tau * dR_dmu_j * scratch.grad_phi_p[q][i];
-      if (i_is_u)
-        local_matrix_ij += tau * (scratch.grad_phi_u[q][i] * u_conv) * dR_dmu_j;
-    }
-
-    // ── j_x : ALE geometry variation dR/dx_j ────────────────────────────────
-    if constexpr (with_moving_mesh)
-    {
-      if (ordering.is_position(comp_j))
-      {
-        const Tensor<2, dim> &G   = scratch.grad_phi_x_moving[q][j];
-        const Tensor<2, dim>  GT  = transpose(G);
-        const double          trG = trace(G);
-
-        const Tensor<1, dim> du_conv_dx_j = -bdf_c0 * scratch.phi_x[q][j];
-        const Tensor<2, dim> dgrad_u_dx_j =
-          -scratch.present_velocity_gradients[q] * G;
-        const Tensor<1, dim> dgrad_p_dx_j =
-          -GT * scratch.present_pressure_gradients[q];
-        const Tensor<1, dim> dgrad_mu_dx_j =
-          -GT * scratch.potential_gradients[q];
-
-        const Tensor<1, dim> dR_dx_j =
-          dgrad_u_dx_j * u_conv +
-          scratch.present_velocity_gradients[q] * du_conv_dx_j +
-          inv_rho * dgrad_p_dx_j +
-          inv_rho * scratch.tracer_values[q] * dgrad_mu_dx_j;
-
-        const Tensor<1, dim> &R = scratch.strong_residual_momentum[q];
-
-        if (i_is_p)
-        {
-          const Tensor<1, dim> dgrad_phi_p_i_dx_j =
-            -GT * scratch.grad_phi_p[q][i];
-          local_matrix_ij -= tau * dR_dx_j * scratch.grad_phi_p[q][i];
-          local_matrix_ij -= tau * R * dgrad_phi_p_i_dx_j;
-          local_matrix_ij -= tau * R * scratch.grad_phi_p[q][i] * trG;
-        }
-
-        if (i_is_u)
-        {
-          const Tensor<2, dim> dgrad_phi_u_i_dx_j =
-            -scratch.grad_phi_u[q][i] * G;
-          const Tensor<1, dim> d_supg_test_dx_j =
-            dgrad_phi_u_i_dx_j * u_conv +
-            scratch.grad_phi_u[q][i] * du_conv_dx_j;
-
-          local_matrix_ij +=
-            tau * (scratch.grad_phi_u[q][i] * u_conv) * dR_dx_j;
-          local_matrix_ij += tau * d_supg_test_dx_j * R;
-          local_matrix_ij +=
-            tau * (scratch.grad_phi_u[q][i] * u_conv) * R * trG;
-        }
-      }
-    }
   }
 
-  // ── CHNS tracer : SUPG — Jacobian, all column blocks ─────────────────────
-  //
-  // Handles all column types in one pass:
-  //   j_u  — linearisation of u_conv·∇φ w.r.t. u_j
-  //   j_φ  — linearisation of ∂φ/∂t + u_conv·∇φ w.r.t. φ_j
-  //   j_μ  — linearisation of −M·Δμ w.r.t. μ_j
-  //   j_x  — ALE geometry variation (only when with_moving_mesh)
-  template <int dim, bool with_moving_mesh, typename ScratchData>
-  inline void supg_tracer_matrix_full(const ComponentOrdering &ordering,
-                                      const unsigned int       q,
-                                      const unsigned int       i,
-                                      const unsigned int       j,
-                                      const double             tau_tracer,
-                                      const double             bdf_c0,
-                                      const Tensor<1, dim>    &u_conv,
-                                      const ScratchData       &scratch,
-                                      double                  &local_matrix_ij)
+  template <int dim, typename ScratchData, typename VectorType>
+  inline void
+  assemble_chns_rhs_stabilization(const ComponentOrdering &ordering,
+                                  const ScratchData       &scratch,
+                                  const bool               stabilization_enabled,
+                                  VectorType              &local_rhs)
   {
-    if (!ordering.is_tracer(scratch.components[i]))
+    if (!stabilization_enabled)
       return;
 
-    const double       R_tracer    = scratch.strong_residual_tracer[q];
-    const double       supg_test_i = u_conv * scratch.grad_shape_phi[q][i];
-    const unsigned int comp_j      = scratch.components[j];
-
-    // ── j_u ─────────────────────────────────────────────────────────────────
-    if (ordering.is_velocity(comp_j))
-    {
-      local_matrix_ij += tau_tracer *
-                         (scratch.phi_u[q][j] * scratch.grad_shape_phi[q][i]) *
-                         R_tracer;
-      local_matrix_ij += tau_tracer * supg_test_i *
-                         (scratch.phi_u[q][j] * scratch.tracer_gradients[q]);
-    }
-
-    // ── j_φ ─────────────────────────────────────────────────────────────────
-    if (ordering.is_tracer(comp_j))
-    {
-      const double dR_dphi_j = bdf_c0 * scratch.shape_phi[q][j] +
-                               u_conv * scratch.grad_shape_phi[q][j];
-      local_matrix_ij += tau_tracer * supg_test_i * dR_dphi_j;
-    }
-
-    // ── j_μ ─────────────────────────────────────────────────────────────────
-    if (ordering.is_potential(comp_j))
-      local_matrix_ij += tau_tracer * supg_test_i *
-                         (-scratch.mobility * scratch.laplacian_shape_mu[q][j]);
-
-    // ── j_x : ALE geometry variation ────────────────────────────────────────
-    if constexpr (with_moving_mesh)
-    {
-      if (ordering.is_position(comp_j))
+    for (unsigned int q = 0; q < scratch.n_q_points; ++q)
       {
-        const Tensor<2, dim> &G   = scratch.grad_phi_x_moving[q][j];
-        const Tensor<2, dim>  GT  = transpose(G);
-        const double          trG = trace(G);
+        const double tau_mom    = scratch.stabilization_tau_momentum[q];
+        const double tau_tracer = scratch.stabilization_tau_tracer[q];
+        if (tau_mom <= 0. && tau_tracer <= 0.)
+          continue;
 
-        const Tensor<1, dim> du_conv_dx_j   = -bdf_c0 * scratch.phi_x[q][j];
-        const Tensor<1, dim> dgrad_phi_dx_j = -GT * scratch.tracer_gradients[q];
+        const auto &u_conv = scratch.present_convective_velocity[q];
 
-        const double dR_dx_j =
-          du_conv_dx_j * scratch.tracer_gradients[q] + u_conv * dgrad_phi_dx_j;
+        for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
+          {
+            const unsigned int comp_i = scratch.components[i];
+            double             local_rhs_i = 0.;
 
-        const Tensor<1, dim> dgrad_shape_phi_i_dx_j =
-          -GT * scratch.grad_shape_phi[q][i];
-        const double d_supg_test_dx_j =
-          du_conv_dx_j * scratch.grad_shape_phi[q][i] +
-          u_conv * dgrad_shape_phi_i_dx_j;
+            if (tau_mom > 0.)
+              {
+                if (ordering.is_pressure(comp_i))
+                  local_rhs_i += tau_mom * scratch.strong_residual_momentum[q] *
+                                 scratch.grad_phi_p[q][i];
 
-        local_matrix_ij += tau_tracer * supg_test_i * dR_dx_j;
-        local_matrix_ij += tau_tracer * d_supg_test_dx_j * R_tracer;
-        local_matrix_ij += tau_tracer * supg_test_i * R_tracer * trG;
+                if (ordering.is_velocity(comp_i))
+                  local_rhs_i -=
+                    tau_mom *
+                    ((scratch.grad_phi_u[q][i] * u_conv) *
+                     scratch.strong_residual_momentum[q]);
+              }
+
+            if (tau_tracer > 0. && ordering.is_tracer(comp_i))
+              {
+                const double supg_test = u_conv * scratch.grad_shape_phi[q][i];
+                local_rhs_i -=
+                  tau_tracer * supg_test * scratch.strong_residual_tracer[q];
+              }
+
+            local_rhs(i) += local_rhs_i * scratch.JxW_moving[q];
+          }
       }
-    }
   }
 
+  template <int dim,
+            bool with_moving_mesh,
+            typename ScratchData,
+            typename CouplingTableType,
+            typename MatrixType>
+  inline void
+  assemble_chns_matrix_stabilization(const ComponentOrdering &ordering,
+                                     const CouplingTableType &coupling_table,
+                                     const ScratchData       &scratch,
+                                     const double             bdf_c0,
+                                     const bool               stabilization_enabled,
+                                     MatrixType              &local_matrix)
+  {
+    if (!stabilization_enabled)
+      return;
+
+    for (unsigned int q = 0; q < scratch.n_q_points; ++q)
+      {
+        const double tau_mom    = scratch.stabilization_tau_momentum[q];
+        const double tau_tracer = scratch.stabilization_tau_tracer[q];
+        if (tau_mom <= 0. && tau_tracer <= 0.)
+          continue;
+
+        const auto &u_conv = scratch.present_convective_velocity[q];
+
+        for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
+          {
+            const unsigned int comp_i      = scratch.components[i];
+            const bool         i_is_u      = ordering.is_velocity(comp_i);
+            const bool         i_is_p      = ordering.is_pressure(comp_i);
+            const bool         i_is_tracer = ordering.is_tracer(comp_i);
+
+            const Tensor<1, dim> grad_phi_p_i =
+              i_is_p ? scratch.grad_phi_p[q][i] : Tensor<1, dim>();
+            const Tensor<2, dim> grad_phi_u_i =
+              i_is_u ? scratch.grad_phi_u[q][i] : Tensor<2, dim>();
+            const Tensor<1, dim> supg_test_momentum =
+              i_is_u ? grad_phi_u_i * u_conv : Tensor<1, dim>();
+            const Tensor<1, dim> grad_shape_phi_i =
+              i_is_tracer ? scratch.grad_shape_phi[q][i] : Tensor<1, dim>();
+            const double supg_test_tracer =
+              i_is_tracer ? u_conv * grad_shape_phi_i : 0.;
+
+            for (unsigned int j = 0; j < scratch.dofs_per_cell; ++j)
+              {
+                if (coupling_table[comp_i][scratch.components[j]] !=
+                    DoFTools::always)
+                  continue;
+
+                const unsigned int comp_j = scratch.components[j];
+                double             local_matrix_ij = 0.;
+
+                if (tau_mom > 0. && (i_is_u || i_is_p))
+                  {
+                    if (ordering.is_velocity(comp_j))
+                      {
+                        const auto &phi_u_j      = scratch.phi_u[q][j];
+                        const auto &grad_phi_u_j = scratch.grad_phi_u[q][j];
+
+                        const Tensor<1, dim> dR_du_j =
+                          bdf_c0 * phi_u_j + grad_phi_u_j * u_conv +
+                          scratch.present_velocity_gradients[q] * phi_u_j -
+                          scratch.stabilization_nu_eff[q] *
+                            scratch.diffusion_phi_u[q][j];
+
+                        if (i_is_p)
+                          local_matrix_ij -= tau_mom * dR_du_j * grad_phi_p_i;
+
+                        if (i_is_u)
+                          {
+                            local_matrix_ij +=
+                              tau_mom * (grad_phi_u_i * phi_u_j) *
+                              scratch.strong_residual_momentum[q];
+                            local_matrix_ij +=
+                              tau_mom * supg_test_momentum * dR_du_j;
+                          }
+
+                        const Tensor<1, dim> extra_dR =
+                          scratch.stabilization_inv_rho[q] *
+                            scratch.diffusive_flux_factor *
+                            (grad_phi_u_j * scratch.potential_gradients[q]) -
+                          2. * scratch.stabilization_inv_rho[q] *
+                            scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
+                            Tensor<2, dim>(symmetrize(grad_phi_u_j)) *
+                            scratch.tracer_gradients[q];
+
+                        if (i_is_p)
+                          local_matrix_ij -= tau_mom * extra_dR * grad_phi_p_i;
+                        if (i_is_u)
+                          local_matrix_ij +=
+                            tau_mom * supg_test_momentum * extra_dR;
+                      }
+
+                    if (ordering.is_pressure(comp_j))
+                      {
+                        const Tensor<1, dim> scaled_grad_p_j =
+                          scratch.stabilization_inv_rho[q] *
+                          scratch.grad_phi_p[q][j];
+
+                        if (i_is_p)
+                          local_matrix_ij -=
+                            tau_mom * scaled_grad_p_j * grad_phi_p_i;
+                        if (i_is_u)
+                          local_matrix_ij +=
+                            tau_mom * supg_test_momentum * scaled_grad_p_j;
+                      }
+
+                    if (ordering.is_tracer(comp_j))
+                      {
+                        const double dinvrho_dphi =
+                          -scratch.stabilization_inv_rho[q] *
+                          scratch.stabilization_inv_rho[q] *
+                          scratch.derivative_density_wrt_tracer[q];
+                        const double dnueff_dphi =
+                          scratch.stabilization_inv_rho[q] *
+                            scratch.derivative_dynamic_viscosity_wrt_tracer[q] -
+                          scratch.stabilization_nu_eff[q] *
+                            scratch.stabilization_inv_rho[q] *
+                            scratch.derivative_density_wrt_tracer[q];
+                        const Tensor<2, dim> eps_u =
+                          Tensor<2, dim>(scratch.present_velocity_sym_gradients[q]);
+
+                        const Tensor<1, dim> dR_dphi_j =
+                          scratch.shape_phi[q][j] *
+                            (dinvrho_dphi *
+                               (scratch.diffusive_flux_factor *
+                                  (scratch.present_velocity_gradients[q] *
+                                   scratch.potential_gradients[q]) +
+                                scratch.tracer_values[q] *
+                                  scratch.potential_gradients[q] +
+                                scratch.present_pressure_gradients[q] +
+                                scratch.source_term_velocity[q]) +
+                             scratch.stabilization_inv_rho[q] *
+                               scratch.potential_gradients[q] -
+                             dnueff_dphi *
+                               scratch.present_velocity_lap_plus_graddiv[q] -
+                             2. * dinvrho_dphi *
+                               scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
+                               eps_u * scratch.tracer_gradients[q]) -
+                          2. * scratch.stabilization_inv_rho[q] *
+                            scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
+                            eps_u * scratch.grad_shape_phi[q][j];
+
+                        if (i_is_p)
+                          local_matrix_ij -= tau_mom * dR_dphi_j * grad_phi_p_i;
+                        if (i_is_u)
+                          local_matrix_ij +=
+                            tau_mom * supg_test_momentum * dR_dphi_j;
+                      }
+
+                    if (ordering.is_potential(comp_j))
+                      {
+                        const Tensor<1, dim> dR_dmu_j =
+                          scratch.stabilization_inv_rho[q] *
+                          (scratch.diffusive_flux_factor *
+                             (scratch.present_velocity_gradients[q] *
+                              scratch.grad_shape_mu[q][j]) +
+                           scratch.tracer_values[q] * scratch.grad_shape_mu[q][j]);
+
+                        if (i_is_p)
+                          local_matrix_ij -= tau_mom * dR_dmu_j * grad_phi_p_i;
+                        if (i_is_u)
+                          local_matrix_ij +=
+                            tau_mom * supg_test_momentum * dR_dmu_j;
+                      }
+
+                    if constexpr (with_moving_mesh)
+                      if (ordering.is_position(comp_j))
+                        {
+                          const Tensor<2, dim> &G   =
+                            scratch.grad_phi_x_moving[q][j];
+                          const Tensor<2, dim>  GT  = transpose(G);
+                          const double          trG = trace(G);
+
+                          const Tensor<1, dim> du_conv_dx_j =
+                            -bdf_c0 * scratch.phi_x[q][j];
+                          const Tensor<2, dim> dgrad_u_dx_j =
+                            -scratch.present_velocity_gradients[q] * G;
+                          const Tensor<1, dim> dgrad_p_dx_j =
+                            -GT * scratch.present_pressure_gradients[q];
+                          const Tensor<1, dim> dgrad_mu_dx_j =
+                            -GT * scratch.potential_gradients[q];
+
+                          const Tensor<1, dim> dR_dx_j =
+                            dgrad_u_dx_j * u_conv +
+                            scratch.present_velocity_gradients[q] * du_conv_dx_j +
+                            scratch.stabilization_inv_rho[q] * dgrad_p_dx_j +
+                            scratch.stabilization_inv_rho[q] *
+                              scratch.tracer_values[q] * dgrad_mu_dx_j;
+
+                          if (i_is_p)
+                            {
+                              const Tensor<1, dim> dgrad_phi_p_i_dx_j =
+                                -GT * grad_phi_p_i;
+                              local_matrix_ij -= tau_mom * dR_dx_j * grad_phi_p_i;
+                              local_matrix_ij -=
+                                tau_mom * scratch.strong_residual_momentum[q] *
+                                dgrad_phi_p_i_dx_j;
+                              local_matrix_ij -=
+                                tau_mom * scratch.strong_residual_momentum[q] *
+                                grad_phi_p_i * trG;
+                            }
+
+                          if (i_is_u)
+                            {
+                              const Tensor<2, dim> dgrad_phi_u_i_dx_j =
+                                -grad_phi_u_i * G;
+                              const Tensor<1, dim> d_supg_test_dx_j =
+                                dgrad_phi_u_i_dx_j * u_conv +
+                                grad_phi_u_i * du_conv_dx_j;
+
+                              local_matrix_ij +=
+                                tau_mom * supg_test_momentum * dR_dx_j;
+                              local_matrix_ij +=
+                                tau_mom * d_supg_test_dx_j *
+                                scratch.strong_residual_momentum[q];
+                              local_matrix_ij +=
+                                tau_mom * supg_test_momentum *
+                                scratch.strong_residual_momentum[q] * trG;
+                            }
+                        }
+                  }
+
+                if (tau_tracer > 0. && i_is_tracer)
+                  {
+                    if (ordering.is_velocity(comp_j))
+                      {
+                        local_matrix_ij +=
+                          tau_tracer *
+                          (scratch.phi_u[q][j] * grad_shape_phi_i) *
+                          scratch.strong_residual_tracer[q];
+                        local_matrix_ij +=
+                          tau_tracer * supg_test_tracer *
+                          (scratch.phi_u[q][j] * scratch.tracer_gradients[q]);
+                      }
+
+                    if (ordering.is_tracer(comp_j))
+                      {
+                        const double dR_dphi_j =
+                          bdf_c0 * scratch.shape_phi[q][j] +
+                          u_conv * scratch.grad_shape_phi[q][j];
+                        local_matrix_ij +=
+                          tau_tracer * supg_test_tracer * dR_dphi_j;
+                      }
+
+                    if (ordering.is_potential(comp_j))
+                      local_matrix_ij +=
+                        tau_tracer * supg_test_tracer *
+                        (-scratch.mobility * scratch.laplacian_shape_mu[q][j]);
+
+                    if constexpr (with_moving_mesh)
+                      if (ordering.is_position(comp_j))
+                        {
+                          const Tensor<2, dim> &G   =
+                            scratch.grad_phi_x_moving[q][j];
+                          const Tensor<2, dim>  GT  = transpose(G);
+                          const double          trG = trace(G);
+
+                          const Tensor<1, dim> du_conv_dx_j =
+                            -bdf_c0 * scratch.phi_x[q][j];
+                          const Tensor<1, dim> dgrad_tracer_dx_j =
+                            -GT * scratch.tracer_gradients[q];
+                          const double dR_dx_j =
+                            du_conv_dx_j * scratch.tracer_gradients[q] +
+                            u_conv * dgrad_tracer_dx_j;
+
+                          const Tensor<1, dim> dgrad_shape_phi_i_dx_j =
+                            -GT * grad_shape_phi_i;
+                          const double d_supg_test_dx_j =
+                            du_conv_dx_j * grad_shape_phi_i +
+                            u_conv * dgrad_shape_phi_i_dx_j;
+
+                          local_matrix_ij +=
+                            tau_tracer * supg_test_tracer * dR_dx_j;
+                          local_matrix_ij +=
+                            tau_tracer * d_supg_test_dx_j *
+                            scratch.strong_residual_tracer[q];
+                          local_matrix_ij +=
+                            tau_tracer * supg_test_tracer *
+                            scratch.strong_residual_tracer[q] * trG;
+                        }
+                  }
+
+                local_matrix(i, j) += local_matrix_ij * scratch.JxW_moving[q];
+              }
+          }
+      }
+  }
 } // namespace Assembly
 
 #endif

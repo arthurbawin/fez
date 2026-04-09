@@ -300,34 +300,14 @@ void NSSolver<dim>::assemble_local_matrix(
     }
   }
 
-  if (this->param.finite_elements.stabilization)
-    for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
-    {
-      const double tau = scratchData.stabilization_tau_momentum[q];
-      if (tau <= 0.)
-        continue;
-
-      const double JxW = scratchData.JxW_moving[q];
-
-      for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-        for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
-        {
-          double stab_ij = 0.;
-          Assembly::supg_pspg_matrix<dim>(
-            *this->ordering,
-            q,
-            i,
-            j,
-            tau,
-            nu,
-            bdf_c0,
-            scratchData.present_velocity_values[q],
-            scratchData,
-            stab_ij);
-          if (stab_ij != 0.)
-            local_matrix(i, j) += stab_ij * JxW;
-        }
-    }
+  Assembly::assemble_ns_matrix_stabilization<dim>(*this->ordering,
+                                                  this->coupling_table,
+                                                  scratchData,
+                                                  nu,
+                                                  bdf_c0,
+                                                  this->param.finite_elements
+                                                    .stabilization,
+                                                  local_matrix);
 
   cell->get_dof_indices(copy_data.local_dof_indices);
 }
@@ -427,7 +407,6 @@ void NSSolver<dim>::assemble_local_rhs(
 
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
-
   //
   // Volume contributions
   //
@@ -457,7 +436,7 @@ void NSSolver<dim>::assemble_local_rhs(
 
     for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
     {
-      const double local_rhs_i = -(
+      double local_rhs_i = -(
         // Transient
         dudt * phi_u[i]
         // Convection
@@ -477,29 +456,11 @@ void NSSolver<dim>::assemble_local_rhs(
     }
   }
 
-  if (this->param.finite_elements.stabilization)
-    for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
-    {
-      const double tau = scratchData.stabilization_tau_momentum[q];
-      if (tau <= 0.)
-        continue;
-
-      const double JxW = scratchData.JxW_moving[q];
-
-      for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-      {
-        double stab_i = 0.;
-        Assembly::supg_pspg_rhs<dim>(*this->ordering,
-                                     q,
-                                     i,
-                                     tau,
-                                     scratchData.present_velocity_values[q],
-                                     scratchData,
-                                     stab_i);
-        if (stab_i != 0.)
-          local_rhs(i) += stab_i * JxW;
-      }
-    }
+  Assembly::assemble_ns_rhs_stabilization<dim>(*this->ordering,
+                                               scratchData,
+                                               this->param.finite_elements
+                                                 .stabilization,
+                                               local_rhs);
 
   //
   // Face contributions

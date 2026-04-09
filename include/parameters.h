@@ -401,17 +401,25 @@ namespace Parameters
       constant
     } mobility_model;
 
+    enum class MeshForcingLaw
+    {
+      simple,
+      regularized_band
+    } mesh_forcing_law = MeshForcingLaw::regularized_band;
+
     double mobility;
     double surface_tension;
     double epsilon_interface;
+    double epsilon_interface_enlarged;
+    double psi_interface_width_factor;
     bool   with_tracer_limiter;
 
     // Mesh forcing parameters : these parameters control the behavior of the
-    // source term in the pseudosolid equation, in the CHNS-ALE model
-    // FIXME: use more explicit names, when the formulation has been decided
-    double alpha;
-    double beta;
-    double gamma;
+    // source term in the pseudosolid equation, in the CHNS-ALE model.
+    double mff_enlarged_compression_factor;
+    double mff_physics_compression_factor;
+    double mff_transport_factor;
+    double mff_band_factor;
     /**
      * We differentiate between the body force which is multiplied by the
      * mixture density (typically gravity), and the generic source term (e.g.,

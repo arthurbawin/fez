@@ -430,6 +430,7 @@ void ScratchData<dim, has_hp_capabilities>::initialize_cahn_hilliard()
 
   tracer.component = phi_lower = ordering.phi_lower;
   potential.component = mu_lower = ordering.mu_lower;
+  enlarged.component = psi_lower = ordering.psi_lower;
 
   density0           = physical_properties.fluids[0].density;
   density1           = physical_properties.fluids[1].density;
@@ -626,6 +627,16 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     source_term_tracer.resize(n_q_points);
     source_term_potential.resize(n_q_points);
+
+    if (psi_lower != numbers::invalid_unsigned_int)
+    {
+      source_term_psi.resize(n_q_points);
+      psi_values.resize(n_q_points);
+      psi_gradients.resize(n_q_points);
+      shape_psi.resize(n_q_points, std::vector<double>(dofs_per_cell));
+      grad_shape_psi.resize(n_q_points,
+                            std::vector<Tensor<1, dim>>(dofs_per_cell));
+    }
   }
 
   if (enable_stabilization)

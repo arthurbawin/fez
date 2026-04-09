@@ -74,6 +74,8 @@ private:
     position_values.resize(n_q_points);
     position_sym_gradients.resize(n_q_points);
     position_gradients.resize(n_q_points);
+    position_strains.resize(n_q_points);
+    position_trace_strains.resize(n_q_points);
 
     // neo hookean
     position_J.resize(n_q_points);
@@ -115,6 +117,9 @@ public:
     const auto &quadrature_points = fe_values.get_quadrature_points();
     source_terms->vector_value_list(quadrature_points, source_term_full);
 
+    const SymmetricTensor<2, dim> identity_tensor =
+      unit_symmetric_tensor<dim>();
+
     // First map the quadrature point to the current configuration
     // The quadrature points in the current configuration are simply the
     // position field interpolated at the reference space quadrature points
@@ -132,6 +137,8 @@ public:
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       JxW[q] = fe_values.JxW(q);
+      position_strains[q] = position_sym_gradients[q] - identity_tensor;
+      position_trace_strains[q] = trace(position_strains[q]);
 
       for (unsigned int d = 0; d < dim; ++d)
       {
@@ -202,6 +209,8 @@ public:
   std::vector<Tensor<1, dim>>          position_values;
   std::vector<SymmetricTensor<2, dim>> position_sym_gradients;
   std::vector<Tensor<2, dim>>          position_gradients;
+  std::vector<SymmetricTensor<2, dim>> position_strains;
+  std::vector<double>                  position_trace_strains;
 
   // neo-Hookean
   std::vector<double>         position_J;

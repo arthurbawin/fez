@@ -740,6 +740,13 @@ private:
                                                     potential_values);
     fe_values_moving[potential].get_function_gradients(current_solution,
                                                        potential_gradients);
+    if (psi_lower != numbers::invalid_unsigned_int)
+    {
+      fe_values_moving[enlarged].get_function_values(current_solution,
+                                                     psi_values);
+      fe_values_moving[enlarged].get_function_gradients(current_solution,
+                                                        psi_gradients);
+    }
     if (enable_stabilization)
       fe_values_moving[potential].get_function_laplacians(current_solution,
                                                           potential_laplacians);
@@ -783,6 +790,8 @@ private:
 
       source_term_tracer[q]    = source_term_full_moving[q](phi_lower);
       source_term_potential[q] = source_term_full_moving[q](mu_lower);
+      if (psi_lower != numbers::invalid_unsigned_int)
+        source_term_psi[q] = source_term_full_moving[q](psi_lower);
 
       diffusive_flux[q] = diffusive_flux_factor *
                           present_velocity_gradients[q] *
@@ -803,6 +812,11 @@ private:
         grad_shape_phi[q][k] = fe_values_moving[tracer].gradient(k, q);
         shape_mu[q][k]       = fe_values_moving[potential].value(k, q);
         grad_shape_mu[q][k]  = fe_values_moving[potential].gradient(k, q);
+        if (psi_lower != numbers::invalid_unsigned_int)
+        {
+          shape_psi[q][k]      = fe_values_moving[enlarged].value(k, q);
+          grad_shape_psi[q][k] = fe_values_moving[enlarged].gradient(k, q);
+        }
 
         // Shape functions on fixed mesh
         if (enable_pseudo_solid)
@@ -989,6 +1003,7 @@ private:
   unsigned int l_lower;
   unsigned int phi_lower;
   unsigned int mu_lower;
+  unsigned int psi_lower;
   unsigned int t_lower;
 
 public:
@@ -1170,6 +1185,7 @@ public:
    */
   FEValuesExtractors::Scalar tracer;
   FEValuesExtractors::Scalar potential;
+  FEValuesExtractors::Scalar enlarged;
 
   double         density0;
   double         density1;
@@ -1199,6 +1215,8 @@ public:
   std::vector<double>         potential_values;
   std::vector<Tensor<1, dim>> potential_gradients;
   std::vector<double>         potential_laplacians;
+  std::vector<double>         psi_values;
+  std::vector<Tensor<1, dim>> psi_gradients;
 
   std::vector<Tensor<1, dim>> diffusive_flux;
   std::vector<double>         velocity_dot_tracer_gradient;
@@ -1212,9 +1230,12 @@ public:
   std::vector<std::vector<double>>         shape_mu;
   std::vector<std::vector<Tensor<1, dim>>> grad_shape_mu;
   std::vector<std::vector<double>>         laplacian_shape_mu;
+  std::vector<std::vector<double>>         shape_psi;
+  std::vector<std::vector<Tensor<1, dim>>> grad_shape_psi;
 
   std::vector<double> source_term_tracer;
   std::vector<double> source_term_potential;
+  std::vector<double> source_term_psi;
 
   std::vector<Tensor<1, dim>> strong_residual_momentum;
   std::vector<double>         strong_residual_tracer;
@@ -1433,7 +1454,9 @@ public:
  * Scratch data for the quasi-incompressible Cahn_hilliard Navier-Stokes solver
  * on fixed mesh.
  */
-template <int dim, bool with_moving_mesh = false>
+template <int dim,
+          bool with_moving_mesh = false,
+          bool with_enlarged    = false>
 class ScratchDataCHNS : public ScratchData<dim>
 {
 public:

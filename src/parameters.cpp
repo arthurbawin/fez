@@ -22,6 +22,11 @@
 
 namespace Parameters
 {
+  namespace
+  {
+    constexpr double psi_width_calibration_coefficient = 1.21860379;
+  }
+
   /**
    * These should agree with the declare_entry in utilities.h
    */
@@ -976,6 +981,17 @@ namespace Parameters
                         "1e-2",
                         Patterns::Double(),
                         "Interface thickness (epsilon)");
+      prm.declare_entry(
+        "enlarged interface thickness",
+        "1e-2",
+        Patterns::Double(),
+        "Interface thickness used to build the enlarged marker psi.");
+      prm.declare_entry(
+        "psi interface width factor",
+        "0",
+        Patterns::Double(0.0),
+        "Target ratio eps_eff(psi) / eps. If > 0, this calibrated factor "
+        "takes precedence over 'enlarged interface thickness'.");
       prm.declare_entry("body force",
                         default_point,
                         Patterns::List(Patterns::Double(), dim, dim, ","),
@@ -986,20 +1002,38 @@ namespace Parameters
                         "Enable limiter for the tracer (phase field marker)");
       // Mesh forcing parameters
       prm.declare_entry(
-        "alpha",
+        "mff_enlarged_compression_factor",
         "0.0",
         Patterns::Double(),
-        "Coefficient of pseudosolid source term alpha * phi * grad(phi).");
-      prm.declare_entry("beta",
+        "Compression factor used in the enlarged moving-mesh forcing term "
+        "mff_enlarged_compression_factor * eps_enlarged * marker * "
+        "grad(marker).");
+      prm.declare_entry(
+        "mff_physics_compression_factor",
+        "0.0",
+        Patterns::Double(),
+        "Compression factor used in the physical-interface moving-mesh "
+        "forcing correction "
+        "mff_physics_compression_factor * eps * phi * grad(phi).");
+      prm.declare_entry("mff_transport_factor",
                         "0.0",
                         Patterns::Double(),
-                        "Coefficient of pseudosolid source term beta * (u_ALE "
-                        "* grad(phi)) * grad(phi).");
-      prm.declare_entry("gamma",
+                        "Transport factor used in the moving-mesh forcing term "
+                        "mff_transport_factor * (u_ALE * grad(marker)) * "
+                        "grad(marker).");
+      prm.declare_entry("mff_band_factor",
                         "0.0",
                         Patterns::Double(),
-                        "Coefficient of pseudosolid source term when using "
-                        "mesh forcing type with band");
+                        "Band factor used by the regularized-band moving-mesh "
+                        "forcing law.");
+      prm.declare_entry("mesh forcing law",
+                        "regularized_band",
+                        Patterns::Selection("simple|regularized_band"),
+                        "Moving-mesh forcing law. 'simple' uses "
+                        "mff_enlarged_compression_factor * eps * marker * "
+                        "grad(marker), "
+                        "while 'regularized_band' uses the "
+                        "mff_band_factor-regularized band formulation.");
     }
     prm.leave_subsection();
   }
@@ -1015,12 +1049,38 @@ namespace Parameters
       mobility            = prm.get_double("mobility");
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
+      epsilon_interface_enlarged =
+        prm.get_double("enlarged interface thickness");
+      psi_interface_width_factor = prm.get_double("psi interface width factor");
+      if (psi_interface_width_factor > 0.)
+      {
+        AssertThrow(psi_interface_width_factor >= 1.,
+                    ExcMessage(
+                      "'psi interface width factor' must be >= 1.0."));
+        const double target_eps_eff =
+          psi_interface_width_factor * epsilon_interface;
+        const double delta_eps =
+          std::sqrt((target_eps_eff * target_eps_eff -
+                     epsilon_interface * epsilon_interface) /
+                    psi_width_calibration_coefficient);
+        epsilon_interface_enlarged = epsilon_interface + delta_eps;
+      }
       body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
-      alpha = prm.get_double("alpha");
-      beta  = prm.get_double("beta");
-      gamma = prm.get_double("gamma");
+      mff_enlarged_compression_factor =
+        prm.get_double("mff_enlarged_compression_factor");
+      mff_physics_compression_factor =
+        prm.get_double("mff_physics_compression_factor");
+      mff_transport_factor = prm.get_double("mff_transport_factor");
+      mff_band_factor      = prm.get_double("mff_band_factor");
+      const std::string parsed_mesh_forcing_law = prm.get("mesh forcing law");
+      if (parsed_mesh_forcing_law == "simple")
+        mesh_forcing_law = MeshForcingLaw::simple;
+      else if (parsed_mesh_forcing_law == "regularized_band")
+        mesh_forcing_law = MeshForcingLaw::regularized_band;
+      else
+        AssertThrow(false, ExcMessage("Unknown mesh forcing law"));
     }
     prm.leave_subsection();
   }

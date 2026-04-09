@@ -118,6 +118,7 @@ void PostProcessingHandler<dim>::clear()
   visualization_times_and_names.clear();
   visualization_times_and_names_skin.clear();
   subdomains.reinit(0);
+  auxiliary_cell_dg0_fields.clear();
   slice_indices.reinit(0);
 }
 

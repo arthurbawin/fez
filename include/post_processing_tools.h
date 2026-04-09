@@ -5,12 +5,19 @@
 #include <deal.II/base/tensor.h>
 #include <deal.II/base/types.h>
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_values_extractors.h>
+#include <deal.II/fe/fe_system.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/hp/fe_collection.h>
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/vector.h>
+#include <deal.II/numerics/data_component_interpretation.h>
+#include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/data_out_faces.h>
+
+#include <memory>
 
 using namespace dealii;
 
@@ -198,9 +205,199 @@ namespace PostProcessingTools
                                    const unsigned int        n_slices,
                                    const SliceAxis           axis);
 
+  /**
+   * Discontinuous degree-zero auxiliary field used to export cellwise vector
+   * or tensor data as genuine dof-based VTU fields.
+   */
+  template <int dim>
+  class DG0DataField
+  {
+  public:
+    using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
+
+    DG0DataField(
+      const Triangulation<dim> &triangulation,
+      const bool                use_quads,
+      const std::vector<std::string> &component_names,
+      const std::vector<DataComponentInterpretation::
+                          DataComponentInterpretation> &component_interpretation);
+
+    const DoFHandler<dim> &
+    get_dof_handler() const
+    {
+      return dof_handler;
+    }
+
+    const Vector<double> &
+    get_data() const
+    {
+      return data;
+    }
+
+    const std::vector<std::string> &
+    get_component_names() const
+    {
+      return component_names;
+    }
+
+    const std::vector<DataComponentInterpretation::
+                        DataComponentInterpretation> &
+    get_component_interpretation() const
+    {
+      return component_interpretation;
+    }
+
+    void set_cell_values(const CellIterator            &cell,
+                         const std::vector<double>     &values);
+    void set_cell_values(const CellIterator            &cell,
+                         const Tensor<1, dim>          &values);
+    void set_cell_values(const CellIterator            &cell,
+                         const SymmetricTensor<2, dim> &values);
+
+  private:
+    std::unique_ptr<FiniteElement<dim>> fe;
+    DoFHandler<dim>                     dof_handler;
+    Vector<double>                      data;
+    std::vector<std::string>            component_names;
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      component_interpretation;
+  };
+
+  template <int dim>
+  std::vector<std::string>
+  make_vector_component_names(const std::string &field_name);
+
+  template <int dim>
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+  make_vector_component_interpretation();
+
+  template <int dim>
+  std::vector<std::string>
+  make_tensor_component_names(const std::string &field_name);
+
+  template <int dim>
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+  make_tensor_component_interpretation();
+
+  template <int dim>
+  void add_dg0_data_field(DataOut<dim>         &data_out,
+                          const DG0DataField<dim> &field);
+
 } // namespace PostProcessingTools
 
 /* ---------------- Template functions ----------------- */
+
+template <int dim>
+PostProcessingTools::DG0DataField<dim>::DG0DataField(
+  const Triangulation<dim> &triangulation,
+  const bool                use_quads,
+  const std::vector<std::string> &component_names,
+  const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    &component_interpretation)
+  : dof_handler(triangulation)
+  , component_names(component_names)
+  , component_interpretation(component_interpretation)
+{
+  AssertDimension(this->component_names.size(),
+                  this->component_interpretation.size());
+
+  if (use_quads)
+    fe = std::make_unique<FESystem<dim>>(FE_DGQ<dim>(0),
+                                         this->component_names.size());
+  else
+    fe = std::make_unique<FESystem<dim>>(FE_SimplexDGP<dim>(0),
+                                         this->component_names.size());
+
+  dof_handler.distribute_dofs(*fe);
+  data.reinit(dof_handler.n_dofs());
+}
+
+template <int dim>
+void
+PostProcessingTools::DG0DataField<dim>::set_cell_values(
+  const CellIterator        &cell,
+  const std::vector<double> &values)
+{
+  AssertDimension(values.size(), component_names.size());
+
+  std::vector<types::global_dof_index> local_dof_indices(fe->n_dofs_per_cell());
+  cell->get_dof_indices(local_dof_indices);
+
+  for (unsigned int c = 0; c < values.size(); ++c)
+    data[local_dof_indices[c]] = values[c];
+}
+
+template <int dim>
+void
+PostProcessingTools::DG0DataField<dim>::set_cell_values(
+  const CellIterator   &cell,
+  const Tensor<1, dim> &values)
+{
+  AssertDimension(component_names.size(), dim);
+
+  std::vector<double> flattened(dim);
+  for (unsigned int d = 0; d < dim; ++d)
+    flattened[d] = values[d];
+
+  set_cell_values(cell, flattened);
+}
+
+template <int dim>
+void
+PostProcessingTools::DG0DataField<dim>::set_cell_values(
+  const CellIterator            &cell,
+  const SymmetricTensor<2, dim> &values)
+{
+  AssertDimension(component_names.size(), dim * dim);
+
+  std::vector<double> flattened(dim * dim);
+  for (unsigned int i = 0; i < dim; ++i)
+    for (unsigned int j = 0; j < dim; ++j)
+      flattened[i * dim + j] = values[i][j];
+
+  set_cell_values(cell, flattened);
+}
+
+template <int dim>
+std::vector<std::string>
+PostProcessingTools::make_vector_component_names(const std::string &field_name)
+{
+  return std::vector<std::string>(dim, field_name);
+}
+
+template <int dim>
+std::vector<DataComponentInterpretation::DataComponentInterpretation>
+PostProcessingTools::make_vector_component_interpretation()
+{
+  return std::vector<DataComponentInterpretation::DataComponentInterpretation>(
+    dim, DataComponentInterpretation::component_is_part_of_vector);
+}
+
+template <int dim>
+std::vector<std::string>
+PostProcessingTools::make_tensor_component_names(const std::string &field_name)
+{
+  return std::vector<std::string>(dim * dim, field_name);
+}
+
+template <int dim>
+std::vector<DataComponentInterpretation::DataComponentInterpretation>
+PostProcessingTools::make_tensor_component_interpretation()
+{
+  return std::vector<DataComponentInterpretation::DataComponentInterpretation>(
+    dim * dim, DataComponentInterpretation::component_is_part_of_tensor);
+}
+
+template <int dim>
+void
+PostProcessingTools::add_dg0_data_field(DataOut<dim>            &data_out,
+                                        const DG0DataField<dim> &field)
+{
+  data_out.add_data_vector(field.get_dof_handler(),
+                           field.get_data(),
+                           field.get_component_names(),
+                           field.get_component_interpretation());
+}
 
 template <int dim, typename VectorType>
 Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(

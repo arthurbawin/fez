@@ -51,7 +51,7 @@ struct SolverInfo
   }
 
   // Number of variables solved for in the available models
-  static constexpr unsigned int n_variables = 7;
+  static constexpr unsigned int n_variables = 8;
 
   /**
    * The available variables
@@ -64,7 +64,8 @@ struct SolverInfo
     temperature     = 3,
     phase_tracer    = 4,
     phase_potential = 5,
-    lagrange_mult   = 6
+    lagrange_mult   = 6,
+    phase_enlarged  = 7
   };
 
   /**
@@ -77,7 +78,8 @@ struct SolverInfo
      VariableType::temperature,
      VariableType::phase_tracer,
      VariableType::phase_potential,
-     VariableType::lagrange_mult}};
+     VariableType::lagrange_mult,
+     VariableType::phase_enlarged}};
 
   static constexpr std::array<std::string_view, n_variables> variable_names = {
     {"velocity",
@@ -86,7 +88,8 @@ struct SolverInfo
      "temperature",
      "phase_tracer",
      "phase_potential",
-     "lagrange_mult"}};
+     "lagrange_mult",
+     "phase_enlarged"}};
 
   /**
    * Convert a VariableType to a string.
@@ -109,6 +112,8 @@ struct SolverInfo
         return "phase_potential";
       case VariableType::lagrange_mult:
         return "lagrange_mult";
+      case VariableType::phase_enlarged:
+        return "phase_enlarged";
     }
     // Cannot reach here
     AssertThrow(false, dealii::StandardExceptions::ExcInternalError());
@@ -123,12 +128,12 @@ struct SolverInfo
     if (variable_name == "velocity")
       return VariableType::velocity;
     else if (variable_name == "pressure")
-      return VariableType::mesh_position;
+      return VariableType::pressure;
     else if (variable_name == "mesh_position" ||
              variable_name == "mesh position")
-      return VariableType::temperature;
+      return VariableType::mesh_position;
     else if (variable_name == "temperature")
-      return VariableType::phase_tracer;
+      return VariableType::temperature;
     else if (variable_name == "phase_tracer" || variable_name == "phase tracer")
       return VariableType::phase_tracer;
     else if (variable_name == "phase_potential" ||
@@ -137,6 +142,9 @@ struct SolverInfo
     else if (variable_name == "lagrange_mult" ||
              variable_name == "lagrange mult")
       return VariableType::lagrange_mult;
+    else if (variable_name == "phase_enlarged" ||
+             variable_name == "phase enlarged" || variable_name == "psi")
+      return VariableType::phase_enlarged;
     else
       AssertThrow(false,
                   dealii::StandardExceptions::ExcMessage(

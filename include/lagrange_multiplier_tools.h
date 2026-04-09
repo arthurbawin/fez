@@ -145,14 +145,13 @@ void LagrangeMultiplierTools::check_no_slip_on_boundary(
     std::cout << "||uh - wh||_Li = " << li_error << std::endl;
   }
 
-  AssertThrow(l2_error < bc.weak_no_slip_tolerance,
-              ExcMessage(
-                "L2 norm of no-slip constraint exceeds the given tolerance: " +
-                std::to_string(l2_error)));
-  AssertThrow(
-    li_error < bc.weak_no_slip_tolerance,
-    ExcMessage("Linf norm of no-slip constraint exceeds the given tolerance: " +
-               std::to_string(li_error)));
+  std::ostringstream l2_msg, li_msg;
+  l2_msg << "L2 norm of no-slip constraint exceeds the given tolerance: "
+         << std::setprecision(10) << l2_error;
+  li_msg << "L2 norm of no-slip constraint exceeds the given tolerance: "
+         << std::setprecision(10) << li_error;
+  AssertThrow(l2_error < bc.weak_no_slip_tolerance, ExcMessage(l2_msg.str()));
+  AssertThrow(li_error < bc.weak_no_slip_tolerance, ExcMessage(li_msg.str()));
 }
 
 #endif

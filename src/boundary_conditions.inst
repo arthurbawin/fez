@@ -3,7 +3,7 @@ namespace BoundaryConditions
 {
   template void apply_velocity_boundary_conditions(
     const bool,
-    const unsigned int,
+    const ComponentOrdering &,
     const unsigned int,
     const DoFHandler<2> &,
     const Mapping<2> &,
@@ -14,7 +14,7 @@ namespace BoundaryConditions
 
   template void apply_velocity_boundary_conditions(
     const bool,
-    const unsigned int,
+    const ComponentOrdering &,
     const unsigned int,
     const DoFHandler<3> &,
     const Mapping<3> &,

@@ -1,6 +1,7 @@
 #ifndef BOUNDARY_CONDITIONS_H
 #define BOUNDARY_CONDITIONS_H
 
+#include <components_ordering.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/parsed_function.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -39,10 +40,11 @@ namespace BoundaryConditions
     none,
     input_function,
     dirichlet_mms,
+    periodic,
 
     // Flow
     outflow,            // Do nothing
-    no_tangential_flow, // Enfore no tangential flow on the boundary
+    no_tangential_flow, // Enforce no tangential flow on the boundary
     no_slip,            // Enforce given functions
     weak_no_slip,       // Check that lagrange mult is defined, couple
     slip,               // Enforce no_flux
@@ -84,6 +86,12 @@ namespace BoundaryConditions
 
     // The Gmsh name of the boundary entity
     std::string gmsh_name;
+
+    // If periodic boundary, id of its matching periodic boundary
+    types::boundary_id matching_periodic_id;
+
+    // If periodic boundary, direction (axis) along which periodicity is applied
+    unsigned int periodic_direction;
 
     /**
      * Declare the parameters common to all boundary conditions
@@ -231,16 +239,16 @@ namespace BoundaryConditions
     std::map<types::boundary_id, BCType> &boundary_conditions);
 
   /**
-   *
-   *
+   * Apply all fluid velocity boundary conditions, and store the constraints
+   * in @p constraints.
    */
   template <int dim>
   void apply_velocity_boundary_conditions(
-    const bool             homogeneous,
-    const unsigned int     u_lower,
-    const unsigned int     n_components,
-    const DoFHandler<dim> &dof_handler,
-    const Mapping<dim>    &mapping,
+    const bool               homogeneous,
+    const ComponentOrdering &ordering,
+    const unsigned int       n_components,
+    const DoFHandler<dim>   &dof_handler,
+    const Mapping<dim>      &mapping,
     const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>>
                               &fluid_bc,
     const Function<dim>       &exact_solution,
@@ -248,6 +256,8 @@ namespace BoundaryConditions
     AffineConstraints<double> &constraints);
 
   /**
+   * Apply all fluid velocity boundary conditions, and store the constraints
+   * in @p constraints.
    *
    *
    */
@@ -526,6 +536,53 @@ void BoundaryConditions::read_boundary_conditions(
     }
   }
   prm.leave_subsection();
+
+  // Once all boundary conditions are parsed, check that periodic conditions
+  // match one another
+  for (const auto &[id, bc] : boundary_conditions)
+  {
+    if (bc.type == Type::periodic)
+    {
+      // Check that matching boundary...
+      // ...exists
+      AssertThrow(boundary_conditions.count(bc.matching_periodic_id) == 1,
+                  ExcMessage(bc_type_name + " periodic boundary condition " +
+                             std::to_string(bc.id) + " on boundary " +
+                             bc.gmsh_name + " must be matched with boundary " +
+                             std::to_string(bc.matching_periodic_id) +
+                             ", but this boundary does not exist."));
+
+      const auto &matching_bc = boundary_conditions.at(bc.matching_periodic_id);
+      // ...is also periodic
+      AssertThrow(matching_bc.type == Type::periodic,
+                  ExcMessage(
+                    bc_type_name + " periodic boundary condition " +
+                    std::to_string(bc.id) + " on boundary " + bc.gmsh_name +
+                    " must be matched with boundary " +
+                    std::to_string(bc.matching_periodic_id) +
+                    ", but that boundary was not set as a periodic boundary."));
+      // ...has this boundary as matching boundary
+      AssertThrow(matching_bc.matching_periodic_id == bc.id,
+                  ExcMessage(
+                    bc_type_name + " periodic boundary condition " +
+                    std::to_string(bc.id) + " on boundary " + bc.gmsh_name +
+                    " must be matched with boundary " +
+                    std::to_string(bc.matching_periodic_id) +
+                    ", but that boundary does not have the present boundary as "
+                    "matching boundary. Instead, its matching boundary is " +
+                    std::to_string(matching_bc.matching_periodic_id)));
+      // ...has matching periodic direction
+      AssertThrow(matching_bc.periodic_direction == bc.periodic_direction,
+                  ExcMessage(bc_type_name + " periodic boundary condition " +
+                             std::to_string(bc.id) + " on boundary " +
+                             bc.gmsh_name + " must be matched with boundary " +
+                             std::to_string(bc.matching_periodic_id) +
+                             ", but that boundary has periodic direction " +
+                             std::to_string(matching_bc.periodic_direction) +
+                             ", whereas this boundary has periodic direction " +
+                             std::to_string(bc.periodic_direction)));
+    }
+  }
 }
 
 template <int dim, typename VectorType>

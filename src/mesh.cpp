@@ -28,15 +28,57 @@ void read_gmsh_mesh(Triangulation<dim> &serial_triangulation,
 }
 
 /**
+ * Add periodicity to @p triangulation based on the boundary conditions
+ * stored in @p param.
+ *
+ * This function is essentially the lambda function from deal.II's test
+ * fullydistributed_grids/copy_serial_tria_04.cc.
+ */
+template <int dim>
+void add_periodicity(const ParameterReader<dim> &param,
+                     Triangulation<dim>         &triangulation)
+{
+  std::vector<
+    GridTools::PeriodicFacePair<typename Triangulation<dim>::cell_iterator>>
+                               periodic_faces;
+  std::set<types::boundary_id> added;
+  for (const auto &[id, bc] : param.fluid_bc)
+  {
+    if (bc.type == BoundaryConditions::Type::periodic &&
+        added.count(bc.id) == 0)
+    {
+      GridTools::collect_periodic_faces(triangulation,
+                                        bc.id,
+                                        bc.matching_periodic_id,
+                                        bc.periodic_direction,
+                                        periodic_faces);
+      added.insert(bc.id);
+      added.insert(bc.matching_periodic_id);
+    }
+  }
+  triangulation.add_periodicity(periodic_faces);
+}
+
+/**
  * FIXME: the whole mesh is first read on all processes, then partitioned
- * and distributed. This won't work for really big meshes.
+ * and distributed. This won't work for really big meshes. But we'll cross
+ * that bridge when we get there.
  */
 template <int dim, int spacedim>
 void partition_and_create_parallel_mesh(
+  const ParameterReader<dim>                            &param,
   Triangulation<dim>                                    &serial_triangulation,
   parallel::DistributedTriangulationBase<dim, spacedim> &triangulation)
 {
   MPI_Comm comm = triangulation.get_mpi_communicator();
+
+  // Attach manifolds
+  for (const auto i : serial_triangulation.get_manifold_ids())
+    if (i != numbers::flat_manifold_id)
+      triangulation.set_manifold(i, serial_triangulation.get_manifold(i));
+
+  // Add periodicity to the serial mesh
+  add_periodicity(param, serial_triangulation);
 
   // Partition serial triangulation:
   GridTools::partition_triangulation(Utilities::MPI::n_mpi_processes(comm),
@@ -48,14 +90,17 @@ void partition_and_create_parallel_mesh(
       serial_triangulation, comm);
 
   // Create a fully distributed triangulation:
-  // copy_triangulation does not seems to work, so maybe give reference to the
-  // mesh
   triangulation.create_triangulation(description);
+
+  // Add periodicity to the fully distributed mesh (see also
+  // dealii/tests/fullydistributed_grids/copy_serial_tria_04.cc)
+  add_periodicity(param, triangulation);
 }
 
 /**
  * Deal.II does not read the names of the physical entities (I think).
  * Read them here and assign them to their boundary id.
+ * FIXME: Use Gmsh API directly instead of reading the mesh file...
  */
 void read_gmsh_physical_names(const std::string                   &meshFile,
                               std::map<unsigned int, std::string> &tag2name,
@@ -620,7 +665,9 @@ void read_mesh(
                              param.mesh.name2id);
   }
 
-  partition_and_create_parallel_mesh(serial_triangulation, triangulation);
+  partition_and_create_parallel_mesh(param,
+                                     serial_triangulation,
+                                     triangulation);
   if (param.debug.write_partition_pos_gmsh)
     write_partition_gmsh(triangulation, param);
   print_mesh_info(serial_triangulation, triangulation, param);

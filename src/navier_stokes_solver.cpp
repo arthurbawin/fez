@@ -432,7 +432,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
 
   BoundaryConditions::apply_velocity_boundary_conditions(
     homogeneous,
-    ordering->u_lower,
+    *ordering,
     ordering->n_components,
     dof_handler,
     *moving_mapping,

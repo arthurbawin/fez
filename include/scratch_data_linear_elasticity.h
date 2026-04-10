@@ -98,6 +98,27 @@ private:
 
 public:
   template <typename VectorType>
+  void reinit_strain_only(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const VectorType                                     &current_solution)
+  {
+    fe_values.reinit(cell);
+
+    fe_values[position].get_function_symmetric_gradients(
+      current_solution, position_sym_gradients);
+
+    const SymmetricTensor<2, dim> identity_tensor =
+      unit_symmetric_tensor<dim>();
+
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      JxW[q]                = fe_values.JxW(q);
+      position_strains[q]   = position_sym_gradients[q] - identity_tensor;
+      position_trace_strains[q] = trace(position_strains[q]);
+    }
+  }
+
+  template <typename VectorType>
   void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
               const VectorType                     &current_solution,
               const std::shared_ptr<Function<dim>> &source_terms,
@@ -159,7 +180,7 @@ public:
                   ExcMessage("Lamé coefficient mu should be positive"));
       // AssertThrow(lame_lambda[q] >= 0,
       //             ExcMessage("Lamé coefficient lambda should be positive"));
-
+      
       // neo-hookean
       const Tensor<2, dim> &F = position_gradients[q];
       position_J[q]           = determinant(F);
@@ -169,8 +190,7 @@ public:
       //     std::isfinite(position_J[q]) && position_J[q] > 0.0,
       //     ExcMessage(([&]() {
       //       std::ostringstream message;
-      //       message << "Invalid pseudo-solid deformation in linear elasticity
-      //       "
+      //       message << "Invalid pseudo-solid deformation in linear elasticity "
       //                  "presolver: det(F)="
       //               << position_J[q] << " at reference quadrature point "
       //               << quadrature_points[q] << ".";

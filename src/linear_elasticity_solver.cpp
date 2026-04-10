@@ -207,6 +207,20 @@ void LinearElasticitySolver<dim>::setup_dofs()
   // Initialize dof handler
   dof_handler.distribute_dofs(*fe);
 
+  // Also store them in initial_positions, for postprocessing:
+  initial_positions = DoFTools::map_dofs_to_support_points(*mapping,
+                                                            dof_handler);
+
+  //std::vector<double> initial_cell_diameter(triangulation.n_active_cells());
+
+  //unsigned int cell_index = 0;
+  //for (auto &cell : triangulation.active_cell_iterators())
+  //{
+  //    initial_cell_diameter[cell_index] = cell->diameter();
+  //    ++cell_index;
+  //}
+                                                 
+
   pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
         << std::endl;
 
@@ -395,17 +409,51 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
     const Tensor<2, dim> &grad_source_current_mesh =
       scratch_data.grad_source_term_position_current_mesh[q];
 
+    // Neo-Hookean
+    const double          J       = scratch_data.position_J[q];
+    const Tensor<2, dim> &F_inv   = scratch_data.position_inv_gradients[q];
+    const Tensor<2, dim> &F_inv_T = scratch_data.position_inv_gradients_T[q];
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       const auto &phi_x_i          = phi_x[i];
       const auto &grad_phi_x_i     = grad_phi_x[i];
+      const auto &sym_grad_phi_x_i = symmetrize(grad_phi_x[i]);
       const auto &div_phi_x_i      = div_phi_x[i];
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
         const auto &phi_x_j          = phi_x[j];
         const auto &grad_phi_x_j     = grad_phi_x[j];
+        const auto &sym_grad_phi_x_j = symmetrize(grad_phi_x[j]);
         const auto &div_phi_x_j      = div_phi_x[j];
+        
+        // local_matrix(i, j) +=
+        //   (lame_lambda * div_phi_x_j * div_phi_x_i +
+        //   2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
+        //   alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
+        //   JxW;
+
+        // Neo Hookean
+        const Tensor<2, dim> dF = grad_phi_x_j;
+        
+        // // Compressible
+        // const Tensor<2, dim> dP =
+        //   lame_mu * dF +
+        //   (lame_mu - lame_lambda * std::log(J)) *
+        //    (F_inv_T * transpose(dF) * F_inv_T) +
+        //   lame_lambda * trace(F_inv * dF) * F_inv_T;
+
+        // Compressible simplifie
+        const double dJ = J * trace(F_inv * dF);
+        const Tensor<2, dim> dP =
+          lame_mu * dF
+          + lame_mu * (F_inv_T * transpose(dF) * F_inv_T)
+          + lame_lambda *
+            (
+              (2.0 * J - 1.0) * dJ * F_inv_T
+              - (J * (J - 1.0)) * (F_inv_T * transpose(dF) * F_inv_T)
+            );
 
         local_matrix(i, j) +=
           (Assembly::Pseudosolid::matrix_contribution(pseudosolid_model,
@@ -543,6 +591,10 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const auto &grad_phi_x = scratch_data.grad_phi_x[q];
     const auto &div_phi_x  = scratch_data.div_phi_x[q];
 
+    const Tensor<2, dim> &F       = scratch_data.position_gradients[q];
+    const double          J       = scratch_data.position_J[q];
+    const Tensor<2, dim> &F_inv_T = scratch_data.position_inv_gradients_T[q];
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       local_rhs(i) -=
@@ -667,16 +719,75 @@ void LinearElasticitySolver<dim>::output_results()
 
   if (param.output.write_results)
   {
+    // Champ de forcage
+    Vector<double> f_mesh(dof_handler.n_dofs());
+    VectorTools::interpolate(dof_handler,
+                            *source_terms,
+                            f_mesh);
+
+    // Champ deplacement                          
+    // Vecteur position initiale
+    Vector<double> initial_positions_vector(dof_handler.n_dofs());
+    for (const auto &it : initial_positions)
+    {
+        const types::global_dof_index dof_index = it.first; // indice du DOF
+        const Point<dim> &p = it.second;                  // position initiale de ce DOF
+
+        // Assigner la composante correspondante au DOF
+        initial_positions_vector[dof_index] = p[dof_index % dim];
+    }
+    Vector<double> displacement(dof_handler.n_dofs());
+    displacement = present_solution;
+    displacement -= initial_positions_vector;
+
+
+
+    // Champ cell strain
+    //std::vector<types::global_dof_index> local_dof_indices(dof_handler.get_fe().dofs_per_cell);
+    //Vector<double> dof_strain(dof_handler.n_dofs());
+
+    //for (auto &cell : dof_handler.active_cell_iterators())
+    //{
+    //    if (!cell->is_locally_owned())
+    //        continue;
+
+    //    const unsigned int cell_index = cell->active_cell_index();
+
+    //    const double d0 = initial_cell_diameter[cell_index];
+    //    const double d1 = cell->diameter();
+
+    //    double rel_diam = (d1 - d0) / d0;
+
+    //    cell->get_dof_indices(local_dof_indices);
+
+    //    for (auto dof_index : local_dof_indices)
+    //        dof_strain[dof_index] = rel_diam;
+    //}
+
+
     std::vector<std::string> solution_names(dim, "position");
+    std::vector<std::string> f_names(dim, "mesh forcing");
+    std::vector<std::string> u_names(dim, "displacement");
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
       data_component_interpretation(
         dim, DataComponentInterpretation::component_is_part_of_vector);
+      
     DataOut<dim> data_out;
     data_out.attach_dof_handler(dof_handler);
     data_out.add_data_vector(present_solution,
                              solution_names,
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
+
+    data_out.add_data_vector(f_mesh,
+                            f_names,
+                            DataOut<dim>::type_dof_data,
+                            data_component_interpretation);
+                            
+    data_out.add_data_vector(displacement,
+                         u_names,
+                         DataOut<dim>::type_dof_data,
+                         data_component_interpretation);
 
     std::vector<SymmetricTensor<2, dim>> strain_tensors;
     Vector<double> strain_trace;

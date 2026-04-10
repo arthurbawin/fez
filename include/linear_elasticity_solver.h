@@ -133,6 +133,15 @@ public:
     std::vector<SymmetricTensor<2, dim>> &strain_tensors,
     Vector<double>                       &strain_trace);
 
+  void compute_cell_average_strain(Vector<double> &strain_xx,
+                                  Vector<double> &strain_yy,
+                                  Vector<double> &strain_xy,
+                                  Vector<double> &strain_trace,
+                                  Vector<double> &strain_zz,
+                                  Vector<double> &strain_xz,
+                                  Vector<double> &strain_yz);
+
+
   void compute_errors();
 
   virtual void output_results();
@@ -147,6 +156,8 @@ protected:
   std::shared_ptr<Quadrature<dim - 1>> face_quadrature;
   std::shared_ptr<Quadrature<dim - 1>> error_face_quadrature;
 
+  std::vector<double> initial_cell_diameter;
+
   parallel::fullydistributed::Triangulation<dim> triangulation;
   std::shared_ptr<Mapping<dim>>                  mapping;
   DoFHandler<dim>                                dof_handler;
@@ -160,6 +171,8 @@ protected:
 
   AffineConstraints<double> zero_constraints;
   AffineConstraints<double> nonzero_constraints;
+
+  std::map<types::global_dof_index, Point<dim>> initial_positions;
 
   LA::ParMatrixType system_matrix;
 

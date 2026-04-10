@@ -94,11 +94,26 @@ public:
   virtual void setup_dofs();
 
   /**
+   * For solvers with a moving mesh, initialize the MappingFEField from the
+   * mesh position part of the solution vector.
+   */
+  virtual void setup_mappings();
+
+  /**
+   * For solvers with hp capabilities, set the active fe index on each owned
+   * mesh element.
+   */
+  virtual void set_active_fe_indices()
+  {
+    AssertThrow(false, ExcPureFunctionCalled());
+  };
+
+  /**
    * Reinitialize the ghosted parallel vectors.
    * This should be called whenever additional ghost dofs are explicitly added
    * to the vector of locally relevant dofs.
    */
-  void reinit_vectors();
+  void reinit_ghosted_vectors();
 
   /**
    * Create the data needed to enforce zero-mean pressure.
@@ -181,7 +196,7 @@ public:
   /**
    * Solve the linear system for a single nonlinear solver iteration.
    */
-  virtual void solve_linear_system(const bool /* */) override;
+  virtual void solve_linear_system() override;
 
   /**
    * Post-process the numerical solution: output for visualization,
@@ -201,6 +216,16 @@ public:
                               const std::string                  &field_name);
 
   /**
+   * hp version of the function above.
+   */
+  void
+  compute_and_add_errors(const hp::MappingCollection<dim>   &mapping_collection,
+                         const Function<dim>                &exact_solution,
+                         Vector<double>                     &cellwise_errors,
+                         const ComponentSelectFunction<dim> &comp_function,
+                         const std::string                  &field_name);
+
+  /**
    * Compute the error on the velocity, pressure and mesh position for each of
    * the prescribed Sobolev norms. Errors on additional fields must be computed
    * in the overloaded function.
@@ -215,9 +240,29 @@ public:
   virtual void add_solver_specific_postprocessing_data() {}
 
   /**
+   * Compute the maximum CFL number based on the current mesh and solution.
+   * This is the max over all mesh elements and quadrature nodes of
+   *
+   *  CFL = ||u|| * dt/ h,
+   *
+   * where ||u|| is the velocity norm and h is the (isotropic) cell size.
+   * The result is stored in the TimeHandler, to be used for time step
+   * adaptation.
+   */
+  void compute_max_cfl();
+
+  /**
    * Compute the hydrodynamic forces on the desired boundary.
    */
   void compute_forces();
+
+  /**
+   * Write the forces table to stream.
+   */
+  void write_forces(std::ostream &out = std::cout) const
+  {
+    postproc_handler->write_forces(out);
+  }
 
   /**
    * If solving a fluid-structure interaction problem, compute the position of
@@ -226,6 +271,14 @@ public:
    * boundary.
    */
   void compute_structure_mean_position();
+
+  /**
+   * Write the structure mean position table to stream.
+   */
+  void write_structure_mean_position(std::ostream &out = std::cout) const
+  {
+    postproc_handler->write_structure_mean_position(out);
+  }
 
   /**
    * This function initializes data requiring information from the derived
@@ -248,9 +301,6 @@ public:
    * time handler. All other data (dof_handler, finite element spaces,
    * constraints, etc.) can be recomputed when the simulation restarts. See also
    * step 83 for a discussion on this topic.
-   *
-   * Depending on the derived solver, more data could be required to be saved,
-   * which would be done by adding a serialize() function.
    */
   void checkpoint();
 
@@ -259,6 +309,26 @@ public:
    * checkpoint().
    */
   void restart();
+
+  /**
+   * Save this object to file. See also the comments for the checkpoint()
+   * function. This function currently only saves the present and previous
+   * solution vectors.
+   */
+  template <class Archive>
+  void save(Archive &ar, const unsigned int version) const;
+
+  /**
+   * Load the present and previous solution vectors from checkpointed data.
+   */
+  template <class Archive>
+  void load(Archive &ar, const unsigned int version);
+
+  /**
+   * Tell Boost to use the split save/load functions above rather than a unique
+   * serialize function for both saving and loading.
+   */
+  BOOST_SERIALIZATION_SPLIT_MEMBER()
 
 private:
   /**

@@ -14,6 +14,8 @@
 #include <newton_solver.h>
 #include <nonlinear_solver.h>
 #include <parameter_reader.h>
+#include <solver_info.h>
+#include <time_handler.h>
 #include <types.h>
 
 using namespace dealii;
@@ -38,7 +40,7 @@ public:
                 const Parameters::Mesh            &mesh_param,
                 const Parameters::TimeIntegration &time_param,
                 const Parameters::MMS             &mms_param,
-                const SolverType                   solver_type);
+                const SolverInfo::SolverType       solver_type);
 
   /**
    * Destructor.
@@ -82,8 +84,7 @@ public:
   /**
    * Solve the linear system described by the assembly functions above.
    */
-  virtual void
-  solve_linear_system(const bool apply_inhomogeneous_constraints) = 0;
+  virtual void solve_linear_system() = 0;
 
   /**
    * Solve the nonlinear problem NL(U) = 0, where NL is the weak formulation of
@@ -91,9 +92,9 @@ public:
    * augmented with additional equations for the mesh movement, phase tracer,
    * etc., depending on the derived solver.
    */
-  void solve_nonlinear_problem(const bool first_step)
+  void solve_nonlinear_problem(const TimeHandler &time_handler)
   {
-    nonlinear_solver->solve(first_step);
+    nonlinear_solver->solve(time_handler);
   }
 
   /**
@@ -111,6 +112,19 @@ public:
     const auto &nonzero_constraints = this->get_nonzero_constraints();
     nonzero_constraints.distribute(local_evaluation_point);
   }
+
+  /**
+   *
+   */
+  virtual void adapt_mesh();
+
+  /**
+   * Return true if the solver should evaluate error norms. This is typically
+   * always true, except when adapting the mesh with a Riemannian metric, in
+   * which case a few fixed-point iterations are performed to converge to a
+   * mesh-solution pair, and the errors are computed only on the last solution.
+   */
+  bool should_compute_errors() const;
 
   /**
    * Return the various vectors.
@@ -148,7 +162,7 @@ public:
   TimerOutput        computing_timer;
 
 protected:
-  SolverType solver_type;
+  SolverInfo::SolverType solver_type;
 
   // If parallel vector type, these are vectors with ghost entries (read only)
   VectorType present_solution;
@@ -186,7 +200,7 @@ GenericSolver<VectorType>::GenericSolver(
   const Parameters::Mesh            &mesh_param,
   const Parameters::TimeIntegration &time_param,
   const Parameters::MMS             &mms_param,
-  const SolverType                   solver_type)
+  const SolverInfo::SolverType       solver_type)
   : mpi_communicator(MPI_COMM_WORLD)
   , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
   , mpi_size(Utilities::MPI::n_mpi_processes(mpi_communicator))
@@ -219,6 +233,12 @@ template <typename VectorType>
 template <int dim>
 void GenericSolver<VectorType>::run_convergence_loop()
 {
+  const std::string initial_mesh_file = mesh_param.filename;
+  const bool        metric_based_adaptation =
+    mesh_param.adaptation.enable &&
+    mesh_param.adaptation.strategy ==
+      Parameters::Mesh::Adaptation::Strategy::RiemannianMetric;
+
   for (unsigned int i_conv = 0; i_conv < mms_param.n_convergence; ++i_conv)
   {
     const bool is_last_step = i_conv == mms_param.n_convergence - 1;
@@ -260,7 +280,21 @@ void GenericSolver<VectorType>::run_convergence_loop()
           mms_param.mesh_suffix = mms_param.run_only_step;
       }
 
-      if (!mms_param.use_deal_ii_cube_mesh)
+      if (metric_based_adaptation && i_conv > 0)
+      {
+        // Double the target number of mesh vertices
+        // FIXME: when GenericSolver is templatized over dim and stores the
+        // full parameter structure, double the target number of vertices in
+        // each metric field instead.
+        mms_param.n_target_vertices *= 2;
+
+        // Restart from the initial mesh. Alternatively we could also restart
+        // from the final adapted mesh from the previous convergence step.
+        mesh_param.filename = initial_mesh_file;
+        pcout << "Mesh file was changed to " << mesh_param.filename
+              << std::endl;
+      }
+      else if (!mms_param.use_deal_ii_cube_mesh)
       {
         mms_param.override_mesh_filename(mesh_param, mms_param.mesh_suffix);
         pcout << "Convergence test with manufactured solution:" << std::endl;
@@ -279,14 +313,55 @@ void GenericSolver<VectorType>::run_convergence_loop()
       // This change is accounted for in the reset() function of each
       // derived solver
       time_param.dt *= mms_param.time_step_reduction_factor;
+
+      if (time_param.adaptation.enable)
+        for (auto &[variable, error] : time_param.adaptation.target_error)
+          error /= 2.;
     }
 
-    this->run();
+    // If mesh adaptation with a Riemannian metric is enabled, perform the
+    // required number of fixed-point iterations and compute the error on the
+    // last solution.
+    const unsigned int n_fixed_point_iterations =
+      metric_based_adaptation ? mesh_param.adaptation.metric.n_fixed_point : 1;
+
+    for (unsigned int ifp = 0; ifp < n_fixed_point_iterations; ++ifp)
+    {
+      mesh_param.adaptation.metric.current_fixed_point_iteration = ifp;
+
+      if (metric_based_adaptation)
+        pcout
+          << "Convergence test with mesh adaptation - Fixed-point iteration "
+          << ifp + 1 << "/" << n_fixed_point_iterations << std::endl;
+      if (ifp > 0)
+      {
+        // Set the updated mesh file for this fixed-point iteration
+        mesh_param.filename =
+          output_param.output_dir + mesh_param.adaptation.adapt_dir +
+          mesh_param.adaptation.adapted_mesh_extension + ".msh";
+        pcout << "Mesh file was changed to " << mesh_param.filename
+              << std::endl;
+      }
+
+      this->run();
+    }
 
     // If unsteady, compute the Lp time norm for this convergence step
     if (time_param.scheme != Parameters::TimeIntegration::Scheme::stationary)
       for (auto &[norm, handler] : error_handlers)
+      {
         handler->compute_temporal_error();
+
+        // Print the errors at all timesteps if required
+        if (mms_param.print_unsteady_errors_to_console)
+          handler->write_errors();
+        if (mms_param.print_unsteady_errors_to_file)
+        {
+          std::ofstream outfile(output_param.output_dir +
+                                mms_param.unsteady_errors_file_prefix + ".txt");
+          handler->write_errors(outfile);
+        }
+      }
 
     // If requested, compute and write convergence rates as soon as available
     if (is_last_step || !mms_param.compute_rates_only_at_end)
@@ -317,6 +392,27 @@ void GenericSolver<VectorType>::run_convergence_loop()
     if (mms_param.run_only_step >= 0)
       break;
   }
+}
+
+template <typename VectorType>
+void GenericSolver<VectorType>::adapt_mesh()
+{
+  AssertThrow(false, ExcPureFunctionCalled());
+}
+
+template <typename VectorType>
+bool GenericSolver<VectorType>::should_compute_errors() const
+{
+  const bool metric_based_adaptation =
+    mesh_param.adaptation.enable &&
+    mesh_param.adaptation.strategy ==
+      Parameters::Mesh::Adaptation::Strategy::RiemannianMetric;
+
+  if (metric_based_adaptation &&
+      mesh_param.adaptation.metric.current_fixed_point_iteration <
+        mesh_param.adaptation.metric.n_fixed_point - 1)
+    return false;
+  return true;
 }
 
 template <typename VectorType>

@@ -85,21 +85,42 @@ void LagrangeMultiplierTools::check_no_slip_on_boundary(
           const auto &fluid_velocity =
             scratch_data.present_face_velocity_values[i_face];
 
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+          const auto &exact_fluid_velocity =
+            scratch_data.exact_face_velocity_values[i_face];
+          const auto &exact_mesh_velocity =
+            scratch_data.exact_face_mesh_velocity_values[i_face];
+#endif
+
           for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
             Tensor<1, dim> constraint = fluid_velocity[q];
 
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+            Tensor<1, dim> exact_constraint = exact_fluid_velocity[q];
+#endif
+
             // If the boundary moves, the constraint is
             // u_fluid = u_mesh -> u_fluid - u_mesh = 0
             if (scratch_data.enable_pseudo_solid)
+            {
               constraint -=
                 scratch_data.present_face_mesh_velocity_values[i_face][q];
+
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+              exact_constraint -= exact_mesh_velocity[q];
+#endif
+            }
 
             // If in addition there is a rigid body rotation, the constraint
             // becomes u_fluid = u_mesh + u_rotation
             if (enable_rigid_body_rotation)
               constraint -=
                 scratch_data.input_face_rigid_body_rotation_velocity[i_face][q];
+
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+            constraint -= exact_constraint;
+#endif
 
             // Measure how well the constraint is enforced (target is zero)
             l2_local += constraint * constraint * scratch_data.JxW_fixed[q];

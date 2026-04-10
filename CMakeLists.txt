@@ -6,10 +6,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ======================
 # Project options
 # ======================
-option(ENABLE_TESTING     "Enable testing"                           OFF)
-option(ENABLE_MMG         "Enable MMG"                               OFF)
-option(FEZ_FORCE_PETSC    "Force PETSc wrappers for linear algebra"  OFF)
+option(ENABLE_TESTING     "Enable testing"                             OFF)
+option(ENABLE_MMG         "Enable MMG"                                 OFF)
+option(FEZ_FORCE_PETSC    "Force PETSc wrappers for linear algebra"    OFF)
 option(FEZ_FORCE_TRILINOS "Force Trilinos wrappers for linear algebra" OFF)
+
+# By default, specify that deal.II has the hp identities bug
+option(DEAL_II_WITH_HP_IDENTITIES_BUG "" ON)
+
+# Lagrange multiplier equations do not typically need a source term,
+# so there is none for speed. To be able to test with arbitrary manufactured
+# solutions, however, a source term is required and this option must be enabled.
+option(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM "" OFF)
 
 # Find deal.II
 find_package(deal.II 9.5.0 REQUIRED HINTS ${DEAL_II_DIR} CONFIG)
@@ -68,6 +76,14 @@ if(FEZ_WITH_PETSC)
   add_compile_definitions(FEZ_WITH_PETSC)
 elseif(FEZ_WITH_TRILINOS)
   add_compile_definitions(FEZ_WITH_TRILINOS)
+endif()
+
+if(DEAL_II_WITH_HP_IDENTITIES_BUG)
+  add_compile_definitions(DEAL_II_WITH_HP_LINE_IDENTITIES_BUG)
+endif()
+
+if(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+  add_compile_definitions(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
 endif()
 
 message(STATUS "FEZ_WITH_PETSC    = ${FEZ_WITH_PETSC}")

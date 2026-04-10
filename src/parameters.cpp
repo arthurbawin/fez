@@ -1,23 +1,7 @@
 
 #include <parameters.h>
+#include <solver_info.h>
 #include <utilities.h>
-
-#define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
-  (prm).declare_entry("verbosity",                                             \
-                      std::string(default_verbosity),                          \
-                      Patterns::Selection("quiet|verbose"),                    \
-                      "Level of message display in console: quiet or verbose " \
-                      "(default: " +                                           \
-                        std::string(default_verbosity) + ")");
-
-#define READ_VERBOSITY_PARAM(prm, verbosity)                     \
-  {                                                              \
-    const std::string parsed_verbosity = (prm).get("verbosity"); \
-    if (parsed_verbosity == "quiet")                             \
-      verbosity = Verbosity::quiet;                              \
-    if (parsed_verbosity == "verbose")                           \
-      verbosity = Verbosity::verbose;                            \
-  }
 
 namespace Parameters
 {
@@ -97,6 +81,7 @@ namespace Parameters
   {
     prm.enter_subsection("Mesh");
     {
+      DECLARE_VERBOSITY_PARAM(prm, "verbose")
       prm.declare_entry("mesh file",
                         "",
                         Patterns::FileName(),
@@ -116,7 +101,47 @@ namespace Parameters
         "1",
         Patterns::Integer(),
         "Level of uniform refinement if using deal.II's meshing routines");
-      DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.enter_subsection("Adaptation");
+      {
+        DECLARE_VERBOSITY_PARAM(prm, "verbose")
+        prm.declare_entry("enable",
+                          "false",
+                          Patterns::Bool(),
+                          "Enable mesh adaptation");
+        prm.declare_entry(
+          "adaptation directory",
+          "adaptation",
+          Patterns::Anything(),
+          "Directory into which mesh adaptation-related files are written");
+        prm.declare_entry("adapted meshes extension",
+                          "adapted",
+                          Patterns::Anything(),
+                          "Root extension for the adapted meshes");
+        prm.declare_entry("strategy",
+                          "riemannian metric",
+                          Patterns::Selection("riemannian metric"),
+                          "Mesh adaptation strategy");
+        prm.enter_subsection("Metric");
+        {
+          prm.declare_entry("n fixed point",
+                            "1",
+                            Patterns::Integer(1),
+                            "Number of fixed point iterations to converge the "
+                            "mesh-solution pair");
+          prm.declare_entry(
+            "transfer solution",
+            "true",
+            Patterns::Bool(),
+            "Enable solution transfer to the adapted mesh (steady-state only, "
+            "always done for unsteady simulations)");
+          prm.declare_entry("mmg verbosity level",
+                            "1",
+                            Patterns::Integer(-1, 10),
+                            "Verbosity level of the MMG library");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -125,12 +150,36 @@ namespace Parameters
   {
     prm.enter_subsection("Mesh");
     {
+      READ_VERBOSITY_PARAM(prm, verbosity)
       filename              = prm.get("mesh file");
       use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
       deal_ii_preset_mesh   = prm.get("dealii preset mesh");
       deal_ii_mesh_param    = prm.get("dealii mesh parameters");
       refinement_level      = prm.get_integer("refinement level");
-      READ_VERBOSITY_PARAM(prm, verbosity)
+      prm.enter_subsection("Adaptation");
+      {
+        READ_VERBOSITY_PARAM(prm, adaptation.verbosity)
+        adaptation.enable                 = prm.get_bool("enable");
+        adaptation.adapt_dir              = prm.get("adaptation directory");
+        adaptation.adapted_mesh_extension = prm.get("adapted meshes extension");
+        const std::string parsed_strategy = prm.get("strategy");
+        if (parsed_strategy == "riemannian metric")
+          adaptation.strategy = Adaptation::Strategy::RiemannianMetric;
+        else
+          throw std::runtime_error("Unexpected mesh adaptation strategy: " +
+                                   parsed_strategy);
+
+        prm.enter_subsection("Metric");
+        {
+          adaptation.metric.n_fixed_point = prm.get_integer("n fixed point");
+          adaptation.metric.transfer_solution =
+            prm.get_bool("transfer solution");
+          adaptation.metric.mmg_verbosity =
+            prm.get_integer("mmg verbosity level");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -754,7 +803,94 @@ namespace Parameters
                         "initial condition",
                         Patterns::Selection("initial condition|BDF1"),
                         "Starting method for BDF schemes of order > 1.");
+      prm.declare_entry(
+        "bdf start step ratio",
+        "0.1",
+        Patterns::Double(0.),
+        "If using BDF1 as starting method for the BDF2, the first step is set "
+        "to this vlue times the initial time step");
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
+
+      // Time adaptation parameters
+      prm.enter_subsection("Adaptation");
+      {
+        DECLARE_VERBOSITY_PARAM(prm, "verbose")
+        prm.declare_entry("enable",
+                          "false",
+                          Patterns::Bool(),
+                          "Enable adaptive time stepping");
+        prm.declare_entry("adaptation strategy",
+                          "bdf truncation error",
+                          Patterns::Selection("bdf truncation error|cfl"),
+                          "Strategy used to drive timestep adaptation");
+        // Set the maximum absolute time step to the arbitrary value of 100
+        prm.declare_entry("max timestep",
+                          "100.",
+                          Patterns::Double(),
+                          "Maximum time step allowed");
+        // Set the minimum absolute time step to the arbitrary value of 1e-6
+        prm.declare_entry("min timestep",
+                          "1e-6",
+                          Patterns::Double(),
+                          "Minimum time step allowed");
+        prm.declare_entry(
+          "max timestep increase",
+          "10.",
+          Patterns::Double(),
+          "Maximum ratio allowed between increasing time steps");
+        prm.declare_entry(
+          "max timestep reduction",
+          "1e-1",
+          Patterns::Double(),
+          "Minimum ratio allowed between decreasing time steps");
+        prm.declare_entry("required times",
+                          "",
+                          Patterns::List(Patterns::Double()),
+                          "Times that the time integrator must hit exactly");
+
+        for (unsigned int i = 0; i < SolverInfo::n_variables; ++i)
+        {
+          prm.declare_entry("target error on " +
+                              std::string(SolverInfo::variable_names[i]),
+                            "1.",
+                            Patterns::Double(),
+                            "Target temporal error for variable " +
+                              std::string(SolverInfo::variable_names[i]));
+        }
+        prm.declare_entry("reject timestep with large error",
+                          "false",
+                          Patterns::Bool(),
+                          "Reject time steps with error estimate larger than "
+                          "target times given factor");
+        // The reject factor is the ratio (estimated_error / target error),
+        // and if this ratio is too high, the time step is rejected.
+        // The ratio for which a step is rejected should be > 1, since the
+        // step adaptation aims for steps with a ratio = 1.
+        prm.declare_entry("error ratio to reject",
+                          "2.",
+                          Patterns::Double(1.),
+                          "Time step is rejected if its error estimate exceeds "
+                          "this value times the target error");
+        prm.declare_entry("compute error on estimator",
+                          "false",
+                          Patterns::Bool(),
+                          "");
+        prm.declare_entry("target cfl number",
+                          "1.",
+                          Patterns::Double(),
+                          "Target CFL number for timestep adaptation");
+        prm.declare_entry("reject timestep with large cfl",
+                          "false",
+                          Patterns::Bool(),
+                          "Reject time steps with CFL number larger than "
+                          "target times given factor");
+        prm.declare_entry("cfl ratio to reject",
+                          "2.",
+                          Patterns::Double(1.),
+                          "Time step is rejected if its CFL number exceeds "
+                          "this value times the target CFL");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -767,18 +903,9 @@ namespace Parameters
       t_initial = prm.get_double("t_initial");
       t_end     = prm.get_double("t_end");
 
-      // Set the number of (constant) time steps.
-      // For now, we only consider an integer number of time steps.
-      // const double n_timesteps_estimate = (t_end - t_initial) / dt;
-      // n_constant_timesteps              = std::floor(n_timesteps_estimate);
-      // AssertThrow(
-      //   std::abs(n_timesteps_estimate - n_constant_timesteps) < 1e-2,
-      //   ExcMessage(
-      //     "The prescribed (constant) time step does not yield an integer
-      //     number " "of steps for the given time interval. The given time step
-      //     yields "
-      //     + std::to_string(n_timesteps_estimate) + " time steps. For now, we
-      //     only consider an integer number of constant " "time steps."));
+      AssertThrow(dt <= t_end,
+                  ExcMessage("The initial time step should not be greater than "
+                             "the simulation end time."));
 
       const std::string parsed_scheme = prm.get("scheme");
       if (parsed_scheme == "stationary")
@@ -798,7 +925,61 @@ namespace Parameters
       else
         throw std::runtime_error("Unknown BDF starting method : " +
                                  parsed_startup);
+      bdf_starting_step_ratio = prm.get_double("bdf start step ratio");
       READ_VERBOSITY_PARAM(prm, verbosity)
+
+      prm.enter_subsection("Adaptation");
+      {
+        READ_VERBOSITY_PARAM(prm, adaptation.verbosity)
+        adaptation.enable          = prm.get_bool("enable");
+        const auto parsed_strategy = prm.get("adaptation strategy");
+        if (parsed_strategy == "bdf truncation error")
+          adaptation.strategy =
+            Adaptation::AdaptationStrategy::BDFTruncationError;
+        else if (parsed_strategy == "cfl")
+          adaptation.strategy = Adaptation::AdaptationStrategy::CFL;
+        else
+          throw std::runtime_error("Unknown timestep adaptation method : " +
+                                   parsed_strategy);
+        adaptation.max_timestep = prm.get_double("max timestep");
+        adaptation.min_timestep = prm.get_double("min timestep");
+        adaptation.max_timestep_increase =
+          prm.get_double("max timestep increase");
+        adaptation.max_timestep_reduction =
+          prm.get_double("max timestep reduction");
+        adaptation.required_times = Utilities::string_to_double(
+          Utilities::split_string_list(prm.get("required times"), ","));
+
+        for (const auto time : adaptation.required_times)
+        {
+          AssertThrow(
+            time > t_initial,
+            ExcMessage(
+              "The required times should be greater than the starting time"));
+          AssertThrow(
+            time < t_end,
+            ExcMessage(
+              "The required times should be greater than the final time"));
+        }
+        std::sort(adaptation.required_times.begin(),
+                  adaptation.required_times.end());
+
+        for (unsigned int i = 0; i < SolverInfo::n_variables; ++i)
+          adaptation.target_error[SolverInfo::variable_types[i]] =
+            prm.get_double("target error on " +
+                           std::string(SolverInfo::variable_names[i]));
+        adaptation.reject_timestep_with_large_error =
+          prm.get_bool("reject timestep with large error");
+        adaptation.reject_error_factor =
+          prm.get_double("error ratio to reject");
+        adaptation.compute_error_on_estimator =
+          prm.get_bool("compute error on estimator");
+        adaptation.target_cfl = prm.get_double("target cfl number");
+        adaptation.reject_timestep_with_large_cfl =
+          prm.get_bool("reject timestep with large cfl");
+        adaptation.reject_cfl_factor = prm.get_double("cfl ratio to reject");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -1011,6 +1192,18 @@ namespace Parameters
                         Patterns::Bool(),
                         "If disabled, compute and write convergence rates at "
                         "each convergence step.");
+      prm.declare_entry("print error at timesteps in console",
+                        "false",
+                        Patterns::Bool(),
+                        "");
+      prm.declare_entry("print error at timesteps to file",
+                        "false",
+                        Patterns::Bool(),
+                        "");
+      prm.declare_entry("error at timesteps file prefix",
+                        "unsteady_errors",
+                        Patterns::Anything(),
+                        "");
       prm.enter_subsection("Space convergence");
       {
         prm.declare_entry("use dealii cube mesh",
@@ -1037,6 +1230,13 @@ namespace Parameters
           Patterns::List(
             *Patterns::Tools::Convert<VectorTools::NormType>::to_pattern()),
           "A comma-separated list of norms (e.g., L2_norm, H1_norm)");
+        prm.declare_entry(
+          "initial target number of vertices",
+          "1000",
+          Patterns::Integer(),
+          "For a convergence study with metric-based anisotropic mesh "
+          "adaptation enabled, the initial target number of vertices in the "
+          "adapted mesh. This value is then doubled at each convergence step.");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1088,6 +1288,11 @@ namespace Parameters
         prm.get_bool("write convergence table to file");
       convergence_file_prefix   = prm.get("convergence file prefix");
       compute_rates_only_at_end = prm.get_bool("compute rates only at end");
+      print_unsteady_errors_to_console =
+        prm.get_bool("print error at timesteps in console");
+      print_unsteady_errors_to_file =
+        prm.get_bool("print error at timesteps to file");
+      unsteady_errors_file_prefix = prm.get("error at timesteps file prefix");
       prm.enter_subsection("Space convergence");
       {
         use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
@@ -1100,6 +1305,8 @@ namespace Parameters
         for (const auto &s : parsed_norms)
           norms_to_compute.push_back(
             Patterns::Tools::Convert<VectorTools::NormType>::to_value(s));
+        n_target_vertices =
+          prm.get_integer("initial target number of vertices");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1180,113 +1387,6 @@ namespace Parameters
   template struct FSI<2>;
   template struct FSI<3>;
 
-  template <int dim>
-  void MetricField<dim>::declare_parameters(ParameterHandler  &prm,
-                                            const unsigned int index) const
-  {
-    prm.enter_subsection("Metric field " + std::to_string(index));
-    {
-      DECLARE_VERBOSITY_PARAM(prm, "verbose")
-      prm.enter_subsection("Analytical metric");
-      {
-        prm.declare_entry("enable", "false", Patterns::Bool(), "");
-        analytical_metric.callback->declare_parameters(prm);
-      }
-      prm.leave_subsection();
-      prm.enter_subsection("Gradation");
-      {
-        prm.declare_entry("enable", "false", Patterns::Bool(), "");
-        prm.declare_entry("gradation", "1.5", Patterns::Double(1.01), "");
-        prm.declare_entry("max iteration", "100", Patterns::Integer(1), "");
-        prm.declare_entry("tolerance", "1e-2", Patterns::Double(0), "");
-        prm.declare_entry(
-          "spanning space",
-          "metric",
-          Patterns::Selection("euclidean|metric|exp_metric"),
-          "Space in which a single metric spans a full metric field");
-      }
-      prm.leave_subsection();
-    }
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void MetricField<dim>::read_parameters(ParameterHandler  &prm,
-                                         const unsigned int index)
-  {
-    prm.enter_subsection("Metric field " + std::to_string(index));
-    {
-      READ_VERBOSITY_PARAM(prm, verbosity)
-      prm.enter_subsection("Analytical metric");
-      {
-        analytical_metric.enable = prm.get_bool("enable");
-        analytical_metric.callback->parse_parameters(prm);
-      }
-      prm.leave_subsection();
-      prm.enter_subsection("Gradation");
-      {
-        gradation.enable               = prm.get_bool("enable");
-        gradation.gradation            = prm.get_double("gradation");
-        gradation.max_iterations       = prm.get_integer("max iteration");
-        gradation.tolerance            = prm.get_double("tolerance");
-        const std::string parsed_space = prm.get("spanning space");
-        if (parsed_space == "euclidean")
-          gradation.spanning_space = Gradation::SpanningSpace::euclidean;
-        else if (parsed_space == "metric")
-          gradation.spanning_space = Gradation::SpanningSpace::metric;
-        else if (parsed_space == "exp_metric")
-          gradation.spanning_space = Gradation::SpanningSpace::exp_metric;
-        else
-          throw std::runtime_error("Unknown gradation spanning space : " +
-                                   parsed_space);
-      }
-      prm.leave_subsection();
-    }
-    prm.leave_subsection();
-  }
-
-  template struct MetricField<2>;
-  template struct MetricField<3>;
-
-  template <int dim>
-  void MetricFields<dim>::declare_parameters(ParameterHandler &prm)
-  {
-    const MetricField<dim> dummy_metric_field;
-    prm.enter_subsection("Metric tensor fields");
-    {
-      prm.declare_entry(
-        "number",
-        "1",
-        Patterns::Integer(),
-        "Number of metric fields to consider for mesh adaptation");
-      for (unsigned int i = 0; i < max_metric_fields; ++i)
-        dummy_metric_field.declare_parameters(prm, i);
-    }
-    prm.leave_subsection();
-  }
-
-  template <int dim>
-  void MetricFields<dim>::read_parameters(ParameterHandler &prm)
-  {
-    prm.enter_subsection("Metric tensor fields");
-    {
-      n_metric_fields = prm.get_integer("number");
-      AssertThrow(n_metric_fields <= max_metric_fields,
-                  ExcMessage(
-                    "More than " + std::to_string(max_metric_fields) +
-                    " metric fields are specified, which is not supported. To "
-                    "account for more metric fields, simply modifiy the "
-                    "hardcoded value for max_metric_fields."));
-      metric_fields.resize(n_metric_fields);
-      for (unsigned int i = 0; i < n_metric_fields; ++i)
-        metric_fields[i].read_parameters(prm, i);
-    }
-    prm.leave_subsection();
-  }
-
-  template struct MetricFields<2>;
-  template struct MetricFields<3>;
-
   void Debug::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Debug");
@@ -1349,6 +1449,3 @@ namespace Parameters
     prm.leave_subsection();
   }
 } // namespace Parameters
-
-#undef DECLARE_VERBOSITY_PARAM
-#undef READ_VERBOSITY_PARAM

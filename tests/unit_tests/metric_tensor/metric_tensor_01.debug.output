@@ -1,0 +1,60 @@
+
+DEAL::Metric tensor    : 1.000 0.000  0.000 1.000
+DEAL::Symmetric tensor: 
+DEAL::	3.000        2.000        
+DEAL::	2.000        4.000        
+DEAL::Metric tensor : 
+DEAL::	3.000        2.000        
+DEAL::	2.000        4.000        
+DEAL::Eigen matrix     : 
+DEAL::3.000 2.000
+2.000 4.000
+DEAL::Eigenvalues      : 1.438 5.562
+DEAL::Eigenvectors     : -0.7882 -0.6154  0.6154 -0.7882
+DEAL::determinant      : 8.000
+DEAL::Metric from decomposition : 
+DEAL::	3.000        2.000        
+DEAL::	2.000        4.000        
+DEAL::Symmetric tensor : 
+DEAL::	1.000        2.000        
+DEAL::	2.000        4.000        
+DEAL::ExcAssignFromNotSPD(oss.str(), determinant(t))
+DEAL::Metric tensor    : 
+DEAL::	3.000        2.000        
+DEAL::	2.000        4.000        
+DEAL::ExcAssignFromNotSPDArray()
+DEAL::OK
+DEAL::Metric tensor    : 
+DEAL::	1.000        0.000        0.000        
+DEAL::	0.000        1.000        0.000        
+DEAL::	0.000        0.000        1.000        
+DEAL::Symmetric tensor : 
+DEAL::	1.000        1.000        5.000        
+DEAL::	1.000        2.000        6.000        
+DEAL::	5.000        6.000        27.00        
+DEAL::Metric tensor    : 
+DEAL::	1.000        1.000        5.000        
+DEAL::	1.000        2.000        6.000        
+DEAL::	5.000        6.000        27.00        
+DEAL::Eigen matrix     : 
+DEAL::1.000 1.000 5.000
+1.000 2.000 6.000
+5.000 6.000 27.00
+DEAL::Eigenvalues      : 0.05138 0.6646 29.28
+DEAL::Eigenvectors     : 0.9598 0.2176 0.1774  0.1774 -0.9598 0.2176  -0.2176 0.1774 0.9598
+DEAL::determinant      : 1.000
+DEAL::Metric from decomposition : 
+DEAL::	1.000        1.000        5.000        
+DEAL::	1.000        2.000        6.000        
+DEAL::	5.000        6.000        27.00        
+DEAL::Symmetric tensor : 
+DEAL::	2.000        3.000        1.000        
+DEAL::	3.000        2.000        1.000        
+DEAL::	1.000        1.000        1.000        
+DEAL::ExcAssignFromNotSPD(oss.str(), determinant(t))
+DEAL::Metric tensor    : 
+DEAL::	1.000        1.000        5.000        
+DEAL::	1.000        2.000        6.000        
+DEAL::	5.000        6.000        27.00        
+DEAL::ExcAssignFromNotSPDArray()
+DEAL::OK

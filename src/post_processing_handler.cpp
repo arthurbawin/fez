@@ -14,6 +14,7 @@ PostProcessingHandler<dim>::PostProcessingHandler(
   , triangulation(triangulation)
   , dof_handler(dof_handler)
   , mpi_communicator(dof_handler.get_mpi_communicator())
+  , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
 {
   if (output_param.write_results || output_param.skin.write_results)
   {
@@ -57,13 +58,13 @@ void PostProcessingHandler<dim>::write_pvd() const
       "_convergence_step_" + std::to_string(mms_param.current_step) + ".pvd" :
       ".pvd";
 
-  if (output_param.write_results)
+  if (mpi_rank == 0 && output_param.write_results)
   {
     std::ofstream pvd_output(output_param.output_dir +
                              output_param.output_prefix + suffix);
     DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
   }
-  if (output_param.skin.write_results)
+  if (mpi_rank == 0 && output_param.skin.write_results)
   {
     std::ofstream pvd_output(output_param.output_dir +
                              output_param.skin.output_prefix + suffix);
@@ -166,12 +167,26 @@ void PostProcessingHandler<dim>::write_table(
   const TableHandler                                   &table,
   const Parameters::PostProcessing::PostProcessingBase &postproc_base) const
 {
-  const auto mpi_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
   if (mpi_rank == 0)
   {
     out << std::scientific << std::setprecision(postproc_base.precision);
     table.write_text(out);
   }
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::write_forces(std::ostream &out) const
+{
+  write_table(out, forces_table, post_proc_param.forces);
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::write_structure_mean_position(
+  std::ostream &out) const
+{
+  write_table(out,
+              structure_mean_position_table,
+              post_proc_param.structure_position);
 }
 
 template class PostProcessingHandler<2>;

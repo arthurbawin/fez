@@ -1,4 +1,5 @@
-# Adapted from the deal.II linux.yml workflow
+# Adapted from both the deal.II "linux.yml" and Lethe "debug.yml" workflow
+# Credit goes to their respective authors
 
 name: ci-debug
 
@@ -7,6 +8,10 @@ on:
     branches: [ master ]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   N_JOBS: 4
@@ -31,15 +36,23 @@ jobs:
           mkdir build && cd build
           cmake -D CMAKE_BUILD_TYPE=Debug \
                 -D ENABLE_TESTING=1 \
+                -D DEAL_II_WITH_HP_IDENTITIES_BUG=1 \
                 .. \
                 -G Ninja
           ninja -j ${{ env.N_JOBS }}
 
-      - name: Test debug
+      # Run the serial tests in parallel 
+      - name: Run serial tests in debug
         run: |
-          # As long as the hp identity issue is not "fixed" (assuming it is indeed a bug (-:),
-          # the hp-based solvers return a different number of dofs in 3D.
-          # For now the only affected test is for incompressible_ns_lambda, so do not run this test
-
           cd build
-          ctest -V -E "incompressible_ns_lambda/.*3d" --output-on-failure
+          # These tests may time out or require too much memory, and are not run:
+          # incompressible_ns_lambda/mms_3d
+          ctest -V --output-on-failure -E "(mpirun=[2-9]|incompressible_ns_lambda/mms_3d)" -j ${{ env.N_JOBS }}
+
+      # Run the parallel tests one at a time 
+      - name: Run parallel tests in debug
+        run: |
+          cd build
+          # These tests may time out or require too much memory, and are not run:
+          # incompressible_ns_lambda/steady_cylinder_3d.mpirun=6
+          ctest -V --output-on-failure -R "mpirun=[2-9]" -E "incompressible_ns_lambda/steady_cylinder_3d" -j 1

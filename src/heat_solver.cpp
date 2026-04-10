@@ -14,7 +14,10 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <mesh_adaptation_tools.h>
+#include <metric_field.h>
+#include <post_processing_handler.h>
 #include <post_processing_tools.h>
+#include <solver_info.h>
 #include <utilities.h>
 
 template <int dim>
@@ -25,16 +28,19 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
                                      param.mesh,
                                      param.time_integration,
                                      param.mms_param,
-                                     SolverType::main_physics)
+                                     SolverInfo::SolverType::main_physics)
+  , ordering(std::make_shared<ComponentOrderingHeat>())
   , param(param)
   , fe(FE_SimplexP<dim>(param.finite_elements.temperature_degree), 1)
   , quadrature(QGaussSimplex<dim>(4))
   , error_quadrature(QWitherdenVincentSimplex<dim>((dim == 2) ? 6 : 5))
   , face_quadrature(QGaussSimplex<dim - 1>(4))
   , error_face_quadrature(QWitherdenVincentSimplex<dim - 1>((dim == 2) ? 6 : 5))
-  , triangulation(mpi_communicator)
+  , triangulation(
+      std::make_unique<parallel::fullydistributed::Triangulation<dim>>(
+        mpi_communicator))
   , mapping(new MappingFE<dim>(FE_SimplexP<dim>(1)))
-  , dof_handler(triangulation)
+  , dof_handler(*triangulation)
   , time_handler(param.time_integration)
 {
   temperature_extractor = FEValuesExtractors::Scalar(0);
@@ -79,13 +85,16 @@ void HeatSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
 template <int dim>
 void HeatSolver<dim>::reset()
 {
-  param.mms_param.current_step = mms_param.current_step;
-  param.mms_param.mesh_suffix  = mms_param.mesh_suffix;
-  param.mesh.filename          = mesh_param.filename;
-  param.time_integration.dt    = time_param.dt;
+  param.mms_param        = mms_param;
+  param.mesh             = mesh_param;
+  param.time_integration = time_param;
+
+  // Clear list of files in pvd
+  if (postproc_handler)
+    postproc_handler->clear();
 
   // Mesh
-  triangulation.clear();
+  triangulation->clear();
 
   // Direct solver
   direct_solver_reuse =
@@ -107,10 +116,26 @@ void HeatSolver<dim>::set_time()
 }
 
 template <int dim>
+void HeatSolver<dim>::initialize()
+{
+  // Create the post-processing handler.
+  // This requires the description of the variable from the derived solvers,
+  // so I don't think this can be done in the constructor of the base class.
+  if (!postproc_handler)
+  {
+    const auto description = get_variables_description();
+    postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
+      param, *triangulation, dof_handler, description);
+  }
+  time_handler.validate_parameters(*ordering);
+}
+
+template <int dim>
 void HeatSolver<dim>::run()
 {
   reset();
-  read_mesh(triangulation, param);
+  initialize();
+  MeshTools::read_mesh(*triangulation, param);
   setup_dofs();
   create_zero_constraints();
   create_nonzero_constraints();
@@ -120,44 +145,44 @@ void HeatSolver<dim>::run()
 
   while (!time_handler.is_finished())
   {
-    time_handler.advance(pcout);
-    set_time();
-    update_boundary_conditions();
-
-    if (time_handler.is_starting_step() &&
-        param.time_integration.bdfstart ==
-          Parameters::TimeIntegration::BDFStart::initial_condition)
+    do
     {
-      if (param.mms_param.enable || param.debug.apply_exact_solution)
-        // Convergence study: start with exact solution at first time step
-        set_exact_solution();
-      else
-        // Repeat initial condition
-        set_initial_conditions();
-    }
-    else
-    {
-      if (param.debug.compare_analytical_jacobian_with_fd)
-        compare_analytical_matrix_with_fd();
+      time_handler.advance(pcout);
+      set_time();
+      update_boundary_conditions();
 
-      if (param.debug.apply_exact_solution)
-        set_exact_solution();
+      if (time_handler.is_starting_step() &&
+          param.time_integration.bdfstart ==
+            Parameters::TimeIntegration::BDFStart::initial_condition)
+      {
+        if (param.mms_param.enable || param.debug.apply_exact_solution)
+          // Convergence study: start with exact solution at first time step
+          set_exact_solution();
+        else
+          // Repeat initial condition
+          set_initial_conditions();
+      }
       else
-        solve_nonlinear_problem(false);
+      {
+        if (param.debug.compare_analytical_jacobian_with_fd)
+          compare_analytical_matrix_with_fd();
+
+        if (param.debug.apply_exact_solution)
+          set_exact_solution();
+        else
+          solve_nonlinear_problem(time_handler);
+      }
     }
+    while (
+      !time_handler.is_timestep_accepted(present_solution, previous_solutions));
 
     postprocess_solution();
-
-    if (!time_handler.is_steady())
-    {
-      // Rotate solutions
-      for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-        previous_solutions[j] = previous_solutions[j - 1];
-      previous_solutions[0] = present_solution;
-    }
+    time_handler.rotate_solutions(present_solution, previous_solutions);
   }
 
   adapt_mesh();
+
+  finalize();
 }
 
 template <int dim>
@@ -175,6 +200,14 @@ void HeatSolver<dim>::setup_dofs()
 
   locally_owned_dofs    = dof_handler.locally_owned_dofs();
   locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
+
+  // Setup the dofs_to_component vector
+  fill_dofs_to_component(dof_handler, locally_relevant_dofs, dofs_to_component);
+
+  // Attach data to time error estimator
+  time_handler.attach_data_to_error_estimator(*ordering,
+                                              locally_relevant_dofs,
+                                              dofs_to_component);
 
   // Initialize parallel vectors
   present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
@@ -198,7 +231,7 @@ void HeatSolver<dim>::setup_dofs()
     for (auto &[norm, handler] : error_handlers)
     {
       handler->add_reference_data("n_elm",
-                                  triangulation.n_global_active_cells());
+                                  triangulation->n_global_active_cells());
       handler->add_reference_data("n_dof", dof_handler.n_dofs());
       handler->add_time_step(time_handler.initial_dt);
     }
@@ -292,18 +325,14 @@ void HeatSolver<dim>::set_initial_conditions()
   present_solution = newton_update;
   evaluation_point = newton_update;
 
-  if (!time_handler.is_steady())
-  {
-    // Rotate solutions
-    for (unsigned int j = previous_solutions.size() - 1; j >= 1; --j)
-      previous_solutions[j] = previous_solutions[j - 1];
-    previous_solutions[0] = present_solution;
-  }
+  time_handler.rotate_solutions(present_solution, previous_solutions);
 }
 
 template <int dim>
 void HeatSolver<dim>::set_exact_solution()
 {
+  TimerOutput::Scope t(computing_timer, "Set exact solution");
+
   VectorTools::interpolate(*mapping,
                            dof_handler,
                            *exact_solution,
@@ -521,8 +550,7 @@ void HeatSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 }
 
 template <int dim>
-void HeatSolver<dim>::solve_linear_system(
-  const bool /*apply_inhomogeneous_constraints*/)
+void HeatSolver<dim>::solve_linear_system()
 {
   const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
 
@@ -564,56 +592,7 @@ template <int dim>
 void HeatSolver<dim>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
-
-  if (param.output.write_results)
-  {
-    std::vector<std::string> solution_names(1, "temperature");
-
-    std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      data_component_interpretation(
-        1, DataComponentInterpretation::component_is_scalar);
-
-    DataOut<dim> data_out;
-    data_out.attach_dof_handler(dof_handler);
-    data_out.add_data_vector(present_solution,
-                             solution_names,
-                             DataOut<dim>::type_dof_data,
-                             data_component_interpretation);
-    //
-    // Partition
-    //
-    Vector<float> subdomain(triangulation.n_active_cells());
-    for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = triangulation.locally_owned_subdomain();
-    data_out.add_data_vector(subdomain,
-                             "subdomain",
-                             DataOut<dim>::type_cell_data);
-
-    data_out.build_patches(*mapping, 2);
-
-    // Export regular time step
-    data_out.write_vtu_with_pvtu_record(param.output.output_dir,
-                                        param.output.output_prefix,
-                                        time_handler.current_time_iteration,
-                                        mpi_communicator,
-                                        2);
-
-    // Output results on prescribed boundary
-    PostProcessingTools::DataOutFacesOnBoundary<dim> data_out_boundary(
-      triangulation, 0);
-    data_out_boundary.attach_dof_handler(dof_handler);
-    data_out_boundary.add_data_vector(present_solution,
-                                      solution_names,
-                                      DataOutFaces<dim>::type_dof_data,
-                                      data_component_interpretation);
-    data_out_boundary.build_patches(*mapping, 2);
-    data_out_boundary.write_vtu_with_pvtu_record(
-      param.output.output_dir,
-      param.output.output_prefix + "_bdr",
-      time_handler.current_time_iteration,
-      mpi_communicator,
-      2);
-  }
+  postproc_handler->output_fields(*mapping, present_solution, time_handler);
 }
 
 template <int dim>
@@ -628,7 +607,7 @@ void HeatSolver<dim>::compute_and_add_errors(
   for (auto norm : param.mms_param.norms_to_compute)
   {
     const double err =
-      compute_error_norm<dim, LA::ParVectorType>(triangulation,
+      compute_error_norm<dim, LA::ParVectorType>(*triangulation,
                                                  mapping,
                                                  dof_handler,
                                                  present_solution,
@@ -646,14 +625,14 @@ void HeatSolver<dim>::compute_errors()
 {
   TimerOutput::Scope t(computing_timer, "Compute errors");
 
-  const unsigned int n_active_cells = triangulation.n_active_cells();
+  const unsigned int n_active_cells = triangulation->n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);
 
   if (time_handler.is_steady())
     for (auto norm : param.mms_param.norms_to_compute)
     {
       error_handlers.at(norm)->add_reference_data(
-        "n_elm", triangulation.n_global_active_cells());
+        "n_elm", triangulation->n_global_active_cells());
       error_handlers.at(norm)->add_reference_data("n_dof",
                                                   dof_handler.n_dofs());
     }
@@ -672,7 +651,7 @@ void HeatSolver<dim>::compute_recovery()
   TimerOutput::Scope t(computing_timer, "Compute recovery");
 
   ErrorEstimation::PatchHandler patch_handler(
-    triangulation,
+    *triangulation,
     *mapping,
     dof_handler,
     param.finite_elements.temperature_degree + 1,
@@ -688,40 +667,43 @@ void HeatSolver<dim>::postprocess_solution()
 {
   output_results();
 
-  if (param.mms_param.enable)
+  if (param.mms_param.enable && should_compute_errors())
     compute_errors();
 
   // compute_recovery();
 }
 
-#include <metric_field.h>
-
-template <int dim>
-class AnalyticalMetric : public TensorFunction<2, dim>
-{
-public:
-  AnalyticalMetric()
-    : TensorFunction<2, dim>()
-  {}
-
-  virtual Tensor<2, dim> value(const Point<dim> &p) const override
-  {
-    (void)p;
-    auto res  = unit_symmetric_tensor<dim>();
-    res[1][1] = 2;
-    res[0][1] = 1;
-    return res;
-  }
-};
-
 template <int dim>
 void HeatSolver<dim>::adapt_mesh()
 {
-  MetricField<dim> field(param, triangulation);
-  // field.set_metrics_from_function(AnalyticalMetric<dim>());
-  field.writeToVTU("my_metrics");
+  if (param.bc_data.n_metric_fields > 0)
+  {
+    computing_timer.enter_subsection("Create metric field");
+    MetricField<dim> field(0, param, *triangulation);
+    computing_timer.leave_subsection();
 
-  // adapt_mesh_mmg(param, triangulation);
+    computing_timer.enter_subsection("Compute optimal metric");
+    field.compute_optimal_multiscale_metric();
+    computing_timer.leave_subsection();
+
+    field.write_pvtu("metrics_before_gradation");
+
+    computing_timer.enter_subsection("Apply metric gradation");
+    field.apply_gradation();
+    computing_timer.leave_subsection();
+
+    field.write_pvtu("metrics_after_gradation");
+
+    computing_timer.enter_subsection("Adapt mesh with MMG");
+    MeshTools::adapt_with_mmg(param, *triangulation, field);
+    computing_timer.leave_subsection();
+  }
+}
+
+template <int dim>
+void HeatSolver<dim>::finalize()
+{
+  postproc_handler->write_pvd();
 }
 
 // Explicit instantiation

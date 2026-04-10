@@ -6,28 +6,24 @@
 #include <deal.II/base/parsed_function.h>
 #include <deal.II/numerics/vector_tools_common.h>
 #include <parsed_function_symengine.h>
+#include <solver_info.h>
 
-// TODO: maybe use magic_enum
-enum SolverType : unsigned int
-{
-  // One of the physics solvers : (in)compressible (CH)NS, FSI, etc.
-  main_physics = 0,
-  // Dedicated linear elasticity solver, mostly used to adapt the mesh
-  // to an initial source term.
-  linear_elasticity = 1
-};
+#define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
+  (prm).declare_entry("verbosity",                                             \
+                      std::string(default_verbosity),                          \
+                      Patterns::Selection("quiet|verbose"),                    \
+                      "Level of message display in console: quiet or verbose " \
+                      "(default: " +                                           \
+                        std::string(default_verbosity) + ")");
 
-inline SolverType get_solver_type(const std::string &solver_name)
-{
-  if (solver_name == "main physics")
-    return SolverType::main_physics;
-  else if (solver_name == "linear elasticity")
-    return SolverType::linear_elasticity;
-  else
-    AssertThrow(false,
-                dealii::StandardExceptions::ExcMessage(
-                  "The requested solver type does not exist : " + solver_name));
-}
+#define READ_VERBOSITY_PARAM(prm, verbosity)                     \
+  {                                                              \
+    const std::string parsed_verbosity = (prm).get("verbosity"); \
+    if (parsed_verbosity == "quiet")                             \
+      verbosity = Verbosity::quiet;                              \
+    if (parsed_verbosity == "verbose")                           \
+      verbosity = Verbosity::verbose;                            \
+  }
 
 /**
  * This namespace contains the parameters used to control the various
@@ -76,6 +72,9 @@ namespace Parameters
     unsigned int n_cahn_hilliard_bc = 0;
     unsigned int n_heat_bc          = 0;
 
+    // FIXME: This is not BC related, maybe move this in a dedicated entity
+    unsigned int n_metric_fields = 0;
+
     bool fix_pressure_constant;
     bool enforce_zero_mean_pressure;
 
@@ -85,6 +84,8 @@ namespace Parameters
 
   struct Mesh
   {
+    Verbosity verbosity;
+
     // Gmsh mesh file
     std::string filename;
 
@@ -97,7 +98,60 @@ namespace Parameters
     std::map<types::boundary_id, std::string> id2name;
     std::map<std::string, types::boundary_id> name2id;
 
-    Verbosity verbosity;
+    /**
+     * Parameters controlling the mesh adaptation procedure
+     */
+    struct Adaptation
+    {
+      Verbosity verbosity;
+
+      bool enable;
+
+      // Directory into which mesh adaptation-related files are written
+      std::string adapt_dir;
+
+      // Extension for the adapted meshes
+      std::string adapted_mesh_extension;
+
+      /**
+       * Available mesh adaptation strategies:
+       * - adaptation with a Riemannian metric, originating from one or more FE
+       * fields. For simplicial meshes only, as anisotropic metric-based meshing
+       * libraries exist only for simplicial meshes for now.
+       * - (not yet implemented:) hierarchical adaptation, using deal.II's
+       * routines and p4est. For quad/hex meshes only.
+       */
+      enum class Strategy
+      {
+        RiemannianMetric
+      } strategy;
+
+      /**
+       * Parameters for mesh adaptation with a Riemannian metric
+       */
+      struct Metric
+      {
+        /**
+         * Number of fixed point iterations to perform, to converge the
+         * mesh-solution pair. For steady simulations, this is the number of
+         * times the solver is run, and the mesh is adapted this number of
+         * times minus one. For unsteady simulations, this is the number of
+         * times the whole simulation is run, and the meshes are adapted on
+         * sub-intervals, this number of times minus one.
+         */
+        unsigned int n_fixed_point;
+
+        unsigned int current_fixed_point_iteration;
+
+        // Level of verbosity of the MMG library
+        unsigned int mmg_verbosity;
+
+        // For steady simulations, specify whether the solution should be
+        // transferred (projected) from the initial mesh to the adapted mesh.
+        bool transfer_solution;
+      } metric;
+
+    } adaptation;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -333,11 +387,11 @@ namespace Parameters
 
   struct TimeIntegration
   {
+    Verbosity verbosity;
+
     double dt;
     double t_initial;
     double t_end;
-    // unsigned int n_constant_timesteps; // To remove
-    Verbosity verbosity;
 
     enum class Scheme
     {
@@ -351,6 +405,52 @@ namespace Parameters
       BDF1,
       initial_condition
     } bdfstart;
+
+    // For BDF2 scheme using BDF1 a starting scheme, the BDF1 step is
+    // done with this value times the initial time step.
+    double bdf_starting_step_ratio;
+
+    struct Adaptation
+    {
+      Verbosity verbosity;
+
+      bool enable;
+
+      // Implemented strategies for time step adaptation:
+      // - adapt based on an estimate of the BDF truncation error
+      // - adapt based on the maximum CFL number (only for solvers with
+      //   a velocity variable)
+      enum class AdaptationStrategy
+      {
+        BDFTruncationError,
+        CFL
+      } strategy;
+
+      double max_timestep;
+      double min_timestep;
+      double max_timestep_increase;
+      double max_timestep_reduction;
+
+      // Parameters for adaptation based on BDF truncation error
+      std::map<SolverInfo::VariableType, double> target_error;
+      bool   reject_timestep_with_large_error;
+      double reject_error_factor;
+
+      // Parameters for adaptation based on CFL
+      double target_cfl;
+      bool   reject_timestep_with_large_cfl;
+      double reject_cfl_factor;
+
+      // FIXME: Both parameters below are currently unused:
+      // required_times because it is tricky to adjust or merge the time steps
+      // to reach the required times without considering corner cases, and
+      // compute_error_on_estimator because we may or may not want to compute
+      // the convergence of the error estimator w.r.t. the true error.
+
+      // Required times : the simulation must absolutely go through these
+      std::vector<double> required_times;
+      bool                compute_error_on_estimator;
+    } adaptation;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -479,6 +579,17 @@ namespace Parameters
     std::string convergence_file_prefix;
     bool        compute_rates_only_at_end;
 
+    // Print the errors for each time step in console
+    bool        print_unsteady_errors_to_console;
+    bool        print_unsteady_errors_to_file;
+    std::string unsteady_errors_file_prefix;
+
+    // For anisotropic mesh adaptation, the target number of vertices for the
+    // current convergence step
+    // FIXME: the GenericSolver should use the full parameters and modify the
+    // metric field parameters instead of duplicating this information
+    unsigned int n_target_vertices;
+
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {
       mesh_param.filename = mesh_prefix + std::to_string(index) + ".msh";
@@ -510,84 +621,6 @@ namespace Parameters
 
     bool compute_error_on_forces;
 
-    void declare_parameters(ParameterHandler &prm);
-    void read_parameters(ParameterHandler &prm);
-  };
-
-  /**
-   * A single metric tensor field for anisotropic mesh adaptation
-   */
-  template <int dim>
-  class MetricField
-  {
-  public:
-    Verbosity verbosity;
-
-    struct AnalyticalMetric
-    {
-      bool enable;
-
-      // The metric components are represented with a ParsedFunction, which
-      // supports automatic differentiation for the gradient.
-      // The Christoffel symbols require only the first metric derivatives, so
-      // this is enough for testing, but maybe we can switch to symbolic
-      // derivatives at some point if needed.
-      std::shared_ptr<Functions::ParsedFunction<dim>> callback;
-    } analytical_metric;
-
-    struct Gradation
-    {
-      bool enable;
-      // Prescribed gradation value (geometric size progression)
-      double gradation;
-      // Max number of passes when smoothing a metric field
-      unsigned int max_iterations;
-      // Tolerance : if the difference between any two metrics is lower than
-      // this value between two passes, stop smoothing.
-      double tolerance;
-      // Space in which a single metric spans a full metric field
-      enum class SpanningSpace
-      {
-        euclidean,
-        metric,
-        exp_metric
-      } spanning_space;
-    } gradation;
-
-  public:
-    MetricField()
-      : verbosity(Verbosity::verbose)
-    {
-      const unsigned n_metric_components = dim * (dim + 1) / 2;
-      analytical_metric.callback =
-        std::make_shared<Functions::ParsedFunction<dim>>(n_metric_components);
-    }
-
-    void set_time(const double newtime)
-    {
-      analytical_metric.callback->set_time(newtime);
-    }
-    void declare_parameters(ParameterHandler  &prm,
-                            const unsigned int index) const;
-    void read_parameters(ParameterHandler &prm, const unsigned int index);
-  };
-
-  template <int dim>
-  class MetricFields
-  {
-  public:
-    // For now, the maximum number of metric fields is hardcoded to 6,
-    // which is velocity, pressure, temperature and CHNS phase tracer in 3D
-    unsigned int                  max_metric_fields = 6;
-    unsigned int                  n_metric_fields;
-    std::vector<MetricField<dim>> metric_fields;
-
-  public:
-    void set_time(const double newtime)
-    {
-      for (auto &m : metric_fields)
-        m.set_time(newtime);
-    }
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };

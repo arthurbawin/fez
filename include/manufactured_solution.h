@@ -57,6 +57,7 @@ namespace ManufacturedSolutions
       exact_tracer->set_time(new_time);
       exact_potential->set_time(new_time);
       exact_temperature->set_time(new_time);
+      exact_lagrange_multiplier->set_time(new_time);
     }
 
     void declare_parameters(ParameterHandler &prm);
@@ -69,6 +70,7 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> exact_tracer;
     std::shared_ptr<MMSFunction<dim>> exact_potential;
     std::shared_ptr<MMSFunction<dim>> exact_temperature;
+    std::shared_ptr<MMSFunction<dim>> exact_lagrange_multiplier;
 
     std::map<std::string, std::shared_ptr<MMSFunction<dim>>> exact_solution;
 
@@ -76,12 +78,13 @@ namespace ManufacturedSolutions
     std::map<std::string, bool> set_field_as_solution;
 
   private:
-    PresetMMS preset_velocity_type      = PresetMMS::none;
-    PresetMMS preset_pressure_type      = PresetMMS::none;
-    PresetMMS preset_mesh_position_type = PresetMMS::none;
-    PresetMMS preset_tracer_type        = PresetMMS::none;
-    PresetMMS preset_potential_type     = PresetMMS::none;
-    PresetMMS preset_temperature_type   = PresetMMS::none;
+    PresetMMS preset_velocity_type            = PresetMMS::none;
+    PresetMMS preset_pressure_type            = PresetMMS::none;
+    PresetMMS preset_mesh_position_type       = PresetMMS::none;
+    PresetMMS preset_tracer_type              = PresetMMS::none;
+    PresetMMS preset_potential_type           = PresetMMS::none;
+    PresetMMS preset_temperature_type         = PresetMMS::none;
+    PresetMMS preset_lagrange_multiplier_type = PresetMMS::none;
   };
 
   /**
@@ -120,6 +123,9 @@ namespace ManufacturedSolutions
   class MMSFunction : public Function<dim>
   {
   public:
+    /**
+     * Constructor.
+     */
     MMSFunction(const unsigned int n_components,
                 const bool         ignore_time_derivative = false,
                 const bool         ignore_hessian         = false,
@@ -152,6 +158,42 @@ namespace ManufacturedSolutions
      */
     virtual double time_derivative(const Point<dim>  &p,
                                    const unsigned int component = 0) const = 0;
+
+    /**
+     * Time second derivative
+     */
+    virtual double time_second_derivative(const Point<dim> &,
+                                          const unsigned int) const
+    {
+      Assert(false, ExcPureFunctionCalled());
+      return 0.;
+    }
+
+    /**
+     * Time third derivative
+     */
+    virtual double time_third_derivative(const Point<dim> &,
+                                         const unsigned int) const
+    {
+      Assert(false, ExcPureFunctionCalled());
+      return 0.;
+    }
+
+    double time_derivative_of_order(const unsigned int order,
+                                    const Point<dim>  &p,
+                                    const unsigned int component = 0) const
+    {
+      if (order == 1)
+        return time_derivative(p, component);
+      else if (order == 2)
+        return time_second_derivative(p, component);
+      else if (order == 3)
+        return time_third_derivative(p, component);
+      else
+        DEAL_II_NOT_IMPLEMENTED();
+      return 0.;
+    }
+
     /**
      * Laplacian (deal.II override)
      */

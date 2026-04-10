@@ -1,4 +1,5 @@
 
+#include <assembly/boundary_forms.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -467,31 +468,17 @@ void NSSolver<dim>::assemble_local_rhs(
       const auto &face = cell->face(i_face);
       if (face->at_boundary())
       {
+        const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
+
         // Open boundary condition with prescribed manufactured solution
-        if (this->param.fluid_bc.at(scratchData.face_boundary_id[i_face])
-              .type == BoundaryConditions::Type::open_mms)
+        if (fluid_bc.type == BoundaryConditions::Type::open_mms)
         {
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-          {
-            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-            const auto  &n        = scratchData.face_normals_moving[i_face][q];
-
-            const auto &grad_u_exact =
-              scratchData.exact_face_velocity_gradients[i_face][q];
-            const double p_exact =
-              scratchData.exact_face_pressure_values[i_face][q];
-
-            // This is an open boundary condition, not a traction,
-            // involving only grad_u_exact and not the symmetric gradient.
-            const auto sigma_dot_n = -p_exact * n + nu * grad_u_exact * n;
-
-            const auto &phi_u_face = scratchData.phi_u_face[i_face][q];
-
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-            {
-              local_rhs(i) -= -phi_u_face[i] * sigma_dot_n * face_JxW;
-            }
-          }
+          Assembly::traction_boundary_mms_rhs(*this->ordering,
+                                              i_face,
+                                              nu,
+                                              scratchData,
+                                              local_rhs,
+                                              /* full_traction = */ false);
         }
       }
     }

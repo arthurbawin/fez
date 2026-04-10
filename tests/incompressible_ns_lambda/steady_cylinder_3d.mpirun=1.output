@@ -11,7 +11,6 @@ ID 5 -> Inlet
 ID 6 -> Outlet
 ID 7 -> Cylinder
 ID 8 -> Domain
-Number of degrees of freedom: 10377
 Newton iter.  0:          nonlinear residual = 1.19030409e+00
 Newton iter.  1:          nonlinear residual = 1.90478687e+00	(M)
 Newton iter.  2:          nonlinear residual = 1.01474411e-02	(M)

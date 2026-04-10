@@ -15,7 +15,7 @@ namespace Assembly
             typename MatrixType>
   inline void
   assemble_ns_matrix_stabilization(const ComponentOrdering &ordering,
-                                   const CouplingTableType &coupling_table,
+                                   const CouplingTableType & /*coupling_table*/,
                                    const ScratchData       &scratch,
                                    const double             nu,
                                    const double             bdf_c0,

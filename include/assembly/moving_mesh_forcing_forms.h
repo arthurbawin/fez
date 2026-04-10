@@ -194,6 +194,7 @@ namespace Assembly::MovingMeshForcing
                       phi_x_i *
                       (cahn_hilliard.mff_physics_compression_factor *
                        cahn_hilliard.epsilon_interface *
+                       scratch.tracer_values[q] *
                        transported_tracer_gradient);
                   }
 
@@ -232,7 +233,8 @@ namespace Assembly::MovingMeshForcing
                     phi_x_i *
                     (cahn_hilliard.mff_physics_compression_factor *
                      cahn_hilliard.epsilon_interface *
-                     scratch.grad_shape_phi[q][j]);
+                     (scratch.shape_phi[q][j] * scratch.tracer_gradients[q] +
+                      scratch.tracer_values[q] * scratch.grad_shape_phi[q][j]));
 
                 local_matrix(i, j) += local_ij * scratch.JxW_fixed[q];
               }

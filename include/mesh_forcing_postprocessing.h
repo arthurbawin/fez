@@ -16,9 +16,6 @@ namespace MeshForcingPostProcessing
     Tensor<1, dim> enlarged_alpha_components;
     Tensor<1, dim> physics_alpha_components;
     Tensor<1, dim> beta_components;
-    double         enlarged_alpha_norm = 0.;
-    double         physics_alpha_norm  = 0.;
-    double         beta_norm           = 0.;
   };
 
   template <int dim>
@@ -45,21 +42,11 @@ namespace MeshForcingPostProcessing
           PostProcessingTools::make_vector_component_names<dim>(
             "mesh_force_beta"),
           PostProcessingTools::make_vector_component_interpretation<dim>()))
-    {
-      const unsigned int n_active_cells = triangulation.n_active_cells();
-      enlarged_alpha_norm.reinit(n_active_cells);
-      physics_alpha_norm.reinit(n_active_cells);
-      beta_norm.reinit(n_active_cells);
-    }
+    {}
 
     void store(const CellIterator         &cell,
                const CellDiagnostics<dim> &diagnostics)
     {
-      const unsigned int cell_id = cell->active_cell_index();
-      enlarged_alpha_norm[cell_id] = diagnostics.enlarged_alpha_norm;
-      physics_alpha_norm[cell_id]  = diagnostics.physics_alpha_norm;
-      beta_norm[cell_id]           = diagnostics.beta_norm;
-
       enlarged_alpha->set_cell_values(cell,
                                       diagnostics.enlarged_alpha_components);
       physics_alpha->set_cell_values(cell,
@@ -69,20 +56,11 @@ namespace MeshForcingPostProcessing
 
     void write(PostProcessingHandler<dim> &postproc_handler)
     {
-      postproc_handler.add_cell_data_vector(enlarged_alpha_norm,
-                                            "mesh_force_enlarged_alpha_norm");
-      postproc_handler.add_cell_data_vector(physics_alpha_norm,
-                                            "mesh_force_physics_alpha_norm");
-      postproc_handler.add_cell_data_vector(beta_norm,
-                                            "mesh_force_beta_norm");
       postproc_handler.add_cell_dg0_data_field(std::move(enlarged_alpha));
       postproc_handler.add_cell_dg0_data_field(std::move(physics_alpha));
       postproc_handler.add_cell_dg0_data_field(std::move(beta));
     }
 
-    Vector<float> enlarged_alpha_norm;
-    Vector<float> physics_alpha_norm;
-    Vector<float> beta_norm;
     std::unique_ptr<PostProcessingTools::DG0DataField<dim>> enlarged_alpha;
     std::unique_ptr<PostProcessingTools::DG0DataField<dim>> physics_alpha;
     std::unique_ptr<PostProcessingTools::DG0DataField<dim>> beta;
@@ -156,9 +134,6 @@ namespace MeshForcingPostProcessing
       diagnostics.enlarged_alpha_components += enlarged_alpha * weight;
       diagnostics.physics_alpha_components += physics_alpha * weight;
       diagnostics.beta_components += enlarged_beta * weight;
-      diagnostics.enlarged_alpha_norm += enlarged_alpha.norm() * weight;
-      diagnostics.physics_alpha_norm += physics_alpha.norm() * weight;
-      diagnostics.beta_norm += enlarged_beta.norm() * weight;
       cell_measure += weight;
     }
 
@@ -167,9 +142,6 @@ namespace MeshForcingPostProcessing
       diagnostics.enlarged_alpha_components /= cell_measure;
       diagnostics.physics_alpha_components /= cell_measure;
       diagnostics.beta_components /= cell_measure;
-      diagnostics.enlarged_alpha_norm /= cell_measure;
-      diagnostics.physics_alpha_norm /= cell_measure;
-      diagnostics.beta_norm /= cell_measure;
     }
 
     return diagnostics;

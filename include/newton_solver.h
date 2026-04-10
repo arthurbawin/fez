@@ -181,9 +181,10 @@ public:
             break;
           }
 
-          // If residual increased, backtrack and exit
-          // Do not reject first iteration
-          if (norm_ls_residual > best_ls_residual && ls_iter > 0)
+          // If the residual starts increasing again after having found a
+          // better step, stop exploring smaller alphas and continue Newton
+          // from the best point found so far.
+          if (best_alpha > 0. && norm_ls_residual > best_ls_residual)
           {
             if (verbose)
               solver->pcout << "\tRejecting last step and backtracking"

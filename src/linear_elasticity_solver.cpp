@@ -636,7 +636,6 @@ void LinearElasticitySolver<dim>::compute_cell_average_strain(
   strain_tensors.assign(n_active_cells, SymmetricTensor<2, dim>());
   strain_trace.reinit(n_active_cells);
 
-  unsigned int cell_index = 0;
   for (const auto &cell : dof_handler.active_cell_iterators())
   {
     if (cell->is_locally_owned() || cell->is_ghost())
@@ -654,11 +653,10 @@ void LinearElasticitySolver<dim>::compute_cell_average_strain(
 
       eps_avg /= measure;
 
-      strain_tensors[cell_index] = eps_avg;
-      strain_trace(cell_index) = trace(eps_avg);
+      const unsigned int idx        = cell->active_cell_index();
+      strain_tensors[idx]           = eps_avg;
+      strain_trace(idx)             = trace(eps_avg);
     }
-
-    ++cell_index;
   }
 }
 
@@ -697,7 +695,7 @@ void LinearElasticitySolver<dim>::output_results()
       PostProcessingTools::make_tensor_component_names<dim>("strain"),
       PostProcessingTools::make_tensor_component_interpretation<dim>());
 
-    for (const auto &cell : dof_handler.active_cell_iterators())
+    for (const auto &cell : strain_field.get_dof_handler().active_cell_iterators())
       if (cell->is_locally_owned() || cell->is_ghost())
         strain_field.set_cell_values(cell,
                                      strain_tensors[cell->active_cell_index()]);

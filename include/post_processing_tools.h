@@ -261,6 +261,10 @@ namespace PostProcessingTools
     std::vector<std::string>            component_names;
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
       component_interpretation;
+    // Lookup table: active_cell_index -> DG0 global DOF indices.
+    // Built once at construction so set_cell_values works correctly regardless
+    // of which DoFHandler the caller's cell iterator comes from.
+    std::vector<std::vector<types::global_dof_index>> cell_to_dof_indices;
   };
 
   template <int dim>
@@ -310,6 +314,16 @@ PostProcessingTools::DG0DataField<dim>::DG0DataField(
 
   dof_handler.distribute_dofs(*fe);
   data.reinit(dof_handler.n_dofs());
+
+  // Build lookup table: active_cell_index -> DG0 DOF indices.
+  cell_to_dof_indices.resize(triangulation.n_active_cells());
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned() || cell->is_ghost())
+    {
+      std::vector<types::global_dof_index> indices(fe->n_dofs_per_cell());
+      cell->get_dof_indices(indices);
+      cell_to_dof_indices[cell->active_cell_index()] = std::move(indices);
+    }
 }
 
 template <int dim>
@@ -320,8 +334,10 @@ PostProcessingTools::DG0DataField<dim>::set_cell_values(
 {
   AssertDimension(values.size(), component_names.size());
 
-  std::vector<types::global_dof_index> local_dof_indices(fe->n_dofs_per_cell());
-  cell->get_dof_indices(local_dof_indices);
+  // Use the pre-built table so this works regardless of which DoFHandler
+  // the caller's cell iterator is associated with.
+  const auto &local_dof_indices =
+    cell_to_dof_indices[cell->active_cell_index()];
 
   for (unsigned int c = 0; c < values.size(); ++c)
     data[local_dof_indices[c]] = values[c];

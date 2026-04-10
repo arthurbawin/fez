@@ -2,6 +2,7 @@
 #define NEWTON_SOLVER_H
 
 #include <cmath>
+#include <limits>
 
 /**
  * This structure and solve function are borrowed from the Lethe project.
@@ -119,12 +120,14 @@ public:
 
       if (this->param.enable_line_search)
       {
-        double norm_ls_residual = norm_residual;
-        double best_ls_residual = norm_residual;
-        double best_alpha       = 0.;
-        bool   accepted_step    = false;
-        last_residual           = norm_residual;
-        unsigned int ls_iter    = 0;
+        double       norm_ls_residual;
+        double       last_ls_residual = last_residual; // fixed reference: pre-Newton residual (Armijo)
+        double       prev_ls_residual = last_residual; // sliding: previous alpha's residual (backtrack)
+        double       best_ls_residual = std::numeric_limits<double>::infinity();
+        double       best_alpha       = 0.;
+        bool         accepted_step    = false;
+        last_residual                 = norm_residual;
+        unsigned int ls_iter          = 0;
 
         for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
         {
@@ -144,10 +147,11 @@ public:
                           << " : res = " << norm_ls_residual << std::endl;
           }
 
-          // Reject non-finite residuals and keep searching with a smaller step.
+          // Skip non-finite residuals and continue with a smaller step.
           if (!std::isfinite(norm_ls_residual))
             continue;
 
+          // Track the best finite residual across all alphas.
           if (norm_ls_residual < best_ls_residual)
           {
             best_ls_residual = norm_ls_residual;
@@ -162,6 +166,7 @@ public:
                                "prescribed tolerance ("
                             << std::setprecision(2) << this->param.tolerance
                             << ")" << std::endl;
+            // last_residual = norm_ls_residual;
             recompute_rhs  = false;
             norm_residual  = norm_ls_residual;
             accepted_step  = true;
@@ -170,52 +175,70 @@ public:
             break;
           }
 
-          // Accept step if an Armijo-like sufficient condition is satisfied,
-          // exit line search and continue Newton iterations.
-          if (norm_ls_residual <= 0.1 * norm_residual)
+          // Accept step if Armijo sufficient decrease condition is satisfied.
+          // last_ls_residual is fixed at the pre-Newton residual (not updated).
+          if (norm_ls_residual <= 0.1 * last_ls_residual)
           {
             // RHS was just computed, no need to recompute
             recompute_rhs = false;
+            // last_residual = norm_ls_residual;
             norm_residual = norm_ls_residual;
             accepted_step = true;
             break;
           }
 
-          // If the residual starts increasing again after having found a
-          // better step, stop exploring smaller alphas and continue Newton
-          // from the best point found so far.
-          if (best_alpha > 0. && norm_ls_residual > best_ls_residual)
+          // If residual increased w.r.t. the previous finite alpha, backtrack
+          // to that alpha (already recorded in best_alpha). Skip first iter.
+          if (norm_ls_residual > prev_ls_residual && ls_iter > 0)
           {
             if (verbose)
               solver->pcout << "\tRejecting last step and backtracking"
                             << std::endl;
+            solver->local_evaluation_point = solver->present_solution;
+            solver->local_evaluation_point.add(best_alpha,
+                                               solver->newton_update);
+            solver->distribute_nonzero_constraints();
+            solver->evaluation_point = solver->local_evaluation_point;
+            norm_residual             = best_ls_residual;
+            recompute_rhs             = true;
+            accepted_step             = true;
             break;
           }
+
+          // Residual decreased but Armijo not yet satisfied: continue with
+          // smaller alpha.
+          prev_ls_residual = norm_ls_residual;
         }
 
-        if (!stop && !accepted_step && best_alpha > 0.)
+        // Armijo was never satisfied: fall back on the best finite alpha if
+        // any, or reject the time step if all residuals were non-finite.
+        if (!stop && !accepted_step)
         {
-          solver->local_evaluation_point = solver->present_solution;
-          solver->local_evaluation_point.add(best_alpha, solver->newton_update);
-          solver->distribute_nonzero_constraints();
-          solver->evaluation_point = solver->local_evaluation_point;
-          norm_residual            = best_ls_residual;
-          recompute_rhs            = true;
-          accepted_step            = true;
+          if (best_alpha > 0.)
+          {
+            solver->local_evaluation_point = solver->present_solution;
+            solver->local_evaluation_point.add(best_alpha,
+                                               solver->newton_update);
+            solver->distribute_nonzero_constraints();
+            solver->evaluation_point = solver->local_evaluation_point;
+            norm_residual            = best_ls_residual;
+            recompute_rhs            = true;
+            accepted_step            = true;
+          }
+          else
+          {
+            if (verbose)
+              solver->pcout << "\tLine search failed: all residuals "
+                               "non-finite, rejecting step"
+                            << std::endl;
+            solver->evaluation_point = solver->present_solution;
+            stop                     = true;
+          }
         }
 
         if (!stop && accepted_step)
           // Update present solution for the next Newton iteration
           solver->present_solution = solver->evaluation_point;
-        else if (!stop)
-        {
-          if (verbose)
-            solver->pcout << "\tLine search failed to find an acceptable "
-                             "step"
-                          << std::endl;
-          solver->evaluation_point = solver->present_solution;
-          stop                     = true;
-        }
       }
       else
       {

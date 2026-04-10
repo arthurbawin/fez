@@ -326,6 +326,11 @@ namespace ManufacturedSolutions
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
+      prm.enter_subsection("exact lagrange multiplier");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
+      dummy_scalar_fun->declare_parameters(prm, dim);
+      declare_preset_manufactured_solutions<dim>(prm);
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -346,6 +351,7 @@ namespace ManufacturedSolutions
     auto sym_potential     = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_psi           = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_temperature   = std::make_shared<ParsedFunctionSDBase<dim>>(1);
+    auto sym_multiplier    = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
 
     std::shared_ptr<MMSFunction<dim>> preset_velocity;
     std::shared_ptr<MMSFunction<dim>> preset_pressure;
@@ -354,6 +360,7 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> preset_potential;
     std::shared_ptr<MMSFunction<dim>> preset_psi;
     std::shared_ptr<MMSFunction<dim>> preset_temperature;
+    std::shared_ptr<MMSFunction<dim>> preset_multiplier;
 
     prm.enter_subsection("Exact solution");
     {
@@ -404,6 +411,13 @@ namespace ManufacturedSolutions
                                          preset_temperature_type,
                                          preset_temperature);
       prm.leave_subsection();
+      prm.enter_subsection("exact lagrange multiplier");
+      set_field_as_solution["lambda"] = prm.get_bool("as solution");
+      sym_multiplier->parse_parameters(prm);
+      parse_preset_manufactured_solution(prm,
+                                         preset_lagrange_multiplier_type,
+                                         preset_multiplier);
+      prm.leave_subsection();
     }
     prm.leave_subsection();
 
@@ -427,6 +441,9 @@ namespace ManufacturedSolutions
     exact_temperature = (preset_temperature_type == PresetMMS::none) ?
                           sym_temperature :
                           preset_temperature;
+    exact_lagrange_multiplier =
+      (preset_lagrange_multiplier_type == PresetMMS::none) ? sym_multiplier :
+                                                             preset_multiplier;
 
     exact_solution["velocity"]      = exact_velocity;
     exact_solution["pressure"]      = exact_pressure;
@@ -435,6 +452,7 @@ namespace ManufacturedSolutions
     exact_solution["potential"]     = exact_potential;
     exact_solution["psi"]           = exact_psi;
     exact_solution["temperature"]   = exact_temperature;
+    exact_solution["lambda"]        = exact_lagrange_multiplier;
   }
 
   // Explicit instantiation

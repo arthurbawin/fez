@@ -284,6 +284,7 @@ private:
   const Triangulation<dim> &triangulation;
   const DoFHandler<dim>    &dof_handler;
   MPI_Comm                  mpi_communicator;
+  const unsigned int        mpi_rank;
 
   std::unique_ptr<DataOut<dim>> data_out;
   std::unique_ptr<PostProcessingTools::DataOutFacesOnBoundary<dim>>
@@ -379,6 +380,10 @@ void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
   // Export fields on prescribed boundary (skin)
   if (should_output_skin_fields(time_handler))
     output_skin_fields(mapping, solution, time_handler);
+
+  if (mpi_rank == 0 && (should_output_volume_fields(time_handler) ||
+                        should_output_skin_fields(time_handler)))
+    write_pvd();
 }
 
 template <int dim>
@@ -527,7 +532,6 @@ void PostProcessingHandler<dim>::compute_forces(
       DEAL_II_NOT_IMPLEMENTED();
   }
 
-  const auto mpi_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
   if (forces_param.verbosity == Parameters::Verbosity::verbose && mpi_rank == 0)
   {
     std::ios::fmtflags old_flags     = std::cout.flags();
@@ -548,7 +552,7 @@ void PostProcessingHandler<dim>::compute_forces(
   // Add forces to forces table and write if time step matches frequency
   {
     add_force_to_table(forces, time_handler, forces_table);
-    if (should_output_forces(time_handler))
+    if (mpi_rank == 0 && should_output_forces(time_handler))
     {
       std::ofstream outfile(output_param.output_dir +
                             post_proc_param.forces.output_prefix + ".txt");
@@ -606,7 +610,8 @@ void PostProcessingHandler<dim>::compute_forces(
     }
 
     // Write to file
-    if (should_output_postprocessing(time_handler, slices_param))
+    if (mpi_rank == 0 &&
+        should_output_postprocessing(time_handler, slices_param))
     {
       std::ofstream slices_outfile(output_param.output_dir +
                                    post_proc_param.forces.output_prefix + "_" +
@@ -656,7 +661,6 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
       position_extractor);
 
   const auto &position_param = post_proc_param.structure_position;
-  const auto  mpi_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
   if (position_param.verbosity == Parameters::Verbosity::verbose &&
       mpi_rank == 0)
   {
@@ -679,7 +683,7 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
   add_position_to_table(mean_position,
                         time_handler,
                         structure_mean_position_table);
-  if (should_output_mean_position(time_handler))
+  if (mpi_rank == 0 && should_output_mean_position(time_handler))
   {
     std::ofstream outfile(output_param.output_dir +
                           post_proc_param.structure_position.output_prefix +

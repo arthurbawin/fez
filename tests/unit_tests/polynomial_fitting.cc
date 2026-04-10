@@ -58,7 +58,7 @@ void test_fitting(const unsigned int field_polynomial_degree)
 
   parallel::fullydistributed::Triangulation<dim> triangulation(
     mpi_communicator);
-  read_mesh(triangulation, param);
+  MeshTools::read_mesh(triangulation, param);
   DoFHandler<dim> dof_handler(triangulation);
   dof_handler.distribute_dofs(fe);
 

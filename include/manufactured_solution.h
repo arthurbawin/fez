@@ -58,6 +58,7 @@ namespace ManufacturedSolutions
       exact_potential->set_time(new_time);
       exact_psi->set_time(new_time);
       exact_temperature->set_time(new_time);
+      exact_lagrange_multiplier->set_time(new_time);
     }
 
     void declare_parameters(ParameterHandler &prm);
@@ -71,6 +72,7 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> exact_potential;
     std::shared_ptr<MMSFunction<dim>> exact_psi;
     std::shared_ptr<MMSFunction<dim>> exact_temperature;
+    std::shared_ptr<MMSFunction<dim>> exact_lagrange_multiplier;
 
     std::map<std::string, std::shared_ptr<MMSFunction<dim>>> exact_solution;
 
@@ -85,6 +87,7 @@ namespace ManufacturedSolutions
     PresetMMS preset_potential_type     = PresetMMS::none;
     PresetMMS preset_psi_type           = PresetMMS::none;
     PresetMMS preset_temperature_type   = PresetMMS::none;
+    PresetMMS preset_lagrange_multiplier_type = PresetMMS::none;
   };
 
   /**
@@ -162,9 +165,8 @@ namespace ManufacturedSolutions
     /**
      * Time second derivative
      */
-    virtual double
-    time_second_derivative(const Point<dim>  &p,
-                           const unsigned int component = 0) const
+    virtual double time_second_derivative(const Point<dim> &,
+                                          const unsigned int) const
     {
       Assert(false, ExcPureFunctionCalled());
       return 0.;
@@ -173,8 +175,8 @@ namespace ManufacturedSolutions
     /**
      * Time third derivative
      */
-    virtual double time_third_derivative(const Point<dim>  &p,
-                                         const unsigned int component = 0) const
+    virtual double time_third_derivative(const Point<dim> &,
+                                         const unsigned int) const
     {
       Assert(false, ExcPureFunctionCalled());
       return 0.;

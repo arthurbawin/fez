@@ -7,6 +7,7 @@
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/grid/grid_tools.h>
 
+#include "mesh_and_dof_tools.h"
 #include "utilities.h"
 
 namespace ErrorEstimation
@@ -24,32 +25,12 @@ namespace ErrorEstimation
     , mpi_communicator(triangulation.get_mpi_communicator())
     , subdomain_id(Utilities::MPI::this_mpi_process(mpi_communicator))
     , n_vertices(triangulation.n_vertices())
-    , owned_vertices(n_vertices, false)
     , patches(n_vertices)
   {
-    {
-      /**
-       * GridTools::get_locally_owned_vertices(triangulation) provides mesh
-       * vertices with multiple owners at the boundary of a partition, which is
-       * not what we want. Re-create the owned vector here.
-       */
-      // Start by marking all cells touching an owned cell as owned
-      for (const auto &cell : triangulation.active_cell_iterators())
-        if (cell->is_locally_owned())
-          for (const unsigned int v : cell->vertex_indices())
-            owned_vertices[cell->vertex_index(v)] = true;
-      // If a ghost cell with lesser id touches a vertex, mark it non-owned
-      for (const auto &cell : triangulation.active_cell_iterators())
-        if (cell->is_artificial() ||
-            (cell->is_ghost() && cell->subdomain_id() < subdomain_id))
-          for (const unsigned int v : cell->vertex_indices())
-            owned_vertices[cell->vertex_index(v)] = false;
-      // This leaves out vertices touching ONLY ghost-cells,
-      // which would be marked as owned with
-      // GridTools::get_locally_owned_vertices
-      n_owned_vertices =
-        std::count(owned_vertices.begin(), owned_vertices.end(), true);
-    }
+    // Mark the locally owned mesh vertices
+    get_owned_mesh_vertices(triangulation, subdomain_id, owned_vertices);
+    n_owned_vertices =
+      std::count(owned_vertices.begin(), owned_vertices.end(), true);
 
     relevant_dofs_support_points =
       DoFTools::map_dofs_to_support_points(mapping, dof_handler, mask);

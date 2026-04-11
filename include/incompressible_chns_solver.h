@@ -1,6 +1,7 @@
 #ifndef INCOMPRESSIBLE_CHNS_SOLVER_H
 #define INCOMPRESSIBLE_CHNS_SOLVER_H
 
+#include <chns_enlarged_ops.h>
 #include <copy_data.h>
 #include <deal.II/fe/fe_values_extractors.h>
 #include <navier_stokes_solver.h>
@@ -12,12 +13,18 @@ using namespace dealii;
  * Quasi-incompressible Cahn-Hilliard Navier-Stokes solver.
  * TODO: Add equations.
  */
-template <int dim, bool with_moving_mesh = false>
+template <int dim,
+          bool with_moving_mesh = false,
+          bool with_enlarged    = false>
 class CHNSSolver : public NavierStokesSolver<dim, with_moving_mesh>
 {
-  using ScratchData = ScratchDataCHNS<dim, with_moving_mesh>;
+  using ScratchData = ScratchDataCHNS<dim, with_moving_mesh, with_enlarged>;
 
 public:
+  static_assert(with_moving_mesh || !with_enlarged,
+                "The enlarged CHNS scaffold is only supported with ALE for "
+                "now.");
+
   /**
    * Constructor
    */
@@ -106,6 +113,10 @@ protected:
     std::vector<std::pair<std::string, unsigned int>> description;
     description.push_back({"tracer", 1});
     description.push_back({"potential", 1});
+    CHNSEnlargedOps<dim,
+                    with_moving_mesh,
+                    with_enlarged>::extend_additional_variables_description(
+      description);
     return description;
   }
 
@@ -113,16 +124,22 @@ protected:
 
   virtual bool uses_hp_capabilities() const override { return false; };
 
+  virtual void add_solver_specific_postprocessing_data() override;
+
 protected:
   std::shared_ptr<FESystem<dim>> fe;
 
-  static constexpr ConstexprComponentOrderingCHNS<dim, with_moving_mesh>
+  static constexpr ConstexprComponentOrderingCHNS<dim,
+                                                  with_moving_mesh,
+                                                  with_enlarged>
     const_ordering = {};
 
   FEValuesExtractors::Scalar tracer_extractor;
   FEValuesExtractors::Scalar potential_extractor;
+  FEValuesExtractors::Scalar psi_extractor;
   ComponentMask              tracer_mask;
   ComponentMask              potential_mask;
+  ComponentMask              psi_mask;
 
 protected:
   /**
@@ -159,6 +176,8 @@ protected:
       values[ordering.phi_lower] =
         source_terms.cahnhilliard_source->value(p, 0);
       values[ordering.mu_lower] = source_terms.cahnhilliard_source->value(p, 1);
+      if constexpr (with_enlarged)
+        values[ordering.psi_lower] = 0.;
     }
 
   protected:
@@ -184,6 +203,7 @@ protected:
       , x_lower(ordering.x_lower)
       , phi_lower(ordering.phi_lower)
       , mu_lower(ordering.mu_lower)
+      , psi_lower(ordering.psi_lower)
       , mms(mms)
     {}
 
@@ -213,8 +233,14 @@ protected:
         return mms.exact_tracer->value(p);
       else if (ordering.is_potential(component))
         return mms.exact_potential->value(p);
-      else
-        DEAL_II_ASSERT_UNREACHABLE();
+      else if constexpr (with_enlarged)
+      {
+        if (ordering.is_psi(component))
+          return mms.exact_psi->value(p);
+      }
+
+      DEAL_II_ASSERT_UNREACHABLE();
+      return 0.;
     }
 
     virtual void vector_value(const Point<dim> &p,
@@ -230,6 +256,8 @@ protected:
       values[p_lower]   = mms.exact_pressure->value(p);
       values[phi_lower] = mms.exact_tracer->value(p);
       values[mu_lower]  = mms.exact_potential->value(p);
+      if constexpr (with_enlarged)
+        values[ordering.psi_lower] = mms.exact_psi->value(p);
     }
 
     /**
@@ -253,8 +281,14 @@ protected:
         return mms.exact_tracer->gradient(p);
       else if (ordering.is_potential(component))
         return mms.exact_potential->gradient(p);
-      else
-        DEAL_II_ASSERT_UNREACHABLE();
+      else if constexpr (with_enlarged)
+      {
+        if (ordering.is_psi(component))
+          return mms.exact_psi->gradient(p);
+      }
+
+      DEAL_II_ASSERT_UNREACHABLE();
+      return Tensor<1, dim>();
     }
 
     virtual void
@@ -272,6 +306,8 @@ protected:
       gradients[p_lower]   = mms.exact_pressure->gradient(p);
       gradients[phi_lower] = mms.exact_tracer->gradient(p);
       gradients[mu_lower]  = mms.exact_potential->gradient(p);
+      if constexpr (with_enlarged)
+        gradients[ordering.psi_lower] = mms.exact_psi->gradient(p);
     }
 
   protected:
@@ -282,6 +318,7 @@ protected:
     const unsigned int                               x_lower;
     const unsigned int                               phi_lower;
     const unsigned int                               mu_lower;
+    const unsigned int                               psi_lower;
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
 
@@ -303,6 +340,7 @@ protected:
       , x_lower(ordering.x_lower)
       , phi_lower(ordering.phi_lower)
       , mu_lower(ordering.mu_lower)
+      , psi_lower(ordering.psi_lower)
       , physical_properties(param.physical_properties)
       , cahn_hilliard_param(param.cahn_hilliard)
       , mms(param.mms)
@@ -324,6 +362,7 @@ protected:
     const unsigned int                               x_lower;
     const unsigned int                               phi_lower;
     const unsigned int                               mu_lower;
+    const unsigned int                               psi_lower;
     const Parameters::PhysicalProperties<dim>       &physical_properties;
     const Parameters::CahnHilliard<dim>             &cahn_hilliard_param;
     ManufacturedSolutions::ManufacturedSolution<dim> mms;

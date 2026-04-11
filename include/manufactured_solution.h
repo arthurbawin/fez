@@ -56,6 +56,7 @@ namespace ManufacturedSolutions
       exact_mesh_position->set_time(new_time);
       exact_tracer->set_time(new_time);
       exact_potential->set_time(new_time);
+      exact_psi->set_time(new_time);
       exact_temperature->set_time(new_time);
       exact_lagrange_multiplier->set_time(new_time);
     }
@@ -69,6 +70,7 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> exact_mesh_position;
     std::shared_ptr<MMSFunction<dim>> exact_tracer;
     std::shared_ptr<MMSFunction<dim>> exact_potential;
+    std::shared_ptr<MMSFunction<dim>> exact_psi;
     std::shared_ptr<MMSFunction<dim>> exact_temperature;
     std::shared_ptr<MMSFunction<dim>> exact_lagrange_multiplier;
 
@@ -78,12 +80,13 @@ namespace ManufacturedSolutions
     std::map<std::string, bool> set_field_as_solution;
 
   private:
-    PresetMMS preset_velocity_type            = PresetMMS::none;
-    PresetMMS preset_pressure_type            = PresetMMS::none;
-    PresetMMS preset_mesh_position_type       = PresetMMS::none;
-    PresetMMS preset_tracer_type              = PresetMMS::none;
-    PresetMMS preset_potential_type           = PresetMMS::none;
-    PresetMMS preset_temperature_type         = PresetMMS::none;
+    PresetMMS preset_velocity_type      = PresetMMS::none;
+    PresetMMS preset_pressure_type      = PresetMMS::none;
+    PresetMMS preset_mesh_position_type = PresetMMS::none;
+    PresetMMS preset_tracer_type        = PresetMMS::none;
+    PresetMMS preset_potential_type     = PresetMMS::none;
+    PresetMMS preset_psi_type           = PresetMMS::none;
+    PresetMMS preset_temperature_type   = PresetMMS::none;
     PresetMMS preset_lagrange_multiplier_type = PresetMMS::none;
   };
 
@@ -310,6 +313,15 @@ namespace ManufacturedSolutions
      */
     virtual Tensor<1, dim>
     divergence_linear_elastic_stress_variable_coefficients(
+      const Point<dim>                          &p,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
+
+    /**
+     * First Piola-Kirchhoff stress:
+     * P = mu * (F - F^{-T}) + lambda * ln(det(F)) * F^{-T}.
+     */
+    virtual Tensor<1, dim> divergence_neo_hookean_stress_variable_coefficients(
       const Point<dim>                          &p,
       std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
       std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;

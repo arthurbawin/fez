@@ -5,6 +5,8 @@
 #include <preset_mms.h>
 #include <utilities.h>
 
+#include <cmath>
+
 namespace ManufacturedSolutions
 {
   /**
@@ -314,6 +316,11 @@ namespace ManufacturedSolutions
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
+      prm.enter_subsection("exact enlarged psi");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
+      dummy_scalar_fun->declare_parameters(prm, 1);
+      declare_preset_manufactured_solutions<dim>(prm);
+      prm.leave_subsection();
       prm.enter_subsection("exact temperature");
       prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
@@ -342,6 +349,7 @@ namespace ManufacturedSolutions
     auto sym_mesh_position = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
     auto sym_tracer        = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_potential     = std::make_shared<ParsedFunctionSDBase<dim>>(1);
+    auto sym_psi           = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_temperature   = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_multiplier    = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
 
@@ -350,6 +358,7 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> preset_mesh_position;
     std::shared_ptr<MMSFunction<dim>> preset_tracer;
     std::shared_ptr<MMSFunction<dim>> preset_potential;
+    std::shared_ptr<MMSFunction<dim>> preset_psi;
     std::shared_ptr<MMSFunction<dim>> preset_temperature;
     std::shared_ptr<MMSFunction<dim>> preset_multiplier;
 
@@ -390,6 +399,11 @@ namespace ManufacturedSolutions
                                          preset_potential_type,
                                          preset_potential);
       prm.leave_subsection();
+      prm.enter_subsection("exact enlarged psi");
+      set_field_as_solution["psi"] = prm.get_bool("as solution");
+      sym_psi->parse_parameters(prm);
+      parse_preset_manufactured_solution(prm, preset_psi_type, preset_psi);
+      prm.leave_subsection();
       prm.enter_subsection("exact temperature");
       set_field_as_solution["temperature"] = prm.get_bool("as solution");
       sym_temperature->parse_parameters(prm);
@@ -422,6 +436,8 @@ namespace ManufacturedSolutions
     exact_potential   = (preset_potential_type == PresetMMS::none) ?
                           sym_potential :
                           preset_potential;
+    exact_psi         =
+      (preset_psi_type == PresetMMS::none) ? sym_psi : preset_psi;
     exact_temperature = (preset_temperature_type == PresetMMS::none) ?
                           sym_temperature :
                           preset_temperature;
@@ -434,6 +450,7 @@ namespace ManufacturedSolutions
     exact_solution["mesh position"] = exact_mesh_position;
     exact_solution["tracer"]        = exact_tracer;
     exact_solution["potential"]     = exact_potential;
+    exact_solution["psi"]           = exact_psi;
     exact_solution["temperature"]   = exact_temperature;
     exact_solution["lambda"]        = exact_lagrange_multiplier;
   }
@@ -462,6 +479,57 @@ namespace ManufacturedSolutions
 
     return 2. * (mu * div_strain + grad_mu * strain) + lambda * grad_div_x +
            grad_lambda * trace(strain);
+  }
+
+  template <int dim>
+  Tensor<1, dim>
+  MMSFunction<dim>::divergence_neo_hookean_stress_variable_coefficients(
+    const Point<dim>                          &p,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const
+  {
+    const double         mu          = lame_mu->value(p);
+    const double         lambda      = lame_lambda->value(p);
+    const Tensor<1, dim> grad_mu     = lame_mu->gradient(p);
+    const Tensor<1, dim> grad_lambda = lame_lambda->gradient(p);
+
+    const Tensor<2, dim> F = gradient_vi_xj(p);
+    const double         J = determinant(F);
+
+    AssertThrow(std::isfinite(J) && J > 0.0,
+                ExcMessage("Neo-Hookean requires det(F) > 0."));
+
+    const Tensor<2, dim> F_inv   = invert(F);
+    const Tensor<2, dim> F_inv_T = transpose(F_inv);
+    const double         log_J   = std::log(J);
+
+    Tensor<1, dim> div_P = {};
+
+    for (unsigned int j = 0; j < dim; ++j)
+    {
+      Tensor<2, dim> dF_dXj;
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        const SymmetricTensor<2, dim> hessian_i = this->hessian(p, i);
+        for (unsigned int k = 0; k < dim; ++k)
+          dF_dXj[i][k] = hessian_i[j][k];
+      }
+
+      const double         d_log_J_dXj = trace(F_inv * dF_dXj);
+      const Tensor<2, dim> dF_inv_T_dXj =
+        -F_inv_T * transpose(dF_dXj) * F_inv_T;
+
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        div_P[i] +=
+          grad_mu[j] * (F[i][j] - F_inv_T[i][j]) +
+          mu * (dF_dXj[i][j] - dF_inv_T_dXj[i][j]) +
+          (grad_lambda[j] * log_J + lambda * d_log_J_dXj) * F_inv_T[i][j] +
+          lambda * log_J * dF_inv_T_dXj[i][j];
+      }
+    }
+
+    return div_P;
   }
 
   template <int dim>

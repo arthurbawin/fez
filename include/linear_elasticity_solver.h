@@ -87,7 +87,12 @@ public:
     return nonzero_constraints;
   }
 
-  void update_boundary_conditions();
+  // parallel::fullydistributed::Triangulation<dim> &get_triangulation()
+  // {
+  // return triangulation;
+  // }
+  const DoFHandler<dim> &get_dof_handler() const { return dof_handler; }
+  void                   update_boundary_conditions();
 
   virtual void create_sparsity_pattern();
 
@@ -124,6 +129,9 @@ public:
   void move_mesh();
 
   void postprocess_solution();
+  void compute_cell_average_strain(
+    std::vector<SymmetricTensor<2, dim>> &strain_tensors,
+    Vector<double>                       &strain_trace);
 
   void compute_errors();
 
@@ -163,6 +171,10 @@ protected:
 
   double source_term_moving_mesh_multiplier;
   double source_term_fixed_mesh_multiplier;
+
+  bool                                 strain_cache_is_valid = false;
+  std::vector<SymmetricTensor<2, dim>> cached_strain_tensors;
+  Vector<double>                       cached_strain_trace;
 
 protected:
   /**

@@ -59,6 +59,9 @@ public:
   void add_dof_data_vector(const VectorType               &data,
                            const std::vector<std::string> &names);
 
+  void add_cell_dg0_data_field(
+    std::unique_ptr<PostProcessingTools::DG0DataField<dim>> field);
+
   /**
    * Output the fields stored in solution, both in the volume and on the
    * prescribed boundary (skin), if any. Also output the fields that were added
@@ -308,6 +311,9 @@ private:
   // The position of the geometric center (average) of the structure,
   // if solving a fluid-structure interaction problem
   TableHandler structure_mean_position_table;
+
+  std::vector<std::unique_ptr<PostProcessingTools::DG0DataField<dim>>>
+    auxiliary_cell_dg0_fields;
 };
 
 /* ---------------- Template functions ----------------- */
@@ -330,6 +336,19 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
                             names,
                             DataOut<dim>::type_dof_data,
                             data_component_interpretation);
+}
+
+template <int dim>
+void
+PostProcessingHandler<dim>::add_cell_dg0_data_field(
+  std::unique_ptr<PostProcessingTools::DG0DataField<dim>> field)
+{
+  AssertThrow(data_out != nullptr,
+              ExcMessage("Volume output must be enabled to add DG0 VTU data."));
+  AssertThrow(field != nullptr, ExcInternalError());
+
+  PostProcessingTools::add_dg0_data_field(*data_out, *field);
+  auxiliary_cell_dg0_fields.push_back(std::move(field));
 }
 
 template <int dim>
@@ -394,6 +413,7 @@ void PostProcessingHandler<dim>::output_volume_fields(
   visualization_times_and_names.emplace_back(time_handler.current_time,
                                              pvtu_file);
   data_out->clear_data_vectors();
+  auxiliary_cell_dg0_fields.clear();
 }
 
 template <int dim>

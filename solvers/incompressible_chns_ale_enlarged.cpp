@@ -1,4 +1,3 @@
-
 #include <incompressible_chns_solver.h>
 #include <parameter_reader.h>
 #include <utilities.h>
@@ -38,20 +37,16 @@ int main(int argc, char *argv[])
       param.read(prm);
 
       std::unique_ptr<LinearElasticitySolver<2>> elasticity_solver1;
-      std::unique_ptr<LinearElasticitySolver<2>> elasticity_solver2;
       if (param.linear_elasticity.use_as_presolver)
       {
         elasticity_solver1 = std::make_unique<LinearElasticitySolver<2>>(param);
         elasticity_solver1->run();
       }
 
-
-      CHNSSolver<2, true> problem(param);
+      CHNSSolver<2, true, true> problem(param);
 
       if (param.linear_elasticity.use_as_presolver)
-      {
         problem.attach_presolver(elasticity_solver1.get());
-      }
 
       if (param.mms_param.enable)
         problem.run_convergence_loop<2>();
@@ -74,12 +69,10 @@ int main(int argc, char *argv[])
         elasticity_solver->run();
       }
 
-      CHNSSolver<3, true> problem(param);
+      CHNSSolver<3, true, true> problem(param);
 
       if (param.linear_elasticity.use_as_presolver)
-      {
         problem.attach_presolver(elasticity_solver.get());
-      }
 
       if (param.mms_param.enable)
         problem.run_convergence_loop<3>();

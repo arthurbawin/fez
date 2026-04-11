@@ -1,4 +1,6 @@
-
+#include <assembly/moving_mesh_forcing_forms.h>
+#include <assembly/pseudosolid_forms.h>
+#include <assembly/stabilization_forms.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -16,31 +18,62 @@
 #include <incompressible_chns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_forcing_postprocessing.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
-template <int dim, bool with_moving_mesh>
-CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
+#include <cmath>
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
+  const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
 {
+  if constexpr (with_moving_mesh && !with_enlarged)
+    AssertThrow(
+      std::abs(param.cahn_hilliard.mff_enlarged_compression_factor) < 1e-14,
+      ExcMessage(
+        "mff_enlarged_compression_factor is only available with the enlarged "
+        "solver. In non-enlarged runs, set it to 0 and use "
+        "mff_physics_compression_factor as the single compression term."));
+
   if constexpr (with_moving_mesh)
   {
     if (param.finite_elements.use_quads)
-      fe = std::make_shared<FESystem<dim>>(
-        FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
-        FE_Q<dim>(param.finite_elements.pressure_degree),
-        FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
-        FE_Q<dim>(param.finite_elements.tracer_degree),
-        FE_Q<dim>(param.finite_elements.potential_degree));
+      if constexpr (with_enlarged)
+        fe = std::make_shared<FESystem<dim>>(
+          FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FE_Q<dim>(param.finite_elements.pressure_degree),
+          FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FE_Q<dim>(param.finite_elements.tracer_degree),
+          FE_Q<dim>(param.finite_elements.potential_degree),
+          FE_Q<dim>(param.finite_elements.potential_degree));
+      else
+        fe = std::make_shared<FESystem<dim>>(
+          FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FE_Q<dim>(param.finite_elements.pressure_degree),
+          FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FE_Q<dim>(param.finite_elements.tracer_degree),
+          FE_Q<dim>(param.finite_elements.potential_degree));
     else
-      fe = std::make_shared<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
-        FE_SimplexP<dim>(param.finite_elements.pressure_degree),
-        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
-        FE_SimplexP<dim>(param.finite_elements.tracer_degree),
-        FE_SimplexP<dim>(param.finite_elements.potential_degree));
+      if constexpr (with_enlarged)
+        fe = std::make_shared<FESystem<dim>>(
+          FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FE_SimplexP<dim>(param.finite_elements.pressure_degree),
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FE_SimplexP<dim>(param.finite_elements.tracer_degree),
+          FE_SimplexP<dim>(param.finite_elements.potential_degree),
+          FE_SimplexP<dim>(param.finite_elements.potential_degree));
+      else
+        fe = std::make_shared<FESystem<dim>>(
+          FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FE_SimplexP<dim>(param.finite_elements.pressure_degree),
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FE_SimplexP<dim>(param.finite_elements.tracer_degree),
+          FE_SimplexP<dim>(param.finite_elements.potential_degree));
 
-    this->ordering = std::make_shared<ComponentOrderingCHNS<dim, true>>();
+    this->ordering =
+      std::make_shared<ComponentOrderingCHNS<dim, true, with_enlarged>>();
   }
   else
   {
@@ -57,7 +90,8 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
         FE_SimplexP<dim>(param.finite_elements.tracer_degree),
         FE_SimplexP<dim>(param.finite_elements.potential_degree));
 
-    this->ordering = std::make_shared<ComponentOrderingCHNS<dim, false>>();
+    this->ordering =
+      std::make_shared<ComponentOrderingCHNS<dim, false, with_enlarged>>();
   }
 
   this->velocity_extractor =
@@ -70,6 +104,8 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
 
   tracer_extractor    = FEValuesExtractors::Scalar(this->ordering->phi_lower);
   potential_extractor = FEValuesExtractors::Scalar(this->ordering->mu_lower);
+  if constexpr (with_enlarged)
+    psi_extractor = FEValuesExtractors::Scalar(this->ordering->psi_lower);
 
   this->velocity_mask = fe->component_mask(this->velocity_extractor);
   this->pressure_mask = fe->component_mask(this->pressure_extractor);
@@ -78,11 +114,15 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
 
   tracer_mask    = fe->component_mask(tracer_extractor);
   potential_mask = fe->component_mask(potential_extractor);
+  if constexpr (with_enlarged)
+    psi_mask = fe->component_mask(psi_extractor);
 
   this->field_names_and_masks["velocity"]  = this->velocity_mask;
   this->field_names_and_masks["pressure"]  = this->pressure_mask;
   this->field_names_and_masks["tracer"]    = this->tracer_mask;
   this->field_names_and_masks["potential"] = this->potential_mask;
+  if constexpr (with_enlarged)
+    this->field_names_and_masks["psi"] = this->psi_mask;
 
   /**
    * Create the initial condition functions
@@ -91,17 +131,22 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
     this->ordering->u_lower, this->ordering->n_components);
   this->param.initial_conditions.create_initial_chns_tracer(
     this->ordering->phi_lower, this->ordering->n_components);
+  if constexpr (with_enlarged)
+    this->param.initial_conditions.create_initial_chns_enlarged_psi(
+      this->ordering->psi_lower, this->ordering->n_components);
 
   // Assign the exact solution
   this->exact_solution =
-    std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSolution>(
+    std::make_shared<
+      CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSolution>(
       this->time_handler.current_time, *this->ordering, param.mms);
 
   if (param.mms_param.enable)
   {
     // Create the MMS source term function and override source terms
     this->source_terms =
-      std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm>(
+      std::make_shared<
+        CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm>(
         this->time_handler.current_time, *this->ordering, param);
 
     // Create entry in error handler for tracer and potential
@@ -109,22 +154,28 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
     {
       this->error_handlers[norm]->create_entry("phi");
       this->error_handlers[norm]->create_entry("mu");
+      if constexpr (with_enlarged)
+        this->error_handlers[norm]->create_entry("psi");
     }
   }
   else
   {
     this->source_terms =
-      std::make_shared<CHNSSolver<dim, with_moving_mesh>::SourceTerm>(
+      std::make_shared<
+        CHNSSolver<dim, with_moving_mesh, with_enlarged>::SourceTerm>(
         this->time_handler.current_time, *this->ordering, param.source_terms);
   }
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
   const double phi          = mms.exact_tracer->value(p);
+  const double psi          = mms.exact_psi->value(p);
   const double filtered_phi = phi;
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
@@ -198,11 +249,20 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
   const double lap_phi = mms.exact_tracer->laplacian(p);
   values[mu_lower]     = -(mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) +
                        sigma_tilde_times_eps * lap_phi);
+  if constexpr (with_enlarged)
+  {
+    const double lap_psi = mms.exact_psi->laplacian(p);
+    const double L =
+      cahn_hilliard_param.epsilon_interface_enlarged -
+      cahn_hilliard_param.epsilon_interface;
+    values[psi_lower] = -(psi - phi - L * L * lap_psi);
+  }
 }
 
-template <int dim, bool with_moving_mesh>
+template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim,
-                with_moving_mesh>::create_solver_specific_zero_constraints()
+                with_moving_mesh,
+                with_enlarged>::create_solver_specific_zero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
@@ -225,13 +285,22 @@ void CHNSSolver<dim,
                                                  this->ordering->n_components),
                                                this->zero_constraints,
                                                potential_mask);
+      if constexpr (with_enlarged)
+        VectorTools::interpolate_boundary_values(
+          *this->moving_mapping,
+          this->dof_handler,
+          id,
+          Functions::ZeroFunction<dim>(this->ordering->n_components),
+          this->zero_constraints,
+          psi_mask);
     }
   }
 }
 
-template <int dim, bool with_moving_mesh>
+template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim,
-                with_moving_mesh>::create_solver_specific_nonzero_constraints()
+                with_moving_mesh,
+                with_enlarged>::create_solver_specific_nonzero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
@@ -252,12 +321,21 @@ void CHNSSolver<dim,
                                                *this->exact_solution,
                                                this->nonzero_constraints,
                                                potential_mask);
+      if constexpr (with_enlarged)
+        VectorTools::interpolate_boundary_values(*this->moving_mapping,
+                                                 this->dof_handler,
+                                                 id,
+                                                 *this->exact_solution,
+                                                 this->nonzero_constraints,
+                                                 psi_mask);
     }
   }
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_initial_conditions()
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::set_solver_specific_initial_conditions()
 {
   const Function<dim> *tracer_fun =
     this->param.initial_conditions.set_to_mms ?
@@ -270,10 +348,27 @@ void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_initial_conditions()
                            *tracer_fun,
                            this->newton_update,
                            tracer_mask);
+  if constexpr (with_enlarged)
+  {
+    const Function<dim>         *psi_fun =
+      this->param.initial_conditions.set_to_mms ?
+        this->exact_solution.get() :
+        (this->param.initial_conditions.use_enlarged_psi ?
+           static_cast<const Function<dim> *>(
+             this->param.initial_conditions.initial_chns_enlarged_psi.get()) :
+           tracer_fun);
+    VectorTools::interpolate(*this->moving_mapping,
+                             this->dof_handler,
+                             *psi_fun,
+                             this->newton_update,
+                             psi_mask);
+  }
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_exact_solution()
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::set_solver_specific_exact_solution()
 {
   // Set tracer and potential
   VectorTools::interpolate(*this->moving_mapping,
@@ -286,10 +381,16 @@ void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_exact_solution()
                            *this->exact_solution,
                            this->local_evaluation_point,
                            potential_mask);
+  if constexpr (with_enlarged)
+    VectorTools::interpolate(*this->moving_mapping,
+                             this->dof_handler,
+                             *this->exact_solution,
+                             this->local_evaluation_point,
+                             psi_mask);
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::create_sparsity_pattern()
 {
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
 
@@ -310,6 +411,13 @@ void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
           (this->ordering->is_velocity(j) || this->ordering->is_position(j)))
         coupling_table[i][j] = DoFTools::always;
 
+      // PSPG: p couples to p, phi and mu
+      if (this->ordering->is_pressure(i) &&
+          (this->ordering->is_pressure(j) || this->ordering->is_tracer(j) ||
+           this->ordering->is_potential(j)) &&
+          this->param.finite_elements.stabilization)
+        coupling_table[i][j] = DoFTools::always;
+
       // x couples x,phi,u
       if constexpr (with_moving_mesh)
         if (this->ordering->is_position(i) &&
@@ -328,6 +436,11 @@ void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
           coupling_table[i][j] = DoFTools::always;
     }
 
+  CHNSEnlargedOps<dim, with_moving_mesh, with_enlarged>::extend_coupling_table(
+    *this->ordering,
+    this->param.finite_elements.stabilization,
+    coupling_table);
+
   DoFTools::make_sparsity_pattern(this->dof_handler,
                                   coupling_table,
                                   dsp,
@@ -343,8 +456,8 @@ void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
                              this->mpi_communicator);
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::assemble_matrix()
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
 
@@ -383,8 +496,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_matrix()
   this->system_matrix.compress(VectorOperation::add);
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   assemble_local_matrix_finite_differences(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchData                                          &scratch_data,
@@ -400,8 +513,8 @@ void CHNSSolver<dim, with_moving_mesh>::
     this->local_evaluation_point);
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
@@ -431,22 +544,15 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   const double diffusive_flux_factor = scratch_data.diffusive_flux_factor;
   const auto  &body_force            = scratch_data.body_force;
 
-  double                             JxW_fixed, lame_mu = 0., lame_lambda = 0.;
-  const double                       alpha = this->param.cahn_hilliard.alpha;
-  const double                       beta  = this->param.cahn_hilliard.beta;
+  const double enlarged_length =
+    this->param.cahn_hilliard.epsilon_interface_enlarged -
+    this->param.cahn_hilliard.epsilon_interface;
+  const double enlarged_length_sq = enlarged_length * enlarged_length;
   const std::vector<Tensor<1, dim>> *phi_x;
-  const std::vector<Tensor<2, dim>> *grad_phi_x;
   const std::vector<Tensor<2, dim>> *grad_phi_x_moving;
-  const std::vector<double>         *div_phi_x;
-  const std::vector<double>         *shape_phi_fixed;
-  const std::vector<Tensor<1, dim>> *grad_shape_phi_fixed;
   const Tensor<1, dim>              *source_term_velocity;
   double source_term_pressure, source_term_tracer, source_term_potential;
-  const Tensor<1, dim> *phi_x_i, *phi_x_j;
-  const Tensor<2, dim> *grad_phi_x_i, *grad_phi_x_j;
-  double                div_phi_x_i, div_phi_x_j;
-  double                shape_phi_fixed_j;
-  const Tensor<1, dim> *grad_shape_phi_fixed_j;
+  const Tensor<1, dim> *phi_x_j;
   Tensor<1, dim>        to_multiply_by_phi_u_i_tr_G;
   double                to_multipliy_by_phi_phi_i_tr_G;
 
@@ -457,8 +563,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
     const double JxW_moving = scratch_data.JxW_moving[q];
-    if constexpr (with_moving_mesh)
-      JxW_fixed = scratch_data.JxW_fixed[q];
 
     const double rho      = scratch_data.density[q];
     const double eta      = scratch_data.dynamic_viscosity[q];
@@ -478,14 +582,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
 
     if constexpr (with_moving_mesh)
     {
-      lame_mu               = scratch_data.lame_mu[q];
-      lame_lambda           = scratch_data.lame_lambda[q];
-      phi_x                 = &scratch_data.phi_x[q];
-      grad_phi_x            = &scratch_data.grad_phi_x[q];
-      grad_phi_x_moving     = &scratch_data.grad_phi_x_moving[q];
-      div_phi_x             = &scratch_data.div_phi_x[q];
-      shape_phi_fixed       = &scratch_data.shape_phi_fixed[q];
-      grad_shape_phi_fixed  = &scratch_data.grad_shape_phi_fixed[q];
+      phi_x                      = &scratch_data.phi_x[q];
+      grad_phi_x_moving          = &scratch_data.grad_phi_x_moving[q];
       source_term_velocity  = &scratch_data.source_term_velocity[q];
       source_term_pressure  = scratch_data.source_term_pressure[q];
       source_term_tracer    = scratch_data.source_term_tracer[q];
@@ -502,13 +600,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
       scratch_data.present_velocity_divergence[q];
     const auto &present_pressure_values =
       scratch_data.present_pressure_values[q];
-
-    // Convective velocity (pure eulerian: u, ALE: u - w)
-    Tensor<1, dim> u_conv = present_velocity_values;
-    if constexpr (with_moving_mesh)
-      u_conv -= scratch_data.present_mesh_velocity_values[q];
-
-    const auto u_dot_grad_u = present_velocity_gradients * u_conv;
+    const auto &u_conv       = scratch_data.present_convective_velocity[q];
+    const auto  u_dot_grad_u = present_velocity_gradients * u_conv;
 
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
@@ -518,7 +611,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
     const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
     const auto &potential_value    = scratch_data.potential_values[q];
     const auto &potential_gradient = scratch_data.potential_gradients[q];
-    const auto &u_dot_grad_phi = scratch_data.velocity_dot_tracer_gradient[q];
 
     const double dphidt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
@@ -551,13 +643,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
       const auto &phi_mu_i         = phi_mu[i];
       const auto &grad_phi_mu_i    = grad_phi_mu[i];
 
-      if constexpr (with_moving_mesh)
-      {
-        phi_x_i      = &(*phi_x)[i];
-        grad_phi_x_i = &(*grad_phi_x)[i];
-        div_phi_x_i  = (*div_phi_x)[i];
-      }
-
       for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
       {
         const unsigned int &comp_j = scratch_data.components[j];
@@ -579,14 +664,9 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
         if constexpr (with_moving_mesh)
         {
           phi_x_j                = &(*phi_x)[j];
-          grad_phi_x_j           = &(*grad_phi_x)[j];
-          div_phi_x_j            = (*div_phi_x)[j];
-          shape_phi_fixed_j      = (*shape_phi_fixed)[j];
-          grad_shape_phi_fixed_j = &(*grad_shape_phi_fixed)[j];
         }
 
         double local_flow_ij = 0.;
-        double local_ps_ij   = 0.;
 
         /**
          * Momentum equation
@@ -792,66 +872,53 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
           }
         }
 
-        /**
-         * Pseudo-solid equation
-         */
-        if constexpr (with_moving_mesh)
-        {
-          if (const_ordering.x_lower <= comp_i &&
-              comp_i < const_ordering.x_upper)
-          {
-            if (const_ordering.u_lower <= comp_j &&
-                comp_j < const_ordering.u_upper)
-            {
-              // Source term - Velocity part
-              local_ps_ij -= (*phi_x_i) * (beta * (phi_u_j * tracer_gradient) *
-                                           tracer_gradient);
-            }
-            if (const_ordering.x_lower <= comp_j &&
-                comp_j < const_ordering.x_upper)
-            {
-              const Tensor<2, dim> &G = (*grad_phi_x_moving)[j];
-
-              // Linear elasticity
-              local_ps_ij +=
-                lame_lambda * div_phi_x_j * div_phi_x_i +
-                lame_mu *
-                  scalar_product(*grad_phi_x_j + transpose(*grad_phi_x_j),
-                                 *grad_phi_x_i);
-
-              // Variation of source term on current mesh
-              local_ps_ij -=
-                (*phi_x_i) *
-                (beta *
-                 ((-bdf_c0) * (*phi_x_j) * tracer_gradient * tracer_gradient +
-                  u_conv * ((-transpose(G)) * tracer_gradient) *
-                    tracer_gradient +
-                  u_dot_grad_phi * ((-transpose(G)) * tracer_gradient)));
-            }
-            if (comp_j == const_ordering.phi_lower)
-            {
-              local_ps_ij -=
-                (*phi_x_i) *
-                (alpha * (shape_phi_fixed_j * (*grad_shape_phi_fixed_j) +
-                          shape_phi_fixed_j * (*grad_shape_phi_fixed_j))
-
-                 + beta * ((u_conv * grad_phi_phi_j) * tracer_gradient +
-                           u_dot_grad_phi * grad_phi_phi_j));
-            }
-          }
-
-          local_ps_ij *= JxW_fixed;
-        }
         local_flow_ij *= JxW_moving;
-        local_matrix(i, j) += local_flow_ij + local_ps_ij;
+        local_matrix(i, j) += local_flow_ij;
       }
     }
   }
+
+  CHNSEnlargedOps<dim, with_moving_mesh, with_enlarged>::assemble_matrix_terms(
+    *this->ordering,
+    this->coupling_table,
+    scratch_data,
+    enlarged_length_sq,
+    local_matrix);
+
+  Assembly::assemble_chns_matrix_stabilization<dim, with_moving_mesh>(
+    *this->ordering,
+    this->coupling_table,
+    scratch_data,
+    bdf_c0,
+    this->param.finite_elements.stabilization,
+    local_matrix);
+
+  if constexpr (with_moving_mesh)
+  {
+    const auto &pseudosolid =
+      this->param.physical_properties.pseudosolids[0];
+    Assembly::Pseudosolid::assemble_chns_matrix<dim>(
+      *this->ordering,
+      this->coupling_table,
+      pseudosolid,
+      scratch_data,
+      local_matrix);
+    Assembly::MovingMeshForcing::assemble_chns_matrix<dim, with_enlarged>(
+      *this->ordering,
+      this->coupling_table,
+      this->param.cahn_hilliard,
+      bdf_c0,
+      scratch_data,
+      local_matrix);
+  }
+
   cell->get_dof_indices(copy_data.local_dof_indices);
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_matrix(
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::copy_local_to_global_matrix(
   const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
@@ -862,8 +929,10 @@ void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_matrix(
                                                     this->system_matrix);
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::compare_analytical_matrix_with_fd()
 {
   ScratchData scratchData(*this->ordering,
                           *fe,
@@ -901,8 +970,8 @@ void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
                 << errors.second << std::endl;
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::assemble_rhs()
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_rhs()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble RHS");
 
@@ -930,8 +999,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_rhs()
   this->system_rhs.compress(VectorOperation::add);
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
@@ -956,7 +1025,10 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
   const double sigma_tilde_times_eps =
     scratch_data.sigma_tilde * scratch_data.epsilon;
   const auto &body_force = scratch_data.body_force;
-
+  const double enlarged_length =
+    this->param.cahn_hilliard.epsilon_interface_enlarged -
+    this->param.cahn_hilliard.epsilon_interface;
+  const double enlarged_length_sq = enlarged_length * enlarged_length;
   //
   // Volume contributions
   //
@@ -973,12 +1045,9 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
     const auto &present_velocity_sym_gradients =
       scratch_data.present_velocity_sym_gradients[q];
 
-    // Convective velocity (pure eulerian: u, ALE: u - w)
-    Tensor<1, dim> u_conv = present_velocity_values;
-    if constexpr (with_moving_mesh)
-      u_conv -= scratch_data.present_mesh_velocity_values[q];
-
-    const auto u_dot_grad_u = present_velocity_gradients * u_conv;
+    // u_conv is set once in reinit_cahn_hilliard_cell (always, not stab-only)
+    const auto &u_conv       = scratch_data.present_convective_velocity[q];
+    const auto  u_dot_grad_u = present_velocity_gradients * u_conv;
 
     const auto &present_pressure_values =
       scratch_data.present_pressure_values[q];
@@ -1025,41 +1094,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
     const auto &phi_mu         = scratch_data.shape_mu[q];
     const auto &grad_phi_mu    = scratch_data.grad_shape_mu[q];
 
-    //
-    // Pseudo-solid related data
-    //
-    double                             lame_mu = 0., lame_lambda = 0.;
-    const double                       alpha = this->param.cahn_hilliard.alpha;
-    const double                       beta  = this->param.cahn_hilliard.beta;
-    double                             present_displacement_divergence;
-    double                             present_trace_strain;
-    Tensor<2, dim>                     present_strain;
-    const Tensor<2, dim>              *present_position_gradients;
-    const Tensor<1, dim>              *source_term_position;
-    const std::vector<Tensor<1, dim>> *phi_x;
-    const std::vector<Tensor<2, dim>> *grad_phi_x;
-    const std::vector<double>         *div_phi_x;
-    Tensor<1, dim>                     mesh_forcing;
-    double                             tracer_values_fixed;
-    const Tensor<1, dim>              *tracer_gradient_fixed;
-
-    if constexpr (with_moving_mesh)
-    {
-      lame_mu                    = scratch_data.lame_mu[q];
-      lame_lambda                = scratch_data.lame_lambda[q];
-      phi_x                      = &scratch_data.phi_x[q];
-      grad_phi_x                 = &scratch_data.grad_phi_x[q];
-      div_phi_x                  = &scratch_data.div_phi_x[q];
-      present_position_gradients = &scratch_data.present_position_gradients[q];
-      present_displacement_divergence = trace(*present_position_gradients);
-      present_strain =
-        symmetrize(*present_position_gradients) - unit_symmetric_tensor<dim>();
-      present_trace_strain  = present_displacement_divergence - (double)dim;
-      source_term_position  = &scratch_data.source_term_position[q];
-      tracer_values_fixed   = scratch_data.tracer_values_fixed[q];
-      tracer_gradient_fixed = &scratch_data.tracer_gradients_fixed[q];
-    }
-
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       const auto &phi_u_i          = phi_u[i];
@@ -1070,7 +1104,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
       const auto &grad_phi_phi_i   = grad_phi_phi[i];
       const auto &phi_mu_i         = phi_mu[i];
       const auto &grad_phi_mu_i    = grad_phi_mu[i];
-
       // Momentum equation
       double local_rhs_flow_i =
         phi_u_i * to_multiply_by_phi_u_i -
@@ -1091,28 +1124,30 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
         phi_mu_i * to_multiply_by_phi_mu_i -
         grad_phi_mu_i * sigma_tilde_times_eps * tracer_gradient;
 
-      // Pseudo-solid
-      double local_rhs_ps_i = 0.;
-      if constexpr (with_moving_mesh)
-      {
-        // Body force to attract the mesh towards the tracer interface
-        // Still testing for a good model of body force
-        mesh_forcing =
-          alpha * (tracer_values_fixed * (*tracer_gradient_fixed)) +
-          beta * ((u_conv * tracer_gradient) * tracer_gradient);
-
-        // Linear elasticity
-        local_rhs_ps_i +=
-          lame_lambda * present_trace_strain * (*div_phi_x)[i] +
-          2 * lame_mu * scalar_product(present_strain, (*grad_phi_x)[i]) +
-          (*phi_x)[i] * (*source_term_position - mesh_forcing);
-
-        local_rhs_ps_i *= scratch_data.JxW_fixed[q];
-      }
-
       local_rhs_flow_i *= JxW_moving;
-      local_rhs(i) -= local_rhs_flow_i + local_rhs_ps_i;
+      local_rhs(i) -= local_rhs_flow_i;
     }
+  }
+
+  CHNSEnlargedOps<dim, with_moving_mesh, with_enlarged>::assemble_rhs_terms(
+    *this->ordering, scratch_data, enlarged_length_sq, local_rhs);
+
+  Assembly::assemble_chns_rhs_stabilization<dim>(
+    *this->ordering,
+    scratch_data,
+    this->param.finite_elements.stabilization,
+    local_rhs);
+
+  if constexpr (with_moving_mesh)
+  {
+    const auto &pseudosolid =
+      this->param.physical_properties.pseudosolids[0];
+    Assembly::Pseudosolid::assemble_chns_rhs<dim>(*this->ordering,
+                                                  pseudosolid,
+                                                  scratch_data,
+                                                  local_rhs);
+    Assembly::MovingMeshForcing::assemble_chns_rhs<dim, with_enlarged>(
+      *this->ordering, this->param.cahn_hilliard, scratch_data, local_rhs);
   }
 
   //
@@ -1136,8 +1171,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
   cell->get_dof_indices(copy_data.local_dof_indices);
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_rhs(
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::copy_local_to_global_rhs(
   const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
@@ -1148,8 +1183,40 @@ void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_rhs(
                                                     this->system_rhs);
 }
 
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::compute_solver_specific_errors()
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::add_solver_specific_postprocessing_data()
+{
+  if constexpr (!with_moving_mesh)
+    return;
+  else
+  {
+    if (!this->postproc_handler->should_output_volume_fields(this->time_handler))
+      return;
+
+    MeshForcingPostProcessing::export_diagnostics<dim, with_enlarged>(
+      *this->moving_mapping,
+      *this->fixed_mapping,
+      this->get_fe_system(),
+      *this->quadrature,
+      this->dof_handler,
+      this->velocity_extractor,
+      this->position_extractor,
+      tracer_extractor,
+      psi_extractor,
+      this->present_solution,
+      this->previous_solutions,
+      this->time_handler,
+      this->param.cahn_hilliard,
+      *this->postproc_handler);
+  }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::compute_solver_specific_errors()
 {
   const unsigned int n_active_cells = this->triangulation.n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);
@@ -1169,10 +1236,22 @@ void CHNSSolver<dim, with_moving_mesh>::compute_solver_specific_errors()
                                cellwise_errors,
                                potential_comp_select,
                                "mu");
+  if constexpr (with_enlarged)
+  {
+    const ComponentSelectFunction<dim> psi_comp_select(
+      this->ordering->psi_lower, this->ordering->n_components);
+    this->compute_and_add_errors(*this->moving_mapping,
+                                 *this->exact_solution,
+                                 cellwise_errors,
+                                 psi_comp_select,
+                                 "psi");
+  }
 }
 
 // Explicit instantiation
-template class CHNSSolver<2, false>;
-template class CHNSSolver<3, false>;
-template class CHNSSolver<2, true>;
-template class CHNSSolver<3, true>;
+template class CHNSSolver<2, false, false>;
+template class CHNSSolver<3, false, false>;
+template class CHNSSolver<2, true, false>;
+template class CHNSSolver<3, true, false>;
+template class CHNSSolver<2, true, true>;
+template class CHNSSolver<3, true, true>;

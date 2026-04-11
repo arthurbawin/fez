@@ -1053,16 +1053,17 @@ namespace Parameters
         "mff_enlarged_compression_factor",
         "0.0",
         Patterns::Double(),
-        "Compression factor used in the enlarged moving-mesh forcing term "
-        "mff_enlarged_compression_factor * eps_enlarged * marker * "
-        "grad(marker).");
+        "Compression factor used only by the enlarged moving-mesh forcing "
+        "term mff_enlarged_compression_factor * eps_enlarged * f(marker) * "
+        "grad(marker), where f follows 'mesh forcing law'.");
       prm.declare_entry(
         "mff_physics_compression_factor",
         "0.0",
         Patterns::Double(),
         "Compression factor used in the physical-interface moving-mesh "
         "forcing correction "
-        "mff_physics_compression_factor * eps * phi * grad(phi).");
+        "mff_physics_compression_factor * eps * f(phi) * grad(phi), where f "
+        "follows 'mesh forcing law'.");
       prm.declare_entry("mff_transport_factor",
                         "0.0",
                         Patterns::Double(),
@@ -1078,10 +1079,10 @@ namespace Parameters
                         "regularized_band",
                         Patterns::Selection("simple|regularized_band"),
                         "Moving-mesh forcing law. 'simple' uses "
-                        "mff_enlarged_compression_factor * eps * marker * "
-                        "grad(marker), "
-                        "while 'regularized_band' uses the "
-                        "mff_band_factor-regularized band formulation.");
+                        "f(s)=s, while 'regularized_band' uses the "
+                        "mff_band_factor-regularized band formulation. This "
+                        "law is applied to both enlarged and physics "
+                        "compression terms.");
     }
     prm.leave_subsection();
   }

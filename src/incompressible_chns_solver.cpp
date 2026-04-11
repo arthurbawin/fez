@@ -22,11 +22,21 @@
 #include <scratch_data.h>
 #include <utilities.h>
 
+#include <cmath>
+
 template <int dim, bool with_moving_mesh, bool with_enlarged>
 CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
   const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
 {
+  if constexpr (with_moving_mesh && !with_enlarged)
+    AssertThrow(
+      std::abs(param.cahn_hilliard.mff_enlarged_compression_factor) < 1e-14,
+      ExcMessage(
+        "mff_enlarged_compression_factor is only available with the enlarged "
+        "solver. In non-enlarged runs, set it to 0 and use "
+        "mff_physics_compression_factor as the single compression term."));
+
   if constexpr (with_moving_mesh)
   {
     if (param.finite_elements.use_quads)

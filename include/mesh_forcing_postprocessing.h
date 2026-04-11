@@ -79,7 +79,7 @@ namespace MeshForcingPostProcessing
                                                               marker_gradients);
   }
 
-  template <int dim>
+  template <int dim, bool with_enlarged>
   CellDiagnostics<dim> compute_cell_diagnostics(
     const FEValues<dim>                                   &fe_values_fixed,
     const std::vector<Tensor<1, dim>>                     &velocity_values,
@@ -104,30 +104,34 @@ namespace MeshForcingPostProcessing
       const Tensor<1, dim> u_conv = velocity_values[q] - mesh_velocity;
       double enlarged_factor          = 0.;
       double enlarged_factor_jacobian = 0.;
-      if (cahn_hilliard_param.mesh_forcing_law ==
-          Parameters::CahnHilliard<dim>::MeshForcingLaw::simple)
-        Assembly::MovingMeshForcing::simple_mesh_forcing_factor_and_jacobian(
-          enlarged_values[q], enlarged_factor, enlarged_factor_jacobian);
-      else
-        Assembly::MovingMeshForcing::
-          regularized_band_mesh_forcing_factor_and_jacobian(
-            enlarged_values[q],
-            cahn_hilliard_param.mff_band_factor,
-            enlarged_factor,
-            enlarged_factor_jacobian);
+      Assembly::MovingMeshForcing::mesh_forcing_factor_and_jacobian(
+        cahn_hilliard_param,
+        enlarged_values[q],
+        enlarged_factor,
+        enlarged_factor_jacobian);
+      double tracer_factor          = 0.;
+      double tracer_factor_jacobian = 0.;
+      Assembly::MovingMeshForcing::mesh_forcing_factor_and_jacobian(
+        cahn_hilliard_param,
+        tracer_values[q],
+        tracer_factor,
+        tracer_factor_jacobian);
 
       (void)enlarged_factor_jacobian;
+      (void)tracer_factor_jacobian;
 
-      const Tensor<1, dim> enlarged_alpha =
-        cahn_hilliard_param.mff_enlarged_compression_factor *
-        enlarged_forcing_epsilon * enlarged_factor * enlarged_gradients[q];
+      Tensor<1, dim> enlarged_alpha;
+      if constexpr (with_enlarged)
+        enlarged_alpha =
+          cahn_hilliard_param.mff_enlarged_compression_factor *
+          enlarged_forcing_epsilon * enlarged_factor * enlarged_gradients[q];
       const Tensor<1, dim> enlarged_beta =
         cahn_hilliard_param.mff_transport_factor *
         (enlarged_forcing_epsilon * enlarged_forcing_epsilon) *
         ((u_conv * enlarged_gradients[q]) * enlarged_gradients[q]);
       const Tensor<1, dim> physics_alpha =
         cahn_hilliard_param.mff_physics_compression_factor *
-        cahn_hilliard_param.epsilon_interface * tracer_values[q] *
+        cahn_hilliard_param.epsilon_interface * tracer_factor *
         tracer_gradients[q];
       const double weight = fe_values_fixed.JxW(q);
 
@@ -214,21 +218,21 @@ namespace MeshForcingPostProcessing
                            tracer_gradients);
 
         output_fields.store(cell,
-                            compute_cell_diagnostics<dim>(fe_values_fixed,
-                                                          velocity_values,
-                                                          position_values,
-                                                          previous_position_values,
-                                                          enlarged_values,
-                                                          enlarged_gradients,
-                                                          tracer_values,
-                                                          tracer_gradients,
-                                                          time_handler,
-                                                          cahn_hilliard_param,
-                                                          with_enlarged ?
-                                                            cahn_hilliard_param
-                                                              .epsilon_interface_enlarged :
-                                                            cahn_hilliard_param
-                                                              .epsilon_interface));
+                            compute_cell_diagnostics<dim, with_enlarged>(
+                              fe_values_fixed,
+                              velocity_values,
+                              position_values,
+                              previous_position_values,
+                              enlarged_values,
+                              enlarged_gradients,
+                              tracer_values,
+                              tracer_gradients,
+                              time_handler,
+                              cahn_hilliard_param,
+                              with_enlarged ?
+                                cahn_hilliard_param
+                                  .epsilon_interface_enlarged :
+                                cahn_hilliard_param.epsilon_interface));
       }
 
     output_fields.write(postproc_handler);

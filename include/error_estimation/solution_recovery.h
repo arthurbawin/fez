@@ -170,6 +170,16 @@ namespace ErrorEstimation
                                  const Function<dim> &exact_solution) const;
 
       /**
+       * Return the highest order of the derivatives stored in this object.
+       *
+       * FIXME: this value is actually highest_recovered_derivative + 1, since
+       * the derivative of one additional order is readily available once a
+       * lower order derivative has been recovered by polynomial fitting.
+       * This should be made consistent throughout this class.
+       */
+      unsigned int get_highest_stored_derivative() const;
+
+      /**
        * Write all the reconstructed fields to a pvtu file for visualization.
        */
       virtual void write_pvtu(const std::string &filename) const = 0;
@@ -398,6 +408,24 @@ namespace ErrorEstimation
              const Mapping<dim>         &mapping);
 
       /**
+       * Return the reconstructed solutions at the mesh vertices on this
+       * partition.
+       */
+      const std::vector<value_type> &get_reconstructed_solution() const;
+
+      /**
+       * Return the reconstructed gradients at the mesh vertices on this
+       * partition.
+       */
+      const std::vector<gradient_type> &get_reconstructed_gradient() const;
+
+      /**
+       * Return the reconstructed hessians at the mesh vertices on this
+       * partition.
+       */
+      const std::vector<hessian_type> &get_reconstructed_hessian() const;
+
+      /**
        * Write all the reconstructed fields to a pvtu file for visualization.
        */
       virtual void write_pvtu(const std::string &filename) const override;
@@ -486,6 +514,13 @@ namespace ErrorEstimation
   namespace SolutionRecovery
   {
     template <int dim>
+    unsigned int
+    SolutionRecoveryBase<dim>::get_highest_stored_derivative() const
+    {
+      return highest_recovered_derivative;
+    }
+
+    template <int dim>
     void SolutionRecoveryBase<dim>::vertex_to_isoparametric(
       const std::vector<double>                                 &vertex_data,
       LA::ParVectorType                                         &local_dof_data,
@@ -540,6 +575,28 @@ namespace ErrorEstimation
       local_dof_data.compress(VectorOperation::insert);
       dof_data = local_dof_data;
     }
+
+    template <int dim>
+    const std::vector<typename Scalar<dim>::value_type> &
+    Scalar<dim>::get_reconstructed_solution() const
+    {
+      return recovered_solution_at_vertices;
+    }
+
+    template <int dim>
+    const std::vector<typename Scalar<dim>::gradient_type> &
+    Scalar<dim>::get_reconstructed_gradient() const
+    {
+      return recovered_gradient_at_vertices;
+    }
+
+    template <int dim>
+    const std::vector<typename Scalar<dim>::hessian_type> &
+    Scalar<dim>::get_reconstructed_hessian() const
+    {
+      return recovered_hessian_at_vertices;
+    }
+
   } // namespace SolutionRecovery
 } // namespace ErrorEstimation
 

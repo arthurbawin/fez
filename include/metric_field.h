@@ -3,6 +3,7 @@
 
 #include <deal.II/base/tensor_function.h>
 #include <deal.II/numerics/data_postprocessor.h>
+#include <error_estimation/solution_recovery.h>
 #include <metric_tensor.h>
 #include <parameter_reader.h>
 #include <parameters.h>
@@ -58,6 +59,22 @@ public:
    */
   void set_metrics_from_function(const TensorFunction<2, dim> &function);
 
+  /**
+   * Set this field to the Riemannian metric induced by the graph (x, f(x)),
+   * where f(x) is a scalar-valued field. This metric is given by
+   *
+   * [M] = I + grad(f) \otimes grad(f), with I the identity tensor.
+   *
+   * Since the metrics are stored at the mesh vertices, this requires knowing
+   * the gradient of f(x) at these locations, which is generally not readily
+   * available in a classic finite element setting. Here, the gradient is
+   * assumed to have been obtained by smoothing the solution, using the
+   * ErrorEstimation::SolutionRecovery interface.
+   */
+  void set_induced_metric_from_graph(
+    const ErrorEstimation::SolutionRecovery::Scalar<dim>
+      &reconstructed_gradient);
+  
   /**
    * Compute integral on mesh of metric determinant.
    */

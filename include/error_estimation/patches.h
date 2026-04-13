@@ -94,7 +94,7 @@ namespace ErrorEstimation
 
   public:
     /**
-     * Constructor
+     * Constructor.
      */
     PatchHandler(
       const parallel::DistributedTriangulationBase<dim> &triangulation,
@@ -103,10 +103,18 @@ namespace ErrorEstimation
       const unsigned int                                 degree,
       const ComponentMask                               &mask);
 
-    void write_element_patch_gmsh(const types::global_vertex_index vertex_index,
-                                  const unsigned int               layer) const;
+    /**
+     * Create the patches.
+     */
+    void build_patches();
+
+    /**
+     * Gather the patches to the root process and write them to @p out.
+     * This function is intended for debug and unit tests.
+     */
     void write_support_points_patch(const LA::ParVectorType &solution,
-                                    std::ostream &out = std::cout) const;
+                                    std::ostream            &out = std::cout,
+                                    bool write_for_gmsh          = false) const;
 
   private:
     /**
@@ -156,6 +164,15 @@ namespace ErrorEstimation
 
     // Number of mesh vertices on this partition
     unsigned int n_vertices;
+
+    /**
+     * Minimal number of vertices to fit a polynomial of order "degree".
+     * This numbered is not guaranteed to yield a unique solution to the
+     * least-squares fitting if the vertices are not arranged in a way that
+     * yields a full-rank least-squares matrix, in which case the patch will be
+     * enlarged.
+     */
+    unsigned int n_required_vertices;
 
     /**
      * Mask for owned mesh vertices. A mesh vertex is owned if it is inside the

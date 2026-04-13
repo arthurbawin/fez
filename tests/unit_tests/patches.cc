@@ -87,6 +87,7 @@ void test_patches(const unsigned int field_polynomial_degree)
                                               field_polynomial_degree + 1,
                                               fe.component_mask(
                                                 FEValuesExtractors::Scalar(0)));
+  patch_handler.build_patches();
 
   deallog << "Patches" << std::endl;
   patch_handler.write_support_points_patch(solution, deallog.get_file_stream());

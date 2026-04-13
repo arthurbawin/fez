@@ -83,6 +83,7 @@ void test_fitting(const unsigned int field_polynomial_degree)
                                               field_polynomial_degree + 1,
                                               fe.component_mask(
                                                 FEValuesExtractors::Scalar(0)));
+  patch_handler.build_patches();
 
   const unsigned int                        highest_recovered_derivative = 1;
   ErrorEstimation::SolutionRecovery::Scalar recovery(

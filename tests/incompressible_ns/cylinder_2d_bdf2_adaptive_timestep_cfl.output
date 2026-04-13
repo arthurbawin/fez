@@ -1,0 +1,77 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 1304
+ boundary indicators: 1(10 faces) 2(10 faces) 3(40 faces) 4(40 faces) 
+ID 1 -> Outlet
+ID 2 -> Inlet
+ID 3 -> NoFlux
+ID 4 -> InnerBoundary
+ID 5 -> Domain
+Number of degrees of freedom: 6118
+
+Time step 1 - Advancing to t = 0.01 with time step 0.01.
+Newton iter.  0:          nonlinear residual = 3.38511359e-01
+	Line search with alpha = 1.000 : res = 1.16815206e-01
+	Line search with alpha = 0.500 : res = 1.73972280e-01
+	Rejecting last step and backtracking
+Newton iter.  1:          nonlinear residual = 1.16815206e-01	(M)
+	Line search with alpha = 1.000 : res = 4.63338365e-04
+Newton iter.  2:          nonlinear residual = 4.63338365e-04	(M)
+	Line search with alpha = 1.000 : res = 5.80675906e-09
+Newton iter.  3:          nonlinear residual = 5.80675906e-09	(M)
+	Line search with alpha = 1.000 : res = 8.70631531e-14
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 2 - Advancing to t = 1.00e-01 with time step 9.00e-02.
+Newton iter.  0:          nonlinear residual = 2.49004208e+01
+	Line search with alpha = 1.000 : res = 1.17816334e-02
+Newton iter.  1:          nonlinear residual = 1.17816334e-02	(M)
+	Line search with alpha = 1.000 : res = 4.64942485e-05
+Newton iter.  2:          nonlinear residual = 4.64942485e-05	(M)
+	Line search with alpha = 1.000 : res = 7.39055679e-10
+Newton iter.  3:          nonlinear residual = 7.39055679e-10	(M)
+	Line search with alpha = 1.000 : res = 4.87700028e-14
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Warning : The CFL number at this time steps exceeds the ratio for step rejection,
+but this time step was not rejected as it is a starting step for the chosen BDF time
+integration scheme. Consider reducing the initial time step to limit the CFL
+number during the initial steps.
+
+
+Time step 3 - Advancing to t = 2.00e-01 with time step 1.00e-01.
+Newton iter.  0:          nonlinear residual = 1.16279398e+01
+	Line search with alpha = 1.000 : res = 3.26310053e-03
+Newton iter.  1:          nonlinear residual = 3.26310053e-03	(M)
+	Line search with alpha = 1.000 : res = 4.38140367e-06
+Newton iter.  2:          nonlinear residual = 4.38140367e-06	(M)
+	Line search with alpha = 1.000 : res = 8.92295583e-12
+Stopping because residual is below prescribed tolerance (1.00e-10)
+Rejecting time step because CFL ratio is too large : 2.05e+00 > 1.00e+00
+Trying again with time step = 4.39e-02
+
+Time step 3 - Advancing to t = 1.44e-01 with time step 4.39e-02.
+Newton iter.  0:          nonlinear residual = 1.16414738e+01
+	Line search with alpha = 1.000 : res = 8.31388034e-04
+Newton iter.  1:          nonlinear residual = 8.31388034e-04	(M)
+	Line search with alpha = 1.000 : res = 1.07267996e-07
+Newton iter.  2:          nonlinear residual = 1.07267996e-07	(M)
+	Line search with alpha = 1.000 : res = 2.48208312e-14
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 4 - Advancing to t = 1.90e-01 with time step 4.60e-02.
+Newton iter.  0:          nonlinear residual = 1.11392923e-01
+	Line search with alpha = 1.000 : res = 6.40242552e-04
+Newton iter.  1:          nonlinear residual = 6.40242552e-04	(M)
+	Line search with alpha = 1.000 : res = 6.03233346e-08
+Newton iter.  2:          nonlinear residual = 6.03233346e-08	(M)
+	Line search with alpha = 1.000 : res = 3.02987479e-14
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 5 - Advancing to t = 2.00e-01 with time step 1.01e-02.
+Newton iter.  0:          nonlinear residual = 8.18788749e-02
+	Line search with alpha = 1.000 : res = 2.89811563e-05
+Newton iter.  1:          nonlinear residual = 2.89811563e-05	(M)
+	Line search with alpha = 1.000 : res = 1.65772885e-11
+Stopping because residual is below prescribed tolerance (1.00e-10)

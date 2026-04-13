@@ -3,23 +3,6 @@
 #include <solver_info.h>
 #include <utilities.h>
 
-#define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
-  (prm).declare_entry("verbosity",                                             \
-                      std::string(default_verbosity),                          \
-                      Patterns::Selection("quiet|verbose"),                    \
-                      "Level of message display in console: quiet or verbose " \
-                      "(default: " +                                           \
-                        std::string(default_verbosity) + ")");
-
-#define READ_VERBOSITY_PARAM(prm, verbosity)                     \
-  {                                                              \
-    const std::string parsed_verbosity = (prm).get("verbosity"); \
-    if (parsed_verbosity == "quiet")                             \
-      verbosity = Verbosity::quiet;                              \
-    if (parsed_verbosity == "verbose")                           \
-      verbosity = Verbosity::verbose;                            \
-  }
-
 namespace Parameters
 {
   namespace
@@ -43,7 +26,7 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void DummyDimension::read_parameters(ParameterHandler &prm)
+  void DummyDimension::read_parameters(ParameterHandler &)
   {
     // Nothing to do, dimension was read in utilities.h
   }
@@ -103,6 +86,7 @@ namespace Parameters
   {
     prm.enter_subsection("Mesh");
     {
+      DECLARE_VERBOSITY_PARAM(prm, "verbose")
       prm.declare_entry("mesh file",
                         "",
                         Patterns::FileName(),
@@ -122,7 +106,47 @@ namespace Parameters
         "1",
         Patterns::Integer(),
         "Level of uniform refinement if using deal.II's meshing routines");
-      DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.enter_subsection("Adaptation");
+      {
+        DECLARE_VERBOSITY_PARAM(prm, "verbose")
+        prm.declare_entry("enable",
+                          "false",
+                          Patterns::Bool(),
+                          "Enable mesh adaptation");
+        prm.declare_entry(
+          "adaptation directory",
+          "adaptation",
+          Patterns::Anything(),
+          "Directory into which mesh adaptation-related files are written");
+        prm.declare_entry("adapted meshes extension",
+                          "adapted",
+                          Patterns::Anything(),
+                          "Root extension for the adapted meshes");
+        prm.declare_entry("strategy",
+                          "riemannian metric",
+                          Patterns::Selection("riemannian metric"),
+                          "Mesh adaptation strategy");
+        prm.enter_subsection("Metric");
+        {
+          prm.declare_entry("n fixed point",
+                            "1",
+                            Patterns::Integer(1),
+                            "Number of fixed point iterations to converge the "
+                            "mesh-solution pair");
+          prm.declare_entry(
+            "transfer solution",
+            "true",
+            Patterns::Bool(),
+            "Enable solution transfer to the adapted mesh (steady-state only, "
+            "always done for unsteady simulations)");
+          prm.declare_entry("mmg verbosity level",
+                            "1",
+                            Patterns::Integer(-1, 10),
+                            "Verbosity level of the MMG library");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -131,12 +155,36 @@ namespace Parameters
   {
     prm.enter_subsection("Mesh");
     {
+      READ_VERBOSITY_PARAM(prm, verbosity)
       filename              = prm.get("mesh file");
       use_deal_ii_cube_mesh = prm.get_bool("use dealii cube mesh");
       deal_ii_preset_mesh   = prm.get("dealii preset mesh");
       deal_ii_mesh_param    = prm.get("dealii mesh parameters");
       refinement_level      = prm.get_integer("refinement level");
-      READ_VERBOSITY_PARAM(prm, verbosity)
+      prm.enter_subsection("Adaptation");
+      {
+        READ_VERBOSITY_PARAM(prm, adaptation.verbosity)
+        adaptation.enable                 = prm.get_bool("enable");
+        adaptation.adapt_dir              = prm.get("adaptation directory");
+        adaptation.adapted_mesh_extension = prm.get("adapted meshes extension");
+        const std::string parsed_strategy = prm.get("strategy");
+        if (parsed_strategy == "riemannian metric")
+          adaptation.strategy = Adaptation::Strategy::RiemannianMetric;
+        else
+          throw std::runtime_error("Unexpected mesh adaptation strategy: " +
+                                   parsed_strategy);
+
+        prm.enter_subsection("Metric");
+        {
+          adaptation.metric.n_fixed_point = prm.get_integer("n fixed point");
+          adaptation.metric.transfer_solution =
+            prm.get_bool("transfer solution");
+          adaptation.metric.mmg_verbosity =
+            prm.get_integer("mmg verbosity level");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -1005,16 +1053,17 @@ namespace Parameters
         "mff_enlarged_compression_factor",
         "0.0",
         Patterns::Double(),
-        "Compression factor used in the enlarged moving-mesh forcing term "
-        "mff_enlarged_compression_factor * eps_enlarged * marker * "
-        "grad(marker).");
+        "Compression factor used only by the enlarged moving-mesh forcing "
+        "term mff_enlarged_compression_factor * eps_enlarged * f(marker) * "
+        "grad(marker), where f follows 'mesh forcing law'.");
       prm.declare_entry(
         "mff_physics_compression_factor",
         "0.0",
         Patterns::Double(),
         "Compression factor used in the physical-interface moving-mesh "
         "forcing correction "
-        "mff_physics_compression_factor * eps * phi * grad(phi).");
+        "mff_physics_compression_factor * eps * f(phi) * grad(phi), where f "
+        "follows 'mesh forcing law'.");
       prm.declare_entry("mff_transport_factor",
                         "0.0",
                         Patterns::Double(),
@@ -1030,10 +1079,10 @@ namespace Parameters
                         "regularized_band",
                         Patterns::Selection("simple|regularized_band"),
                         "Moving-mesh forcing law. 'simple' uses "
-                        "mff_enlarged_compression_factor * eps * marker * "
-                        "grad(marker), "
-                        "while 'regularized_band' uses the "
-                        "mff_band_factor-regularized band formulation.");
+                        "f(s)=s, while 'regularized_band' uses the "
+                        "mff_band_factor-regularized band formulation. This "
+                        "law is applied to both enlarged and physics "
+                        "compression terms.");
     }
     prm.leave_subsection();
   }
@@ -1273,6 +1322,13 @@ namespace Parameters
           Patterns::List(
             *Patterns::Tools::Convert<VectorTools::NormType>::to_pattern()),
           "A comma-separated list of norms (e.g., L2_norm, H1_norm)");
+        prm.declare_entry(
+          "initial target number of vertices",
+          "1000",
+          Patterns::Integer(),
+          "For a convergence study with metric-based anisotropic mesh "
+          "adaptation enabled, the initial target number of vertices in the "
+          "adapted mesh. This value is then doubled at each convergence step.");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1341,6 +1397,8 @@ namespace Parameters
         for (const auto &s : parsed_norms)
           norms_to_compute.push_back(
             Patterns::Tools::Convert<VectorTools::NormType>::to_value(s));
+        n_target_vertices =
+          prm.get_integer("initial target number of vertices");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1483,6 +1541,3 @@ namespace Parameters
     prm.leave_subsection();
   }
 } // namespace Parameters
-
-#undef DECLARE_VERBOSITY_PARAM
-#undef READ_VERBOSITY_PARAM

@@ -151,7 +151,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
    */
   if (!param.checkpoint_restart.restart)
   {
-    read_mesh(triangulation, param);
+    MeshTools::read_mesh(triangulation, param);
     setup_dofs();
   }
   else

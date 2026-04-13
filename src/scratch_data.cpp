@@ -415,7 +415,7 @@ void ScratchData<dim, has_hp_capabilities>::initialize_lagrange_multiplier()
       "Cannot create ScratchData with Lagrange multiplier data because "
       "solver does not have a Lagrange multiplier variable."));
 
-  lambda.first_vector_component = ordering.l_lower;
+  lambda.first_vector_component = l_lower = ordering.l_lower;
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -487,6 +487,11 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
   present_face_velocity_values.resize(
     n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
 
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+  face_velocity_source_term.resize(
+    n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+#endif
+
   phi_u.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
   grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
   sym_grad_phi_u.resize(n_q_points,
@@ -510,6 +515,15 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
   exact_face_pressure_values.resize(n_faces,
                                     std::vector<double>(n_faces_q_points));
+
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+  exact_face_velocity_values.resize(
+    n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+  exact_face_lambda_values.resize(
+    n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+  exact_face_mesh_velocity_values.resize(
+    n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
+#endif
 
   if (enable_pseudo_solid)
   {

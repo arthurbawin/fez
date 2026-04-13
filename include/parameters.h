@@ -3,9 +3,27 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/base/parsed_function.h>
 #include <deal.II/numerics/vector_tools_common.h>
 #include <parsed_function_symengine.h>
 #include <solver_info.h>
+
+#define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
+  (prm).declare_entry("verbosity",                                             \
+                      std::string(default_verbosity),                          \
+                      Patterns::Selection("quiet|verbose"),                    \
+                      "Level of message display in console: quiet or verbose " \
+                      "(default: " +                                           \
+                        std::string(default_verbosity) + ")");
+
+#define READ_VERBOSITY_PARAM(prm, verbosity)                     \
+  {                                                              \
+    const std::string parsed_verbosity = (prm).get("verbosity"); \
+    if (parsed_verbosity == "quiet")                             \
+      verbosity = Verbosity::quiet;                              \
+    if (parsed_verbosity == "verbose")                           \
+      verbosity = Verbosity::verbose;                            \
+  }
 
 /**
  * This namespace contains the parameters used to control the various
@@ -54,6 +72,9 @@ namespace Parameters
     unsigned int n_cahn_hilliard_bc = 0;
     unsigned int n_heat_bc          = 0;
 
+    // FIXME: This is not BC related, maybe move this in a dedicated entity
+    unsigned int n_metric_fields = 0;
+
     bool fix_pressure_constant;
     bool enforce_zero_mean_pressure;
 
@@ -63,6 +84,8 @@ namespace Parameters
 
   struct Mesh
   {
+    Verbosity verbosity;
+
     // Gmsh mesh file
     std::string filename;
 
@@ -75,7 +98,60 @@ namespace Parameters
     std::map<types::boundary_id, std::string> id2name;
     std::map<std::string, types::boundary_id> name2id;
 
-    Verbosity verbosity;
+    /**
+     * Parameters controlling the mesh adaptation procedure
+     */
+    struct Adaptation
+    {
+      Verbosity verbosity;
+
+      bool enable;
+
+      // Directory into which mesh adaptation-related files are written
+      std::string adapt_dir;
+
+      // Extension for the adapted meshes
+      std::string adapted_mesh_extension;
+
+      /**
+       * Available mesh adaptation strategies:
+       * - adaptation with a Riemannian metric, originating from one or more FE
+       * fields. For simplicial meshes only, as anisotropic metric-based meshing
+       * libraries exist only for simplicial meshes for now.
+       * - (not yet implemented:) hierarchical adaptation, using deal.II's
+       * routines and p4est. For quad/hex meshes only.
+       */
+      enum class Strategy
+      {
+        RiemannianMetric
+      } strategy;
+
+      /**
+       * Parameters for mesh adaptation with a Riemannian metric
+       */
+      struct Metric
+      {
+        /**
+         * Number of fixed point iterations to perform, to converge the
+         * mesh-solution pair. For steady simulations, this is the number of
+         * times the solver is run, and the mesh is adapted this number of
+         * times minus one. For unsteady simulations, this is the number of
+         * times the whole simulation is run, and the meshes are adapted on
+         * sub-intervals, this number of times minus one.
+         */
+        unsigned int n_fixed_point;
+
+        unsigned int current_fixed_point_iteration;
+
+        // Level of verbosity of the MMG library
+        unsigned int mmg_verbosity;
+
+        // For steady simulations, specify whether the solution should be
+        // transferred (projected) from the initial mesh to the adapted mesh.
+        bool transfer_solution;
+      } metric;
+
+    } adaptation;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -532,6 +608,12 @@ namespace Parameters
     bool        print_unsteady_errors_to_console;
     bool        print_unsteady_errors_to_file;
     std::string unsteady_errors_file_prefix;
+
+    // For anisotropic mesh adaptation, the target number of vertices for the
+    // current convergence step
+    // FIXME: the GenericSolver should use the full parameters and modify the
+    // metric field parameters instead of duplicating this information
+    unsigned int n_target_vertices;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {

@@ -48,6 +48,23 @@ namespace Assembly::MovingMeshForcing
       (denominator * denominator);
   }
 
+  template <int dim>
+  inline void
+  mesh_forcing_factor_and_jacobian(
+    const Parameters::CahnHilliard<dim> &cahn_hilliard,
+    const double                         phase_value,
+    double                              &factor,
+    double                              &factor_jacobian)
+  {
+    if (cahn_hilliard.mesh_forcing_law ==
+        Parameters::CahnHilliard<dim>::MeshForcingLaw::simple)
+      simple_mesh_forcing_factor_and_jacobian(
+        phase_value, factor, factor_jacobian);
+    else
+      regularized_band_mesh_forcing_factor_and_jacobian(
+        phase_value, cahn_hilliard.mff_band_factor, factor, factor_jacobian);
+  }
+
   template <int dim, bool with_enlarged, typename ScratchData, typename VectorType>
   inline void
   assemble_chns_rhs(const ComponentOrdering             &ordering,
@@ -69,31 +86,32 @@ namespace Assembly::MovingMeshForcing
 
         double enlarged_factor = 0.;
         double enlarged_factor_jacobian = 0.;
-        if (cahn_hilliard.mesh_forcing_law ==
-            Parameters::CahnHilliard<dim>::MeshForcingLaw::simple)
-          simple_mesh_forcing_factor_and_jacobian(enlarged_phase_value,
-                                                  enlarged_factor,
-                                                  enlarged_factor_jacobian);
-        else
-          regularized_band_mesh_forcing_factor_and_jacobian(
-            enlarged_phase_value,
-            cahn_hilliard.mff_band_factor,
-            enlarged_factor,
-            enlarged_factor_jacobian);
+        mesh_forcing_factor_and_jacobian(cahn_hilliard,
+                                         enlarged_phase_value,
+                                         enlarged_factor,
+                                         enlarged_factor_jacobian);
+        double tracer_factor = 0.;
+        double tracer_factor_jacobian = 0.;
+        mesh_forcing_factor_and_jacobian(cahn_hilliard,
+                                         scratch.tracer_values[q],
+                                         tracer_factor,
+                                         tracer_factor_jacobian);
 
         (void)enlarged_factor_jacobian;
+        (void)tracer_factor_jacobian;
 
         Tensor<1, dim> mesh_forcing;
-        mesh_forcing += cahn_hilliard.mff_enlarged_compression_factor *
-                        enlarged_epsilon * enlarged_factor *
-                        enlarged_phase_gradient;
+        if constexpr (with_enlarged)
+          mesh_forcing += cahn_hilliard.mff_enlarged_compression_factor *
+                          enlarged_epsilon * enlarged_factor *
+                          enlarged_phase_gradient;
         mesh_forcing +=
           cahn_hilliard.mff_transport_factor *
           (enlarged_epsilon * enlarged_epsilon) *
           ((u_conv * enlarged_phase_gradient) * enlarged_phase_gradient);
         mesh_forcing += cahn_hilliard.mff_physics_compression_factor *
-                        cahn_hilliard.epsilon_interface *
-                        scratch.tracer_values[q] * scratch.tracer_gradients[q];
+                        cahn_hilliard.epsilon_interface * tracer_factor *
+                        scratch.tracer_gradients[q];
 
         for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
           if (ordering.is_position(scratch.components[i]))
@@ -132,17 +150,16 @@ namespace Assembly::MovingMeshForcing
 
         double enlarged_factor          = 0.;
         double enlarged_factor_jacobian = 0.;
-        if (cahn_hilliard.mesh_forcing_law ==
-            Parameters::CahnHilliard<dim>::MeshForcingLaw::simple)
-          simple_mesh_forcing_factor_and_jacobian(enlarged_phase_value,
-                                                  enlarged_factor,
-                                                  enlarged_factor_jacobian);
-        else
-          regularized_band_mesh_forcing_factor_and_jacobian(
-            enlarged_phase_value,
-            cahn_hilliard.mff_band_factor,
-            enlarged_factor,
-            enlarged_factor_jacobian);
+        mesh_forcing_factor_and_jacobian(cahn_hilliard,
+                                         enlarged_phase_value,
+                                         enlarged_factor,
+                                         enlarged_factor_jacobian);
+        double tracer_factor          = 0.;
+        double tracer_factor_jacobian = 0.;
+        mesh_forcing_factor_and_jacobian(cahn_hilliard,
+                                         scratch.tracer_values[q],
+                                         tracer_factor,
+                                         tracer_factor_jacobian);
 
         for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
           {
@@ -178,10 +195,7 @@ namespace Assembly::MovingMeshForcing
 
                     local_ij -=
                       phi_x_i *
-                      (cahn_hilliard.mff_enlarged_compression_factor *
-                         enlarged_epsilon * enlarged_factor *
-                         transported_enlarged_gradient +
-                       cahn_hilliard.mff_transport_factor *
+                      (cahn_hilliard.mff_transport_factor *
                          (enlarged_epsilon * enlarged_epsilon) *
                          ((-bdf_c0) * scratch.phi_x[q][j] *
                             enlarged_phase_gradient * enlarged_phase_gradient +
@@ -190,11 +204,18 @@ namespace Assembly::MovingMeshForcing
                           enlarged_u_dot_grad_phase *
                             transported_enlarged_gradient));
 
+                    if constexpr (with_enlarged)
+                      local_ij -=
+                        phi_x_i *
+                        (cahn_hilliard.mff_enlarged_compression_factor *
+                         enlarged_epsilon * enlarged_factor *
+                         transported_enlarged_gradient);
+
                     local_ij -=
                       phi_x_i *
                       (cahn_hilliard.mff_physics_compression_factor *
                        cahn_hilliard.epsilon_interface *
-                       scratch.tracer_values[q] *
+                       tracer_factor *
                        transported_tracer_gradient);
                   }
 
@@ -217,12 +238,7 @@ namespace Assembly::MovingMeshForcing
                 if (!with_enlarged && ordering.is_tracer(comp_j))
                   local_ij -=
                     phi_x_i *
-                    (cahn_hilliard.mff_enlarged_compression_factor *
-                       enlarged_epsilon *
-                       (enlarged_factor_jacobian * scratch.shape_phi[q][j] *
-                          enlarged_phase_gradient +
-                        enlarged_factor * scratch.grad_shape_phi[q][j]) +
-                     cahn_hilliard.mff_transport_factor *
+                    (cahn_hilliard.mff_transport_factor *
                        (enlarged_epsilon * enlarged_epsilon) *
                        ((u_conv * scratch.grad_shape_phi[q][j]) *
                           enlarged_phase_gradient +
@@ -233,8 +249,9 @@ namespace Assembly::MovingMeshForcing
                     phi_x_i *
                     (cahn_hilliard.mff_physics_compression_factor *
                      cahn_hilliard.epsilon_interface *
-                     (scratch.shape_phi[q][j] * scratch.tracer_gradients[q] +
-                      scratch.tracer_values[q] * scratch.grad_shape_phi[q][j]));
+                     (tracer_factor_jacobian * scratch.shape_phi[q][j] *
+                        scratch.tracer_gradients[q] +
+                      tracer_factor * scratch.grad_shape_phi[q][j]));
 
                 local_matrix(i, j) += local_ij * scratch.JxW_fixed[q];
               }

@@ -3,6 +3,34 @@
 #include <mesh_and_dof_tools.h>
 
 template <int dim>
+void get_owned_mesh_vertices(const Triangulation<dim> &triangulation,
+                             const types::subdomain_id subdomain_id,
+                             std::vector<bool>        &owned_vertices)
+{
+  owned_vertices.resize(triangulation.n_vertices(), false);
+
+  // Start by marking all cells touching an owned cell as owned
+  for (const auto &cell : triangulation.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (const unsigned int v : cell->vertex_indices())
+        owned_vertices[cell->vertex_index(v)] = true;
+
+  // If a ghost cell with lesser id touches a vertex, mark it non-owned
+  for (const auto &cell : triangulation.active_cell_iterators())
+    if (cell->is_artificial() ||
+        (cell->is_ghost() && cell->subdomain_id() < subdomain_id))
+      for (const unsigned int v : cell->vertex_indices())
+        owned_vertices[cell->vertex_index(v)] = false;
+}
+
+template void get_owned_mesh_vertices(const Triangulation<2> &,
+                                      const types::subdomain_id,
+                                      std::vector<bool> &);
+template void get_owned_mesh_vertices(const Triangulation<3> &,
+                                      const types::subdomain_id,
+                                      std::vector<bool> &);
+
+template <int dim>
 std::set<Point<dim>, PointComparator<dim>>
 get_mesh_vertices_on_boundary(const DoFHandler<dim>   &dof_handler,
                               const types::boundary_id boundary_id)

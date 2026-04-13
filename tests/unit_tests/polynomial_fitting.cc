@@ -77,16 +77,25 @@ void test_fitting(const unsigned int field_polynomial_degree)
 
   // Create the patches of dof support points and print the sorted patches
   // for each owned mesh vertex
-  ErrorEstimation::PatchHandler     patch_handler(triangulation,
+  ErrorEstimation::PatchHandler patch_handler(triangulation,
                                               mapping,
                                               dof_handler,
                                               field_polynomial_degree + 1,
                                               fe.component_mask(
                                                 FEValuesExtractors::Scalar(0)));
-  ErrorEstimation::SolutionRecovery recovery(patch_handler,
-                                             solution,
-                                             fe,
-                                             mapping);
+  patch_handler.build_patches();
+
+  const unsigned int                        highest_recovered_derivative = 1;
+  ErrorEstimation::SolutionRecovery::Scalar recovery(
+    highest_recovered_derivative,
+    param,
+    patch_handler,
+    dof_handler,
+    solution,
+    fe,
+    mapping);
+  recovery.compute_least_squares_matrices();
+  recovery.reconstruct_fields();
 
   // Write the least-squares matrices and coefficient vectors
   // for the solution recovery of degree p + 1

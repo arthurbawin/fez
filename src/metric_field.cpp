@@ -12,6 +12,7 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_q.h>
 #include <deal.II/numerics/data_out.h>
+#include <error_estimation/solution_recovery.h>
 #include <mesh_and_dof_tools.h>
 #include <metric_field.h>
 #include <metric_tensor.h>
@@ -286,6 +287,34 @@ void MetricField<dim>::set_metrics_from_function(
       metrics[i] = symmetrize(function.value(vertices[i]));
     }
   }
+}
+
+template <int dim>
+void MetricField<dim>::set_induced_metric_from_graph(
+  const ErrorEstimation::SolutionRecovery::Scalar<dim> &reconstructed_gradient)
+{
+  AssertThrow(
+    reconstructed_gradient.get_highest_stored_derivative() >= 1,
+    ExcMessage(
+      "You are trying to set a metric field to the induced metric from the "
+      "graph of a scalar field, which requires the gradient of this field, but "
+      "the provided reconstruction does not store a reconstructed gradient. "
+      "The SolutionRecovery must be created with at least "
+      "highest_recovered_derivatives = 1 to store a smoothed gradient."));
+
+  // The gradient of the scalar field at vertices is needed
+  // For now, this gradient is obtained by least-square fitting
+  // using Zhang & Naga's polynomial preserving recovery.
+  const std::vector<Tensor<1, dim>> &gradients =
+    reconstructed_gradient.get_reconstructed_gradient();
+
+  AssertDimension(gradients.size(), n_vertices);
+
+  for (unsigned int i = 0; i < n_vertices; ++i)
+    if (owned_vertices[i])
+      // Set metric as I + grad \otimes grad
+      metrics[i] = MetricTensor<dim>(unit_symmetric_tensor<dim>() +
+                                     outer_product(gradients[i], gradients[i]));
 }
 
 template <int dim>

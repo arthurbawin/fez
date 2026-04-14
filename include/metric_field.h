@@ -1,8 +1,10 @@
 #ifndef METRIC_FIELD_h
 #define METRIC_FIELD_h
 
+#include <deal.II/lac/vector.h>
 #include <deal.II/base/tensor_function.h>
 #include <deal.II/numerics/data_postprocessor.h>
+#include <error_estimation/solution_recovery.h>
 #include <metric_tensor.h>
 #include <parameter_reader.h>
 #include <parameters.h>
@@ -59,9 +61,83 @@ public:
   void set_metrics_from_function(const TensorFunction<2, dim> &function);
 
   /**
+   * Set this field to the Riemannian metric induced by the graph (x, f(x)),
+   * where f(x) is a scalar-valued field. This metric is given by
+   *
+   * [M] = I + grad(f) \otimes grad(f), with I the identity tensor.
+   *
+   * Since the metrics are stored at the mesh vertices, this requires knowing
+   * the gradient of f(x) at these locations, which is generally not readily
+   * available in a classic finite element setting. Here, the gradient is
+   * assumed to have been obtained by smoothing the solution, using the
+   * ErrorEstimation::SolutionRecovery interface.
+   */
+  void set_induced_metric_from_graph(
+    const ErrorEstimation::SolutionRecovery::Scalar<dim>
+      &reconstructed_gradient);
+  
+  /**
    * Compute integral on mesh of metric determinant.
    */
   double compute_integral_determinant(const double exponent) const;
+
+  /**
+   * Compute the measure of the given @p cell with respect to this Riemannian
+   * metric field.
+   *
+   * The metric is interpolated inside the current cell from its nodal values
+   * through the FE representation of this MetricField.
+   *
+   * The input @p fe_values is expected to have already been reinitialized on
+   * the target cell and to provide both metric values and JxW values.
+   */
+  double
+  compute_cell_measure(const FEValues<dim> &fe_values) const;
+
+  /**
+   * Compute the measure of the given cell edge with respect to this
+   * Riemannian metric field.
+   *
+   * The metric is interpolated linearly along the edge from the nodal values
+   * stored at the edge endpoints. This implementation is restricted to simplex
+   * cells and assumes a 1D quadrature on the reference interval.
+   */
+  double
+  compute_cell_edge_measure(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const unsigned int                                    edge_no,
+    const Quadrature<1>                                  &edge_quadrature) const;
+
+  /**
+   * Compute the quality of the given cell with respect to this Riemannian
+   * metric field.
+   *
+   * The input @p fe_values is expected to be reinitialized on @p cell.
+   */
+  double
+  compute_cell_quality(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const FEValues<dim>                                  &fe_values,
+    const Quadrature<1>                                  &edge_quadrature) const;
+
+  /**
+   * Compute a cell-wise field of metric qualities on all active cells.
+   *
+   * The FE representation of the metric field is synchronized from the nodal
+   * metric storage before evaluating the qualities.
+   *
+   * Locally owned cells are assigned their metric quality, while non-owned
+   * cells are filled with zero so that the returned vector can be written as
+   * cell data with DataOut in parallel.
+   */
+  Vector<float>
+  compute_cell_quality_field(const Quadrature<dim> &cell_quadrature,
+                             const Quadrature<1>   &edge_quadrature);
+
+  void
+  write_cell_quality_pvtu(const std::string     &filename,
+                          const Quadrature<dim> &cell_quadrature,
+                          const Quadrature<1>   &edge_quadrature);
 
   /**
    * Compute the Riemannian metric minimizing an interpolation error estimate in

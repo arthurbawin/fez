@@ -46,12 +46,6 @@ namespace ErrorEstimation
     for (unsigned int i = 0; i <= degree; ++i)
       monomials.push_back(Polynomials::Monomial<double>(i));
 
-    // for(const auto &m : monomials)
-    // {
-    // 	std::cout << "Monomial:"<< std::endl;
-    // 	m.print(std::cout);
-    // }
-
     PolynomialSpace<dim> poly(monomials);
 
     // poly.output_indices(std::cout);
@@ -59,15 +53,13 @@ namespace ErrorEstimation
     // std::cout << poly.n_polynomials(monomials.size()) << std::endl;
 
     // Number of vertices to fit a polynomial of order "degree"
-    unsigned int n_required_vertices = poly.n_polynomials(monomials.size());
+    n_required_vertices = poly.n_polynomials(monomials.size());
 
     /**
-     * Cannot create patches if there are too few vertices in the mesh
-     * or in the partition.
+     * Cannot create patches if there are too few vertices in the mesh.
      */
     AssertThrow(
-      n_vertices >= n_required_vertices &&
-        n_owned_vertices >= n_required_vertices,
+      n_vertices >= n_required_vertices,
       ExcMessage(
         "Each vertices patch for solution recovery requires at least " +
         std::to_string(n_required_vertices) +
@@ -75,7 +67,11 @@ namespace ErrorEstimation
         std::to_string(n_vertices) + ") or in this subdomain (" +
         std::to_string(n_owned_vertices) +
         ") is lower than this number (or both)."));
+  }
 
+  template <int dim>
+  void PatchHandler<dim>::build_patches()
+  {
     /**
      * Construct the patches of support points.
      * For each owned mesh vertex, keep adding layers of elements until there
@@ -87,7 +83,7 @@ namespace ErrorEstimation
       add_element_layer(layer, n_required_vertices, needs_further_expansion);
 
       /**
-       * If any rank needs expansion, all ranks must continue exhchanging
+       * If any rank needs expansion, all ranks must continue exchanging
        * support points info (otherwise program will hang).
        */
       needs_further_expansion =
@@ -197,8 +193,8 @@ namespace ErrorEstimation
 
       if (layer == 0)
       {
-        AssertThrow(patch.elements.size() == 0,
-                    ExcMessage("Initial patch should be empty"));
+        Assert(patch.elements.size() == 0,
+               ExcMessage("Initial patch should be empty"));
         /**
          * First layer: add cells containing the vertex directly.
          * There is always at least 1 ghost cell layer, so the first cell layer
@@ -341,7 +337,8 @@ namespace ErrorEstimation
       {
         // for (auto dof : requested_dofs)
         //   if (!locally_relevant_dofs.is_element(dof))
-        //     std::cerr << "ERROR: Rank " << mpi_rank
+        //     std::cerr << "ERROR: Rank " <<
+        //     Utilities::MPI::this_mpi_process(mpi_communicator)
         //               << " received request for DoF " << dof << " from Rank "
         //               << source << " but I don't own it!" << std::endl;
 
@@ -468,76 +465,10 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  void PatchHandler<dim>::write_element_patch_gmsh(
-    const types::global_vertex_index /*vertex_index*/,
-    const unsigned int /*layer*/) const
-  {
-    // const auto &patch_elements = patches_of_elements[vertex_index];
-    // const auto &patches_support_points =
-    //   patches_of_support_points[vertex_index];
-    // const auto       &scaling = scalings[vertex_index];
-    // const Point<dim> &v       = triangulation.get_vertices()[vertex_index];
-
-    // if (patch_elements.size() == 0)
-    //   return;
-
-    // std::ofstream out(
-    //   "patch_elements_subdomain_" + std::to_string(subdomain_id) + "_vertex_"
-    //   + std::to_string(vertex_index) + "_" + std::to_string(layer) + ".pos");
-    // out << "View \"Subdomain " << subdomain_id << " - Vertex " <<
-    // vertex_index
-    //     << " - Layer " << layer << "\" {\n";
-
-    // out << "SP(" << v[0] << "," << v[1] << "," << (dim == 3 ? v[2] : 0.)
-    //     << "){2.};\n"
-    //     << std::endl;
-
-    // for (const auto &cell : patch_elements)
-    // {
-    //   // FIXME: Add for 3D
-    //   out << "ST(";
-    //   for (unsigned int iv = 0; iv < cell->n_vertices(); ++iv)
-    //   {
-    //     const Point<dim> &pt = cell->vertex(iv);
-    //     out << pt[0] << "," << pt[1] << ",0";
-    //     if (iv < 2)
-    //       out << ",";
-    //   }
-
-    //   // Color elements by owning partition (subdomain id)
-    //   const unsigned int id = cell->subdomain_id();
-    //   out << "){" << id << "," << id << "," << id << "};\n";
-    // }
-    // for (const auto &pt : patches_support_points)
-    // {
-    //   // Get the support point of this dof
-    //   out << "SP(" << pt[0] << "," << pt[1] << "," << (dim == 3 ? pt[2] : 0.)
-    //       << "){1.};\n"
-    //       << std::endl;
-    // }
-
-    // // The bounding box
-    // const double xmin = v[0] - scaling[0];
-    // const double xmax = v[0] + scaling[0];
-    // const double ymin = v[1] - scaling[1];
-    // const double ymax = v[1] + scaling[1];
-    // out << "SL(" << xmin << "," << ymin << ",0.," << xmax << "," << ymin
-    //     << ",0.){1., 1.};\n";
-    // out << "SL(" << xmax << "," << ymin << ",0.," << xmax << "," << ymax
-    //     << ",0.){1., 1.};\n";
-    // out << "SL(" << xmax << "," << ymax << ",0.," << xmin << "," << ymax
-    //     << ",0.){1., 1.};\n";
-    // out << "SL(" << xmin << "," << ymax << ",0.," << xmin << "," << ymin
-    //     << ",0.){1., 1.};\n";
-
-    // out << "};\n";
-    // out.close();
-  }
-
-  template <int dim>
   void PatchHandler<dim>::write_support_points_patch(
     const LA::ParVectorType &solution,
-    std::ostream            &out) const
+    std::ostream            &out,
+    bool                     write_for_gmsh) const
   {
     std::vector<Point<dim>> global_vertices;
     std::vector<Patch<dim>> global_patches;
@@ -616,6 +547,53 @@ namespace ErrorEstimation
         out << "Scaling     " << patch.scaling << std::endl;
         for (const auto &[dof, pt] : patch.neighbours)
           out << pt << " : sol = " << local_solution[dof] << std::endl;
+      }
+
+      if (write_for_gmsh)
+      {
+        for (unsigned int i = 0; i < global_vertices.size(); ++i)
+        {
+          std::ofstream out("patches_vertex" + std::to_string(i) + ".pos");
+          out << "View \"patches_vertex_" << i << "\"{\n";
+
+          const auto &patch = global_patches[i];
+          const auto &c     = patch.center;
+          out << "SP(" << c[0] << "," << c[1] << "," << (dim == 3 ? c[2] : 0.)
+              << "){2.};\n"
+              << std::endl;
+
+          for (const auto &[dof, pt] : patch.neighbours)
+          {
+            out << "SP(" << pt[0] << "," << pt[1] << ","
+                << (dim == 3 ? pt[2] : 0.) << "){1.};\n"
+                << std::endl;
+          }
+
+          // elements are not serialized, thus not exchanged
+          // for (const auto &cell : patch.elements)
+          // {
+          //   const unsigned int id = cell->subdomain_id();
+          //   out << ((dim == 2) ? "ST(" : "SS(");
+          //   for (unsigned int iv = 0; iv < cell->n_vertices(); ++iv)
+          //   {
+          //     const Point<dim> &pt = cell->vertex(iv);
+          //     if constexpr (dim == 2)
+          //       out << pt[0] << "," << pt[1] << ",0." << ((iv ==
+          //       cell->n_vertices() - 1) ? "" : ",");
+          //     else
+          //       out << pt[0] << "," << pt[1] << "," << pt[2] << ((iv ==
+          //       cell->n_vertices() - 1) ? "" : ",");
+          //   }
+          //   // Color elements by owning partition (subdomain id)
+          //   out << "){";
+          //   for (unsigned int iv = 0; iv < cell->n_vertices(); ++iv)
+          //     out << id << ((iv == cell->n_vertices() - 1) ? "" : ",");
+          //   out << "};\n";
+          // }
+
+          out << "};\n";
+          out.close();
+        }
       }
     }
   }

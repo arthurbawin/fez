@@ -21,6 +21,7 @@
 #include <scratch_data_heat.h>
 #include <time_handler.h>
 #include <types.h>
+#include <metric_field.h>
 
 using namespace dealii;
 
@@ -189,6 +190,8 @@ public:
    *
    */
   virtual void adapt_mesh() override;
+
+  void output_metric_quality_field();
 
 private:
   /**

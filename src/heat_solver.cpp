@@ -181,7 +181,7 @@ void HeatSolver<dim>::run()
   }
 
   adapt_mesh();
-
+  output_metric_quality_field();
   finalize();
 }
 
@@ -650,16 +650,16 @@ void HeatSolver<dim>::compute_recovery()
 {
   TimerOutput::Scope t(computing_timer, "Compute recovery");
 
-  ErrorEstimation::PatchHandler patch_handler(
-    *triangulation,
-    *mapping,
-    dof_handler,
-    param.finite_elements.temperature_degree + 1,
-    temperature_mask);
-  ErrorEstimation::SolutionRecovery recovery(patch_handler,
-                                             present_solution,
-                                             fe,
-                                             *mapping);
+  // ErrorEstimation::PatchHandler patch_handler(
+  //   *triangulation,
+  //   *mapping,
+  //   dof_handler,
+  //   param.finite_elements.temperature_degree + 1,
+  //   temperature_mask);
+  // ErrorEstimation::SolutionRecovery recovery(patch_handler,
+  //                                            present_solution,
+  //                                            fe,
+  //                                            *mapping);
 }
 
 template <int dim>
@@ -676,26 +676,50 @@ void HeatSolver<dim>::postprocess_solution()
 template <int dim>
 void HeatSolver<dim>::adapt_mesh()
 {
+  // if (param.bc_data.n_metric_fields > 0)
+  // {
+  //   computing_timer.enter_subsection("Create metric field");
+  //   MetricField<dim> field(0, param, *triangulation);
+  //   computing_timer.leave_subsection();
+
+  //   computing_timer.enter_subsection("Compute optimal metric");
+  //   field.compute_optimal_multiscale_metric();
+  //   computing_timer.leave_subsection();
+
+  //   field.write_pvtu("metrics_before_gradation");
+
+  //   computing_timer.enter_subsection("Apply metric gradation");
+  //   field.apply_gradation();
+  //   computing_timer.leave_subsection();
+
+  //   field.write_pvtu("metrics_after_gradation");
+
+  //   computing_timer.enter_subsection("Adapt mesh with MMG");
+  //   MeshTools::adapt_with_mmg(param, *triangulation, field);
+  //   computing_timer.leave_subsection();
+  // }
+}
+
+template <int dim>
+void HeatSolver<dim>::output_metric_quality_field()
+{
   if (param.bc_data.n_metric_fields > 0)
   {
-    computing_timer.enter_subsection("Create metric field");
+    computing_timer.enter_subsection("Output metric quality field");
+
+    AssertThrow(!param.finite_elements.use_quads,
+                ExcMessage("Metric quality output is currently implemented only "
+                           "for simplex meshes."));
+
     MetricField<dim> field(0, param, *triangulation);
-    computing_timer.leave_subsection();
 
-    computing_timer.enter_subsection("Compute optimal metric");
-    field.compute_optimal_multiscale_metric();
-    computing_timer.leave_subsection();
+    QGaussSimplex<dim> cell_quadrature(3);
+    QGauss<1>          edge_quadrature(3);
 
-    field.write_pvtu("metrics_before_gradation");
+    field.write_cell_quality_pvtu("cell_quality_test",
+                                  cell_quadrature,
+                                  edge_quadrature);
 
-    computing_timer.enter_subsection("Apply metric gradation");
-    field.apply_gradation();
-    computing_timer.leave_subsection();
-
-    field.write_pvtu("metrics_after_gradation");
-
-    computing_timer.enter_subsection("Adapt mesh with MMG");
-    MeshTools::adapt_with_mmg(param, *triangulation, field);
     computing_timer.leave_subsection();
   }
 }

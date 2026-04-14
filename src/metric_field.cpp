@@ -12,6 +12,7 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_q.h>
 #include <deal.II/numerics/data_out.h>
+#include <error_estimation/solution_recovery.h>
 #include <mesh_and_dof_tools.h>
 #include <metric_field.h>
 #include <metric_tensor.h>
@@ -289,6 +290,34 @@ void MetricField<dim>::set_metrics_from_function(
 }
 
 template <int dim>
+void MetricField<dim>::set_induced_metric_from_graph(
+  const ErrorEstimation::SolutionRecovery::Scalar<dim> &reconstructed_gradient)
+{
+  AssertThrow(
+    reconstructed_gradient.get_highest_stored_derivative() >= 1,
+    ExcMessage(
+      "You are trying to set a metric field to the induced metric from the "
+      "graph of a scalar field, which requires the gradient of this field, but "
+      "the provided reconstruction does not store a reconstructed gradient. "
+      "The SolutionRecovery must be created with at least "
+      "highest_recovered_derivatives = 1 to store a smoothed gradient."));
+
+  // The gradient of the scalar field at vertices is needed
+  // For now, this gradient is obtained by least-square fitting
+  // using Zhang & Naga's polynomial preserving recovery.
+  const std::vector<Tensor<1, dim>> &gradients =
+    reconstructed_gradient.get_reconstructed_gradient();
+
+  AssertDimension(gradients.size(), n_vertices);
+
+  for (unsigned int i = 0; i < n_vertices; ++i)
+    if (owned_vertices[i])
+      // Set metric as I + grad \otimes grad
+      metrics[i] = MetricTensor<dim>(unit_symmetric_tensor<dim>() +
+                                     outer_product(gradients[i], gradients[i]));
+}
+
+template <int dim>
 void MetricField<dim>::apply_gradation()
 {
   if (param.metric_fields[index].gradation.enable)
@@ -465,6 +494,182 @@ void MetricField<dim>::intersect_with(const MetricField<dim> &other)
     MetricTensor<dim> &metric = metrics[i];
     metric                    = metric.intersection(other.metrics[i]);
   }
+}
+
+template <int dim>
+double
+MetricField<dim>::compute_cell_measure(const FEValues<dim> &fe_values) const
+{
+  const FEValuesExtractors::SymmetricTensor<2> metric_extractor(0);
+  std::vector<SymmetricTensor<2, dim>> metric_values(
+    fe_values.n_quadrature_points);
+
+  fe_values[metric_extractor].get_function_values(metrics_fe, metric_values);
+
+  double measure = 0.;
+  for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+  {
+    if constexpr (running_in_debug_mode())
+    {
+      const auto        &m = metric_values[q];
+      std::ostringstream oss;
+      oss << m;
+      Assert(is_positive_definite(m),
+             ExcInterpolatedNotSPD(oss.str(), determinant(m)));
+    }
+
+    measure += std::sqrt(determinant(metric_values[q])) * fe_values.JxW(q);
+  }
+
+  return measure;
+}
+
+template <int dim>
+double
+MetricField<dim>::compute_cell_edge_measure(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  const unsigned int                                    edge_no,
+  const Quadrature<1>                                  &edge_quadrature) const
+{
+  Assert(cell->is_locally_owned(), ExcMessage("Only for owned cells"));
+  Assert(cell->reference_cell().is_simplex(),
+         ExcMessage("Metric edge measure is currently implemented only for "
+                    "simplex cells."));
+  AssertIndexRange(edge_no, cell->n_lines());
+
+  const auto line = cell->line(edge_no);
+
+  const auto v0 = line->vertex_index(0);
+  const auto v1 = line->vertex_index(1);
+
+  const Point<dim> x0 = line->vertex(0);
+  const Point<dim> x1 = line->vertex(1);
+
+  const Tensor<1, dim> edge_vector = x1 - x0;
+
+  const MetricTensor<dim> &M0 = metrics[v0];
+  const MetricTensor<dim> &M1 = metrics[v1];
+
+  double measure = 0.;
+  for (unsigned int q = 0; q < edge_quadrature.size(); ++q)
+  {
+    const double s = edge_quadrature.point(q)[0];
+
+    const SymmetricTensor<2, dim> interpolated_metric =
+      (1. - s) * static_cast<const SymmetricTensor<2, dim> &>(M0) +
+      s * static_cast<const SymmetricTensor<2, dim> &>(M1);
+
+    if constexpr (running_in_debug_mode())
+    {
+      std::ostringstream oss;
+      oss << interpolated_metric;
+      Assert(is_positive_definite(interpolated_metric),
+             ExcInterpolatedNotSPD(oss.str(),
+                                   determinant(interpolated_metric)));
+    }
+
+    const double metric_norm_sq =
+      edge_vector * interpolated_metric * edge_vector;
+
+    if constexpr (running_in_debug_mode())
+      Assert(metric_norm_sq > 0.,
+             ExcMessage("Interpolated metric produced a nonpositive squared "
+                        "edge length."));
+
+    measure +=
+      std::sqrt(metric_norm_sq) * edge_quadrature.weight(q);
+  }
+
+  return measure;
+}
+
+template <int dim>
+double
+MetricField<dim>::compute_cell_quality(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  const FEValues<dim>                                  &fe_values,
+  const Quadrature<1>                                  &edge_quadrature) const
+{
+  Assert(cell->is_locally_owned(), ExcMessage("Only for owned cells"));
+  Assert(cell->reference_cell().is_simplex(),
+         ExcMessage("Metric cell quality is currently implemented only for "
+                    "simplex cells."));
+
+  const double cell_measure = compute_cell_measure(fe_values);
+
+  double sum_edge_measures_sq = 0.;
+  for (unsigned int edge_no = 0; edge_no < cell->n_lines(); ++edge_no)
+  {
+    const double edge_measure =
+      compute_cell_edge_measure(cell, edge_no, edge_quadrature);
+    sum_edge_measures_sq += edge_measure * edge_measure;
+  }
+
+  Assert(sum_edge_measures_sq > 0.,
+         ExcMessage("The sum of squared metric edge measures should be "
+                    "positive."));
+
+  double normalization_constant = 0.;
+  if constexpr (dim == 2)
+    normalization_constant = 4. * std::sqrt(3.);
+  else if constexpr (dim == 3)
+    normalization_constant = 36. / std::cbrt(3.);
+  else
+    DEAL_II_NOT_IMPLEMENTED();
+
+  return normalization_constant *
+         std::pow(cell_measure, 2. / static_cast<double>(dim)) /
+         sum_edge_measures_sq;
+}
+
+template <int dim>
+Vector<float>
+MetricField<dim>::compute_cell_quality_field(
+  const Quadrature<dim> &cell_quadrature,
+  const Quadrature<1>   &edge_quadrature)
+{
+  // Keep the FE-based and nodal metric representations consistent before
+  // mixing cell integrals and edge integrals in the quality computation.
+  metrics_to_tensor_solution();
+
+  Vector<float> cell_quality(triangulation.n_active_cells());
+
+  FEValues<dim> fe_values(*mapping,
+                          *fe,
+                          cell_quadrature,
+                          update_values | update_JxW_values);
+
+  for (const auto &cell : 
+       dof_handler.active_cell_iterators() | IteratorFilters::LocallyOwnedCell())
+  {
+    fe_values.reinit(cell);
+
+    cell_quality[cell->active_cell_index()] =
+      static_cast<float>(
+        compute_cell_quality(cell, fe_values, edge_quadrature));
+  }
+
+  return cell_quality;
+}
+
+template <int dim>
+void MetricField<dim>::write_cell_quality_pvtu(
+  const std::string    &filename,
+  const Quadrature<dim> &cell_quadrature,
+  const Quadrature<1>   &edge_quadrature)
+{
+  Vector<float> cell_quality =
+    compute_cell_quality_field(cell_quadrature, edge_quadrature);
+
+  DataOut<dim> data_out;
+  data_out.attach_triangulation(triangulation);
+  data_out.add_data_vector(cell_quality,
+                           "cell_quality",
+                           DataOut<dim>::type_cell_data);
+  data_out.build_patches();
+
+  data_out.write_vtu_with_pvtu_record(
+    param.output.output_dir, filename, 0, dof_handler.get_mpi_communicator(), 2);
 }
 
 template <int dim>
@@ -680,7 +885,11 @@ void MetricField<dim>::write_pvtu(const std::string &filename,
   data_out.add_data_vector(metrics_fe, postprocessor);
   data_out.build_patches(1);
   data_out.write_vtu_with_pvtu_record(
-    "./", filename, 0, dof_handler.get_mpi_communicator(), 2);
+    param.output.output_dir,
+    filename,
+    0,
+    dof_handler.get_mpi_communicator(),
+    2);
 }
 
 template class MetricField<2>;

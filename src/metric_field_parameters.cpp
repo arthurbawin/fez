@@ -66,6 +66,15 @@ namespace Parameters
           "1000",
           Patterns::Integer(0),
           "Target number of vertices after adaptation, assuming no gradation");
+        prm.declare_entry(
+          "use analytical derivatives",
+          "false",
+          Patterns::Bool(),
+          "Enable/disable the use of the symbolic derivatives of the provided "
+          "analytical field to evaluate the metric field. If not, "
+          "reconstructed derivatives from the solution are used. Leaving this "
+          "to false is the intended way to compute a metric field for an "
+          "arbitrary numerical solution.");
       }
       prm.leave_subsection();
       prm.enter_subsection("Gradation");
@@ -152,6 +161,8 @@ namespace Parameters
             "Unknown target norm for optimal multiscale metric: " +
             parsed_norm);
         multiscale.n_target_vertices = prm.get_integer("n target vertices");
+        multiscale.use_analytical_derivatives =
+          prm.get_bool("use analytical derivatives");
       }
       prm.leave_subsection();
       prm.enter_subsection("Gradation");

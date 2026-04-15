@@ -96,19 +96,20 @@ namespace ErrorEstimation
      * matrices and their data.
      */
     template <int dim>
-    class SolutionRecoveryBase
+    class Base
     {
     public:
       /**
        * Constructor.
        */
-      SolutionRecoveryBase(const unsigned int highest_recovered_derivative,
-                           const ParameterReader<dim> &param,
-                           PatchHandler<dim>          &patch_handler,
-                           const DoFHandler<dim>      &dof_handler,
-                           const LA::ParVectorType    &solution,
-                           const FiniteElement<dim>   &fe,
-                           const Mapping<dim>         &mapping);
+      Base(const unsigned int          highest_recovered_derivative,
+           const ParameterReader<dim> &param,
+           PatchHandler<dim>          &patch_handler,
+           const DoFHandler<dim>      &dof_handler,
+           const LA::ParVectorType    &solution,
+           const FiniteElement<dim>   &fe,
+           const Mapping<dim>         &mapping,
+           const ComponentMask        &mask);
 
       /**
        * For each owned mesh vertex (each patch), compute the least squares
@@ -178,6 +179,29 @@ namespace ErrorEstimation
        * This should be made consistent throughout this class.
        */
       unsigned int get_highest_stored_derivative() const;
+
+      /**
+       * Return the reconstructed @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
+       */
+      virtual const std::vector<double> &
+      get_reconstructed_solution(const unsigned int component = 0) const = 0;
+
+      /**
+       * Return the reconstructed gradient of the @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
+       */
+      virtual const std::vector<Tensor<1, dim>> &
+      get_reconstructed_gradient(const unsigned int component = 0) const = 0;
+
+      /**
+       * Return the reconstructed hessian of the @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
+       *
+       * FIXME: Maybe it would be better to symmetrize the recovered hessian
+       */
+      virtual const std::vector<Tensor<2, dim>> &
+      get_reconstructed_hessian(const unsigned int component = 0) const = 0;
 
       /**
        * Write all the reconstructed fields to a pvtu file for visualization.
@@ -259,7 +283,7 @@ namespace ErrorEstimation
        */
       const DoFHandler<dim>    &dof_handler;
       const FiniteElement<dim> &fe;
-      const Mapping<dim>       &mapping;
+      // const Mapping<dim>       &mapping;
 
       /**
        * Isoparametric dof handler, fe and mapping, to store the recovery data
@@ -365,7 +389,7 @@ namespace ErrorEstimation
      * Solution and derivatives recovery for a scalar variable.
      */
     template <int dim>
-    class Scalar : public SolutionRecoveryBase<dim>
+    class Scalar : public Base<dim>
     {
     public:
       /**
@@ -405,25 +429,29 @@ namespace ErrorEstimation
              const DoFHandler<dim>      &dof_handler,
              const LA::ParVectorType    &solution,
              const FiniteElement<dim>   &fe,
-             const Mapping<dim>         &mapping);
+             const Mapping<dim>         &mapping,
+             const ComponentMask        &mask = {});
 
       /**
-       * Return the reconstructed solutions at the mesh vertices on this
-       * partition.
+       * Return the reconstructed @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
        */
-      const std::vector<value_type> &get_reconstructed_solution() const;
+      virtual const std::vector<double> &get_reconstructed_solution(
+        const unsigned int component = 0) const override;
 
       /**
-       * Return the reconstructed gradients at the mesh vertices on this
-       * partition.
+       * Return the reconstructed gradient of the @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
        */
-      const std::vector<gradient_type> &get_reconstructed_gradient() const;
+      virtual const std::vector<Tensor<1, dim>> &get_reconstructed_gradient(
+        const unsigned int component = 0) const override;
 
       /**
-       * Return the reconstructed hessians at the mesh vertices on this
-       * partition.
+       * Return the reconstructed hessian of the @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
        */
-      const std::vector<hessian_type> &get_reconstructed_hessian() const;
+      virtual const std::vector<Tensor<2, dim>> &get_reconstructed_hessian(
+        const unsigned int component = 0) const override;
 
       /**
        * Write all the reconstructed fields to a pvtu file for visualization.
@@ -482,7 +510,7 @@ namespace ErrorEstimation
      * Solution and derivatives recovery for a vector-valued variable
      */
     template <int dim>
-    class Vector : public SolutionRecoveryBase<dim>
+    class Vector : public Base<dim>
     {
     public:
       Vector(const unsigned int          highest_recovered_derivative,
@@ -491,14 +519,16 @@ namespace ErrorEstimation
              const DoFHandler<dim>      &dof_handler,
              const LA::ParVectorType    &solution,
              const FiniteElement<dim>   &fe,
-             const Mapping<dim>         &mapping)
-        : SolutionRecoveryBase<dim>(highest_recovered_derivative,
-                                    param,
-                                    patch_handler,
-                                    dof_handler,
-                                    solution,
-                                    fe,
-                                    mapping)
+             const Mapping<dim>         &mapping,
+             const ComponentMask        &mask = {})
+        : Base<dim>(highest_recovered_derivative,
+                    param,
+                    patch_handler,
+                    dof_handler,
+                    solution,
+                    fe,
+                    mapping,
+                    mask)
       {
         // TODO
         DEAL_II_NOT_IMPLEMENTED();
@@ -514,14 +544,13 @@ namespace ErrorEstimation
   namespace SolutionRecovery
   {
     template <int dim>
-    unsigned int
-    SolutionRecoveryBase<dim>::get_highest_stored_derivative() const
+    unsigned int Base<dim>::get_highest_stored_derivative() const
     {
       return highest_recovered_derivative;
     }
 
     template <int dim>
-    void SolutionRecoveryBase<dim>::vertex_to_isoparametric(
+    void Base<dim>::vertex_to_isoparametric(
       const std::vector<double>                                 &vertex_data,
       LA::ParVectorType                                         &local_dof_data,
       LA::ParVectorType                                         &dof_data,
@@ -546,7 +575,7 @@ namespace ErrorEstimation
 
     template <int dim>
     template <int rank, int n_components>
-    void SolutionRecoveryBase<dim>::vertex_to_isoparametric(
+    void Base<dim>::vertex_to_isoparametric(
       const std::vector<Tensor<rank, dim>> &vertex_data,
       LA::ParVectorType                    &local_dof_data,
       LA::ParVectorType                    &dof_data,
@@ -577,22 +606,22 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    const std::vector<typename Scalar<dim>::value_type> &
-    Scalar<dim>::get_reconstructed_solution() const
+    const std::vector<double> &
+    Scalar<dim>::get_reconstructed_solution(const unsigned int) const
     {
       return recovered_solution_at_vertices;
     }
 
     template <int dim>
-    const std::vector<typename Scalar<dim>::gradient_type> &
-    Scalar<dim>::get_reconstructed_gradient() const
+    const std::vector<Tensor<1, dim>> &
+    Scalar<dim>::get_reconstructed_gradient(const unsigned int) const
     {
       return recovered_gradient_at_vertices;
     }
 
     template <int dim>
-    const std::vector<typename Scalar<dim>::hessian_type> &
-    Scalar<dim>::get_reconstructed_hessian() const
+    const std::vector<Tensor<2, dim>> &
+    Scalar<dim>::get_reconstructed_hessian(const unsigned int) const
     {
       return recovered_hessian_at_vertices;
     }

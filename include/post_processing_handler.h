@@ -74,9 +74,11 @@ public:
    * frequency. Thus, it can simply be called without additional checks.
    */
   template <typename VectorType>
-  void output_fields(const Mapping<dim> &mapping,
-                     const VectorType   &solution,
-                     const TimeHandler  &time_handler);
+  void output_fields(const Mapping<dim>             &mapping,
+                     const VectorType               &solution,
+                     const TimeHandler              &time_handler,
+                     const ComponentOrdering *const  ordering = nullptr,
+                     const bool                      is_hp = false);
 
   /**
    * Write the .pvd files (volume and skin, if applicable).
@@ -228,9 +230,11 @@ private:
    * add_dof_data_vector.
    */
   template <typename VectorType>
-  void output_volume_fields(const Mapping<dim> &mapping,
-                            const VectorType   &solution,
-                            const TimeHandler  &time_handler);
+  void output_volume_fields(const Mapping<dim>             &mapping,
+                            const VectorType               &solution,
+                            const TimeHandler              &time_handler,
+                            const ComponentOrdering *const  ordering,
+                            const bool                      is_hp);
 
   /**
    * Output the fields defined on the skin for visualization. This includes
@@ -334,9 +338,12 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
 
 template <int dim>
 template <typename VectorType>
-void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
-                                               const VectorType   &solution,
-                                               const TimeHandler  &time_handler)
+void PostProcessingHandler<dim>::output_fields(
+  const Mapping<dim>            &mapping,
+  const VectorType              &solution,
+  const TimeHandler             &time_handler,
+  const ComponentOrdering *const ordering,
+  const bool                     is_hp)
 {
   // Get the partitions only once
   if (subdomains.size() == 0)
@@ -356,7 +363,7 @@ void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
 
   // Export fields in volume
   if (should_output_volume_fields(time_handler))
-    output_volume_fields(mapping, solution, time_handler);
+    output_volume_fields(mapping, solution, time_handler, ordering, is_hp);
 
   // Export fields on prescribed boundary (skin)
   if (should_output_skin_fields(time_handler))
@@ -370,14 +377,24 @@ void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
 template <int dim>
 template <typename VectorType>
 void PostProcessingHandler<dim>::output_volume_fields(
-  const Mapping<dim> &mapping,
-  const VectorType   &solution,
-  const TimeHandler  &time_handler)
+  const Mapping<dim>            &mapping,
+  const VectorType              &solution,
+  const TimeHandler             &time_handler,
+  const ComponentOrdering *const ordering,
+  const bool                     is_hp)
 {
   data_out->add_data_vector(solution,
                             solution_names,
                             DataOut<dim>::type_dof_data,
                             data_component_interpretation);
+
+  if (ordering != nullptr && !is_hp)
+  {
+    const PostProcessingTools::VorticityAndQCriterion<dim>
+      vorticity_and_q_criterion(ordering->u_lower);
+    data_out->add_data_vector(solution, vorticity_and_q_criterion);
+  }
+
   data_out->add_data_vector(subdomains, "subdomain");
   data_out->build_patches(mapping, 2);
 

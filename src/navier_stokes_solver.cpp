@@ -854,7 +854,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
   // we should output at this time step or not.
   postproc_handler->output_fields(*moving_mapping,
                                   present_solution,
-                                  time_handler);
+                                  time_handler,
+                                  ordering.get(),
+                                  uses_hp_capabilities());
 }
 
 template <int dim, bool with_moving_mesh>

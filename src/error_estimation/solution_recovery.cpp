@@ -17,21 +17,21 @@ namespace ErrorEstimation
   namespace SolutionRecovery
   {
     template <int dim>
-    SolutionRecoveryBase<dim>::SolutionRecoveryBase(
-      const unsigned int          highest_recovered_derivative,
-      const ParameterReader<dim> &param,
-      PatchHandler<dim>          &patch_handler,
-      const DoFHandler<dim>      &dof_handler,
-      const LA::ParVectorType    &solution,
-      const FiniteElement<dim>   &fe,
-      const Mapping<dim>         &mapping)
+    Base<dim>::Base(const unsigned int          highest_recovered_derivative,
+                    const ParameterReader<dim> &param,
+                    PatchHandler<dim>          &patch_handler,
+                    const DoFHandler<dim>      &dof_handler,
+                    const LA::ParVectorType    &solution,
+                    const FiniteElement<dim>   &fe,
+                    const Mapping<dim>         &mapping,
+                    const ComponentMask        &mask)
       : highest_recovered_derivative(highest_recovered_derivative)
       , param(param)
       , patch_handler(patch_handler)
       , patches(patch_handler.patches)
       , dof_handler(dof_handler)
       , fe(fe)
-      , mapping(mapping)
+      // , mapping(mapping)
       , isoparam_dh(dof_handler.get_triangulation())
       , mpi_communicator(patch_handler.mpi_communicator)
       , pcout(std::cout,
@@ -56,16 +56,18 @@ namespace ErrorEstimation
       local_solution                  = solution;
       solution_with_additional_ghosts = solution;
 
-      // Create the polynomial bases for polynomial fitting of degree p + 1 and
-      // for the gradients
+      // Degree of the polynomial solution for which derivatives are computed
+      const unsigned int degree = fe.get_sub_fe(mask).degree;
+
+      // Polynomial bases of degree "degree + 1"
       std::vector<Polynomials::Monomial<double>> monomials_1d_recovery;
-      for (unsigned int i = 0; i <= fe.degree + 1; ++i)
+      for (unsigned int i = 0; i <= degree + 1; ++i)
         monomials_1d_recovery.push_back(Polynomials::Monomial<double>(i));
 
       // for (const auto &m : monomials_1d_recovery)
       // {
-      //   pcout << "Monomial for recovery:" << std::endl;
-      //   m.print(pcout.get_stream());
+      //   pcout << "Monomial for recovery for fe with degree " << fe.degree <<
+      //   " :" << std::endl; m.print(pcout.get_stream());
       // }
 
       monomials_recovery =
@@ -98,12 +100,12 @@ namespace ErrorEstimation
       // + all its derivatives up to order "degree") and the number of
       // derivatives to store (sum of dim^i, i > 0, until degree + 1).
       n_fields_to_recover = 1;
-      for (unsigned int i = 1; i <= fe.degree; ++i)
+      for (unsigned int i = 1; i <= degree; ++i)
       {
         n_fields_to_recover += std::pow(dim, i);
       }
       n_derivatives_to_store =
-        n_fields_to_recover - 1 + std::pow(dim, fe.degree + 1);
+        n_fields_to_recover - 1 + std::pow(dim, degree + 1);
 
       for (types::global_vertex_index i = 0; i < n_vertices; ++i)
         if (owned_vertices[i])
@@ -127,9 +129,8 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    void SolutionRecoveryBase<dim>::fill_vandermonde_matrix(
-      const Patch<dim>   &patch,
-      FullMatrix<double> &mat) const
+    void Base<dim>::fill_vandermonde_matrix(const Patch<dim>   &patch,
+                                            FullMatrix<double> &mat) const
     {
       const auto &neighbours = patch.neighbours_local_coordinates;
 
@@ -144,7 +145,7 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    void SolutionRecoveryBase<dim>::compute_least_squares_matrices()
+    void Base<dim>::compute_least_squares_matrices()
     {
       // The matrices are of size dim_recovery_basis x n_adjacent,
       // but n_adjacent varies and can change if the patch is increased.
@@ -188,11 +189,12 @@ namespace ErrorEstimation
           A.Tmmult(AtA, A);
           rank = get_rank<dim>(AtA, eigenAtA);
 
-          // pcout << "rank is " << rank << std::endl;
-
           // FIXME: Enlarge patches if not of full rank
-          AssertThrow(rank >= dim_recovery_basis,
-                      ExcMessage("Matrix is not full rank at vertex"));
+          AssertThrow(
+            rank >= dim_recovery_basis,
+            ExcMessage(
+              "FIXME: Least-squares matrix is not full rank at this vertex. "
+              "The patch should be increased, this is on the TODO list (-:"));
 
           // if (rank >= dim_recovery_basis)
           // {
@@ -219,7 +221,7 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    void SolutionRecoveryBase<dim>::reconstruct_fields()
+    void Base<dim>::reconstruct_fields()
     {
       for (unsigned int i = 0; i < highest_recovered_derivative; ++i)
       {
@@ -230,7 +232,7 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    double SolutionRecoveryBase<dim>::compute_integral_error(
+    double Base<dim>::compute_integral_error(
       const RecoveryType          type,
       const VectorTools::NormType norm_type,
       const Function<dim>        &exact_solution,
@@ -286,10 +288,10 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    double SolutionRecoveryBase<dim>::compute_nodal_error(
-      const RecoveryType          type,
-      const VectorTools::NormType norm_type,
-      const Function<dim>        &exact_solution) const
+    double
+    Base<dim>::compute_nodal_error(const RecoveryType          type,
+                                   const VectorTools::NormType norm_type,
+                                   const Function<dim> &exact_solution) const
     {
       // Get the component mask for the required field type, and the mask
       // consisting of all but its components, to set all other dofs to zero
@@ -372,8 +374,7 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    void SolutionRecoveryBase<dim>::write_least_squares_systems(
-      std::ostream &out) const
+    void Base<dim>::write_least_squares_systems(std::ostream &out) const
     {
       std::vector<Point<dim>>             global_vertices;
       std::vector<FullMatrix<double>>     global_ls_matrices;
@@ -482,18 +483,29 @@ namespace ErrorEstimation
                         const DoFHandler<dim>      &dof_handler,
                         const LA::ParVectorType    &solution,
                         const FiniteElement<dim>   &fe,
-                        const Mapping<dim>         &mapping)
-      : SolutionRecoveryBase<dim>(highest_recovered_derivative,
-                                  param,
-                                  patch_handler,
-                                  dof_handler,
-                                  solution,
-                                  fe,
-                                  mapping)
+                        const Mapping<dim>         &mapping,
+                        const ComponentMask        &mask)
+      : Base<dim>(highest_recovered_derivative,
+                  param,
+                  patch_handler,
+                  dof_handler,
+                  solution,
+                  fe,
+                  mapping,
+                  mask)
       , recovered_solution_at_vertices(this->n_vertices)
       , recovered_gradient_at_vertices(this->n_vertices)
       , recovered_hessian_at_vertices(this->n_vertices)
     {
+      AssertThrow(
+        mask.n_selected_components(fe.n_components()) == 1,
+        ExcMessage(
+          "You are trying to create a SolutionRecovery::Scalar, but the "
+          "provided ComponentMask selects more than a single solution "
+          "component. Use a mask for a single scalar component, or "
+          "alternatively create a SolutionRecovery::Vector to reconstruct the "
+          "derivatives of a vector-valued field."));
+
       constexpr unsigned int mapping_degree = 1;
 
       // Isoparametric representation to associate recovered data to each mesh
@@ -796,11 +808,6 @@ namespace ErrorEstimation
 
       if (derivative_order == 0)
       {
-        for (types::global_vertex_index v = 0; v < this->n_vertices; ++v)
-          if (this->owned_vertices[v])
-            std::cout << "Gradient from recovered solution: "
-                      << recovered_gradient_at_vertices[v] << std::endl;
-
         // Store vertex-based solution as an FE isoparametric solution
         this->vertex_to_isoparametric(recovered_solution_at_vertices,
                                       this->local_isoparam_solution,
@@ -817,11 +824,6 @@ namespace ErrorEstimation
       }
       else if (derivative_order == 1)
       {
-        for (types::global_vertex_index v = 0; v < this->n_vertices; ++v)
-          if (this->owned_vertices[v])
-            std::cout << "Hessian from recovered gradient: "
-                      << recovered_hessian_at_vertices[v] << std::endl;
-
         // Store vertex-based hessian as an FE isoparametric hessian
         this->template vertex_to_isoparametric<
           2,
@@ -870,8 +872,8 @@ namespace ErrorEstimation
         "./", filename, 0, this->isoparam_dh.get_mpi_communicator(), 2);
     }
 
-    template class SolutionRecoveryBase<2>;
-    template class SolutionRecoveryBase<3>;
+    template class Base<2>;
+    template class Base<3>;
     template class Scalar<2>;
     template class Scalar<3>;
     template class Vector<2>;

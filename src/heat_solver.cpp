@@ -48,6 +48,9 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
 
   this->param.initial_conditions.create_initial_temperature(0, 1);
 
+  // Assign exact solution, if any
+  exact_solution = param.mms.exact_temperature;
+
   if (param.mms_param.enable)
   {
     // Add the unknown to the error handlers
@@ -55,17 +58,13 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
       for (auto norm : param.mms_param.norms_to_compute)
         error_handlers[norm]->create_entry("T");
 
-    // Assign the manufactured solution
-    exact_solution = param.mms.exact_temperature;
-
     // Create source term function for the given MMS and override source terms
     source_terms = std::make_shared<HeatSolver<dim>::MMSSourceTerm>(
       time_handler.current_time, param.physical_properties, param.mms);
   }
   else
   {
-    source_terms   = param.source_terms.temperature_source;
-    exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(1);
+    source_terms = param.source_terms.temperature_source;
   }
 
   // Create direct solver
@@ -676,45 +675,49 @@ void HeatSolver<dim>::postprocess_solution()
 template <int dim>
 void HeatSolver<dim>::adapt_mesh()
 {
-  // if (param.bc_data.n_metric_fields > 0)
-  // {
-  //   computing_timer.enter_subsection("Create metric field");
-  //   MetricField<dim> field(0, param, *triangulation);
-  //   computing_timer.leave_subsection();
-
-  //   computing_timer.enter_subsection("Compute optimal metric");
-  //   field.compute_optimal_multiscale_metric();
-  //   computing_timer.leave_subsection();
-
-  //   field.write_pvtu("metrics_before_gradation");
-
-  //   computing_timer.enter_subsection("Apply metric gradation");
-  //   field.apply_gradation();
-  //   computing_timer.leave_subsection();
-
-  //   field.write_pvtu("metrics_after_gradation");
-
-  //   computing_timer.enter_subsection("Adapt mesh with MMG");
-  //   MeshTools::adapt_with_mmg(param, *triangulation, field);
-  //   computing_timer.leave_subsection();
-  // }
-}
-
-template <int dim>
-void HeatSolver<dim>::output_metric_quality_field()
-{
-  if (param.bc_data.n_metric_fields > 0)
+  if (param.mesh.adaptation.enable && param.bc_data.n_metric_fields > 0)
   {
-    computing_timer.enter_subsection("Output metric quality field");
+    patch_handler = std::make_unique<ErrorEstimation::PatchHandler<dim>>(
+      *triangulation,
+      *mapping,
+      dof_handler,
+      param.finite_elements.temperature_degree + 1,
+      fe.component_mask(FEValuesExtractors::Scalar(0)));
 
-    AssertThrow(!param.finite_elements.use_quads,
-                ExcMessage("Metric quality output is currently implemented only "
-                           "for simplex meshes."));
+    // Create the patches
+    computing_timer.enter_subsection("Build patches");
+    patch_handler->build_patches();
+    computing_timer.leave_subsection();
 
+    const unsigned int highest_recovered_derivative = 2;
+
+    recovery = std::make_unique<ErrorEstimation::SolutionRecovery::Scalar<dim>>(
+      highest_recovered_derivative,
+      param,
+      *patch_handler,
+      dof_handler,
+      present_solution,
+      fe,
+      *mapping,
+      fe.component_mask(FEValuesExtractors::Scalar(0)));
+
+    // Compute the least squares matrices once
+    computing_timer.enter_subsection("Compute least-squares matrices");
+    recovery->compute_least_squares_matrices();
+    computing_timer.leave_subsection();
+
+    computing_timer.enter_subsection("Reconstruct fields and derivatives");
+    recovery->reconstruct_fields();
+    computing_timer.leave_subsection();
+
+    recovery->write_pvtu("recovery");
+
+    computing_timer.enter_subsection("Create metric field");
     MetricField<dim> field(0, param, *triangulation);
 
-    QGaussSimplex<dim> cell_quadrature(3);
-    QGauss<1>          edge_quadrature(3);
+    computing_timer.enter_subsection("Compute optimal metric");
+    field.compute_optimal_multiscale_metric(*recovery);
+    computing_timer.leave_subsection();
 
     field.write_cell_quality_pvtu("cell_quality_test",
                                   cell_quadrature,

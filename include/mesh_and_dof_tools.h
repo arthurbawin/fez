@@ -45,7 +45,7 @@ void extract_subsolution(
   const VectorType                           &source,
   VectorType                                 &destination,
   const std::map<unsigned int, unsigned int> &source_comp_to_dest_comp);
-  
+
 /*
  * Create a map to go from tensor-valued data stored at (owned) mesh vertices
  * to the global dof indices of their components represented as an FE field.
@@ -145,12 +145,11 @@ void extract_subsolution(
 
           destination[dest_global_idx] = local_values_source[i];
         }
-        }
       }
     }
   }
+}
 
-/* ---------------- template and inline functions ----------------- */
 
 template <int dim, int n_components>
 void create_mesh_vertex_to_tensor_dofs_maps(

@@ -109,6 +109,12 @@ namespace ErrorEstimation
     void build_patches();
 
     /**
+     * Return the patches associated with each (owned) mesh vertex on this
+     * partition.
+     */
+    const std::vector<Patch<dim>> &get_patches() const;
+
+    /**
      * Gather the patches to the root process and write them to @p out.
      * This function is intended for debug and unit tests.
      */
@@ -212,6 +218,17 @@ namespace ErrorEstimation
     IndexSet locally_relevant_dofs;
     IndexSet ghost_dofs;
   };
+} // namespace ErrorEstimation
+
+/* ---------------- template and inline functions ----------------- */
+
+namespace ErrorEstimation
+{
+  template <int dim>
+  const std::vector<Patch<dim>> &PatchHandler<dim>::get_patches() const
+  {
+    return patches;
+  }
 } // namespace ErrorEstimation
 
 #endif

@@ -14,6 +14,8 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
@@ -243,6 +245,9 @@ protected:
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
   std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
+
+  std::unique_ptr<ErrorEstimation::PatchHandler<dim>>             patch_handler;
+  std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>> recovery;
 
 protected:
   /**

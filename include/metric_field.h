@@ -154,7 +154,9 @@ public:
    * solution, which can be either recovered numerically or given through
    * analytical derivatives callbacks.
    */
-  void compute_optimal_multiscale_metric();
+  void compute_optimal_multiscale_metric(
+    const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
+    const unsigned int                                  component = 0);
 
   /**
    * Return the vector of MetricTensors constituting this field.
@@ -258,13 +260,16 @@ private:
   /**
    * Compute the unscaled metric Q in the formulation of the optimal metric.
    */
-  void compute_anisotropic_measure();
+  void compute_anisotropic_measure(
+    const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
+    const unsigned int                                  component = 0);
 
   /**
    * Compute the unscaled metric Q assuming a linearly interpolated field.
    * In this case, Q is simply the absolute value of the Hessian matrix.
    */
-  void compute_anisotropic_measure_P1();
+  void compute_anisotropic_measure_P1(
+    const std::vector<Tensor<2, dim>> &solution_hessians);
 
   /**
    * Compute the unscaled metric Q assuming a quadratic FE solution.

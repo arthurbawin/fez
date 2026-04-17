@@ -390,9 +390,19 @@ void PostProcessingHandler<dim>::output_volume_fields(
 
   if (ordering != nullptr && !is_hp)
   {
-    const PostProcessingTools::VorticityAndQCriterion<dim>
-      vorticity_and_q_criterion(ordering->u_lower);
-    data_out->add_data_vector(solution, vorticity_and_q_criterion);
+    if constexpr (dim == 2)
+    {
+      const PostProcessingTools::Vorticity2D vorticity(ordering->u_lower);
+      data_out->add_data_vector(solution, vorticity);
+    }
+    else
+    {
+      const PostProcessingTools::Vorticity3D vorticity(ordering->u_lower);
+      data_out->add_data_vector(solution, vorticity);
+    }
+
+    const PostProcessingTools::QCriterion<dim> q_criterion(ordering->u_lower);
+    data_out->add_data_vector(solution, q_criterion);
   }
 
   data_out->add_data_vector(subdomains, "subdomain");

@@ -27,22 +27,48 @@ namespace PostProcessingTools
    * neither cellwise constants nor stored in the original solution vector.
    */
   template <int dim>
-  class VorticityAndQCriterion : public DataPostprocessor<dim>
+  class QCriterion : public DataPostprocessorScalar<dim>
   {
   public:
-    VorticityAndQCriterion(const unsigned int velocity_first_component);
-
-    virtual std::vector<std::string> get_names() const override;
-
-    virtual std::vector<
-      DataComponentInterpretation::DataComponentInterpretation>
-    get_data_component_interpretation() const override;
-
-    virtual UpdateFlags get_needed_update_flags() const override;
+    QCriterion(const unsigned int velocity_first_component);
 
     virtual void evaluate_vector_field(
       const DataPostprocessorInputs::Vector<dim> &input_data,
       std::vector<Vector<double>> &computed_quantities) const override;
+
+  private:
+    const unsigned int velocity_first_component;
+  };
+
+  /**
+   * Compute the scalar vorticity curl(u) . e_z in 2D.
+   */
+  class Vorticity2D : public DataPostprocessorScalar<2>
+  {
+  public:
+    Vorticity2D(const unsigned int velocity_first_component);
+
+    virtual void evaluate_vector_field(
+      const DataPostprocessorInputs::Vector<2> &input_data,
+      std::vector<Vector<double>>              &computed_quantities) const
+      override;
+
+  private:
+    const unsigned int velocity_first_component;
+  };
+
+  /**
+   * Compute the vorticity vector curl(u) in 3D.
+   */
+  class Vorticity3D : public DataPostprocessorVector<3>
+  {
+  public:
+    Vorticity3D(const unsigned int velocity_first_component);
+
+    virtual void evaluate_vector_field(
+      const DataPostprocessorInputs::Vector<3> &input_data,
+      std::vector<Vector<double>>              &computed_quantities) const
+      override;
 
   private:
     const unsigned int velocity_first_component;
@@ -232,63 +258,14 @@ namespace PostProcessingTools
 /* ---------------- Template functions ----------------- */
 
 template <int dim>
-PostProcessingTools::VorticityAndQCriterion<dim>::VorticityAndQCriterion(
+PostProcessingTools::QCriterion<dim>::QCriterion(
   const unsigned int velocity_first_component)
-  : velocity_first_component(velocity_first_component)
+  : DataPostprocessorScalar<dim>("Q_criterion", update_gradients)
+  , velocity_first_component(velocity_first_component)
 {}
 
 template <int dim>
-std::vector<std::string>
-PostProcessingTools::VorticityAndQCriterion<dim>::get_names() const
-{
-  std::vector<std::string> names;
-
-  if constexpr (dim == 2)
-    names.push_back("vorticity");
-  else
-    for (unsigned int d = 0; d < dim; ++d)
-      names.push_back("vorticity");
-
-  names.push_back("Q_criterion");
-
-  return names;
-}
-
-template <int dim>
-std::vector<DataComponentInterpretation::DataComponentInterpretation>
-PostProcessingTools::VorticityAndQCriterion<
-  dim>::get_data_component_interpretation() const
-{
-  std::vector<DataComponentInterpretation::DataComponentInterpretation>
-    interpretation;
-
-  if constexpr (dim == 2)
-  {
-    interpretation.push_back(
-      DataComponentInterpretation::component_is_scalar);
-  }
-  else
-  {
-    for (unsigned int d = 0; d < dim; ++d)
-      interpretation.push_back(
-        DataComponentInterpretation::component_is_part_of_vector);
-  }
-
-  interpretation.push_back(DataComponentInterpretation::component_is_scalar);
-
-  return interpretation;
-}
-
-template <int dim>
-UpdateFlags
-PostProcessingTools::VorticityAndQCriterion<dim>::get_needed_update_flags()
-  const
-{
-  return update_gradients;
-}
-
-template <int dim>
-void PostProcessingTools::VorticityAndQCriterion<dim>::evaluate_vector_field(
+void PostProcessingTools::QCriterion<dim>::evaluate_vector_field(
   const DataPostprocessorInputs::Vector<dim> &input_data,
   std::vector<Vector<double>>                &computed_quantities) const
 {
@@ -297,27 +274,18 @@ void PostProcessingTools::VorticityAndQCriterion<dim>::evaluate_vector_field(
 
   for (unsigned int q = 0; q < computed_quantities.size(); ++q)
   {
+    AssertThrow(input_data.solution_gradients[q].size() >=
+                  velocity_first_component + dim,
+                ExcMessage("Cannot compute Q-criterion because the input "
+                           "field does not contain enough velocity "
+                           "components."));
+
     Tensor<2, dim> velocity_gradient;
 
     for (unsigned int i = 0; i < dim; ++i)
       for (unsigned int j = 0; j < dim; ++j)
         velocity_gradient[i][j] =
           input_data.solution_gradients[q][velocity_first_component + i][j];
-
-    if constexpr (dim == 2)
-    {
-      computed_quantities[q][0] =
-        velocity_gradient[1][0] - velocity_gradient[0][1];
-    }
-    else
-    {
-      computed_quantities[q][0] =
-        velocity_gradient[2][1] - velocity_gradient[1][2];
-      computed_quantities[q][1] =
-        velocity_gradient[0][2] - velocity_gradient[2][0];
-      computed_quantities[q][2] =
-        velocity_gradient[1][0] - velocity_gradient[0][1];
-    }
 
     double symmetric_norm_square     = 0.0;
     double antisymmetric_norm_square = 0.0;
@@ -335,8 +303,66 @@ void PostProcessingTools::VorticityAndQCriterion<dim>::evaluate_vector_field(
           antisymmetric_part * antisymmetric_part;
       }
 
-    computed_quantities[q][dim == 2 ? 1 : dim] =
+    computed_quantities[q][0] =
       0.5 * (antisymmetric_norm_square - symmetric_norm_square);
+  }
+}
+
+inline PostProcessingTools::Vorticity2D::Vorticity2D(
+  const unsigned int velocity_first_component)
+  : DataPostprocessorScalar<2>("vorticity", update_gradients)
+  , velocity_first_component(velocity_first_component)
+{}
+
+inline void PostProcessingTools::Vorticity2D::evaluate_vector_field(
+  const DataPostprocessorInputs::Vector<2> &input_data,
+  std::vector<Vector<double>>              &computed_quantities) const
+{
+  Assert(computed_quantities.size() == input_data.solution_gradients.size(),
+         ExcInternalError());
+
+  for (unsigned int q = 0; q < computed_quantities.size(); ++q)
+  {
+    AssertThrow(input_data.solution_gradients[q].size() >=
+                  velocity_first_component + 2,
+                ExcMessage("Cannot compute vorticity because the input field "
+                           "does not contain enough velocity components."));
+
+    computed_quantities[q][0] =
+      input_data.solution_gradients[q][velocity_first_component + 1][0] -
+      input_data.solution_gradients[q][velocity_first_component][1];
+  }
+}
+
+inline PostProcessingTools::Vorticity3D::Vorticity3D(
+  const unsigned int velocity_first_component)
+  : DataPostprocessorVector<3>("vorticity", update_gradients)
+  , velocity_first_component(velocity_first_component)
+{}
+
+inline void PostProcessingTools::Vorticity3D::evaluate_vector_field(
+  const DataPostprocessorInputs::Vector<3> &input_data,
+  std::vector<Vector<double>>              &computed_quantities) const
+{
+  Assert(computed_quantities.size() == input_data.solution_gradients.size(),
+         ExcInternalError());
+
+  for (unsigned int q = 0; q < computed_quantities.size(); ++q)
+  {
+    AssertThrow(input_data.solution_gradients[q].size() >=
+                  velocity_first_component + 3,
+                ExcMessage("Cannot compute vorticity because the input field "
+                           "does not contain enough velocity components."));
+
+    computed_quantities[q][0] =
+      input_data.solution_gradients[q][velocity_first_component + 2][1] -
+      input_data.solution_gradients[q][velocity_first_component + 1][2];
+    computed_quantities[q][1] =
+      input_data.solution_gradients[q][velocity_first_component][2] -
+      input_data.solution_gradients[q][velocity_first_component + 2][0];
+    computed_quantities[q][2] =
+      input_data.solution_gradients[q][velocity_first_component + 1][0] -
+      input_data.solution_gradients[q][velocity_first_component][1];
   }
 }
 

@@ -15,11 +15,7 @@
 #include "types.h"
 
 /**
- * This tests that the patches of dof support points, used for least-squares
- * recovery of more accurate solution, are identical in sequential and parallel.
- * We create a uniform rectangle mesh and define the patches of support points
- * to fit a polynomial of order field_polynomial_degree + 1 at each owned mesh
- * vertex.
+ * Same as patches_03.cc but in 3D.
  */
 
 template <int dim>
@@ -57,7 +53,7 @@ void test_patches(const unsigned int field_polynomial_degree)
 
   auto &mesh_param               = param.mesh;
   mesh_param.deal_ii_preset_mesh = "rectangle";
-  mesh_param.deal_ii_mesh_param  = "8, 8 : 0., 0. : 1., 1. : true";
+  mesh_param.deal_ii_mesh_param  = "8, 8, 8 : 0., 0., 0. : 1., 1., 1. : true";
   mesh_param.refinement_level    = 1;
 
   parallel::fullydistributed::Triangulation<dim> triangulation(
@@ -79,29 +75,34 @@ void test_patches(const unsigned int field_polynomial_degree)
                            local_solution);
   solution = local_solution;
 
-  // Create the patches of dof support points and print the sorted patches
-  // for each owned mesh vertex
+  // Create and print the patches.
   ErrorEstimation::PatchHandler patch_handler(triangulation,
                                               mapping,
                                               dof_handler,
-                                              field_polynomial_degree + 1,
+                                              field_polynomial_degree,
                                               fe.component_mask(
                                                 FEValuesExtractors::Scalar(0)));
-  patch_handler.build_patches();
 
-  deallog << "Patches" << std::endl;
-  patch_handler.write_support_points_patch(solution, deallog.get_file_stream());
+  const bool enforce_full_rank_least_squares_matrices = true;
+  patch_handler.build_patches(enforce_full_rank_least_squares_matrices);
+
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+    deallog << "Patches for solution of degree "
+      << field_polynomial_degree << std::endl;
+  patch_handler.write_support_points_patch(".", solution, deallog.get_file_stream());
 }
 
 int main(int argc, char *argv[])
 {
   try
   {
-    // Initialize deallog for test output.
-    // This also reroutes deallog output to a file "output".
     initlog();
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-    test_patches<2>(1);
+
+    // Test for linear and quadratic solution
+    const unsigned int max_solution_degree  = 2;
+    for (unsigned int d = 1; d <= max_solution_degree; ++d)
+      test_patches<3>(d);
   }
   catch (const std::exception &exc)
   {

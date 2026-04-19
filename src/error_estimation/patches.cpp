@@ -20,6 +20,7 @@ namespace ErrorEstimation
     const parallel::DistributedTriangulationBase<dim> &triangulation,
     const Mapping<dim>                                &mapping,
     const DoFHandler<dim>                             &dof_handler,
+    const LA::ParVectorType                           &solution,
     const unsigned int                                 degree,
     const ComponentMask                               &mask)
     : triangulation(triangulation)
@@ -59,6 +60,24 @@ namespace ErrorEstimation
       DoFTools::extract_locally_relevant_dofs(dof_handler);
     ghost_dofs = locally_relevant_dofs;
     ghost_dofs.subtract_set(locally_owned_dofs);
+
+    // Map the ghost dofs to their owner
+    std::vector<std::pair<types::global_dof_index, types::global_dof_index>>
+      all_local_ranges =
+        Utilities::MPI::all_gather(mpi_communicator, solution.local_range());
+
+    const unsigned int mpi_size =
+      Utilities::MPI::n_mpi_processes(mpi_communicator);
+    for (const auto dof : ghost_dofs)
+      for (unsigned int rank = 0; rank < mpi_size; ++rank)
+      {
+        const auto &[start, end] = all_local_ranges[rank];
+        if (dof >= start && dof < end)
+        {
+          ghost_dof_to_owner[dof] = rank;
+          break;
+        }
+      }
 
     // Create the 1d monomials of degree 0 up to "degree"
     std::vector<Polynomials::Monomial<double>> monomials_1d;
@@ -667,19 +686,14 @@ namespace ErrorEstimation
                   const auto &pt =
                     relevant_dofs_support_points.at(local_dofs[i]);
 
-                  // Store the owner of this dof to send
+                  // Store the owner of this dof to send.
                   // Dofs on an owned cell are not necessarily owned, and
                   // similarly dofs on a ghost cell are not necessarily ghosted,
                   // so check explicitly if the dof is owned.
-                  //
-                  // FIXME: the owner of a ghost dof is not necessarily the
-                  // owner of the cell... If the dof is ghosted, this rank will
-                  // receive a request again for its neighbours, instead of its
-                  // owner. Should maybe build a dof to owner map?
                   const types::subdomain_id owner =
                     locally_owned_dofs.is_element(local_dofs[i]) ?
                       mpi_rank :
-                      cell->subdomain_id();
+                      ghost_dof_to_owner.at(local_dofs[i]);
 
                   connected_dofs_data[requested_dof].push_back(
                     {local_dofs[i], pt, owner});

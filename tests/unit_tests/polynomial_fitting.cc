@@ -80,6 +80,7 @@ void test_fitting(const unsigned int field_polynomial_degree)
   ErrorEstimation::PatchHandler patch_handler(triangulation,
                                               mapping,
                                               dof_handler,
+                                              solution,
                                               field_polynomial_degree + 1,
                                               fe.component_mask(
                                                 FEValuesExtractors::Scalar(0)));

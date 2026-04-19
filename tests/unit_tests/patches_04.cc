@@ -79,6 +79,7 @@ void test_patches(const unsigned int field_polynomial_degree)
   ErrorEstimation::PatchHandler patch_handler(triangulation,
                                               mapping,
                                               dof_handler,
+                                              solution,
                                               field_polynomial_degree,
                                               fe.component_mask(
                                                 FEValuesExtractors::Scalar(0)));

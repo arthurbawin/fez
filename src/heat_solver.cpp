@@ -681,6 +681,7 @@ void HeatSolver<dim>::adapt_mesh()
       *triangulation,
       *mapping,
       dof_handler,
+      present_solution,
       param.finite_elements.temperature_degree + 1,
       fe.component_mask(FEValuesExtractors::Scalar(0)));
 

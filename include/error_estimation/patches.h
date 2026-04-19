@@ -150,6 +150,7 @@ namespace ErrorEstimation
       const parallel::DistributedTriangulationBase<dim> &triangulation,
       const Mapping<dim>                                &mapping,
       const DoFHandler<dim>                             &dof_handler,
+      const LA::ParVectorType                           &solution,
       const unsigned int                                 degree,
       const ComponentMask                               &mask = {});
 
@@ -168,8 +169,8 @@ namespace ErrorEstimation
      * each (owned) mesh vertex, and the dofs from only those cells constitute
      * the patch. If @p enforce_full_rank_least_squares_matrices is true, this
      * argument is ignored altogether. This argument is intended for testing
-     * only, to ensure that the first n layers are correclty computed on
-     * arbitrary mesh partitions.
+     * only, to ensure that the first n layers are identical on arbitrary mesh
+     * partitions.
      */
     void
     build_patches(const bool enforce_full_rank_least_squares_matrices = true,

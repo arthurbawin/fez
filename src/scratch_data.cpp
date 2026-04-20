@@ -451,7 +451,7 @@ void ScratchData<dim, has_hp_capabilities>::initialize_cahn_hilliard()
   epsilon            = cahn_hilliard_param.epsilon_interface;
   sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
-  body_force            = cahn_hilliard_param.body_force;
+  body_force            = physical_properties.body_force;
   tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
 }
 

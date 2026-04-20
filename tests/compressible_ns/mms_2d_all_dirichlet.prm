@@ -53,6 +53,7 @@ subsection Physical properties
     set pressure reference = 101325
     set temperature reference = 293
   end
+  set body force  = 0, -9.81
 end
 
 subsection Initial conditions

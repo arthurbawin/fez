@@ -655,6 +655,7 @@ namespace Parameters
   template <int dim>
   void PhysicalProperties<dim>::declare_parameters(ParameterHandler &prm)
   {
+    const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
     prm.enter_subsection("Physical properties");
     {
       // Declare the fluid subsections
@@ -677,6 +678,11 @@ namespace Parameters
       pseudosolids.resize(max_pseudosolids);
       for (unsigned int i = 0; i < max_pseudosolids; ++i)
         pseudosolids[i].declare_parameters(prm, i);
+
+      prm.declare_entry("body force",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Body force vector (e.g., gravity acceleration)");
     }
     prm.leave_subsection();
   }
@@ -702,6 +708,8 @@ namespace Parameters
 
       for (unsigned int i = 0; i < n_pseudosolids; ++i)
         pseudosolids[i].read_parameters(prm, i);
+
+      body_force = parse_rank_1_tensor<dim>(prm.get("body force"));
     }
     prm.leave_subsection();
   }
@@ -1027,7 +1035,6 @@ namespace Parameters
   template <int dim>
   void CahnHilliard<dim>::declare_parameters(ParameterHandler &prm)
   {
-    const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
     prm.enter_subsection("Cahn Hilliard");
     {
       prm.declare_entry("mobility model",
@@ -1046,10 +1053,6 @@ namespace Parameters
                         "1e-2",
                         Patterns::Double(),
                         "Interface thickness (epsilon)");
-      prm.declare_entry("body force",
-                        default_point,
-                        Patterns::List(Patterns::Double(), dim, dim, ","),
-                        "Body force vector (e.g., gravity acceleration)");
       prm.declare_entry("enable tracer limiter",
                         "false",
                         Patterns::Bool(),
@@ -1080,7 +1083,6 @@ namespace Parameters
       mobility            = prm.get_double("mobility");
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
-      body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
       alpha = prm.get_double("alpha");

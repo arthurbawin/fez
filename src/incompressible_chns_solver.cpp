@@ -143,7 +143,7 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   const double sigma_tilde_over_eps  = sigma_tilde / epsilon;
   const double sigma_tilde_times_eps = sigma_tilde * epsilon;
-  const auto  &body_force            = cahn_hilliard_param.body_force;
+  const auto  &body_force            = physical_properties.body_force;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)

@@ -331,6 +331,15 @@ namespace Parameters
     unsigned int                  n_pseudosolids;
     std::vector<PseudoSolid<dim>> pseudosolids;
 
+    /**
+     * Body force vector (e.g., gravitational acceleration). In solvers where
+     * the momentum equation is divided by density (incompressible single-fluid
+     * NS), this is used directly as a kinematic acceleration. In solvers with
+     * variable density (CHNS, compressible NS), it is multiplied by the local
+     * density to obtain the volumetric force term.
+     */
+    Tensor<1, dim> body_force;
+
   public:
     void set_time(const double newtime)
     {
@@ -487,13 +496,6 @@ namespace Parameters
     // FIXME: use more explicit names, when the formulation has been decided
     double alpha;
     double beta;
-
-    /**
-     * We differentiate between the body force which is multiplied by the
-     * mixture density (typically gravity), and the generic source term (e.g.,
-     * for manufactured solutions) which is not.
-     */
-    Tensor<1, dim> body_force;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

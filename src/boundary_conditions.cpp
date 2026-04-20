@@ -37,7 +37,7 @@ namespace BoundaryConditions
                         "none|input_function|outflow|no_slip|weak_no_slip|slip|"
                         "weak_pressure|dirichlet_pressure|"
                         "velocity_mms|velocity_flux_mms|pressure_mms|open_mms|"
-                        "no_tangential_flow"),
+                        "no_tangential_flow|no_tangential_flow_with_weak_pressure"),
                       "Type of fluid boundary condition");
 
     // Imposed functions, if any
@@ -112,6 +112,8 @@ namespace BoundaryConditions
       type = Type::weak_pressure;
     else if (parsed_type == "dirichlet_pressure")
       type = Type::dirichlet_pressure;
+    else if (parsed_type == "no_tangential_flow_with_weak_pressure")
+      type = Type::no_tangential_flow_with_weak_pressure;
     else if (parsed_type == "none")
       throw std::runtime_error(
         "Fluid boundary condition for boundary " + std::to_string(this->id) +
@@ -378,7 +380,9 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);
-      if (bc.type == BoundaryConditions::Type::no_tangential_flow)
+      if (bc.type == BoundaryConditions::Type::no_tangential_flow ||
+          bc.type ==
+            BoundaryConditions::Type::no_tangential_flow_with_weak_pressure)
         no_tangential_flow_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {

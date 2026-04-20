@@ -51,6 +51,9 @@ namespace BoundaryConditions
     weak_pressure,      // Impose -p*n weakly via surface integral (traction)
     dirichlet_pressure, // Impose p strongly via interpolation constraint
 
+    // Combined
+    no_tangential_flow_with_weak_pressure, // Enforce no tangential flow + impose -p*n weakly
+
     // These boundary conditions are for flow verification purposes:
     // Set velocity to prescribed manufactured solution
     velocity_mms,

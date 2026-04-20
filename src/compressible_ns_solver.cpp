@@ -117,6 +117,7 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
     physical_properties.fluids[0].heat_capacity_at_constant_pressure;
   const double p_ref = physical_properties.fluids[0].pressure_ref;
   const double T_ref = physical_properties.fluids[0].temperature_ref;
+  const auto body_force = physical_properties.body_force;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
@@ -153,7 +154,7 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
 
     // Navier-Stokes momentum (velocity) source term
     Tensor<1, dim> f = -(rho * (dudt_eulerian + grad_u_dot_u) + grad_p -
-                         mu * (lap_u + 1.0 / 3.0 * grad_div_u));
+                         mu * (lap_u + 1.0 / 3.0 * grad_div_u) - rho * body_force);
 
     for (unsigned int d = 0; d < dim; ++d)
       values[u_lower + d] = f[d];
@@ -382,14 +383,15 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   const double k =
     this->param.physical_properties.fluids[0].thermal_conductivity;
   const double rho_ref = this->param.physical_properties.fluids[0].density;
-  const double cp      = this->param.physical_properties.fluids[0]
-                      .heat_capacity_at_constant_pressure;
+  const double cp      = this->param.physical_properties.fluids[0].heat_capacity_at_constant_pressure;
   const double p_ref = this->param.physical_properties.fluids[0].pressure_ref;
   const double T_ref =
     this->param.physical_properties.fluids[0].temperature_ref;
 
   const double alpha_r = 1.0 / p_ref;
   const double beta_r  = 1.0 / T_ref;
+
+  const auto body_force = this->param.physical_properties.body_force;
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
@@ -482,6 +484,8 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
             (alpha_r / (beta_r * present_temperature_values + 1.0)) * phi_p[j] *
             (present_velocity_gradients * present_velocity_values);
           local_matrix_ij += -phi_p[j] * div_phi_u[i];
+
+          local_matrix_ij += -rho_ref * body_force * phi_u[i] * (alpha_r * phi_p[j]) / (beta_r * present_temperature_values + 1);
         }
 
         if (i_is_u && j_is_T)
@@ -499,6 +503,8 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
              ((beta_r * present_temperature_values + 1.0) *
               (beta_r * present_temperature_values + 1.0))) *
             phi_T[j] * (present_velocity_gradients * present_velocity_values);
+
+          local_matrix_ij += rho_ref * body_force * phi_u[i] * (beta_r * phi_T[j] * (alpha_r * present_pressure_values + 1)) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1));
         }
 
         if (i_is_p && j_is_u)
@@ -625,7 +631,9 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
         }
 
         const auto &bc_fluid = this->param.fluid_bc.at(boundary_id);
-        if (bc_fluid.type == BoundaryConditions::Type::weak_pressure)
+        if (bc_fluid.type == BoundaryConditions::Type::weak_pressure ||
+            bc_fluid.type == BoundaryConditions::Type::
+                               no_tangential_flow_with_weak_pressure)
         {
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {
@@ -845,6 +853,8 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   const double alpha_r = 1.0 / p_ref;
   const double beta_r  = 1.0 / T_ref;
 
+  const auto body_force = this->param.physical_properties.body_force;
+
   //
   // Volume contributions
   //
@@ -920,6 +930,7 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
                                       identity_tensor,
                        grad_phi_u[i]) +
         source_term_velocity * phi_u[i]
+        -rho * body_force * phi_u[i]
 
         // Energy
         + rho * cp *
@@ -988,7 +999,9 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
         // Pressure condition on a face (traction)
         const auto  boundary_id = scratchData.face_boundary_id[i_face];
         const auto &bc_fluid    = this->param.fluid_bc.at(boundary_id);
-        if (bc_fluid.type == BoundaryConditions::Type::weak_pressure)
+        if (bc_fluid.type == BoundaryConditions::Type::weak_pressure ||
+            bc_fluid.type == BoundaryConditions::Type::
+                               no_tangential_flow_with_weak_pressure)
         {
           for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
           {

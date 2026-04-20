@@ -32,6 +32,7 @@ namespace ErrorEstimation
     , patches(n_vertices)
     , least_squares_matrices(n_vertices)
     , least_squares_matrices_rank(n_vertices)
+    , least_squares_matrices_were_computed(false)
   {
     // Patches are to be used for the Polynomial Preserving Recovery, so it only
     // makes sense to define them for a scalar or vector-valued mask
@@ -141,6 +142,15 @@ namespace ErrorEstimation
         // then the prescribed number of layers controls the loop. Stop if n
         // layers were added.
         stop = layer + 1 == n_layers;
+
+      // Add a maximum number of layers to avoid loops.
+      // Unless on bizarre meshes, 1 to 3 layers of elements should be enough.
+      AssertThrow(layer < 5,
+                  ExcMessage(
+                    "The maximum number of cell layers to define a patch for "
+                    "the polynomial-preserving recovery operator is for now "
+                    "capped to 5 layers. If you believe this value is too low "
+                    "based for your specific mesh, this cap can be removed."));
     }
 
     /**
@@ -152,25 +162,30 @@ namespace ErrorEstimation
      */
     for (auto &patch : patches)
     {
-      patch.neighbours =
-        std::vector<std::pair<types::global_dof_index, Point<dim>>>(
-          patch.neighbours_map.begin(), patch.neighbours_map.end());
+      patch.neighbours.clear();
+      patch.neighbours.reserve(patch.neighbours_map.size());
+      for (const auto &[dof, data] : patch.neighbours_map)
+        patch.neighbours.emplace_back(data);
+
       std::sort(patch.neighbours.begin(),
                 patch.neighbours.end(),
                 [](const auto &a, const auto &b) {
                   PointComparator<dim> comp;
-                  return comp(a.second, b.second);
+                  return comp(a.pt, b.pt);
                 });
       auto last = std::unique(patch.neighbours.begin(),
                               patch.neighbours.end(),
                               [](const auto &a, const auto &b) {
                                 PointEquality<dim> comp;
-                                return comp(a.second, b.second);
+                                return comp(a.pt, b.pt);
                               });
       patch.neighbours.erase(last, patch.neighbours.end());
     }
 
     compute_scalings_and_local_coordinates();
+
+    if (enforce_full_rank_least_squares_matrices)
+      least_squares_matrices_were_computed = true;
   }
 
   /**
@@ -183,14 +198,14 @@ namespace ErrorEstimation
                                const PolynomialSpace<dim> &basis,
                                FullMatrix<double>         &mat)
   {
-    const auto &neighbours = patch.neighbours_local_coordinates;
+    const auto &neighbours = patch.neighbours;
 
     unsigned int i = 0;
-    for (const auto &[dof, pt] : neighbours)
+    for (const auto &data : neighbours)
     {
       // Evaluate each monomial at local_coordinates
       for (unsigned int j = 0; j < dim_recovery_basis; ++j)
-        mat(i, j) = basis.compute_value(j, pt);
+        mat(i, j) = basis.compute_value(j, data.local_pt);
       ++i;
     }
   }
@@ -243,28 +258,26 @@ namespace ErrorEstimation
   template <int dim>
   void compute_scaling_and_local_coordinates(Patch<dim> &patch)
   {
-    const Point<dim> &center           = patch.center;
-    Point<dim>       &scaling          = patch.scaling;
-    const auto       &neighbours       = patch.neighbours;
-    auto &neighbours_local_coordinates = patch.neighbours_local_coordinates;
+    const Point<dim> &center     = patch.center;
+    Point<dim>       &scaling    = patch.scaling;
+    auto             &neighbours = patch.neighbours;
 
     // Compute scaling (bounding box)
     scaling = Point<dim>();
-    for (const auto &[dof, pt] : neighbours)
+    for (const auto &data : neighbours)
       for (unsigned int d = 0; d < dim; ++d)
-        scaling[d] = std::max(scaling[d], std::abs(pt[d] - center[d]));
+        scaling[d] = std::max(scaling[d], std::abs(data.pt[d] - center[d]));
 
     // Compute local coordinates : (x_i - center) / scaling
-    neighbours_local_coordinates.clear();
-    for (const auto &[dof, pt] : neighbours)
+    for (auto &data : neighbours)
     {
       // Although pt - center is a Tensor<1, dim> (as the difference of two
       // Points), it denotes local coordinates w.r.t. an origin, so it makes
       // sense to convert it to a Point.
-      Point<dim> local_coordinates(pt - center);
+      Point<dim> local_coordinates(data.pt - center);
       for (unsigned int d = 0; d < dim; ++d)
         local_coordinates[d] /= scaling[d];
-      neighbours_local_coordinates.push_back({dof, local_coordinates});
+      data.local_pt = local_coordinates;
     }
   }
 
@@ -343,20 +356,21 @@ namespace ErrorEstimation
 
             // Convert neighbours map to vector to compute least-squares matrix
             patch.neighbours.clear();
-            patch.neighbours =
-              std::vector<std::pair<types::global_dof_index, Point<dim>>>(
-                patch.neighbours_map.begin(), patch.neighbours_map.end());
+            patch.neighbours.reserve(patch.neighbours_map.size());
+            for (const auto &[dof, data] : patch.neighbours_map)
+              patch.neighbours.emplace_back(data);
+
             std::sort(patch.neighbours.begin(),
                       patch.neighbours.end(),
-                      [](const auto &a, const auto &b) {
+                      [](const DofData &a, const DofData &b) {
                         PointComparator<dim> comp;
-                        return comp(a.second, b.second);
+                        return comp(a.pt, b.pt);
                       });
             auto last = std::unique(patch.neighbours.begin(),
                                     patch.neighbours.end(),
-                                    [](const auto &a, const auto &b) {
+                                    [](const DofData &a, const DofData &b) {
                                       PointEquality<dim> comp;
-                                      return comp(a.second, b.second);
+                                      return comp(a.pt, b.pt);
                                     });
             patch.neighbours.erase(last, patch.neighbours.end());
 
@@ -405,21 +419,22 @@ namespace ErrorEstimation
           {
             Assert(patch.elements.size() == 0,
                    ExcMessage("Initial patch should be empty"));
+
+            // Set center
+            patch.center = vertices[v];
+
             /**
              * First layer: add cells containing the vertex directly.
              * There is always at least 1 ghost cell layer, so the first cell
              * layer is local to the partition.
              */
-            patch.center = vertices[v];
             for (const auto &cell : dof_handler.active_cell_iterators())
-            {
               for (unsigned int i = 0; i < cell->n_vertices(); ++i)
                 if (cell->vertex_index(i) == v)
                 {
                   new_cells.insert(cell);
                   break;
                 }
-            }
 
             // On one of the cells in the first layer, find with which dof(s)
             // the center of the patch is associated, if any (only valid for
@@ -466,7 +481,7 @@ namespace ErrorEstimation
                   if (patch.neighbours_map.count(local_dofs[i]) > 0)
                   {
                     new_cells.insert(cell);
-                    // break;
+                    break;
                   }
                 }
             }
@@ -504,8 +519,16 @@ namespace ErrorEstimation
                 new_dofs.insert(local_dofs[i]);
           }
           for (const auto dof : new_dofs)
-            patch.neighbours_map.insert(
-              {dof, relevant_dofs_support_points.at(dof)});
+          {
+            DofData data;
+            data.dof   = dof;
+            data.pt    = relevant_dofs_support_points.at(dof);
+            data.owner = locally_owned_dofs.is_element(dof) ?
+                           mpi_rank :
+                           ghost_dof_to_owner.at(dof);
+
+            patch.neighbours_map.insert({dof, data});
+          }
         } // if patch needs expansion
       }
     }
@@ -516,10 +539,7 @@ namespace ErrorEstimation
      */
     if (layer > 0)
     {
-      std::map<
-        types::global_dof_index,
-        std::vector<
-          std::tuple<types::global_dof_index, Point<dim>, types::subdomain_id>>>
+      std::map<types::global_dof_index, std::vector<DofData>>
         connected_dofs_to_requested_dofs;
 
       exchange_ghost_layer_dofs(dofs_to_request,
@@ -549,16 +569,17 @@ namespace ErrorEstimation
           if (needs_expansion[v])
           {
             auto &patch = patches[v];
-            for (const auto &[connected_dof, pt, owner] : connected_data)
+            for (const DofData &data : connected_data)
             {
-              patch.neighbours_map.insert({connected_dof, pt});
+              const unsigned int connected_dof = data.dof;
+              patch.neighbours_map.insert({connected_dof, data});
 
               // The neighbours of this connected dof will need to be added
               // again to this vertex patch if the patch must be enlarged again
               if (!locally_relevant_dofs.is_element(connected_dof))
               {
                 to_add_after_next_request[connected_dof].insert(v);
-                dofs_to_request[owner].insert(connected_dof);
+                dofs_to_request[data.owner].insert(connected_dof);
               }
             }
           }
@@ -601,10 +622,7 @@ namespace ErrorEstimation
   void PatchHandler<dim>::exchange_ghost_layer_dofs(
     const std::map<types::subdomain_id, std::set<types::global_dof_index>>
       &dofs_to_request,
-    std::map<
-      types::global_dof_index,
-      std::vector<
-        std::tuple<types::global_dof_index, Point<dim>, types::subdomain_id>>>
+    std::map<types::global_dof_index, std::vector<DofData>>
       &connected_dofs_to_requested_dofs)
   {
     const FESystem<dim> &fe = dof_handler.get_fe();
@@ -737,8 +755,15 @@ namespace ErrorEstimation
 
       for (const auto &[source, connected_data] : received_data)
         for (const auto &data : connected_data)
+        {
+          DofData dof_data;
+          dof_data.dof   = data.neighbouring_dof;
+          dof_data.pt    = data.support_point;
+          dof_data.owner = data.neighbour_owner;
+
           connected_dofs_to_requested_dofs[data.requested_dof].push_back(
-            {data.neighbouring_dof, data.support_point, data.neighbour_owner});
+            dof_data);
+        }
     }
   }
 
@@ -822,8 +847,9 @@ namespace ErrorEstimation
         out << "Mesh vertex " << global_vertices[i] << std::endl;
         out << "Center      " << patch.center << std::endl;
         out << "Scaling     " << patch.scaling << std::endl;
-        for (const auto &[dof, pt] : patch.neighbours)
-          out << pt << " : sol = " << local_solution[dof] << std::endl;
+        for (const auto &data : patch.neighbours)
+          out << data.pt << " : sol = " << local_solution[data.dof]
+              << std::endl;
       }
 
       if (write_for_gmsh)
@@ -839,10 +865,10 @@ namespace ErrorEstimation
           out << "SP(" << c[0] << "," << c[1] << "," << (dim == 3 ? c[2] : 0.)
               << "){2.};\n"
               << std::endl;
-          for (const auto &[dof, pt] : patch.neighbours)
+          for (const auto &data : patch.neighbours)
           {
-            out << "SP(" << pt[0] << "," << pt[1] << ","
-                << (dim == 3 ? pt[2] : 0.) << "){1.};\n"
+            out << "SP(" << data.pt[0] << "," << data.pt[1] << ","
+                << (dim == 3 ? data.pt[2] : 0.) << "){1.};\n"
                 << std::endl;
           }
           out << "};\n";

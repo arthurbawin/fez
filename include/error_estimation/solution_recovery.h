@@ -112,12 +112,6 @@ namespace ErrorEstimation
            const ComponentMask        &mask);
 
       /**
-       * For each owned mesh vertex (each patch), compute the least squares
-       * matrix (A^T*A)^-1 * A^T.
-       */
-      void compute_least_squares_matrices();
-
-      /**
        * Perform the reconstruction of the solution and derivatives up to
        * the prescribed @p highest_recovered_derivative given in the constructor.
        */
@@ -249,13 +243,17 @@ namespace ErrorEstimation
         const std::vector<std::array<types::global_dof_index, n_components>>
           &vertex_to_dofs);
 
-    private:
       /**
-       * Fill the Vandermonde matrix at mesh vertex v, according to the scaling
-       * vector stored in the patch at v.
+       * Evaluate at @p p the gradient of the polynomial described by the basis
+       * @p polynomial_space and the coefficients @p polynomial_coeffs.
+       * @p basis_gradients is a used as a temporary vector to store the
+       * gradient of the polynomial basis at @p p.
        */
-      void fill_vandermonde_matrix(const Patch<dim>   &patch,
-                                   FullMatrix<double> &mat) const;
+      Tensor<1, dim> evaluate_polynomial_gradient(
+        const Point<dim>             &p,
+        const PolynomialSpace<dim>   &polynomial_space,
+        const dealii::Vector<double> &polynomial_coeffs,
+        std::vector<Tensor<1, dim>>  &basis_gradients);
 
     protected:
       /**
@@ -275,15 +273,20 @@ namespace ErrorEstimation
        * patches may be increased when computing the least-squares matrices, if
        * the initial matrix is not full rank.
        */
-      PatchHandler<dim>             &patch_handler;
-      const std::vector<Patch<dim>> &patches;
+      PatchHandler<dim>       &patch_handler;
+      std::vector<Patch<dim>> &patches;
 
       /**
        * The dof handler, FE space and mapping from the FE solution
        */
       const DoFHandler<dim>    &dof_handler;
       const FiniteElement<dim> &fe;
-      // const Mapping<dim>       &mapping;
+      const Mapping<dim>       &mapping;
+
+      /**
+       * Component mask for the field to reconstruct.
+       */
+      const ComponentMask mask;
 
       /**
        * Isoparametric dof handler, fe and mapping, to store the recovery data
@@ -347,6 +350,12 @@ namespace ErrorEstimation
       std::unique_ptr<ComponentSelectFunction<dim>> hessian_comp_select;
 
       /**
+       * Degree of the FE field whose derivatives are reconstructed.
+       * Polynomials of degree "degree" + 1 will be fitted.
+       */
+      const unsigned int degree;
+
+      /**
        * FIXME: almost all of these are unused and can be removed
        */
       unsigned int dim_recovery_basis;
@@ -367,17 +376,25 @@ namespace ErrorEstimation
       std::vector<Tensor<1, dim>> gradients_of_recovery_monomials;
 
       /**
+       * These vectors are dummies, needed to use the evaluate(...) function on
+       * a PolynomialSpace. They must remain empty so as to only evaluate the
+       * gradient.
+       */
+      std::vector<double>         empty_polynomial_space_values;
+      std::vector<Tensor<2, dim>> empty_polynomial_space_grad_grads;
+      std::vector<Tensor<3, dim>> empty_polynomial_space_third_derivatives;
+      std::vector<Tensor<4, dim>> empty_polynomial_space_fourth_derivatives;
+
+      /**
        * The least squares matrix for each (owned) mesh vertex.
        */
-      std::vector<FullMatrix<double>> least_squares_matrices;
+      const std::vector<FullMatrix<double>> &least_squares_matrices;
 
       /**
        * For each owned mesh vertex and each recovered field, the multivariate
        * polynomial centered at the vertex.
-       *
-       * FIXME: unused, and can be removed
        */
-      std::vector<std::vector<Vector<double>>> recoveries_coefficients;
+      std::vector<Vector<double>> recoveries_coefficients;
 
       // FIXME : add homogeneous error polynomials?
       // // These coefficients already include the binomial coefficients.
@@ -464,6 +481,25 @@ namespace ErrorEstimation
        */
       virtual void
       reconstruct_field(const unsigned int derivative_order) override;
+
+      /**
+       * Compute the weights used in the PPR operator to define the gradient
+       * at non-vertices dofs.
+       *
+       * TODO: Add more comments.
+       */
+      void compute_patches_averaging_weights();
+
+      /**
+       * Update the copy of the solution vector with the values of the
+       * @p component-th derivative component to reconstruct.
+       * This allows updating the ghosted values through the solution vector's
+       * mechanisms.
+       *
+       * TODO: Add more comments.
+       */
+      void update_local_solution(const unsigned int derivative_order,
+                                 const unsigned int component);
 
     private:
       /**

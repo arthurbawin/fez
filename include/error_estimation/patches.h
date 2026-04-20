@@ -40,7 +40,44 @@ namespace ErrorEstimation
   struct Patch
   {
     using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
-    using DofData = typename std::pair<types::global_dof_index, Point<dim>>;
+
+    /**
+     * The data associated with each dof in a patch
+     */
+    struct DofData
+    {
+      /**
+       * Global (unique) dof index
+       */
+      types::global_dof_index dof;
+
+      /**
+       * Support point of this dof in absolute coordinates
+       */
+      Point<dim> pt;
+
+      /**
+       * Support point of this dof in scaled local coordinates with respect to
+       * the center of the patch : local_pt_i := (pt_i - center_i) / scaling_i.
+       */
+      Point<dim> local_pt;
+
+      /**
+       * MPI rank owning this dof
+       */
+      types::subdomain_id owner;
+
+      /**
+       * Averaging weight used to define the PPR operator.
+       */
+      double averaging_weight;
+
+      template <class Archive>
+      void serialize(Archive &ar, const unsigned int)
+      {
+        ar &dof &pt &local_pt &owner &averaging_weight;
+      }
+    };
 
     /**
      * Center of this patch. This point is also an owned mesh vertex.
@@ -65,27 +102,9 @@ namespace ErrorEstimation
     std::array<types::global_dof_index, dim> center_vector_dofs;
 
     /**
-     * Dofs forming this patch and their support points in absolute coordinates.
+     * Dofs forming this patch and their associated data.
      */
     std::vector<DofData> neighbours;
-
-    /**
-     * Dofs forming this patch and their support points in scaled coordinates:
-     *
-     * x_i,loc := (x_i,abs - center) / scaling_i.
-     */
-    std::vector<DofData> neighbours_local_coordinates;
-
-    /**
-     * For each dof in the patch, the rank owning this dof.
-     */
-    std::vector<types::subdomain_id> neighbours_owners;
-
-    /**
-     * For each dof in the patch, its weight used when averaging the polynomials
-     * evaluation from the center to define the PPR operator.
-     */
-    std::vector<double> averaging_weights;
 
     /**
      * First layer of mesh cells around the center.
@@ -96,7 +115,7 @@ namespace ErrorEstimation
     template <class Archive>
     void serialize(Archive &ar, const unsigned int)
     {
-      ar &center &scaling &neighbours &neighbours_local_coordinates;
+      ar &center &scaling &neighbours;
     }
 
   private:
@@ -110,7 +129,7 @@ namespace ErrorEstimation
     /**
      * Map used during patch creation.
      */
-    std::unordered_map<types::global_dof_index, Point<dim>> neighbours_map;
+    std::unordered_map<types::global_dof_index, DofData> neighbours_map;
 
     friend class PatchHandler<dim>;
   };
@@ -140,6 +159,7 @@ namespace ErrorEstimation
   template <int dim>
   class PatchHandler
   {
+    using DofData      = typename Patch<dim>::DofData;
     using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
 
   public:
@@ -183,6 +203,18 @@ namespace ErrorEstimation
     const std::vector<Patch<dim>> &get_patches() const;
 
     /**
+     * Return true if the least-squares matrices were computed.
+     * In debug, this also checks that these matrices have full rank, if they
+     * were computed.
+     */
+    bool has_least_squares_matrices() const;
+
+    /**
+     * Return the least-squares matrices at the (owned) mesh vertices.
+     */
+    const std::vector<FullMatrix<double>> &get_least_squares_matrices() const;
+
+    /**
      * Gather the patches to the root process and write them to @p out.
      * This function is intended for debug and unit tests.
      *
@@ -216,10 +248,7 @@ namespace ErrorEstimation
     void exchange_ghost_layer_dofs(
       const std::map<types::subdomain_id, std::set<types::global_dof_index>>
         &dofs_to_request,
-      std::map<
-        types::global_dof_index,
-        std::vector<
-          std::tuple<types::global_dof_index, Point<dim>, types::subdomain_id>>>
+      std::map<types::global_dof_index, std::vector<DofData>>
         &connected_dofs_to_requested_dofs);
 
     /**
@@ -289,6 +318,12 @@ namespace ErrorEstimation
     std::vector<unsigned int> least_squares_matrices_rank;
 
     /**
+     * A flag tracking whether the least-squares matrices associated with each
+     * patch were computed or not.
+     */
+    bool least_squares_matrices_were_computed;
+
+    /**
      * Map to request neighbouring dofs to other ranks.
      * For each neighbouring rank, a set of dof indices for which the neighbours
      * are requested. These dofs may be ghosted on the specified rank, but
@@ -325,6 +360,29 @@ namespace ErrorEstimation
   const std::vector<Patch<dim>> &PatchHandler<dim>::get_patches() const
   {
     return patches;
+  }
+
+  template <int dim>
+  bool PatchHandler<dim>::has_least_squares_matrices() const
+  {
+    if constexpr (running_in_debug_mode())
+    {
+      // Add some safety checks in debug
+      AssertDimension(least_squares_matrices.size(), n_vertices);
+      AssertDimension(least_squares_matrices_rank.size(), n_vertices);
+      for (unsigned int i = 0; i < n_vertices; ++i)
+        if (owned_vertices[i])
+          Assert(least_squares_matrices_rank[i] >= dim_recovery_basis,
+                 ExcInternalError());
+    }
+    return least_squares_matrices_were_computed;
+  }
+
+  template <int dim>
+  const std::vector<FullMatrix<double>> &
+  PatchHandler<dim>::get_least_squares_matrices() const
+  {
+    return least_squares_matrices;
   }
 } // namespace ErrorEstimation
 

@@ -1,5 +1,7 @@
 
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/polynomial_space.h>
+#include <deal.II/distributed/tria_base.h>
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_simplex_p.h>
@@ -23,31 +25,43 @@ namespace ErrorEstimation
                     const DoFHandler<dim>      &dof_handler,
                     const LA::ParVectorType    &solution,
                     const FiniteElement<dim>   &fe,
-                    const Mapping<dim>         &mapping,
-                    const ComponentMask        &mask)
+                    const Mapping<dim> & /*mapping*/,
+                    const ComponentMask &mask)
       : highest_recovered_derivative(highest_recovered_derivative)
       , param(param)
       , patch_handler(patch_handler)
       , patches(patch_handler.patches)
       , dof_handler(dof_handler)
       , fe(fe)
-      // , mapping(mapping)
+      , mask(mask)
       , isoparam_dh(dof_handler.get_triangulation())
       , mpi_communicator(patch_handler.mpi_communicator)
       , pcout(std::cout,
               (Utilities::MPI::this_mpi_process(mpi_communicator) == 0))
       , n_vertices(patch_handler.n_vertices)
       , owned_vertices(patch_handler.owned_vertices)
-      , least_squares_matrices(patch_handler.n_vertices)
-      , recoveries_coefficients(patch_handler.n_vertices)
+      , degree(fe.get_sub_fe(mask).degree)
+      , least_squares_matrices(patch_handler.get_least_squares_matrices())
+      , recoveries_coefficients(n_vertices)
     {
+      // Check that the least-squares matrices were computed during patches
+      // creation
+      AssertThrow(
+        patch_handler.has_least_squares_matrices(),
+        ExcMessage(
+          "The PatchHandler provided to reconstruct the solution and "
+          "derivatives does not store the least-squares matrices at each "
+          "vertex patch. When creating the patches with build_patches(...), "
+          "set enforce_full_rank_least_squares_matrices to true, or simply "
+          "call build_patches() with the default arguments."));
+
       // Create the set of locally relevant dofs, including the additional dofs
       // needed to recover data on the patches on this partition
       locally_owned_dofs = dof_handler.locally_owned_dofs();
       relevant_dofs      = DoFTools::extract_locally_relevant_dofs(dof_handler);
       for (const auto &patch : patches)
-        for (const auto &[dof, pt] : patch.neighbours)
-          relevant_dofs.add_index(dof);
+        for (const auto &data : patch.neighbours)
+          relevant_dofs.add_index(data.dof);
 
       local_solution.reinit(locally_owned_dofs, mpi_communicator);
       solution_with_additional_ghosts.reinit(locally_owned_dofs,
@@ -56,44 +70,28 @@ namespace ErrorEstimation
       local_solution                  = solution;
       solution_with_additional_ghosts = solution;
 
-      // Degree of the polynomial solution for which derivatives are computed
-      const unsigned int degree = fe.get_sub_fe(mask).degree;
-
       // Polynomial bases of degree "degree + 1"
       std::vector<Polynomials::Monomial<double>> monomials_1d_recovery;
       for (unsigned int i = 0; i <= degree + 1; ++i)
         monomials_1d_recovery.push_back(Polynomials::Monomial<double>(i));
 
-      // for (const auto &m : monomials_1d_recovery)
-      // {
-      //   pcout << "Monomial for recovery for fe with degree " << fe.degree <<
-      //   " :" << std::endl; m.print(pcout.get_stream());
-      // }
-
       monomials_recovery =
         std::make_unique<PolynomialSpace<dim>>(monomials_1d_recovery);
-      // monomials_recovery->output_indices(std::cout);
       dim_recovery_basis =
         monomials_recovery->n_polynomials(monomials_1d_recovery.size());
-
-      // Vectors to call evaluate() from the PolynomialSpace.
-      // Only those actually wanted (the gradients) are allocated.
-      std::vector<double> recovery_monomials_values;
-      gradients_of_recovery_monomials.resize(dim_recovery_basis);
-      std::vector<Tensor<2, dim>> recovery_monomials_grad_grads;
-      std::vector<Tensor<3, dim>> recovery_monomials_third_derivatives;
-      std::vector<Tensor<4, dim>> recovery_monomials_fourth_derivatives;
 
       // Evaluate grad(monomials) at the origin.
       // The gradient of each reconstructed component at zero is given by
       // sum_i coeffs_i * nabla(P_i)(0), where nabla(P_i)(0) is
       // gradients_of_recovery_monomials.
+      // Only the vectors actually wanted (the gradients) are allocated.
+      gradients_of_recovery_monomials.resize(dim_recovery_basis);
       monomials_recovery->evaluate(Point<dim>(),
-                                   recovery_monomials_values,
+                                   empty_polynomial_space_values,
                                    gradients_of_recovery_monomials,
-                                   recovery_monomials_grad_grads,
-                                   recovery_monomials_third_derivatives,
-                                   recovery_monomials_fourth_derivatives);
+                                   empty_polynomial_space_grad_grads,
+                                   empty_polynomial_space_third_derivatives,
+                                   empty_polynomial_space_fourth_derivatives);
 
       // For each vector component, the number of fields to reconstruct (the
       // field
@@ -106,118 +104,6 @@ namespace ErrorEstimation
       }
       n_derivatives_to_store =
         n_fields_to_recover - 1 + std::pow(dim, degree + 1);
-
-      for (types::global_vertex_index i = 0; i < n_vertices; ++i)
-        if (owned_vertices[i])
-          recoveries_coefficients[i].resize(n_fields_to_recover);
-    }
-
-    /**
-     * Use Eigen to get the rank of a FullMatrix
-     */
-    template <int dim>
-    unsigned int get_rank(const FullMatrix<double> &full_matrix,
-                          Eigen::MatrixXd          &eigen_matrix)
-    {
-      const unsigned int m = full_matrix.m();
-      const unsigned int n = full_matrix.n();
-      for (unsigned int i = 0; i < m; ++i)
-        for (unsigned int j = 0; j < n; ++j)
-          eigen_matrix(i, j) = full_matrix(i, j);
-      Eigen::FullPivLU<Eigen::MatrixXd> lu_decomp(eigen_matrix);
-      return lu_decomp.rank();
-    }
-
-    template <int dim>
-    void Base<dim>::fill_vandermonde_matrix(const Patch<dim>   &patch,
-                                            FullMatrix<double> &mat) const
-    {
-      const auto &neighbours = patch.neighbours_local_coordinates;
-
-      unsigned int i = 0;
-      for (const auto &[dof, pt] : neighbours)
-      {
-        // Evaluate each monomial at local_coordinates
-        for (unsigned int j = 0; j < dim_recovery_basis; ++j)
-          mat(i, j) = monomials_recovery->compute_value(j, pt);
-        ++i;
-      }
-    }
-
-    template <int dim>
-    void Base<dim>::compute_least_squares_matrices()
-    {
-      // The matrices are of size dim_recovery_basis x n_adjacent,
-      // but n_adjacent varies and can change if the patch is increased.
-      // The least-squares matrix A^T * A, however, is dim_recovery_basis x
-      // dim_recovery_basis
-
-      FullMatrix<double> AtA(dim_recovery_basis, dim_recovery_basis);
-      Eigen::MatrixXd    eigenAtA =
-        Eigen::MatrixXd::Zero(dim_recovery_basis, dim_recovery_basis);
-
-      // Construct (A^T*A)^-1 * A^T
-      for (types::global_vertex_index i = 0; i < n_vertices; ++i)
-      {
-        if (!owned_vertices[i])
-          continue;
-
-        const Patch<dim> &patch = patches[i];
-
-        bool         is_full_rank = false;
-        unsigned int rank;
-        // unsigned int num_patch_increases = 0;
-        // unsigned int max_patch_increases = 2;
-
-        do
-        {
-          const unsigned int n_adjacent = patch.neighbours.size();
-
-          AssertThrow(
-            n_adjacent >= dim_recovery_basis,
-            ExcMessage(
-              "Internal error: "
-              "Cannot create least-squares matrix because a patch of support "
-              "points "
-              "has fewer vertices than the dimension of the polynomial "
-              "basis for the polynomial fitting. This should not have "
-              "happened, as the "
-              "patches are created with at least that many vertices."));
-
-          FullMatrix<double> A(n_adjacent, dim_recovery_basis);
-          fill_vandermonde_matrix(patch, A);
-          A.Tmmult(AtA, A);
-          rank = get_rank<dim>(AtA, eigenAtA);
-
-          // FIXME: Enlarge patches if not of full rank
-          AssertThrow(
-            rank >= dim_recovery_basis,
-            ExcMessage(
-              "FIXME: Least-squares matrix is not full rank at this vertex. "
-              "The patch should be increased, this is on the TODO list (-:"));
-
-          // if (rank >= dim_recovery_basis)
-          // {
-          is_full_rank = true;
-          FullMatrix<double> least_squares_mat(dim_recovery_basis, n_adjacent);
-          least_squares_mat.left_invert(A);
-          least_squares_matrices[i] = least_squares_mat;
-          // }
-          // else
-          // {
-          //   if (num_patch_increases++ > max_patch_increases)
-          //   {
-          //     throw std::runtime_error(
-          //       "Could not create least-squares matrix of full rank even "
-          //       "after increasing the patch size several times.");
-          //   }
-
-          //   // Increase patch size
-          //   patches.increase_patch_size(i);
-          // }
-        }
-        while (!is_full_rank);
-      }
     }
 
     template <int dim>
@@ -235,6 +121,7 @@ namespace ErrorEstimation
     double Base<dim>::compute_integral_error(
       const RecoveryType          type,
       const VectorTools::NormType norm_type,
+      const Mapping<dim>         &mapping,
       const Function<dim>        &exact_solution,
       const Quadrature<dim>      &cell_quadrature) const
     {
@@ -274,7 +161,7 @@ namespace ErrorEstimation
       dealii::Vector<double> cellwise_errors(tria.n_active_cells());
 
       // Error between recovered solution and exact solution
-      VectorTools::integrate_difference(*isoparam_mapping,
+      VectorTools::integrate_difference(mapping,
                                         isoparam_dh,
                                         isoparam_solution,
                                         exact_solution,
@@ -291,6 +178,7 @@ namespace ErrorEstimation
     double
     Base<dim>::compute_nodal_error(const RecoveryType          type,
                                    const VectorTools::NormType norm_type,
+                                   const Mapping<dim>         &mapping,
                                    const Function<dim> &exact_solution) const
     {
       // Get the component mask for the required field type, and the mask
@@ -338,18 +226,15 @@ namespace ErrorEstimation
       nodal_error.reinit(locally_owned_isoparam_dofs,
                          locally_relevant_isoparam_dofs,
                          mpi_communicator);
-      VectorTools::interpolate(*isoparam_mapping,
-                               isoparam_dh,
-                               exact_solution,
-                               local_nodal_error,
-                               *mask);
+      VectorTools::interpolate(
+        mapping, isoparam_dh, exact_solution, local_nodal_error, *mask);
 
       // Subtract all the reconstructed fields
       local_nodal_error -= local_isoparam_solution;
 
       // Interpolate the zero function everywhere except at the required dofs,
       // to overwrite the dofs that are not of the required RecoveryType
-      VectorTools::interpolate(*isoparam_mapping,
+      VectorTools::interpolate(mapping,
                                isoparam_dh,
                                Functions::ZeroFunction<dim>(
                                  n_isoparam_components),
@@ -440,8 +325,7 @@ namespace ErrorEstimation
 
         for (types::global_vertex_index i = 0; i < n_vertices; ++i)
           if (owned_vertices[i])
-            local_coeffs.push_back(
-              {vertices[i], recoveries_coefficients[i][0]});
+            local_coeffs.push_back({vertices[i], recoveries_coefficients[i]});
 
         std::vector<MessageType> gathered_coeffs =
           Utilities::MPI::all_gather(mpi_communicator, local_coeffs);
@@ -587,7 +471,7 @@ namespace ErrorEstimation
       this->local_isoparam_solution.reinit(owned, comm);
 
       {
-        const unsigned int               solution_offset = 0;
+        constexpr unsigned int           solution_offset = 0;
         const FEValuesExtractors::Scalar solution_extractor(0);
         this->solution_mask =
           this->isoparam_fe->component_mask(solution_extractor);
@@ -605,7 +489,7 @@ namespace ErrorEstimation
 
       if (highest_recovered_derivative > 0)
       {
-        const unsigned int               gradient_offset = 1;
+        constexpr unsigned int           gradient_offset = 1;
         const FEValuesExtractors::Vector gradient_extractor(1);
         this->gradient_mask =
           this->isoparam_fe->component_mask(gradient_extractor);
@@ -627,8 +511,8 @@ namespace ErrorEstimation
 
       if (highest_recovered_derivative > 1)
       {
-        const unsigned int hessian_offset = 1 + dim;
-        std::vector<bool>  hessian_component_mask(this->n_isoparam_components,
+        constexpr unsigned int hessian_offset = 1 + dim;
+        std::vector<bool> hessian_component_mask(this->n_isoparam_components,
                                                  false);
         for (unsigned int i = 0; i < hessian_type::n_independent_components;
              ++i)
@@ -649,45 +533,311 @@ namespace ErrorEstimation
                                                   vertices_to_hessian_dofs,
                                                   hessian_dofs_to_vertices);
       }
+
+      if (Utilities::MPI::this_mpi_process(comm) == 0)
+      {
+        std::cout << "Reconstructing solution and derivatives of order up to "
+                  << highest_recovered_derivative << std::endl;
+        std::cout << "Degree of the polynomial solution : " << this->degree
+                  << std::endl;
+        std::cout << "Fitting polynomials of degree     : " << this->degree + 1
+                  << std::endl;
+      }
+
+      // Compute the weights associated with the closest dofs on each patch
+      compute_patches_averaging_weights();
+    }
+
+    template <int dim>
+    Tensor<1, dim> Base<dim>::evaluate_polynomial_gradient(
+      const Point<dim>             &p,
+      const PolynomialSpace<dim>   &polynomial_space,
+      const dealii::Vector<double> &polynomial_coeffs,
+      std::vector<Tensor<1, dim>>  &basis_gradients)
+    {
+      AssertDimension(polynomial_coeffs.size(), basis_gradients.size());
+
+      // Evaluate the gradient of the polynomial space at p.
+      // Since the empty_* vectors are empty, only the gradient is computed.
+      polynomial_space.evaluate(p,
+                                empty_polynomial_space_values,
+                                basis_gradients,
+                                empty_polynomial_space_grad_grads,
+                                empty_polynomial_space_third_derivatives,
+                                empty_polynomial_space_fourth_derivatives);
+      Tensor<1, dim>     res;
+      const unsigned int n = basis_gradients.size();
+      for (unsigned int i = 0; i < n; ++i)
+        res += polynomial_coeffs[i] * basis_gradients[i];
+      return res;
+    }
+
+    template <int dim>
+    void Scalar<dim>::compute_patches_averaging_weights()
+    {
+      using DofData = typename Patch<dim>::DofData;
+
+      const auto &reference_support_points =
+        this->fe.get_sub_fe(this->mask).get_unit_support_points();
+
+      // Weighting of the polynomials evaluations is done using a scalar
+      // isoparametric FE, i.e., the base FE associated with the solution. In
+      // the vector-valued case this might get trickier, and we'll probably need
+      // to add a scalar-valued isoparametric FE, just for this purpose.
+      const auto &solution_isoparam_fe = this->isoparam_fe->base_element(0);
+
+      // The patches use dof indices from the main solver's dof handler
+      //  Must use this dof handler and the solver's FESystem.
+      const unsigned int n_dofs_per_cell = this->fe.n_dofs_per_cell();
+      std::vector<types::global_dof_index> local_dofs(n_dofs_per_cell);
+
+      std::vector<DofData> contributions_to_ghosts;
+
+      for (types::global_vertex_index v = 0; v < this->n_vertices; ++v)
+        if (this->owned_vertices[v])
+        {
+          auto &patch = this->patches[v];
+
+          std::vector<unsigned int> n_contributions(patch.neighbours.size(), 0);
+
+          // Reset all the weights
+          for (auto &dof_data : patch.neighbours)
+            dof_data.averaging_weight = 0.;
+
+          for (const auto &cell : patch.first_cell_layer)
+          {
+            // Find which cell vertex the current vertex is
+            unsigned int iv = numbers::invalid_unsigned_int;
+            for (const auto i : cell->vertex_indices())
+              if (cell->vertex_index(i) == v)
+              {
+                iv = i;
+                break;
+              }
+            AssertThrow(iv != numbers::invalid_unsigned_int,
+                        ExcMessage("This vertex is not a vertex of one of its "
+                                   "first layer cells..."));
+
+            cell->get_dof_indices(local_dofs);
+            for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
+            {
+              const auto comp_shape   = this->fe.system_to_component_index(i);
+              const unsigned int comp = comp_shape.first;
+
+              if (this->mask[comp])
+              {
+                const auto dof = local_dofs[i];
+
+                // Check if dof is in the patch
+                // FIXME: This should always be the case, since these are the
+                // first layer of elements around the vertices, so all dofs of
+                // the chosen field should be in the patch
+                auto it =
+                  std::find_if(patch.neighbours.begin(),
+                               patch.neighbours.end(),
+                               [&](const DofData &d) { return d.dof == dof; });
+
+                AssertThrow(it != patch.neighbours.end(),
+                            ExcMessage(
+                              "Dof of the chosen field in the first layer is "
+                              "not in the patch of a cell vertex"));
+
+                // Evaluate the weight from the isoparametric FE
+                // This dof is at the "shape"-th point in the solver FE's
+                // reference cell
+                const unsigned int shape = comp_shape.second;
+
+                AssertIndexRange(shape, reference_support_points.size());
+                const Point<dim> &ref_coord = reference_support_points[shape];
+
+                // Now evaluate the vertex-th shape function of the
+                // isoparametric FE at these reference coordinates
+                AssertIndexRange(iv, solution_isoparam_fe.n_dofs_per_cell());
+                const double weight =
+                  solution_isoparam_fe.shape_value(iv, ref_coord);
+                it->averaging_weight += weight;
+
+                const unsigned int neighbour_index =
+                  std::distance(patch.neighbours.begin(), it);
+                n_contributions[neighbour_index]++;
+              }
+            }
+          }
+
+          // Divide the weight at each dof by the total number of contributions
+          // from this vertex
+          for (unsigned int i = 0; i < patch.neighbours.size(); ++i)
+          {
+            DofData &data = patch.neighbours[i];
+
+            if (n_contributions[i] > 0)
+              data.averaging_weight /= n_contributions[i];
+
+            // In debug, add the nonzero weight contributions to ghosts to send
+            // to their owners
+            if constexpr (running_in_debug_mode())
+            {
+              if (!this->locally_owned_dofs.is_element(data.dof) &&
+                  std::abs(data.averaging_weight) > 1e-14)
+                contributions_to_ghosts.push_back(data);
+            }
+          }
+        }
+
+      /**
+       * In debug, check that each owned dof has weights that sum to 1 across
+       * all patches, that is, check that it will receive complete contributions
+       * to its gradients.
+       */
+      if constexpr (running_in_debug_mode())
+      {
+        using MessageType = std::vector<DofData>;
+
+        std::map<types::global_dof_index, double> sum_weights;
+
+        std::map<types::subdomain_id, MessageType> contributions_to_send;
+        for (const auto &data : contributions_to_ghosts)
+          contributions_to_send[data.owner].push_back(data);
+
+        std::map<unsigned int, MessageType> received_contributions =
+          Utilities::MPI::some_to_some(this->mpi_communicator,
+                                       contributions_to_send);
+
+        // Add the weight contribution from this partition
+        for (types::global_vertex_index v = 0; v < this->n_vertices; ++v)
+          if (this->owned_vertices[v])
+            for (const auto &data : this->patches[v].neighbours)
+              if (this->locally_owned_dofs.is_element(data.dof))
+                sum_weights[data.dof] += data.averaging_weight;
+
+        // Add the weight contribution from other partitions
+        for (const auto &[source_rank, contributions_to_add] :
+             received_contributions)
+          for (const auto &data_to_add : contributions_to_add)
+          {
+            // Make sure this rank is the right owner
+            Assert(this->locally_owned_dofs.is_element(data_to_add.dof),
+                   ExcInternalError());
+            // if (sum_weights.at(data_to_add.dof) > 0)
+            sum_weights[data_to_add.dof] += data_to_add.averaging_weight;
+          }
+
+        // Check that weights sum to 1
+        for (const auto &[dof, sum_weight] : sum_weights)
+          Assert(std::abs(sum_weight - 1.) < 1e-12,
+                 ExcMessage("Proc " +
+                            std::to_string(Utilities::MPI::this_mpi_process(
+                              this->mpi_communicator)) +
+                            " : owned dof " + std::to_string(dof) +
+                            " has sum of weights " +
+                            std::to_string(sum_weight) +
+                            " but it should sum to 1."));
+      }
+    }
+
+    template <int dim>
+    void Scalar<dim>::update_local_solution(const unsigned int derivative_order,
+                                            const unsigned int component)
+    {
+      if (derivative_order == 1)
+      {
+        std::vector<Tensor<1, dim>> basis_gradients(this->dim_recovery_basis);
+
+        // Reset the local copy of the solution
+        this->local_solution = 0;
+
+        // The patches use dof indices from the main solver's dof handler
+        //  Must use this dof handler and the solver's FESystem.
+        const unsigned int n_dofs_per_cell = this->fe.n_dofs_per_cell();
+        std::vector<types::global_dof_index> local_dofs(n_dofs_per_cell);
+
+        std::map<types::subdomain_id,
+                 std::vector<std::pair<types::global_dof_index, double>>>
+          contributions_to_ghosts;
+
+        for (types::global_vertex_index v = 0; v < this->n_vertices; ++v)
+          if (this->owned_vertices[v])
+          {
+            const auto &patch  = this->patches[v];
+            const auto &coeffs = this->recoveries_coefficients[v];
+
+            for (const auto &data : patch.neighbours)
+            {
+              Point<dim> pt = data.local_pt;
+
+              // Scale back?
+              // FIXME: it's probably more robust to keep the coefficients
+              // scaled in reconstruct_field(), and to keep the local coord
+              // here as well, instead of scaling back both...
+              for (unsigned int d = 0; d < dim; ++d)
+                pt[d] *= patch.scaling[d];
+
+              if (std::abs(data.averaging_weight) > 1e-14)
+              {
+                // Evaluate the gradient of the polynomial reconstruction at
+                // this dof's support point
+                const Tensor<1, dim> grad = this->evaluate_polynomial_gradient(
+                  pt, *this->monomials_recovery, coeffs, basis_gradients);
+
+                // Add weighted average
+                if (this->locally_owned_dofs.is_element(data.dof))
+                  this->local_solution[data.dof] +=
+                    data.averaging_weight * grad[component];
+                else
+                  contributions_to_ghosts[data.owner].push_back(
+                    {data.dof, data.averaging_weight * grad[component]});
+              }
+            }
+          }
+
+        // Processes may store contributions that need to be added to ghost
+        // dofs, but we cannot increment the local vector at this dof. We need
+        // to send this contribution to the dof owner, which will then write
+        // into its local part of the solution vector.
+        //
+        // Each mesh vertex contributes to the gradient of the the first layer
+        // of mesh elements only, so at most a single layer of ghost elements in
+        // involved. A possible strategy is to send to neighbouring ranks the
+        // whole list of ghost dofs involved and their contribution, then the
+        // ranks will add the contributions if they own those dofs.
+        {
+          std::map<unsigned int,
+                   std::vector<std::pair<types::global_dof_index, double>>>
+            received_contributions =
+              Utilities::MPI::some_to_some(this->mpi_communicator,
+                                           contributions_to_ghosts);
+
+          for (const auto &[source_rank, contributions_to_add] :
+               received_contributions)
+            for (const auto &[dof, contribution] : contributions_to_add)
+              if (this->locally_owned_dofs.is_element(dof))
+                // Increment local solution vector
+                this->local_solution[dof] += contribution;
+        }
+
+        // Update ghosts
+        this->local_solution.compress(VectorOperation::add);
+        this->solution_with_additional_ghosts = this->local_solution;
+      }
+      else if (derivative_order == 2)
+      {
+        // Update the local solution vector with the current hessian values,
+        // which will then be reconstructed.
+        DEAL_II_NOT_IMPLEMENTED();
+      }
     }
 
     // Get the solution field u_h at the vertices of a patch
     template <int dim>
-    void get_component_values_on_patch(
+    void get_solution_values_on_patch(
       const LA::ParVectorType &solution_with_additional_ghosts,
       const Patch<dim>        &patch,
       dealii::Vector<double>  &values_out)
     {
       unsigned int i = 0;
-      for (const auto &[dof, pt] : patch.neighbours_local_coordinates)
+      for (const auto &data : patch.neighbours)
       {
-        values_out[i] = solution_with_additional_ghosts[dof];
-        ++i;
-      }
-    }
-
-    /**
-     * FIXME: for nwo this does the same as get_component_values_on_patch(),
-     * if the local solution vector is updated with the components to
-     * reconstruct...
-     */
-    template <int dim>
-    void get_gradient_on_patch(
-      const unsigned int       component,
-      const LA::ParVectorType &solution_with_additional_ghosts,
-      const Patch<dim>        &patch,
-      dealii::Vector<double>  &values_out)
-    {
-      // FIXME:
-      // The patches dof are from the FE dofhandler, not from the
-      // isoparametric... But more importantly, the patch will have more dofs
-      // than the mesh vertices: we need to evaluate the reconstructed fields at
-      // the Point<dim> of the patch nodes?
-      unsigned int i = 0;
-      for (const auto &[dof, pt] : patch.neighbours_local_coordinates)
-      {
-        // values_out[i] = recovered_gradient_at_vertices[v][component];
-        values_out[i] = solution_with_additional_ghosts[dof];
+        values_out[i] = solution_with_additional_ghosts[data.dof];
         ++i;
       }
     }
@@ -695,56 +845,18 @@ namespace ErrorEstimation
     template <int dim>
     void Scalar<dim>::reconstruct_field(const unsigned int derivative_order)
     {
-      const unsigned int n = this->dim_recovery_basis;
       const unsigned int n_components_to_recover =
         std::pow(dim, derivative_order);
-      dealii::Vector<double> coeffs(n);
+      dealii::Vector<double> coeffs(this->dim_recovery_basis);
 
       // Reconstruct each component of the solution, gradient, etc.
       for (unsigned int i_comp = 0; i_comp < n_components_to_recover; ++i_comp)
       {
-        if (derivative_order == 1)
+        if (derivative_order > 0)
         {
-          // Update the copy of the FE solution vector with the gradient of the
-          // reconstructed solution We need the dof index of the center of the
-          // patch
-          for (types::global_vertex_index v = 0; v < this->n_vertices; ++v)
-            if (this->owned_vertices[v])
-            {
-              const Patch<dim> &patch = this->patches[v];
-
-              // Get the dof of the neighbour that is actually the center
-              // For patches defined for a scalar-valued field, there is only
-              // one such dof
-              types::global_dof_index center_dof =
-                numbers::invalid_unsigned_int;
-              for (const auto &neighbour : patch.neighbours)
-                if (neighbour.second.distance(patch.center) < 1e-12)
-                {
-                  center_dof = neighbour.first;
-                  break;
-                }
-              AssertThrow(center_dof != numbers::invalid_unsigned_int,
-                          ExcMessage(
-                            "Could not find a neighbouring dof in the patch "
-                            "that matches the center of the patch"));
-              AssertThrow(this->locally_owned_dofs.is_element(center_dof),
-                          ExcMessage("Center dof is not owned"));
-
-              // Update the copy of the FE solution
-              this->local_solution[center_dof] =
-                recovered_gradient_at_vertices[v][i_comp];
-            }
-
-          // Update ghosts
-          this->local_solution.compress(VectorOperation::insert);
-          this->solution_with_additional_ghosts = this->local_solution;
-        }
-        else if (derivative_order == 2)
-        {
-          // Update the local solution vector with the current hessian values,
-          // which will then be reconstructed.
-          DEAL_II_NOT_IMPLEMENTED();
+          // Update the copy of the solution with the reconstructed derivative
+          // of order "derivative_order - 1"
+          update_local_solution(derivative_order, i_comp);
         }
 
         for (types::global_vertex_index v = 0; v < this->n_vertices; ++v)
@@ -757,36 +869,29 @@ namespace ErrorEstimation
           dealii::Vector<double> rhs(ls_mat.n());
 
           // Extract local solution values for each component
-          if (derivative_order == 0)
-            get_component_values_on_patch(this->solution_with_additional_ghosts,
-                                          patch,
-                                          rhs);
-          else if (derivative_order == 1)
-            get_gradient_on_patch(i_comp,
-                                  this->solution_with_additional_ghosts,
-                                  patch,
-                                  rhs);
-          else
-            DEAL_II_NOT_IMPLEMENTED();
+          get_solution_values_on_patch(this->solution_with_additional_ghosts,
+                                       patch,
+                                       rhs);
 
           // Solve the least-squares system
           ls_mat.vmult(coeffs, rhs);
 
           // Scale back
-          for (unsigned int i = 0; i < n; ++i)
+          // FIXME: see other comment on scaling.
+          for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
             coeffs[i] /=
               this->monomials_recovery->compute_value(i, patch.scaling);
 
           if (derivative_order == 0)
           {
             // Store reconstructed solution evaluated at the origin
-            this->recoveries_coefficients[v][0] = coeffs;
-            recovered_solution_at_vertices[v]   = coeffs[0];
+            this->recoveries_coefficients[v]  = coeffs;
+            recovered_solution_at_vertices[v] = coeffs[0];
 
             // Compute the gradient at the origin = sum_i coeffs_i *
             // grad(P_i)(0)
             Tensor<1, dim> grad;
-            for (unsigned int i = 0; i < n; ++i)
+            for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
               grad += coeffs[i] * this->gradients_of_recovery_monomials[i];
             recovered_gradient_at_vertices[v] = grad;
           }
@@ -798,7 +903,7 @@ namespace ErrorEstimation
             // Compute grad(grad_icomp) at the origin = sum_i coeffs_i *
             // grad(P_i)(0)
             Tensor<1, dim> grad;
-            for (unsigned int i = 0; i < n; ++i)
+            for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
               grad += coeffs[i] * this->gradients_of_recovery_monomials[i];
             for (unsigned int d = 0; d < dim; ++d)
               recovered_hessian_at_vertices[v][i_comp][d] = grad[d];
@@ -835,7 +940,8 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    void Scalar<dim>::write_pvtu(const std::string &filename) const
+    void Scalar<dim>::write_pvtu(const Mapping<dim> &mapping,
+                                 const std::string  &filename) const
     {
       std::vector<std::string> data_names(this->n_isoparam_components);
       std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -867,7 +973,7 @@ namespace ErrorEstimation
                                data_names,
                                DataOut<dim>::type_dof_data,
                                data_interpretation);
-      data_out.build_patches(*this->isoparam_mapping, 2);
+      data_out.build_patches(mapping, 2);
       data_out.write_vtu_with_pvtu_record(
         "./", filename, 0, this->isoparam_dh.get_mpi_communicator(), 2);
     }

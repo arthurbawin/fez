@@ -19,12 +19,22 @@ namespace BoundaryConditions
       "",
       Patterns::Anything(),
       "Name of the Gmsh physical entity associated to this boundary");
+    prm.declare_entry("matching periodic boundary",
+                      "-1",
+                      Patterns::Integer(),
+                      "ID of the matching periodic boundary");
+    prm.declare_entry("periodic direction",
+                      "0",
+                      Patterns::Integer(0, 2),
+                      "Space direction along which boundaries are periodic");
   }
 
   void BoundaryCondition::read_parameters(ParameterHandler &prm)
   {
-    id        = prm.get_integer("id");
-    gmsh_name = prm.get("name");
+    id                   = prm.get_integer("id");
+    gmsh_name            = prm.get("name");
+    matching_periodic_id = prm.get_integer("matching periodic boundary");
+    periodic_direction   = prm.get_integer("periodic direction");
   }
 
   template <int dim>
@@ -36,7 +46,7 @@ namespace BoundaryConditions
       "none",
       Patterns::Selection(
         "none|input_function|outflow|no_slip|weak_no_slip|slip|"
-        "velocity_mms|velocity_flux_mms|open_mms|no_tangential_flow"),
+        "velocity_mms|velocity_flux_mms|open_mms|no_tangential_flow|periodic"),
       "Type of fluid boundary condition");
 
     // Imposed functions, if any
@@ -102,6 +112,15 @@ namespace BoundaryConditions
       type = Type::velocity_flux_mms;
     else if (parsed_type == "open_mms")
       type = Type::open_mms;
+    else if (parsed_type == "periodic")
+    {
+      type = Type::periodic;
+      if (matching_periodic_id == -1)
+        throw std::runtime_error("Fluid boundary condition for boundary " +
+                                 std::to_string(this->id) +
+                                 " is set to \"periodic\", but a matching "
+                                 "periodic boundary was not set.");
+    }
     else if (parsed_type == "none")
       throw std::runtime_error(
         "Fluid boundary condition for boundary " + std::to_string(this->id) +
@@ -283,18 +302,18 @@ namespace BoundaryConditions
 
   template <int dim>
   void apply_velocity_boundary_conditions(
-    const bool             homogeneous,
-    const unsigned int     u_lower,
-    const unsigned int     n_components,
-    const DoFHandler<dim> &dof_handler,
-    const Mapping<dim>    &mapping,
+    const bool               homogeneous,
+    const ComponentOrdering &ordering,
+    const unsigned int       n_components,
+    const DoFHandler<dim>   &dof_handler,
+    const Mapping<dim>      &mapping,
     const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>>
                               &fluid_bc,
     const Function<dim>       &exact_solution,
     const Function<dim>       &exact_velocity,
     AffineConstraints<double> &constraints)
   {
-    const FEValuesExtractors::Vector velocity(u_lower);
+    const FEValuesExtractors::Vector velocity(ordering.u_lower);
     const ComponentMask              velocity_mask =
       dof_handler.get_fe().component_mask(velocity);
 
@@ -306,6 +325,8 @@ namespace BoundaryConditions
     std::set<types::boundary_id> velocity_tangential_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *>
       velocity_tangential_flux_functions;
+
+    std::set<types::boundary_id> added_periodic;
 
     for (const auto &[id, bc] : fluid_bc)
     {
@@ -319,7 +340,7 @@ namespace BoundaryConditions
                                                  constraints,
                                                  velocity_mask);
       }
-      if (bc.type == BoundaryConditions::Type::input_function)
+      else if (bc.type == BoundaryConditions::Type::input_function)
       {
         if (homogeneous)
           VectorTools::interpolate_boundary_values(mapping,
@@ -335,11 +356,11 @@ namespace BoundaryConditions
             dof_handler,
             bc.id,
             VectorFunctionFromComponents<dim>(
-              u_lower, n_components, bc.u, bc.v, bc.w),
+              ordering.u_lower, n_components, bc.u, bc.v, bc.w),
             constraints,
             velocity_mask);
       }
-      if (bc.type == BoundaryConditions::Type::velocity_mms)
+      else if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
         if (homogeneous)
           VectorTools::interpolate_boundary_values(mapping,
@@ -357,11 +378,11 @@ namespace BoundaryConditions
                                                    constraints,
                                                    velocity_mask);
       }
-      if (bc.type == BoundaryConditions::Type::slip)
+      else if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);
-      if (bc.type == BoundaryConditions::Type::no_tangential_flow)
+      else if (bc.type == BoundaryConditions::Type::no_tangential_flow)
         no_tangential_flow_boundaries.insert(bc.id);
-      if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
+      else if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
         // Enforce both the normal and tangential flux to be well-posed
         velocity_normal_flux_boundaries.insert(bc.id);
@@ -369,19 +390,46 @@ namespace BoundaryConditions
         velocity_tangential_flux_boundaries.insert(bc.id);
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
+      else if (bc.type == BoundaryConditions::Type::periodic)
+      {
+        // Enforce periodicity of both velocity and pressure
+        const FEValuesExtractors::Scalar pressure(ordering.p_lower);
+        const ComponentMask              pressure_mask =
+          dof_handler.get_fe().component_mask(pressure);
+
+        if (added_periodic.count(bc.id) == 0)
+        {
+          DoFTools::make_periodicity_constraints<dim, dim>(
+            dof_handler,
+            bc.id,
+            bc.matching_periodic_id,
+            bc.periodic_direction,
+            constraints,
+            velocity_mask);
+          DoFTools::make_periodicity_constraints<dim, dim>(
+            dof_handler,
+            bc.id,
+            bc.matching_periodic_id,
+            bc.periodic_direction,
+            constraints,
+            pressure_mask);
+          added_periodic.insert(bc.id);
+          added_periodic.insert(bc.matching_periodic_id);
+        }
+      }
     }
 
     // Add no velocity flux constraints
     VectorTools::compute_no_normal_flux_constraints(
       dof_handler,
-      u_lower,
+      ordering.u_lower,
       no_flux_boundaries,
       constraints,
       mapping,
       /*use_manifold_for_normal=*/false);
     VectorTools::compute_normal_flux_constraints(
       dof_handler,
-      u_lower,
+      ordering.u_lower,
       no_tangential_flow_boundaries,
       constraints,
       mapping,
@@ -389,7 +437,7 @@ namespace BoundaryConditions
 
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,
-      u_lower,
+      ordering.u_lower,
       velocity_normal_flux_boundaries,
       velocity_normal_flux_functions,
       constraints,
@@ -399,7 +447,7 @@ namespace BoundaryConditions
     // Add nonzero tangential flux velocity constraints
     VectorTools::compute_nonzero_tangential_flux_constraints(
       dof_handler,
-      u_lower,
+      ordering.u_lower,
       velocity_tangential_flux_boundaries,
       velocity_tangential_flux_functions,
       constraints,
@@ -445,7 +493,7 @@ namespace BoundaryConditions
         VectorTools::interpolate_boundary_values(
           mapping, dof_handler, bc.id, *fun_ptr, constraints, position_mask);
       }
-      if (bc.type == BoundaryConditions::Type::input_function)
+      else if (bc.type == BoundaryConditions::Type::input_function)
       {
         if (homogeneous)
           VectorTools::interpolate_boundary_values(
@@ -460,24 +508,23 @@ namespace BoundaryConditions
             constraints,
             position_mask);
       }
-      if (bc.type == BoundaryConditions::Type::position_mms)
+      else if (bc.type == BoundaryConditions::Type::position_mms)
       {
         fun_ptr = homogeneous ? &zero_fun : &exact_solution;
         VectorTools::interpolate_boundary_values(
           mapping, dof_handler, bc.id, *fun_ptr, constraints, position_mask);
       }
 
-      if (bc.type == BoundaryConditions::Type::no_flux)
+      else if (bc.type == BoundaryConditions::Type::no_flux)
       {
         normal_flux_boundaries.insert(bc.id);
         position_flux_functions[bc.id] = &fixed_mesh_for_flux;
       }
-      if (bc.type == BoundaryConditions::Type::position_flux_mms)
+      else if (bc.type == BoundaryConditions::Type::position_flux_mms)
       {
         mms_normal_flux_boundaries.insert(bc.id);
         mms_position_flux_functions[bc.id] = &exact_mesh_position;
       }
-      // FIXME: Error if BC not handled?
     }
 
     // Add position nonzero flux constraints (tangential movement)

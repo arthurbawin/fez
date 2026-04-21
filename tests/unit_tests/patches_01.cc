@@ -1,6 +1,4 @@
 
-#include "error_estimation/patches.h"
-
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_simplex_p.h>
@@ -10,6 +8,7 @@
 
 #include "../tests.h"
 
+#include "error_estimation/patches.h"
 #include "mesh.h"
 #include "parameter_reader.h"
 #include "types.h"
@@ -17,12 +16,14 @@
 /**
  * This tests that the patches of dof support points, used for least-squares
  * recovery of more accurate solution, are identical in sequential and parallel.
- * 
- * Create a uniform rectangle 2D mesh, then check that the patches containing the dofs from the first
- * N layers of mesh cells are identical across a different number of mesh partitions.
- * 
- * For this particular mesh and with simplices, the partitioning with 9 ranks is particularly
- * pathological, but the build_patches() function should work nonetheless.
+ *
+ * Create a uniform rectangle 2D mesh, then check that the patches containing
+ * the dofs from the first N layers of mesh cells are identical across a
+ * different number of mesh partitions.
+ *
+ * For this particular mesh and with simplices, the partitioning with 9 ranks is
+ * particularly pathological, but the build_patches() function should work
+ * nonetheless.
  */
 
 template <int dim>
@@ -45,7 +46,7 @@ public:
 
 template <int dim>
 void test_patches(const unsigned int field_polynomial_degree,
-  const unsigned int n_layers)
+                  const unsigned int n_layers)
 {
   MPI_Comm mpi_communicator(MPI_COMM_WORLD);
 
@@ -93,12 +94,15 @@ void test_patches(const unsigned int field_polynomial_degree,
                                                 FEValuesExtractors::Scalar(0)));
 
   const bool enforce_full_rank_least_squares_matrices = false;
-  patch_handler.build_patches(enforce_full_rank_least_squares_matrices, n_layers);
+  patch_handler.build_patches(enforce_full_rank_least_squares_matrices,
+                              n_layers);
 
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-    deallog << "Patches for solution of degree "
-      << field_polynomial_degree << " and " << n_layers << " cell layers" << std::endl;
-  patch_handler.write_support_points_patch(".", solution, deallog.get_file_stream());
+    deallog << "Patches for solution of degree " << field_polynomial_degree
+            << " and " << n_layers << " cell layers" << std::endl;
+  patch_handler.write_support_points_patch(".",
+                                           solution,
+                                           deallog.get_file_stream());
 }
 
 int main(int argc, char *argv[])

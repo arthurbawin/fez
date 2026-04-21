@@ -188,6 +188,121 @@ namespace ErrorEstimation
       least_squares_matrices_were_computed = true;
   }
 
+  template <int dim>
+  void PatchHandler<dim>::update_patches(const Mapping<dim> &new_mapping)
+  {
+    // Update the stored support points
+    relevant_dofs_support_points =
+      DoFTools::map_dofs_to_support_points(new_mapping, dof_handler, mask);
+
+    std::map<types::subdomain_id, std::set<types::global_dof_index>>
+      position_requests_set;
+
+    // Update the position of the locally available dofs
+    for (auto &patch : patches)
+    {
+      if (patch.neighbours.size() == 0)
+        continue;
+
+      // Update center
+      if (patch.center_scalar_dof != numbers::invalid_unsigned_int)
+        patch.center = relevant_dofs_support_points.at(patch.center_scalar_dof);
+      else
+        // Update centers for vector-valued field
+        DEAL_II_NOT_IMPLEMENTED();
+
+      // Update neighbours
+      for (auto &data : patch.neighbours)
+      {
+        if (locally_relevant_dofs.is_element(data.dof))
+          data.pt = relevant_dofs_support_points.at(data.dof);
+        else
+          position_requests_set[data.owner].insert(data.dof);
+      }
+    }
+
+    using RequestType = std::vector<types::global_dof_index>;
+
+    // Convert set to vector since std::set does not have serialization
+    std::map<types::subdomain_id, RequestType> position_requests;
+    for (const auto &[owner, requested_dofs] : position_requests_set)
+      position_requests[owner] =
+        RequestType(requested_dofs.begin(), requested_dofs.end());
+
+    // Requests position of nonlocal dofs
+    std::map<unsigned int, RequestType> received_requests =
+      Utilities::MPI::some_to_some(mpi_communicator, position_requests);
+
+    using ReponseType =
+      std::vector<std::pair<types::global_dof_index, Point<dim>>>;
+
+    // Get position of requested dofs
+    std::map<types::subdomain_id, ReponseType> position_responses;
+
+    for (const auto &[source, requested_dofs] : received_requests)
+      for (const auto dof : requested_dofs)
+      {
+        Assert(locally_owned_dofs.is_element(dof), ExcInternalError());
+        position_responses[source].push_back(
+          {dof, relevant_dofs_support_points.at(dof)});
+      }
+
+    // Send responses
+    std::map<unsigned int, ReponseType> received_responses =
+      Utilities::MPI::some_to_some(mpi_communicator, position_responses);
+
+    // Update nonlocal dofs
+    for (auto &patch : patches)
+    {
+      for (auto &data : patch.neighbours)
+        if (!locally_relevant_dofs.is_element(data.dof))
+        {
+          const auto &ghosts = received_responses.at(data.owner);
+          auto        it =
+            std::find_if(ghosts.begin(), ghosts.end(), [&](const auto &a) {
+              return a.first == data.dof;
+            });
+          Assert(it != ghosts.end(), ExcInternalError());
+          data.pt = it->second;
+        }
+
+      // Update scaling and local coordinates
+      compute_scaling_and_local_coordinates(patch);
+    }
+
+    // Re-compute least-squares matrices
+    // FIXME: For now and by simplicity, assume that the new position will
+    // lead to full-rank matrices. Otherwise we need to re-expand some patches.
+    FullMatrix<double> AtA(dim_recovery_basis, dim_recovery_basis);
+    Eigen::MatrixXd    eigenAtA =
+      Eigen::MatrixXd::Zero(dim_recovery_basis, dim_recovery_basis);
+
+    for (unsigned int v = 0; v < n_vertices; ++v)
+      if (owned_vertices[v])
+      {
+        const unsigned int rank =
+          compute_least_squares_matrix(patches[v],
+                                       dim_recovery_basis,
+                                       *monomials_recovery,
+                                       AtA,
+                                       eigenAtA,
+                                       least_squares_matrices[v]);
+        least_squares_matrices_rank[v] = rank;
+
+        AssertThrow(
+          rank >= dim_recovery_basis,
+          ExcMessage(
+            "At least one least-squares matrix is not full "
+            "rank after updating the patches. This not an error per "
+            "se, it simply indicates that the mapping used to update "
+            "the patches positions leads to at least one singular "
+            "matrix with the current number of points in the patch, "
+            "most likely because the support points are aligned. More "
+            "support points should be added to the patches to recover "
+            "an invertible matrix, but it is not implemented for now."));
+      }
+  }
+
   /**
    * Fill the Vandermonde matrix at mesh vertex v, according to the scaling
    * vector stored in the patch at v.
@@ -774,55 +889,31 @@ namespace ErrorEstimation
     std::ostream            &out,
     bool                     write_for_gmsh) const
   {
-    std::vector<Point<dim>> global_vertices;
-    std::vector<Patch<dim>> global_patches;
-
     const unsigned int mpi_size =
       Utilities::MPI::n_mpi_processes(mpi_communicator);
 
-    const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
+    // Gather the patches to the root process
+    std::vector<std::vector<Patch<dim>>> gathered_patches =
+      Utilities::MPI::gather(mpi_communicator, patches, 0);
 
-    // Gather the mesh vertices
-    {
-      std::vector<Point<dim>> local_vertices;
-      for (unsigned int i = 0; i < n_vertices; ++i)
-      {
-        if (owned_vertices[i])
-          local_vertices.push_back(vertices[i]);
-      }
+    std::vector<Patch<dim>> all_patches;
+    for (const auto &vec : gathered_patches)
+      all_patches.insert(all_patches.end(), vec.begin(), vec.end());
 
-      std::vector<std::vector<Point<dim>>> gathered_vertices =
-        Utilities::MPI::all_gather(mpi_communicator, local_vertices);
-      for (const auto &vec : gathered_vertices)
-        global_vertices.insert(global_vertices.end(), vec.begin(), vec.end());
-      std::sort(global_vertices.begin(),
-                global_vertices.end(),
-                PointComparator<dim>());
-    }
-
-    // Gather the patches
-    {
-      std::vector<std::vector<Patch<dim>>> gathered_patches =
-        Utilities::MPI::all_gather(mpi_communicator, patches);
-
-      global_patches.resize(global_vertices.size());
-      for (unsigned int i = 0; i < global_vertices.size(); ++i)
-      {
-        bool found = false;
-        for (unsigned int r = 0; r < mpi_size; ++r)
-          for (const auto &patch : gathered_patches[r])
-          {
-            if (patch.neighbours.size() > 0)
-              if (global_vertices[i].distance(patch.center) < 1e-12)
-              {
-                global_patches[i] = patch;
-                found             = true;
-                break;
-              }
-          }
-        AssertThrow(found, ExcMessage("Vertex not found"));
-      }
-    }
+    // Sort based on position of center
+    std::sort(all_patches.begin(),
+              all_patches.end(),
+              [](const auto &a, const auto &b) {
+                PointComparator<dim> comp;
+                return comp(a.center, b.center);
+              });
+    // Remove the empty patches from non-owned vertices
+    all_patches.erase(std::remove_if(all_patches.begin(),
+                                     all_patches.end(),
+                                     [](const auto &patch) {
+                                       return patch.neighbours.size() == 0;
+                                     }),
+                      all_patches.end());
 
     /**
      * To print the FE solution at the points of the patches, create a vector of
@@ -838,30 +929,27 @@ namespace ErrorEstimation
 
     if (mpi_rank == 0)
     {
-      for (unsigned int i = 0; i < global_vertices.size(); ++i)
+      for (unsigned int i = 0; i < all_patches.size(); ++i)
       {
-        const auto &patch = global_patches[i];
+        const auto &patch = all_patches[i];
 
         AssertThrow(patch.neighbours.size() > 0, ExcMessage("No neighbours"));
 
-        out << "Mesh vertex " << global_vertices[i] << std::endl;
+        // First line should be removed, but the tests should be adapted
+        out << "Mesh vertex " << patch.center << std::endl;
         out << "Center      " << patch.center << std::endl;
         out << "Scaling     " << patch.scaling << std::endl;
         for (const auto &data : patch.neighbours)
           out << data.pt << " : sol = " << local_solution[data.dof]
               << std::endl;
-      }
 
-      if (write_for_gmsh)
-      {
-        for (unsigned int i = 0; i < global_vertices.size(); ++i)
+        if (write_for_gmsh)
         {
           std::ofstream out(output_dir + "patches_" + std::to_string(mpi_size) +
                             "ranks_vertex" + std::to_string(i) + ".pos");
           out << "View \"patches_vertex_" << i << "\"{\n";
 
-          const auto &patch = global_patches[i];
-          const auto &c     = patch.center;
+          const auto &c = patch.center;
           out << "SP(" << c[0] << "," << c[1] << "," << (dim == 3 ? c[2] : 0.)
               << "){2.};\n"
               << std::endl;

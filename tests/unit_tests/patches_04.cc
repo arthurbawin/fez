@@ -1,6 +1,4 @@
 
-#include "error_estimation/patches.h"
-
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_simplex_p.h>
@@ -10,6 +8,7 @@
 
 #include "../tests.h"
 
+#include "error_estimation/patches.h"
 #include "mesh.h"
 #include "parameter_reader.h"
 #include "types.h"
@@ -88,9 +87,11 @@ void test_patches(const unsigned int field_polynomial_degree)
   patch_handler.build_patches(enforce_full_rank_least_squares_matrices);
 
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-    deallog << "Patches for solution of degree "
-      << field_polynomial_degree << std::endl;
-  patch_handler.write_support_points_patch(".", solution, deallog.get_file_stream());
+    deallog << "Patches for solution of degree " << field_polynomial_degree
+            << std::endl;
+  patch_handler.write_support_points_patch(".",
+                                           solution,
+                                           deallog.get_file_stream());
 }
 
 int main(int argc, char *argv[])
@@ -101,7 +102,7 @@ int main(int argc, char *argv[])
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
 
     // Test for linear and quadratic solution
-    const unsigned int max_solution_degree  = 2;
+    const unsigned int max_solution_degree = 2;
     for (unsigned int d = 1; d <= max_solution_degree; ++d)
       test_patches<3>(d);
   }

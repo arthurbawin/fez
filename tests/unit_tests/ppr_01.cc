@@ -1,11 +1,13 @@
 
+#include <deal.II/base/convergence_table.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/numerics/data_out.h>
-#include <deal.II/base/convergence_table.h>
+
+#include "../tests.h"
 
 #include "error_estimation/patches.h"
 #include "error_estimation/solution_recovery.h"
@@ -13,10 +15,8 @@
 #include "parameter_reader.h"
 #include "types.h"
 
-#include "../tests.h"
-
 /**
- * 
+ *
  */
 template <int dim>
 class ScalarField : public Function<dim>
@@ -26,7 +26,7 @@ public:
     : Function<dim>(1)
   {}
 
-  virtual double value(const Point<dim>  &p,
+  virtual double value(const Point<dim> &p,
                        const unsigned int /* component = 0 */) const override
   {
     const double x = p[0];
@@ -42,8 +42,7 @@ public:
 
 template <int dim>
 class ScalarFieldWithDerivatives : public Function<dim>
-{
-};
+{};
 
 
 template <>
@@ -54,7 +53,7 @@ public:
     : Function<2>(7)
   {}
 
-  virtual double value(const Point<2>  &p,
+  virtual double value(const Point<2>    &p,
                        const unsigned int component = 0) const override
   {
     const double x = p[0];
@@ -75,7 +74,7 @@ public:
     // else if (component == 6) // d2f/dy2
     //   return 0.0;
 
-    if (component == 0)      // f
+    if (component == 0) // f
       return std::sin(M_PI * x) * std::cos(M_PI * y);
     else if (component == 1) // df/dx
       return M_PI * std::cos(M_PI * x) * std::cos(M_PI * y);
@@ -118,11 +117,12 @@ void test_ppr(const unsigned int field_polynomial_degree)
     mesh_param.deal_ii_preset_mesh = "rectangle";
 
     if constexpr (dim == 2)
-      mesh_param.deal_ii_mesh_param  = "4, 4 : 0., 0. : 1., 1. : true";
+      mesh_param.deal_ii_mesh_param = "4, 4 : 0., 0. : 1., 1. : true";
     else
-      mesh_param.deal_ii_mesh_param  = "4, 4, 4 : 0., 0., 0. : 1., 1., 1. : true";
+      mesh_param.deal_ii_mesh_param =
+        "4, 4, 4 : 0., 0., 0. : 1., 1., 1. : true";
 
-    mesh_param.refinement_level    = 1 + i_conv;
+    mesh_param.refinement_level = 1 + i_conv;
 
     parallel::fullydistributed::Triangulation<dim> triangulation(
       mpi_communicator);
@@ -135,7 +135,9 @@ void test_ppr(const unsigned int field_polynomial_degree)
     IndexSet locally_relevant_dofs =
       DoFTools::extract_locally_relevant_dofs(dof_handler);
     LA::ParVectorType solution, local_solution;
-    solution.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator);
+    solution.reinit(locally_owned_dofs,
+                    locally_relevant_dofs,
+                    mpi_communicator);
     local_solution.reinit(locally_owned_dofs, mpi_communicator);
     VectorTools::interpolate(mapping,
                              dof_handler,
@@ -145,13 +147,13 @@ void test_ppr(const unsigned int field_polynomial_degree)
 
     // Create the patches of dof support points and print the sorted patches
     // for each owned mesh vertex
-    ErrorEstimation::PatchHandler patch_handler(triangulation,
-                                                mapping,
-                                                dof_handler,
-                                                solution,
-                                                field_polynomial_degree + 1,
-                                                fe.component_mask(
-                                                  FEValuesExtractors::Scalar(0)));
+    ErrorEstimation::PatchHandler patch_handler(
+      triangulation,
+      mapping,
+      dof_handler,
+      solution,
+      field_polynomial_degree + 1,
+      fe.component_mask(FEValuesExtractors::Scalar(0)));
     patch_handler.build_patches();
 
     const unsigned int                        highest_recovered_derivative = 2;
@@ -168,34 +170,37 @@ void test_ppr(const unsigned int field_polynomial_degree)
     recovery.reconstruct_fields();
 
     const ScalarFieldWithDerivatives<dim> exact_solution;
-    const QGaussSimplex<dim> cell_quadrature(4);
+    const QGaussSimplex<dim>              cell_quadrature(4);
 
-    using Type = ErrorEstimation::SolutionRecovery::RecoveryType;
+    using Type     = ErrorEstimation::SolutionRecovery::RecoveryType;
     using NormType = VectorTools::NormType;
 
-    const double int_error_sol = recovery.compute_integral_error(Type::solution,
-      NormType::Linfty_norm,
-      exact_solution,
-      cell_quadrature);
-    const double nodal_error_sol = recovery.compute_nodal_error(Type::solution,
-      NormType::Linfty_norm,
-      exact_solution);
+    const double int_error_sol =
+      recovery.compute_integral_error(Type::solution,
+                                      NormType::Linfty_norm,
+                                      mapping,
+                                      exact_solution,
+                                      cell_quadrature);
+    const double nodal_error_sol = recovery.compute_nodal_error(
+      Type::solution, NormType::Linfty_norm, mapping, exact_solution);
 
-    const double int_error_grad = recovery.compute_integral_error(Type::gradient,
-      NormType::Linfty_norm,
-      exact_solution,
-      cell_quadrature);
-    const double nodal_error_grad = recovery.compute_nodal_error(Type::gradient,
-      NormType::Linfty_norm,
-      exact_solution);
+    const double int_error_grad =
+      recovery.compute_integral_error(Type::gradient,
+                                      NormType::Linfty_norm,
+                                      mapping,
+                                      exact_solution,
+                                      cell_quadrature);
+    const double nodal_error_grad = recovery.compute_nodal_error(
+      Type::gradient, NormType::Linfty_norm, mapping, exact_solution);
 
-    const double int_error_hess = recovery.compute_integral_error(Type::hessian,
-      NormType::Linfty_norm,
-      exact_solution,
-      cell_quadrature);
-    const double nodal_error_hess = recovery.compute_nodal_error(Type::hessian,
-      NormType::Linfty_norm,
-      exact_solution);
+    const double int_error_hess =
+      recovery.compute_integral_error(Type::hessian,
+                                      NormType::Linfty_norm,
+                                      mapping,
+                                      exact_solution,
+                                      cell_quadrature);
+    const double nodal_error_hess = recovery.compute_nodal_error(
+      Type::hessian, NormType::Linfty_norm, mapping, exact_solution);
 
     error_table.add_value("n_elm", triangulation.n_global_active_cells());
     error_table.add_value("e_int_sol", int_error_sol);
@@ -215,13 +220,15 @@ void test_ppr(const unsigned int field_polynomial_degree)
       for (const auto &f : fields)
       {
         const std::string key = "e_" + e + "_" + f;
-        error_table.evaluate_convergence_rates(key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
+        error_table.evaluate_convergence_rates(
+          key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
         error_table.set_precision(key, 4);
         error_table.set_scientific(key, true);
       }
 
     deallog << "Convergence rates:" << std::endl;
-    deallog << "Reconstructed solution and derivatives for solution of degree " << field_polynomial_degree << std::endl;
+    deallog << "Reconstructed solution and derivatives for solution of degree "
+            << field_polynomial_degree << std::endl;
     error_table.write_text(deallog.get_file_stream());
   }
 }

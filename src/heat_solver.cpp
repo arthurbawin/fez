@@ -702,16 +702,11 @@ void HeatSolver<dim>::adapt_mesh()
       *mapping,
       fe.component_mask(FEValuesExtractors::Scalar(0)));
 
-    // Compute the least squares matrices once
-    computing_timer.enter_subsection("Compute least-squares matrices");
-    recovery->compute_least_squares_matrices();
-    computing_timer.leave_subsection();
-
     computing_timer.enter_subsection("Reconstruct fields and derivatives");
     recovery->reconstruct_fields();
     computing_timer.leave_subsection();
 
-    recovery->write_pvtu("recovery");
+    recovery->write_pvtu(*mapping, "recovery");
 
     computing_timer.enter_subsection("Create metric field");
     MetricField<dim> field(0, param, *triangulation);

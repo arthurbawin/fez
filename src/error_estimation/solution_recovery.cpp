@@ -25,15 +25,14 @@ namespace ErrorEstimation
                     const DoFHandler<dim>      &dof_handler,
                     const LA::ParVectorType    &solution,
                     const FiniteElement<dim>   &fe,
-                    const Mapping<dim>         &mapping,
-                    const ComponentMask        &mask)
+                    const Mapping<dim> & /*mapping*/,
+                    const ComponentMask &mask)
       : highest_recovered_derivative(highest_recovered_derivative)
       , param(param)
       , patch_handler(patch_handler)
       , patches(patch_handler.patches)
       , dof_handler(dof_handler)
       , fe(fe)
-      , mapping(mapping)
       , mask(mask)
       , isoparam_dh(dof_handler.get_triangulation())
       , mpi_communicator(patch_handler.mpi_communicator)
@@ -122,6 +121,7 @@ namespace ErrorEstimation
     double Base<dim>::compute_integral_error(
       const RecoveryType          type,
       const VectorTools::NormType norm_type,
+      const Mapping<dim>         &mapping,
       const Function<dim>        &exact_solution,
       const Quadrature<dim>      &cell_quadrature) const
     {
@@ -161,7 +161,7 @@ namespace ErrorEstimation
       dealii::Vector<double> cellwise_errors(tria.n_active_cells());
 
       // Error between recovered solution and exact solution
-      VectorTools::integrate_difference(*isoparam_mapping,
+      VectorTools::integrate_difference(mapping,
                                         isoparam_dh,
                                         isoparam_solution,
                                         exact_solution,
@@ -178,6 +178,7 @@ namespace ErrorEstimation
     double
     Base<dim>::compute_nodal_error(const RecoveryType          type,
                                    const VectorTools::NormType norm_type,
+                                   const Mapping<dim>         &mapping,
                                    const Function<dim> &exact_solution) const
     {
       // Get the component mask for the required field type, and the mask
@@ -225,18 +226,15 @@ namespace ErrorEstimation
       nodal_error.reinit(locally_owned_isoparam_dofs,
                          locally_relevant_isoparam_dofs,
                          mpi_communicator);
-      VectorTools::interpolate(*isoparam_mapping,
-                               isoparam_dh,
-                               exact_solution,
-                               local_nodal_error,
-                               *mask);
+      VectorTools::interpolate(
+        mapping, isoparam_dh, exact_solution, local_nodal_error, *mask);
 
       // Subtract all the reconstructed fields
       local_nodal_error -= local_isoparam_solution;
 
       // Interpolate the zero function everywhere except at the required dofs,
       // to overwrite the dofs that are not of the required RecoveryType
-      VectorTools::interpolate(*isoparam_mapping,
+      VectorTools::interpolate(mapping,
                                isoparam_dh,
                                Functions::ZeroFunction<dim>(
                                  n_isoparam_components),
@@ -579,7 +577,8 @@ namespace ErrorEstimation
     {
       using DofData = typename Patch<dim>::DofData;
 
-      const auto &reference_support_points = this->fe.get_unit_support_points();
+      const auto &reference_support_points =
+        this->fe.get_sub_fe(this->mask).get_unit_support_points();
 
       // Weighting of the polynomials evaluations is done using a scalar
       // isoparametric FE, i.e., the base FE associated with the solution. In
@@ -598,7 +597,7 @@ namespace ErrorEstimation
         if (this->owned_vertices[v])
         {
           auto &patch = this->patches[v];
-          // patch.averaging_weights.resize(patch.neighbours.size(), 0.);
+
           std::vector<unsigned int> n_contributions(patch.neighbours.size(), 0);
 
           // Reset all the weights
@@ -777,11 +776,8 @@ namespace ErrorEstimation
               {
                 // Evaluate the gradient of the polynomial reconstruction at
                 // this dof's support point
-                const Tensor<1, dim> grad =
-                  this->evaluate_polynomial_gradient(pt,
-                                                     *this->monomials_recovery,
-                                                     coeffs,
-                                                     basis_gradients);
+                const Tensor<1, dim> grad = this->evaluate_polynomial_gradient(
+                  pt, *this->monomials_recovery, coeffs, basis_gradients);
 
                 // Add weighted average
                 if (this->locally_owned_dofs.is_element(data.dof))
@@ -944,7 +940,8 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    void Scalar<dim>::write_pvtu(const std::string &filename) const
+    void Scalar<dim>::write_pvtu(const Mapping<dim> &mapping,
+                                 const std::string  &filename) const
     {
       std::vector<std::string> data_names(this->n_isoparam_components);
       std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -976,7 +973,7 @@ namespace ErrorEstimation
                                data_names,
                                DataOut<dim>::type_dof_data,
                                data_interpretation);
-      data_out.build_patches(*this->isoparam_mapping, 2);
+      data_out.build_patches(mapping, 2);
       data_out.write_vtu_with_pvtu_record(
         "./", filename, 0, this->isoparam_dh.get_mpi_communicator(), 2);
     }

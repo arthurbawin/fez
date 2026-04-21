@@ -197,6 +197,19 @@ namespace ErrorEstimation
                   const unsigned int n_layers                         = 1);
 
     /**
+     * Update the position of the support points of all patches, according to
+     * the given @p mapping. The least-squares matrices are recomputed for the
+     * new support points positions.
+     *
+     * Note: Depending on the new mapping, matrices that were previously full
+     * rank may no longer be full rank, which would involve adding more support
+     * points to their patch to recover an invertible matrix. This is *not* done
+     * for now, that is, it is assumed that the new mapping does not lead to
+     * singular matrices, and an error is thrown if it is the case.
+     */
+    void update_patches(const Mapping<dim> &mapping);
+
+    /**
      * Return the patches associated with each (owned) mesh vertex on this
      * partition.
      */

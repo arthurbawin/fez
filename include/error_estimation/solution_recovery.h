@@ -143,6 +143,7 @@ namespace ErrorEstimation
       double
       compute_integral_error(const RecoveryType          type,
                              const VectorTools::NormType norm_type,
+                             const Mapping<dim>         &mapping,
                              const Function<dim>        &exact_solution,
                              const Quadrature<dim>      &cell_quadrature) const;
 
@@ -162,6 +163,7 @@ namespace ErrorEstimation
        */
       double compute_nodal_error(const RecoveryType          type,
                                  const VectorTools::NormType norm_type,
+                                 const Mapping<dim>         &mapping,
                                  const Function<dim> &exact_solution) const;
 
       /**
@@ -200,7 +202,8 @@ namespace ErrorEstimation
       /**
        * Write all the reconstructed fields to a pvtu file for visualization.
        */
-      virtual void write_pvtu(const std::string &filename) const = 0;
+      virtual void write_pvtu(const Mapping<dim> &mapping,
+                              const std::string  &filename) const = 0;
 
       /**
        * Write the least-squares matrices and polynomials associated
@@ -281,7 +284,7 @@ namespace ErrorEstimation
        */
       const DoFHandler<dim>    &dof_handler;
       const FiniteElement<dim> &fe;
-      const Mapping<dim>       &mapping;
+      // const Mapping<dim>       &mapping;
 
       /**
        * Component mask for the field to reconstruct.
@@ -473,7 +476,8 @@ namespace ErrorEstimation
       /**
        * Write all the reconstructed fields to a pvtu file for visualization.
        */
-      virtual void write_pvtu(const std::string &filename) const override;
+      virtual void write_pvtu(const Mapping<dim> &mapping,
+                              const std::string  &filename) const override;
 
     protected:
       /**

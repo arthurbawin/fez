@@ -1,11 +1,14 @@
 #ifndef PATCHES_H
 #define PATCHES_H
 
+#include <deal.II/base/polynomial_space.h>
 #include <deal.II/base/types.h>
 #include <deal.II/distributed/tria_base.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_system.h>
 #include <types.h>
+
+#include <tuple>
 
 namespace ErrorEstimation
 {
@@ -37,19 +40,82 @@ namespace ErrorEstimation
   struct Patch
   {
     using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
-    using DofData = typename std::pair<types::global_dof_index, Point<dim>>;
 
+    /**
+     * The data associated with each dof in a patch
+     */
+    struct DofData
+    {
+      /**
+       * Global (unique) dof index
+       */
+      types::global_dof_index dof;
+
+      /**
+       * Support point of this dof in absolute coordinates
+       */
+      Point<dim> pt;
+
+      /**
+       * Support point of this dof in scaled local coordinates with respect to
+       * the center of the patch : local_pt_i := (pt_i - center_i) / scaling_i.
+       */
+      Point<dim> local_pt;
+
+      /**
+       * MPI rank owning this dof
+       */
+      types::subdomain_id owner;
+
+      /**
+       * Averaging weight used to define the PPR operator.
+       */
+      double averaging_weight;
+
+      template <class Archive>
+      void serialize(Archive &ar, const unsigned int)
+      {
+        ar &dof &pt &local_pt &owner &averaging_weight;
+      }
+    };
+
+    /**
+     * Center of this patch. This point is also an owned mesh vertex.
+     */
     Point<dim> center;
+
+    /**
+     * Scaling of this patch defined as s_i = max_i |x_i - center|.
+     */
     Point<dim> scaling;
 
+    /**
+     * The dof index associated with the vertex center of this patch if this
+     * patch was created for a mask selecting a scalar field.
+     */
+    types::global_dof_index center_scalar_dof = numbers::invalid_unsigned_int;
+
+    /**
+     * The dofs associated with the center of this patch if it was created for
+     * a mask selecting the components of a vector-valued field.
+     */
+    std::array<types::global_dof_index, dim> center_vector_dofs;
+
+    /**
+     * Dofs forming this patch and their associated data.
+     */
     std::vector<DofData> neighbours;
-    std::vector<DofData> neighbours_local_coordinates;
+
+    /**
+     * First layer of mesh cells around the center.
+     */
+    std::vector<CellIterator> first_cell_layer;
 
     // Boost serialization for MPI communications through deal.II wrappers
     template <class Archive>
     void serialize(Archive &ar, const unsigned int)
     {
-      ar &center &scaling &neighbours &neighbours_local_coordinates;
+      ar &center &scaling &neighbours;
     }
 
   private:
@@ -60,7 +126,10 @@ namespace ErrorEstimation
      */
     std::set<CellIterator> elements;
 
-    std::unordered_map<types::global_dof_index, Point<dim>> neighbours_map;
+    /**
+     * Map used during patch creation.
+     */
+    std::unordered_map<types::global_dof_index, DofData> neighbours_map;
 
     friend class PatchHandler<dim>;
   };
@@ -90,6 +159,7 @@ namespace ErrorEstimation
   template <int dim>
   class PatchHandler
   {
+    using DofData      = typename Patch<dim>::DofData;
     using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
 
   public:
@@ -100,13 +170,44 @@ namespace ErrorEstimation
       const parallel::DistributedTriangulationBase<dim> &triangulation,
       const Mapping<dim>                                &mapping,
       const DoFHandler<dim>                             &dof_handler,
+      const LA::ParVectorType                           &solution,
       const unsigned int                                 degree,
-      const ComponentMask                               &mask);
+      const ComponentMask                               &mask = {});
 
     /**
-     * Create the patches.
+     * Create the patches, with enough dofs/support points around each (owned)
+     * mesh vertex to fit a degree "degree" + 1 polynomial in a least-squares
+     * sense.
+     *
+     * If @p enforce_full_rank_least_squares_matrices is true, then also build
+     * the least-squares matrices during patches creation and make sure that
+     * each matrix is full rank. Since this is the default intended use for
+     * these patches, this is true by default.
+     *
+     * If @p enforce_full_rank_least_squares_matrices is false, @p n_layers
+     * specifies the number of layers of cells used to create the patch around
+     * each (owned) mesh vertex, and the dofs from only those cells constitute
+     * the patch. If @p enforce_full_rank_least_squares_matrices is true, this
+     * argument is ignored altogether. This argument is intended for testing
+     * only, to ensure that the first n layers are identical on arbitrary mesh
+     * partitions.
      */
-    void build_patches();
+    void
+    build_patches(const bool enforce_full_rank_least_squares_matrices = true,
+                  const unsigned int n_layers                         = 1);
+
+    /**
+     * Update the position of the support points of all patches, according to
+     * the given @p mapping. The least-squares matrices are recomputed for the
+     * new support points positions.
+     *
+     * Note: Depending on the new mapping, matrices that were previously full
+     * rank may no longer be full rank, which would involve adding more support
+     * points to their patch to recover an invertible matrix. This is *not* done
+     * for now, that is, it is assumed that the new mapping does not lead to
+     * singular matrices, and an error is thrown if it is the case.
+     */
+    void update_patches(const Mapping<dim> &mapping);
 
     /**
      * Return the patches associated with each (owned) mesh vertex on this
@@ -115,10 +216,26 @@ namespace ErrorEstimation
     const std::vector<Patch<dim>> &get_patches() const;
 
     /**
+     * Return true if the least-squares matrices were computed.
+     * In debug, this also checks that these matrices have full rank, if they
+     * were computed.
+     */
+    bool has_least_squares_matrices() const;
+
+    /**
+     * Return the least-squares matrices at the (owned) mesh vertices.
+     */
+    const std::vector<FullMatrix<double>> &get_least_squares_matrices() const;
+
+    /**
      * Gather the patches to the root process and write them to @p out.
      * This function is intended for debug and unit tests.
+     *
+     * If @p write_for_gmsh is true, also write these patches as .pos files
+     * to be visualized as views with Gmsh.
      */
-    void write_support_points_patch(const LA::ParVectorType &solution,
+    void write_support_points_patch(const std::string       &output_dir,
+                                    const LA::ParVectorType &solution,
                                     std::ostream            &out = std::cout,
                                     bool write_for_gmsh          = false) const;
 
@@ -128,8 +245,8 @@ namespace ErrorEstimation
      * the patch of the given mesh vertex.
      */
     void add_element_layer(const unsigned int layer,
-                           const unsigned     n_required_vertices,
-                           bool              &needs_further_expansion);
+                           const bool         enforce_full_rank,
+                           bool              &at_least_one_patch_modified);
 
     /**
      * When adding a layer of elements to a patch, cells touching the already
@@ -144,8 +261,7 @@ namespace ErrorEstimation
     void exchange_ghost_layer_dofs(
       const std::map<types::subdomain_id, std::set<types::global_dof_index>>
         &dofs_to_request,
-      std::map<types::global_dof_index,
-               std::vector<std::pair<types::global_dof_index, Point<dim>>>>
+      std::map<types::global_dof_index, std::vector<DofData>>
         &connected_dofs_to_requested_dofs);
 
     /**
@@ -163,13 +279,21 @@ namespace ErrorEstimation
     const DoFHandler<dim>                             &dof_handler;
     const ComponentMask                                mask;
 
-    MPI_Comm mpi_communicator;
-
-    // The id of this mesh partition (= the MPI rank)
-    const types::subdomain_id subdomain_id;
+    MPI_Comm           mpi_communicator;
+    const unsigned int mpi_rank;
 
     // Number of mesh vertices on this partition
     unsigned int n_vertices;
+
+    /**
+     * Polynomial basis to fit a degree p + 1 polynomial
+     */
+    std::unique_ptr<PolynomialSpace<dim>> monomials_recovery;
+
+    /**
+     * The dimension of the basis of monomials_recovery
+     */
+    unsigned int dim_recovery_basis;
 
     /**
      * Minimal number of vertices to fit a polynomial of order "degree".
@@ -197,13 +321,29 @@ namespace ErrorEstimation
     std::vector<Patch<dim>> patches;
 
     /**
+     * The least squares matrix for each (owned) mesh vertex.
+     */
+    std::vector<FullMatrix<double>> least_squares_matrices;
+
+    /**
+     * Rank of each least squares matrix.
+     */
+    std::vector<unsigned int> least_squares_matrices_rank;
+
+    /**
+     * A flag tracking whether the least-squares matrices associated with each
+     * patch were computed or not.
+     */
+    bool least_squares_matrices_were_computed;
+
+    /**
      * Map to request neighbouring dofs to other ranks.
      * For each neighbouring rank, a set of dof indices for which the neighbours
      * are requested. These dofs may be ghosted on the specified rank, but
      * they'll still know the neighbouring dofs to these dofs.
      */
     std::map<types::subdomain_id, std::set<types::global_dof_index>>
-      dofs_in_ghost_layer;
+      dofs_to_request;
 
     /**
      * For each requested dof in the ghost layer, the owned vertices containing
@@ -217,6 +357,11 @@ namespace ErrorEstimation
     IndexSet locally_owned_dofs;
     IndexSet locally_relevant_dofs;
     IndexSet ghost_dofs;
+
+    /**
+     * A map storing which rank owns which ghost dof on this partition.
+     */
+    std::map<types::global_dof_index, types::subdomain_id> ghost_dof_to_owner;
   };
 } // namespace ErrorEstimation
 
@@ -228,6 +373,29 @@ namespace ErrorEstimation
   const std::vector<Patch<dim>> &PatchHandler<dim>::get_patches() const
   {
     return patches;
+  }
+
+  template <int dim>
+  bool PatchHandler<dim>::has_least_squares_matrices() const
+  {
+    if constexpr (running_in_debug_mode())
+    {
+      // Add some safety checks in debug
+      AssertDimension(least_squares_matrices.size(), n_vertices);
+      AssertDimension(least_squares_matrices_rank.size(), n_vertices);
+      for (unsigned int i = 0; i < n_vertices; ++i)
+        if (owned_vertices[i])
+          Assert(least_squares_matrices_rank[i] >= dim_recovery_basis,
+                 ExcInternalError());
+    }
+    return least_squares_matrices_were_computed;
+  }
+
+  template <int dim>
+  const std::vector<FullMatrix<double>> &
+  PatchHandler<dim>::get_least_squares_matrices() const
+  {
+    return least_squares_matrices;
   }
 } // namespace ErrorEstimation
 

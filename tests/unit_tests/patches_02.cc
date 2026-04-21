@@ -9,13 +9,12 @@
 #include "../tests.h"
 
 #include "error_estimation/patches.h"
-#include "error_estimation/solution_recovery.h"
 #include "mesh.h"
 #include "parameter_reader.h"
 #include "types.h"
 
 /**
- * This tests
+ * Same as patches_01.cc but in 3D.
  */
 
 template <int dim>
@@ -37,7 +36,8 @@ public:
 };
 
 template <int dim>
-void test_fitting(const unsigned int field_polynomial_degree)
+void test_patches(const unsigned int field_polynomial_degree,
+                  const unsigned int n_layers)
 {
   MPI_Comm mpi_communicator(MPI_COMM_WORLD);
 
@@ -53,7 +53,7 @@ void test_fitting(const unsigned int field_polynomial_degree)
 
   auto &mesh_param               = param.mesh;
   mesh_param.deal_ii_preset_mesh = "rectangle";
-  mesh_param.deal_ii_mesh_param  = "8, 8 : 0., 0. : 1., 1. : true";
+  mesh_param.deal_ii_mesh_param  = "8, 8, 8 : 0., 0., 0. : 1., 1., 1. : true";
   mesh_param.refinement_level    = 1;
 
   parallel::fullydistributed::Triangulation<dim> triangulation(
@@ -75,42 +75,47 @@ void test_fitting(const unsigned int field_polynomial_degree)
                            local_solution);
   solution = local_solution;
 
-  // Create the patches of dof support points and print the sorted patches
-  // for each owned mesh vertex
+  // Create and print the patches.
   ErrorEstimation::PatchHandler patch_handler(triangulation,
                                               mapping,
                                               dof_handler,
                                               solution,
-                                              field_polynomial_degree + 1,
+                                              field_polynomial_degree,
                                               fe.component_mask(
                                                 FEValuesExtractors::Scalar(0)));
-  patch_handler.build_patches();
 
-  const unsigned int                        highest_recovered_derivative = 1;
-  ErrorEstimation::SolutionRecovery::Scalar recovery(
-    highest_recovered_derivative,
-    param,
-    patch_handler,
-    dof_handler,
-    solution,
-    fe,
-    mapping);
-  recovery.reconstruct_fields();
+  const bool enforce_full_rank_least_squares_matrices = false;
+  patch_handler.build_patches(enforce_full_rank_least_squares_matrices,
+                              n_layers);
 
-  // Write the least-squares matrices and coefficient vectors
-  // for the solution recovery of degree p + 1
-  recovery.write_least_squares_systems(deallog.get_file_stream());
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+    deallog << "Patches for solution of degree " << field_polynomial_degree
+            << " and " << n_layers << " cell layers" << std::endl;
+  patch_handler.write_support_points_patch(".",
+                                           solution,
+                                           deallog.get_file_stream());
 }
 
 int main(int argc, char *argv[])
 {
   try
   {
-    // Initialize deallog for test output.
-    // This also reroutes deallog output to a file "output".
     initlog();
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-    test_fitting<2>(1);
+
+    // Test for linear solution, for up to 2 layers of mesh cells.
+    // FIXME: There is a difference of patches for 3 layers and 6 MPI
+    // processes...
+    //
+    // The patches are identical for a P2 solution (tested for up to 2 layers),
+    // but the output file with all patches is 12Mb then, which is a bit large,
+    // so only test for linear.
+    const unsigned int max_solution_degree  = 1;
+    const unsigned int max_number_of_layers = 2;
+
+    for (unsigned int d = 1; d <= max_solution_degree; ++d)
+      for (unsigned int l = 1; l <= max_number_of_layers; ++l)
+        test_patches<3>(d, l);
   }
   catch (const std::exception &exc)
   {

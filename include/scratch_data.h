@@ -120,8 +120,6 @@ private:
     const std::shared_ptr<Function<dim>> &source_terms,
     const std::shared_ptr<Function<dim>> & /*exact_solution*/)
   {
-    const unsigned int n_comp_fe = fe_values.get_fe().n_components();
-
     fe_values[velocity].get_function_values(current_solution,
                                             present_velocity_values);
     fe_values[velocity].get_function_gradients(current_solution,
@@ -139,10 +137,6 @@ private:
                                               previous_velocity_values[i]);
 
     // Source terms with layout u-v-(w)-p
-    Assert(source_terms != nullptr, ExcMessage("source_terms is null"));
-
-    const unsigned int n_comp_f = source_terms->n_components;
-
     source_terms->vector_value_list(fe_values.get_quadrature_points(),
                                     source_term_full_moving);
 
@@ -224,7 +218,6 @@ private:
                            const std::shared_ptr<Function<dim>> &source_terms,
                            const std::shared_ptr<Function<dim>> &exact_solution)
   {
-    // Present solutions
     fe_values[temperature].get_function_values(current_solution,
                                                present_temperature_values);
     fe_values[temperature].get_function_gradients(
@@ -234,7 +227,6 @@ private:
     fe_values[pressure].get_function_gradients(current_solution,
                                                present_pressure_gradients);
 
-    // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
     {
       fe_values[pressure].get_function_values(previous_solutions[i],
@@ -244,21 +236,15 @@ private:
     }
 
     // Exact solution at cell quadrature points (layout u-v-(w-)p-T)
-    Assert(exact_solution != nullptr, ExcMessage("exact_solution is null"));
     exact_solution->vector_value_list(fe_values.get_quadrature_points(),
                                       exact_solution_full_cell);
 
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
-      // velocity u_ex
       for (unsigned int d = 0; d < dim; ++d)
         exact_velocity_values_cell[q][d] =
           exact_solution_full_cell[q](u_lower + d);
-
-      // pressure p_ex
-      exact_pressure_values_cell[q] = exact_solution_full_cell[q](p_lower);
-
-      // temperature T_ex
+      exact_pressure_values_cell[q]    = exact_solution_full_cell[q](p_lower);
       exact_temperature_values_cell[q] = exact_solution_full_cell[q](t_lower);
     }
 
@@ -270,11 +256,9 @@ private:
       const double p_star = present_pressure_values[q];
       const double T_star = present_temperature_values[q];
 
-      const double p_tot = pressure_ref + p_star;
-      const double T_tot = temperature_ref + T_star;
-
-      present_pressure_absolute_values[q]    = p_tot;
-      present_temperature_absolute_values[q] = T_tot;
+      // Total pressure p = p_ref + p_star, and similarly for temperature
+      present_pressure_absolute_values[q]    = pressure_ref + p_star;
+      present_temperature_absolute_values[q] = temperature_ref + T_star;
 
       a_p[q] = alpha_r / (alpha_r * p_star + 1.0);
       b_T[q] = beta_r / (beta_r * T_star + 1.0);
@@ -314,39 +298,35 @@ private:
 
     const auto &quad_points = fe_face_values.get_quadrature_points();
 
-    // -----------------------------
-    // Pressure BC data (fluid side)
-    // -----------------------------
-    AssertThrow(param.fluid_bc.count(face_boundary_id[i_face]) > 0,
-                ExcMessage("Trying to get a boundary condition on a face that "
-                           "has no boundary condition defined."));
-    const auto &bc = param.fluid_bc.at(face_boundary_id[i_face]);
+    // Fluid and heat boundary condition on this face
+    // In the compressible solver, both fluid and heat boundary conditions are
+    // expected to be defined on all boundaries.
+    Assert(param.fluid_bc.count(face_boundary_id[i_face]) > 0,
+           ExcInternalError());
+    Assert(param.heat_bc.count(face_boundary_id[i_face]) > 0,
+           ExcInternalError());
+    const auto &fluid_bc = param.fluid_bc.at(face_boundary_id[i_face]);
+    const auto &bc_heat  = param.heat_bc.at(face_boundary_id[i_face]);
 
-    // -----------------------------
-    // Heat BC on this face
-    // -----------------------------
-    AssertThrow(param.heat_bc.count(face_boundary_id[i_face]) > 0,
-                ExcMessage("Trying to get a heat boundary condition on a face "
-                           "that has no heat boundary condition defined."));
-    const auto &bc_heat = param.heat_bc.at(face_boundary_id[i_face]);
+    // Imposed pressure if pressure is weakly enforced
+    if (fluid_bc.type == BoundaryConditions::Type::weak_pressure)
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        face_input_pressure_values[i_face][q] =
+          fluid_bc.p->value(quad_points[q]);
+
+    // Imposed heat flux
+    if (bc_heat.type == BoundaryConditions::Type::heat_flux)
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        face_input_heat_flux_values[i_face][q] =
+          bc_heat.temperature->value(quad_points[q]);
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
       present_face_velocity_divergence[i_face][q] =
         trace(present_face_velocity_gradients[i_face][q]);
 
-      const double T_star = present_face_temperature_values[i_face][q];
-      const double T_tot  = temperature_ref + T_star;
-      present_face_temperature_absolute_values[i_face][q] = T_tot;
-
-      // Pressure data for fluid BC
-      if (bc.type == BoundaryConditions::Type::weak_pressure)
-        face_input_pressure_values[i_face][q] = bc.p->value(quad_points[q]);
-
-      // Heat flux data for thermal Neumann BC
-      if (bc_heat.type == BoundaryConditions::Type::heat_flux)
-        face_input_heat_flux_values[i_face][q] =
-          bc_heat.temperature->value(quad_points[q]);
+      present_face_temperature_absolute_values[i_face][q] =
+        temperature_ref + present_face_temperature_values[i_face][q];
 
       exact_face_temperature_gradients[i_face][q] =
         grad_exact_solution_full[q][t_lower];
@@ -1062,18 +1042,13 @@ public:
    * Compressible NS
    */
   FEValuesExtractors::Scalar temperature;
-  double thermal_conductivity;
-  double gas_constant;
-  double dynamic_viscosity_fluid;
-  double heat_capacity_at_constant_pressure;
-  double density_ref;
-  double pressure_ref;
-  double temperature_ref;
-  double alpha_r;
-  double beta_r;
+  double                     density_ref;
+  double                     pressure_ref;
+  double                     temperature_ref;
+  double                     alpha_r;
+  double                     beta_r;
 
   std::vector<std::vector<double>> face_input_pressure_values;
-
   std::vector<std::vector<double>> face_input_heat_flux_values;
 
   // Variable density, also used by CHNS models
@@ -1092,7 +1067,6 @@ public:
   std::vector<double> present_temperature_absolute_values;
 
   std::vector<std::vector<Tensor<1, dim>>> grad_phi_p;
-
   std::vector<std::vector<double>>         phi_T;
   std::vector<std::vector<Tensor<1, dim>>> grad_phi_T;
 

@@ -31,14 +31,15 @@ namespace BoundaryConditions
   void FluidBC<dim>::declare_parameters(ParameterHandler &prm)
   {
     BoundaryCondition::declare_parameters(prm);
-    prm.declare_entry("type",
-                      "none",
-                      Patterns::Selection(
-                        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
-                        "weak_pressure|dirichlet_pressure|"
-                        "velocity_mms|velocity_flux_mms|pressure_mms|open_mms|"
-                        "no_tangential_flow|no_tangential_flow_with_weak_pressure"),
-                      "Type of fluid boundary condition");
+    prm.declare_entry(
+      "type",
+      "none",
+      Patterns::Selection(
+        "none|input_function|outflow|no_slip|weak_no_slip|slip|"
+        "weak_pressure|dirichlet_pressure|"
+        "velocity_mms|velocity_flux_mms|pressure_mms|open_mms|"
+        "no_tangential_flow|no_tangential_flow_with_weak_pressure"),
+      "Type of fluid boundary condition");
 
     // Imposed functions, if any
     prm.enter_subsection("u");

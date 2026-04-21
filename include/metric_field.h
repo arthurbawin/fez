@@ -74,7 +74,7 @@ public:
   void set_induced_metric_from_graph(
     const ErrorEstimation::SolutionRecovery::Scalar<dim>
       &reconstructed_gradient);
-  
+
   /**
    * Compute integral on mesh of metric determinant.
    */

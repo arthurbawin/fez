@@ -556,7 +556,7 @@ namespace Parameters
     {
       prm.declare_entry("density",
                         "1",
-                        Patterns::Double(0.0),
+                        Patterns::Double(0.),
                         "Fluid density for incompressible solvers and "
                         "reference density for compressible solvers");
       prm.declare_entry("kinematic viscosity",
@@ -579,11 +579,11 @@ namespace Parameters
                         "Fluid heat capacity at constant pressure");
       prm.declare_entry("pressure reference",
                         "1",
-                        Patterns::Double(0.0),
+                        Patterns::Double(0.),
                         "Fluid pressure reference");
       prm.declare_entry("temperature reference",
                         "1",
-                        Patterns::Double(0.0),
+                        Patterns::Double(0.),
                         "Fluid temperature reference");
     }
     prm.leave_subsection();
@@ -604,10 +604,14 @@ namespace Parameters
       pressure_ref    = prm.get_double("pressure reference");
       temperature_ref = prm.get_double("temperature reference");
 
+      AssertThrow(
+        std::abs(density * temperature_ref) > 1e-14,
+        ExcMessage(
+          "The product density * reference temperature is too small."));
+
       gas_constant = pressure_ref / (density * temperature_ref);
 
-      AssertThrow(std::isfinite(gas_constant) && gas_constant > 0.0,
-                  ExcMessage("Derived gas constant is invalid"));
+      AssertThrow(gas_constant > 0, ExcInternalError());
     }
     prm.leave_subsection();
   }

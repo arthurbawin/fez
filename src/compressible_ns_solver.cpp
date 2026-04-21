@@ -115,9 +115,9 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
   const double rho_ref = physical_properties.fluids[0].density;
   const double cp =
     physical_properties.fluids[0].heat_capacity_at_constant_pressure;
-  const double p_ref = physical_properties.fluids[0].pressure_ref;
-  const double T_ref = physical_properties.fluids[0].temperature_ref;
-  const auto body_force = physical_properties.body_force;
+  const double p_ref      = physical_properties.fluids[0].pressure_ref;
+  const double T_ref      = physical_properties.fluids[0].temperature_ref;
+  const auto   body_force = physical_properties.body_force;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
@@ -132,12 +132,12 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
   const double T_ex    = mms.exact_temperature->value(p);
   const double dTdt_ex = mms.exact_temperature->time_derivative(p);
 
-  Tensor<2, dim> grad_u      = mms.exact_velocity->gradient_vi_xj(p);
-  Tensor<1, dim> lap_u       = mms.exact_velocity->vector_laplacian(p);
-  double         div_u       = mms.exact_velocity->divergence(p);
-  Tensor<1, dim> grad_p      = mms.exact_pressure->gradient(p);
-  Tensor<1, dim> grad_T      = mms.exact_temperature->gradient(p);
-  double         lap_T       = mms.exact_temperature->laplacian(p);
+  Tensor<2, dim> grad_u       = mms.exact_velocity->gradient_vi_xj(p);
+  Tensor<1, dim> lap_u        = mms.exact_velocity->vector_laplacian(p);
+  double         div_u        = mms.exact_velocity->divergence(p);
+  Tensor<1, dim> grad_p       = mms.exact_pressure->gradient(p);
+  Tensor<1, dim> grad_T       = mms.exact_temperature->gradient(p);
+  double         lap_T        = mms.exact_temperature->laplacian(p);
   Tensor<1, dim> grad_u_dot_u = grad_u * u;
   double         u_dot_grad_p = u * grad_p;
   double         u_dot_grad_T = u * grad_T;
@@ -153,8 +153,9 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
     double rho = rho_ref * (alpha_r * p_ex + 1.0) / (beta_r * T_ex + 1.0);
 
     // Navier-Stokes momentum (velocity) source term
-    Tensor<1, dim> f = -(rho * (dudt_eulerian + grad_u_dot_u) + grad_p -
-                         mu * (lap_u + 1.0 / 3.0 * grad_div_u) - rho * body_force);
+    Tensor<1, dim> f =
+      -(rho * (dudt_eulerian + grad_u_dot_u) + grad_p -
+        mu * (lap_u + 1.0 / 3.0 * grad_div_u) - rho * body_force);
 
     for (unsigned int d = 0; d < dim; ++d)
       values[u_lower + d] = f[d];
@@ -165,16 +166,16 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
     // -> f = div(u_mms) + alpha_r/(alpha_r p^*_mms + 1)[dp^*_mmsdt + u_mms dot
     // gradp^_mms*] - beta_r/(beta_r T^*_mms + 1)[dT^_mms*dt + u_mms dot
     // gradT^*_mms]
-    values[p_lower] =
-      -(div_u + a_p * (dpdt_ex + u_dot_grad_p) - b_T * (dTdt_ex + u_dot_grad_T));
+    values[p_lower] = -(div_u + a_p * (dpdt_ex + u_dot_grad_p) -
+                        b_T * (dTdt_ex + u_dot_grad_T));
 
     // Energy equation (temperature) source term
-    Tensor<2, dim> D      = symmetrize(grad_u);
+    Tensor<2, dim> D        = symmetrize(grad_u);
     const double   d_ddot_d = scalar_product(D, D);
 
-    double source_energy = rho * cp * (dTdt_ex + u_dot_grad_T) -
-                           (dpdt_ex + u_dot_grad_p) - k * lap_T -
-                           2.0 * mu * d_ddot_d + (2.0 / 3.0) * mu * div_u * div_u;
+    double source_energy =
+      rho * cp * (dTdt_ex + u_dot_grad_T) - (dpdt_ex + u_dot_grad_p) -
+      k * lap_T - 2.0 * mu * d_ddot_d + (2.0 / 3.0) * mu * div_u * div_u;
 
     values[t_lower] = -source_energy;
   }
@@ -309,13 +310,13 @@ void CompressibleNSSolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           *mapping,
+                           *this->quadrature,
+                           *this->face_quadrature,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
   CopyData    copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
@@ -337,7 +338,7 @@ void CompressibleNSSolver<dim>::assemble_matrix()
                   *this,
                   assembly_ptr,
                   &CompressibleNSSolver::copy_local_to_global_matrix,
-                  scratchData,
+                  scratch_data,
                   copyData);
 
   this->system_matrix.compress(VectorOperation::add);
@@ -362,7 +363,7 @@ void CompressibleNSSolver<dim>::assemble_local_matrix_finite_differences(
 template <int dim>
 void CompressibleNSSolver<dim>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData                                          &scratchData,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -370,11 +371,11 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(cell,
-                     this->evaluation_point,
-                     this->previous_solutions,
-                     this->source_terms,
-                     this->exact_solution);
+  scratch_data.reinit(cell,
+                      this->evaluation_point,
+                      this->previous_solutions,
+                      this->source_terms,
+                      this->exact_solution);
 
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
@@ -383,7 +384,8 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   const double k =
     this->param.physical_properties.fluids[0].thermal_conductivity;
   const double rho_ref = this->param.physical_properties.fluids[0].density;
-  const double cp      = this->param.physical_properties.fluids[0].heat_capacity_at_constant_pressure;
+  const double cp      = this->param.physical_properties.fluids[0]
+                      .heat_capacity_at_constant_pressure;
   const double p_ref = this->param.physical_properties.fluids[0].pressure_ref;
   const double T_ref =
     this->param.physical_properties.fluids[0].temperature_ref;
@@ -395,62 +397,64 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
-    const double JxW = scratchData.JxW_moving[q];
+    const double JxW = scratch_data.JxW_moving[q];
 
-    const double rho = scratchData.density[q];
-    const double a_p = scratchData.a_p[q];
-    const double b_T = scratchData.b_T[q];
+    const double rho = scratch_data.density[q];
+    const double a_p = scratch_data.a_p[q];
+    const double b_T = scratch_data.b_T[q];
 
-    const auto &phi_u          = scratchData.phi_u[q];
-    const auto &grad_phi_u     = scratchData.grad_phi_u[q];
-    const auto &sym_grad_phi_u = scratchData.sym_grad_phi_u[q];
-    const auto &div_phi_u      = scratchData.div_phi_u[q];
-    const auto &phi_p          = scratchData.phi_p[q];
-    const auto &grad_phi_p     = scratchData.grad_phi_p[q];
-    const auto &phi_T          = scratchData.phi_T[q];
-    const auto &grad_phi_T     = scratchData.grad_phi_T[q];
+    const auto &phi_u          = scratch_data.phi_u[q];
+    const auto &grad_phi_u     = scratch_data.grad_phi_u[q];
+    const auto &sym_grad_phi_u = scratch_data.sym_grad_phi_u[q];
+    const auto &div_phi_u      = scratch_data.div_phi_u[q];
+    const auto &phi_p          = scratch_data.phi_p[q];
+    const auto &grad_phi_p     = scratch_data.grad_phi_p[q];
+    const auto &phi_T          = scratch_data.phi_T[q];
+    const auto &grad_phi_T     = scratch_data.grad_phi_T[q];
 
     const auto &present_velocity_values =
-      scratchData.present_velocity_values[q];
+      scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
-      scratchData.present_velocity_gradients[q];
+      scratch_data.present_velocity_gradients[q];
     const auto &present_velocity_divergence =
-      scratchData.present_velocity_divergence[q];
+      scratch_data.present_velocity_divergence[q];
     const auto &present_velocity_sym_gradients =
-      scratchData.present_velocity_sym_gradients[q];
+      scratch_data.present_velocity_sym_gradients[q];
     const auto &present_pressure_values =
-      scratchData.present_pressure_values[q];
+      scratch_data.present_pressure_values[q];
     const auto &present_pressure_gradients =
-      scratchData.present_pressure_gradients[q];
+      scratch_data.present_pressure_gradients[q];
     const auto &present_temperature_values =
-      scratchData.present_temperature_values[q];
+      scratch_data.present_temperature_values[q];
     const auto &present_temperature_gradients =
-      scratchData.present_temperature_gradients[q];
+      scratch_data.present_temperature_gradients[q];
 
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratchData.previous_velocity_values);
+        q, present_velocity_values, scratch_data.previous_velocity_values);
 
     const double dpdt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_pressure_values, scratchData.previous_pressure_values);
+        q, present_pressure_values, scratch_data.previous_pressure_values);
 
     const double dTdt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_temperature_values, scratchData.previous_temperature_values);
+        q,
+        present_temperature_values,
+        scratch_data.previous_temperature_values);
 
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      const unsigned int component_i = scratchData.components[i];
+      const unsigned int component_i = scratch_data.components[i];
       const bool         i_is_u      = this->ordering->is_velocity(component_i);
       const bool         i_is_p      = this->ordering->is_pressure(component_i);
       const bool         i_is_T = this->ordering->is_temperature(component_i);
 
-      for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
+      for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
-        const unsigned int component_j = scratchData.components[j];
+        const unsigned int component_j = scratch_data.components[j];
         const bool         j_is_u = this->ordering->is_velocity(component_j);
         const bool         j_is_p = this->ordering->is_pressure(component_j);
         const bool         j_is_T = this->ordering->is_temperature(component_j);
@@ -485,7 +489,9 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
             (present_velocity_gradients * present_velocity_values);
           local_matrix_ij += -phi_p[j] * div_phi_u[i];
 
-          local_matrix_ij += -rho_ref * body_force * phi_u[i] * (alpha_r * phi_p[j]) / (beta_r * present_temperature_values + 1);
+          local_matrix_ij += -rho_ref * body_force * phi_u[i] *
+                             (alpha_r * phi_p[j]) /
+                             (beta_r * present_temperature_values + 1);
         }
 
         if (i_is_u && j_is_T)
@@ -504,7 +510,11 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
               (beta_r * present_temperature_values + 1.0))) *
             phi_T[j] * (present_velocity_gradients * present_velocity_values);
 
-          local_matrix_ij += rho_ref * body_force * phi_u[i] * (beta_r * phi_T[j] * (alpha_r * present_pressure_values + 1)) / ((beta_r * present_temperature_values + 1) * (beta_r * present_temperature_values + 1));
+          local_matrix_ij +=
+            rho_ref * body_force * phi_u[i] *
+            (beta_r * phi_T[j] * (alpha_r * present_pressure_values + 1)) /
+            ((beta_r * present_temperature_values + 1) *
+             (beta_r * present_temperature_values + 1));
         }
 
         if (i_is_p && j_is_u)
@@ -623,7 +633,7 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
       const auto &face = cell->face(i_face);
       if (face->at_boundary())
       {
-        const auto boundary_id = scratchData.face_boundary_id[i_face];
+        const auto boundary_id = scratch_data.face_boundary_id[i_face];
         if (this->param.fluid_bc.at(boundary_id).type ==
             BoundaryConditions::Type::open_mms)
         {
@@ -632,35 +642,30 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
 
         const auto &bc_fluid = this->param.fluid_bc.at(boundary_id);
         if (bc_fluid.type == BoundaryConditions::Type::weak_pressure ||
-            bc_fluid.type == BoundaryConditions::Type::
-                               no_tangential_flow_with_weak_pressure)
+            bc_fluid.type ==
+              BoundaryConditions::Type::no_tangential_flow_with_weak_pressure)
         {
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
-            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-            const auto  &n        = scratchData.face_normals_moving[i_face][q];
+            const double face_JxW = scratch_data.face_JxW_moving[i_face][q];
+            const auto  &n        = scratch_data.face_normals_moving[i_face][q];
 
-            const auto &phi_u_face     = scratchData.phi_u_face[i_face][q];
-            const auto &div_phi_u_face = scratchData.div_phi_u_face[i_face][q];
-            const auto &grad_phi_u_face =
-              scratchData.grad_phi_u_face[i_face][q];
+            const auto &phi_u_face     = scratch_data.phi_u_face[i_face][q];
+            const auto &div_phi_u_face = scratch_data.div_phi_u_face[i_face][q];
             const auto &sym_grad_phi_u_face =
-              scratchData.sym_grad_phi_u_face[i_face][q];
-            const auto &phi_p_face = scratchData.phi_p_face[i_face][q];
+              scratch_data.sym_grad_phi_u_face[i_face][q];
+            const auto &phi_p_face = scratch_data.phi_p_face[i_face][q];
 
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
             {
-              const unsigned int component_i = scratchData.components[i];
+              const unsigned int component_i = scratch_data.components[i];
               const bool i_is_u = this->ordering->is_velocity(component_i);
-              const bool i_is_p = this->ordering->is_pressure(component_i);
-              const bool i_is_T = this->ordering->is_temperature(component_i);
 
-              for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
+              for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
               {
-                const unsigned int component_j = scratchData.components[j];
+                const unsigned int component_j = scratch_data.components[j];
                 const bool j_is_u = this->ordering->is_velocity(component_j);
                 const bool j_is_p = this->ordering->is_pressure(component_j);
-                const bool j_is_T = this->ordering->is_temperature(component_j);
 
                 double local_matrix_ij = 0.0;
                 bool   assemble        = false;
@@ -679,52 +684,6 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
                   assemble = true;
 
                   local_matrix_ij += phi_p_face[j] * (n * phi_u_face[i]);
-                }
-
-                if (assemble)
-                {
-                  local_matrix_ij *= face_JxW;
-                  local_matrix(i, j) += local_matrix_ij;
-                }
-              }
-            }
-          }
-        }
-
-        if (this->param.heat_bc.at(scratchData.face_boundary_id[i_face]).type ==
-            BoundaryConditions::Type::input_function)
-        {
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-          {
-            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-            const auto  &n        = scratchData.face_normals_moving[i_face][q];
-
-            const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
-            const auto &grad_phi_T_face =
-              scratchData.grad_phi_T_face[i_face][q];
-
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-            {
-              const unsigned int component_i = scratchData.components[i];
-              const bool i_is_u = this->ordering->is_velocity(component_i);
-              const bool i_is_p = this->ordering->is_pressure(component_i);
-              const bool i_is_T = this->ordering->is_temperature(component_i);
-
-              for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
-              {
-                const unsigned int component_j = scratchData.components[j];
-                const bool j_is_u = this->ordering->is_velocity(component_j);
-                const bool j_is_p = this->ordering->is_pressure(component_j);
-                const bool j_is_T = this->ordering->is_temperature(component_j);
-
-                double local_matrix_ij = 0.0;
-                bool   assemble        = false;
-
-                if (i_is_T && j_is_T)
-                {
-                  assemble = true;
-                  local_matrix_ij +=
-                    -phi_T_face[i] * k * grad_phi_T_face[j] * n;
                 }
 
                 if (assemble)
@@ -757,13 +716,13 @@ void CompressibleNSSolver<dim>::copy_local_to_global_matrix(
 template <int dim>
 void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           *mapping,
+                           *this->quadrature,
+                           *this->face_quadrature,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
   CopyData    copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
@@ -772,7 +731,7 @@ void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
     *this,
     &CompressibleNSSolver::assemble_local_matrix,
     &CompressibleNSSolver::assemble_local_rhs,
-    scratchData,
+    scratch_data,
     copyData,
     this->present_solution,
     this->evaluation_point,
@@ -799,13 +758,13 @@ void CompressibleNSSolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
+  ScratchData scratch_data(*this->ordering,
+                           *fe,
+                           *mapping,
+                           *this->quadrature,
+                           *this->face_quadrature,
+                           this->time_handler.bdf_coefficients,
+                           this->param);
   CopyData    copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
@@ -814,7 +773,7 @@ void CompressibleNSSolver<dim>::assemble_rhs()
                   *this,
                   &CompressibleNSSolver::assemble_local_rhs,
                   &CompressibleNSSolver::copy_local_to_global_rhs,
-                  scratchData,
+                  scratch_data,
                   copyData);
 
   this->system_rhs.compress(VectorOperation::add);
@@ -823,7 +782,7 @@ void CompressibleNSSolver<dim>::assemble_rhs()
 template <int dim>
 void CompressibleNSSolver<dim>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData                                          &scratchData,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -831,11 +790,11 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(cell,
-                     this->evaluation_point,
-                     this->previous_solutions,
-                     this->source_terms,
-                     this->exact_solution);
+  scratch_data.reinit(cell,
+                      this->evaluation_point,
+                      this->previous_solutions,
+                      this->source_terms,
+                      this->exact_solution);
 
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;
@@ -859,41 +818,43 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   // Volume contributions
   //
   const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
-    const double JxW = scratchData.JxW_moving[q];
+    const double JxW = scratch_data.JxW_moving[q];
 
     const auto &present_velocity_values =
-      scratchData.present_velocity_values[q];
+      scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
-      scratchData.present_velocity_gradients[q];
+      scratch_data.present_velocity_gradients[q];
     const auto &present_pressure_values =
-      scratchData.present_pressure_values[q];
+      scratch_data.present_pressure_values[q];
     const auto &present_pressure_gradients =
-      scratchData.present_pressure_gradients[q];
-    const auto &source_term_velocity = scratchData.source_term_velocity[q];
-    const auto &source_term_pressure = scratchData.source_term_pressure[q];
+      scratch_data.present_pressure_gradients[q];
+    const auto &source_term_velocity = scratch_data.source_term_velocity[q];
+    const auto &source_term_pressure = scratch_data.source_term_pressure[q];
     const auto &source_term_temperature =
-      scratchData.source_term_temperature[q];
+      scratch_data.source_term_temperature[q];
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
-    const auto &D = scratchData.present_velocity_sym_gradients[q];
+    const auto &D = scratch_data.present_velocity_sym_gradients[q];
     const auto &present_temperature_values =
-      scratchData.present_temperature_values[q];
+      scratch_data.present_temperature_values[q];
     const auto &present_temperature_gradients =
-      scratchData.present_temperature_gradients[q];
+      scratch_data.present_temperature_gradients[q];
 
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratchData.previous_velocity_values);
+        q, present_velocity_values, scratch_data.previous_velocity_values);
 
     const double dpdt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_pressure_values, scratchData.previous_pressure_values);
+        q, present_pressure_values, scratch_data.previous_pressure_values);
 
     const double dTdt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_temperature_values, scratchData.previous_temperature_values);
+        q,
+        present_temperature_values,
+        scratch_data.previous_temperature_values);
 
     const double rho = rho_ref * ((alpha_r * present_pressure_values + 1.0) /
                                   (beta_r * present_temperature_values + 1.0));
@@ -901,16 +862,14 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
     const double a_p = alpha_r / (alpha_r * present_pressure_values + 1.0);
     const double b_T = beta_r / (beta_r * present_temperature_values + 1.0);
 
-    const auto &phi_p      = scratchData.phi_p[q];
-    const auto &phi_u      = scratchData.phi_u[q];
-    const auto &phi_T      = scratchData.phi_T[q];
-    const auto &grad_phi_u = scratchData.grad_phi_u[q];
-    const auto &div_phi_u  = scratchData.div_phi_u[q];
-    const auto &grad_phi_T = scratchData.grad_phi_T[q];
+    const auto &phi_p      = scratch_data.phi_p[q];
+    const auto &phi_u      = scratch_data.phi_u[q];
+    const auto &phi_T      = scratch_data.phi_T[q];
+    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
+    const auto &div_phi_u  = scratch_data.div_phi_u[q];
+    const auto &grad_phi_T = scratch_data.grad_phi_T[q];
 
-    const auto &u_exact = scratchData.exact_velocity_values_cell[q];
-
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       double local_rhs_i = -(
         // Continuity
@@ -929,8 +888,8 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
                                       present_velocity_divergence *
                                       identity_tensor,
                        grad_phi_u[i]) +
-        source_term_velocity * phi_u[i]
-        -rho * body_force * phi_u[i]
+        source_term_velocity * phi_u[i] -
+        rho * body_force * phi_u[i]
 
         // Energy
         + rho * cp *
@@ -959,29 +918,29 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
       if (face->at_boundary())
       {
         // Open boundary condition with prescribed manufactured solution
-        if (this->param.fluid_bc.at(scratchData.face_boundary_id[i_face])
+        if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
               .type == BoundaryConditions::Type::pressure_mms)
         {
           // DEAL_II_NOT_IMPLEMENTED();
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
-            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-            const auto  &n        = scratchData.face_normals_moving[i_face][q];
+            const double face_JxW = scratch_data.face_JxW_moving[i_face][q];
+            const auto  &n        = scratch_data.face_normals_moving[i_face][q];
 
             const auto &grad_u_exact =
-              scratchData.exact_face_velocity_gradients[i_face][q];
+              scratch_data.exact_face_velocity_gradients[i_face][q];
             const auto div_u_exact =
-              scratchData.exact_face_velocity_divergences[i_face][q];
+              scratch_data.exact_face_velocity_divergences[i_face][q];
             const double p_exact =
-              scratchData.exact_face_pressure_values[i_face][q];
+              scratch_data.exact_face_pressure_values[i_face][q];
 
             const SymmetricTensor<2, dim> D = symmetrize(grad_u_exact);
             const SymmetricTensor<2, dim> tau =
               2.0 * mu * D - 2.0 / 3.0 * mu * div_u_exact * identity_tensor;
 
-            const auto &phi_u_face = scratchData.phi_u_face[i_face][q];
+            const auto &phi_u_face = scratch_data.phi_u_face[i_face][q];
 
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
             {
               local_rhs(i) -=
                 ((p_exact * identity_tensor - tau) * n * phi_u_face[i]) *
@@ -992,28 +951,28 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
 
         // Open boundary condition with prescribed manufactured solution (not
         // implemented for compressible flow)
-        if (this->param.fluid_bc.at(scratchData.face_boundary_id[i_face])
+        if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
               .type == BoundaryConditions::Type::open_mms)
           DEAL_II_NOT_IMPLEMENTED();
 
         // Pressure condition on a face (traction)
-        const auto  boundary_id = scratchData.face_boundary_id[i_face];
+        const auto  boundary_id = scratch_data.face_boundary_id[i_face];
         const auto &bc_fluid    = this->param.fluid_bc.at(boundary_id);
         if (bc_fluid.type == BoundaryConditions::Type::weak_pressure ||
-            bc_fluid.type == BoundaryConditions::Type::
-                               no_tangential_flow_with_weak_pressure)
+            bc_fluid.type ==
+              BoundaryConditions::Type::no_tangential_flow_with_weak_pressure)
         {
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
-            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-            const auto  &n        = scratchData.face_normals_moving[i_face][q];
+            const double face_JxW = scratch_data.face_JxW_moving[i_face][q];
+            const auto  &n        = scratch_data.face_normals_moving[i_face][q];
 
             const auto &present_face_velocity_gradients =
-              scratchData.present_face_velocity_gradients[i_face][q];
+              scratch_data.present_face_velocity_gradients[i_face][q];
             const auto &present_face_velocity_divergence =
-              scratchData.present_face_velocity_divergence[i_face][q];
+              scratch_data.present_face_velocity_divergence[i_face][q];
             const double &pressure_bc =
-              scratchData.face_input_pressure_values[i_face][q];
+              scratch_data.face_input_pressure_values[i_face][q];
 
             const SymmetricTensor<2, dim> D =
               symmetrize(present_face_velocity_gradients);
@@ -1021,9 +980,9 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
               2.0 * mu * D - 2.0 / 3.0 * mu * present_face_velocity_divergence *
                                identity_tensor;
 
-            const auto &phi_u_face = scratchData.phi_u_face[i_face][q];
+            const auto &phi_u_face = scratch_data.phi_u_face[i_face][q];
 
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
             {
               local_rhs(i) -=
                 ((pressure_bc * identity_tensor - tau) * n * phi_u_face[i]) *
@@ -1032,45 +991,22 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
           }
         }
 
-        // Temperature condition on a face
-        if (this->param.heat_bc.at(scratchData.face_boundary_id[i_face]).type ==
-            BoundaryConditions::Type::input_function)
-        {
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
-          {
-            const double face_JxW = scratchData.face_JxW_moving[i_face][q];
-            const auto  &n        = scratchData.face_normals_moving[i_face][q];
-
-            const auto &present_face_temperature_gradients =
-              scratchData.present_face_temperature_gradients[i_face][q];
-
-            const auto &phi_T_face = scratchData.phi_T_face[i_face][q];
-
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
-            {
-              local_rhs(i) -=
-                (k * (present_face_temperature_gradients * n) * phi_T_face[i]) *
-                face_JxW;
-            }
-          }
-        }
-
-        const auto  boundary_id_heat = scratchData.face_boundary_id[i_face];
+        const auto  boundary_id_heat = scratch_data.face_boundary_id[i_face];
         const auto &bc_heat          = this->param.heat_bc.at(boundary_id_heat);
 
         if (bc_heat.type == BoundaryConditions::Type::heat_flux)
         {
-          for (unsigned int q = 0; q < scratchData.n_faces_q_points; ++q)
+          for (unsigned int q = 0; q < scratch_data.n_faces_q_points; ++q)
           {
-            const double face_JxW   = scratchData.face_JxW_moving[i_face][q];
-            const auto  &phi_T_face = scratchData.phi_T_face[i_face][q];
+            const double face_JxW   = scratch_data.face_JxW_moving[i_face][q];
+            const auto  &phi_T_face = scratch_data.phi_T_face[i_face][q];
 
             const double q_n =
-              scratchData.face_input_heat_flux_values[i_face][q];
+              scratch_data.face_input_heat_flux_values[i_face][q];
 
-            for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
             {
-              const unsigned int component_i = scratchData.components[i];
+              const unsigned int component_i = scratch_data.components[i];
               const bool i_is_T = this->ordering->is_temperature(component_i);
 
               if (i_is_T)

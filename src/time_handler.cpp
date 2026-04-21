@@ -12,6 +12,7 @@ constexpr auto BDF2 = Parameters::TimeIntegration::Scheme::BDF2;
 
 TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   : time_parameters(time_parameters)
+  , steady_scheme(time_parameters.scheme == STAT)
   , current_time(time_parameters.t_initial)
   , current_time_iteration(0)
   , initial_time(time_parameters.t_initial)
@@ -80,7 +81,7 @@ void TimeHandler::validate_parameters(const ComponentOrdering &ordering) const
 
 bool TimeHandler::is_steady() const
 {
-  return scheme == Parameters::TimeIntegration::Scheme::stationary;
+  return steady_scheme;
 }
 
 bool TimeHandler::is_starting_step() const
@@ -546,24 +547,20 @@ void TimeHandler::load()
 void TimeHandler::update_parameters_after_restart(
   const Parameters::TimeIntegration &new_parameters)
 {
-  // 'scheme' was loaded from the checkpoint; save it before overwriting with
-  // the new simulation's scheme.
-  const auto checkpoint_scheme = scheme;
-  scheme                       = new_parameters.scheme;
+  // 'steady_scheme' was loaded from the checkpoint
+  // Save it before overwriting with the new simulation's scheme.
+  const bool is_checkpoint_steady = steady_scheme;
+  steady_scheme                   = new_parameters.scheme == STAT;
 
-  if (scheme == STAT)
+  // Nothing to update if current solver is steady-state
+  if (steady_scheme)
     return;
 
   // Detect a restart from a stationary checkpoint into an unsteady simulation.
-  const bool restarting_from_steady = (checkpoint_scheme == STAT);
-
-  if (restarting_from_steady)
+  if (is_checkpoint_steady)
   {
-    // Overwrite the serialized fields that were loaded from the stationary
-    // checkpoint with values appropriate for a fresh unsteady run.
-    // Non-serialized fields (initial_dt, all_simulation_times, rolledback_step,
-    // etc.) are left untouched: they were already set correctly by the
-    // constructor when this object was built with the new parameters.
+    // Overwrite the serialized parameters that were loaded from the stationary
+    // checkpoint with their new values.
     initial_time           = new_parameters.t_initial;
     final_time             = new_parameters.t_end;
     current_time           = initial_time;
@@ -580,14 +577,13 @@ void TimeHandler::update_parameters_after_restart(
 
     simulation_times.assign(n_previous_solutions + 1, initial_time);
     time_steps.assign(n_previous_solutions + 1, initial_dt);
-    bdf_coefficients.assign(n_previous_solutions + 1, 0.);
 
     set_bdf_coefficients();
     return;
   }
 
   // For now, both the interrupted and restarted simulation should agree
-  // on whether adaptive time steppin is used.
+  // on whether adaptive time stepping is used.
   AssertThrow(
     with_adaptive_timestep == new_parameters.adaptation.enable,
     ExcMessage(

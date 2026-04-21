@@ -95,7 +95,6 @@ void test_fitting(const unsigned int field_polynomial_degree)
     solution,
     fe,
     mapping);
-  recovery.compute_least_squares_matrices();
   recovery.reconstruct_fields();
 
   // Write the least-squares matrices and coefficient vectors

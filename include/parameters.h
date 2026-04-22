@@ -257,7 +257,7 @@ namespace Parameters
     unsigned int tracer_degree;
     unsigned int potential_degree;
 
-    // Degree of the temperature for the heat equation
+    // Degree of the temperature for the heat equation and energy equation
     unsigned int temperature_degree;
 
     struct QuadratureRule
@@ -281,9 +281,32 @@ namespace Parameters
 
   struct Fluid
   {
+    // If using the incompressible Navier-Stokes solver, this is the constant
+    // fluid density. If using the compressible Navier-Stokes solver, this is
+    // the reference density.
     double density;
+
+    // Kinematic viscosity
     double kinematic_viscosity;
+
+    // Dynamic viscosity
     double dynamic_viscosity;
+
+    // Thermal conductivity
+    double thermal_conductivity;
+
+    // Heat capacity at constant pressure c_p
+    double heat_capacity_at_constant_pressure;
+
+    // Gas constant for this specific gas (R^*, and not R)
+    double gas_constant;
+
+    // Reference pressure and temperature represent the conditions around which
+    // the equations are linearized in the compressible solver, and are used to
+    // compute the alpha_r and beta_r coefficients. p = p_ref + p^*   and   T =
+    // T_ref + T^*
+    double pressure_ref;
+    double temperature_ref;
 
     void declare_parameters(ParameterHandler &prm, unsigned int index);
     void read_parameters(ParameterHandler &prm, unsigned int index);
@@ -319,6 +342,15 @@ namespace Parameters
     const unsigned int            max_pseudosolids = 1;
     unsigned int                  n_pseudosolids;
     std::vector<PseudoSolid<dim>> pseudosolids;
+
+    /**
+     * Body force vector (e.g., gravitational acceleration). In solvers where
+     * the momentum equation is divided by density (incompressible single-fluid
+     * NS), this is used directly as a kinematic acceleration. In solvers with
+     * variable density (CHNS, compressible NS), it is multiplied by the local
+     * density to obtain the volumetric force term.
+     */
+    Tensor<1, dim> body_force;
 
   public:
     void set_time(const double newtime)
@@ -476,13 +508,6 @@ namespace Parameters
     // FIXME: use more explicit names, when the formulation has been decided
     double alpha;
     double beta;
-
-    /**
-     * We differentiate between the body force which is multiplied by the
-     * mixture density (typically gravity), and the generic source term (e.g.,
-     * for manufactured solutions) which is not.
-     */
-    Tensor<1, dim> body_force;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

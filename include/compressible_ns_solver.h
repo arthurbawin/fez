@@ -10,7 +10,25 @@ using namespace dealii;
 
 /**
  * Compressible Navier-Stokes solver.
- * TODO : Add equations and model.
+ * Solves the nonstabilized compressible Navier-Stokes equations:
+ *
+ * div(u) + alpha_r/(alpha_r p^* +1) (dp^*dt + u dot grad(p^*)) - beta_r/beta_r
+ * T^* + 1 (dT^*dt + u dot grad(T^*)) = 0
+ *
+ * rho (dudt + u dot grad(u)) + grad(p^*) - div(mu(grad(u) + grad(u)^T) - 2/3 mu
+ * I grad(u)) - f = 0
+ *
+ * rho c_p (dT^*dt + u dot grad(T^*)) - dp^*dt - u dot grad(p^*) + grad(k
+ * grad(T^*)) - 2 mu d:d + 2/3 mu (grad(u))^2 - r_s =0
+ *
+ * State equation for perfect gas:
+ *                  rho = 1/R p_r/T_R (alpha_r p^* + 1)/(beta_r T^* + 1)
+ *
+ *      where beta_r = 1/T_r  and   alpha_r = 1/p_r
+ *             p = p_ref + p^*   and   T = T_ref + T^*
+ *
+ *
+ *
  */
 template <int dim>
 class CompressibleNSSolver : public NavierStokesSolver<dim>
@@ -27,6 +45,9 @@ public:
    * Destructor
    */
   virtual ~CompressibleNSSolver() {}
+
+  virtual void create_solver_specific_zero_constraints() override;
+  virtual void create_solver_specific_nonzero_constraints() override;
 
   /**
    * Apply initial condition on the temperature and pressure
@@ -89,6 +110,11 @@ public:
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
+  /**
+   *
+   */
+  virtual void compute_solver_specific_errors() override;
+
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override
@@ -111,6 +137,41 @@ protected:
   FEValuesExtractors::Scalar temperature_extractor;
   ComponentMask              temperature_mask;
 
+protected:
+  /**
+   * Source term.
+   */
+  class SourceTerm : public Function<dim>
+  {
+  public:
+    SourceTerm(const double                        time,
+               const ComponentOrdering            &ordering,
+               const Parameters::SourceTerms<dim> &source_terms)
+      : Function<dim>(ordering.n_components, time)
+      , ordering(ordering)
+      , source_terms(source_terms)
+    {}
+
+    virtual void set_time(const double new_time) override
+    {
+      source_terms.set_time(new_time);
+    }
+
+    virtual void vector_value(const Point<dim> &p,
+                              Vector<double>   &values) const override
+    {
+      // source_terms.fluid_source is a function with dim+1 components
+      for (unsigned int d = 0; d < dim; ++d)
+        values[ordering.u_lower + d] = source_terms.fluid_source->value(p, d);
+      values[ordering.p_lower] = source_terms.fluid_source->value(p, dim);
+      values[ordering.t_lower] = source_terms.temperature_source->value(p);
+    }
+
+  protected:
+    const ComponentOrdering     &ordering;
+    Parameters::SourceTerms<dim> source_terms;
+  };
+
   /**
    * Exact solution when performing a convergence study with a manufactured
    * solution.
@@ -125,6 +186,7 @@ protected:
       , n_components(ordering.n_components)
       , u_lower(ordering.u_lower)
       , p_lower(ordering.p_lower)
+      , t_lower(ordering.t_lower)
       , mms(mms)
     {}
 
@@ -138,11 +200,11 @@ protected:
                          const unsigned int component = 0) const override
     {
       Assert(component < n_components, ExcMessage("Component mismatch"));
-      if (component < dim)
-        return mms.exact_velocity->value(p, component);
-      else if (component == dim)
+      if (component >= u_lower && component < u_lower + dim)
+        return mms.exact_velocity->value(p, component - u_lower);
+      else if (component == p_lower)
         return mms.exact_pressure->value(p);
-      else if (component == dim + 1)
+      else if (component == t_lower)
         return mms.exact_temperature->value(p);
       else
         DEAL_II_ASSERT_UNREACHABLE();
@@ -155,7 +217,7 @@ protected:
       for (unsigned int d = 0; d < dim; ++d)
         values[u_lower + d] = mms.exact_velocity->value(p, d);
       values[p_lower] = mms.exact_pressure->value(p);
-      // FIXME: A completer pour T
+      values[t_lower] = mms.exact_temperature->value(p);
     }
 
     virtual Tensor<1, dim>
@@ -163,17 +225,21 @@ protected:
              const unsigned int component = 0) const override
     {
       Assert(component < n_components, ExcMessage("Component mismatch"));
-      if (component < dim)
-        return mms.exact_velocity->gradient(p, component);
-      else
+      if (component >= u_lower && component < u_lower + dim)
+        return mms.exact_velocity->gradient(p, component - u_lower);
+      else if (component == p_lower)
         return mms.exact_pressure->gradient(p);
-      // FIXME: A completer pour T
+      else if (component == t_lower)
+        return mms.exact_temperature->gradient(p);
+      else
+        DEAL_II_ASSERT_UNREACHABLE();
     }
 
   protected:
     const unsigned int n_components;
     const unsigned int u_lower;
     const unsigned int p_lower;
+    const unsigned int t_lower;
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
@@ -195,6 +261,7 @@ protected:
       , n_components(ordering.n_components)
       , u_lower(ordering.u_lower)
       , p_lower(ordering.p_lower)
+      , t_lower(ordering.t_lower)
       , physical_properties(physical_properties)
       , mms(mms)
     {}
@@ -216,6 +283,7 @@ protected:
     const unsigned int                         n_components;
     const unsigned int                         u_lower;
     const unsigned int                         p_lower;
+    const unsigned int                         t_lower;
     const Parameters::PhysicalProperties<dim> &physical_properties;
     // MMS cannot be const since its internal time must be updated
     ManufacturedSolutions::ManufacturedSolution<dim> mms;

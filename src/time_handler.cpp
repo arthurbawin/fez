@@ -12,6 +12,7 @@ constexpr auto BDF2 = Parameters::TimeIntegration::Scheme::BDF2;
 
 TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   : time_parameters(time_parameters)
+  , steady_scheme(time_parameters.scheme == STAT)
   , current_time(time_parameters.t_initial)
   , current_time_iteration(0)
   , initial_time(time_parameters.t_initial)
@@ -80,7 +81,7 @@ void TimeHandler::validate_parameters(const ComponentOrdering &ordering) const
 
 bool TimeHandler::is_steady() const
 {
-  return scheme == Parameters::TimeIntegration::Scheme::stationary;
+  return steady_scheme;
 }
 
 bool TimeHandler::is_starting_step() const
@@ -546,11 +547,43 @@ void TimeHandler::load()
 void TimeHandler::update_parameters_after_restart(
   const Parameters::TimeIntegration &new_parameters)
 {
-  if (scheme == STAT)
+  // 'steady_scheme' was loaded from the checkpoint
+  // Save it before overwriting with the new simulation's scheme.
+  const bool is_checkpoint_steady = steady_scheme;
+  steady_scheme                   = new_parameters.scheme == STAT;
+
+  // Nothing to update if current solver is steady-state
+  if (steady_scheme)
     return;
 
+  // Detect a restart from a stationary checkpoint into an unsteady simulation.
+  if (is_checkpoint_steady)
+  {
+    // Overwrite the serialized parameters that were loaded from the stationary
+    // checkpoint with their new values.
+    initial_time           = new_parameters.t_initial;
+    final_time             = new_parameters.t_end;
+    current_time           = initial_time;
+    current_time_iteration = 0;
+    current_dt             = initial_dt;
+    with_adaptive_timestep = new_parameters.adaptation.enable;
+
+    // Set the initial time step if using BDF1 as BDF2 starting method
+    if (scheme == BDF2 &&
+        new_parameters.bdfstart == Parameters::TimeIntegration::BDFStart::BDF1)
+    {
+      current_dt = initial_dt * new_parameters.bdf_starting_step_ratio;
+    }
+
+    simulation_times.assign(n_previous_solutions + 1, initial_time);
+    time_steps.assign(n_previous_solutions + 1, initial_dt);
+
+    set_bdf_coefficients();
+    return;
+  }
+
   // For now, both the interrupted and restarted simulation should agree
-  // on whether adaptive time steppin is used.
+  // on whether adaptive time stepping is used.
   AssertThrow(
     with_adaptive_timestep == new_parameters.adaptation.enable,
     ExcMessage(

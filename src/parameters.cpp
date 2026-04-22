@@ -3,6 +3,8 @@
 #include <solver_info.h>
 #include <utilities.h>
 
+#include <cmath>
+
 namespace Parameters
 {
   /**
@@ -552,11 +554,37 @@ namespace Parameters
   {
     prm.enter_subsection("Fluid " + std::to_string(index));
     {
-      prm.declare_entry("density", "1", Patterns::Double(), "Fluid density");
+      prm.declare_entry("density",
+                        "1",
+                        Patterns::Double(0.),
+                        "Fluid density for incompressible solvers and "
+                        "reference density for compressible solvers");
       prm.declare_entry("kinematic viscosity",
                         "1",
                         Patterns::Double(),
                         "Fluid kinematic viscosity");
+      prm.declare_entry(
+        "dynamic viscosity",
+        "-1",
+        Patterns::Double(),
+        "Fluid dynamic viscosity. If set to a negative value (default), it "
+        "is computed automatically as density * kinematic viscosity.");
+      prm.declare_entry("thermal conductivity",
+                        "1",
+                        Patterns::Double(),
+                        "Fluid thermal conductivity");
+      prm.declare_entry("heat capacity at constant pressure",
+                        "1",
+                        Patterns::Double(),
+                        "Fluid heat capacity at constant pressure");
+      prm.declare_entry("pressure reference",
+                        "1",
+                        Patterns::Double(0.),
+                        "Fluid pressure reference");
+      prm.declare_entry("temperature reference",
+                        "1",
+                        Patterns::Double(0.),
+                        "Fluid temperature reference");
     }
     prm.leave_subsection();
   }
@@ -567,7 +595,23 @@ namespace Parameters
     {
       density             = prm.get_double("density");
       kinematic_viscosity = prm.get_double("kinematic viscosity");
-      dynamic_viscosity   = density * kinematic_viscosity;
+      dynamic_viscosity   = prm.get_double("dynamic viscosity");
+      if (dynamic_viscosity < 0.)
+        dynamic_viscosity = density * kinematic_viscosity;
+      thermal_conductivity = prm.get_double("thermal conductivity");
+      heat_capacity_at_constant_pressure =
+        prm.get_double("heat capacity at constant pressure");
+      pressure_ref    = prm.get_double("pressure reference");
+      temperature_ref = prm.get_double("temperature reference");
+
+      AssertThrow(
+        std::abs(density * temperature_ref) > 1e-14,
+        ExcMessage(
+          "The product density * reference temperature is too small."));
+
+      gas_constant = pressure_ref / (density * temperature_ref);
+
+      AssertThrow(gas_constant > 0, ExcInternalError());
     }
     prm.leave_subsection();
   }
@@ -615,6 +659,7 @@ namespace Parameters
   template <int dim>
   void PhysicalProperties<dim>::declare_parameters(ParameterHandler &prm)
   {
+    const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
     prm.enter_subsection("Physical properties");
     {
       // Declare the fluid subsections
@@ -637,6 +682,11 @@ namespace Parameters
       pseudosolids.resize(max_pseudosolids);
       for (unsigned int i = 0; i < max_pseudosolids; ++i)
         pseudosolids[i].declare_parameters(prm, i);
+
+      prm.declare_entry("body force",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Body force vector (e.g., gravity acceleration)");
     }
     prm.leave_subsection();
   }
@@ -662,6 +712,8 @@ namespace Parameters
 
       for (unsigned int i = 0; i < n_pseudosolids; ++i)
         pseudosolids[i].read_parameters(prm, i);
+
+      body_force = parse_rank_1_tensor<dim>(prm.get("body force"));
     }
     prm.leave_subsection();
   }
@@ -987,7 +1039,6 @@ namespace Parameters
   template <int dim>
   void CahnHilliard<dim>::declare_parameters(ParameterHandler &prm)
   {
-    const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
     prm.enter_subsection("Cahn Hilliard");
     {
       prm.declare_entry("mobility model",
@@ -1006,10 +1057,6 @@ namespace Parameters
                         "1e-2",
                         Patterns::Double(),
                         "Interface thickness (epsilon)");
-      prm.declare_entry("body force",
-                        default_point,
-                        Patterns::List(Patterns::Double(), dim, dim, ","),
-                        "Body force vector (e.g., gravity acceleration)");
       prm.declare_entry("enable tracer limiter",
                         "false",
                         Patterns::Bool(),
@@ -1040,7 +1087,6 @@ namespace Parameters
       mobility            = prm.get_double("mobility");
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
-      body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
       alpha = prm.get_double("alpha");

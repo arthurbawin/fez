@@ -224,6 +224,8 @@ private:
 public:
   Parameters::TimeIntegration time_parameters;
 
+  bool steady_scheme;
+
   double              current_time;
   unsigned int        current_time_iteration;
   double              initial_time;
@@ -308,6 +310,7 @@ void TimeHandler::serialize(Archive &ar, const unsigned int /*version*/)
   ar &time_steps;
   ar &bdf_coefficients;
   ar &with_adaptive_timestep;
+  ar &steady_scheme;
 }
 
 #endif

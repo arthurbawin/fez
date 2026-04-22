@@ -504,8 +504,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     n_faces, std::vector<SymmetricTensor<2, dim>>(n_faces_q_points));
   present_face_velocity_divergence.resize(
     n_faces, std::vector<double>(n_faces_q_points));
-  present_face_pressure_values.resize(
-    n_faces, std::vector<double>(n_faces_q_points));
+  present_face_pressure_values.resize(n_faces,
+                                      std::vector<double>(n_faces_q_points));
 
 #if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
   face_velocity_source_term.resize(

@@ -65,16 +65,6 @@ public:
   virtual void create_sparsity_pattern() override;
 
   /**
-   * 
-   */
-  virtual void compute_solver_specific_errors() override;
-
-  /**
-   * Get the FESystem of the derived solver
-   */
-  virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
-
-  /**
    * Assemble the linearized Jacobian matrix at the current evaluation point
    */
   virtual void assemble_matrix() override;

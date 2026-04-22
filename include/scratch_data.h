@@ -922,9 +922,9 @@ public:
   }
 
 private:
-  const ParameterReader<dim>&param;
-  const bool              use_quads;
-  const ComponentOrdering ordering;
+  const ParameterReader<dim> &param;
+  const bool                  use_quads;
+  const ComponentOrdering     ordering;
 
   unsigned int n_components;
   unsigned int u_lower;

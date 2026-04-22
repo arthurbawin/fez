@@ -79,7 +79,8 @@ namespace BoundaryConditions
       prm.enter_subsection("angular velocity");
       angular_velocity->declare_parameters(prm, (dim == 2) ? 1 : dim);
       prm.leave_subsection();
-    }    
+    }
+    prm.leave_subsection();
   }
 
   template <int dim>
@@ -138,7 +139,7 @@ namespace BoundaryConditions
     prm.enter_subsection("p");
     p->parse_parameters(prm);
     prm.leave_subsection();
-    
+
     weak_no_slip_tolerance = prm.get_double("weak no slip tolerance");
 
     prm.enter_subsection("rigid body rotation");

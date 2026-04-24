@@ -103,15 +103,6 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(
     this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
       this->ordering->n_components);
   }
-
-  scratch_data =
-    std::make_unique<ScratchData>(*this->ordering,
-                                  *fe,
-                                  *mapping,
-                                  *this->quadrature,
-                                  *this->face_quadrature,
-                                  this->time_handler.bdf_coefficients,
-                                  this->param);
 }
 
 template <int dim>
@@ -190,6 +181,17 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
   }
 }
 
+template <int dim>
+void CompressibleNSSolver<dim>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               *mapping,
+                                               *this->quadrature,
+                                               *this->face_quadrature,
+                                               this->time_handler,
+                                               this->param);
+}
 
 template <int dim>
 void CompressibleNSSolver<dim>::create_solver_specific_zero_constraints()

@@ -117,16 +117,6 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
       std::make_shared<CHNSSolver<dim, with_moving_mesh>::SourceTerm>(
         this->time_handler.current_time, *this->ordering, param.source_terms);
   }
-
-  scratch_data =
-    std::make_unique<ScratchData>(*this->ordering,
-                                  *fe,
-                                  *this->fixed_mapping,
-                                  *this->moving_mapping,
-                                  *this->quadrature,
-                                  *this->face_quadrature,
-                                  this->time_handler.bdf_coefficients,
-                                  this->param);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -208,6 +198,19 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
   const double lap_phi = mms.exact_tracer->laplacian(p);
   values[mu_lower]     = -(mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) +
                        sigma_tilde_times_eps * lap_phi);
+}
+
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               *this->fixed_mapping,
+                                               *this->moving_mapping,
+                                               *this->quadrature,
+                                               *this->face_quadrature,
+                                               this->time_handler,
+                                               this->param);
 }
 
 template <int dim, bool with_moving_mesh>

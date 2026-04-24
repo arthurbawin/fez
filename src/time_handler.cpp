@@ -198,6 +198,11 @@ void TimeHandler::rotate_solutions(
   }
 }
 
+const std::vector<double> &TimeHandler::get_bdf_coefficients() const
+{
+  return bdf_coefficients;
+}
+
 void TimeHandler::attach_data_to_error_estimator(
   const ComponentOrdering          &ordering,
   const IndexSet                   &locally_relevant_dofs,

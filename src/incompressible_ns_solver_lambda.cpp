@@ -168,20 +168,23 @@ NSSolverLambda<dim>::NSSolverLambda(const ParameterReader<dim> &param)
     this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
       this->ordering->n_components);
   }
-
-  scratch_data =
-    std::make_unique<ScratchData>(*this->ordering,
-                                  *fe,
-                                  mapping_collection,
-                                  quadrature_collection,
-                                  face_quadrature_collection,
-                                  this->time_handler.bdf_coefficients,
-                                  this->param);
 }
 
 template <int dim>
 NSSolverLambda<dim>::~NSSolverLambda()
 {}
+
+template <int dim>
+void NSSolverLambda<dim>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               mapping_collection,
+                                               quadrature_collection,
+                                               face_quadrature_collection,
+                                               this->time_handler,
+                                               this->param);
+}
 
 template <int dim>
 void NSSolverLambda<dim>::MMSSourceTerm::vector_value(

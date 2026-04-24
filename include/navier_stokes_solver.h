@@ -110,6 +110,11 @@ public:
   virtual void setup_mappings();
 
   /**
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() = 0;
+
+  /**
    * For solvers with hp capabilities, set the active fe index on each owned
    * mesh element.
    *

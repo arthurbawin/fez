@@ -65,7 +65,7 @@ public:
               const Mapping<dim>         &moving_mapping,
               const Quadrature<dim>      &cell_quadrature,
               const Quadrature<dim - 1>  &face_quadrature,
-              const std::vector<double>  &bdf_coefficients,
+              const TimeHandler          &time_handler,
               const ParameterReader<dim> &param);
 
   /**
@@ -81,7 +81,7 @@ public:
               const hp::MappingCollection<dim> &moving_mapping_collection,
               const hp::QCollection<dim>       &cell_quadrature_collection,
               const hp::QCollection<dim - 1>   &face_quadrature_collection,
-              const std::vector<double>        &bdf_coefficients,
+              const TimeHandler                &time_handler,
               const ParameterReader<dim>       &param);
 
   /**
@@ -364,6 +364,8 @@ private:
     }
 
     // Current mesh velocity from displacement
+    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
+
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       present_mesh_velocity_values[q] =
@@ -437,6 +439,8 @@ private:
       fe_face_values_fixed[position].get_function_values(
         previous_solutions[i], previous_face_position_values[i_face][i]);
     }
+
+    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
@@ -969,7 +973,7 @@ public:
   unsigned int n_faces_q_points;
   unsigned int dofs_per_cell;
 
-  const std::vector<double> bdf_coefficients;
+  const TimeHandler &time_handler;
 
   std::vector<unsigned int>                components;
   std::vector<double>                      JxW_moving;
@@ -1206,7 +1210,7 @@ public:
                               const Mapping<dim>         &mapping,
                               const Quadrature<dim>      &cell_quadrature,
                               const Quadrature<dim - 1>  &face_quadrature,
-                              const std::vector<double>  &bdf_coefficients,
+                              const TimeHandler          &time_handler,
                               const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ false,
@@ -1218,7 +1222,7 @@ public:
                        mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 
@@ -1245,7 +1249,7 @@ public:
                             const Mapping<dim>         &mapping,
                             const Quadrature<dim>      &cell_quadrature,
                             const Quadrature<dim - 1>  &face_quadrature,
-                            const std::vector<double>  &bdf_coefficients,
+                            const TimeHandler          &time_handler,
                             const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ false,
@@ -1257,7 +1261,7 @@ public:
                        mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 
@@ -1285,7 +1289,7 @@ public:
     const hp::MappingCollection<dim> &mapping_collection,
     const hp::QCollection<dim>       &cell_quadrature_collection,
     const hp::QCollection<dim - 1>   &face_quadrature_collection,
-    const std::vector<double>        &bdf_coefficients,
+    const TimeHandler                &time_handler,
     const ParameterReader<dim>       &param)
     : ScratchData<dim, true>(ordering,
                              /*enable_pseudo_solid = */ false,
@@ -1297,7 +1301,7 @@ public:
                              mapping_collection,
                              cell_quadrature_collection,
                              face_quadrature_collection,
-                             bdf_coefficients,
+                             time_handler,
                              param)
   {}
 
@@ -1326,7 +1330,7 @@ public:
                  const Mapping<dim>         &moving_mapping,
                  const Quadrature<dim>      &cell_quadrature,
                  const Quadrature<dim - 1>  &face_quadrature,
-                 const std::vector<double>  &bdf_coefficients,
+                 const TimeHandler          &time_handler,
                  const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ true,
@@ -1338,7 +1342,7 @@ public:
                        moving_mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 
@@ -1366,7 +1370,7 @@ public:
                     const hp::MappingCollection<dim> &moving_mapping_collection,
                     const hp::QCollection<dim>     &cell_quadrature_collection,
                     const hp::QCollection<dim - 1> &face_quadrature_collection,
-                    const std::vector<double>      &bdf_coefficients,
+                    const TimeHandler              &time_handler,
                     const ParameterReader<dim>     &param)
     : ScratchData<dim, true>(ordering,
                              /*enable_pseudo_solid = */ true,
@@ -1378,7 +1382,7 @@ public:
                              moving_mapping_collection,
                              cell_quadrature_collection,
                              face_quadrature_collection,
-                             bdf_coefficients,
+                             time_handler,
                              param)
   {}
 
@@ -1407,7 +1411,7 @@ public:
                   const Mapping<dim>         &moving_mapping,
                   const Quadrature<dim>      &cell_quadrature,
                   const Quadrature<dim - 1>  &face_quadrature,
-                  const std::vector<double>  &bdf_coefficients,
+                  const TimeHandler          &time_handler,
                   const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ with_moving_mesh,
@@ -1419,7 +1423,7 @@ public:
                        moving_mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 

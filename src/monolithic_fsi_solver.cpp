@@ -149,21 +149,24 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
     this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
       this->ordering->n_components);
   }
-
-  scratch_data =
-    std::make_unique<ScratchData>(*this->ordering,
-                                  *fe,
-                                  *this->fixed_mapping,
-                                  *this->moving_mapping,
-                                  *this->quadrature,
-                                  *this->face_quadrature,
-                                  this->time_handler.bdf_coefficients,
-                                  this->param);
 }
 
 template <int dim>
 FSISolver<dim>::~FSISolver()
 {}
+
+template <int dim>
+void FSISolver<dim>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               *this->fixed_mapping,
+                                               *this->moving_mapping,
+                                               *this->quadrature,
+                                               *this->face_quadrature,
+                                               this->time_handler,
+                                               this->param);
+}
 
 template <int dim>
 void FSISolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,

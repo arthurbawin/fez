@@ -70,13 +70,6 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   // Create direct solver
   direct_solver_reuse =
     std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
-
-  scratch_data = std::make_unique<ScratchData>(fe,
-                                               *mapping,
-                                               quadrature,
-                                               face_quadrature,
-                                               time_handler.bdf_coefficients,
-                                               param);
 }
 
 template <int dim>
@@ -143,6 +136,7 @@ void HeatSolver<dim>::run()
   initialize();
   MeshTools::read_mesh(*triangulation, param);
   setup_dofs();
+  create_scratch_data();
   create_zero_constraints();
   create_nonzero_constraints();
   create_sparsity_pattern();
@@ -241,6 +235,13 @@ void HeatSolver<dim>::setup_dofs()
       handler.add_reference_data("n_dof", dof_handler.n_dofs());
       handler.add_time_step(time_handler.initial_dt);
     }
+}
+
+template <int dim>
+void HeatSolver<dim>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(
+    fe, *mapping, quadrature, face_quadrature, time_handler, param);
 }
 
 template <int dim>

@@ -177,10 +177,10 @@ void test_restart()
     problem.run();
     problem.compute_errors();
 
-    std::shared_ptr<ErrorHandler> eh =
+    const ErrorHandler &eh =
       problem.get_error_handler(VectorTools::NormType::L2_norm);
-    e_u = eh->get_unsteady_errors("u");
-    e_p = eh->get_unsteady_errors("p");
+    e_u = eh.get_unsteady_errors("u");
+    e_p = eh.get_unsteady_errors("p");
 
     deallog << "Error without restart" << std::endl;
     for (unsigned int i = 0; i < e_u.size(); ++i)
@@ -215,10 +215,10 @@ void test_restart()
     problem.run();
     problem.compute_errors();
 
-    std::shared_ptr<ErrorHandler> eh =
+    const ErrorHandler &eh =
       problem.get_error_handler(VectorTools::NormType::L2_norm);
-    e_u_restart = eh->get_unsteady_errors("u");
-    e_p_restart = eh->get_unsteady_errors("p");
+    e_u_restart = eh.get_unsteady_errors("u");
+    e_p_restart = eh.get_unsteady_errors("p");
 
     deallog << "Error with restart" << std::endl;
     for (unsigned int i = 0; i < e_u_restart.size(); ++i)

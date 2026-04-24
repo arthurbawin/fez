@@ -27,7 +27,7 @@ public:
                   const Mapping<dim>         &mapping,
                   const Quadrature<dim>      &cell_quadrature,
                   const Quadrature<dim - 1>  &face_quadrature,
-                  const std::vector<double>  &bdf_coefficients,
+                  const TimeHandler          &time_handler,
                   const ParameterReader<dim> &param)
     : physical_properties(param.physical_properties)
     , fe_values(mapping,
@@ -45,7 +45,7 @@ public:
     , n_faces(fe.reference_cell().n_faces())
     , n_faces_q_points(face_quadrature.size())
     , dofs_per_cell(fe.dofs_per_cell)
-    , bdf_coefficients(bdf_coefficients)
+    , time_handler(time_handler)
   {
     temperature.component = 0;
     allocate();
@@ -68,7 +68,7 @@ public:
     , n_faces(other.n_faces)
     , n_faces_q_points(other.n_faces_q_points)
     , dofs_per_cell(other.dofs_per_cell)
-    , bdf_coefficients(other.bdf_coefficients)
+    , time_handler(other.time_handler)
   {
     temperature.component = 0;
     allocate();
@@ -84,7 +84,7 @@ private:
 
     temperature_values.resize(n_q_points);
     temperature_gradients.resize(n_q_points);
-    previous_temperature_values.resize(bdf_coefficients.size() - 1,
+    previous_temperature_values.resize(time_handler.n_previous_solutions,
                                        std::vector<double>(n_q_points));
     phi_t.resize(n_q_points, std::vector<double>(dofs_per_cell));
     grad_phi_t.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
@@ -162,7 +162,7 @@ public:
   const unsigned int n_faces_q_points;
   const unsigned int dofs_per_cell;
 
-  const std::vector<double> bdf_coefficients;
+  const TimeHandler &time_handler;
 
   std::vector<double>                      JxW;
   std::vector<unsigned int>                face_boundary_id;

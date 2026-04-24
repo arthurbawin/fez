@@ -61,9 +61,16 @@ public:
    */
   NSSolverLambda(const ParameterReader<dim> &param);
 
+  /**
+   * Destructor
+   */
   virtual ~NSSolverLambda();
 
-public:
+  /**
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() override;
+
   /**
    * Create the AffineConstraints storing the lambda = 0
    * constraints everywhere, except on the boundary of interest

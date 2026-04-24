@@ -81,6 +81,11 @@ public:
                    std::vector<LA::ParVectorType> &previous_solutions) const;
 
   /**
+   * Return a copy of the current BDF coefficients.
+   */
+  const std::vector<double> &get_bdf_coefficients() const;
+
+  /**
    * Attach solver data to the error estimator.
    * If adaptive time stepping is enabled, this function must be called before
    * the first call to is_timestep_accepted(), which relies on the error

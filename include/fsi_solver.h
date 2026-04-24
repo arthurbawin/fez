@@ -45,10 +45,20 @@ public:
    */
   FSISolverLessLambda(const ParameterReader<dim> &param);
 
+  /**
+   * Destructor
+   */
   virtual ~FSISolverLessLambda();
 
-public:
+  /**
+   *
+   */
   virtual void reset_solver_specific_data() override;
+
+  /**
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() override;
 
   /**
    * Create the AffineConstraints storing the lambda = 0

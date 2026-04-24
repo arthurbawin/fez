@@ -212,21 +212,24 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
     this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
       this->ordering->n_components);
   }
-
-  scratch_data =
-    std::make_unique<ScratchData>(*this->ordering,
-                                  *fe,
-                                  fixed_mapping_collection,
-                                  moving_mapping_collection,
-                                  quadrature_collection,
-                                  face_quadrature_collection,
-                                  this->time_handler.bdf_coefficients,
-                                  this->param);
 }
 
 template <int dim>
 FSISolverLessLambda<dim>::~FSISolverLessLambda()
 {}
+
+template <int dim>
+void FSISolverLessLambda<dim>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               fixed_mapping_collection,
+                                               moving_mapping_collection,
+                                               quadrature_collection,
+                                               face_quadrature_collection,
+                                               this->time_handler,
+                                               this->param);
+}
 
 template <int dim>
 void FSISolverLessLambda<dim>::MMSSourceTerm::vector_value(

@@ -57,6 +57,11 @@ public:
   virtual ~NSSolver() {}
 
   /**
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() override;
+
+  /**
    * Create the matrix sparsity pattern, given the finite element spaces and
    * constraints.
    */

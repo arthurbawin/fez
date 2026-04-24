@@ -89,15 +89,6 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   {
     this->source_terms = param.source_terms.fluid_source;
   }
-
-  scratch_data =
-    std::make_unique<ScratchData>(*this->ordering,
-                                  *fe,
-                                  *mapping,
-                                  *this->quadrature,
-                                  *this->face_quadrature,
-                                  this->time_handler.bdf_coefficients,
-                                  this->param);
 }
 
 template <int dim>
@@ -127,6 +118,18 @@ void NSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   // Mass conservation (pressure) source term,
   // for - div(u) + f = 0 -> f = div(u_mms).
   values[p_lower] = mms.exact_velocity->divergence(p);
+}
+
+template <int dim>
+void NSSolver<dim>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               *mapping,
+                                               *this->quadrature,
+                                               *this->face_quadrature,
+                                               this->time_handler,
+                                               this->param);
 }
 
 template <int dim>

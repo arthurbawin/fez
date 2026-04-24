@@ -29,6 +29,11 @@ public:
   virtual ~CHNSSolver() {}
 
   /**
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() override;
+
+  /**
    * Apply initial condition on the tracer (phase marker)
    */
   virtual void set_solver_specific_initial_conditions() override;

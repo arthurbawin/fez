@@ -53,6 +53,11 @@ public:
   /**
    *
    */
+  void create_scratch_data();
+
+  /**
+   *
+   */
   void initialize();
 
   /**

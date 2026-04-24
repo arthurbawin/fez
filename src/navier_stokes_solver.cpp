@@ -161,6 +161,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   }
 
   setup_mappings();
+  create_scratch_data();
 
   if (param.bc_data.enforce_zero_mean_pressure)
     create_zero_mean_pressure_constraints_data();

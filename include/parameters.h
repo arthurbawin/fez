@@ -302,17 +302,12 @@ namespace Parameters
       neo_hookean,
       HN_0,
       HN_1,
-<<<<<<< Updated upstream
-      Ogden_1,
-      Ogden_2,
-      Ogden_2_classique,
-=======
       ogden,
->>>>>>> Stashed changes
       quad,
     };
 
     ConstitutiveModel constitutive_model = ConstitutiveModel::linear_elasticity;
+    double            ogden_beta          = 1.0;
 
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_lambda_fun;

@@ -601,13 +601,13 @@ namespace Parameters
       prm.leave_subsection();
       prm.declare_entry("constitutive model",
                         "linear elasticity",
-<<<<<<< Updated upstream
-                        Patterns::Selection("linear elasticity|neo hookean|HN 0|HN 1|Ogden 1|Ogden 2|Ogden 2 classique|quad"),
-=======
                         Patterns::Selection(
                           "linear elasticity|neo hookean|HN 0|HN 1|ogden|quad"),
->>>>>>> Stashed changes
                         "Constitutive law for the pseudosolid");
+      prm.declare_entry("ogden beta",
+                        "1.0",
+                        Patterns::Double(),
+                        "Volumetric exponent for the Ogden pseudosolid law");
     }
     prm.leave_subsection();
   }
@@ -626,6 +626,7 @@ namespace Parameters
       prm.leave_subsection();
 
       const std::string parsed_constitutive = prm.get("constitutive model");
+      ogden_beta = prm.get_double("ogden beta");
       if (parsed_constitutive == "linear elasticity")
         constitutive_model = ConstitutiveModel::linear_elasticity;
       else if (parsed_constitutive == "neo hookean")
@@ -634,17 +635,8 @@ namespace Parameters
         constitutive_model = ConstitutiveModel::HN_0;
       else if (parsed_constitutive == "HN 1")
         constitutive_model = ConstitutiveModel::HN_1;
-<<<<<<< Updated upstream
-      else if (parsed_constitutive == "Ogden 1")
-        constitutive_model = ConstitutiveModel::Ogden_1;
-      else if (parsed_constitutive == "Ogden 2")
-        constitutive_model = ConstitutiveModel::Ogden_2;
-      else if (parsed_constitutive == "Ogden 2 classique")
-        constitutive_model = ConstitutiveModel::Ogden_2_classique;
-=======
       else if (parsed_constitutive == "ogden")
         constitutive_model = ConstitutiveModel::ogden;
->>>>>>> Stashed changes
       else if (parsed_constitutive == "quad")
         constitutive_model = ConstitutiveModel::quad;
       else

@@ -42,7 +42,7 @@ public:
    */
   FSISolver(const ParameterReader<dim> &param);
 
-  virtual ~FSISolver() {}
+  virtual ~FSISolver();
 
 public:
   virtual void reset_solver_specific_data() override;

@@ -669,6 +669,8 @@ private:
             sol->time_derivative(qpoint, x_lower + d);
       }
     }
+#else
+    (void)exact_solution;
 #endif
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)

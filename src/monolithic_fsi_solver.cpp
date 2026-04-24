@@ -162,6 +162,10 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
 }
 
 template <int dim>
+FSISolver<dim>::~FSISolver()
+{}
+
+template <int dim>
 void FSISolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
                                                  Vector<double>   &values) const
 {

@@ -18,9 +18,15 @@
 #include <incompressible_chns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_and_dof_tools.h>
 #include <mesh_forcing_postprocessing.h>
 #include <scratch_data.h>
 #include <utilities.h>
+
+#include <deal.II/base/quadrature_lib.h>
+#include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
+#include <metric_field.h>
 
 #include <cmath>
 
@@ -255,7 +261,12 @@ void CHNSSolver<dim,
     const double L =
       cahn_hilliard_param.epsilon_interface_enlarged -
       cahn_hilliard_param.epsilon_interface;
-    values[psi_lower] = -(psi - phi - L * L * lap_psi);
+    const double correction_prefactor =
+      Assembly::compute_psi_mu_correction_prefactor(
+        cahn_hilliard_param, sigma_tilde, epsilon, L * L);
+    const double psi_mu_correction =
+      correction_prefactor * Assembly::psi_mu_correction_eta(phi) * mu;
+    values[psi_lower] = -(psi - phi - psi_mu_correction - L * L * lap_psi);
   }
 }
 
@@ -882,6 +893,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
     *this->ordering,
     this->coupling_table,
     scratch_data,
+    this->param.cahn_hilliard,
     enlarged_length_sq,
     local_matrix);
 
@@ -1130,7 +1142,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   }
 
   CHNSEnlargedOps<dim, with_moving_mesh, with_enlarged>::assemble_rhs_terms(
-    *this->ordering, scratch_data, enlarged_length_sq, local_rhs);
+    *this->ordering,
+    scratch_data,
+    this->param.cahn_hilliard,
+    enlarged_length_sq,
+    local_rhs);
 
   Assembly::assemble_chns_rhs_stabilization<dim>(
     *this->ordering,
@@ -1211,6 +1227,213 @@ void CHNSSolver<dim,
       this->param.cahn_hilliard,
       *this->postproc_handler);
   }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::solver_specific_post_processing()
+{
+  if (!should_output_mesh_quality())
+    return;
+
+  output_mesh_quality_field();
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+bool CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::should_output_mesh_quality() const
+{
+  if (this->param.bc_data.n_metric_fields == 0)
+    return false;
+
+  if (this->param.finite_elements.use_quads)
+    return false;
+
+  const unsigned int output_frequency =
+    this->param.metric_fields[0].mesh_quality_output_frequency;
+
+  if (output_frequency == 0)
+    return false;
+
+  if (this->time_handler.current_time_iteration == 1)
+    return true;
+
+  return (this->time_handler.current_time_iteration % output_frequency) == 0;
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+std::vector<Tensor<2, dim>>
+CHNSSolver<dim, with_moving_mesh, with_enlarged>::compute_vertexwise_F_inv_T()
+  const
+{
+  std::vector<Tensor<2, dim>> vertex_F_inv_T(this->triangulation.n_vertices());
+  std::vector<double>         vertex_weights(this->triangulation.n_vertices(),
+                                     0.0);
+  std::vector<bool>           owned_vertices;
+
+  get_owned_mesh_vertices(this->triangulation,
+                          Utilities::MPI::this_mpi_process(
+                            this->triangulation.get_mpi_communicator()),
+                          owned_vertices);
+
+  QGaussSimplex<dim> cell_quadrature(2);
+  FEValues<dim>      fe_values(*this->fixed_mapping,
+                          *fe,
+                          cell_quadrature,
+                          update_gradients | update_JxW_values);
+  std::vector<Tensor<2, dim>> position_gradients(cell_quadrature.size());
+
+  for (const auto &cell : this->dof_handler.active_cell_iterators())
+  {
+    if (cell->is_artificial())
+      continue;
+
+    fe_values.reinit(cell);
+    fe_values[this->position_extractor].get_function_gradients(
+      this->present_solution, position_gradients);
+
+    Tensor<2, dim> averaged_F_inv_T;
+    double         cell_weight = 0.0;
+
+    for (unsigned int q = 0; q < cell_quadrature.size(); ++q)
+    {
+      const double JxW = fe_values.JxW(q);
+      averaged_F_inv_T += transpose(invert(position_gradients[q])) * JxW;
+      cell_weight += JxW;
+    }
+
+    if (cell_weight > 0.0)
+      averaged_F_inv_T /= cell_weight;
+
+    for (const unsigned int v : cell->vertex_indices())
+    {
+      const auto vertex_index = cell->vertex_index(v);
+      if (!owned_vertices[vertex_index])
+        continue;
+
+      vertex_F_inv_T[vertex_index] += averaged_F_inv_T * cell_weight;
+      vertex_weights[vertex_index] += cell_weight;
+    }
+  }
+
+  for (types::global_vertex_index v = 0; v < this->triangulation.n_vertices();
+       ++v)
+    if (owned_vertices[v] && vertex_weights[v] > 0.0)
+      vertex_F_inv_T[v] /= vertex_weights[v];
+
+  return vertex_F_inv_T;
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::transport_reconstructed_phi_gradient(
+  ErrorEstimation::SolutionRecovery::Scalar<dim> &recovery) const
+{
+  if constexpr (!with_moving_mesh)
+    return;
+
+  std::vector<Tensor<1, dim>> transported_gradient =
+    recovery.get_reconstructed_gradient();
+  const auto                  vertex_F_inv_T = compute_vertexwise_F_inv_T();
+  std::vector<bool>           owned_vertices;
+
+  get_owned_mesh_vertices(this->triangulation,
+                          Utilities::MPI::this_mpi_process(
+                            this->triangulation.get_mpi_communicator()),
+                          owned_vertices);
+
+  // Recover phi on the reference mesh and push its nodal gradient forward to
+  // the studied ALE configuration through a vertex-averaged F^{-T}.
+  for (types::global_vertex_index v = 0; v < this->triangulation.n_vertices();
+       ++v)
+    if (owned_vertices[v])
+      transported_gradient[v] = vertex_F_inv_T[v] * transported_gradient[v];
+
+  recovery.overwrite_reconstructed_gradient(transported_gradient);
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::output_mesh_quality_field()
+{
+  TimerOutput::Scope t(this->computing_timer, "Output mesh quality field");
+
+  AssertThrow(this->param.bc_data.n_metric_fields > 0,
+              ExcMessage("Mesh quality output requires at least one metric "
+                         "field in the parameter file."));
+
+  AssertThrow(!this->param.finite_elements.use_quads,
+              ExcMessage("Metric quality output is currently implemented "
+                         "only for simplex meshes."));
+
+  ErrorEstimation::PatchHandler<dim> patch_handler(this->triangulation,
+                                                   *this->fixed_mapping,
+                                                   this->dof_handler,
+                                                   this->present_solution,
+                                                   this->param
+                                                       .finite_elements
+                                                       .tracer_degree +
+                                                     1,
+                                                   tracer_mask);
+
+  this->computing_timer.enter_subsection("Build patches");
+  patch_handler.build_patches();
+  this->computing_timer.leave_subsection();
+
+  ErrorEstimation::SolutionRecovery::Scalar<dim> recovery(1,
+                                                          this->param,
+                                                          patch_handler,
+                                                          this->dof_handler,
+                                                          this->present_solution,
+                                                          *fe,
+                                                          *this->fixed_mapping,
+                                                          tracer_mask);
+
+  this->computing_timer.enter_subsection("Reconstruct fields and derivatives");
+  recovery.reconstruct_fields();
+  this->computing_timer.leave_subsection();
+
+  const Mapping<dim> &study_mapping =
+    with_moving_mesh ? *this->moving_mapping : *this->fixed_mapping;
+
+  if constexpr (with_moving_mesh)
+    transport_reconstructed_phi_gradient(recovery);
+
+  MetricField<dim> field(0, this->param, this->triangulation);
+  field.set_induced_metric_from_graph(recovery);
+  field.apply_gradation();
+
+  QGaussSimplex<dim> cell_quadrature(3);
+  QGauss<1>          edge_quadrature(3);
+
+  Vector<float> cell_quality =
+    field.compute_cell_quality_field(study_mapping,
+                                     cell_quadrature,
+                                     edge_quadrature);
+
+  DataOut<dim> data_out;
+  data_out.attach_triangulation(this->triangulation);
+  data_out.add_data_vector(cell_quality,
+                           "cell_quality",
+                           DataOut<dim>::type_cell_data);
+  // Always export the mesh-quality field on the mesh that is being studied.
+  data_out.build_patches(study_mapping);
+
+  const auto &metric_param = this->param.metric_fields[0];
+  data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
+                                      metric_param.mesh_quality_output_name,
+                                      this->time_handler.current_time_iteration,
+                                      this->dof_handler.get_mpi_communicator(),
+                                      5);
+
+  this->pcout << "Wrote mesh-quality field '"
+              << metric_param.mesh_quality_output_name
+              << "' at time step "
+              << this->time_handler.current_time_iteration << std::endl;
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>

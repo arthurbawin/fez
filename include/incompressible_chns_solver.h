@@ -4,6 +4,7 @@
 #include <chns_enlarged_ops.h>
 #include <copy_data.h>
 #include <deal.II/fe/fe_values_extractors.h>
+#include <error_estimation/solution_recovery.h>
 #include <navier_stokes_solver.h>
 #include <scratch_data.h>
 
@@ -125,6 +126,14 @@ protected:
   virtual bool uses_hp_capabilities() const override { return false; };
 
   virtual void add_solver_specific_postprocessing_data() override;
+
+  virtual void solver_specific_post_processing() override;
+
+  bool should_output_mesh_quality() const;
+  void output_mesh_quality_field();
+  std::vector<Tensor<2, dim>> compute_vertexwise_F_inv_T() const;
+  void transport_reconstructed_phi_gradient(
+    ErrorEstimation::SolutionRecovery::Scalar<dim> &recovery) const;
 
 protected:
   std::shared_ptr<FESystem<dim>> fe;

@@ -9,6 +9,7 @@ namespace Parameters
   template <int dim>
   MetricField<dim>::MetricField()
     : verbosity(Verbosity::verbose)
+    , mesh_quality_output_name("mesh_quality_phi")
   {
     const unsigned n_components = MetricTensor<dim>::n_independent_components;
     analytical_metric.callback =
@@ -31,6 +32,17 @@ namespace Parameters
     prm.enter_subsection("Metric field " + std::to_string(index));
     {
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.declare_entry("mesh quality output frequency",
+                        "0",
+                        Patterns::Integer(0),
+                        "Frequency, in time steps, at which the CHNS solver "
+                        "writes the mesh-quality field for this metric. Set "
+                        "to 0 to disable this output.");
+      prm.declare_entry("mesh quality output name",
+                        "mesh_quality_phi",
+                        Patterns::Anything(),
+                        "Base name used for the mesh-quality output files "
+                        "written by the CHNS solver for this metric.");
       prm.declare_entry(
         "min mesh size",
         "1e-8",
@@ -66,6 +78,15 @@ namespace Parameters
           "1000",
           Patterns::Integer(0),
           "Target number of vertices after adaptation, assuming no gradation");
+        prm.declare_entry(
+          "use analytical derivatives",
+          "false",
+          Patterns::Bool(),
+          "Enable/disable the use of the symbolic derivatives of the provided "
+          "analytical field to evaluate the metric field. If not, "
+          "reconstructed derivatives from the solution are used. Leaving this "
+          "to false is the intended way to compute a metric field for an "
+          "arbitrary numerical solution.");
       }
       prm.leave_subsection();
       prm.enter_subsection("Gradation");
@@ -93,6 +114,9 @@ namespace Parameters
     prm.enter_subsection("Metric field " + std::to_string(index));
     {
       READ_VERBOSITY_PARAM(prm, verbosity)
+      mesh_quality_output_frequency = prm.get_integer(
+        "mesh quality output frequency");
+      mesh_quality_output_name = prm.get("mesh quality output name");
       min_meshsize   = prm.get_double("min mesh size");
       max_meshsize   = prm.get_double("max mesh size");
       min_eigenvalue = 1. / (max_meshsize * max_meshsize);
@@ -152,6 +176,8 @@ namespace Parameters
             "Unknown target norm for optimal multiscale metric: " +
             parsed_norm);
         multiscale.n_target_vertices = prm.get_integer("n target vertices");
+        multiscale.use_analytical_derivatives =
+          prm.get_bool("use analytical derivatives");
       }
       prm.leave_subsection();
       prm.enter_subsection("Gradation");

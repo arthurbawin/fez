@@ -1,15 +1,13 @@
 
+#include <assembly/chns_enlarged_forms.h>
 #include <parameters.h>
 #include <solver_info.h>
 #include <utilities.h>
 
+#include <cmath>
+
 namespace Parameters
 {
-  namespace
-  {
-    constexpr double psi_width_calibration_coefficient = 1.21860379;
-  }
-
   /**
    * These should agree with the declare_entry in utilities.h
    */
@@ -1089,6 +1087,13 @@ namespace Parameters
                         Patterns::Double(),
                         "Band factor used by the regularized-band moving-mesh "
                         "forcing law.");
+      prm.declare_entry(
+        "psi mu correction factor",
+        "0.0",
+        Patterns::Double(),
+        "Coefficient lambda used in the enlarged-marker reconstruction "
+        "correction term "
+        "-lambda * eta(phi) * (L^2 / (eps * sigma_tilde)) * mu.");
       prm.declare_entry("mesh forcing law",
                         "regularized_band",
                         Patterns::Selection("simple|regularized_band"),
@@ -1116,18 +1121,9 @@ namespace Parameters
         prm.get_double("enlarged interface thickness");
       psi_interface_width_factor = prm.get_double("psi interface width factor");
       if (psi_interface_width_factor > 0.)
-      {
-        AssertThrow(psi_interface_width_factor >= 1.,
-                    ExcMessage(
-                      "'psi interface width factor' must be >= 1.0."));
-        const double target_eps_eff =
-          psi_interface_width_factor * epsilon_interface;
-        const double delta_eps =
-          std::sqrt((target_eps_eff * target_eps_eff -
-                     epsilon_interface * epsilon_interface) /
-                    psi_width_calibration_coefficient);
-        epsilon_interface_enlarged = epsilon_interface + delta_eps;
-      }
+        epsilon_interface_enlarged =
+          Assembly::calibrated_enlarged_interface_thickness(
+            epsilon_interface, psi_interface_width_factor);
       body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
@@ -1137,6 +1133,12 @@ namespace Parameters
         prm.get_double("mff_physics_compression_factor");
       mff_transport_factor = prm.get_double("mff_transport_factor");
       mff_band_factor      = prm.get_double("mff_band_factor");
+      psi_mu_correction_factor = prm.get_double("psi mu correction factor");
+      AssertThrow(std::abs(psi_mu_correction_factor) < 1e-14 ||
+                    std::abs(surface_tension) > 1e-14,
+                  ExcMessage(
+                    "A nonzero 'psi mu correction factor' requires a nonzero "
+                    "surface tension to define sigma_tilde."));
       const std::string parsed_mesh_forcing_law = prm.get("mesh forcing law");
       if (parsed_mesh_forcing_law == "simple")
         mesh_forcing_law = MeshForcingLaw::simple;
@@ -1155,6 +1157,12 @@ namespace Parameters
   {
     prm.enter_subsection("Linear elasticity");
     {
+      prm.declare_entry(
+        "write final msh",
+        "false",
+        Patterns::Bool(),
+        "If true, write the final deformed mesh as a Gmsh .msh file at the "
+        "end of the linear elasticity solve.");
       prm.enter_subsection("current mesh source term");
       {
         prm.declare_entry(
@@ -1193,6 +1201,7 @@ namespace Parameters
   {
     prm.enter_subsection("Linear elasticity");
     {
+      write_final_msh = prm.get_bool("write final msh");
       prm.enter_subsection("current mesh source term");
       {
         enable_source_term_on_current_mesh = prm.get_bool("enable");

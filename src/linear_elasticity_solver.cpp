@@ -8,6 +8,7 @@
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/vector_tools_evaluate.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
@@ -19,6 +20,20 @@
 #include <utilities.h>
 
 #include <cmath>
+
+#if defined(DEAL_II_GMSH_WITH_API)
+#  include <gmsh.h>
+#endif
+
+namespace
+{
+  bool
+  has_msh_extension(const std::string &filename)
+  {
+    return filename.size() >= 4 &&
+           filename.substr(filename.size() - 4, 4) == ".msh";
+  }
+} // namespace
 
 template <int dim>
 LinearElasticitySolver<dim>::LinearElasticitySolver(
@@ -172,7 +187,8 @@ void LinearElasticitySolver<dim>::run()
     source_term_moving_mesh_multiplier = c_min;
     source_term_fixed_mesh_multiplier  = 0.;
 
-    // Linear elasticity: geometric progression; neo-Hookean: arithmetic progression
+    // Linear elasticity: geometric progression; finite-deformation
+    // hyperelastic laws: arithmetic progression.
     const double r =
       (!use_arithmetic_continuation && n_steps > 1) ?
         std::pow(c_max / c_min, 1.0 / (n_steps - 1)) :
@@ -407,6 +423,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
   local_matrix       = 0;
 
   const double alpha = source_term_moving_mesh_multiplier;
+  const auto  &ps    = param.physical_properties.pseudosolids[0];
 
   //
   // Volume contributions
@@ -543,6 +560,7 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
 
   const double alpha = source_term_moving_mesh_multiplier;
   const double gamma = source_term_fixed_mesh_multiplier;
+  const auto  &ps    = param.physical_properties.pseudosolids[0];
 
   // alpha and gamma cannot both be nonzero
   Assert(!(std::abs(alpha) > 1e-14 && std::abs(gamma) > 1e-14),
@@ -853,6 +871,93 @@ void LinearElasticitySolver<dim>::move_mesh()
   triangulation.communicate_locally_moved_vertices(vertex_locally_moved);
 }
 
+template <int dim>
+void LinearElasticitySolver<dim>::write_final_msh()
+{
+  if (!param.linear_elasticity.write_final_msh)
+    return;
+
+  AssertThrow(
+    has_msh_extension(param.mesh.filename),
+    ExcMessage("Writing the final deformed mesh requires the input mesh to "
+               "come from a Gmsh .msh file."));
+
+#if defined(DEAL_II_GMSH_WITH_API)
+  const unsigned int rank = Utilities::MPI::this_mpi_process(mpi_communicator);
+
+  std::vector<std::size_t> node_tags;
+  std::vector<double>      node_coordinates;
+  std::vector<Point<dim>>  evaluation_points;
+
+  if (rank == 0)
+  {
+    gmsh::initialize();
+    gmsh::option::setNumber("General.Verbosity", 2);
+    gmsh::open(param.mesh.filename);
+
+    std::vector<double> parametric_coordinates;
+    gmsh::model::mesh::getNodes(node_tags,
+                                node_coordinates,
+                                parametric_coordinates,
+                                -1,
+                                -1,
+                                false,
+                                false);
+
+    evaluation_points.reserve(node_tags.size());
+    for (unsigned int i = 0; i < node_tags.size(); ++i)
+    {
+      Point<dim> point;
+      for (unsigned int d = 0; d < dim; ++d)
+        point[d] = node_coordinates[3 * i + d];
+      evaluation_points.push_back(point);
+    }
+  }
+
+  present_solution.update_ghost_values();
+
+  Utilities::MPI::RemotePointEvaluation<dim> cache;
+  const auto deformed_positions = VectorTools::point_values<dim>(
+    *mapping, dof_handler, present_solution, evaluation_points, cache);
+
+  AssertThrow(cache.all_points_found(),
+              ExcMessage(
+                "Could not evaluate the deformed mesh position at all Gmsh "
+                "nodes when writing the final .msh file."));
+
+  if (rank == 0)
+  {
+    AssertDimension(deformed_positions.size(), node_tags.size());
+
+    for (unsigned int i = 0; i < node_tags.size(); ++i)
+    {
+      std::vector<double> coordinates(3, 0.0);
+      for (unsigned int d = 0; d < dim; ++d)
+        coordinates[d] = deformed_positions[i][d];
+      if constexpr (dim == 2)
+        coordinates[2] = node_coordinates[3 * i + 2];
+
+      gmsh::model::mesh::setNode(node_tags[i], coordinates, {});
+    }
+
+    const std::string output_mesh_filename =
+      param.output.output_dir + param.output.output_prefix +
+      "linear_elasticity_final_mesh.msh";
+
+    gmsh::write(output_mesh_filename);
+    gmsh::clear();
+    gmsh::finalize();
+
+    pcout << "Wrote final deformed mesh to " << output_mesh_filename
+          << std::endl;
+  }
+#else
+  AssertThrow(false,
+              ExcMessage("Gmsh API support is required to write the final "
+                         "deformed .msh file."));
+#endif
+}
+
 
 template <int dim>
 void LinearElasticitySolver<dim>::compute_errors()
@@ -892,6 +997,7 @@ void LinearElasticitySolver<dim>::postprocess_solution()
   compute_cell_average_strain(cached_strain_tensors, cached_strain_trace);
   strain_cache_is_valid = true;
 
+  write_final_msh();
   move_mesh();
   output_results();
   strain_cache_is_valid = false;

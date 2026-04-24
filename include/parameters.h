@@ -501,6 +501,7 @@ namespace Parameters
     double mff_physics_compression_factor;
     double mff_transport_factor;
     double mff_band_factor;
+    double psi_mu_correction_factor;
     /**
      * We differentiate between the body force which is multiplied by the
      * mixture density (typically gravity), and the generic source term (e.g.,
@@ -533,6 +534,11 @@ namespace Parameters
     // is used to initialize the ALE mesh of the CHNS solver, typically when
     // mesh forcing is activated.
     bool use_as_presolver;
+
+    // If true, write the final deformed mesh to a Gmsh .msh file at the end
+    // of the linear elasticity solve. This requires that the input mesh also
+    // comes from a .msh file.
+    bool write_final_msh;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

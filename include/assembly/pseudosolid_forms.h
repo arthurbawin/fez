@@ -194,6 +194,17 @@ namespace Assembly::Pseudosolid
         Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
       return neo_hookean_matrix_contribution(
         lame_mu, lame_lambda, F_inv, F_inv_T, J, grad_test, grad_trial);
+    if (pseudosolid_parameters.constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
+      return ogden_matrix_contribution(lame_mu,
+                                       lame_lambda,
+                                       pseudosolid_parameters.ogden_beta,
+                                       F,
+                                       F_inv,
+                                       F_inv_T,
+                                       J,
+                                       grad_test,
+                                       grad_trial);
 
     if (constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::HN_0)
@@ -359,6 +370,15 @@ namespace Assembly::Pseudosolid
         Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
       return neo_hookean_rhs_contribution(
         lame_mu, lame_lambda, F, F_inv_T, J, grad_test);
+    if (pseudosolid_parameters.constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
+      return ogden_rhs_contribution(lame_mu,
+                                    lame_lambda,
+                                    pseudosolid_parameters.ogden_beta,
+                                    F,
+                                    F_inv_T,
+                                    J,
+                                    grad_test);
 
     if (constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::HN_0)
@@ -408,11 +428,11 @@ namespace Assembly::Pseudosolid
             continue;
 
           for (unsigned int j = 0; j < scratch.dofs_per_cell; ++j)
-            {
-              if (coupling_table[scratch.components[i]][scratch.components[j]] !=
-                    DoFTools::always ||
-                  !ordering.is_position(scratch.components[j]))
-                continue;
+          {
+            if (coupling_table[scratch.components[i]][scratch.components[j]] !=
+                  DoFTools::always ||
+                !ordering.is_position(scratch.components[j]))
+              continue;
 
               local_matrix(i, j) +=
                 matrix_contribution(pseudosolid_parameters,

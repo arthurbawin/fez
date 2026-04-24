@@ -17,6 +17,8 @@ namespace Parameters
   {
   public:
     Verbosity verbosity;
+    unsigned int mesh_quality_output_frequency;
+    std::string  mesh_quality_output_name;
 
     // Min and max allowed mesh size along any principal direction
     double min_meshsize;
@@ -38,6 +40,16 @@ namespace Parameters
       // derivatives at some point if needed.
       std::shared_ptr<Functions::ParsedFunction<dim>> callback;
     } analytical_metric;
+
+    /**
+     * The analytical scalar field used to create the metric field, if required.
+     *
+     * A metric field can be constructed from either an anisotropic error
+     * estimate of the numerical solution, or from the analytical derivatives of
+     * this field (for prototyping and debug purposes mostly).
+     */
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
+      analytical_field;
 
     /**
      * Parameters for the computation of the optimal multiscale metric
@@ -88,6 +100,11 @@ namespace Parameters
 
       // Target number of mesh vertices after adaptation (without gradation)
       unsigned int n_target_vertices;
+
+      // If true, use the derivatives of "analytical_field" above to compute
+      // the anisotropic measure of the interpolation error estimate.
+      // If false, use reconstructed derivatives.
+      bool use_analytical_derivatives;
     } multiscale;
 
     struct Gradation
@@ -106,16 +123,6 @@ namespace Parameters
       // Space in which a single metric spans a full metric field
       typename MetricTensor<dim>::SpanningSpace spanning_space;
     } gradation;
-
-    /**
-     * The analytical scalar field used to create the metric field, if required.
-     *
-     * A metric field can be constructed from either an anisotropic error
-     * estimate of the numerical solution, or from the analytical derivatives of
-     * this field (for prototyping and debug purposes mostly).
-     */
-    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
-      analytical_field;
 
   public:
     /**

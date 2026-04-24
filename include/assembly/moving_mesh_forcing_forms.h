@@ -15,6 +15,33 @@ using namespace dealii;
 namespace Assembly::MovingMeshForcing
 {
   inline void
+  regularized_band_center_support_and_jacobian(const double phase_value,
+                                               const double mff_band_factor,
+                                               double       &center,
+                                               double       &center_jacobian,
+                                               double       &support,
+                                               double       &support_jacobian)
+  {
+    constexpr double phi_max_user = 0.998;
+    const double     phi_max_safe =
+      std::min(phi_max_user, 0.98 / std::max(mff_band_factor, 1e-14));
+
+    const double z                 = phase_value / phi_max_safe;
+    const double t                 = std::tanh(z);
+    const double regularized_phase = phi_max_safe * t;
+    const double regularized_jac   = 1. - t * t;
+    const double denominator =
+      1. - mff_band_factor * mff_band_factor * regularized_phase * regularized_phase;
+
+    center          = regularized_phase;
+    center_jacobian = regularized_jac;
+    support         = 1. / denominator;
+    support_jacobian =
+      2. * mff_band_factor * mff_band_factor * regularized_phase *
+      regularized_jac / (denominator * denominator);
+  }
+
+  inline void
   simple_mesh_forcing_factor_and_jacobian(const double phase_value,
                                           double       &factor,
                                           double       &factor_jacobian)
@@ -29,23 +56,19 @@ namespace Assembly::MovingMeshForcing
                                                     double       &factor,
                                                     double       &factor_jacobian)
   {
-    constexpr double phi_max_user = 0.998;
-    const double     phi_max_safe =
-      std::min(phi_max_user, 0.98 / std::max(mff_band_factor, 1e-14));
+    double center           = 0.;
+    double center_jacobian  = 0.;
+    double support          = 0.;
+    double support_jacobian = 0.;
+    regularized_band_center_support_and_jacobian(phase_value,
+                                                 mff_band_factor,
+                                                 center,
+                                                 center_jacobian,
+                                                 support,
+                                                 support_jacobian);
 
-    const double z                 = phase_value / phi_max_safe;
-    const double t                 = std::tanh(z);
-    const double regularized_phase = phi_max_safe * t;
-    const double regularized_jac   = 1. - t * t;
-    const double denominator =
-      1. - mff_band_factor * mff_band_factor * regularized_phase * regularized_phase;
-
-    factor = regularized_phase / denominator;
-    factor_jacobian =
-      regularized_jac *
-      (1. + mff_band_factor * mff_band_factor * regularized_phase *
-               regularized_phase) /
-      (denominator * denominator);
+    factor          = center * support;
+    factor_jacobian = center_jacobian * support + center * support_jacobian;
   }
 
   template <int dim>
@@ -225,9 +248,11 @@ namespace Assembly::MovingMeshForcing
                       phi_x_i *
                       (cahn_hilliard.mff_enlarged_compression_factor *
                          enlarged_epsilon *
-                         (enlarged_factor_jacobian * scratch.shape_psi[q][j] *
+                         (enlarged_factor_jacobian *
+                            scratch.shape_psi[q][j] *
                             enlarged_phase_gradient +
-                          enlarged_factor * scratch.grad_shape_psi[q][j]) +
+                          enlarged_factor *
+                            scratch.grad_shape_psi[q][j]) +
                        cahn_hilliard.mff_transport_factor *
                          (enlarged_epsilon * enlarged_epsilon) *
                          ((u_conv * scratch.grad_shape_psi[q][j]) *

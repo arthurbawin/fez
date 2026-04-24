@@ -9,13 +9,21 @@
 #include "../tests.h"
 
 #include "error_estimation/patches.h"
-#include "error_estimation/solution_recovery.h"
 #include "mesh.h"
 #include "parameter_reader.h"
 #include "types.h"
 
 /**
- * This tests
+ * This tests that the patches of dof support points, used for least-squares
+ * recovery of more accurate solution, are identical in sequential and parallel.
+ *
+ * Create a uniform rectangle 2D mesh, then check that the patches containing
+ * the dofs from the first N layers of mesh cells are identical across a
+ * different number of mesh partitions.
+ *
+ * For this particular mesh and with simplices, the partitioning with 9 ranks is
+ * particularly pathological, but the build_patches() function should work
+ * nonetheless.
  */
 
 template <int dim>
@@ -37,7 +45,8 @@ public:
 };
 
 template <int dim>
-void test_fitting(const unsigned int field_polynomial_degree)
+void test_patches(const unsigned int field_polynomial_degree,
+                  const unsigned int n_layers)
 {
   MPI_Comm mpi_communicator(MPI_COMM_WORLD);
 
@@ -75,42 +84,41 @@ void test_fitting(const unsigned int field_polynomial_degree)
                            local_solution);
   solution = local_solution;
 
-  // Create the patches of dof support points and print the sorted patches
-  // for each owned mesh vertex
+  // Create and print the patches.
   ErrorEstimation::PatchHandler patch_handler(triangulation,
                                               mapping,
                                               dof_handler,
                                               solution,
-                                              field_polynomial_degree + 1,
+                                              field_polynomial_degree,
                                               fe.component_mask(
                                                 FEValuesExtractors::Scalar(0)));
-  patch_handler.build_patches();
 
-  const unsigned int                        highest_recovered_derivative = 1;
-  ErrorEstimation::SolutionRecovery::Scalar recovery(
-    highest_recovered_derivative,
-    param,
-    patch_handler,
-    dof_handler,
-    solution,
-    fe,
-    mapping);
-  recovery.reconstruct_fields();
+  const bool enforce_full_rank_least_squares_matrices = false;
+  patch_handler.build_patches(enforce_full_rank_least_squares_matrices,
+                              n_layers);
 
-  // Write the least-squares matrices and coefficient vectors
-  // for the solution recovery of degree p + 1
-  recovery.write_least_squares_systems(deallog.get_file_stream());
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+    deallog << "Patches for solution of degree " << field_polynomial_degree
+            << " and " << n_layers << " cell layers" << std::endl;
+  patch_handler.write_support_points_patch(".",
+                                           solution,
+                                           deallog.get_file_stream());
 }
 
 int main(int argc, char *argv[])
 {
   try
   {
-    // Initialize deallog for test output.
-    // This also reroutes deallog output to a file "output".
     initlog();
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-    test_fitting<2>(1);
+
+    // Test for linear and quadratic solution, for up to 3 layers of mesh cells.
+    const unsigned int max_solution_degree  = 2;
+    const unsigned int max_number_of_layers = 3;
+
+    for (unsigned int d = 1; d <= max_solution_degree; ++d)
+      for (unsigned int l = 1; l <= max_number_of_layers; ++l)
+        test_patches<2>(d, l);
   }
   catch (const std::exception &exc)
   {

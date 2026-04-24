@@ -69,6 +69,16 @@ public:
   void run_convergence_loop();
 
   /**
+   * Run the problem within a fixed point loop, performing (possibly)
+   * anisotropic mesh adaptation based on a Riemannian metric. The aim of the
+   * fixed point loop is to converge the solution-mesh pair together.
+   *
+   * This function is called within the main function of each executable if mesh
+   * adaptation with a Riemannian metric is enabled.
+   */
+  void run_fixed_point_loop();
+
+  /**
    * Assemble the Jacobian matrix of the nonlinear problem, that is, its
    * linearization at the current solution. This function is overloaded by each
    * derived solver.
@@ -391,6 +401,37 @@ void GenericSolver<VectorType>::run_convergence_loop()
 
     if (mms_param.run_only_step >= 0)
       break;
+  }
+}
+
+template <typename VectorType>
+void GenericSolver<VectorType>::run_fixed_point_loop()
+{
+  Assert(mesh_param.adaptation.enable &&
+           mesh_param.adaptation.strategy ==
+             Parameters::Mesh::Adaptation::Strategy::RiemannianMetric,
+         ExcMessage("This run function is intended for simulations with mesh "
+                    "adaptation with a Riemannian metric only."));
+
+  const unsigned int nfp = mesh_param.adaptation.metric.n_fixed_point;
+
+  for (unsigned int ifp = 0; ifp < nfp; ++ifp)
+  {
+    mesh_param.adaptation.metric.current_fixed_point_iteration = ifp;
+
+    pcout << "Run with metric-based mesh adaptation - Fixed-point iteration "
+          << ifp + 1 << "/" << nfp << std::endl;
+
+    if (ifp > 0)
+    {
+      // Update the mesh file
+      mesh_param.filename =
+        output_param.output_dir + mesh_param.adaptation.adapt_dir +
+        mesh_param.adaptation.adapted_mesh_extension + ".msh";
+      pcout << "Mesh file was changed to " << mesh_param.filename << std::endl;
+    }
+
+    this->run();
   }
 }
 

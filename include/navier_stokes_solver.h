@@ -497,69 +497,74 @@ protected:
 
 /* ---------------- template and inline functions ----------------- */
 
-template <int dim>
-void NavierStokesSolver<dim>::set_active_fe_indices()
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::set_active_fe_indices()
 {
   AssertThrow(false, ExcPureFunctionCalled());
 };
 
-template <int dim>
-AffineConstraints<double> &NavierStokesSolver<dim>::get_nonzero_constraints()
+template <int dim, bool with_moving_mesh>
+AffineConstraints<double> &
+NavierStokesSolver<dim, with_moving_mesh>::get_nonzero_constraints()
 {
   return nonzero_constraints;
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::write_forces(std::ostream &out) const
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::write_forces(
+  std::ostream &out) const
 {
   postproc_handler->write_forces(out);
 }
 
-template <int dim>
-void NavierStokesSolver<dim>::write_structure_mean_position(
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::write_structure_mean_position(
   std::ostream &out) const
 {
   postproc_handler->write_structure_mean_position(out);
 }
 
 
-template <int dim>
-const hp::FECollection<dim> *NavierStokesSolver<dim>::get_fe_collection() const
+template <int dim, bool with_moving_mesh>
+const hp::FECollection<dim> *
+NavierStokesSolver<dim, with_moving_mesh>::get_fe_collection() const
 {
   AssertThrow(false, ExcPureFunctionCalled());
   return nullptr;
 };
 
-template <int dim>
+template <int dim, bool with_moving_mesh>
 const hp::MappingCollection<dim> *
-NavierStokesSolver<dim>::get_fixed_mapping_collection() const
+NavierStokesSolver<dim, with_moving_mesh>::get_fixed_mapping_collection() const
 {
   AssertThrow(false, ExcPureFunctionCalled());
   return nullptr;
 };
 
 
-template <int dim>
+template <int dim, bool with_moving_mesh>
 const hp::MappingCollection<dim> *
-NavierStokesSolver<dim>::get_moving_mapping_collection() const
+NavierStokesSolver<dim, with_moving_mesh>::get_moving_mapping_collection() const
 {
   AssertThrow(false, ExcPureFunctionCalled());
   return nullptr;
 };
 
 
-template <int dim>
+template <int dim, bool with_moving_mesh>
 const hp::QCollection<dim> *
-NavierStokesSolver<dim>::get_cell_quadrature_collection() const
+NavierStokesSolver<dim, with_moving_mesh>::get_cell_quadrature_collection()
+  const
 {
   AssertThrow(false, ExcPureFunctionCalled());
   return nullptr;
 };
 
 
-template <int dim>
+template <int dim, bool with_moving_mesh>
 const hp::QCollection<dim - 1> *
-NavierStokesSolver<dim>::get_face_quadrature_collection() const
+NavierStokesSolver<dim, with_moving_mesh>::get_face_quadrature_collection()
+  const
 {
   AssertThrow(false, ExcPureFunctionCalled());
   return nullptr;

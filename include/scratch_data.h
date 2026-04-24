@@ -215,8 +215,8 @@ private:
   reinit_compressible_cell(const FEValues<dim>           &fe_values,
                            const VectorType              &current_solution,
                            const std::vector<VectorType> &previous_solutions,
-                           const Function<dim>           &source_terms,
-                           const Function<dim>           &exact_solution)
+                           const Function<dim> & /*source_terms*/,
+                           const Function<dim> &exact_solution)
   {
     fe_values[temperature].get_function_values(current_solution,
                                                present_temperature_values);

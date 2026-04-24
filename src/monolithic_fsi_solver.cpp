@@ -2600,10 +2600,12 @@ void FSISolver<dim>::compute_lambda_error_on_boundary(
   lambda_integral_local = 0;
   exact_integral_local  = 0;
 
+#if !defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
   const double rho = this->param.physical_properties.fluids[0].density;
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
   const double mu = nu * rho;
+#endif
 
   FEFaceValues<dim> fe_face_values(*this->moving_mapping,
                                    *fe,
@@ -2636,9 +2638,16 @@ void FSISolver<dim>::compute_lambda_error_on_boundary(
         // Evaluate exact solution at quadrature points
         for (unsigned int q = 0; q < n_faces_q_points; ++q)
         {
-          const Point<dim> &qpoint         = fe_face_values.quadrature_point(q);
-          const auto        normal_to_mesh = fe_face_values.normal_vector(q);
-          const auto        normal_to_solid = -normal_to_mesh;
+          const Point<dim> &qpoint = fe_face_values.quadrature_point(q);
+
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+          // The lambda_MMS is also prescribed, use this solution
+          for (unsigned int d = 0; d < dim; ++d)
+            exact[d] =
+              this->exact_solution->value(qpoint, this->ordering->l_lower + d);
+#else
+          const auto normal_to_mesh  = fe_face_values.normal_vector(q);
+          const auto normal_to_solid = -normal_to_mesh;
 
           // Careful:
           // int lambda := int sigma(u_MMS, p_MMS) cdot  normal_to_fluid
@@ -2653,12 +2662,6 @@ void FSISolver<dim>::compute_lambda_error_on_boundary(
           // Solution<dim> computes lambda_exact = - sigma cdot ns, where n is
           // expected to be the normal to the SOLID.
 
-#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
-          // The lambda_MMS is also prescribed, use this solution
-          for (unsigned int d = 0; d < dim; ++d)
-            exact[d] =
-              this->exact_solution->value(qpoint, this->ordering->l_lower + d);
-#else
           // lambda_MMS is not prescribed, the exact lambda is expected to be
           // the traction
           std::static_pointer_cast<FSISolver<dim>::MMSSolution>(

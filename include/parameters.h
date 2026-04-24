@@ -299,7 +299,13 @@ namespace Parameters
     enum class ConstitutiveModel
     {
       linear_elasticity,
-      neo_hookean
+      neo_hookean,
+      HN_0,
+      HN_1,
+      Ogden_1,
+      Ogden_2,
+      Ogden_2_classique,
+      quad,
     };
 
     ConstitutiveModel constitutive_model = ConstitutiveModel::linear_elasticity;

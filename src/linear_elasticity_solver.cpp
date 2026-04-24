@@ -151,8 +151,14 @@ void LinearElasticitySolver<dim>::run()
     const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
 
     const bool use_nh =
-      (param.physical_properties.pseudosolids[0].constitutive_model ==
-       Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean);
+      (param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean 
+       || param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::HN_0
+       || param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::HN_1
+       || param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::Ogden_1
+       || param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::Ogden_2
+       || param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::Ogden_2_classique
+       || param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::quad
+      );
 
     source_term_moving_mesh_multiplier = c_min;
     source_term_fixed_mesh_multiplier  = 0.;
@@ -409,56 +415,24 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
     const Tensor<2, dim> &grad_source_current_mesh =
       scratch_data.grad_source_term_position_current_mesh[q];
 
-    // Neo-Hookean
-    const double          J       = scratch_data.position_J[q];
-    const Tensor<2, dim> &F_inv   = scratch_data.position_inv_gradients[q];
-    const Tensor<2, dim> &F_inv_T = scratch_data.position_inv_gradients_T[q];
-
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       const auto &phi_x_i          = phi_x[i];
       const auto &grad_phi_x_i     = grad_phi_x[i];
-      const auto &sym_grad_phi_x_i = symmetrize(grad_phi_x[i]);
       const auto &div_phi_x_i      = div_phi_x[i];
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
         const auto &phi_x_j          = phi_x[j];
         const auto &grad_phi_x_j     = grad_phi_x[j];
-        const auto &sym_grad_phi_x_j = symmetrize(grad_phi_x[j]);
         const auto &div_phi_x_j      = div_phi_x[j];
         
-        // local_matrix(i, j) +=
-        //   (lame_lambda * div_phi_x_j * div_phi_x_i +
-        //   2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
-        //   alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
-        //   JxW;
-
-        // Neo Hookean
-        const Tensor<2, dim> dF = grad_phi_x_j;
-        
-        // // Compressible
-        // const Tensor<2, dim> dP =
-        //   lame_mu * dF +
-        //   (lame_mu - lame_lambda * std::log(J)) *
-        //    (F_inv_T * transpose(dF) * F_inv_T) +
-        //   lame_lambda * trace(F_inv * dF) * F_inv_T;
-
-        // Compressible simplifie
-        const double dJ = J * trace(F_inv * dF);
-        const Tensor<2, dim> dP =
-          lame_mu * dF
-          + lame_mu * (F_inv_T * transpose(dF) * F_inv_T)
-          + lame_lambda *
-            (
-              (2.0 * J - 1.0) * dJ * F_inv_T
-              - (J * (J - 1.0)) * (F_inv_T * transpose(dF) * F_inv_T)
-            );
-
         local_matrix(i, j) +=
           (Assembly::Pseudosolid::matrix_contribution(pseudosolid_model,
                                                       lame_mu,
                                                       lame_lambda,
+                                                      scratch_data
+                                                        .position_gradients[q],
                                                       scratch_data
                                                         .position_inv_gradients[q],
                                                       scratch_data
@@ -590,10 +564,6 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const auto &phi_x      = scratch_data.phi_x[q];
     const auto &grad_phi_x = scratch_data.grad_phi_x[q];
     const auto &div_phi_x  = scratch_data.div_phi_x[q];
-
-    const Tensor<2, dim> &F       = scratch_data.position_gradients[q];
-    const double          J       = scratch_data.position_J[q];
-    const Tensor<2, dim> &F_inv_T = scratch_data.position_inv_gradients_T[q];
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {

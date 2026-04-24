@@ -601,7 +601,7 @@ namespace Parameters
       prm.leave_subsection();
       prm.declare_entry("constitutive model",
                         "linear elasticity",
-                        Patterns::Selection("linear elasticity|neo hookean"),
+                        Patterns::Selection("linear elasticity|neo hookean|HN 0|HN 1|Ogden 1|Ogden 2|Ogden 2 classique|quad"),
                         "Constitutive law for the pseudosolid");
     }
     prm.leave_subsection();
@@ -625,6 +625,18 @@ namespace Parameters
         constitutive_model = ConstitutiveModel::linear_elasticity;
       else if (parsed_constitutive == "neo hookean")
         constitutive_model = ConstitutiveModel::neo_hookean;
+      else if (parsed_constitutive == "HN 0")
+        constitutive_model = ConstitutiveModel::HN_0;
+      else if (parsed_constitutive == "HN 1")
+        constitutive_model = ConstitutiveModel::HN_1;
+      else if (parsed_constitutive == "Ogden 1")
+        constitutive_model = ConstitutiveModel::Ogden_1;
+      else if (parsed_constitutive == "Ogden 2")
+        constitutive_model = ConstitutiveModel::Ogden_2;
+      else if (parsed_constitutive == "Ogden 2 classique")
+        constitutive_model = ConstitutiveModel::Ogden_2_classique;
+      else if (parsed_constitutive == "quad")
+        constitutive_model = ConstitutiveModel::quad;
       else
         AssertThrow(false,
                     ExcMessage("Unknown pseudosolid constitutive model"));

@@ -16,10 +16,10 @@ using namespace dealii;
  * T^* + 1 (dT^*dt + u dot grad(T^*)) = 0
  *
  * rho (dudt + u dot grad(u)) + grad(p^*) - div(mu(grad(u) + grad(u)^T) - 2/3 mu
- * I grad(u)) - f = 0
+ * I div(u)) - f = 0
  *
- * rho c_p (dT^*dt + u dot grad(T^*)) - dp^*dt - u dot grad(p^*) + grad(k
- * grad(T^*)) - 2 mu d:d + 2/3 mu (grad(u))^2 - r_s =0
+ * rho c_p (dT^*dt + u dot grad(T^*)) - dp^*dt - u dot grad(p^*) + div(k
+ * grad(T^*)) - 2 mu d:d + 2/3 mu (div(u))^2 - r_s =0
  *
  * State equation for perfect gas:
  *                  rho = 1/R p_r/T_R (alpha_r p^* + 1)/(beta_r T^* + 1)
@@ -45,6 +45,11 @@ public:
    * Destructor
    */
   virtual ~CompressibleNSSolver() {}
+
+  /**
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() override;
 
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;
@@ -129,13 +134,15 @@ protected:
   virtual bool uses_hp_capabilities() const override { return false; };
 
 protected:
-  std::shared_ptr<FESystem<dim>> fe;
+  std::unique_ptr<FESystem<dim>> fe;
 
   // Non-owning pointer to base class fixed_mapping, used for clarity.
   const Mapping<dim> *mapping;
 
   FEValuesExtractors::Scalar temperature_extractor;
   ComponentMask              temperature_mask;
+
+  std::unique_ptr<ScratchData> scratch_data;
 
 protected:
   /**

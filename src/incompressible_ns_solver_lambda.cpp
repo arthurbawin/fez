@@ -35,11 +35,11 @@ NSSolverLambda<dim>::NSSolverLambda(const ParameterReader<dim> &param)
 {
   if (param.finite_elements.use_quads)
   {
-    fe_with_lambda = std::make_shared<FESystem<dim>>(
+    fe_with_lambda = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
       FE_Q<dim>(param.finite_elements.pressure_degree),
       FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^ dim);
-    fe_without_lambda = std::make_shared<FESystem<dim>>(
+    fe_without_lambda = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
       FE_Q<dim>(param.finite_elements.pressure_degree),
       FE_Nothing<dim>() ^ dim);
@@ -58,33 +58,33 @@ NSSolverLambda<dim>::NSSolverLambda(const ParameterReader<dim> &param)
      */
     if constexpr (dim == 2)
     {
-      fe_with_lambda = std::make_shared<FESystem<dim>>(
+      fe_with_lambda = std::make_unique<FESystem<dim>>(
         FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree),
         FE_SimplexP_3D_hp<dim>(
           param.finite_elements.no_slip_lagrange_mult_degree) ^
           dim);
-      fe_without_lambda = std::make_shared<FESystem<dim>>(
+      fe_without_lambda = std::make_unique<FESystem<dim>>(
         FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree),
         FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
     }
     else
     {
-      fe_with_lambda = std::make_shared<FESystem<dim>>(
+      fe_with_lambda = std::make_unique<FESystem<dim>>(
         FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree),
         FE_SimplexP_3D_hp<dim>(
           param.finite_elements.no_slip_lagrange_mult_degree) ^
           dim);
-      fe_without_lambda = std::make_shared<FESystem<dim>>(
+      fe_without_lambda = std::make_unique<FESystem<dim>>(
         FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree),
         FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
     }
   }
 
-  fe = std::make_shared<hp::FECollection<dim>>();
+  fe = std::make_unique<hp::FECollection<dim>>();
 
   // Ensure fe ordering is consistent throughout the solver
   if constexpr (index_fe_without_lambda == 0)
@@ -108,7 +108,7 @@ NSSolverLambda<dim>::NSSolverLambda(const ParameterReader<dim> &param)
   error_face_quadrature_collection.push_back(*this->error_face_quadrature);
   error_face_quadrature_collection.push_back(*this->error_face_quadrature);
 
-  this->ordering = std::make_shared<ComponentOrderingNSLambda<dim>>();
+  this->ordering = std::make_unique<ComponentOrderingNSLambda<dim>>();
 
   this->velocity_extractor =
     FEValuesExtractors::Vector(this->ordering->u_lower);
@@ -153,13 +153,12 @@ NSSolverLambda<dim>::NSSolverLambda(const ParameterReader<dim> &param)
       param.mms);
 
     // Create entry in error handler for Lagrange multiplier
-    for (auto norm : this->param.mms_param.norms_to_compute)
+    for (auto &[norm, handler] : this->error_handlers)
     {
-      this->error_handlers[norm]->create_entry("l");
+      handler.create_entry("l");
       if (this->param.fsi.compute_error_on_forces)
         for (unsigned int d = 0; d < dim; ++d)
-          this->error_handlers[norm]->create_entry("F_comp" +
-                                                   std::to_string(d));
+          handler.create_entry("F_comp" + std::to_string(d));
     }
   }
   else
@@ -169,6 +168,22 @@ NSSolverLambda<dim>::NSSolverLambda(const ParameterReader<dim> &param)
     this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
       this->ordering->n_components);
   }
+}
+
+template <int dim>
+NSSolverLambda<dim>::~NSSolverLambda()
+{}
+
+template <int dim>
+void NSSolverLambda<dim>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               mapping_collection,
+                                               quadrature_collection,
+                                               face_quadrature_collection,
+                                               this->time_handler,
+                                               this->param);
 }
 
 template <int dim>
@@ -320,21 +335,26 @@ void NSSolverLambda<dim>::setup_mappings()
 {
   TimerOutput::Scope t(this->computing_timer, "Setup mappings");
 
-  // Unused in this solver
-  this->moving_mapping = this->fixed_mapping;
+  // This solver does not use a moving mesh, so moving_mapping and fixed_mapping
+  // are identical
+  if (this->param.finite_elements.use_quads)
+    this->moving_mapping = std::make_unique<MappingQ<dim>>(1);
+  else
+    this->moving_mapping =
+      std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
 
   // For unsteady simulation, add the number of elements, dofs and/or the time
   // step to the error handler, once per convergence run.
   if (!this->time_handler.is_steady() && this->param.mms_param.enable)
     for (auto &[norm, handler] : this->error_handlers)
     {
-      handler->add_reference_data("n_elm",
-                                  this->triangulation.n_global_active_cells());
+      handler.add_reference_data("n_elm",
+                                 this->triangulation.n_global_active_cells());
       // FIXME: Remove the dofs from the convergence table in 3d as long as the
       // hp bug is in deal.II, to allow tests with the docker
       if (dim == 2)
-        handler->add_reference_data("n_dof", this->dof_handler.n_dofs());
-      handler->add_time_step(this->time_handler.initial_dt);
+        handler.add_reference_data("n_dof", this->dof_handler.n_dofs());
+      handler.add_time_step(this->time_handler.initial_dt);
     }
 }
 
@@ -811,21 +831,14 @@ void NSSolverLambda<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           mapping_collection,
-                           quadrature_collection,
-                           face_quadrature_collection,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copy_data(*fe);
+  CopyData copy_data(*fe);
 
   WorkStream::run(this->dof_handler.begin_active(),
                   this->dof_handler.end(),
                   *this,
                   &NSSolverLambda::assemble_local_matrix,
                   &NSSolverLambda::copy_local_to_global_matrix,
-                  scratch_data,
+                  *scratch_data,
                   copy_data);
 
   this->system_matrix.compress(VectorOperation::add);
@@ -845,8 +858,8 @@ void NSSolverLambda<dim>::assemble_local_matrix(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
@@ -1011,21 +1024,14 @@ void NSSolverLambda<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           mapping_collection,
-                           quadrature_collection,
-                           face_quadrature_collection,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copy_data(*fe);
+  CopyData copy_data(*fe);
 
   WorkStream::run(this->dof_handler.begin_active(),
                   this->dof_handler.end(),
                   *this,
                   &NSSolverLambda::assemble_local_rhs,
                   &NSSolverLambda::copy_local_to_global_rhs,
-                  scratch_data,
+                  *scratch_data,
                   copy_data);
 
   this->system_rhs.compress(VectorOperation::add);
@@ -1045,8 +1051,8 @@ void NSSolverLambda<dim>::assemble_local_rhs(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
@@ -1170,22 +1176,14 @@ void NSSolverLambda<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 template <int dim>
 void NSSolverLambda<dim>::check_velocity_boundary() const
 {
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           mapping_collection,
-                           quadrature_collection,
-                           face_quadrature_collection,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-
   LagrangeMultiplierTools::check_no_slip_on_boundary<dim>(
     this->param,
-    scratch_data,
+    *scratch_data,
     this->dof_handler,
     this->evaluation_point,
     this->previous_solutions,
-    this->source_terms,
-    this->exact_solution,
+    *this->source_terms,
+    *this->exact_solution,
     weak_no_slip_boundary_id);
 }
 
@@ -1201,8 +1199,10 @@ void NSSolverLambda<dim>::compute_lambda_error_on_boundary(
   Tensor<1, dim> lambda_integral, exact_integral, lambda_integral_local,
     exact_integral_local;
 
+#if !defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
+#endif
 
   hp::FEFaceValues hp_fe_face_values(mapping_collection,
                                      *fe,
@@ -1241,9 +1241,15 @@ void NSSolverLambda<dim>::compute_lambda_error_on_boundary(
         // Evaluate exact solution at quadrature points
         for (unsigned int q = 0; q < n_faces_q_points; ++q)
         {
-          const Point<dim> &qpoint         = fe_face_values.quadrature_point(q);
-          const auto        normal_to_mesh = fe_face_values.normal_vector(q);
-          const auto        normal_to_solid = -normal_to_mesh;
+          const Point<dim> &qpoint = fe_face_values.quadrature_point(q);
+
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+          for (unsigned int d = 0; d < dim; ++d)
+            exact[d] =
+              this->exact_solution->value(qpoint, this->ordering->l_lower + d);
+#else
+          const auto normal_to_mesh  = fe_face_values.normal_vector(q);
+          const auto normal_to_solid = -normal_to_mesh;
 
           // Careful:
           // int lambda := int sigma(u_MMS, p_MMS) cdot  normal_to_fluid
@@ -1258,11 +1264,6 @@ void NSSolverLambda<dim>::compute_lambda_error_on_boundary(
           // Solution<dim> computes lambda_exact = - sigma cdot ns, where n is
           // expected to be the normal to the SOLID.
 
-#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
-          for (unsigned int d = 0; d < dim; ++d)
-            exact[d] =
-              this->exact_solution->value(qpoint, this->ordering->l_lower + d);
-#else
           AssertThrow(dynamic_cast<NSSolverLambda<dim>::MMSSolution *>(
                         this->exact_solution.get()) != nullptr,
                       ExcInternalError());
@@ -1315,13 +1316,13 @@ void NSSolverLambda<dim>::compute_solver_specific_errors()
     switch (norm)
     {
       case VectorTools::L2_norm:
-        handler->add_error("l", l2_l, t);
+        handler.add_error("l", l2_l, t);
         break;
       case VectorTools::Linfty_norm:
-        handler->add_error("l", li_l, t);
+        handler.add_error("l", li_l, t);
         break;
       default:
-        handler->add_error("l", 0, t);
+        handler.add_error("l", 0, t);
     }
 
     if (this->param.fsi.compute_error_on_forces)
@@ -1329,9 +1330,9 @@ void NSSolverLambda<dim>::compute_solver_specific_errors()
       // The error on the forces is |F_h - F_exact|, there is no need to
       // distinguish between L^p norms.
       for (unsigned int d = 0; d < dim; ++d)
-        handler->add_error("F_comp" + std::to_string(d),
-                           error_on_integral[d],
-                           t);
+        handler.add_error("F_comp" + std::to_string(d),
+                          error_on_integral[d],
+                          t);
     }
   }
 }

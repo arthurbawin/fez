@@ -65,7 +65,7 @@ namespace BoundaryConditions
     open_mms,
 
     // Heat
-    heat_flux, // -k delta(T) * n = q_n
+    heat_flux, // -k grad(T) * n = q_n
 
     // Pseudo_solid
     fixed, // Enforce 0 displacement. Default when no BC is prescribed?
@@ -409,6 +409,38 @@ namespace BoundaryConditions
 } // namespace BoundaryConditions
 
 /**
+ * A function with @p n_components, but whose goal is only to be called for
+ * the component @p field_component, for which it returns the value return by
+ * the given callback @p field_fun.
+ *
+ * It returns 0 for all other vector components.
+ */
+template <int dim>
+class ScalarFunctionFromComponents : public Function<dim>
+{
+public:
+  const unsigned int                    field_component;
+  const Functions::ParsedFunction<dim> &field_fun;
+
+  ScalarFunctionFromComponents(const unsigned int field_component,
+                               const unsigned int n_components,
+                               const Functions::ParsedFunction<dim> &field_fun)
+    : Function<dim>(n_components)
+    , field_component(field_component)
+    , field_fun(field_fun)
+  {}
+
+  virtual double value(const Point<dim>  &p,
+                       const unsigned int component = 0) const override
+  {
+    if (component == field_component)
+      return field_fun.value(p);
+    DEAL_II_ASSERT_UNREACHABLE();
+    return 0.;
+  }
+};
+
+/**
  * Vector-valued function described by up to 3 individual ParsedFunctions.
  * The parameter @p lower is the first vector component in the solution vector.
  *
@@ -419,18 +451,18 @@ template <int dim>
 class VectorFunctionFromComponents : public Function<dim>
 {
 public:
-  const unsigned int                              lower;
-  std::shared_ptr<Functions::ParsedFunction<dim>> x_component;
-  std::shared_ptr<Functions::ParsedFunction<dim>> y_component;
-  std::shared_ptr<Functions::ParsedFunction<dim>> z_component;
+  const unsigned int                    lower;
+  const Functions::ParsedFunction<dim> &x_component;
+  const Functions::ParsedFunction<dim> &y_component;
+  const Functions::ParsedFunction<dim> &z_component;
 
 public:
   VectorFunctionFromComponents(
-    const unsigned int                              lower,
-    const unsigned int                              n_components,
-    std::shared_ptr<Functions::ParsedFunction<dim>> x_component,
-    std::shared_ptr<Functions::ParsedFunction<dim>> y_component,
-    std::shared_ptr<Functions::ParsedFunction<dim>> z_component)
+    const unsigned int                    lower,
+    const unsigned int                    n_components,
+    const Functions::ParsedFunction<dim> &x_component,
+    const Functions::ParsedFunction<dim> &y_component,
+    const Functions::ParsedFunction<dim> &z_component)
     : Function<dim>(n_components)
     , lower(lower)
     , x_component(x_component)
@@ -442,39 +474,14 @@ public:
                        unsigned int      component) const override
   {
     if (component == lower + 0)
-      return x_component->value(p);
+      return x_component.value(p);
     if (component == lower + 1)
-      return y_component->value(p);
+      return y_component.value(p);
     if (component == lower + 2)
-      return z_component->value(p);
+      return z_component.value(p);
     return 0.;
   }
 };
-
-template <int dim>
-class ComponentwiseFlowPressure : public Function<dim>
-{
-public:
-  const unsigned int                    p_lower;
-  const Functions::ParsedFunction<dim> &p_fun;
-
-  ComponentwiseFlowPressure(const unsigned int                    p_lower,
-                            const unsigned int                    n_components,
-                            const Functions::ParsedFunction<dim> &p_fun)
-    : Function<dim>(n_components)
-    , p_lower(p_lower)
-    , p_fun(p_fun)
-  {}
-
-  virtual double value(const Point<dim>  &p,
-                       const unsigned int component = 0) const override
-  {
-    if (component == p_lower)
-      return p_fun.value(p);
-    return 0.0;
-  }
-};
-
 
 /**
  * This function is meant to represent the spatial identity function,

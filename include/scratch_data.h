@@ -65,7 +65,7 @@ public:
               const Mapping<dim>         &moving_mapping,
               const Quadrature<dim>      &cell_quadrature,
               const Quadrature<dim - 1>  &face_quadrature,
-              const std::vector<double>  &bdf_coefficients,
+              const TimeHandler          &time_handler,
               const ParameterReader<dim> &param);
 
   /**
@@ -81,7 +81,7 @@ public:
               const hp::MappingCollection<dim> &moving_mapping_collection,
               const hp::QCollection<dim>       &cell_quadrature_collection,
               const hp::QCollection<dim - 1>   &face_quadrature_collection,
-              const std::vector<double>        &bdf_coefficients,
+              const TimeHandler                &time_handler,
               const ParameterReader<dim>       &param);
 
   /**
@@ -113,12 +113,12 @@ private:
          const bool                                            fixed_mapping);
 
   template <typename VectorType>
-  void reinit_navier_stokes_cell(
-    const FEValues<dim>                  &fe_values,
-    const VectorType                     &current_solution,
-    const std::vector<VectorType>        &previous_solutions,
-    const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+  void
+  reinit_navier_stokes_cell(const FEValues<dim>           &fe_values,
+                            const VectorType              &current_solution,
+                            const std::vector<VectorType> &previous_solutions,
+                            const Function<dim>           &source_terms,
+                            const Function<dim> & /*exact_solution*/)
   {
     fe_values[velocity].get_function_values(current_solution,
                                             present_velocity_values);
@@ -137,8 +137,8 @@ private:
                                               previous_velocity_values[i]);
 
     // Source terms with layout u-v-(w)-p
-    source_terms->vector_value_list(fe_values.get_quadrature_points(),
-                                    source_term_full_moving);
+    source_terms.vector_value_list(fe_values.get_quadrature_points(),
+                                   source_term_full_moving);
 
     // Get jacobian, shape functions and set source terms
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -166,8 +166,8 @@ private:
     const FEFaceValues<dim> &fe_face_values,
     const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
-    const std::shared_ptr<Function<dim>> & /*source_terms*/,
-    const std::shared_ptr<Function<dim>> &exact_solution)
+    const Function<dim> & /*source_terms*/,
+    const Function<dim> &exact_solution)
   {
     fe_face_values[velocity].get_function_values(
       current_solution, present_face_velocity_values[i_face]);
@@ -176,10 +176,10 @@ private:
       current_solution, present_face_velocity_gradients[i_face]);
 
     // Exact solution with layout u-v-(w-)p and its gradient
-    exact_solution->vector_value_list(fe_face_values.get_quadrature_points(),
-                                      exact_solution_full);
-    exact_solution->vector_gradient_list(fe_face_values.get_quadrature_points(),
-                                         grad_exact_solution_full);
+    exact_solution.vector_value_list(fe_face_values.get_quadrature_points(),
+                                     exact_solution_full);
+    exact_solution.vector_gradient_list(fe_face_values.get_quadrature_points(),
+                                        grad_exact_solution_full);
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
@@ -215,8 +215,8 @@ private:
   reinit_compressible_cell(const FEValues<dim>           &fe_values,
                            const VectorType              &current_solution,
                            const std::vector<VectorType> &previous_solutions,
-                           const std::shared_ptr<Function<dim>> &source_terms,
-                           const std::shared_ptr<Function<dim>> &exact_solution)
+                           const Function<dim> & /*source_terms*/,
+                           const Function<dim> &exact_solution)
   {
     fe_values[temperature].get_function_values(current_solution,
                                                present_temperature_values);
@@ -236,8 +236,8 @@ private:
     }
 
     // Exact solution at cell quadrature points (layout u-v-(w-)p-T)
-    exact_solution->vector_value_list(fe_values.get_quadrature_points(),
-                                      exact_solution_full_cell);
+    exact_solution.vector_value_list(fe_values.get_quadrature_points(),
+                                     exact_solution_full_cell);
 
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
@@ -281,8 +281,8 @@ private:
     const FEFaceValues<dim> &fe_face_values,
     const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
-    const std::shared_ptr<Function<dim>> & /*source_terms*/,
-    const std::shared_ptr<Function<dim>> &exact_solution)
+    const Function<dim> & /*source_terms*/,
+    const Function<dim> &exact_solution)
   {
     fe_face_values[pressure].get_function_values(
       current_solution, present_face_pressure_values[i_face]);
@@ -293,8 +293,8 @@ private:
     fe_face_values[temperature].get_function_gradients(
       current_solution, present_face_temperature_gradients[i_face]);
 
-    exact_solution->vector_gradient_list(fe_face_values.get_quadrature_points(),
-                                         grad_exact_solution_full);
+    exact_solution.vector_gradient_list(fe_face_values.get_quadrature_points(),
+                                        grad_exact_solution_full);
 
     const auto &quad_points = fe_face_values.get_quadrature_points();
 
@@ -341,13 +341,13 @@ private:
   }
 
   template <typename VectorType>
-  void reinit_pseudo_solid_cell(
-    const FEValues<dim>                  &fe_values_fixed,
-    const FEValues<dim>                  &fe_values_moving,
-    const VectorType                     &current_solution,
-    const std::vector<VectorType>        &previous_solutions,
-    const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+  void
+  reinit_pseudo_solid_cell(const FEValues<dim>           &fe_values_fixed,
+                           const FEValues<dim>           &fe_values_moving,
+                           const VectorType              &current_solution,
+                           const std::vector<VectorType> &previous_solutions,
+                           const Function<dim>           &source_terms,
+                           const Function<dim> & /*exact_solution*/)
   {
     fe_values_fixed[position].get_function_values(current_solution,
                                                   present_position_values);
@@ -364,6 +364,8 @@ private:
     }
 
     // Current mesh velocity from displacement
+    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
+
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       present_mesh_velocity_values[q] =
@@ -379,12 +381,12 @@ private:
       fe_values_fixed.get_quadrature_points();
 
     // Source terms on fixed mapping for x
-    source_terms->vector_value_list(fixed_quadrature_points,
-                                    source_term_full_fixed);
+    source_terms.vector_value_list(fixed_quadrature_points,
+                                   source_term_full_fixed);
 
     // This takes a lot of time, and the Newton solver converges without it
     // // Gradient of source term (for u-p only)
-    // source_terms->vector_gradient_list(fe_values.get_quadrature_points(),
+    // source_terms.vector_gradient_list(fe_values.get_quadrature_points(),
     //                                    grad_source_term_full);
 
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -418,14 +420,14 @@ private:
   }
 
   template <typename VectorType>
-  void reinit_pseudo_solid_face(
-    const unsigned int             i_face,
-    const FEFaceValues<dim>       &fe_face_values_fixed,
-    const FEFaceValues<dim>       &fe_face_values,
-    const VectorType              &current_solution,
-    const std::vector<VectorType> &previous_solutions,
-    const std::shared_ptr<Function<dim>> & /*source_terms*/,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+  void
+  reinit_pseudo_solid_face(const unsigned int             i_face,
+                           const FEFaceValues<dim>       &fe_face_values_fixed,
+                           const FEFaceValues<dim>       &fe_face_values,
+                           const VectorType              &current_solution,
+                           const std::vector<VectorType> &previous_solutions,
+                           const Function<dim> & /*source_terms*/,
+                           const Function<dim> & /*exact_solution*/)
   {
     fe_face_values_fixed[position].get_function_values(
       current_solution, present_face_position_values[i_face]);
@@ -437,6 +439,8 @@ private:
       fe_face_values_fixed[position].get_function_values(
         previous_solutions[i], previous_face_position_values[i_face][i]);
     }
+
+    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
@@ -602,8 +606,8 @@ private:
     const FEFaceValues<dim> &fe_face_values,
     const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
-    const std::shared_ptr<Function<dim>> & /*source_terms*/,
-    const std::shared_ptr<Function<dim>> &exact_solution)
+    const Function<dim> & /*source_terms*/,
+    const Function<dim> &exact_solution)
   {
     fe_face_values[lambda].get_function_values(
       current_solution, present_face_lambda_values[i_face]);
@@ -616,9 +620,9 @@ private:
     const auto &quadrature_points = fe_face_values.get_quadrature_points();
 
     // Get exact velocity on face
-    exact_solution->vector_value_list(quadrature_points, exact_solution_full);
-    exact_solution->vector_gradient_list(quadrature_points,
-                                         grad_exact_solution_full);
+    exact_solution.vector_value_list(quadrature_points, exact_solution_full);
+    exact_solution.vector_gradient_list(quadrature_points,
+                                        grad_exact_solution_full);
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
@@ -651,10 +655,10 @@ private:
     // FIXME: The exact_solution should be an MMSFunction, which
     // has a time_derivative function.
     const typename FSISolver<dim>::MMSSolution *sol = nullptr;
-    if (dynamic_cast<typename FSISolver<dim>::MMSSolution *>(
-          exact_solution.get()) != nullptr)
+    if (dynamic_cast<const typename FSISolver<dim>::MMSSolution *>(
+          &exact_solution) != nullptr)
       sol = dynamic_cast<const typename FSISolver<dim>::MMSSolution *>(
-        exact_solution.get());
+        &exact_solution);
     if (sol != nullptr)
     {
       const auto &fixed_quadrature_points =
@@ -669,6 +673,8 @@ private:
             sol->time_derivative(qpoint, x_lower + d);
       }
     }
+#else
+    (void)exact_solution;
 #endif
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
@@ -726,13 +732,13 @@ private:
   }
 
   template <typename VectorType>
-  void reinit_cahn_hilliard_cell(
-    const FEValues<dim>                  &fe_values_fixed,
-    const FEValues<dim>                  &fe_values_moving,
-    const VectorType                     &current_solution,
-    const std::vector<VectorType>        &previous_solutions,
-    const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+  void
+  reinit_cahn_hilliard_cell(const FEValues<dim>           &fe_values_fixed,
+                            const FEValues<dim>           &fe_values_moving,
+                            const VectorType              &current_solution,
+                            const std::vector<VectorType> &previous_solutions,
+                            const Function<dim>           &source_terms,
+                            const Function<dim> & /*exact_solution*/)
   {
     fe_values_moving[tracer].get_function_values(current_solution,
                                                  tracer_values);
@@ -756,8 +762,8 @@ private:
       fe_values_moving[tracer].get_function_values(previous_solutions[i],
                                                    previous_tracer_values[i]);
 
-    source_terms->vector_value_list(fe_values_moving.get_quadrature_points(),
-                                    source_term_full_moving);
+    source_terms.vector_value_list(fe_values_moving.get_quadrature_points(),
+                                   source_term_full_moving);
 
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
@@ -817,10 +823,10 @@ public:
    */
   template <typename VectorType>
   void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
-              const VectorType                     &current_solution,
-              const std::vector<VectorType>        &previous_solutions,
-              const std::shared_ptr<Function<dim>> &source_terms,
-              const std::shared_ptr<Function<dim>> &exact_solution)
+              const VectorType              &current_solution,
+              const std::vector<VectorType> &previous_solutions,
+              const Function<dim>           &source_terms,
+              const Function<dim>           &exact_solution)
   {
     /**
      * Reinit the fe_values on moving mesh on the current cell, and possibly the
@@ -967,7 +973,7 @@ public:
   unsigned int n_faces_q_points;
   unsigned int dofs_per_cell;
 
-  const std::vector<double> bdf_coefficients;
+  const TimeHandler &time_handler;
 
   std::vector<unsigned int>                components;
   std::vector<double>                      JxW_moving;
@@ -1204,7 +1210,7 @@ public:
                               const Mapping<dim>         &mapping,
                               const Quadrature<dim>      &cell_quadrature,
                               const Quadrature<dim - 1>  &face_quadrature,
-                              const std::vector<double>  &bdf_coefficients,
+                              const TimeHandler          &time_handler,
                               const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ false,
@@ -1216,7 +1222,7 @@ public:
                        mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 
@@ -1243,7 +1249,7 @@ public:
                             const Mapping<dim>         &mapping,
                             const Quadrature<dim>      &cell_quadrature,
                             const Quadrature<dim - 1>  &face_quadrature,
-                            const std::vector<double>  &bdf_coefficients,
+                            const TimeHandler          &time_handler,
                             const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ false,
@@ -1255,7 +1261,7 @@ public:
                        mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 
@@ -1283,7 +1289,7 @@ public:
     const hp::MappingCollection<dim> &mapping_collection,
     const hp::QCollection<dim>       &cell_quadrature_collection,
     const hp::QCollection<dim - 1>   &face_quadrature_collection,
-    const std::vector<double>        &bdf_coefficients,
+    const TimeHandler                &time_handler,
     const ParameterReader<dim>       &param)
     : ScratchData<dim, true>(ordering,
                              /*enable_pseudo_solid = */ false,
@@ -1295,7 +1301,7 @@ public:
                              mapping_collection,
                              cell_quadrature_collection,
                              face_quadrature_collection,
-                             bdf_coefficients,
+                             time_handler,
                              param)
   {}
 
@@ -1324,7 +1330,7 @@ public:
                  const Mapping<dim>         &moving_mapping,
                  const Quadrature<dim>      &cell_quadrature,
                  const Quadrature<dim - 1>  &face_quadrature,
-                 const std::vector<double>  &bdf_coefficients,
+                 const TimeHandler          &time_handler,
                  const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ true,
@@ -1336,7 +1342,7 @@ public:
                        moving_mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 
@@ -1364,7 +1370,7 @@ public:
                     const hp::MappingCollection<dim> &moving_mapping_collection,
                     const hp::QCollection<dim>     &cell_quadrature_collection,
                     const hp::QCollection<dim - 1> &face_quadrature_collection,
-                    const std::vector<double>      &bdf_coefficients,
+                    const TimeHandler              &time_handler,
                     const ParameterReader<dim>     &param)
     : ScratchData<dim, true>(ordering,
                              /*enable_pseudo_solid = */ true,
@@ -1376,7 +1382,7 @@ public:
                              moving_mapping_collection,
                              cell_quadrature_collection,
                              face_quadrature_collection,
-                             bdf_coefficients,
+                             time_handler,
                              param)
   {}
 
@@ -1405,7 +1411,7 @@ public:
                   const Mapping<dim>         &moving_mapping,
                   const Quadrature<dim>      &cell_quadrature,
                   const Quadrature<dim - 1>  &face_quadrature,
-                  const std::vector<double>  &bdf_coefficients,
+                  const TimeHandler          &time_handler,
                   const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ with_moving_mesh,
@@ -1417,7 +1423,7 @@ public:
                        moving_mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 

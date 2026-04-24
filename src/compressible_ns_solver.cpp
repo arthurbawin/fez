@@ -24,18 +24,18 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(
   : NavierStokesSolver<dim>(param)
 {
   if (param.finite_elements.use_quads)
-    fe = std::make_shared<FESystem<dim>>(
+    fe = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
       FE_Q<dim>(param.finite_elements.pressure_degree),       // Pressure
       FE_Q<dim>(param.finite_elements.temperature_degree));   // Temperature
   else
-    fe = std::make_shared<FESystem<dim>>(
+    fe = std::make_unique<FESystem<dim>>(
       FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
       FE_SimplexP<dim>(param.finite_elements.pressure_degree),       // Pressure
       FE_SimplexP<dim>(
         param.finite_elements.temperature_degree)); // Temperature
 
-  this->ordering = std::make_shared<ComponentOrderingCompressibleNS<dim>>();
+  this->ordering = std::make_unique<ComponentOrderingCompressibleNS<dim>>();
 
   this->velocity_extractor =
     FEValuesExtractors::Vector(this->ordering->u_lower);
@@ -92,8 +92,8 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(
     }
 
     // Create entry in error handler for temperature
-    for (auto norm : this->param.mms_param.norms_to_compute)
-      this->error_handlers[norm]->create_entry("T");
+    for (auto &[norm, handler] : this->error_handlers)
+      handler.create_entry("T");
   }
   else
   {
@@ -181,6 +181,17 @@ void CompressibleNSSolver<dim>::MMSSourceTerm::vector_value(
   }
 }
 
+template <int dim>
+void CompressibleNSSolver<dim>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               *mapping,
+                                               *this->quadrature,
+                                               *this->face_quadrature,
+                                               this->time_handler,
+                                               this->param);
+}
 
 template <int dim>
 void CompressibleNSSolver<dim>::create_solver_specific_zero_constraints()
@@ -226,9 +237,9 @@ void CompressibleNSSolver<dim>::create_solver_specific_nonzero_constraints()
         *mapping,
         this->dof_handler,
         id,
-        ComponentwiseFlowPressure<dim>(this->ordering->t_lower,
-                                       this->ordering->n_components,
-                                       *bc.temperature),
+        ScalarFunctionFromComponents<dim>(this->ordering->t_lower,
+                                          this->ordering->n_components,
+                                          *bc.temperature),
         this->nonzero_constraints,
         temperature_mask);
     }
@@ -310,14 +321,7 @@ void CompressibleNSSolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           *mapping,
-                           *this->quadrature,
-                           *this->face_quadrature,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -338,7 +342,7 @@ void CompressibleNSSolver<dim>::assemble_matrix()
                   *this,
                   assembly_ptr,
                   &CompressibleNSSolver::copy_local_to_global_matrix,
-                  scratch_data,
+                  *scratch_data,
                   copyData);
 
   this->system_matrix.compress(VectorOperation::add);
@@ -374,8 +378,8 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
@@ -716,14 +720,7 @@ void CompressibleNSSolver<dim>::copy_local_to_global_matrix(
 template <int dim>
 void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           *mapping,
-                           *this->quadrature,
-                           *this->face_quadrature,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
@@ -731,7 +728,7 @@ void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
     *this,
     &CompressibleNSSolver::assemble_local_matrix,
     &CompressibleNSSolver::assemble_local_rhs,
-    scratch_data,
+    *scratch_data,
     copyData,
     this->present_solution,
     this->evaluation_point,
@@ -758,14 +755,7 @@ void CompressibleNSSolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           *mapping,
-                           *this->quadrature,
-                           *this->face_quadrature,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -773,7 +763,7 @@ void CompressibleNSSolver<dim>::assemble_rhs()
                   *this,
                   &CompressibleNSSolver::assemble_local_rhs,
                   &CompressibleNSSolver::copy_local_to_global_rhs,
-                  scratch_data,
+                  *scratch_data,
                   copyData);
 
   this->system_rhs.compress(VectorOperation::add);
@@ -793,8 +783,8 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;

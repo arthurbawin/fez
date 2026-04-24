@@ -45,10 +45,20 @@ public:
    */
   FSISolverLessLambda(const ParameterReader<dim> &param);
 
-  virtual ~FSISolverLessLambda() {}
+  /**
+   * Destructor
+   */
+  virtual ~FSISolverLessLambda();
 
-public:
+  /**
+   *
+   */
   virtual void reset_solver_specific_data() override;
+
+  /**
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() override;
 
   /**
    * Create the AffineConstraints storing the lambda = 0
@@ -257,9 +267,9 @@ protected:
     return cell->material_id() == with_lambda_domain_id;
   }
 
-  std::shared_ptr<FESystem<dim>>         fe_with_lambda;
-  std::shared_ptr<FESystem<dim>>         fe_without_lambda;
-  std::shared_ptr<hp::FECollection<dim>> fe;
+  std::unique_ptr<FESystem<dim>>         fe_with_lambda;
+  std::unique_ptr<FESystem<dim>>         fe_without_lambda;
+  std::unique_ptr<hp::FECollection<dim>> fe;
 
   hp::MappingCollection<dim> fixed_mapping_collection;
   hp::MappingCollection<dim> moving_mapping_collection;
@@ -267,6 +277,8 @@ protected:
   hp::QCollection<dim - 1>   face_quadrature_collection;
 
   static constexpr ConstexprComponentOrderingFSI<dim> const_ordering = {};
+
+  std::unique_ptr<ScratchData> scratch_data;
 
   FEValuesExtractors::Vector lambda_extractor;
   ComponentMask              lambda_mask;

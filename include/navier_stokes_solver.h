@@ -74,7 +74,12 @@ public:
    * convergence studies, to properly reset the mesh, time integration data,
    * etc.
    */
-  void         reset();
+  void reset();
+
+  /**
+   * Reset data specific to each derived solver. By default, this function does
+   * nothing and must be overriden if needed.
+   */
   virtual void reset_solver_specific_data() {}
 
   /**
@@ -84,7 +89,12 @@ public:
    *  - exact solution
    *  - physical properties
    */
-  void         set_time();
+  void set_time();
+
+  /**
+   * Set time in the relevant structures of each derived solver. By default,
+   * this function does nothing and must be overriden if needed.
+   */
   virtual void set_solver_specific_time() {}
 
   /**
@@ -100,13 +110,21 @@ public:
   virtual void setup_mappings();
 
   /**
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() = 0;
+
+  /**
    * For solvers with hp capabilities, set the active fe index on each owned
    * mesh element.
+   *
+   * This function is not pure virtual because non-hp solvers do not need it,
+   * but it should be overriden by hp solvers, and it will throw an error if
+   * called from this class.
+   *
+   * FIXME: A proper base class should be added for hp solver, to avoid this.
    */
-  virtual void set_active_fe_indices()
-  {
-    AssertThrow(false, ExcPureFunctionCalled());
-  };
+  virtual void set_active_fe_indices();
 
   /**
    * Reinitialize the ghosted parallel vectors.
@@ -143,18 +161,30 @@ public:
    * Create the homogeneous boundary conditions.
    */
   virtual void create_zero_constraints();
+
+  /**
+   * Create the additional homogeneous boundary conditions specific to each
+   * derived solver. By default, this function does nothing and must be
+   * overriden if needed.
+   */
   virtual void create_solver_specific_zero_constraints() {}
 
   /**
    * Create the inhomogeneous boundary conditions.
    */
   virtual void create_nonzero_constraints();
+
+  /**
+   * Create the additional inhomogeneous boundary conditions specific to each
+   * derived solver. By default, this function does nothing and must be
+   * overriden if needed.
+   */
   virtual void create_solver_specific_nonzero_constraints() {}
 
-  virtual AffineConstraints<double> &get_nonzero_constraints() override
-  {
-    return nonzero_constraints;
-  }
+  /**
+   * Return the inhomogeneous constraints.
+   */
+  virtual AffineConstraints<double> &get_nonzero_constraints() override;
 
   /**
    * Update the inhomogeneous boundary conditions for the current time, after
@@ -173,13 +203,24 @@ public:
    * Initial conditions on additional fields must be set in the solver-specific
    * overload.
    */
-  void         set_initial_conditions();
+  void set_initial_conditions();
+
+  /**
+   * Create the additional initial conditions specific to each derived solver.
+   * By default, this function does nothing and must be overriden if needed.
+   */
   virtual void set_solver_specific_initial_conditions() {}
 
   /**
    * Idem as initial conditions, but applies the prescribed exact solution.
    */
-  void         set_exact_solution();
+  void set_exact_solution();
+
+  /**
+   * Applies the exact solution for the the additional fields specific to each
+   * derived solver. By default, this function does nothing and must be
+   * overriden if needed.
+   */
   virtual void set_solver_specific_exact_solution() {}
 
   /**
@@ -202,7 +243,12 @@ public:
    * Post-process the numerical solution: output for visualization,
    * compute errors, forces, etc.
    */
-  void         postprocess_solution();
+  void postprocess_solution();
+
+  /**
+   * Post-process the additional data specific to each derived solver. By
+   * default, this function does nothing and must be overriden if needed.
+   */
   virtual void solver_specific_post_processing() {}
 
   /**
@@ -230,13 +276,25 @@ public:
    * the prescribed Sobolev norms. Errors on additional fields must be computed
    * in the overloaded function.
    */
-  void         compute_errors();
+  void compute_errors();
+
+  /**
+   * Compute the error norms over the additional fields specific to each derived
+   * solver. By default, this function does nothing and must be overriden if
+   * needed.
+   */
   virtual void compute_solver_specific_errors() {}
 
   /**
    * Write the results to a vtu/pvtu file for visualization.
    */
-  void         output_results();
+  void output_results();
+
+  /**
+   * Add additional postprocessing data specific to each derived solver to the
+   * postprocessing handler. By default, this function does nothing and must be
+   * overriden if needed.
+   */
   virtual void add_solver_specific_postprocessing_data() {}
 
   /**
@@ -259,10 +317,7 @@ public:
   /**
    * Write the forces table to stream.
    */
-  void write_forces(std::ostream &out = std::cout) const
-  {
-    postproc_handler->write_forces(out);
-  }
+  void write_forces(std::ostream &out = std::cout) const;
 
   /**
    * If solving a fluid-structure interaction problem, compute the position of
@@ -275,10 +330,7 @@ public:
   /**
    * Write the structure mean position table to stream.
    */
-  void write_structure_mean_position(std::ostream &out = std::cout) const
-  {
-    postproc_handler->write_structure_mean_position(out);
-  }
+  void write_structure_mean_position(std::ostream &out = std::cout) const;
 
   /**
    * This function initializes data requiring information from the derived
@@ -358,66 +410,53 @@ protected:
   virtual bool uses_hp_capabilities() const = 0;
 
   /**
-   * Return the finite element collection used by this solver
-   * FIXME: ideally there would be a dedicated base class for hp NS solvers
+   * Return the finite element collection used by this solver.
+   *
+   * This function, as well as the get_*_collection functions below, is not pure
+   * virtual because non-hp solvers do not need it, but it should be overriden
+   * by hp solvers, and it will throw an error if called from this class.
+   *
+   * FIXME: A proper base class should be added for hp solver, to avoid this.
    */
-  virtual const hp::FECollection<dim> *get_fe_collection() const
-  {
-    AssertThrow(false, ExcPureFunctionCalled());
-    return nullptr;
-  };
+  virtual const hp::FECollection<dim> *get_fe_collection() const;
 
   /**
    * Return the collection of fixed mappings used by this solver
    */
-  virtual const hp::MappingCollection<dim> *get_fixed_mapping_collection() const
-  {
-    AssertThrow(false, ExcPureFunctionCalled());
-    return nullptr;
-  };
+  virtual const hp::MappingCollection<dim> *
+  get_fixed_mapping_collection() const;
 
   /**
    * Return the collection of moving mappings used by this solver
    */
   virtual const hp::MappingCollection<dim> *
-  get_moving_mapping_collection() const
-  {
-    AssertThrow(false, ExcPureFunctionCalled());
-    return nullptr;
-  };
+  get_moving_mapping_collection() const;
 
   /**
    * Return the cell quadrature collection used by this solver
    */
-  virtual const hp::QCollection<dim> *get_cell_quadrature_collection() const
-  {
-    AssertThrow(false, ExcPureFunctionCalled());
-    return nullptr;
-  };
+  virtual const hp::QCollection<dim> *get_cell_quadrature_collection() const;
 
   /**
    * Return the face quadrature collection used by this solver
    */
-  virtual const hp::QCollection<dim - 1> *get_face_quadrature_collection() const
-  {
-    AssertThrow(false, ExcPureFunctionCalled());
-    return nullptr;
-  };
+  virtual const hp::QCollection<dim - 1> *
+  get_face_quadrature_collection() const;
 
 protected:
-  std::shared_ptr<ComponentOrdering> ordering;
+  std::unique_ptr<ComponentOrdering> ordering;
 
   ParameterReader<dim> param;
 
   // Choose another quadrature rule for error computation
-  std::shared_ptr<Quadrature<dim>>     quadrature;
-  std::shared_ptr<Quadrature<dim>>     error_quadrature;
-  std::shared_ptr<Quadrature<dim - 1>> face_quadrature;
-  std::shared_ptr<Quadrature<dim - 1>> error_face_quadrature;
+  std::unique_ptr<Quadrature<dim>>     quadrature;
+  std::unique_ptr<Quadrature<dim>>     error_quadrature;
+  std::unique_ptr<Quadrature<dim - 1>> face_quadrature;
+  std::unique_ptr<Quadrature<dim - 1>> error_face_quadrature;
 
   parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::shared_ptr<Mapping<dim>>                  fixed_mapping;
-  std::shared_ptr<Mapping<dim>>                  moving_mapping;
+  std::unique_ptr<Mapping<dim>>                  fixed_mapping;
+  std::unique_ptr<Mapping<dim>>                  moving_mapping;
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler;
 
@@ -456,9 +495,84 @@ protected:
   std::shared_ptr<Function<dim>> exact_solution;
 
   SolverControl                                          solver_control;
-  std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
+  std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  std::shared_ptr<PostProcessingHandler<dim>> postproc_handler;
+  std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
+};
+
+/* ---------------- template and inline functions ----------------- */
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::set_active_fe_indices()
+{
+  AssertThrow(false, ExcPureFunctionCalled());
+};
+
+template <int dim, bool with_moving_mesh>
+AffineConstraints<double> &
+NavierStokesSolver<dim, with_moving_mesh>::get_nonzero_constraints()
+{
+  return nonzero_constraints;
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::write_forces(
+  std::ostream &out) const
+{
+  postproc_handler->write_forces(out);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::write_structure_mean_position(
+  std::ostream &out) const
+{
+  postproc_handler->write_structure_mean_position(out);
+}
+
+
+template <int dim, bool with_moving_mesh>
+const hp::FECollection<dim> *
+NavierStokesSolver<dim, with_moving_mesh>::get_fe_collection() const
+{
+  AssertThrow(false, ExcPureFunctionCalled());
+  return nullptr;
+};
+
+template <int dim, bool with_moving_mesh>
+const hp::MappingCollection<dim> *
+NavierStokesSolver<dim, with_moving_mesh>::get_fixed_mapping_collection() const
+{
+  AssertThrow(false, ExcPureFunctionCalled());
+  return nullptr;
+};
+
+
+template <int dim, bool with_moving_mesh>
+const hp::MappingCollection<dim> *
+NavierStokesSolver<dim, with_moving_mesh>::get_moving_mapping_collection() const
+{
+  AssertThrow(false, ExcPureFunctionCalled());
+  return nullptr;
+};
+
+
+template <int dim, bool with_moving_mesh>
+const hp::QCollection<dim> *
+NavierStokesSolver<dim, with_moving_mesh>::get_cell_quadrature_collection()
+  const
+{
+  AssertThrow(false, ExcPureFunctionCalled());
+  return nullptr;
+};
+
+
+template <int dim, bool with_moving_mesh>
+const hp::QCollection<dim - 1> *
+NavierStokesSolver<dim, with_moving_mesh>::get_face_quadrature_collection()
+  const
+{
+  AssertThrow(false, ExcPureFunctionCalled());
+  return nullptr;
 };
 
 #endif

@@ -29,15 +29,15 @@ namespace LagrangeMultiplierTools
    * or a combination of these.
    */
   template <int dim, typename ScratchData, typename VectorType>
-  void check_no_slip_on_boundary(
-    const ParameterReader<dim>           &param,
-    ScratchData                          &scratch_data,
-    const DoFHandler<dim>                &dof_handler,
-    const VectorType                     &solution,
-    const std::vector<VectorType>        &previous_solutions,
-    const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> &exact_solution,
-    const types::boundary_id              boundary_id);
+  void
+  check_no_slip_on_boundary(const ParameterReader<dim>    &param,
+                            ScratchData                   &scratch_data,
+                            const DoFHandler<dim>         &dof_handler,
+                            const VectorType              &solution,
+                            const std::vector<VectorType> &previous_solutions,
+                            const Function<dim>           &source_terms,
+                            const Function<dim>           &exact_solution,
+                            const types::boundary_id       boundary_id);
 
 } // namespace LagrangeMultiplierTools
 
@@ -45,14 +45,14 @@ namespace LagrangeMultiplierTools
 
 template <int dim, typename ScratchData, typename VectorType>
 void LagrangeMultiplierTools::check_no_slip_on_boundary(
-  const ParameterReader<dim>           &param,
-  ScratchData                          &scratch_data,
-  const DoFHandler<dim>                &dof_handler,
-  const VectorType                     &solution,
-  const std::vector<VectorType>        &previous_solutions,
-  const std::shared_ptr<Function<dim>> &source_terms,
-  const std::shared_ptr<Function<dim>> &exact_solution,
-  const types::boundary_id              boundary_id)
+  const ParameterReader<dim>    &param,
+  ScratchData                   &scratch_data,
+  const DoFHandler<dim>         &dof_handler,
+  const VectorType              &solution,
+  const std::vector<VectorType> &previous_solutions,
+  const Function<dim>           &source_terms,
+  const Function<dim>           &exact_solution,
+  const types::boundary_id       boundary_id)
 {
   if (boundary_id == numbers::invalid_unsigned_int)
     return;

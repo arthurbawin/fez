@@ -80,8 +80,7 @@ void extract_subsolution(
   const auto &fe_source = dof_handler_source.get_fe();
   const auto &fe_dest   = dof_handler_destination.get_fe();
 
-  // 1. pre-compute source-to-destination local dof mapping on the reference
-  // cell
+  // pre-compute source-to-destination local dof mapping on the reference cell
   std::vector<unsigned int> source_to_dest_local_dof(
     fe_source.dofs_per_cell, numbers::invalid_unsigned_int);
 
@@ -115,7 +114,7 @@ void extract_subsolution(
     }
   }
 
-  // 2. iterate over active cells of both dof handlers simultaneously
+  // iterate over active cells of both dof handlers simultaneously
   auto cell_source = dof_handler_source.begin_active();
   auto cell_dest   = dof_handler_destination.begin_active();
 

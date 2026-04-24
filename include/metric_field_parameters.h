@@ -17,6 +17,8 @@ namespace Parameters
   {
   public:
     Verbosity verbosity;
+    unsigned int mesh_quality_output_frequency;
+    std::string  mesh_quality_output_name;
 
     // Min and max allowed mesh size along any principal direction
     double min_meshsize;

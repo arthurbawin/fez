@@ -531,19 +531,37 @@ MetricField<dim>::compute_cell_edge_measure(
   const unsigned int                                    edge_no,
   const Quadrature<1>                                  &edge_quadrature) const
 {
+  return compute_cell_edge_measure(cell,
+                                   edge_no,
+                                   edge_quadrature,
+                                   *mapping);
+}
+
+template <int dim>
+double
+MetricField<dim>::compute_cell_edge_measure(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  const unsigned int                                    edge_no,
+  const Quadrature<1>                                  &edge_quadrature,
+  const Mapping<dim>                                   &geometry_mapping) const
+{
   Assert(cell->is_locally_owned(), ExcMessage("Only for owned cells"));
   Assert(cell->reference_cell().is_simplex(),
          ExcMessage("Metric edge measure is currently implemented only for "
                     "simplex cells."));
   AssertIndexRange(edge_no, cell->n_lines());
 
-  const auto line = cell->line(edge_no);
+  const auto v0 =
+    cell->vertex_index(cell->reference_cell().line_to_cell_vertices(edge_no, 0));
+  const auto v1 =
+    cell->vertex_index(cell->reference_cell().line_to_cell_vertices(edge_no, 1));
 
-  const auto v0 = line->vertex_index(0);
-  const auto v1 = line->vertex_index(1);
-
-  const Point<dim> x0 = line->vertex(0);
-  const Point<dim> x1 = line->vertex(1);
+  const auto tria_cell = triangulation.create_cell_iterator(cell->id());
+  const auto vertices  = geometry_mapping.get_vertices(tria_cell);
+  const Point<dim> x0 =
+    vertices[cell->reference_cell().line_to_cell_vertices(edge_no, 0)];
+  const Point<dim> x1 =
+    vertices[cell->reference_cell().line_to_cell_vertices(edge_no, 1)];
 
   const Tensor<1, dim> edge_vector = x1 - x0;
 
@@ -590,6 +608,17 @@ MetricField<dim>::compute_cell_quality(
   const FEValues<dim>                                  &fe_values,
   const Quadrature<1>                                  &edge_quadrature) const
 {
+  return compute_cell_quality(cell, fe_values, edge_quadrature, *mapping);
+}
+
+template <int dim>
+double
+MetricField<dim>::compute_cell_quality(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  const FEValues<dim>                                  &fe_values,
+  const Quadrature<1>                                  &edge_quadrature,
+  const Mapping<dim>                                   &geometry_mapping) const
+{
   Assert(cell->is_locally_owned(), ExcMessage("Only for owned cells"));
   Assert(cell->reference_cell().is_simplex(),
          ExcMessage("Metric cell quality is currently implemented only for "
@@ -601,7 +630,10 @@ MetricField<dim>::compute_cell_quality(
   for (unsigned int edge_no = 0; edge_no < cell->n_lines(); ++edge_no)
   {
     const double edge_measure =
-      compute_cell_edge_measure(cell, edge_no, edge_quadrature);
+      compute_cell_edge_measure(cell,
+                                edge_no,
+                                edge_quadrature,
+                                geometry_mapping);
     sum_edge_measures_sq += edge_measure * edge_measure;
   }
 
@@ -628,13 +660,26 @@ MetricField<dim>::compute_cell_quality_field(
   const Quadrature<dim> &cell_quadrature,
   const Quadrature<1>   &edge_quadrature)
 {
+  return compute_cell_quality_field(*mapping,
+                                    cell_quadrature,
+                                    edge_quadrature);
+}
+
+template <int dim>
+Vector<float>
+MetricField<dim>::compute_cell_quality_field(
+  const Mapping<dim>    &geometry_mapping,
+  const Quadrature<dim> &cell_quadrature,
+  const Quadrature<1>   &edge_quadrature)
+{
   // Keep the FE-based and nodal metric representations consistent before
   // mixing cell integrals and edge integrals in the quality computation.
   metrics_to_tensor_solution();
+  tensor_solution_to_metrics();
 
   Vector<float> cell_quality(triangulation.n_active_cells());
 
-  FEValues<dim> fe_values(*mapping,
+  FEValues<dim> fe_values(geometry_mapping,
                           *fe,
                           cell_quadrature,
                           update_values | update_JxW_values);
@@ -646,7 +691,10 @@ MetricField<dim>::compute_cell_quality_field(
 
     cell_quality[cell->active_cell_index()] =
       static_cast<float>(
-        compute_cell_quality(cell, fe_values, edge_quadrature));
+        compute_cell_quality(cell,
+                             fe_values,
+                             edge_quadrature,
+                             geometry_mapping));
   }
 
   return cell_quality;
@@ -873,6 +921,14 @@ template <int dim>
 void MetricField<dim>::write_pvtu(const std::string &filename,
                                   bool               write_inverse_metrics)
 {
+  write_pvtu(*mapping, filename, write_inverse_metrics);
+}
+
+template <int dim>
+void MetricField<dim>::write_pvtu(const Mapping<dim> &geometry_mapping,
+                                  const std::string  &filename,
+                                  bool               write_inverse_metrics)
+{
   (void)write_inverse_metrics;
 
   metrics_to_tensor_solution();
@@ -883,7 +939,7 @@ void MetricField<dim>::write_pvtu(const std::string &filename,
   DataOut<dim> data_out;
   data_out.attach_dof_handler(dof_handler);
   data_out.add_data_vector(metrics_fe, postprocessor);
-  data_out.build_patches(1);
+  data_out.build_patches(geometry_mapping, 1);
   data_out.write_vtu_with_pvtu_record(
     param.output.output_dir,
     filename,

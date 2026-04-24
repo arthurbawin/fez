@@ -467,6 +467,13 @@ namespace ErrorEstimation
         const unsigned int component = 0) const override;
 
       /**
+       * Overwrite the reconstructed nodal gradient and keep its isoparametric
+       * FE representation synchronized for downstream post-processing.
+       */
+      void overwrite_reconstructed_gradient(
+        const std::vector<Tensor<1, dim>> &new_gradient);
+
+      /**
        * Return the reconstructed hessian of the @p component-th component of the solution,
        * stored at the (owned) mesh vertices of this partition.
        */
@@ -657,6 +664,23 @@ namespace ErrorEstimation
     Scalar<dim>::get_reconstructed_gradient(const unsigned int) const
     {
       return recovered_gradient_at_vertices;
+    }
+
+    template <int dim>
+    void Scalar<dim>::overwrite_reconstructed_gradient(
+      const std::vector<Tensor<1, dim>> &new_gradient)
+    {
+      AssertDimension(new_gradient.size(), recovered_gradient_at_vertices.size());
+
+      recovered_gradient_at_vertices = new_gradient;
+
+      this->template vertex_to_isoparametric<
+        1,
+        gradient_type::n_independent_components>(
+        recovered_gradient_at_vertices,
+        this->local_isoparam_solution,
+        this->isoparam_solution,
+        vertices_to_gradient_dofs);
     }
 
     template <int dim>

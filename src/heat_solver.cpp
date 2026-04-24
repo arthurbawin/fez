@@ -180,7 +180,6 @@ void HeatSolver<dim>::run()
   }
 
   adapt_mesh();
-  output_metric_quality_field();
   finalize();
 }
 
@@ -714,6 +713,9 @@ void HeatSolver<dim>::adapt_mesh()
     computing_timer.enter_subsection("Compute optimal metric");
     field.compute_optimal_multiscale_metric(*recovery);
     computing_timer.leave_subsection();
+
+    QGauss<dim> cell_quadrature(3);
+    QGauss<1>   edge_quadrature(3);
 
     field.write_cell_quality_pvtu("cell_quality_test",
                                   cell_quadrature,

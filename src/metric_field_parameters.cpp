@@ -9,6 +9,7 @@ namespace Parameters
   template <int dim>
   MetricField<dim>::MetricField()
     : verbosity(Verbosity::verbose)
+    , mesh_quality_output_name("mesh_quality_phi")
   {
     const unsigned n_components = MetricTensor<dim>::n_independent_components;
     analytical_metric.callback =
@@ -31,6 +32,17 @@ namespace Parameters
     prm.enter_subsection("Metric field " + std::to_string(index));
     {
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.declare_entry("mesh quality output frequency",
+                        "0",
+                        Patterns::Integer(0),
+                        "Frequency, in time steps, at which the CHNS solver "
+                        "writes the mesh-quality field for this metric. Set "
+                        "to 0 to disable this output.");
+      prm.declare_entry("mesh quality output name",
+                        "mesh_quality_phi",
+                        Patterns::Anything(),
+                        "Base name used for the mesh-quality output files "
+                        "written by the CHNS solver for this metric.");
       prm.declare_entry(
         "min mesh size",
         "1e-8",
@@ -102,6 +114,9 @@ namespace Parameters
     prm.enter_subsection("Metric field " + std::to_string(index));
     {
       READ_VERBOSITY_PARAM(prm, verbosity)
+      mesh_quality_output_frequency = prm.get_integer(
+        "mesh quality output frequency");
+      mesh_quality_output_name = prm.get("mesh quality output name");
       min_meshsize   = prm.get_double("min mesh size");
       max_meshsize   = prm.get_double("max mesh size");
       min_eigenvalue = 1. / (max_meshsize * max_meshsize);

@@ -134,6 +134,11 @@ public:
   compute_cell_quality_field(const Quadrature<dim> &cell_quadrature,
                              const Quadrature<1>   &edge_quadrature);
 
+  Vector<float>
+  compute_cell_quality_field(const Mapping<dim>    &geometry_mapping,
+                             const Quadrature<dim> &cell_quadrature,
+                             const Quadrature<1>   &edge_quadrature);
+
   void
   write_cell_quality_pvtu(const std::string     &filename,
                           const Quadrature<dim> &cell_quadrature,
@@ -235,6 +240,10 @@ public:
   void write_pvtu(const std::string &filename,
                   bool               write_inverse_metrics = true);
 
+  void write_pvtu(const Mapping<dim> &geometry_mapping,
+                  const std::string  &filename,
+                  bool                write_inverse_metrics = true);
+
   /**
    * Multiply all the metrics in this field by @p factor, which should be
    * a positive number (this is checked in debug).
@@ -291,6 +300,20 @@ private:
    * metrics.
    */
   void metrics_to_tensor_solution();
+
+  double
+  compute_cell_edge_measure(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const unsigned int                                    edge_no,
+    const Quadrature<1>                                  &edge_quadrature,
+    const Mapping<dim>                                   &geometry_mapping) const;
+
+  double
+  compute_cell_quality(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const FEValues<dim>                                  &fe_values,
+    const Quadrature<1>                                  &edge_quadrature,
+    const Mapping<dim>                                   &geometry_mapping) const;
 
   /**
    * Transfer the metrics from their components represented as dofs to the

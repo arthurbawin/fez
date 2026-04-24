@@ -68,6 +68,7 @@ struct CHNSEnlargedOps<dim, with_moving_mesh, false>
   template <typename ScratchDataType, typename VectorType>
   static void assemble_rhs_terms(const ComponentOrdering & /*ordering*/,
                                  const ScratchDataType & /*scratch_data*/,
+                                 const Parameters::CahnHilliard<dim> & /*cahn_hilliard*/,
                                  const double /*length_scale_sq*/,
                                  VectorType & /*local_rhs*/)
   {}
@@ -78,6 +79,7 @@ struct CHNSEnlargedOps<dim, with_moving_mesh, false>
   static void assemble_matrix_terms(const ComponentOrdering & /*ordering*/,
                                     const CouplingTableType & /*coupling_table*/,
                                     const ScratchDataType   & /*scratch_data*/,
+                                    const Parameters::CahnHilliard<dim> & /*cahn_hilliard*/,
                                     const double /*length_scale_sq*/,
                                     MatrixType & /*local_matrix*/)
   {}
@@ -98,6 +100,7 @@ struct CHNSEnlargedOps<dim, true, true>
                                     Table<2, DoFTools::Coupling> &table)
   {
     table[ordering.psi_lower][ordering.phi_lower] = DoFTools::always;
+    table[ordering.psi_lower][ordering.mu_lower]  = DoFTools::always;
     table[ordering.psi_lower][ordering.psi_lower] = DoFTools::always;
     for (unsigned int d = ordering.x_lower; d < ordering.x_upper; ++d)
       {
@@ -146,11 +149,12 @@ struct CHNSEnlargedOps<dim, true, true>
   template <typename ScratchDataType, typename VectorType>
   static void assemble_rhs_terms(const ComponentOrdering &ordering,
                                  const ScratchDataType   &scratch,
+                                 const Parameters::CahnHilliard<dim> &cahn_hilliard,
                                  const double             length_scale_sq,
                                  VectorType              &local_rhs)
   {
     Assembly::assemble_psi_equation_rhs<dim>(
-      ordering, scratch, length_scale_sq, local_rhs);
+      ordering, scratch, cahn_hilliard, length_scale_sq, local_rhs);
   }
 
   template <typename ScratchDataType,
@@ -159,11 +163,17 @@ struct CHNSEnlargedOps<dim, true, true>
   static void assemble_matrix_terms(const ComponentOrdering &ordering,
                                     const CouplingTableType &coupling_table,
                                     const ScratchDataType   &scratch,
+                                    const Parameters::CahnHilliard<dim> &cahn_hilliard,
                                     const double             length_scale_sq,
                                     MatrixType              &local_matrix)
   {
     Assembly::assemble_psi_equation_matrix<dim, true>(
-      ordering, coupling_table, scratch, length_scale_sq, local_matrix);
+      ordering,
+      coupling_table,
+      scratch,
+      cahn_hilliard,
+      length_scale_sq,
+      local_matrix);
   }
 };
 

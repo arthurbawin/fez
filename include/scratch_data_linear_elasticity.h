@@ -163,19 +163,7 @@ public:
       // neo-hookean
       const Tensor<2, dim> &F = position_gradients[q];
       position_J[q]           = determinant(F);
-      // if (physical_properties.pseudosolids[0].constitutive_model ==
-      //     Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
-      //   AssertThrow(
-      //     std::isfinite(position_J[q]) && position_J[q] > 0.0,
-      //     ExcMessage(([&]() {
-      //       std::ostringstream message;
-      //       message << "Invalid pseudo-solid deformation in linear elasticity
-      //       "
-      //                  "presolver: det(F)="
-      //               << position_J[q] << " at reference quadrature point "
-      //               << quadrature_points[q] << ".";
-      //       return message.str();
-      //     })()));
+
 
       position_inv_gradients[q]   = invert(F);
       position_inv_gradients_T[q] = transpose(position_inv_gradients[q]);

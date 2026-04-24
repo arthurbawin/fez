@@ -184,6 +184,7 @@ public:
       // neo-hookean
       const Tensor<2, dim> &F = position_gradients[q];
       position_J[q]           = determinant(F);
+<<<<<<< Updated upstream
       // if (physical_properties.pseudosolids[0].constitutive_model ==
       //     Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
       //   AssertThrow(
@@ -196,6 +197,8 @@ public:
       //               << quadrature_points[q] << ".";
       //       return message.str();
       //     })()));
+=======
+>>>>>>> Stashed changes
 
       position_inv_gradients[q]   = invert(F);
       position_inv_gradients_T[q] = transpose(position_inv_gradients[q]);

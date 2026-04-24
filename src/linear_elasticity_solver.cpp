@@ -93,6 +93,14 @@ void LinearElasticitySolver<dim>::MMSSourceTerm::vector_value(
     f = mms.exact_mesh_position
           ->divergence_neo_hookean_stress_variable_coefficients(
             p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
+<<<<<<< Updated upstream
+=======
+  else if (pseudosolid.constitutive_model !=
+           Parameters::PseudoSolid<dim>::ConstitutiveModel::linear_elasticity)
+    AssertThrow(false,
+                ExcMessage("Manufactured source terms are not implemented for "
+                           "this pseudosolid constitutive law."));
+>>>>>>> Stashed changes
   else
     f = mms.exact_mesh_position
           ->divergence_linear_elastic_stress_variable_coefficients(
@@ -150,6 +158,7 @@ void LinearElasticitySolver<dim>::run()
       param.linear_elasticity.max_current_mesh_source_term_multiplier;
     const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
 
+<<<<<<< Updated upstream
     const bool use_nh =
       (param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean 
        || param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::HN_0
@@ -159,6 +168,21 @@ void LinearElasticitySolver<dim>::run()
        || param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::Ogden_2_classique
        || param.physical_properties.pseudosolids[0].constitutive_model == Parameters::PseudoSolid<dim>::ConstitutiveModel::quad
       );
+=======
+    const auto constitutive_model =
+      param.physical_properties.pseudosolids[0].constitutive_model;
+    const bool use_arithmetic_continuation =
+      constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean ||
+      constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::HN_0 ||
+      constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::HN_1 ||
+      constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden ||
+      constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::quad;
+>>>>>>> Stashed changes
 
     source_term_moving_mesh_multiplier = c_min;
     source_term_fixed_mesh_multiplier  = 0.;
@@ -225,7 +249,11 @@ void LinearElasticitySolver<dim>::setup_dofs()
   //    initial_cell_diameter[cell_index] = cell->diameter();
   //    ++cell_index;
   //}
+<<<<<<< Updated upstream
                                                  
+=======
+
+>>>>>>> Stashed changes
 
   pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
         << std::endl;
@@ -695,7 +723,11 @@ void LinearElasticitySolver<dim>::output_results()
                             *source_terms,
                             f_mesh);
 
+<<<<<<< Updated upstream
     // Champ deplacement                          
+=======
+    // Champ deplacement
+>>>>>>> Stashed changes
     // Vecteur position initiale
     Vector<double> initial_positions_vector(dof_handler.n_dofs());
     for (const auto &it : initial_positions)
@@ -741,7 +773,11 @@ void LinearElasticitySolver<dim>::output_results()
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
       data_component_interpretation(
         dim, DataComponentInterpretation::component_is_part_of_vector);
+<<<<<<< Updated upstream
       
+=======
+
+>>>>>>> Stashed changes
     DataOut<dim> data_out;
     data_out.attach_dof_handler(dof_handler);
     data_out.add_data_vector(present_solution,
@@ -753,7 +789,11 @@ void LinearElasticitySolver<dim>::output_results()
                             f_names,
                             DataOut<dim>::type_dof_data,
                             data_component_interpretation);
+<<<<<<< Updated upstream
                             
+=======
+
+>>>>>>> Stashed changes
     data_out.add_data_vector(displacement,
                          u_names,
                          DataOut<dim>::type_dof_data,

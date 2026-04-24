@@ -302,9 +302,13 @@ namespace Parameters
       neo_hookean,
       HN_0,
       HN_1,
+<<<<<<< Updated upstream
       Ogden_1,
       Ogden_2,
       Ogden_2_classique,
+=======
+      ogden,
+>>>>>>> Stashed changes
       quad,
     };
 

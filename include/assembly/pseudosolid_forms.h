@@ -140,6 +140,104 @@ namespace Assembly::Pseudosolid
   }
 
   template <int dim>
+  inline Tensor<2, dim>
+  isochoric_matrix_part(const double          lame_mu,
+                        const Tensor<2, dim> &F,
+                        const Tensor<2, dim> &F_inv,
+                        const Tensor<2, dim> &F_inv_T,
+                        const double          J,
+                        const Tensor<2, dim> &grad_trial)
+  {
+    const Tensor<2, dim> C             = transpose(F) * F;
+    const double         I1            = trace(C);
+    const double         Jm23          = std::pow(J, -2.0 / 3.0);
+    const double         tr_Finv_grad  = trace(F_inv * grad_trial);
+    const Tensor<2, dim> dF            = grad_trial;
+    const Tensor<2, dim> dF_inv_T      = -F_inv_T * transpose(dF) * F_inv_T;
+    const double         dI1           = 2.0 * scalar_product(F, dF);
+    const double         dJm23         = -(2.0 / 3.0) * Jm23 * tr_Finv_grad;
+
+    return lame_mu *
+           (dJm23 * (F - (I1 / 3.0) * F_inv_T) +
+            Jm23 * (dF - (dI1 / 3.0) * F_inv_T -
+                    (I1 / 3.0) * dF_inv_T));
+  }
+
+  template <int dim>
+  inline double
+  HN_0_matrix_contribution(const double          lame_mu,
+                           const double          lame_lambda,
+                           const Tensor<2, dim> &F,
+                           const Tensor<2, dim> &F_inv,
+                           const Tensor<2, dim> &F_inv_T,
+                           const double          J,
+                           const Tensor<2, dim> &grad_test,
+                           const Tensor<2, dim> &grad_trial)
+  {
+    const Tensor<2, dim> dF_inv_T =
+      -F_inv_T * transpose(grad_trial) * F_inv_T;
+    const double tr_Finv_grad = trace(F_inv * grad_trial);
+    const double lame_kappa   = lame_lambda + (2.0 / 3.0) * lame_mu;
+
+    const Tensor<2, dim> dP =
+      isochoric_matrix_part(lame_mu, F, F_inv, F_inv_T, J, grad_trial) +
+      lame_kappa *
+        (tr_Finv_grad * F_inv_T + std::log(J) * dF_inv_T);
+
+    return scalar_product(dP, grad_test);
+  }
+
+  template <int dim>
+  inline double
+  HN_1_matrix_contribution(const double          lame_mu,
+                           const double          lame_lambda,
+                           const Tensor<2, dim> &F,
+                           const Tensor<2, dim> &F_inv,
+                           const Tensor<2, dim> &F_inv_T,
+                           const double          J,
+                           const Tensor<2, dim> &grad_test,
+                           const Tensor<2, dim> &grad_trial)
+  {
+    const Tensor<2, dim> dF_inv_T =
+      -F_inv_T * transpose(grad_trial) * F_inv_T;
+    const double tr_Finv_grad = trace(F_inv * grad_trial);
+    const double lame_kappa   = lame_lambda + (2.0 / 3.0) * lame_mu;
+
+    const Tensor<2, dim> dP =
+      isochoric_matrix_part(lame_mu, F, F_inv, F_inv_T, J, grad_trial) +
+      lame_kappa *
+        ((0.5 * (J + 1.0 / J)) * tr_Finv_grad * F_inv_T +
+         (0.5 * (J - 1.0 / J)) * dF_inv_T);
+
+    return scalar_product(dP, grad_test);
+  }
+
+  template <int dim>
+  inline double
+  quad_matrix_contribution(const double          lame_mu,
+                           const double          lame_lambda,
+                           const Tensor<2, dim> &F,
+                           const Tensor<2, dim> &F_inv,
+                           const Tensor<2, dim> &F_inv_T,
+                           const double          J,
+                           const Tensor<2, dim> &grad_test,
+                           const Tensor<2, dim> &grad_trial)
+  {
+    const Tensor<2, dim> dF_inv_T =
+      -F_inv_T * transpose(grad_trial) * F_inv_T;
+    const double tr_Finv_grad = trace(F_inv * grad_trial);
+    const double lame_kappa   = lame_lambda + (2.0 / 3.0) * lame_mu;
+
+    const Tensor<2, dim> dP =
+      isochoric_matrix_part(lame_mu, F, F_inv, F_inv_T, J, grad_trial) +
+      lame_kappa *
+        (2.0 * J * (J - 1.0) * tr_Finv_grad * F_inv_T +
+         J * (J - 1.0) * dF_inv_T);
+
+    return scalar_product(dP, grad_test);
+  }
+
+  template <int dim>
   inline double
   HN_1_matrix_contribution(const double          lame_mu,
                                           const double          lame_lambda,
@@ -348,6 +446,7 @@ namespace Assembly::Pseudosolid
   template <int dim>
   inline double
   matrix_contribution(
+<<<<<<< Updated upstream
     const typename Parameters::PseudoSolid<dim>::ConstitutiveModel
       constitutive_model,
     const double          lame_mu,
@@ -361,6 +460,22 @@ namespace Assembly::Pseudosolid
     const double          div_trial,
     const Tensor<2, dim> &grad_trial)
   {
+=======
+    const Parameters::PseudoSolid<dim> &pseudosolid_parameters,
+    const double                        lame_mu,
+    const double                        lame_lambda,
+    const Tensor<2, dim>               &F,
+    const Tensor<2, dim>               &F_inv,
+    const Tensor<2, dim>               &F_inv_T,
+    const double                        J,
+    const double                        div_test,
+    const Tensor<2, dim>               &grad_test,
+    const double                        div_trial,
+    const Tensor<2, dim>               &grad_trial)
+  {
+    const auto constitutive_model = pseudosolid_parameters.constitutive_model;
+
+>>>>>>> Stashed changes
     if (constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
       return neo_hookean_matrix_contribution(
@@ -377,6 +492,7 @@ namespace Assembly::Pseudosolid
         lame_mu, lame_lambda, F, F_inv, F_inv_T, J, grad_test, grad_trial);
 
     if (constitutive_model ==
+<<<<<<< Updated upstream
         Parameters::PseudoSolid<dim>::ConstitutiveModel::Ogden_1)
       return Ogden_1_matrix_contribution(
         lame_mu, lame_lambda, F, F_inv, F_inv_T, J, grad_test, grad_trial);
@@ -390,6 +506,23 @@ namespace Assembly::Pseudosolid
         Parameters::PseudoSolid<dim>::ConstitutiveModel::Ogden_2_classique)
       return Ogden_2_classique_matrix_contribution(
         lame_mu, lame_lambda, F_inv, F_inv_T, J, grad_test, grad_trial);
+
+    if (constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::quad)
+      return quad_matrix_contribution(
+        lame_mu, lame_lambda, F, F_inv, F_inv_T, J, grad_test, grad_trial);
+=======
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
+      return ogden_matrix_contribution(lame_mu,
+                                       lame_lambda,
+                                       pseudosolid_parameters.ogden_beta,
+                                       F,
+                                       F_inv,
+                                       F_inv_T,
+                                       J,
+                                       grad_test,
+                                       grad_trial);
+>>>>>>> Stashed changes
 
     if (constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::quad)
@@ -441,6 +574,7 @@ namespace Assembly::Pseudosolid
     const double I1 = trace(C);
     const double Jm23 = std::pow(J, -2.0 / 3.0);
 
+<<<<<<< Updated upstream
     // Isochoric part
     const Tensor<2, dim> P_iso =
       lame_mu * Jm23 * (F - (I1 / 3.0) * F_inv_T);
@@ -449,8 +583,78 @@ namespace Assembly::Pseudosolid
     const double lame_kappa = lame_lambda + (2.0/3.0) * lame_mu;
     const Tensor<2, dim> P_vol =
       lame_kappa * std::log(J) * F_inv_T;
+=======
+    const Tensor<2, dim> P_shape = lame_mu * (F - F_inv_T);
+    const Tensor<2, dim> P_vol =
+      lame_lambda * (1.0 / beta) * (1.0 - std::pow(J, -beta)) * F_inv_T;
+>>>>>>> Stashed changes
 
     const Tensor<2, dim> P = P_iso + P_vol;
+
+    return scalar_product(P, grad_test);
+  }
+
+  template <int dim>
+  inline Tensor<2, dim>
+  isochoric_rhs_part(const double          lame_mu,
+                     const Tensor<2, dim> &F,
+                     const Tensor<2, dim> &F_inv_T,
+                     const double          J)
+  {
+    const Tensor<2, dim> C    = transpose(F) * F;
+    const double         I1   = trace(C);
+    const double         Jm23 = std::pow(J, -2.0 / 3.0);
+
+    return lame_mu * Jm23 * (F - (I1 / 3.0) * F_inv_T);
+  }
+
+  template <int dim>
+  inline double
+  HN_0_rhs_contribution(const double          lame_mu,
+                        const double          lame_lambda,
+                        const Tensor<2, dim> &F,
+                        const Tensor<2, dim> &F_inv_T,
+                        const double          J,
+                        const Tensor<2, dim> &grad_test)
+  {
+    const double lame_kappa = lame_lambda + (2.0 / 3.0) * lame_mu;
+    const Tensor<2, dim> P =
+      isochoric_rhs_part(lame_mu, F, F_inv_T, J) +
+      lame_kappa * std::log(J) * F_inv_T;
+
+    return scalar_product(P, grad_test);
+  }
+
+  template <int dim>
+  inline double
+  HN_1_rhs_contribution(const double          lame_mu,
+                        const double          lame_lambda,
+                        const Tensor<2, dim> &F,
+                        const Tensor<2, dim> &F_inv_T,
+                        const double          J,
+                        const Tensor<2, dim> &grad_test)
+  {
+    const double lame_kappa = lame_lambda + (2.0 / 3.0) * lame_mu;
+    const Tensor<2, dim> P =
+      isochoric_rhs_part(lame_mu, F, F_inv_T, J) +
+      lame_kappa * 0.5 * (J - 1.0 / J) * F_inv_T;
+
+    return scalar_product(P, grad_test);
+  }
+
+  template <int dim>
+  inline double
+  quad_rhs_contribution(const double          lame_mu,
+                        const double          lame_lambda,
+                        const Tensor<2, dim> &F,
+                        const Tensor<2, dim> &F_inv_T,
+                        const double          J,
+                        const Tensor<2, dim> &grad_test)
+  {
+    const double lame_kappa = lame_lambda + (2.0 / 3.0) * lame_mu;
+    const Tensor<2, dim> P =
+      isochoric_rhs_part(lame_mu, F, F_inv_T, J) +
+      lame_kappa * J * (J - 1.0) * F_inv_T;
 
     return scalar_product(P, grad_test);
   }
@@ -581,6 +785,7 @@ namespace Assembly::Pseudosolid
   template <int dim>
   inline double
   rhs_contribution(
+<<<<<<< Updated upstream
     const typename Parameters::PseudoSolid<dim>::ConstitutiveModel
       constitutive_model,
     const double          lame_mu,
@@ -593,6 +798,21 @@ namespace Assembly::Pseudosolid
     const double          div_test,
     const Tensor<2, dim> &grad_test)
   {
+=======
+    const Parameters::PseudoSolid<dim> &pseudosolid_parameters,
+    const double                        lame_mu,
+    const double                        lame_lambda,
+    const double                        trace_strain,
+    const Tensor<2, dim>               &strain,
+    const Tensor<2, dim>               &F,
+    const Tensor<2, dim>               &F_inv_T,
+    const double                        J,
+    const double                        div_test,
+    const Tensor<2, dim>               &grad_test)
+  {
+    const auto constitutive_model = pseudosolid_parameters.constitutive_model;
+
+>>>>>>> Stashed changes
     if (constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
       return neo_hookean_rhs_contribution(
@@ -609,6 +829,7 @@ namespace Assembly::Pseudosolid
         lame_mu, lame_lambda, F, F_inv_T, J, grad_test);
 
     if (constitutive_model ==
+<<<<<<< Updated upstream
         Parameters::PseudoSolid<dim>::ConstitutiveModel::Ogden_1)
       return Ogden_1_rhs_contribution(
         lame_mu, lame_lambda, F, F_inv_T, J, grad_test);
@@ -627,6 +848,21 @@ namespace Assembly::Pseudosolid
         Parameters::PseudoSolid<dim>::ConstitutiveModel::quad)
       return quad_rhs_contribution(
         lame_mu, lame_lambda, F, F_inv_T, J, grad_test);
+=======
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
+      return ogden_rhs_contribution(lame_mu,
+                                    lame_lambda,
+                                    pseudosolid_parameters.ogden_beta,
+                                    F,
+                                    F_inv_T,
+                                    J,
+                                    grad_test);
+>>>>>>> Stashed changes
+
+    if (constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::quad)
+      return quad_rhs_contribution(
+        lame_mu, lame_lambda, F, F_inv_T, J, grad_test);
 
     return linear_rhs_contribution(
       lame_mu, lame_lambda, trace_strain, strain, div_test, grad_test);
@@ -638,11 +874,11 @@ namespace Assembly::Pseudosolid
             typename MatrixType>
   inline void
   assemble_chns_matrix(
-    const ComponentOrdering &ordering,
-    const CouplingTableType &coupling_table,
-    const Parameters::PseudoSolid<dim> &pseudosolid_parameters,
-    const ScratchData &scratch,
-    MatrixType        &local_matrix)
+    const ComponentOrdering             &ordering,
+    const CouplingTableType             &coupling_table,
+    const Parameters::PseudoSolid<dim>  &pseudosolid_parameters,
+    const ScratchData                   &scratch,
+    MatrixType                          &local_matrix)
   {
     for (unsigned int q = 0; q < scratch.n_q_points; ++q)
       for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
@@ -658,7 +894,11 @@ namespace Assembly::Pseudosolid
                 continue;
 
               local_matrix(i, j) +=
+<<<<<<< Updated upstream
                 matrix_contribution(pseudosolid_parameters.constitutive_model,
+=======
+                matrix_contribution(pseudosolid_parameters,
+>>>>>>> Stashed changes
                                     scratch.lame_mu[q],
                                     scratch.lame_lambda[q],
                                     scratch.present_position_gradients[q],
@@ -677,14 +917,14 @@ namespace Assembly::Pseudosolid
   template <int dim, typename ScratchData, typename VectorType>
   inline void
   assemble_chns_rhs(
-    const ComponentOrdering &ordering,
+    const ComponentOrdering            &ordering,
     const Parameters::PseudoSolid<dim> &pseudosolid_parameters,
-    const ScratchData &scratch,
-    VectorType        &local_rhs)
+    const ScratchData                  &scratch,
+    VectorType                         &local_rhs)
   {
     for (unsigned int q = 0; q < scratch.n_q_points; ++q)
       {
-        const double          trace_strain =
+        const double trace_strain =
           trace(scratch.present_position_gradients[q]) - static_cast<double>(dim);
         const Tensor<2, dim> strain =
           Tensor<2, dim>(symmetrize(scratch.present_position_gradients[q]) -

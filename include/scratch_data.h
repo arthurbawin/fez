@@ -394,7 +394,19 @@ private:
       const Tensor<2, dim> &F = present_position_gradients[q];
       present_position_J[q]   = determinant(F);
       if (physical_properties.pseudosolids[0].constitutive_model ==
+<<<<<<< Updated upstream
           Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
+=======
+            Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean ||
+          physical_properties.pseudosolids[0].constitutive_model ==
+            Parameters::PseudoSolid<dim>::ConstitutiveModel::HN_0 ||
+          physical_properties.pseudosolids[0].constitutive_model ==
+            Parameters::PseudoSolid<dim>::ConstitutiveModel::HN_1 ||
+          physical_properties.pseudosolids[0].constitutive_model ==
+            Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden ||
+          physical_properties.pseudosolids[0].constitutive_model ==
+            Parameters::PseudoSolid<dim>::ConstitutiveModel::quad)
+>>>>>>> Stashed changes
       {
         const double det_F_from_dealii = JxW_moving[q] / JxW_fixed[q];
 

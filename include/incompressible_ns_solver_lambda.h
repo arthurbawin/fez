@@ -61,7 +61,7 @@ public:
    */
   NSSolverLambda(const ParameterReader<dim> &param);
 
-  virtual ~NSSolverLambda() {}
+  virtual ~NSSolverLambda();
 
 public:
   /**
@@ -282,14 +282,16 @@ protected:
     return cell->material_id() == with_lambda_domain_id;
   }
 
-  std::shared_ptr<FESystem<dim>>         fe_with_lambda;
-  std::shared_ptr<FESystem<dim>>         fe_without_lambda;
-  std::shared_ptr<hp::FECollection<dim>> fe;
+  std::unique_ptr<FESystem<dim>>         fe_with_lambda;
+  std::unique_ptr<FESystem<dim>>         fe_without_lambda;
+  std::unique_ptr<hp::FECollection<dim>> fe;
 
   hp::MappingCollection<dim> mapping_collection;
   hp::QCollection<dim>       quadrature_collection;
   hp::QCollection<dim - 1>   face_quadrature_collection;
   hp::QCollection<dim - 1>   error_face_quadrature_collection;
+
+  std::unique_ptr<ScratchData> scratch_data;
 
   FEValuesExtractors::Vector lambda_extractor;
   ComponentMask              lambda_mask;

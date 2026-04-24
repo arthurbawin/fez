@@ -172,9 +172,11 @@ protected:
   virtual bool uses_hp_capabilities() const override { return false; };
 
 protected:
-  std::shared_ptr<FESystem<dim>> fe;
+  std::unique_ptr<FESystem<dim>> fe;
 
   static constexpr ConstexprComponentOrderingFSI<dim> const_ordering = {};
+
+  std::unique_ptr<ScratchData> scratch_data;
 
   FEValuesExtractors::Vector lambda_extractor;
   ComponentMask              lambda_mask;

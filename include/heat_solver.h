@@ -35,6 +35,8 @@ using namespace dealii;
 template <int dim>
 class HeatSolver : public GenericSolver<LA::ParVectorType>
 {
+  using ScratchData = ScratchDataHeat<dim>;
+
 public:
   HeatSolver(const ParameterReader<dim> &param);
 
@@ -127,7 +129,7 @@ public:
    */
   void assemble_local_matrix(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchDataHeat<dim>                                 &scratchData,
+    ScratchData                                          &scratch_data,
     CopyData                                             &copy_data);
 
   /**
@@ -150,8 +152,8 @@ public:
    */
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
-                     ScratchDataHeat<dim> &scratchData,
-                     CopyData             &copy_data);
+                     ScratchData &scratch_data,
+                     CopyData    &copy_data);
 
   /**
    *
@@ -204,7 +206,7 @@ private:
   }
 
 protected:
-  std::shared_ptr<ComponentOrdering> ordering;
+  std::unique_ptr<ComponentOrdering> ordering;
 
   ParameterReader<dim> param;
 
@@ -217,9 +219,11 @@ protected:
   QSimplex<dim - 1> error_face_quadrature;
 
   std::unique_ptr<parallel::fullydistributed::Triangulation<dim>> triangulation;
-  std::shared_ptr<Mapping<dim>>                                   mapping;
+  std::unique_ptr<Mapping<dim>>                                   mapping;
   DoFHandler<dim>                                                 dof_handler;
   TimeHandler                                                     time_handler;
+
+  std::unique_ptr<ScratchData> scratch_data;
 
   std::vector<unsigned char> dofs_to_component;
 
@@ -239,7 +243,7 @@ protected:
   std::shared_ptr<Function<dim>> exact_solution;
 
   SolverControl                                          solver_control;
-  std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
+  std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
   std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
 

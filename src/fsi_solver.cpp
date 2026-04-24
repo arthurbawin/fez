@@ -36,13 +36,13 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
 {
   if (param.finite_elements.use_quads)
   {
-    fe_with_lambda = std::make_shared<FESystem<dim>>(
+    fe_with_lambda = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,      // Velocity
       FE_Q<dim>(param.finite_elements.pressure_degree),            // Pressure
       FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim, // Position
       FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
         dim); // Lagrange multiplier
-    fe_without_lambda = std::make_shared<FESystem<dim>>(
+    fe_without_lambda = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
       FE_Q<dim>(param.finite_elements.pressure_degree),
       FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -52,7 +52,7 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
   {
     if constexpr (dim == 2)
     {
-      fe_with_lambda = std::make_shared<FESystem<dim>>(
+      fe_with_lambda = std::make_unique<FESystem<dim>>(
         FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
           dim,                                                   // Velocity
         FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
@@ -60,7 +60,7 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
           dim, // Position
         FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
           dim); // Lagrange multiplier
-      fe_without_lambda = std::make_shared<FESystem<dim>>(
+      fe_without_lambda = std::make_unique<FESystem<dim>>(
         FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_SimplexP<dim>(param.finite_elements.pressure_degree),
         FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -68,7 +68,7 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
     }
     else
     {
-      fe_with_lambda = std::make_shared<FESystem<dim>>(
+      fe_with_lambda = std::make_unique<FESystem<dim>>(
         FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^
           dim, // Velocity
         FE_SimplexP_3D_hp<dim>(
@@ -78,7 +78,7 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
         FE_SimplexP_3D_hp<dim>(
           param.finite_elements.no_slip_lagrange_mult_degree) ^
           dim); // Lagrange multiplier
-      fe_without_lambda = std::make_shared<FESystem<dim>>(
+      fe_without_lambda = std::make_unique<FESystem<dim>>(
         FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree),
         FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
@@ -87,7 +87,7 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
     }
   }
 
-  fe = std::make_shared<hp::FECollection<dim>>();
+  fe = std::make_unique<hp::FECollection<dim>>();
 
   // Ensure fe ordering is consistent throughout the solver
   if constexpr (index_fe_without_lambda == 0)
@@ -109,7 +109,7 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
   face_quadrature_collection.push_back(*this->face_quadrature);
   face_quadrature_collection.push_back(*this->face_quadrature);
 
-  this->ordering = std::make_shared<ComponentOrderingFSI<dim>>();
+  this->ordering = std::make_unique<ComponentOrderingFSI<dim>>();
 
   this->velocity_extractor =
     FEValuesExtractors::Vector(this->ordering->u_lower);
@@ -197,13 +197,12 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
         param.mms);
 
     // Create entry in error handler for Lagrange multiplier
-    for (auto norm : this->param.mms_param.norms_to_compute)
+    for (auto &[norm, handler] : this->error_handlers)
     {
-      this->error_handlers[norm]->create_entry("l");
+      handler.create_entry("l");
       if (this->param.fsi.compute_error_on_forces)
         for (unsigned int d = 0; d < dim; ++d)
-          this->error_handlers[norm]->create_entry("F_comp" +
-                                                   std::to_string(d));
+          handler.create_entry("F_comp" + std::to_string(d));
     }
   }
   else
@@ -213,7 +212,21 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
     this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
       this->ordering->n_components);
   }
+
+  scratch_data =
+    std::make_unique<ScratchData>(*this->ordering,
+                                  *fe,
+                                  fixed_mapping_collection,
+                                  moving_mapping_collection,
+                                  quadrature_collection,
+                                  face_quadrature_collection,
+                                  this->time_handler.bdf_coefficients,
+                                  this->param);
 }
+
+template <int dim>
+FSISolverLessLambda<dim>::~FSISolverLessLambda()
+{}
 
 template <int dim>
 void FSISolverLessLambda<dim>::MMSSourceTerm::vector_value(
@@ -369,7 +382,7 @@ void FSISolverLessLambda<dim>::setup_mappings()
 
   // Create the solution-dependent mapping
   this->moving_mapping =
-    std::make_shared<MappingFEFieldHp2<dim, dim, LA::ParVectorType>>(
+    std::make_unique<MappingFEFieldHp2<dim, dim, LA::ParVectorType>>(
       this->dof_handler,
       fixed_mapping_collection,
       quadrature_collection,
@@ -385,10 +398,10 @@ void FSISolverLessLambda<dim>::setup_mappings()
   if (!this->time_handler.is_steady() && this->param.mms_param.enable)
     for (auto &[norm, handler] : this->error_handlers)
     {
-      handler->add_reference_data("n_elm",
-                                  this->triangulation.n_global_active_cells());
-      handler->add_reference_data("n_dof", this->dof_handler.n_dofs());
-      handler->add_time_step(this->time_handler.initial_dt);
+      handler.add_reference_data("n_elm",
+                                 this->triangulation.n_global_active_cells());
+      handler.add_reference_data("n_dof", this->dof_handler.n_dofs());
+      handler.add_time_step(this->time_handler.initial_dt);
     }
 }
 
@@ -1803,15 +1816,7 @@ void FSISolverLessLambda<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           fixed_mapping_collection,
-                           moving_mapping_collection,
-                           quadrature_collection,
-                           face_quadrature_collection,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copy_data(*fe);
+  CopyData copy_data(*fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -1827,7 +1832,7 @@ void FSISolverLessLambda<dim>::assemble_matrix()
                   *this,
                   &FSISolverLessLambda::assemble_local_matrix,
                   &FSISolverLessLambda::copy_local_to_global_matrix,
-                  scratch_data,
+                  *scratch_data,
                   copy_data);
 
   this->system_matrix.compress(VectorOperation::add);
@@ -1850,8 +1855,8 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
@@ -2167,15 +2172,7 @@ void FSISolverLessLambda<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           fixed_mapping_collection,
-                           moving_mapping_collection,
-                           quadrature_collection,
-                           face_quadrature_collection,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copy_data(*fe);
+  CopyData copy_data(*fe);
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -2183,7 +2180,7 @@ void FSISolverLessLambda<dim>::assemble_rhs()
                   *this,
                   &FSISolverLessLambda::assemble_local_rhs,
                   &FSISolverLessLambda::copy_local_to_global_rhs,
-                  scratch_data,
+                  *scratch_data,
                   copy_data);
 
   this->system_rhs.compress(VectorOperation::add);
@@ -2206,8 +2203,8 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
@@ -2771,23 +2768,14 @@ void FSISolverLessLambda<dim>::compare_forces_and_position_on_obstacle() const
 template <int dim>
 void FSISolverLessLambda<dim>::check_velocity_boundary() const
 {
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           fixed_mapping_collection,
-                           moving_mapping_collection,
-                           quadrature_collection,
-                           face_quadrature_collection,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-
   LagrangeMultiplierTools::check_no_slip_on_boundary<dim>(
     this->param,
-    scratch_data,
+    *scratch_data,
     this->dof_handler,
     this->evaluation_point,
     this->previous_solutions,
-    this->source_terms,
-    this->exact_solution,
+    *this->source_terms,
+    *this->exact_solution,
     weak_no_slip_boundary_id);
 }
 
@@ -3114,18 +3102,18 @@ void FSISolverLessLambda<dim>::compute_solver_specific_errors()
   for (auto &[norm, handler] : this->error_handlers)
   {
     if (norm == VectorTools::L2_norm)
-      handler->add_error("l", l2_l, t);
+      handler.add_error("l", l2_l, t);
     if (norm == VectorTools::Linfty_norm)
-      handler->add_error("l", li_l, t);
+      handler.add_error("l", li_l, t);
 
     if (this->param.fsi.compute_error_on_forces)
     {
       // The error on the forces is |F_h - F_exact|, there is no need to
       // distinguish between L^p norms.
       for (unsigned int d = 0; d < dim; ++d)
-        handler->add_error("F_comp" + std::to_string(d),
-                           error_on_integral[d],
-                           t);
+        handler.add_error("F_comp" + std::to_string(d),
+                          error_on_integral[d],
+                          t);
     }
   }
 }

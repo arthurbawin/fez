@@ -26,19 +26,19 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param)
 {
   if (param.finite_elements.use_quads)
-    fe = std::make_shared<FESystem<dim>>(
+    fe = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.velocity_degree), // Velocity
       dim,
       FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
       1);
   else
-    fe = std::make_shared<FESystem<dim>>(
+    fe = std::make_unique<FESystem<dim>>(
       FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
       dim,
       FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
       1);
 
-  this->ordering = std::make_shared<ComponentOrderingNS<dim>>();
+  this->ordering = std::make_unique<ComponentOrderingNS<dim>>();
 
   this->velocity_extractor =
     FEValuesExtractors::Vector(this->ordering->u_lower);
@@ -89,6 +89,15 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   {
     this->source_terms = param.source_terms.fluid_source;
   }
+
+  scratch_data =
+    std::make_unique<ScratchData>(*this->ordering,
+                                  *fe,
+                                  *mapping,
+                                  *this->quadrature,
+                                  *this->face_quadrature,
+                                  this->time_handler.bdf_coefficients,
+                                  this->param);
 }
 
 template <int dim>
@@ -161,14 +170,7 @@ void NSSolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -188,7 +190,7 @@ void NSSolver<dim>::assemble_matrix()
                   *this,
                   assembly_ptr,
                   &NSSolver::copy_local_to_global_matrix,
-                  scratchData,
+                  *scratch_data,
                   copyData);
 
   this->system_matrix.compress(VectorOperation::add);
@@ -213,7 +215,7 @@ void NSSolver<dim>::assemble_local_matrix_finite_differences(
 template <int dim>
 void NSSolver<dim>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData                                          &scratchData,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -221,11 +223,11 @@ void NSSolver<dim>::assemble_local_matrix(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(cell,
-                     this->evaluation_point,
-                     this->previous_solutions,
-                     this->source_terms,
-                     this->exact_solution);
+  scratch_data.reinit(cell,
+                      this->evaluation_point,
+                      this->previous_solutions,
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
@@ -235,29 +237,29 @@ void NSSolver<dim>::assemble_local_matrix(
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
-    const double JxW = scratchData.JxW_moving[q];
+    const double JxW = scratch_data.JxW_moving[q];
 
-    const auto &phi_u      = scratchData.phi_u[q];
-    const auto &grad_phi_u = scratchData.grad_phi_u[q];
-    const auto &div_phi_u  = scratchData.div_phi_u[q];
-    const auto &phi_p      = scratchData.phi_p[q];
+    const auto &phi_u      = scratch_data.phi_u[q];
+    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
+    const auto &div_phi_u  = scratch_data.div_phi_u[q];
+    const auto &phi_p      = scratch_data.phi_p[q];
 
     const auto &present_velocity_values =
-      scratchData.present_velocity_values[q];
+      scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
-      scratchData.present_velocity_gradients[q];
+      scratch_data.present_velocity_gradients[q];
 
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      const unsigned int component_i = scratchData.components[i];
+      const unsigned int component_i = scratch_data.components[i];
       const bool         i_is_u      = this->ordering->is_velocity(component_i);
       const bool         i_is_p      = this->ordering->is_pressure(component_i);
 
-      for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
+      for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
-        const unsigned int component_j = scratchData.components[j];
+        const unsigned int component_j = scratch_data.components[j];
         const bool         j_is_u = this->ordering->is_velocity(component_j);
         const bool         j_is_p = this->ordering->is_pressure(component_j);
 
@@ -321,14 +323,7 @@ void NSSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 template <int dim>
 void NSSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
@@ -336,7 +331,7 @@ void NSSolver<dim>::compare_analytical_matrix_with_fd()
     *this,
     &NSSolver::assemble_local_matrix,
     &NSSolver::assemble_local_rhs,
-    scratchData,
+    *scratch_data,
     copyData,
     this->present_solution,
     this->evaluation_point,
@@ -359,14 +354,7 @@ void NSSolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -374,7 +362,7 @@ void NSSolver<dim>::assemble_rhs()
                   *this,
                   &NSSolver::assemble_local_rhs,
                   &NSSolver::copy_local_to_global_rhs,
-                  scratchData,
+                  *scratch_data,
                   copyData);
 
   this->system_rhs.compress(VectorOperation::add);
@@ -383,7 +371,7 @@ void NSSolver<dim>::assemble_rhs()
 template <int dim>
 void NSSolver<dim>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchData                                          &scratchData,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -391,11 +379,11 @@ void NSSolver<dim>::assemble_local_rhs(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(cell,
-                     this->evaluation_point,
-                     this->previous_solutions,
-                     this->source_terms,
-                     this->exact_solution);
+  scratch_data.reinit(cell,
+                      this->evaluation_point,
+                      this->previous_solutions,
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;
@@ -406,31 +394,31 @@ void NSSolver<dim>::assemble_local_rhs(
   //
   // Volume contributions
   //
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
-    const double JxW = scratchData.JxW_moving[q];
+    const double JxW = scratch_data.JxW_moving[q];
 
     const auto &present_velocity_values =
-      scratchData.present_velocity_values[q];
+      scratch_data.present_velocity_values[q];
     const auto &present_velocity_gradients =
-      scratchData.present_velocity_gradients[q];
+      scratch_data.present_velocity_gradients[q];
     const auto &present_pressure_values =
-      scratchData.present_pressure_values[q];
-    const auto  &source_term_velocity = scratchData.source_term_velocity[q];
-    const auto  &source_term_pressure = scratchData.source_term_pressure[q];
+      scratch_data.present_pressure_values[q];
+    const auto  &source_term_velocity = scratch_data.source_term_velocity[q];
+    const auto  &source_term_pressure = scratch_data.source_term_pressure[q];
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
 
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratchData.previous_velocity_values);
+        q, present_velocity_values, scratch_data.previous_velocity_values);
 
-    const auto &phi_p      = scratchData.phi_p[q];
-    const auto &phi_u      = scratchData.phi_u[q];
-    const auto &grad_phi_u = scratchData.grad_phi_u[q];
-    const auto &div_phi_u  = scratchData.div_phi_u[q];
+    const auto &phi_p      = scratch_data.phi_p[q];
+    const auto &phi_u      = scratch_data.phi_u[q];
+    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
+    const auto &div_phi_u  = scratch_data.div_phi_u[q];
 
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       double local_rhs_i = -(
         // Transient
@@ -476,7 +464,7 @@ void NSSolver<dim>::assemble_local_rhs(
           Assembly::traction_boundary_mms_rhs(*this->ordering,
                                               i_face,
                                               nu,
-                                              scratchData,
+                                              scratch_data,
                                               local_rhs,
                                               /* full_traction = */ false);
         }

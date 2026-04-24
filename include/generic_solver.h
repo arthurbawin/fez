@@ -160,8 +160,7 @@ public:
    * Throws an error if the given type was not stored, i.e., if it was not
    * specified in the parameter file in the "Manufactured solution" section.
    */
-  std::shared_ptr<ErrorHandler>
-  get_error_handler(const VectorTools::NormType type) const;
+  const ErrorHandler &get_error_handler(const VectorTools::NormType type) const;
 
 public:
   MPI_Comm           mpi_communicator;
@@ -183,7 +182,7 @@ protected:
   VectorType newton_update;
   VectorType system_rhs;
 
-  std::shared_ptr<NonLinearSolver<VectorType>> nonlinear_solver;
+  std::unique_ptr<NonLinearSolver<VectorType>> nonlinear_solver;
 
   // Data to perform a space and/or time convergence study
   // Some must be modified during the convergence loop, so store a copy
@@ -193,7 +192,7 @@ protected:
   Parameters::MMS             mms_param;
 
   // An ErrorHandler for each error norm
-  std::map<VectorTools::NormType, std::shared_ptr<ErrorHandler>> error_handlers;
+  std::map<VectorTools::NormType, ErrorHandler> error_handlers;
 
   // Friend-ness is not inherited, so each derived nonlinear solver
   // should be marked as friend individually.
@@ -231,12 +230,11 @@ GenericSolver<VectorType>::GenericSolver(
 
   // Create the nonlinear solver (Newton-Raphson solver)
   nonlinear_solver =
-    std::make_shared<NewtonSolver<VectorType>>(nonlinear_solver_param, this);
+    std::make_unique<NewtonSolver<VectorType>>(nonlinear_solver_param, this);
 
   // Create the error handlers
   for (auto norm : mms_param.norms_to_compute)
-    error_handlers[norm] =
-      std::make_shared<ErrorHandler>(mms_param, time_param);
+    error_handlers.emplace(norm, ErrorHandler(mms_param, time_param));
 }
 
 template <typename VectorType>
@@ -255,7 +253,7 @@ void GenericSolver<VectorType>::run_convergence_loop()
 
     mms_param.current_step = i_conv;
     for (auto &[norm, handler] : error_handlers)
-      handler->clear_error_history();
+      handler.clear_error_history();
 
     // If a manufactured solution test is run, bypass the given mesh file
     // and run the i_conv-th prescribed mms mesh
@@ -360,16 +358,16 @@ void GenericSolver<VectorType>::run_convergence_loop()
     if (time_param.scheme != Parameters::TimeIntegration::Scheme::stationary)
       for (auto &[norm, handler] : error_handlers)
       {
-        handler->compute_temporal_error();
+        handler.compute_temporal_error();
 
         // Print the errors at all timesteps if required
         if (mms_param.print_unsteady_errors_to_console)
-          handler->write_errors();
+          handler.write_errors();
         if (mms_param.print_unsteady_errors_to_file)
         {
           std::ofstream outfile(output_param.output_dir +
                                 mms_param.unsteady_errors_file_prefix + ".txt");
-          handler->write_errors(outfile);
+          handler.write_errors(outfile);
         }
       }
 
@@ -377,7 +375,7 @@ void GenericSolver<VectorType>::run_convergence_loop()
     if (is_last_step || !mms_param.compute_rates_only_at_end)
     {
       for (auto &[norm, handler] : error_handlers)
-        handler->template compute_rates<dim>();
+        handler.template compute_rates<dim>();
       if (mpi_rank == 0)
       {
         for (auto &[norm, handler] : error_handlers)
@@ -386,14 +384,14 @@ void GenericSolver<VectorType>::run_convergence_loop()
             Patterns::Tools::Convert<VectorTools::NormType>::to_string(norm);
           std::cout << std::endl;
           std::cout << norm_str << std::endl;
-          handler->write_rates();
+          handler.write_rates();
 
           if (mms_param.write_convergence_table_to_file)
           {
             std::ofstream outfile(output_param.output_dir +
                                   mms_param.convergence_file_prefix + "_" +
                                   norm_str + ".txt");
-            handler->error_table.write_text(outfile);
+            handler.error_table.write_text(outfile);
           }
         }
       }
@@ -457,7 +455,7 @@ bool GenericSolver<VectorType>::should_compute_errors() const
 }
 
 template <typename VectorType>
-std::shared_ptr<ErrorHandler> GenericSolver<VectorType>::get_error_handler(
+const ErrorHandler &GenericSolver<VectorType>::get_error_handler(
   const VectorTools::NormType type) const
 {
   const std::string type_str =

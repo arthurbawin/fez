@@ -8,10 +8,10 @@
 template <int dim>
 void create_quadrature_rules(
   const Parameters::FiniteElements<dim> &fe_param,
-  std::shared_ptr<Quadrature<dim>>      &quadrature,
-  std::shared_ptr<Quadrature<dim - 1>>  &face_quadrature,
-  std::shared_ptr<Quadrature<dim>>      &error_quadrature,
-  std::shared_ptr<Quadrature<dim - 1>>  &error_face_quadrature)
+  std::unique_ptr<Quadrature<dim>>      &quadrature,
+  std::unique_ptr<Quadrature<dim - 1>>  &face_quadrature,
+  std::unique_ptr<Quadrature<dim>>      &error_quadrature,
+  std::unique_ptr<Quadrature<dim - 1>>  &error_face_quadrature)
 {
   using RuleType =
     typename Parameters::FiniteElements<dim>::QuadratureRule::Type;
@@ -19,10 +19,10 @@ void create_quadrature_rules(
   // Rules for quads are hardcoded to n_points_1d = 4 for now.
   if (fe_param.use_quads)
   {
-    quadrature            = std::make_shared<QGauss<dim>>(4);
-    error_quadrature      = std::make_shared<QGauss<dim>>(4);
-    face_quadrature       = std::make_shared<QGauss<dim - 1>>(4);
-    error_face_quadrature = std::make_shared<QGauss<dim - 1>>(4);
+    quadrature            = std::make_unique<QGauss<dim>>(4);
+    error_quadrature      = std::make_unique<QGauss<dim>>(4);
+    face_quadrature       = std::make_unique<QGauss<dim - 1>>(4);
+    error_face_quadrature = std::make_unique<QGauss<dim - 1>>(4);
     return;
   }
 
@@ -34,12 +34,12 @@ void create_quadrature_rules(
     switch (rule_type)
     {
       case RuleType::GaussSimplex:
-        cell_quad = std::make_shared<QGaussSimplex<dim>>(n_cell);
-        face_quad = std::make_shared<QGaussSimplex<dim - 1>>(n_face);
+        cell_quad = std::make_unique<QGaussSimplex<dim>>(n_cell);
+        face_quad = std::make_unique<QGaussSimplex<dim - 1>>(n_face);
         break;
       case RuleType::WitherdenVincent:
-        cell_quad = std::make_shared<QWitherdenVincentSimplex<dim>>(n_cell);
-        face_quad = std::make_shared<QWitherdenVincentSimplex<dim - 1>>(n_face);
+        cell_quad = std::make_unique<QWitherdenVincentSimplex<dim>>(n_cell);
+        face_quad = std::make_unique<QWitherdenVincentSimplex<dim - 1>>(n_face);
         break;
       default:
         AssertThrow(false,
@@ -61,15 +61,15 @@ void create_quadrature_rules(
 }
 
 template void create_quadrature_rules(const Parameters::FiniteElements<3> &,
-                                      std::shared_ptr<Quadrature<3>> &,
-                                      std::shared_ptr<Quadrature<2>> &,
-                                      std::shared_ptr<Quadrature<3>> &,
-                                      std::shared_ptr<Quadrature<2>> &);
+                                      std::unique_ptr<Quadrature<3>> &,
+                                      std::unique_ptr<Quadrature<2>> &,
+                                      std::unique_ptr<Quadrature<3>> &,
+                                      std::unique_ptr<Quadrature<2>> &);
 template void create_quadrature_rules(const Parameters::FiniteElements<2> &,
-                                      std::shared_ptr<Quadrature<2>> &,
-                                      std::shared_ptr<Quadrature<1>> &,
-                                      std::shared_ptr<Quadrature<2>> &,
-                                      std::shared_ptr<Quadrature<1>> &);
+                                      std::unique_ptr<Quadrature<2>> &,
+                                      std::unique_ptr<Quadrature<1>> &,
+                                      std::unique_ptr<Quadrature<2>> &,
+                                      std::unique_ptr<Quadrature<1>> &);
 
 void replace_temporary_files(const std::string directory,
                              const std::string temporary_filename_prefix,

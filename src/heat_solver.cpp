@@ -29,7 +29,7 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
                                      param.time_integration,
                                      param.mms_param,
                                      SolverInfo::SolverType::main_physics)
-  , ordering(std::make_shared<ComponentOrderingHeat>())
+  , ordering(std::make_unique<ComponentOrderingHeat>())
   , param(param)
   , fe(FE_SimplexP<dim>(param.finite_elements.temperature_degree), 1)
   , quadrature(QGaussSimplex<dim>(4))
@@ -39,7 +39,7 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   , triangulation(
       std::make_unique<parallel::fullydistributed::Triangulation<dim>>(
         mpi_communicator))
-  , mapping(new MappingFE<dim>(FE_SimplexP<dim>(1)))
+  , mapping(std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1)))
   , dof_handler(*triangulation)
   , time_handler(param.time_integration)
 {
@@ -55,8 +55,8 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   {
     // Add the unknown to the error handlers
     if (param.mms_param.enable)
-      for (auto norm : param.mms_param.norms_to_compute)
-        error_handlers[norm]->create_entry("T");
+      for (auto &[norm, handler] : error_handlers)
+        handler.create_entry("T");
 
     // Create source term function for the given MMS and override source terms
     source_terms = std::make_shared<HeatSolver<dim>::MMSSourceTerm>(
@@ -69,7 +69,14 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
 
   // Create direct solver
   direct_solver_reuse =
-    std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+
+  scratch_data = std::make_unique<ScratchData>(fe,
+                                               *mapping,
+                                               quadrature,
+                                               face_quadrature,
+                                               time_handler.bdf_coefficients,
+                                               param);
 }
 
 template <int dim>
@@ -97,7 +104,7 @@ void HeatSolver<dim>::reset()
 
   // Direct solver
   direct_solver_reuse =
-    std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
@@ -229,10 +236,10 @@ void HeatSolver<dim>::setup_dofs()
   if (!time_handler.is_steady() && param.mms_param.enable)
     for (auto &[norm, handler] : error_handlers)
     {
-      handler->add_reference_data("n_elm",
-                                  triangulation->n_global_active_cells());
-      handler->add_reference_data("n_dof", dof_handler.n_dofs());
-      handler->add_time_step(time_handler.initial_dt);
+      handler.add_reference_data("n_elm",
+                                 triangulation->n_global_active_cells());
+      handler.add_reference_data("n_dof", dof_handler.n_dofs());
+      handler.add_time_step(time_handler.initial_dt);
     }
 }
 
@@ -358,13 +365,7 @@ void HeatSolver<dim>::assemble_matrix()
 
   system_matrix = 0;
 
-  ScratchDataHeat<dim> scratchData(fe,
-                                   *mapping,
-                                   quadrature,
-                                   face_quadrature,
-                                   time_handler.bdf_coefficients,
-                                   param);
-  CopyData             copyData(fe.n_dofs_per_cell());
+  CopyData copyData(fe.n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -380,7 +381,7 @@ void HeatSolver<dim>::assemble_matrix()
                   *this,
                   &HeatSolver::assemble_local_matrix,
                   &HeatSolver::copy_local_to_global_matrix,
-                  scratchData,
+                  *scratch_data,
                   copyData);
   system_matrix.compress(VectorOperation::add);
 }
@@ -388,7 +389,7 @@ void HeatSolver<dim>::assemble_matrix()
 template <int dim>
 void HeatSolver<dim>::assemble_local_matrix(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataHeat<dim>                                 &scratchData,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -396,7 +397,7 @@ void HeatSolver<dim>::assemble_local_matrix(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(
+  scratch_data.reinit(
     cell, evaluation_point, previous_solutions, source_terms, exact_solution);
 
   auto &local_matrix = copy_data.local_matrix;
@@ -404,15 +405,15 @@ void HeatSolver<dim>::assemble_local_matrix(
 
   const double bdf_c0 = time_handler.bdf_coefficients[0];
 
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
-    const double JxW        = scratchData.JxW[q];
-    const auto  &phi_t      = scratchData.phi_t[q];
-    const auto  &grad_phi_t = scratchData.grad_phi_t[q];
+    const double JxW        = scratch_data.JxW[q];
+    const auto  &phi_t      = scratch_data.phi_t[q];
+    const auto  &grad_phi_t = scratch_data.grad_phi_t[q];
 
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      for (unsigned int j = 0; j < scratchData.dofs_per_cell; ++j)
+      for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
         local_matrix(i, j) +=
           (bdf_c0 * phi_t[i] * phi_t[j] + grad_phi_t[i] * grad_phi_t[j]) * JxW;
@@ -435,13 +436,7 @@ void HeatSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 template <int dim>
 void HeatSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchDataHeat<dim> scratchData(fe,
-                                   *mapping,
-                                   quadrature,
-                                   face_quadrature,
-                                   time_handler.bdf_coefficients,
-                                   param);
-  CopyData             copyData(fe.n_dofs_per_cell());
+  CopyData copyData(fe.n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     dof_handler,
@@ -449,7 +444,7 @@ void HeatSolver<dim>::compare_analytical_matrix_with_fd()
     *this,
     &HeatSolver::assemble_local_matrix,
     &HeatSolver::assemble_local_rhs,
-    scratchData,
+    *scratch_data,
     copyData,
     present_solution,
     evaluation_point,
@@ -472,13 +467,7 @@ void HeatSolver<dim>::assemble_rhs()
 
   system_rhs = 0;
 
-  ScratchDataHeat<dim> scratchData(fe,
-                                   *mapping,
-                                   quadrature,
-                                   face_quadrature,
-                                   time_handler.bdf_coefficients,
-                                   param);
-  CopyData             copyData(fe.n_dofs_per_cell());
+  CopyData copyData(fe.n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(dof_handler.begin_active(),
@@ -486,7 +475,7 @@ void HeatSolver<dim>::assemble_rhs()
                   *this,
                   &HeatSolver::assemble_local_rhs,
                   &HeatSolver::copy_local_to_global_rhs,
-                  scratchData,
+                  *scratch_data,
                   copyData);
 
   system_rhs.compress(VectorOperation::add);
@@ -495,7 +484,7 @@ void HeatSolver<dim>::assemble_rhs()
 template <int dim>
 void HeatSolver<dim>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
-  ScratchDataHeat<dim>                                 &scratchData,
+  ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
@@ -503,7 +492,7 @@ void HeatSolver<dim>::assemble_local_rhs(
   if (!cell->is_locally_owned())
     return;
 
-  scratchData.reinit(
+  scratch_data.reinit(
     cell, evaluation_point, previous_solutions, source_terms, exact_solution);
 
   auto &local_rhs = copy_data.local_rhs;
@@ -512,22 +501,22 @@ void HeatSolver<dim>::assemble_local_rhs(
   //
   // Volume contributions
   //
-  for (unsigned int q = 0; q < scratchData.n_q_points; ++q)
+  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
-    const double JxW = scratchData.JxW[q];
+    const double JxW = scratch_data.JxW[q];
 
-    const auto &temperature_value    = scratchData.temperature_values[q];
-    const auto &temperature_gradient = scratchData.temperature_gradients[q];
+    const auto &temperature_value    = scratch_data.temperature_values[q];
+    const auto &temperature_gradient = scratch_data.temperature_gradients[q];
     const auto &source_term_temperature =
-      scratchData.source_term_temperature[q];
+      scratch_data.source_term_temperature[q];
 
     const double dTdt = time_handler.compute_time_derivative_at_quadrature_node(
-      q, temperature_value, scratchData.previous_temperature_values);
+      q, temperature_value, scratch_data.previous_temperature_values);
 
-    const auto &phi_t      = scratchData.phi_t[q];
-    const auto &grad_phi_t = scratchData.grad_phi_t[q];
+    const auto &phi_t      = scratch_data.phi_t[q];
+    const auto &grad_phi_t = scratch_data.grad_phi_t[q];
 
-    for (unsigned int i = 0; i < scratchData.dofs_per_cell; ++i)
+    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       local_rhs(i) -= (phi_t[i] * (dTdt + source_term_temperature) +
                        grad_phi_t[i] * temperature_gradient) *
@@ -615,7 +604,7 @@ void HeatSolver<dim>::compute_and_add_errors(
                                                  error_quadrature,
                                                  norm,
                                                  &comp_function);
-    error_handlers.at(norm)->add_error(field_name, err, time);
+    error_handlers.at(norm).add_error(field_name, err, time);
   }
 }
 
@@ -630,10 +619,9 @@ void HeatSolver<dim>::compute_errors()
   if (time_handler.is_steady())
     for (auto norm : param.mms_param.norms_to_compute)
     {
-      error_handlers.at(norm)->add_reference_data(
+      error_handlers.at(norm).add_reference_data(
         "n_elm", triangulation->n_global_active_cells());
-      error_handlers.at(norm)->add_reference_data("n_dof",
-                                                  dof_handler.n_dofs());
+      error_handlers.at(norm).add_reference_data("n_dof", dof_handler.n_dofs());
     }
 
   /**

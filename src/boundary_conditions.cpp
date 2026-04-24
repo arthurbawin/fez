@@ -358,7 +358,7 @@ namespace BoundaryConditions
             dof_handler,
             bc.id,
             VectorFunctionFromComponents<dim>(
-              u_lower, n_components, bc.u, bc.v, bc.w),
+              u_lower, n_components, *bc.u, *bc.v, *bc.w),
             constraints,
             velocity_mask);
       }
@@ -472,7 +472,7 @@ namespace BoundaryConditions
             mapping,
             dof_handler,
             bc.id,
-            ComponentwiseFlowPressure<dim>(p_lower, n_components, *bc.p),
+            ScalarFunctionFromComponents<dim>(p_lower, n_components, *bc.p),
             constraints,
             pressure_mask);
         }
@@ -529,7 +529,7 @@ namespace BoundaryConditions
             dof_handler,
             bc.id,
             VectorFunctionFromComponents<dim>(
-              x_lower, n_components, bc.x, bc.y, bc.z),
+              x_lower, n_components, *bc.x, *bc.y, *bc.z),
             constraints,
             position_mask);
       }

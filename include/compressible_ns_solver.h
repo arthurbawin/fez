@@ -129,13 +129,15 @@ protected:
   virtual bool uses_hp_capabilities() const override { return false; };
 
 protected:
-  std::shared_ptr<FESystem<dim>> fe;
+  std::unique_ptr<FESystem<dim>> fe;
 
   // Non-owning pointer to base class fixed_mapping, used for clarity.
   const Mapping<dim> *mapping;
 
   FEValuesExtractors::Scalar temperature_extractor;
   ComponentMask              temperature_mask;
+
+  std::unique_ptr<ScratchData> scratch_data;
 
 protected:
   /**

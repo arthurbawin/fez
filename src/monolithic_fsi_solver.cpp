@@ -29,14 +29,14 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, true>(param)
 {
   if (param.finite_elements.use_quads)
-    fe = std::make_shared<FESystem<dim>>(
+    fe = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,      // Velocity
       FE_Q<dim>(param.finite_elements.pressure_degree),            // Pressure
       FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim, // Position
       FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
         dim); // Lagrange multiplier
   else
-    fe = std::make_shared<FESystem<dim>>(
+    fe = std::make_unique<FESystem<dim>>(
       FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
       FE_SimplexP<dim>(param.finite_elements.pressure_degree),       // Pressure
       FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^
@@ -44,7 +44,7 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
       FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
         dim); // Lagrange multiplier
 
-  this->ordering = std::make_shared<ComponentOrderingFSI<dim>>();
+  this->ordering = std::make_unique<ComponentOrderingFSI<dim>>();
 
   this->velocity_extractor =
     FEValuesExtractors::Vector(this->ordering->u_lower);
@@ -134,13 +134,12 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
       param.mms);
 
     // Create entry in error handler for Lagrange multiplier
-    for (auto norm : this->param.mms_param.norms_to_compute)
+    for (auto &[norm, handler] : this->error_handlers)
     {
-      this->error_handlers[norm]->create_entry("l");
+      handler.create_entry("l");
       if (this->param.fsi.compute_error_on_forces)
         for (unsigned int d = 0; d < dim; ++d)
-          this->error_handlers[norm]->create_entry("F_comp" +
-                                                   std::to_string(d));
+          handler.create_entry("F_comp" + std::to_string(d));
     }
   }
   else
@@ -150,6 +149,16 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
     this->exact_solution = std::make_shared<Functions::ZeroFunction<dim>>(
       this->ordering->n_components);
   }
+
+  scratch_data =
+    std::make_unique<ScratchData>(*this->ordering,
+                                  *fe,
+                                  *this->fixed_mapping,
+                                  *this->moving_mapping,
+                                  *this->quadrature,
+                                  *this->face_quadrature,
+                                  this->time_handler.bdf_coefficients,
+                                  this->param);
 }
 
 template <int dim>
@@ -1433,15 +1442,7 @@ void FSISolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           *this->fixed_mapping,
-                           *this->moving_mapping,
-                           *this->quadrature,
-                           *this->face_quadrature,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copy_data(fe->n_dofs_per_cell());
+  CopyData copy_data(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -1457,7 +1458,7 @@ void FSISolver<dim>::assemble_matrix()
                   *this,
                   &FSISolver::assemble_local_matrix,
                   &FSISolver::copy_local_to_global_matrix,
-                  scratch_data,
+                  *scratch_data,
                   copy_data);
 
   this->system_matrix.compress(VectorOperation::add);
@@ -1480,8 +1481,8 @@ void FSISolver<dim>::assemble_local_matrix(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
@@ -1755,15 +1756,7 @@ void FSISolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 template <int dim>
 void FSISolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           *this->fixed_mapping,
-                           *this->moving_mapping,
-                           *this->quadrature,
-                           *this->face_quadrature,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copy_data(fe->n_dofs_per_cell());
+  CopyData copy_data(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
@@ -1771,7 +1764,7 @@ void FSISolver<dim>::compare_analytical_matrix_with_fd()
     *this,
     &FSISolver::assemble_local_matrix,
     &FSISolver::assemble_local_rhs,
-    scratch_data,
+    *scratch_data,
     copy_data,
     this->present_solution,
     this->evaluation_point,
@@ -1798,15 +1791,7 @@ void FSISolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           *this->fixed_mapping,
-                           *this->moving_mapping,
-                           *this->quadrature,
-                           *this->face_quadrature,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-  CopyData    copy_data(fe->n_dofs_per_cell());
+  CopyData copy_data(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -1814,7 +1799,7 @@ void FSISolver<dim>::assemble_rhs()
                   *this,
                   &FSISolver::assemble_local_rhs,
                   &FSISolver::copy_local_to_global_rhs,
-                  scratch_data,
+                  *scratch_data,
                   copy_data);
 
   this->system_rhs.compress(VectorOperation::add);
@@ -1837,8 +1822,8 @@ void FSISolver<dim>::assemble_local_rhs(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;
@@ -2396,23 +2381,14 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
 template <int dim>
 void FSISolver<dim>::check_velocity_boundary() const
 {
-  ScratchData scratch_data(*this->ordering,
-                           *fe,
-                           *this->fixed_mapping,
-                           *this->moving_mapping,
-                           *this->quadrature,
-                           *this->face_quadrature,
-                           this->time_handler.bdf_coefficients,
-                           this->param);
-
   LagrangeMultiplierTools::check_no_slip_on_boundary<dim>(
     this->param,
-    scratch_data,
+    *scratch_data,
     this->dof_handler,
     this->evaluation_point,
     this->previous_solutions,
-    this->source_terms,
-    this->exact_solution,
+    *this->source_terms,
+    *this->exact_solution,
     weak_no_slip_boundary_id);
 }
 
@@ -2734,18 +2710,18 @@ void FSISolver<dim>::compute_solver_specific_errors()
   for (auto &[norm, handler] : this->error_handlers)
   {
     if (norm == VectorTools::L2_norm)
-      handler->add_error("l", l2_l, t);
+      handler.add_error("l", l2_l, t);
     if (norm == VectorTools::Linfty_norm)
-      handler->add_error("l", li_l, t);
+      handler.add_error("l", li_l, t);
 
     if (this->param.fsi.compute_error_on_forces)
     {
       // The error on the forces is |F_h - F_exact|, there is no need to
       // distinguish between L^p norms.
       for (unsigned int d = 0; d < dim; ++d)
-        handler->add_error("F_comp" + std::to_string(d),
-                           error_on_integral[d],
-                           t);
+        handler.add_error("F_comp" + std::to_string(d),
+                          error_on_integral[d],
+                          t);
     }
   }
 }

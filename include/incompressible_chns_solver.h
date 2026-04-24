@@ -114,10 +114,12 @@ protected:
   virtual bool uses_hp_capabilities() const override { return false; };
 
 protected:
-  std::shared_ptr<FESystem<dim>> fe;
+  std::unique_ptr<FESystem<dim>> fe;
 
   static constexpr ConstexprComponentOrderingCHNS<dim, with_moving_mesh>
     const_ordering = {};
+
+  std::unique_ptr<ScratchData> scratch_data;
 
   FEValuesExtractors::Scalar tracer_extractor;
   FEValuesExtractors::Scalar potential_extractor;

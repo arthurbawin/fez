@@ -249,10 +249,10 @@ inline Tensor<1, dim> parse_rank_1_tensor(const std::string &values,
 template <int dim>
 void create_quadrature_rules(
   const Parameters::FiniteElements<dim> &fe_param,
-  std::shared_ptr<Quadrature<dim>>      &quadrature,
-  std::shared_ptr<Quadrature<dim - 1>>  &face_quadrature,
-  std::shared_ptr<Quadrature<dim>>      &error_quadrature,
-  std::shared_ptr<Quadrature<dim - 1>>  &error_face_quadrature);
+  std::unique_ptr<Quadrature<dim>>      &quadrature,
+  std::unique_ptr<Quadrature<dim - 1>>  &face_quadrature,
+  std::unique_ptr<Quadrature<dim>>      &error_quadrature,
+  std::unique_ptr<Quadrature<dim - 1>>  &error_face_quadrature);
 
 /**
  *

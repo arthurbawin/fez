@@ -167,6 +167,12 @@ namespace ErrorEstimation
                                  const Function<dim> &exact_solution) const;
 
       /**
+       * Return the polynomial degree of the solution used to create this
+       * recovery.
+       */
+      unsigned int get_solution_degree() const;
+
+      /**
        * Return the highest order of the derivatives stored in this object.
        *
        * FIXME: this value is actually highest_recovered_derivative + 1, since
@@ -175,6 +181,17 @@ namespace ErrorEstimation
        * This should be made consistent throughout this class.
        */
       unsigned int get_highest_stored_derivative() const;
+
+      /**
+       * Return true if this object stores data for mesh vertex @p v.
+       * Simply return whether this mesh vertex is owned on this partition.
+       */
+      bool has_mesh_vertex(const types::global_vertex_index v) const;
+
+      /**
+       * Return the DofHandler associated with this object.
+       */
+      const DoFHandler<dim> &get_dof_handler() const;
 
       /**
        * Return the reconstructed @p component-th component of the solution,
@@ -584,9 +601,28 @@ namespace ErrorEstimation
   namespace SolutionRecovery
   {
     template <int dim>
+    unsigned int Base<dim>::get_solution_degree() const
+    {
+      return degree;
+    }
+
+    template <int dim>
     unsigned int Base<dim>::get_highest_stored_derivative() const
     {
       return highest_recovered_derivative;
+    }
+
+    template <int dim>
+    bool Base<dim>::has_mesh_vertex(const types::global_vertex_index v) const
+    {
+      AssertIndexRange(v, n_vertices);
+      return owned_vertices[v];
+    }
+
+    template <int dim>
+    const DoFHandler<dim> &Base<dim>::get_dof_handler() const
+    {
+      return dof_handler;
     }
 
     template <int dim>

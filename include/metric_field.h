@@ -100,6 +100,16 @@ public:
     const unsigned int                                  component = 0);
 
   /**
+   * Increment the stored metrics with factor * (the anisotropic measure
+   * computed from the derivatives in recovery)
+   */
+  void increment_unsteady_anisotropic_measure_integral(
+    const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
+    const double                                        factor,
+    const bool                                          reset,
+    const unsigned int                                  component = 0);
+
+  /**
    * Return the vector of MetricTensors constituting this field.
    */
   const std::vector<MetricTensor<dim>> &get_metrics() const { return metrics; }

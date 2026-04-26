@@ -77,6 +77,44 @@ template void MetricField<3>::compute_optimal_multiscale_metric(
   const unsigned int);
 
 template <int dim>
+void MetricField<dim>::increment_unsteady_anisotropic_measure_integral(
+  const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
+  const double                                        factor,
+  const bool                                          reset,
+  const unsigned int                                  component)
+{
+  if (reset)
+  {
+    // Set this metric field to the anisotropic measure Q
+    for (unsigned int v = 0; v < n_vertices; ++v)
+      if (owned_vertices[v])
+        metrics[v] =
+          factor * MetricTensorTools::anisotropic_measure(
+                     param.metric_fields[index], recovery, component, v);
+  }
+  else
+  {
+    // Increment this metric field with the anisotropic measure Q
+    for (unsigned int v = 0; v < n_vertices; ++v)
+      if (owned_vertices[v])
+        metrics[v] +=
+          factor * MetricTensorTools::anisotropic_measure(
+                     param.metric_fields[index], recovery, component, v);
+  }
+}
+
+template void MetricField<2>::increment_unsteady_anisotropic_measure_integral(
+  const ErrorEstimation::SolutionRecovery::Base<2> &,
+  const double,
+  const bool,
+  const unsigned int);
+template void MetricField<3>::increment_unsteady_anisotropic_measure_integral(
+  const ErrorEstimation::SolutionRecovery::Base<3> &,
+  const double,
+  const bool,
+  const unsigned int);
+
+template <int dim>
 void MetricField<dim>::compute_anisotropic_measure(
   const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
   const unsigned int                                  component)

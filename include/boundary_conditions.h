@@ -55,6 +55,8 @@ namespace BoundaryConditions
     no_tangential_flow_with_weak_pressure, // Enforce no tangential flow +
                                            // impose -p*n weakly
 
+    outflow_with_no_tangential_flow, // Enforce no tangential flow + traction equal to zero
+
     // These boundary conditions are for flow verification purposes:
     // Set velocity to prescribed manufactured solution
     velocity_mms,
@@ -126,6 +128,10 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> v;
     std::shared_ptr<Functions::ParsedFunction<dim>> w;
     std::shared_ptr<Functions::ParsedFunction<dim>> p;
+
+    bool constrain_u = true;
+    bool constrain_v = true;
+    bool constrain_w = true;
 
     // Tolerance on no slip enforcement with a Lagrange multiplier
     double weak_no_slip_tolerance;

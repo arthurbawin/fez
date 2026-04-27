@@ -1255,7 +1255,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
   }
 
   // Update the time handler
-  time_handler.update_parameters_after_restart(param.time_integration);
+  time_handler.update_parameters_after_restart(param.time_integration, pcout);
 }
 
 // Explicit instantiation

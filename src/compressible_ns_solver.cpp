@@ -1,5 +1,6 @@
 #include <compare_matrix.h>
 #include <compressible_ns_solver.h>
+#include <deal.II/base/exceptions.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_renumbering.h>
@@ -10,6 +11,7 @@
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/fe_field_function.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
@@ -1026,6 +1028,277 @@ void CompressibleNSSolver<dim>::compute_solver_specific_errors()
                                cellwise_errors,
                                temperature_comp_select,
                                "T");
+}
+
+// ---------------------------------------------------------------------------
+// Restart from incompressible checkpoint
+// ---------------------------------------------------------------------------
+
+namespace
+{
+  /**
+   * Maps an incompressible NS solution (dim+1 components: velocity + kinematic
+   * pressure p_k = p/rho) to the compressible NS layout (dim+2 components:
+   * velocity + pressure perturbation p* + temperature perturbation T*) via
+   * the linearized ideal-gas EOS evaluated at rho = rho_ref:
+   *
+   *   velocity  : direct transfer
+   *   p*        = rho_ref * p_k
+   *   T*        = (rho_ref * T_ref / p_ref) * p_k
+   */
+  template <int dim>
+  class IncompressibleRestartAdapter : public Function<dim>
+  {
+  public:
+    IncompressibleRestartAdapter(
+      Functions::FEFieldFunction<dim, LA::ParVectorType> &fe_field,
+      const unsigned int                                  n_comp_components,
+      const unsigned int                                  p_lower,
+      const unsigned int                                  t_lower,
+      const double                                        rho_ref,
+      const double                                        p_ref,
+      const double                                        T_ref)
+      : Function<dim>(n_comp_components)
+      , fe_field_(fe_field)
+      , p_lower_(p_lower)
+      , t_lower_(t_lower)
+      , rho_ref_(rho_ref)
+      , p_ref_(p_ref)
+      , T_ref_(T_ref)
+    {}
+
+    virtual double
+    value(const Point<dim> &p, const unsigned int c) const override
+    {
+      if (c < p_lower_) // velocity components
+        return fe_field_.value(p, c);
+      const double p_k = fe_field_.value(p, p_lower_); // kinematic pressure
+      if (c == p_lower_)
+        return rho_ref_ * p_k;
+      if (c == t_lower_)
+        return (rho_ref_ * T_ref_ / p_ref_) * p_k;
+      return 0.0;
+    }
+
+  private:
+    Functions::FEFieldFunction<dim, LA::ParVectorType> &fe_field_;
+    const unsigned int p_lower_;
+    const unsigned int t_lower_;
+    const double       rho_ref_;
+    const double       p_ref_;
+    const double       T_ref_;
+  };
+} // namespace
+
+template <int dim>
+void
+CompressibleNSSolver<dim>::restart()
+{
+  const std::string prefix =
+    this->param.output.output_dir + this->param.checkpoint_restart.filename;
+
+  const auto                    &fp = this->param.finite_elements;
+  std::shared_ptr<FESystem<dim>> fe_incomp;
+  if (fp.use_quads)
+    fe_incomp = std::make_shared<FESystem<dim>>(
+      FE_Q<dim>(fp.velocity_degree) ^ dim,
+      FE_Q<dim>(fp.pressure_degree));
+  else
+    fe_incomp = std::make_shared<FESystem<dim>>(
+      FE_SimplexP<dim>(fp.velocity_degree) ^ dim,
+      FE_SimplexP<dim>(fp.pressure_degree));
+
+  // Detect checkpoint type by scanning the archive as text.
+  // The Boost text archive written by checkpoint() has the format:
+  //   "22 serialization::archive VERSION 0 0 ... N_global ..."
+  // where N_global (the global DOF count of the first serialized vector)
+  // appears after the 3-token header and a few zero class-tracking tokens.
+  // Comparing N_global against n_incomp_dofs identifies the solver type.
+  // The DoFHandler is wrapped in a scope so it is destroyed before the
+  // triangulation is reloaded by the appropriate restart path below.
+  bool from_incompressible = false;
+  {
+    this->triangulation.load(prefix);
+
+    DoFHandler<dim> dof_handler_incomp(this->triangulation);
+    dof_handler_incomp.distribute_dofs(*fe_incomp);
+    const types::global_dof_index n_incomp_dofs = dof_handler_incomp.n_dofs();
+
+    std::ifstream file(prefix + "_rank" + std::to_string(this->mpi_rank));
+    AssertThrow(file.is_open(),
+                ExcMessage("Could not open checkpoint file for restart."));
+
+    std::string tok;
+    file >> tok >> tok >> tok; // skip "22 serialization::archive VERSION"
+    for (int i = 0; i < 30; ++i)
+      {
+        if (!(file >> tok)) break;
+        try
+          {
+            if (static_cast<types::global_dof_index>(std::stoull(tok)) ==
+                n_incomp_dofs)
+              {
+                from_incompressible = true;
+                break;
+              }
+          }
+        catch (...)
+          {}
+      }
+  } // dof_handler_incomp destroyed before triangulation is reloaded below
+
+  if (from_incompressible)
+    {
+      this->pcout
+        << std::endl
+        << "--- Incompressible checkpoint detected: restarting with "
+           "EOS-mapped velocity, pressure, and temperature ---"
+        << std::endl
+        << std::endl;
+      restart_from_incompressible_checkpoint();
+    }
+  else
+    {
+      NavierStokesSolver<dim>::restart();
+    }
+}
+
+template <int dim>
+void
+CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
+{
+  const std::string prefix =
+    this->param.output.output_dir + this->param.checkpoint_restart.filename;
+
+  const auto &fp = this->param.finite_elements;
+  std::shared_ptr<FESystem<dim>> fe_incomp;
+  if (fp.use_quads)
+    fe_incomp = std::make_shared<FESystem<dim>>(
+      FE_Q<dim>(fp.velocity_degree) ^ dim,
+      FE_Q<dim>(fp.pressure_degree));
+  else
+    fe_incomp = std::make_shared<FESystem<dim>>(
+      FE_SimplexP<dim>(fp.velocity_degree) ^ dim,
+      FE_SimplexP<dim>(fp.pressure_degree));
+
+  DoFHandler<dim> dof_handler_incomp(this->triangulation);
+  dof_handler_incomp.distribute_dofs(*fe_incomp);
+
+  const IndexSet owned_incomp = dof_handler_incomp.locally_owned_dofs();
+  const IndexSet relevant_incomp =
+    DoFTools::extract_locally_relevant_dofs(dof_handler_incomp);
+
+  LA::ParVectorType solution_incomp(owned_incomp,
+                                    relevant_incomp,
+                                    this->mpi_communicator);
+  {
+    // The Boost text archive stores class-tracking IDs that are assigned by
+    // the binary that wrote the archive.  Reading them back in a different
+    // binary (incompressible vs. compressible executables) causes a class-
+    // version mismatch for std::pair<size_type,size_type>.  We therefore
+    // bypass Boost deserialization entirely and parse the archive as plain
+    // text.  The layout of each per-rank file produced by VectorBase::save()
+    // is:
+    //   "22 serialization::archive VERSION"   <- 3 header tokens
+    //   6 class-tracking tokens (zeros)
+    //   GLOBAL_DOFS
+    //   2 class-tracking tokens (zeros for std::pair)
+    //   RANGE_FIRST  RANGE_SECOND
+    //   (RANGE_SECOND - RANGE_FIRST) PetscScalar values
+
+    const types::global_dof_index n_incomp_dofs = dof_handler_incomp.n_dofs();
+
+    std::ifstream checkpoint_file(prefix + "_rank" +
+                                  std::to_string(this->mpi_rank));
+    AssertThrow(checkpoint_file.is_open(),
+                ExcMessage("Could not read checkpoint file."));
+
+    std::string tok;
+    checkpoint_file >> tok >> tok >> tok; // skip archive header
+
+    // Scan tokens until we find the global DOF count (same logic as restart())
+    bool found_global = false;
+    for (int i = 0; i < 30 && !found_global; ++i)
+      {
+        if (!(checkpoint_file >> tok))
+          break;
+        try
+          {
+            if (static_cast<types::global_dof_index>(std::stoull(tok)) ==
+                n_incomp_dofs)
+              found_global = true;
+          }
+        catch (...)
+          {}
+      }
+    AssertThrow(found_global,
+                ExcMessage("Could not locate the global DOF count (" +
+                           std::to_string(n_incomp_dofs) +
+                           ") in the incompressible checkpoint."));
+
+    // Skip the 2 Boost class-tracking tokens for std::pair<size_type,size_type>
+    checkpoint_file >> tok >> tok;
+
+    // Read local range [range_first, range_second)
+    types::global_dof_index range_first = 0, range_second = 0;
+    checkpoint_file >> range_first >> range_second;
+
+    const types::global_dof_index local_size = range_second - range_first;
+    AssertThrow(
+      local_size == solution_incomp.locally_owned_size(),
+      ExcMessage("Checkpoint local range [" + std::to_string(range_first) +
+                 ", " + std::to_string(range_second) +
+                 ") does not match locally owned size (" +
+                 std::to_string(solution_incomp.locally_owned_size()) + ")."));
+
+    // Write values directly into the PETSc local array (mirrors VectorBase::load())
+    PetscScalar *array = nullptr;
+    int ierr = VecGetArray(solution_incomp.petsc_vector(), &array);
+    AssertThrow(ierr == 0, ExcPETScError(ierr));
+    for (types::global_dof_index i = 0; i < local_size; ++i)
+      checkpoint_file >> array[i];
+    ierr = VecRestoreArray(solution_incomp.petsc_vector(), &array);
+    AssertThrow(ierr == 0, ExcPETScError(ierr));
+
+    solution_incomp.update_ghost_values();
+  }
+
+  this->setup_dofs();
+
+  const auto  &fluid   = this->param.physical_properties.fluids[0];
+  const double rho_ref = fluid.density;
+  const double p_ref   = fluid.pressure_ref;
+  const double T_ref   = fluid.temperature_ref;
+
+  Functions::FEFieldFunction<dim, LA::ParVectorType> incomp_field(
+    dof_handler_incomp, solution_incomp, *mapping);
+  IncompressibleRestartAdapter<dim> adapter(incomp_field,
+                                            this->ordering->n_components,
+                                            this->ordering->p_lower,
+                                            this->ordering->t_lower,
+                                            rho_ref,
+                                            p_ref,
+                                            T_ref);
+  VectorTools::interpolate(*mapping,
+                           this->dof_handler,
+                           adapter,
+                           this->newton_update);
+  this->nonzero_constraints.distribute(this->newton_update);
+
+  this->present_solution       = this->newton_update;
+  this->local_evaluation_point = this->newton_update;
+  this->evaluation_point       = this->present_solution;
+  this->present_solution.update_ghost_values();
+  this->evaluation_point.update_ghost_values();
+
+  for (auto &prev : this->previous_solutions)
+    {
+      prev = this->present_solution;
+      prev.update_ghost_values();
+    }
+
+  this->time_handler.update_parameters_after_restart(this->param.time_integration,
+                                                     this->pcout);
 }
 
 // Explicit instantiation

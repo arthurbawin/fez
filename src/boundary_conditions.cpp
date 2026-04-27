@@ -38,8 +38,25 @@ namespace BoundaryConditions
         "none|input_function|outflow|no_slip|weak_no_slip|slip|"
         "weak_pressure|dirichlet_pressure|"
         "velocity_mms|velocity_flux_mms|pressure_mms|open_mms|"
-        "no_tangential_flow|no_tangential_flow_with_weak_pressure"),
+        "no_tangential_flow|no_tangential_flow_with_weak_pressure|"
+        "outflow_with_no_tangential_flow"),
       "Type of fluid boundary condition");
+
+    // To specifie with component of the velocity you want to leave
+    // unconstrained
+    prm.declare_entry("constrain_u",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain x-velocity component on this boundary");
+    prm.declare_entry("constrain_v",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain y-velocity component on this boundary");
+    prm.declare_entry(
+      "constrain_w",
+      "true",
+      Patterns::Bool(),
+      "Constrain z-velocity component on this boundary (3D only)");
 
     // Imposed functions, if any
     prm.enter_subsection("u");
@@ -116,6 +133,8 @@ namespace BoundaryConditions
       type = Type::dirichlet_pressure;
     else if (parsed_type == "no_tangential_flow_with_weak_pressure")
       type = Type::no_tangential_flow_with_weak_pressure;
+    else if (parsed_type == "outflow_with_no_tangential_flow")
+      type = Type::outflow_with_no_tangential_flow;
     else if (parsed_type == "none")
       throw std::runtime_error(
         "Fluid boundary condition for boundary " + std::to_string(this->id) +
@@ -123,6 +142,18 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed fluid boundary conditions is smaller than "
         "the specified \"number\" field.");
+
+    constrain_u = prm.get_bool("constrain_u");
+    constrain_v = prm.get_bool("constrain_v");
+    constrain_w = prm.get_bool("constrain_w");
+
+    if constexpr (dim == 2)
+      constrain_w = false;
+
+    AssertThrow(constrain_u || constrain_v || constrain_w,
+                ExcMessage(
+                  "Fluid BC " + std::to_string(this->id) +
+                  ": at least one velocity component must be constrained."));
 
     prm.enter_subsection("u");
     u->parse_parameters(prm);
@@ -321,6 +352,20 @@ namespace BoundaryConditions
     const ComponentMask              velocity_mask =
       dof_handler.get_fe().component_mask(velocity);
 
+    const auto make_partial_velocity_mask =
+      [&](const BoundaryConditions::FluidBC<dim> &bc) -> ComponentMask {
+      std::vector<bool> mask(n_components, false);
+      if (bc.constrain_u)
+        mask[u_lower + 0] = true;
+      if constexpr (dim >= 2)
+        if (bc.constrain_v)
+          mask[u_lower + 1] = true;
+      if constexpr (dim == 3)
+        if (bc.constrain_w)
+          mask[u_lower + 2] = true;
+      return ComponentMask(mask);
+    };
+
     std::set<types::boundary_id> no_flux_boundaries;
     std::set<types::boundary_id> no_tangential_flow_boundaries;
     std::set<types::boundary_id> velocity_normal_flux_boundaries;
@@ -340,7 +385,7 @@ namespace BoundaryConditions
                                                  Functions::ZeroFunction<dim>(
                                                    n_components),
                                                  constraints,
-                                                 velocity_mask);
+                                                 make_partial_velocity_mask(bc));
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
@@ -351,7 +396,7 @@ namespace BoundaryConditions
                                                    Functions::ZeroFunction<dim>(
                                                      n_components),
                                                    constraints,
-                                                   velocity_mask);
+                                                   make_partial_velocity_mask(bc));
         else
           VectorTools::interpolate_boundary_values(
             mapping,
@@ -360,7 +405,7 @@ namespace BoundaryConditions
             VectorFunctionFromComponents<dim>(
               u_lower, n_components, *bc.u, *bc.v, *bc.w),
             constraints,
-            velocity_mask);
+            make_partial_velocity_mask(bc));
       }
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
@@ -371,20 +416,21 @@ namespace BoundaryConditions
                                                    Functions::ZeroFunction<dim>(
                                                      n_components),
                                                    constraints,
-                                                   velocity_mask);
+                                                   make_partial_velocity_mask(bc));
         else
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
                                                    bc.id,
                                                    exact_solution,
                                                    constraints,
-                                                   velocity_mask);
+                                                   make_partial_velocity_mask(bc));
       }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::no_tangential_flow ||
           bc.type ==
-            BoundaryConditions::Type::no_tangential_flow_with_weak_pressure)
+            BoundaryConditions::Type::no_tangential_flow_with_weak_pressure ||
+          bc.type == BoundaryConditions::Type::outflow_with_no_tangential_flow)
         no_tangential_flow_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {

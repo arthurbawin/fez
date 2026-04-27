@@ -17,6 +17,7 @@
 #include <error_estimation/patches.h>
 #include <error_estimation/solution_recovery.h>
 #include <generic_solver.h>
+#include <mesh_adaptation/transient_fixed_point.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <post_processing_handler.h>
@@ -44,6 +45,16 @@ public:
 
 public:
   virtual void run() override;
+
+  /**
+   *
+   */
+  void set_interval_data(const unsigned int interval_index);
+
+  /**
+   *
+   */
+  void run_time_subinterval(const unsigned int interval_index);
 
   /**
    *
@@ -223,10 +234,13 @@ protected:
   QSimplex<dim - 1> face_quadrature;
   QSimplex<dim - 1> error_face_quadrature;
 
-  std::unique_ptr<parallel::fullydistributed::Triangulation<dim>> triangulation;
-  std::unique_ptr<Mapping<dim>>                                   mapping;
-  DoFHandler<dim>                                                 dof_handler;
-  TimeHandler                                                     time_handler;
+  TransientFixedPointData<dim> transient_fixed_point_data;
+
+  parallel::fullydistributed::Triangulation<dim> *triangulation;
+  DoFHandler<dim>                                *dof_handler;
+
+  std::unique_ptr<Mapping<dim>> mapping;
+  TimeHandler                   time_handler;
 
   std::unique_ptr<ScratchData> scratch_data;
 

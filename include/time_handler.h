@@ -38,6 +38,11 @@ public:
   ~TimeHandler();
 
   /**
+   * Set the initial and final times for the @p interval_index-th time subinterval.
+   */
+  void set_time_interval(const unsigned int interval_index);
+
+  /**
    * Validate the parameters depending on the derived solver using this object.
    * This prevents for instance using CFL as a time step adaptation criterion
    * with solvers that do not have the fluid velocity as a variable.
@@ -226,39 +231,109 @@ private:
    */
   void set_next_timestep(const bool step_was_accepted);
 
+  /**
+   * Increment the integral of dt(t)^-1 over the current time subinterval.
+   * This is actually done by simply incrementing the time steps count for that
+   * interval, which is equivalent.
+   */
+  void increment_inverse_time_step_integral();
+
 public:
+  // A copy of the associated parameters
   Parameters::TimeIntegration time_parameters;
 
+  // This value is true if the chosen time stepping scheme actually solves for
+  // a steady-state solution, and is false otherwise.
   bool steady_scheme;
 
-  double              current_time;
-  unsigned int        current_time_iteration;
-  double              initial_time;
-  double              final_time;
+  // The number of time subintervals in the simulation.
+  // If not using the transient fixed point mesh adaptation method, this value
+  // is 1, i.e., the simulation time interval is split into a single subinterval
+  // (itself). Otherwise, this is the prescribed number of (equal) subintervals.
+  unsigned int n_time_intervals;
+
+  // Current time subinterval
+  unsigned int current_time_interval;
+
+  // Integral of the time step on each time subinterval
+  std::vector<double> inverse_time_step_integrals;
+
+  std::vector<unsigned int> n_steps_on_each_interval;
+
+  // Current simulation time
+  double current_time;
+
+  // Current time step counter of the simulation
+  unsigned int current_time_iteration;
+
+  // Initial time (for this subinterval)
+  double initial_time;
+
+  // Final time (for this subinterval)
+  double final_time;
+
+  // Initial times of all subintervals
+  std::vector<double> initial_times;
+
+  // Final times of all subintervals
+  std::vector<double> final_times;
+
+  // The simulation times for the current and last N time steps
+  // FIXME: misnomer, this only includes the recent times
   std::vector<double> simulation_times;
+
+  // Log of all simulation times
   std::vector<double> all_simulation_times;
 
-  double              initial_dt;
-  double              current_dt;
+  // Initial simulation time step
+  double initial_dt;
+
+  // Current time step
+  double current_dt;
+
+  // Log of the last N time steps, used to compute BDF coefficients
   std::vector<double> time_steps;
 
+  // Time stepping scheme
   Parameters::TimeIntegration::Scheme scheme;
 
-  unsigned int        n_previous_solutions;
-  std::vector<double> bdf_coefficients;
-  unsigned int        bdf_order;
+  // Number of previous solutions required to compute time derivatives.
+  // For BDF schemes, this is equal to the BDF order.
+  unsigned int n_previous_solutions;
 
+  // If the time stepping scheme is a BDF method, this vector stores the
+  // coefficients of the BDF expansion.
+  std::vector<double> bdf_coefficients;
+
+  // If the time stepping scheme is a BDF method, the order of the method
+  unsigned int bdf_order;
+
+  // A flag specifying whether the simulation uses adaptive time steps
   bool with_adaptive_timestep;
 
-  bool         rolledback_step;
+  // This value is true if the current step is a step that has been "rolled
+  // back", that is, that is being re-tried with a smaller time step because the
+  // nonlinear solver failed to find a solution during the previous attempt.
+  bool rolledback_step;
+
+  // The number of time steps that were rejected consecutively.
+  // The simulation will abort if too many steps are rejected in a row, to avoid
+  // progressing with very small time steps.
   unsigned int n_consecutive_rejected_steps;
+
+  // Total number of time steps that were rejected during the simulation.
   unsigned int n_rejected_steps;
 
+  // This value is true if the last nonlinear solve found a solution for this
+  // time step, and is false otherwise (i.e., if the solver either diverged or
+  // ran out of iterations without converging).
   mutable bool last_nonlinear_solver_converged;
 
+  // The maximum CFL number computed for the current mesh and solution
   double max_cfl_number;
 
-public:
+  // A pointer to the error estimator, used to compute BDF truncation error and
+  // provide the next time step based on the error on all fields.
   std::shared_ptr<BDFErrorEstimator> error_estimator;
 };
 

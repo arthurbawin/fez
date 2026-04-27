@@ -36,11 +36,11 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   , error_quadrature(QWitherdenVincentSimplex<dim>((dim == 2) ? 6 : 5))
   , face_quadrature(QGaussSimplex<dim - 1>(4))
   , error_face_quadrature(QWitherdenVincentSimplex<dim - 1>((dim == 2) ? 6 : 5))
-  , triangulation(
-      std::make_unique<parallel::fullydistributed::Triangulation<dim>>(
-        mpi_communicator))
+  , transient_fixed_point_data(param.mesh.adaptation.metric.n_time_intervals,
+                               mpi_communicator)
+  , triangulation(transient_fixed_point_data.get_triangulation(0))
+  , dof_handler(transient_fixed_point_data.get_dof_handler(0))
   , mapping(std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1)))
-  , dof_handler(*triangulation)
   , time_handler(param.time_integration)
 {
   temperature_extractor = FEValuesExtractors::Scalar(0);
@@ -92,8 +92,8 @@ void HeatSolver<dim>::reset()
   if (postproc_handler)
     postproc_handler->clear();
 
-  // Mesh
-  triangulation->clear();
+  // Clear mesh(es) and dof handler(s)
+  transient_fixed_point_data.clear();
 
   // Direct solver
   direct_solver_reuse =
@@ -124,15 +124,29 @@ void HeatSolver<dim>::initialize()
   {
     const auto description = get_variables_description();
     postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
-      param, *triangulation, dof_handler, description);
+      param, *triangulation, *dof_handler, description);
   }
   time_handler.validate_parameters(*ordering);
 }
 
 template <int dim>
-void HeatSolver<dim>::run()
+void HeatSolver<dim>::set_interval_data(const unsigned int interval_index)
 {
-  reset();
+  time_handler.set_time_interval(interval_index);
+  transient_fixed_point_data.set_interval_data(interval_index,
+                                               triangulation,
+                                               dof_handler
+                                               // ,
+                                               // present_solution,
+                                               // previous_solutions,
+                                               // postproc_handler
+  );
+}
+
+template <int dim>
+void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
+{
+  set_interval_data(interval_index);
   initialize();
   MeshTools::read_mesh(*triangulation, param);
   setup_dofs();
@@ -140,8 +154,27 @@ void HeatSolver<dim>::run()
   create_zero_constraints();
   create_nonzero_constraints();
   create_sparsity_pattern();
-  set_initial_conditions();
-  output_results();
+
+  if (interval_index == 0)
+  {
+    set_initial_conditions();
+    output_results();
+  }
+  else
+  {
+    // Transfer solution from previous interval
+    // Possible steps:
+    /**
+     * - get the support points of the new dofs on this partition
+     * - locate on which partition in the old mesh they are located
+     * - for each proc, create a list of support points whose values (for each
+     * component) are requested
+     * - send and receive the lists of requests
+     * - fulfill the requests and send back the values
+     */
+    // For prototyping, we can simply interpolate the exact solution on the
+    // current mesh
+  }
 
   while (!time_handler.is_finished())
   {
@@ -179,10 +212,26 @@ void HeatSolver<dim>::run()
     postprocess_solution();
     time_handler.rotate_solutions(present_solution, previous_solutions);
   }
+}
+
+template <int dim>
+void HeatSolver<dim>::run()
+{
+  reset();
+
+  for (unsigned int i = 0; i < param.mesh.adaptation.metric.n_time_intervals;
+       ++i)
+    run_time_subinterval(i);
 
   adapt_mesh();
-
   finalize();
+
+  pcout << "Number of steps on intervals:" << std::endl;
+  for (auto val : time_handler.n_steps_on_each_interval)
+    pcout << val << std::endl;
+
+  for (const auto &[norm, handler] : error_handlers)
+    handler.write_errors();
 }
 
 template <int dim>
@@ -193,48 +242,54 @@ void HeatSolver<dim>::setup_dofs()
   auto &comm = mpi_communicator;
 
   // Initialize dof handler
-  dof_handler.distribute_dofs(fe);
+  dof_handler->distribute_dofs(fe);
 
-  pcout << "Number of degrees of freedom: " << dof_handler.n_dofs()
+  pcout << "Number of degrees of freedom: " << dof_handler->n_dofs()
         << std::endl;
 
-  locally_owned_dofs    = dof_handler.locally_owned_dofs();
-  locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dof_handler);
+  locally_owned_dofs    = dof_handler->locally_owned_dofs();
+  locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(*dof_handler);
 
   // Setup the dofs_to_component vector
-  fill_dofs_to_component(dof_handler, locally_relevant_dofs, dofs_to_component);
+  fill_dofs_to_component(*dof_handler,
+                         locally_relevant_dofs,
+                         dofs_to_component);
 
   // Attach data to time error estimator
   time_handler.attach_data_to_error_estimator(*ordering,
                                               locally_relevant_dofs,
                                               dofs_to_component);
 
-  // Initialize parallel vectors
-  present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
-  evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
-
-  local_evaluation_point.reinit(locally_owned_dofs, comm);
-  newton_update.reinit(locally_owned_dofs, comm);
-  system_rhs.reinit(locally_owned_dofs, comm);
-
-  // Allocate for previous BDF solutions
-  previous_solutions.clear();
-  previous_solutions.resize(time_handler.n_previous_solutions);
-  for (auto &previous_sol : previous_solutions)
+  // FIXME: Allocate vectors for subsequent intervals
+  if (time_handler.current_time_interval == 0)
   {
-    previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
-  }
+    // Initialize parallel vectors
+    present_solution.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
+    evaluation_point.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
 
-  // For unsteady simulation, add the number of elements, dofs and/or the time
-  // step to the error handler, once per convergence run.
-  if (!time_handler.is_steady() && param.mms_param.enable)
-    for (auto &[norm, handler] : error_handlers)
+    local_evaluation_point.reinit(locally_owned_dofs, comm);
+    newton_update.reinit(locally_owned_dofs, comm);
+    system_rhs.reinit(locally_owned_dofs, comm);
+
+    // Allocate for previous BDF solutions
+    previous_solutions.clear();
+    previous_solutions.resize(time_handler.n_previous_solutions);
+    for (auto &previous_sol : previous_solutions)
     {
-      handler.add_reference_data("n_elm",
-                                 triangulation->n_global_active_cells());
-      handler.add_reference_data("n_dof", dof_handler.n_dofs());
-      handler.add_time_step(time_handler.initial_dt);
+      previous_sol.reinit(locally_owned_dofs, locally_relevant_dofs, comm);
     }
+
+    // For unsteady simulation, add the number of elements, dofs and/or the time
+    // step to the error handler, once per convergence run.
+    if (!time_handler.is_steady() && param.mms_param.enable)
+      for (auto &[norm, handler] : error_handlers)
+      {
+        handler.add_reference_data("n_elm",
+                                   triangulation->n_global_active_cells());
+        handler.add_reference_data("n_dof", dof_handler->n_dofs());
+        handler.add_time_step(time_handler.initial_dt);
+      }
+  }
 }
 
 template <int dim>
@@ -263,13 +318,13 @@ void HeatSolver<dim>::create_base_constraints(
                 &zero_fun :
                 static_cast<const Function<dim> *>(bc.temperature.get());
       VectorTools::interpolate_boundary_values(
-        *mapping, dof_handler, bc.id, *fun_ptr, constraints, temperature_mask);
+        *mapping, *dof_handler, bc.id, *fun_ptr, constraints, temperature_mask);
     }
     if (bc.type == BoundaryConditions::Type::dirichlet_mms)
     {
       fun_ptr = homogeneous ? &zero_fun : exact_solution.get();
       VectorTools::interpolate_boundary_values(
-        *mapping, dof_handler, bc.id, *fun_ptr, constraints, temperature_mask);
+        *mapping, *dof_handler, bc.id, *fun_ptr, constraints, temperature_mask);
     }
   }
 
@@ -293,7 +348,7 @@ void HeatSolver<dim>::create_sparsity_pattern()
 {
 #if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(locally_relevant_dofs);
-  DoFTools::make_sparsity_pattern(dof_handler,
+  DoFTools::make_sparsity_pattern(*dof_handler,
                                   dsp,
                                   nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
@@ -310,7 +365,7 @@ void HeatSolver<dim>::create_sparsity_pattern()
                                         locally_owned_dofs,
                                         locally_relevant_dofs,
                                         mpi_communicator);
-  DoFTools::make_sparsity_pattern(dof_handler, dsp, nonzero_constraints);
+  DoFTools::make_sparsity_pattern(*dof_handler, dsp, nonzero_constraints);
   dsp.compress();
   system_matrix.reinit(dsp);
 #endif
@@ -325,7 +380,7 @@ void HeatSolver<dim>::set_initial_conditions()
       param.initial_conditions.initial_temperature.get();
 
   VectorTools::interpolate(
-    *mapping, dof_handler, *temperature_fun, newton_update, temperature_mask);
+    *mapping, *dof_handler, *temperature_fun, newton_update, temperature_mask);
 
   // Apply non-homogeneous Dirichlet BC and set as current solution
   nonzero_constraints.distribute(newton_update);
@@ -341,7 +396,7 @@ void HeatSolver<dim>::set_exact_solution()
   TimerOutput::Scope t(computing_timer, "Set exact solution");
 
   VectorTools::interpolate(*mapping,
-                           dof_handler,
+                           *dof_handler,
                            *exact_solution,
                            local_evaluation_point,
                            temperature_mask);
@@ -377,8 +432,8 @@ void HeatSolver<dim>::assemble_matrix()
 #endif
 
   // Assemble matrix (multithreaded if supported)
-  WorkStream::run(dof_handler.begin_active(),
-                  dof_handler.end(),
+  WorkStream::run(dof_handler->begin_active(),
+                  dof_handler->end(),
                   *this,
                   &HeatSolver::assemble_local_matrix,
                   &HeatSolver::copy_local_to_global_matrix,
@@ -440,7 +495,7 @@ void HeatSolver<dim>::compare_analytical_matrix_with_fd()
   CopyData copyData(fe.n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
-    dof_handler,
+    *dof_handler,
     fe.n_dofs_per_cell(),
     *this,
     &HeatSolver::assemble_local_matrix,
@@ -471,8 +526,8 @@ void HeatSolver<dim>::assemble_rhs()
   CopyData copyData(fe.n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
-  WorkStream::run(dof_handler.begin_active(),
-                  dof_handler.end(),
+  WorkStream::run(dof_handler->begin_active(),
+                  dof_handler->end(),
                   *this,
                   &HeatSolver::assemble_local_rhs,
                   &HeatSolver::copy_local_to_global_rhs,
@@ -598,7 +653,7 @@ void HeatSolver<dim>::compute_and_add_errors(
     const double err =
       compute_error_norm<dim, LA::ParVectorType>(*triangulation,
                                                  mapping,
-                                                 dof_handler,
+                                                 *dof_handler,
                                                  present_solution,
                                                  exact_solution,
                                                  cellwise_errors,
@@ -622,7 +677,8 @@ void HeatSolver<dim>::compute_errors()
     {
       error_handlers.at(norm).add_reference_data(
         "n_elm", triangulation->n_global_active_cells());
-      error_handlers.at(norm).add_reference_data("n_dof", dof_handler.n_dofs());
+      error_handlers.at(norm).add_reference_data("n_dof",
+                                                 dof_handler->n_dofs());
     }
 
   /**
@@ -669,7 +725,7 @@ void HeatSolver<dim>::adapt_mesh()
     patch_handler = std::make_unique<ErrorEstimation::PatchHandler<dim>>(
       *triangulation,
       *mapping,
-      dof_handler,
+      *dof_handler,
       present_solution,
       param.finite_elements.temperature_degree + 1,
       fe.component_mask(FEValuesExtractors::Scalar(0)));
@@ -685,7 +741,7 @@ void HeatSolver<dim>::adapt_mesh()
       highest_recovered_derivative,
       param,
       *patch_handler,
-      dof_handler,
+      *dof_handler,
       present_solution,
       fe,
       *mapping,

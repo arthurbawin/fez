@@ -168,6 +168,9 @@ public:
     debug.read_parameters(prm);
     Parameters::read_metric_fields(prm, bc_data.n_metric_fields, metric_fields);
 
+    // Copy info coming from mesh adaptation that affects time integration
+    time_integration.n_time_intervals = mesh.adaptation.metric.n_time_intervals;
+
     check_parameters();
   }
 };

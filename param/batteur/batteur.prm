@@ -1,0 +1,310 @@
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write vtu results    = true
+  set output directory = ../data/batteur/
+  set output prefix    = BatteurV2
+  set vtu output frequency = 3
+end
+
+subsection Mesh
+  set mesh file=../maillage/batteur.msh
+  #set dealii preset mesh     = rectangle
+  #set dealii mesh parameters = 128, 32 : 0., 0. : 1, 0.5 : true
+  #set refinement level       = 1
+end
+
+subsection Linear elasticity
+  # phi * GRAD(phi) 
+  #subsection source term
+    #set Function constants  = e=5e-3, h0=0.4, xcut=1.66
+    #set Function expression = 0 ; if(x<xcut, 0, -1.0/sqrt(2.) * (1.0 - tanh((h0-y)/(sqrt(2.)*e))^2) * tanh((h0-y)/(sqrt(2.)*e)))
+  #end
+
+  # Formule 5 (active) : Gamma + saturation lisse tanh a partir du traceur analytique
+  subsection source term
+    set Function constants  = e=5e-3, h0=0.4, xcut=1.66, gamma=0.9999, phi_max=0.998
+    set Function expression = 0 ; if(x<xcut, 0, (-1.0/sqrt(2.))*(1.0 - tanh((h0-y)/(sqrt(2.)*e))^2) * ((phi_max*tanh(tanh((h0-y)/(sqrt(2.)*e))/phi_max)) / (1.0 - gamma^2*(phi_max*tanh(tanh((h0-y)/(sqrt(2.)*e))/phi_max))^2)))
+  end
+
+  subsection current mesh source term
+    set enable             = true
+    set min multiplier     = 400
+    set max multiplier     = 800
+    set continuation steps = 15
+    set use as presolver   = true
+  end
+end
+
+subsection Time integration
+  set dt               = 5e-3
+  set t_initial        = 0
+  set t_end            = 6
+  set scheme           = BDF2
+  set bdf start method = BDF1
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-9
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+  #subsection reassembly heuristic
+    #set decrease tolerance=0.1
+  #end
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set stabilization     = true
+  set Velocity degree   = 2
+  set Pressure degree   = 1
+  set Tracer degree     = 1
+  set Potential degree  = 1
+end
+
+subsection Physical properties
+  set number of fluids = 2
+  subsection Fluid 0
+    set density             = 1.23
+    set kinematic viscosity = 1.52e-5
+  end
+  subsection Fluid 1
+    set density             = 1000
+    set kinematic viscosity = 1e-6
+  end
+  set number of pseudosolids = 1
+  subsection Pseudosolid 0
+  set constitutive model = neo hookean
+    subsection lame lambda
+      set Function expression = 0.08
+    end
+    subsection lame mu
+      set Function expression = 1.2
+    end
+  end
+end
+
+subsection Cahn Hilliard
+  set mobility model      = constant
+  set mobility            = 0.025
+  set surface tension     = 0.072
+  set interface thickness = 5e-3
+  set body force          = 0,-9.81
+  set mff_enlarged_compression_factor =-800
+  set mff_transport_factor =0
+  set gamma =0.9999
+  set mesh forcing type =5
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 0; 0
+  end
+
+  subsection cahn hilliard tracer
+    set Function constants  = e=5e-3, h0=0.4, xcut=1.66
+    set Function expression = if(x<xcut,-1,tanh((h0-y)/(sqrt(2)*e)))
+  end
+end
+
+#x_min=1;x_max=2;y_min=3;y_max=4;batteur=5;ramp=6
+
+subsection Fluid boundary conditions
+  set number = 7
+  set fix pressure constant = true
+  set enforce zero mean pressure = false
+
+  subsection boundary 0
+    set id   = 1
+    set name = x_min
+    set type = slip
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = x_max
+    set type = slip
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = y_min
+    set type = slip
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = y_max
+    set type = slip
+  end
+  subsection boundary 4
+    set id   = 5
+    set name = batteur_v_0
+    set type = input_function
+
+    set constrain_u = true
+    set constrain_v = true
+    set constrain_w = false
+
+    subsection u
+      #set Function constants = A=0.05, T=0.5, f=0.33
+      #set Function expression = if(t < f*T, (A/(f*T))*(30*pow(t/(f*T),2) - 60*pow(t/(f*T),3) + 30*pow(t/(f*T),4)), if(t < T*(1-f), -A*(2*pi/(T*(1-2*f)))*sin(2*pi*(t-f*T)/(T*(1-2*f))), -(A/(f*T))*(30*pow((t-(T*(1-f)))/(f*T),2) - 60*pow((t-(T*(1-f)))/(f*T),3) + 30*pow((t-(T*(1-f)))/(f*T),4))))
+      set Function constants = V=2.229, alp=0.388, bet=0.528, t0=1, c=2.796
+      set Function expression = V/((1+ (cosh(c*(t-t0))^2))/alp)
+    end
+
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 5
+    set id   = 6
+    set name = batteur_v_libre
+    set type = input_function
+
+    set constrain_u = true
+    set constrain_v = false
+    set constrain_w = false
+
+    subsection u
+      #set Function constants = A=0.05, T=0.5, f=0.33
+      #set Function expression = if(t < f*T, (A/(f*T))*(30*pow(t/(f*T),2) - 60*pow(t/(f*T),3) + 30*pow(t/(f*T),4)), if(t < T*(1-f), -A*(2*pi/(T*(1-2*f)))*sin(2*pi*(t-f*T)/(T*(1-2*f))), -(A/(f*T))*(30*pow((t-(T*(1-f)))/(f*T),2) - 60*pow((t-(T*(1-f)))/(f*T),3) + 30*pow((t-(T*(1-f)))/(f*T),4))))
+      set Function constants = V=2.229, alp=0.388, bet=0.528, t0=1, c=2.796
+      set Function expression = V/((1+ (cosh(c*(t-t0))^2))/alp)
+    end
+
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 6
+    set id   = 7
+    set name = ramp
+    set type = no_slip
+  end
+end
+
+
+subsection Pseudosolid boundary conditions
+  set number = 7
+
+  subsection boundary 0
+    set id   = 1
+    set name = x_min
+    set type = fixed
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = x_max
+    set type = fixed
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = y_min
+    set type = no_flux
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = y_max
+    set type = no_flux
+  end
+
+  subsection boundary 4
+    set id   = 5
+    set name = batteur_v_0
+    set type = input_function
+
+    subsection x
+      #set Function constants = A=0.05, T=0.5, f=0.33
+      #set Function expression = if(t < f*T, x + A*(10*pow(t/(f*T),3) - 15*pow(t/(f*T),4) + 6*pow(t/(f*T),5)), if(t < T*(1-f), x + A*cos(2*pi*(t-f*T)/(T*(1-2*f))), x + A*(1 - (10*pow((t-(T*(1-f)))/(f*T),3) - 15*pow((t-(T*(1-f)))/(f*T),4) + 6*pow((t-(T*(1-f)))/(f*T),5)))))
+      set Function constants = V=2.229, alp=0.388, bet=0.528, t0=1, c=2.796
+      set Function expression =x+ (V/c)*(bet*atanh(bet*tanh(c*(t-t0)))+bet*atanh(bet))
+    end
+    subsection y
+      set Function expression = y
+    end
+  end
+
+  subsection boundary 5
+    set id   = 6
+    set name = batteur_v_libre
+    set type = input_function
+
+    subsection x
+      #set Function constants = A=0.05, T=0.5, f=0.33
+      #set Function expression = if(t < f*T, x + A*(10*pow(t/(f*T),3) - 15*pow(t/(f*T),4) + 6*pow(t/(f*T),5)), if(t < T*(1-f), x + A*cos(2*pi*(t-f*T)/(T*(1-2*f))), x + A*(1 - (10*pow((t-(T*(1-f)))/(f*T),3) - 15*pow((t-(T*(1-f)))/(f*T),4) + 6*pow((t-(T*(1-f)))/(f*T),5)))))
+      set Function constants = V=2.229, alp=0.388, bet=0.528, t0=1, c=2.796
+      set Function expression =x+ (V/c)*(bet*atanh(bet*tanh(c*(t-t0)))+bet*atanh(bet))
+    end
+    subsection y
+      set Function expression = y
+    end
+  end
+
+  subsection boundary 6
+    set id   = 7
+    set name = ramp
+    set type = fixed
+  end
+end
+
+subsection CahnHilliard boundary conditions
+  set number = 7
+
+  subsection boundary 0
+    set id   = 1
+    set name = x_min
+    set type = no_flux
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = x_max
+    set type = no_flux
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = y_min
+    set type = no_flux
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = y_max
+    set type = no_flux
+  end
+  subsection boundary 4
+    set id   = 5
+    set name = batteur_v_0
+    set type = no_flux
+  end
+  subsection boundary 5
+    set id   = 6
+    set name = batteur_v_libre
+    set type = no_flux
+  end
+  subsection boundary 6
+    set id   = 7
+    set name = ramp
+    set type = no_flux
+  end
+end
+
+
+subsection Debug
+  set verbosity                              = verbose
+  set apply exact solution                   = false
+  set compare jacobian matrix with fd        = false
+  set analytical_jacobian_absolute_tolerance = 1e-3
+  set analytical_jacobian_relative_tolerance = 1e-3
+end

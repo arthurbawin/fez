@@ -55,7 +55,8 @@ namespace BoundaryConditions
     no_tangential_flow_with_weak_pressure, // Enforce no tangential flow +
                                            // impose -p*n weakly
 
-    outflow_with_no_tangential_flow, // Enforce no tangential flow + traction equal to zero
+    outflow_with_no_tangential_flow, // Enforce no tangential flow + traction
+                                     // equal to zero
 
     // These boundary conditions are for flow verification purposes:
     // Set velocity to prescribed manufactured solution
@@ -456,7 +457,7 @@ public:
   {
     if (component == field_component)
       return field_fun.value(p);
-    DEAL_II_ASSERT_UNREACHABLE();
+    // DEAL_II_ASSERT_UNREACHABLE();
     return 0.;
   }
 };

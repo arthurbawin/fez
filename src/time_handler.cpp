@@ -663,8 +663,8 @@ void TimeHandler::update_parameters_after_restart(
 
     pcout << std::endl
           << "--- Restart from stationary checkpoint ---" << std::endl
-          << "  Scheme              : "
-          << (scheme == BDF1 ? "BDF1" : "BDF2") << std::endl
+          << "  Scheme              : " << (scheme == BDF1 ? "BDF1" : "BDF2")
+          << std::endl
           << "  t_initial           : " << initial_time << std::endl
           << "  t_end               : " << final_time << std::endl
           << "  dt                  : " << initial_dt << std::endl
@@ -705,8 +705,8 @@ void TimeHandler::update_parameters_after_restart(
 
   pcout << std::endl
         << "--- Restart from unsteady checkpoint ---" << std::endl
-        << "  Scheme              : "
-        << (scheme == BDF1 ? "BDF1" : "BDF2") << std::endl
+        << "  Scheme              : " << (scheme == BDF1 ? "BDF1" : "BDF2")
+        << std::endl
         << "  Resumed at t        : " << current_time << std::endl
         << "  t_end               : " << final_time << std::endl
         << "  dt                  : " << current_dt << std::endl

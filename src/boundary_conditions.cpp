@@ -379,24 +379,24 @@ namespace BoundaryConditions
     {
       if (bc.type == BoundaryConditions::Type::no_slip)
       {
-        VectorTools::interpolate_boundary_values(mapping,
-                                                 dof_handler,
-                                                 bc.id,
-                                                 Functions::ZeroFunction<dim>(
-                                                   n_components),
-                                                 constraints,
-                                                 make_partial_velocity_mask(bc));
+        VectorTools::interpolate_boundary_values(
+          mapping,
+          dof_handler,
+          bc.id,
+          Functions::ZeroFunction<dim>(n_components),
+          constraints,
+          make_partial_velocity_mask(bc));
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
         if (homogeneous)
-          VectorTools::interpolate_boundary_values(mapping,
-                                                   dof_handler,
-                                                   bc.id,
-                                                   Functions::ZeroFunction<dim>(
-                                                     n_components),
-                                                   constraints,
-                                                   make_partial_velocity_mask(bc));
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            Functions::ZeroFunction<dim>(n_components),
+            constraints,
+            make_partial_velocity_mask(bc));
         else
           VectorTools::interpolate_boundary_values(
             mapping,
@@ -410,20 +410,21 @@ namespace BoundaryConditions
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
         if (homogeneous)
-          VectorTools::interpolate_boundary_values(mapping,
-                                                   dof_handler,
-                                                   bc.id,
-                                                   Functions::ZeroFunction<dim>(
-                                                     n_components),
-                                                   constraints,
-                                                   make_partial_velocity_mask(bc));
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            Functions::ZeroFunction<dim>(n_components),
+            constraints,
+            make_partial_velocity_mask(bc));
         else
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
                                                    bc.id,
                                                    exact_solution,
                                                    constraints,
-                                                   make_partial_velocity_mask(bc));
+                                                   make_partial_velocity_mask(
+                                                     bc));
       }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);

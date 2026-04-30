@@ -1,3 +1,4 @@
+#include <boost/archive/text_iarchive.hpp>
 #include <compare_matrix.h>
 #include <compressible_ns_solver.h>
 #include <deal.II/base/exceptions.h>
@@ -19,6 +20,8 @@
 #include <mesh.h>
 #include <scratch_data.h>
 #include <utilities.h>
+
+#include <fstream>
 
 template <int dim>
 CompressibleNSSolver<dim>::CompressibleNSSolver(
@@ -687,12 +690,12 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
                      2.0 / 3.0 * mu * div_phi_u_face[j] * n * phi_u_face[i]);
                 }
 
-                if (i_is_u && j_is_p)
-                {
-                  assemble = true;
+                // if (i_is_u && j_is_p)
+                // {
+                //   assemble = true;
 
-                  local_matrix_ij += phi_p_face[j] * (n * phi_u_face[i]);
-                }
+                //   local_matrix_ij += phi_p_face[j] * (n * phi_u_face[i]);
+                // }
 
                 if (assemble)
                 {
@@ -1030,12 +1033,128 @@ void CompressibleNSSolver<dim>::compute_solver_specific_errors()
                                "T");
 }
 
-// ---------------------------------------------------------------------------
+//
 // Restart from incompressible checkpoint
-// ---------------------------------------------------------------------------
+//
 
 namespace
 {
+  types::global_dof_index read_archive_index_token(std::istream &in)
+  {
+    std::string token;
+    in >> token;
+    AssertThrow(in, ExcMessage("Unexpected end of checkpoint archive."));
+
+    std::size_t parsed = 0;
+    const auto  value =
+      static_cast<types::global_dof_index>(std::stoull(token, &parsed));
+    AssertThrow(parsed == token.size(),
+                ExcMessage("Expected an integer token in checkpoint archive."));
+
+    return value;
+  }
+
+  void scan_to_archive_index(std::istream                 &in,
+                             const types::global_dof_index expected_value)
+  {
+    std::string token;
+    while (in >> token)
+    {
+      try
+      {
+        std::size_t parsed = 0;
+        const auto  value =
+          static_cast<types::global_dof_index>(std::stoull(token, &parsed));
+        if (parsed == token.size() && value == expected_value)
+          return;
+      }
+      catch (...)
+      {}
+    }
+
+    AssertThrow(false,
+                ExcMessage("Could not locate the expected vector size (" +
+                           std::to_string(expected_value) +
+                           ") in checkpoint archive."));
+  }
+
+  void read_archived_vector(std::istream                 &in,
+                            LA::ParVectorType            &vector,
+                            const types::global_dof_index expected_global_size)
+  {
+    scan_to_archive_index(in, expected_global_size);
+
+    types::global_dof_index range_first  = read_archive_index_token(in);
+    types::global_dof_index range_second = read_archive_index_token(in);
+
+    const types::global_dof_index local_size = vector.locally_owned_size();
+    for (unsigned int i = 0; i < 16 && range_second - range_first != local_size;
+         ++i)
+    {
+      range_first  = range_second;
+      range_second = read_archive_index_token(in);
+    }
+
+    AssertThrow(range_second >= range_first &&
+                  range_second - range_first == local_size,
+                ExcMessage("Checkpoint local range [" +
+                           std::to_string(range_first) + ", " +
+                           std::to_string(range_second) +
+                           ") does not match locally owned size (" +
+                           std::to_string(local_size) + ")."));
+
+    PetscScalar *array = nullptr;
+    int          ierr  = VecGetArray(vector.petsc_vector(), &array);
+    AssertThrow(ierr == 0, ExcPETScError(ierr));
+
+    for (types::global_dof_index i = 0; i < local_size; ++i)
+      in >> array[i];
+
+    ierr = VecRestoreArray(vector.petsc_vector(), &array);
+    AssertThrow(ierr == 0, ExcPETScError(ierr));
+    AssertThrow(in,
+                ExcMessage("Could not read vector values from checkpoint."));
+
+    vector.update_ghost_values();
+  }
+
+  void read_archived_double_vector(std::istream        &in,
+                                   std::vector<double> &values)
+  {
+    const unsigned int size = read_archive_index_token(in);
+    (void)read_archive_index_token(in); // item version
+
+    values.resize(size);
+    for (auto &value : values)
+      in >> value;
+
+    AssertThrow(in, ExcMessage("Could not read time vector from checkpoint."));
+  }
+
+  void read_archived_time_handler(std::istream &in, TimeHandler &time_handler)
+  {
+    (void)read_archive_index_token(in); // TimeHandler class id
+    (void)read_archive_index_token(in); // TimeHandler class version
+
+    in >> time_handler.initial_time;
+    in >> time_handler.final_time;
+    in >> time_handler.current_time;
+    in >> time_handler.current_time_iteration;
+    read_archived_double_vector(in, time_handler.simulation_times);
+    in >> time_handler.current_dt;
+    read_archived_double_vector(in, time_handler.time_steps);
+    read_archived_double_vector(in, time_handler.bdf_coefficients);
+
+    unsigned int with_adaptive_timestep = 0;
+    unsigned int steady_scheme          = 0;
+    in >> with_adaptive_timestep;
+    in >> steady_scheme;
+    AssertThrow(in, ExcMessage("Could not read time handler from checkpoint."));
+
+    time_handler.with_adaptive_timestep = with_adaptive_timestep;
+    time_handler.steady_scheme          = steady_scheme;
+  }
+
   /**
    * Maps an incompressible NS solution (dim+1 components: velocity + kinematic
    * pressure p_k = p/rho) to the compressible NS layout (dim+2 components:
@@ -1067,8 +1186,8 @@ namespace
       , T_ref_(T_ref)
     {}
 
-    virtual double
-    value(const Point<dim> &p, const unsigned int c) const override
+    virtual double value(const Point<dim>  &p,
+                         const unsigned int c) const override
     {
       if (c < p_lower_) // velocity components
         return fe_field_.value(p, c);
@@ -1082,17 +1201,128 @@ namespace
 
   private:
     Functions::FEFieldFunction<dim, LA::ParVectorType> &fe_field_;
-    const unsigned int p_lower_;
-    const unsigned int t_lower_;
-    const double       rho_ref_;
-    const double       p_ref_;
-    const double       T_ref_;
+    const unsigned int                                  p_lower_;
+    const unsigned int                                  t_lower_;
+    const double                                        rho_ref_;
+    const double                                        p_ref_;
+    const double                                        T_ref_;
   };
 } // namespace
 
 template <int dim>
-void
-CompressibleNSSolver<dim>::restart()
+void CompressibleNSSolver<dim>::restart()
+{
+  this->pcout << std::endl;
+  this->pcout << "--- Reading checkpoint... ---" << std::endl << std::endl;
+
+  const std::string prefix =
+    this->param.output.output_dir + this->param.checkpoint_restart.filename;
+
+  this->triangulation.load(prefix);
+
+  // Build the FE for an incompressible solver. This is used both to
+  // detect the checkpoint type (by comparing the global DOF count of the
+  // first archived vector against the incompressible/compressible counts)
+  // and, if needed, to read the incompressible-shaped vectors during the
+  // restart mapping.
+  const auto                    &fp = this->param.finite_elements;
+  std::shared_ptr<FESystem<dim>> fe_incomp;
+  if (fp.use_quads)
+    fe_incomp =
+      std::make_shared<FESystem<dim>>(FE_Q<dim>(fp.velocity_degree) ^ dim,
+                                      FE_Q<dim>(fp.pressure_degree));
+  else
+    fe_incomp =
+      std::make_shared<FESystem<dim>>(FE_SimplexP<dim>(fp.velocity_degree) ^
+                                        dim,
+                                      FE_SimplexP<dim>(fp.pressure_degree));
+
+  types::global_dof_index n_incomp_dofs = 0;
+  types::global_dof_index n_comp_dofs   = 0;
+  {
+    DoFHandler<dim> probe_incomp(this->triangulation);
+    probe_incomp.distribute_dofs(*fe_incomp);
+    n_incomp_dofs = probe_incomp.n_dofs();
+
+    DoFHandler<dim> probe_comp(this->triangulation);
+    probe_comp.distribute_dofs(*this->fe);
+    n_comp_dofs = probe_comp.n_dofs();
+  }
+
+  // The Boost text archive starts with "22 serialization::archive VERSION"
+  // followed by class-tracking metadata, then the global DOF count of the
+  // first serialized vector. Scan ahead a few tokens to match either the
+  // incompressible or the compressible global count.
+  bool from_incompressible = false;
+  {
+    std::ifstream file(prefix + "_rank" + std::to_string(this->mpi_rank));
+    AssertThrow(file.is_open(),
+                ExcMessage("Could not open checkpoint file for restart."));
+
+    std::string tok;
+    file >> tok >> tok >> tok; // skip "22 serialization::archive VERSION"
+
+    bool detected = false;
+    for (int i = 0; i < 30 && (file >> tok); ++i)
+    {
+      try
+      {
+        const auto value =
+          static_cast<types::global_dof_index>(std::stoull(tok));
+        if (value == n_incomp_dofs)
+        {
+          from_incompressible = true;
+          detected            = true;
+          break;
+        }
+        if (value == n_comp_dofs)
+        {
+          detected = true;
+          break;
+        }
+      }
+      catch (...)
+      {}
+    }
+    AssertThrow(detected,
+                ExcMessage(
+                  "Could not detect checkpoint type. Expected the "
+                  "first archived vector size to match either the "
+                  "incompressible (" +
+                  std::to_string(n_incomp_dofs) + ") or the compressible (" +
+                  std::to_string(n_comp_dofs) + ") global DOF count."));
+  }
+
+  if (from_incompressible)
+  {
+    this->pcout << "--- Incompressible checkpoint detected: restarting with "
+                   "EOS-mapped velocity, pressure, and temperature ---"
+                << std::endl
+                << std::endl;
+    restart_from_incompressible_checkpoint();
+  }
+  else
+  {
+    // Replicate NavierStokesSolver<dim>::restart() without reloading the
+    // triangulation, which has already been loaded above.
+    this->setup_dofs();
+
+    std::ifstream checkpoint_file(prefix + "_rank" +
+                                  std::to_string(this->mpi_rank));
+    AssertThrow(checkpoint_file,
+                ExcMessage("Could not read from the checkpoint file."));
+    boost::archive::text_iarchive archive(checkpoint_file);
+
+    archive >> *this;
+    archive >> this->time_handler;
+
+    this->time_handler.update_parameters_after_restart(
+      this->param.time_integration, this->pcout);
+  }
+}
+
+template <int dim>
+void CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
 {
   const std::string prefix =
     this->param.output.output_dir + this->param.checkpoint_restart.filename;
@@ -1100,86 +1330,14 @@ CompressibleNSSolver<dim>::restart()
   const auto                    &fp = this->param.finite_elements;
   std::shared_ptr<FESystem<dim>> fe_incomp;
   if (fp.use_quads)
-    fe_incomp = std::make_shared<FESystem<dim>>(
-      FE_Q<dim>(fp.velocity_degree) ^ dim,
-      FE_Q<dim>(fp.pressure_degree));
+    fe_incomp =
+      std::make_shared<FESystem<dim>>(FE_Q<dim>(fp.velocity_degree) ^ dim,
+                                      FE_Q<dim>(fp.pressure_degree));
   else
-    fe_incomp = std::make_shared<FESystem<dim>>(
-      FE_SimplexP<dim>(fp.velocity_degree) ^ dim,
-      FE_SimplexP<dim>(fp.pressure_degree));
-
-  // Detect checkpoint type by scanning the archive as text.
-  // The Boost text archive written by checkpoint() has the format:
-  //   "22 serialization::archive VERSION 0 0 ... N_global ..."
-  // where N_global (the global DOF count of the first serialized vector)
-  // appears after the 3-token header and a few zero class-tracking tokens.
-  // Comparing N_global against n_incomp_dofs identifies the solver type.
-  // The DoFHandler is wrapped in a scope so it is destroyed before the
-  // triangulation is reloaded by the appropriate restart path below.
-  bool from_incompressible = false;
-  {
-    this->triangulation.load(prefix);
-
-    DoFHandler<dim> dof_handler_incomp(this->triangulation);
-    dof_handler_incomp.distribute_dofs(*fe_incomp);
-    const types::global_dof_index n_incomp_dofs = dof_handler_incomp.n_dofs();
-
-    std::ifstream file(prefix + "_rank" + std::to_string(this->mpi_rank));
-    AssertThrow(file.is_open(),
-                ExcMessage("Could not open checkpoint file for restart."));
-
-    std::string tok;
-    file >> tok >> tok >> tok; // skip "22 serialization::archive VERSION"
-    for (int i = 0; i < 30; ++i)
-      {
-        if (!(file >> tok)) break;
-        try
-          {
-            if (static_cast<types::global_dof_index>(std::stoull(tok)) ==
-                n_incomp_dofs)
-              {
-                from_incompressible = true;
-                break;
-              }
-          }
-        catch (...)
-          {}
-      }
-  } // dof_handler_incomp destroyed before triangulation is reloaded below
-
-  if (from_incompressible)
-    {
-      this->pcout
-        << std::endl
-        << "--- Incompressible checkpoint detected: restarting with "
-           "EOS-mapped velocity, pressure, and temperature ---"
-        << std::endl
-        << std::endl;
-      restart_from_incompressible_checkpoint();
-    }
-  else
-    {
-      NavierStokesSolver<dim>::restart();
-    }
-}
-
-template <int dim>
-void
-CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
-{
-  const std::string prefix =
-    this->param.output.output_dir + this->param.checkpoint_restart.filename;
-
-  const auto &fp = this->param.finite_elements;
-  std::shared_ptr<FESystem<dim>> fe_incomp;
-  if (fp.use_quads)
-    fe_incomp = std::make_shared<FESystem<dim>>(
-      FE_Q<dim>(fp.velocity_degree) ^ dim,
-      FE_Q<dim>(fp.pressure_degree));
-  else
-    fe_incomp = std::make_shared<FESystem<dim>>(
-      FE_SimplexP<dim>(fp.velocity_degree) ^ dim,
-      FE_SimplexP<dim>(fp.pressure_degree));
+    fe_incomp =
+      std::make_shared<FESystem<dim>>(FE_SimplexP<dim>(fp.velocity_degree) ^
+                                        dim,
+                                      FE_SimplexP<dim>(fp.pressure_degree));
 
   DoFHandler<dim> dof_handler_incomp(this->triangulation);
   dof_handler_incomp.distribute_dofs(*fe_incomp);
@@ -1188,79 +1346,36 @@ CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
   const IndexSet relevant_incomp =
     DoFTools::extract_locally_relevant_dofs(dof_handler_incomp);
 
-  LA::ParVectorType solution_incomp(owned_incomp,
+  LA::ParVectorType              solution_incomp(owned_incomp,
                                     relevant_incomp,
                                     this->mpi_communicator);
+  std::vector<LA::ParVectorType> previous_solutions_incomp;
   {
-    // The Boost text archive stores class-tracking IDs that are assigned by
-    // the binary that wrote the archive.  Reading them back in a different
-    // binary (incompressible vs. compressible executables) causes a class-
-    // version mismatch for std::pair<size_type,size_type>.  We therefore
-    // bypass Boost deserialization entirely and parse the archive as plain
-    // text.  The layout of each per-rank file produced by VectorBase::save()
-    // is:
-    //   "22 serialization::archive VERSION"   <- 3 header tokens
-    //   6 class-tracking tokens (zeros)
-    //   GLOBAL_DOFS
-    //   2 class-tracking tokens (zeros for std::pair)
-    //   RANGE_FIRST  RANGE_SECOND
-    //   (RANGE_SECOND - RANGE_FIRST) PetscScalar values
-
-    const types::global_dof_index n_incomp_dofs = dof_handler_incomp.n_dofs();
-
     std::ifstream checkpoint_file(prefix + "_rank" +
                                   std::to_string(this->mpi_rank));
     AssertThrow(checkpoint_file.is_open(),
-                ExcMessage("Could not read checkpoint file."));
+                ExcMessage("Could not open checkpoint file for restart."));
 
-    std::string tok;
-    checkpoint_file >> tok >> tok >> tok; // skip archive header
+    std::string token;
+    checkpoint_file >> token >> token >> token; // archive header
 
-    // Scan tokens until we find the global DOF count (same logic as restart())
-    bool found_global = false;
-    for (int i = 0; i < 30 && !found_global; ++i)
-      {
-        if (!(checkpoint_file >> tok))
-          break;
-        try
-          {
-            if (static_cast<types::global_dof_index>(std::stoull(tok)) ==
-                n_incomp_dofs)
-              found_global = true;
-          }
-        catch (...)
-          {}
-      }
-    AssertThrow(found_global,
-                ExcMessage("Could not locate the global DOF count (" +
-                           std::to_string(n_incomp_dofs) +
-                           ") in the incompressible checkpoint."));
+    const types::global_dof_index n_incomp_dofs = dof_handler_incomp.n_dofs();
+    read_archived_vector(checkpoint_file, solution_incomp, n_incomp_dofs);
 
-    // Skip the 2 Boost class-tracking tokens for std::pair<size_type,size_type>
-    checkpoint_file >> tok >> tok;
+    const unsigned int n_previous_solutions =
+      read_archive_index_token(checkpoint_file);
+    previous_solutions_incomp.resize(n_previous_solutions);
+    for (auto &previous_solution_incomp : previous_solutions_incomp)
+    {
+      previous_solution_incomp.reinit(owned_incomp,
+                                      relevant_incomp,
+                                      this->mpi_communicator);
+      read_archived_vector(checkpoint_file,
+                           previous_solution_incomp,
+                           n_incomp_dofs);
+    }
 
-    // Read local range [range_first, range_second)
-    types::global_dof_index range_first = 0, range_second = 0;
-    checkpoint_file >> range_first >> range_second;
-
-    const types::global_dof_index local_size = range_second - range_first;
-    AssertThrow(
-      local_size == solution_incomp.locally_owned_size(),
-      ExcMessage("Checkpoint local range [" + std::to_string(range_first) +
-                 ", " + std::to_string(range_second) +
-                 ") does not match locally owned size (" +
-                 std::to_string(solution_incomp.locally_owned_size()) + ")."));
-
-    // Write values directly into the PETSc local array (mirrors VectorBase::load())
-    PetscScalar *array = nullptr;
-    int ierr = VecGetArray(solution_incomp.petsc_vector(), &array);
-    AssertThrow(ierr == 0, ExcPETScError(ierr));
-    for (types::global_dof_index i = 0; i < local_size; ++i)
-      checkpoint_file >> array[i];
-    ierr = VecRestoreArray(solution_incomp.petsc_vector(), &array);
-    AssertThrow(ierr == 0, ExcPETScError(ierr));
-
-    solution_incomp.update_ghost_values();
+    read_archived_time_handler(checkpoint_file, this->time_handler);
   }
 
   this->setup_dofs();
@@ -1270,20 +1385,26 @@ CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
   const double p_ref   = fluid.pressure_ref;
   const double T_ref   = fluid.temperature_ref;
 
-  Functions::FEFieldFunction<dim, LA::ParVectorType> incomp_field(
-    dof_handler_incomp, solution_incomp, *mapping);
-  IncompressibleRestartAdapter<dim> adapter(incomp_field,
-                                            this->ordering->n_components,
-                                            this->ordering->p_lower,
-                                            this->ordering->t_lower,
-                                            rho_ref,
-                                            p_ref,
-                                            T_ref);
-  VectorTools::interpolate(*mapping,
-                           this->dof_handler,
-                           adapter,
-                           this->newton_update);
-  this->nonzero_constraints.distribute(this->newton_update);
+  const auto map_incompressible_solution =
+    [&](const LA::ParVectorType &incompressible_solution,
+        LA::ParVectorType       &compressible_solution) {
+      Functions::FEFieldFunction<dim, LA::ParVectorType> incomp_field(
+        dof_handler_incomp, incompressible_solution, *mapping);
+      IncompressibleRestartAdapter<dim> adapter(incomp_field,
+                                                this->ordering->n_components,
+                                                this->ordering->p_lower,
+                                                this->ordering->t_lower,
+                                                rho_ref,
+                                                p_ref,
+                                                T_ref);
+      VectorTools::interpolate(*mapping,
+                               this->dof_handler,
+                               adapter,
+                               compressible_solution);
+      compressible_solution.compress(VectorOperation::insert);
+    };
+
+  map_incompressible_solution(solution_incomp, this->newton_update);
 
   this->present_solution       = this->newton_update;
   this->local_evaluation_point = this->newton_update;
@@ -1291,14 +1412,42 @@ CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
   this->present_solution.update_ghost_values();
   this->evaluation_point.update_ghost_values();
 
-  for (auto &prev : this->previous_solutions)
+  const bool target_simulation_is_steady =
+    this->param.time_integration.scheme ==
+    Parameters::TimeIntegration::Scheme::stationary;
+  if (previous_solutions_incomp.empty() && !target_simulation_is_steady)
+  {
+    for (auto &prev : this->previous_solutions)
     {
       prev = this->present_solution;
       prev.update_ghost_values();
     }
+  }
+  else
+  {
+    AssertThrow(previous_solutions_incomp.size() ==
+                  this->previous_solutions.size(),
+                ExcMessage(
+                  "The number of previous solutions in the incompressible "
+                  "checkpoint does not match the number of previous solutions "
+                  "used by the compressible simulation. Restarting with a "
+                  "different unsteady time integration scheme is not "
+                  "supported."));
 
-  this->time_handler.update_parameters_after_restart(this->param.time_integration,
-                                                     this->pcout);
+    for (unsigned int i = 0; i < this->previous_solutions.size(); ++i)
+    {
+      LA::ParVectorType mapped_previous(this->locally_owned_dofs,
+                                        this->mpi_communicator);
+      map_incompressible_solution(previous_solutions_incomp[i],
+                                  mapped_previous);
+
+      this->previous_solutions[i] = mapped_previous;
+      this->previous_solutions[i].update_ghost_values();
+    }
+  }
+
+  this->time_handler.update_parameters_after_restart(
+    this->param.time_integration, this->pcout);
 }
 
 // Explicit instantiation

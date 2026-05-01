@@ -4,17 +4,30 @@
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
 #include <deal.II/dofs/dof_handler.h>
-#include <post_processing_handler.h>
+#include <metric_field.h>
+#include <parameter_reader.h>
+#include <time_handler.h>
 #include <types.h>
 
 /**
  * A class storing the data that need to be duplicated for each time
- * sub-interval when using the transient fixed point mesh adaptation method for
- * unsteady simulations.
+ * subinterval when using the transient fixed point mesh adaptation method for
+ * unsteady simulations. To use a common interface, this structure is also used
+ * for non-adaptive simulations, either steady or unsteady, in which case
+ * this class stores the data for the single, full simulation time interval.
  *
- * This class stores and owns vectors of triangulations, of dof handlers, etc.
- * The solvers using it should only store "observer" pointers, in the form of
- * raw, non-owning pointers to the index-th interval data.
+ * This class stores and owns (in the sense of memory management) the
+ * triangulations and dof handlers, present and previous solutions vectors, as
+ * well as the Riemannian metrics needed for anisotropic mesh adaptation.
+ *
+ * The intended use of this class is to have each solver own one such object,
+ * and store "observer" pointers, in the form of
+ * raw, non-owning pointers, to the triangulation, dof handler, etc. associated
+ * with the index-th time subinterval.
+ *
+ * A more fitting name for this class would maybe be "SolverDataCollection".
+ *
+ * FIXME: This will probably also need to store MappingFEFields.
  *  */
 template <int dim>
 class TransientFixedPointData
@@ -23,39 +36,138 @@ public:
   /**
    * Constructor. Initializes the data for @p n subintervals.
    */
-  TransientFixedPointData(const unsigned int n_time_intervals,
-                          const MPI_Comm     mpi_communicator);
+  TransientFixedPointData(const ParameterReader<dim> &param,
+                          const unsigned int          n_time_intervals,
+                          const MPI_Comm              mpi_communicator);
 
   /**
-   *
+   * Get the raw pointer to the @p interval_index-th triangulation.
    */
   parallel::fullydistributed::Triangulation<dim> *
   get_triangulation(const unsigned int interval_index);
 
   /**
-   *
+   * Get the raw pointer to the @p interval_index-th dof handler.
    */
   DoFHandler<dim> *get_dof_handler(const unsigned int interval_index);
 
   /**
+   * Get the raw pointer to the @p interval_index-th solution vector.
+   */
+  LA::ParVectorType *get_present_solution(const unsigned int interval_index);
+
+  /**
+   * Get the raw pointer to the @p interval_index-th vector of previous solution
+   * vectors.
+   */
+  std::vector<LA::ParVectorType> *
+  get_previous_solutions(const unsigned int interval_index);
+
+  /**
+   * Get the raw pointer to the @p interval_index-th Riemannian metric.
+   */
+  MetricField<dim> *get_metric_field(const unsigned int interval_index);
+
+  /**
+   * Return the name of the mesh file to be used for this time interval.
+   * If this is the first fixed-point iteration, this is the initial mesh file.
+   * Otherwise, this is the name of the adapted mesh on this interval.
+   */
+  std::string get_meshfile_name(const unsigned int interval_index) const;
+
+  /**
+   * Return the sum of the active cells among the triangulations of all time
+   * intervals.
+   */
+  unsigned int get_sum_of_active_cells() const;
+
+  /**
+   * Return the sum of the mesh vertices among the triangulations of all time
+   * intervals.
+   */
+  unsigned int get_sum_of_vertices() const;
+
+  /**
+   * Return the sum of all dofs among the dof handlers of all time intervals.
+   */
+  unsigned int get_sum_of_dofs() const;
+
+  /**
+   * Return the effective space-time complexity associated with the collection
+   * of triangulations stored in object and the given @p time_handler.
+   * This quantity is defined by:
    *
+   *   N_st := sum_intervals n_mesh_vertices_i * n_time_steps_i,
+   *
+   * where n_time_steps_i is the number of time steps spent in the i-th time
+   * interval.
+   */
+  unsigned int
+  get_effective_space_time_complexity(const TimeHandler &time_handler) const;
+
+  /**
+   * Assign the data associated with the interval_index-th time interval to the
+   * given pointers.
    */
   void set_interval_data(
     const unsigned int                               interval_index,
     parallel::fullydistributed::Triangulation<dim> *&triangulation,
-    DoFHandler<dim>                                *&dof_handler);
-  // ,
-  // LA::ParVectorType &present_solution,
-  // std::vector<LA::ParVectorType> &interval_previous_solutions,
-  // PostProcessingHandler<dim> *postproc_handler
-  // );
+    DoFHandler<dim>                                *&dof_handler,
+    LA::ParVectorType                              *&present_solution,
+    std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
+    MetricField<dim>                               *&metric_for_adaptation);
+
+  /**
+   * Transfer the current and previous solution from the (interval_index - 1)-th
+   * interval to the @p interval_index-th interval.
+   *
+   * FIXME: For now it is simply re-interpolated, for prototyping.
+   * This is a hard operation to do in parallel.
+   */
+  void transfer_solution(const unsigned int   interval_index,
+                         const Mapping<dim>  &mapping,
+                         const Function<dim> &exact_solution);
+
+  /**
+   * Apply a local and global scaling to all metric fields.
+   */
+  void scale_metrics(const unsigned int metric_index,
+                     const TimeHandler &time_handler);
+
+  /**
+   * Apply gradation to all metric fields.
+   */
+  void apply_gradation_to_metrics();
+
+  /**
+   * Adapt the meshes on all subintervals.
+   */
+  void adapt_meshes();
+
+  /**
+   * Clear the data for each subinterval.
+   */
+  void clear();
+
+  /**
+   * Write a summary of the data stored in this object, such as the number of
+   * intervals, their starting and ending times, the number of time steps spent
+   * in each interval, the number of mesh vertices, of dofs, etc.
+   */
+  void write_summary(const TimeHandler &time_handler,
+                     std::ostream      &out = std::cout) const;
+
+public:
+  /**
+   *
+   */
+  const ParameterReader<dim> &param;
 
   /**
    *
    */
-  void clear();
+  MPI_Comm mpi_communicator;
 
-public:
   /**
    *
    */
@@ -75,23 +187,18 @@ public:
   /**
    *
    */
-  std::vector<LA::ParVectorType> present_solutions;
+  std::vector<std::unique_ptr<LA::ParVectorType>> present_solutions;
 
   /**
    *
    */
-  std::vector<std::vector<LA::ParVectorType>> previous_solutions;
+  std::vector<std::unique_ptr<std::vector<LA::ParVectorType>>>
+    previous_solutions;
 
   /**
-   * Is it required, or can we re-create a single postproc per interval?
+   *
    */
-  std::vector<std::unique_ptr<PostProcessingHandler<dim>>> postproc_handlers;
-
-  // Also add patch handlers, recoveries, metric fields
-  // Actually maybe only the metric fields, since the patches and recoveries are
-  // needed to increment the metrics, but we don't need the complete
-  // patches/recoveries at any point, unlike the metrics (which need a global
-  // scaling to adapt their own subinterval mesh).
+  std::vector<std::unique_ptr<MetricField<dim>>> metrics_for_adaptation;
 };
 
 #endif

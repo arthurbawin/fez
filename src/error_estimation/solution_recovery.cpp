@@ -107,8 +107,16 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    void Base<dim>::reconstruct_fields()
+    void Base<dim>::reconstruct_fields(const LA::ParVectorType &solution)
     {
+      // FIXME: add verbosity condition
+      pcout << std::endl;
+      pcout << "-- Reconstructing solution and derivatives of order up to "
+            << highest_recovered_derivative << "..." << std::endl;
+
+      local_solution                  = solution;
+      solution_with_additional_ghosts = solution;
+
       for (unsigned int i = 0; i < highest_recovered_derivative; ++i)
       {
         // If i = 0, then a more accurate solution is fitted.
@@ -532,16 +540,6 @@ namespace ErrorEstimation
                                                   relevant,
                                                   vertices_to_hessian_dofs,
                                                   hessian_dofs_to_vertices);
-      }
-
-      if (Utilities::MPI::this_mpi_process(comm) == 0)
-      {
-        std::cout << "Reconstructing solution and derivatives of order up to "
-                  << highest_recovered_derivative << std::endl;
-        std::cout << "Degree of the polynomial solution : " << this->degree
-                  << std::endl;
-        std::cout << "Fitting polynomials of degree     : " << this->degree + 1
-                  << std::endl;
       }
 
       // Compute the weights associated with the closest dofs on each patch

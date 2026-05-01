@@ -42,6 +42,8 @@ public:
     const bool verbose =
       this->param.verbosity == Parameters::Verbosity::verbose;
 
+    auto &present_solution = solver->get_present_solution();
+
     // Throw on failure for these cases:
     // - simulation is steady-state
     // - time adaptation is disabled
@@ -52,7 +54,7 @@ public:
       time_handler.is_starting_step() ||
       time_handler.last_step_was_starting_step();
 
-    solver->evaluation_point = solver->present_solution;
+    solver->evaluation_point = present_solution;
 
     while (!stop)
     {
@@ -119,7 +121,7 @@ public:
         for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
         {
           // Compute NL(u + alpha * du) and check if residual decreases
-          solver->local_evaluation_point = solver->present_solution;
+          solver->local_evaluation_point = present_solution;
           solver->local_evaluation_point.add(alpha, solver->newton_update);
           solver->distribute_nonzero_constraints();
           solver->evaluation_point = solver->local_evaluation_point;
@@ -169,7 +171,7 @@ public:
             // RHS will need to be recomputed for backtracked solution
             recompute_rhs = true;
             alpha *= 2.;
-            solver->local_evaluation_point = solver->present_solution;
+            solver->local_evaluation_point = present_solution;
             solver->local_evaluation_point.add(alpha, solver->newton_update);
             solver->distribute_nonzero_constraints();
             solver->evaluation_point = solver->local_evaluation_point;
@@ -183,7 +185,7 @@ public:
 
         if (!stop)
           // Update present solution for the next line search
-          solver->present_solution = solver->evaluation_point;
+          present_solution = solver->evaluation_point;
       }
       else
       {
@@ -200,7 +202,7 @@ public:
     }
 
     // Update present solution
-    solver->present_solution = solver->evaluation_point;
+    present_solution = solver->evaluation_point;
 
     if (iter > this->param.max_iterations &&
         norm_residual > this->param.tolerance)

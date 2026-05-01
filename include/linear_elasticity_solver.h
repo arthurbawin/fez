@@ -129,6 +129,14 @@ public:
 
   virtual void output_results();
 
+  /**
+   *
+   */
+  virtual LA::ParVectorType &get_present_solution() override
+  {
+    return present_solution;
+  }
+
 protected:
   ParameterReader<dim> param;
 
@@ -156,6 +164,8 @@ protected:
   AffineConstraints<double> nonzero_constraints;
 
   LA::ParMatrixType system_matrix;
+
+  LA::ParVectorType present_solution;
 
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;

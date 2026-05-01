@@ -115,7 +115,7 @@ namespace ErrorEstimation
        * Perform the reconstruction of the solution and derivatives up to
        * the prescribed @p highest_recovered_derivative given in the constructor.
        */
-      void reconstruct_fields();
+      void reconstruct_fields(const LA::ParVectorType &solution);
 
       /**
        * Compute the integral L^p norm of the error between the reconstructed
@@ -181,6 +181,17 @@ namespace ErrorEstimation
        * This should be made consistent throughout this class.
        */
       unsigned int get_highest_stored_derivative() const;
+
+      /**
+       * Return a vector of booleans stating which local mesh vertices are
+       * owned.
+       */
+      const std::vector<bool> &get_owned_vertices() const;
+
+      /**
+       * Return the number of owned vertices on this rank.
+       */
+      unsigned int get_n_owned_vertices() const;
 
       /**
        * Return true if this object stores data for mesh vertex @p v.
@@ -601,26 +612,39 @@ namespace ErrorEstimation
   namespace SolutionRecovery
   {
     template <int dim>
-    unsigned int Base<dim>::get_solution_degree() const
+    inline unsigned int Base<dim>::get_solution_degree() const
     {
       return degree;
     }
 
     template <int dim>
-    unsigned int Base<dim>::get_highest_stored_derivative() const
+    inline unsigned int Base<dim>::get_highest_stored_derivative() const
     {
       return highest_recovered_derivative;
     }
 
     template <int dim>
-    bool Base<dim>::has_mesh_vertex(const types::global_vertex_index v) const
+    inline unsigned int Base<dim>::get_n_owned_vertices() const
+    {
+      return std::count(owned_vertices.begin(), owned_vertices.end(), true);
+    }
+
+    template <int dim>
+    inline const std::vector<bool> &Base<dim>::get_owned_vertices() const
+    {
+      return owned_vertices;
+    }
+
+    template <int dim>
+    inline bool
+    Base<dim>::has_mesh_vertex(const types::global_vertex_index v) const
     {
       AssertIndexRange(v, n_vertices);
       return owned_vertices[v];
     }
 
     template <int dim>
-    const DoFHandler<dim> &Base<dim>::get_dof_handler() const
+    inline const DoFHandler<dim> &Base<dim>::get_dof_handler() const
     {
       return dof_handler;
     }

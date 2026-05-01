@@ -107,6 +107,8 @@ namespace Parameters
 
     struct Gradation
     {
+      Verbosity verbosity;
+
       bool enable;
       // Specify if gradation should be done in a deterministic way
       // TODO: Add comments

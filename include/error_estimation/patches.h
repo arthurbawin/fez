@@ -228,6 +228,16 @@ namespace ErrorEstimation
     const std::vector<FullMatrix<double>> &get_least_squares_matrices() const;
 
     /**
+     * Return a vector of booleans stating which local mesh vertices are owned.
+     */
+    const std::vector<bool> &get_owned_vertices() const;
+
+    /**
+     * Return the number of owned vertices on this rank.
+     */
+    unsigned int get_n_owned_vertices() const;
+
+    /**
      * Gather the patches to the root process and write them to @p out.
      * This function is intended for debug and unit tests.
      *
@@ -370,7 +380,7 @@ namespace ErrorEstimation
 namespace ErrorEstimation
 {
   template <int dim>
-  const std::vector<Patch<dim>> &PatchHandler<dim>::get_patches() const
+  inline const std::vector<Patch<dim>> &PatchHandler<dim>::get_patches() const
   {
     return patches;
   }
@@ -392,10 +402,22 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  const std::vector<FullMatrix<double>> &
+  inline const std::vector<FullMatrix<double>> &
   PatchHandler<dim>::get_least_squares_matrices() const
   {
     return least_squares_matrices;
+  }
+
+  template <int dim>
+  inline unsigned int PatchHandler<dim>::get_n_owned_vertices() const
+  {
+    return std::count(owned_vertices.begin(), owned_vertices.end(), true);
+  }
+
+  template <int dim>
+  inline const std::vector<bool> &PatchHandler<dim>::get_owned_vertices() const
+  {
+    return owned_vertices;
   }
 } // namespace ErrorEstimation
 

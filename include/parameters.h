@@ -151,7 +151,17 @@ namespace Parameters
         bool transfer_solution;
 
         unsigned int n_time_intervals;
+
+        bool is_last_fixed_point_iteration() const
+        {
+          return current_fixed_point_iteration == n_fixed_point - 1;
+        }
       } metric;
+
+      bool with_metric_based_adaptation() const
+      {
+        return enable && strategy == Strategy::RiemannianMetric;
+      }
 
     } adaptation;
 

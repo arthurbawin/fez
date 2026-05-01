@@ -74,6 +74,23 @@ public:
   bool is_finished() const;
 
   /**
+   * Return the time step used to advance for this time iteration.
+   *
+   * Note: the time step rejection mechanism works by trying nonlinear solves
+   * until a solution is found, and decrease the time step otherwise. Thus, the
+   * time step (current_dt) is updated to the next time step as soon as the
+   * solver leaves the nonlinear solver, meaning that all evaluations of
+   * time_handler.current_dt *after* calling is_timestep_accepted() will read
+   * the time step for the next time iteration. Instead, this function returns
+   * time_steps[0], which is updated in the advance() function. Similarly to the
+   * issue with current_dt, this also means that calling this function before
+   * calling advance() will return a lagged time step, so be cautions.
+   * Currently, nothing is done in the time integration loops before calling the
+   * advance() function, which is why this choice has been done.
+   */
+  double get_current_timestep() const;
+
+  /**
    * Rotate the computed time step i+1 to position i.
    */
   void advance(const ConditionalOStream &pcout);
@@ -263,8 +280,11 @@ public:
   // Current simulation time
   double current_time;
 
-  // Current time step counter of the simulation
+  // Current (global) time step counter of the simulation
   unsigned int current_time_iteration;
+
+  // Current time step counter for the current time interval
+  unsigned int current_time_iteration_in_interval;
 
   // Initial time (for this subinterval)
   double initial_time;

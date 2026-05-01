@@ -19,6 +19,7 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , n_steps_on_each_interval(n_time_intervals, 0)
   , current_time(time_parameters.t_initial)
   , current_time_iteration(0)
+  , current_time_iteration_in_interval(0)
   , initial_time(time_parameters.t_initial)
   , final_time(time_parameters.t_end)
   , initial_times(n_time_intervals)
@@ -111,6 +112,8 @@ void TimeHandler::set_time_interval(const unsigned int interval_index)
   initial_time = initial_times[interval_index];
   final_time   = final_times[interval_index];
 
+  current_time_iteration_in_interval = 0;
+
   // Could also simply increment the current interval when the previous is done
   current_time_interval = interval_index;
 }
@@ -156,6 +159,11 @@ bool TimeHandler::is_finished() const
   return current_time >= final_time - 1e-10;
 }
 
+double TimeHandler::get_current_timestep() const
+{
+  return time_steps[0];
+}
+
 void TimeHandler::set_bdf_coefficients(
   const bool                                force_scheme,
   const Parameters::TimeIntegration::Scheme forced_scheme)
@@ -189,6 +197,7 @@ void TimeHandler::set_bdf_coefficients(
 void TimeHandler::advance(const ConditionalOStream &pcout)
 {
   current_time_iteration++;
+  current_time_iteration_in_interval++;
 
   if (scheme == STAT)
     return;
@@ -419,6 +428,7 @@ reject_step:
   present_solution = previous_solutions[0];
   current_time -= timestep_copy;
   current_time_iteration--;
+  current_time_iteration_in_interval--;
 
   if (mpi_rank == 0)
     std::cout << "Trying again with time step = " << current_dt << std::endl;

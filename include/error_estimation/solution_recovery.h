@@ -258,6 +258,16 @@ namespace ErrorEstimation
       const DoFHandler<dim> &get_dof_handler() const;
 
       /**
+       * Return the FESystem representing the reconstructed fields.
+       */
+      const FiniteElement<dim> &get_fe() const;
+
+      /**
+       * Return the vector of reconstructed FE fields.
+       */
+      const LA::ParVectorType &get_reconstructions() const;
+
+      /**
        * Return the reconstructed @p component-th component of the solution,
        * stored at the (owned) mesh vertices of this partition.
        */
@@ -816,7 +826,19 @@ namespace ErrorEstimation
     template <int dim>
     inline const DoFHandler<dim> &Base<dim>::get_dof_handler() const
     {
-      return solution_dh;
+      return dh;
+    }
+
+    template <int dim>
+    inline const FiniteElement<dim> &Base<dim>::get_fe() const
+    {
+      return *fe;
+    }
+
+    template <int dim>
+    inline const LA::ParVectorType &Base<dim>::get_reconstructions() const
+    {
+      return recovery_solution;
     }
 
     template <int dim>

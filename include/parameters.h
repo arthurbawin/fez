@@ -474,7 +474,8 @@ namespace Parameters
   public:
     enum class MobilityModel
     {
-      constant
+      constant,
+      degenerate
     } mobility_model;
 
     enum class MeshForcingLaw
@@ -484,6 +485,8 @@ namespace Parameters
     } mesh_forcing_law = MeshForcingLaw::regularized_band;
 
     double mobility;
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
+      degenerate_mobility;
     double surface_tension;
     double epsilon_interface;
     double epsilon_interface_enlarged;

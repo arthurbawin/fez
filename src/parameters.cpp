@@ -1011,16 +1011,23 @@ namespace Parameters
   void CahnHilliard<dim>::declare_parameters(ParameterHandler &prm)
   {
     const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
+    degenerate_mobility =
+      std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
     prm.enter_subsection("Cahn Hilliard");
     {
       prm.declare_entry("mobility model",
                         "constant",
-                        Patterns::Selection("constant"),
+                        Patterns::Selection("constant|degenerate"),
                         "Model for the mobility tensor");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
                         "Mobility value if constant");
+      prm.enter_subsection("degenerate mobility");
+      {
+        degenerate_mobility->declare_parameters(prm, 1, "(1 - x*x)*(1 - x*x)");
+      }
+      prm.leave_subsection();
       prm.declare_entry("surface tension",
                         "1.",
                         Patterns::Double(),
@@ -1093,9 +1100,18 @@ namespace Parameters
     prm.enter_subsection("Cahn Hilliard");
     {
       const std::string parsed_mobility_model = prm.get("mobility model");
-      if (parsed_mobility_model == "linear")
+      if (parsed_mobility_model == "constant")
         mobility_model = MobilityModel::constant;
+      else if (parsed_mobility_model == "degenerate")
+        mobility_model = MobilityModel::degenerate;
+      else
+        AssertThrow(false, ExcMessage("Unknown mobility model"));
       mobility            = prm.get_double("mobility");
+      prm.enter_subsection("degenerate mobility");
+      {
+        degenerate_mobility->parse_parameters(prm);
+      }
+      prm.leave_subsection();
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
       epsilon_interface_enlarged =

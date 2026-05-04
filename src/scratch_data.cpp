@@ -438,7 +438,12 @@ void ScratchData<dim, has_hp_capabilities>::initialize_cahn_hilliard()
   const double nu1   = physical_properties.fluids[1].kinematic_viscosity;
   dynamic_viscosity0 = density0 * nu0;
   dynamic_viscosity1 = density1 * nu1;
-  mobility           = cahn_hilliard_param.mobility;
+  mobility = cahn_hilliard_param.mobility;
+  mobility_function = CahnHilliard::get_mobility_function(cahn_hilliard_param);
+  mobility_derivative_function =
+    CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param);
+  mobility_second_derivative_function =
+    CahnHilliard::get_mobility_second_derivative_function(cahn_hilliard_param);
   epsilon            = cahn_hilliard_param.epsilon_interface;
   sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
@@ -641,6 +646,11 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     source_term_tracer.resize(n_q_points);
     source_term_potential.resize(n_q_points);
+
+    mobility_values.resize(n_q_points);
+    derivative_mobility_wrt_tracer.resize(n_q_points);
+    diffusive_flux_factor_values.resize(n_q_points);
+    second_derivative_mobility_wrt_tracer.resize(n_q_points);
 
     if (psi_lower != numbers::invalid_unsigned_int)
     {

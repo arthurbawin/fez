@@ -839,6 +839,13 @@ private:
     {
       // Physical properties based on tracer, filter if applicable
       const double filtered_phi = tracer_limiter(tracer_values[q]);
+      mobility_values[q] = mobility_function(cahn_hilliard_param, filtered_phi);
+      derivative_mobility_wrt_tracer[q] =
+        mobility_derivative_function(cahn_hilliard_param, filtered_phi);
+      second_derivative_mobility_wrt_tracer[q] =
+        mobility_second_derivative_function(cahn_hilliard_param, filtered_phi);
+      diffusive_flux_factor_values[q] =
+        mobility_values[q] * 0.5 * (density1 - density0);
       density[q] =
         CahnHilliard::linear_mixing(filtered_phi, density0, density1);
       dynamic_viscosity[q] = CahnHilliard::linear_mixing(filtered_phi,
@@ -858,7 +865,7 @@ private:
       if (psi_lower != numbers::invalid_unsigned_int)
         source_term_psi[q] = source_term_full_moving[q](psi_lower);
 
-      diffusive_flux[q] = diffusive_flux_factor *
+      diffusive_flux[q] = diffusive_flux_factor_values[q] *
                           present_velocity_gradients[q] *
                           potential_gradients[q];
 
@@ -930,7 +937,9 @@ private:
                                       previous_tracer_values,
                                       q);
         strong_residual_tracer[q] = dphidt + velocity_dot_tracer_gradient[q] -
-                                    mobility * potential_laplacians[q] +
+                                    (mobility_values[q] * potential_laplacians[q] +
+                                      derivative_mobility_wrt_tracer[q] *
+                                        (tracer_gradients[q] * potential_gradients[q])) +
                                     source_term_tracer[q];
 
         // τ — recalculated with ν_eff (momentum) and mobility (tracer).
@@ -946,7 +955,7 @@ private:
           Stabilization::compute_tau(param.time_integration.dt,
                                      param.time_integration.is_steady(),
                                      u_conv.norm(),
-                                     mobility,
+                                     mobility_values[q],
                                      h_tau);
       }
     }
@@ -1265,6 +1274,15 @@ public:
   double         dynamic_viscosity0;
   double         dynamic_viscosity1;
   double         mobility;
+  CahnHilliard::MobilityFunction<dim> mobility_function;
+  CahnHilliard::MobilityFunction<dim> mobility_derivative_function;
+  CahnHilliard::MobilityFunction<dim> mobility_second_derivative_function;
+
+
+  std::vector<double> mobility_values;
+  std::vector<double> derivative_mobility_wrt_tracer;
+  std::vector<double> diffusive_flux_factor_values;
+  std::vector<double> second_derivative_mobility_wrt_tracer;
   double         epsilon;
   double         sigma_tilde;
   double         diffusive_flux_factor;

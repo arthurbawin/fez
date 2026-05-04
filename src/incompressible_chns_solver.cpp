@@ -183,7 +183,14 @@ void CHNSSolver<dim,
   const double eta0 = rho0 * physical_properties.fluids[0].kinematic_viscosity;
   const double eta1 = rho1 * physical_properties.fluids[1].kinematic_viscosity;
   const double eta  = CahnHilliard::linear_mixing(filtered_phi, eta0, eta1);
-  const double M    = cahn_hilliard_param.mobility;
+  const auto mobility_function =
+    CahnHilliard::get_mobility_function(cahn_hilliard_param);
+  const auto mobility_derivative_function =
+    CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param);
+  const double M = mobility_function(cahn_hilliard_param, filtered_phi);
+  const double dM_dphi =
+    mobility_derivative_function(cahn_hilliard_param, filtered_phi);
+
   const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
   // const double drhodphi =
   //   CahnHilliard::linear_mixing_derivative(filtered_phi, rho0, rho1);
@@ -242,7 +249,9 @@ void CHNSSolver<dim,
   // Tracer source term
   const double dphidt = mms.exact_tracer->time_derivative(p);
   const double lap_mu = mms.exact_potential->laplacian(p);
-  values[phi_lower]   = -(dphidt + u * grad_phi - M * lap_mu);
+  values[phi_lower]   =
+    -(dphidt + u * grad_phi -
+      (M * lap_mu + dM_dphi * (grad_phi * grad_mu)));
 
   // Potential source term
   const double mu      = mms.exact_potential->value(p);
@@ -536,12 +545,10 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   /**
    * Material parameters
    */
-  const double mobility = scratch_data.mobility;
   const double sigma_tilde_over_eps =
     scratch_data.sigma_tilde / scratch_data.epsilon;
   const double sigma_tilde_times_eps =
     scratch_data.sigma_tilde * scratch_data.epsilon;
-  const double diffusive_flux_factor = scratch_data.diffusive_flux_factor;
   const auto  &body_force            = scratch_data.body_force;
 
   const double enlarged_length =
@@ -579,6 +586,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
     const auto &grad_phi_phi   = scratch_data.grad_shape_phi[q];
     const auto &phi_mu         = scratch_data.shape_mu[q];
     const auto &grad_phi_mu    = scratch_data.grad_shape_mu[q];
+    const double mobility = scratch_data.mobility_values[q];
+    const double dM_dphi = scratch_data.derivative_mobility_wrt_tracer[q];
+    const double diffusive_flux_factor =
+      scratch_data.diffusive_flux_factor_values[q];
+    const double d_diffusive_flux_factor_dphi =
+      dM_dphi * 0.5 * (scratch_data.density1 - scratch_data.density0);
 
     if constexpr (with_moving_mesh)
     {
@@ -741,6 +754,10 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             local_flow_ij +=
               2. * detadphi * phi_phi_j *
               scalar_product(sym_grad_phi_u_i, present_velocity_sym_gradients);
+            local_flow_ij +=
+              phi_u_i * phi_phi_j * d_diffusive_flux_factor_dphi *
+              (present_velocity_gradients * potential_gradient);
+
           }
           if (comp_j == const_ordering.mu_lower)
           {
@@ -820,6 +837,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             local_flow_ij += phi_phi_i * bdf_c0 * phi_phi_j;
             // Advection
             local_flow_ij += phi_phi_i * u_conv * grad_phi_phi_j;
+            local_flow_ij +=
+              dM_dphi * phi_phi_j * (grad_phi_phi_i * potential_gradient);
+
           }
           if (comp_j == const_ordering.mu_lower)
           {
@@ -1019,7 +1039,6 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;
 
-  const double mobility = scratch_data.mobility;
   const double sigma_tilde_over_eps =
     scratch_data.sigma_tilde / scratch_data.epsilon;
   const double sigma_tilde_times_eps =
@@ -1037,6 +1056,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
     const double JxW_moving = scratch_data.JxW_moving[q];
     const double rho        = scratch_data.density[q];
     const double eta        = scratch_data.dynamic_viscosity[q];
+    const double mobility = scratch_data.mobility_values[q];
 
     const auto &present_velocity_values =
       scratch_data.present_velocity_values[q];

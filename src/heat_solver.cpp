@@ -726,8 +726,7 @@ void HeatSolver<dim>::compute_riemannian_metric()
   Assert(recovery, ExcInternalError());
   Assert(param.bc_data.n_metric_fields > 0, ExcInternalError());
 
-  metric_for_adaptation->increment_anisotropic_measure(*recovery,
-                                                       time_handler);
+  metric_for_adaptation->increment_anisotropic_measure(*recovery, time_handler);
 }
 
 template <int dim>

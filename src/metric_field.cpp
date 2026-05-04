@@ -48,7 +48,8 @@ void MetricField<dim>::reinit(const unsigned int          index,
   // Clear all relevant data
   this->clear();
 
-  Assert(triangulation.n_vertices() > 0, ExcMessage("The given triangulation is empty"));
+  Assert(triangulation.n_vertices() > 0,
+         ExcMessage("The given triangulation is empty"));
 
   // Initialize
   this->param         = &param;

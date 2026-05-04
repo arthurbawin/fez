@@ -229,7 +229,8 @@ void GenericSolver<VectorType>::run_fixed_point_loop()
     //   mesh_param.filename =
     //     output_param.output_dir + mesh_param.adaptation.adapt_dir +
     //     mesh_param.adaptation.adapted_mesh_extension + ".msh";
-    //   pcout << "Mesh file was changed to " << mesh_param.filename << std::endl;
+    //   pcout << "Mesh file was changed to " << mesh_param.filename <<
+    //   std::endl;
     // }
 
     this->run();
@@ -242,7 +243,8 @@ void GenericSolver<VectorType>::run_fixed_point_loop()
 //   Assert(mesh_param.adaptation.enable &&
 //            mesh_param.adaptation.strategy ==
 //              Parameters::Mesh::Adaptation::Strategy::RiemannianMetric,
-//          ExcMessage("This run function is intended for simulations with mesh "
+//          ExcMessage("This run function is intended for simulations with mesh
+//          "
 //                     "adaptation with a Riemannian metric only."));
 
 //   const unsigned int nfp = mesh_param.adaptation.metric.n_fixed_point;

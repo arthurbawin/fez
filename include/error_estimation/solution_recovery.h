@@ -263,6 +263,31 @@ namespace ErrorEstimation
       const FiniteElement<dim> &get_fe() const;
 
       /**
+       * Return a new FEValues initialized with this object's FESystem and its
+       * appropriate UpdateFlags.
+       */
+      FEValues<dim> get_fe_values(const Mapping<dim>    &mapping,
+                                  const Quadrature<dim> &quadrature) const;
+
+      /**
+       * Return the mask to select the reconstructed solution from this object's
+       * solution vector.
+       */
+      ComponentMask get_solution_mask() const;
+
+      /**
+       * Return the mask to select the reconstructed gradient from this object's
+       * solution vector.
+       */
+      ComponentMask get_gradient_mask() const;
+
+      /**
+       * Return the mask to select the reconstructed hessian from this object's
+       * solution vector.
+       */
+      ComponentMask get_hessian_mask() const;
+
+      /**
        * Return the vector of reconstructed FE fields.
        */
       const LA::ParVectorType &get_reconstructions() const;
@@ -653,6 +678,32 @@ namespace ErrorEstimation
         const unsigned int component = 0) const override;
 
       /**
+       * Return the map from the solver's solution dof to the recovery dof
+       * in this object's solution vector.
+       */
+      const std::map<types::global_dof_index,
+                     std::array<types::global_dof_index, 1>> &
+      get_solution_to_recovery_dof_map() const;
+
+      /**
+       * Return the map from the solver's solution dof to the gradients dof
+       * in this object's solution vector.
+       */
+      const std::map<types::global_dof_index,
+                     std::array<types::global_dof_index,
+                                gradient_type::n_independent_components>> &
+      get_solution_to_gradient_dof_map() const;
+
+      /**
+       * Return the map from the solver's solution dof to the hessians dof
+       * in this object's solution vector.
+       */
+      const std::map<types::global_dof_index,
+                     std::array<types::global_dof_index,
+                                hessian_type::n_independent_components>> &
+      get_solution_to_hessian_dof_map() const;
+
+      /**
        * Write all the reconstructed fields to a pvtu file for visualization.
        */
       virtual void write_pvtu(const Mapping<dim> &mapping,
@@ -842,6 +893,35 @@ namespace ErrorEstimation
     }
 
     template <int dim>
+    FEValues<dim>
+    Base<dim>::get_fe_values(const Mapping<dim>    &mapping,
+                             const Quadrature<dim> &quadrature) const
+    {
+      return FEValues<dim>(mapping,
+                           *this->fe,
+                           quadrature,
+                           update_values | update_JxW_values);
+    }
+
+    template <int dim>
+    ComponentMask Base<dim>::get_solution_mask() const
+    {
+      return solution_mask;
+    }
+
+    template <int dim>
+    ComponentMask Base<dim>::get_gradient_mask() const
+    {
+      return gradient_mask;
+    }
+
+    template <int dim>
+    ComponentMask Base<dim>::get_hessian_mask() const
+    {
+      return hessian_mask;
+    }
+
+    template <int dim>
     void Base<dim>::vertex_to_isoparametric(
       const std::vector<double>                                 &vertex_data,
       LA::ParVectorType                                         &local_dof_data,
@@ -917,6 +997,34 @@ namespace ErrorEstimation
     Scalar<dim>::get_reconstructed_hessian(const unsigned int) const
     {
       return recovered_hessian_at_vertices;
+    }
+
+    template <int dim>
+    const std::map<types::global_dof_index,
+                   std::array<types::global_dof_index, 1>> &
+    Scalar<dim>::get_solution_to_recovery_dof_map() const
+    {
+      return solution_dofs_to_recovery_dofs;
+    }
+
+    template <int dim>
+    const std::map<
+      types::global_dof_index,
+      std::array<types::global_dof_index,
+                 Scalar<dim>::gradient_type::n_independent_components>> &
+    Scalar<dim>::get_solution_to_gradient_dof_map() const
+    {
+      return solution_dofs_to_gradient_dofs;
+    }
+
+    template <int dim>
+    const std::map<
+      types::global_dof_index,
+      std::array<types::global_dof_index,
+                 Scalar<dim>::hessian_type::n_independent_components>> &
+    Scalar<dim>::get_solution_to_hessian_dof_map() const
+    {
+      return solution_dofs_to_hessian_dofs;
     }
 
   } // namespace SolutionRecovery

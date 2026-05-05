@@ -183,6 +183,18 @@ namespace BoundaryConditions
       prm.leave_subsection();
     }
     prm.leave_subsection();
+
+    if (enable_rigid_body_rotation)
+    {
+      const bool all_components_constrained =
+        constrain_u && constrain_v && (dim < 3 || constrain_w);
+      AssertThrow(
+        all_components_constrained,
+        ExcMessage(
+          "Fluid BC " + std::to_string(this->id) +
+          ": rigid body rotation requires all velocity components to be "
+          "constrained (constrain_u, constrain_v, and constrain_w in 3D)."));
+    }
   }
 
   template <int dim>
@@ -379,13 +391,25 @@ namespace BoundaryConditions
     {
       if (bc.type == BoundaryConditions::Type::no_slip)
       {
-        VectorTools::interpolate_boundary_values(
-          mapping,
-          dof_handler,
-          bc.id,
-          Functions::ZeroFunction<dim>(n_components),
-          constraints,
-          make_partial_velocity_mask(bc));
+        if (homogeneous || !bc.enable_rigid_body_rotation)
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            Functions::ZeroFunction<dim>(n_components),
+            constraints,
+            make_partial_velocity_mask(bc));
+        else
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            RigidBodyVelocity<dim>(u_lower,
+                                   n_components,
+                                   bc.center_of_rotation,
+                                   *bc.angular_velocity),
+            constraints,
+            make_partial_velocity_mask(bc));
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
@@ -395,6 +419,17 @@ namespace BoundaryConditions
             dof_handler,
             bc.id,
             Functions::ZeroFunction<dim>(n_components),
+            constraints,
+            make_partial_velocity_mask(bc));
+        else if (bc.enable_rigid_body_rotation)
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            RigidBodyVelocity<dim>(u_lower,
+                                   n_components,
+                                   bc.center_of_rotation,
+                                   *bc.angular_velocity),
             constraints,
             make_partial_velocity_mask(bc));
         else

@@ -506,6 +506,70 @@ public:
 };
 
 /**
+ * Vector-valued function representing a rigid-body rotation velocity field
+ * v(X) = omega x (X - Xc), to be interpolated as a Dirichlet boundary
+ * condition on the velocity components [u_lower, u_lower + dim).
+ *
+ * In 2D, @p angular_velocity is a scalar ParsedFunction (rotation around z),
+ * yielding v = (-omega*(y - yc), omega*(x - xc)).
+ *
+ * In 3D, @p angular_velocity is a dim-component ParsedFunction (rotation
+ * vector), yielding v = omega x (X - Xc).
+ *
+ * This Function does not override set_time: the underlying ParsedFunction is
+ * expected to have its time updated externally (this is done in FluidBC).
+ */
+template <int dim>
+class RigidBodyVelocity : public Function<dim>
+{
+public:
+  const unsigned int                    u_lower;
+  const Point<dim>                      center;
+  const Functions::ParsedFunction<dim> &angular_velocity;
+
+  RigidBodyVelocity(const unsigned int                    u_lower,
+                    const unsigned int                    n_components,
+                    const Point<dim>                     &center,
+                    const Functions::ParsedFunction<dim> &angular_velocity)
+    : Function<dim>(n_components)
+    , u_lower(u_lower)
+    , center(center)
+    , angular_velocity(angular_velocity)
+  {}
+
+  virtual double value(const Point<dim>  &p,
+                       const unsigned int component = 0) const override
+  {
+    if constexpr (dim == 2)
+    {
+      const double omega = angular_velocity.value(p, 0);
+      if (component == u_lower + 0)
+        return -omega * (p[1] - center[1]);
+      if (component == u_lower + 1)
+        return omega * (p[0] - center[0]);
+      return 0.;
+    }
+    else
+    {
+      Tensor<1, dim> omega;
+      Tensor<1, dim> r;
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        omega[d] = angular_velocity.value(p, d);
+        r[d]     = p[d] - center[d];
+      }
+      if (component == u_lower + 0)
+        return omega[1] * r[2] - omega[2] * r[1];
+      if (component == u_lower + 1)
+        return omega[2] * r[0] - omega[0] * r[2];
+      if (component == u_lower + 2)
+        return omega[0] * r[1] - omega[1] * r[0];
+      return 0.;
+    }
+  }
+};
+
+/**
  * This function is meant to represent the spatial identity function,
  * and is used to enforce a no displacement boundary condition for a
  * pseudosolid mesh movement problem, that is, x(X) = X.

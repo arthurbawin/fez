@@ -741,8 +741,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
 
       // FIXME: Remove the dofs from the convergence table in 3d as long as the
       // hp bug is in deal.II, to allow tests with the docker
-      if (!(dim == 3 && dof_handler.has_hp_capabilities()))
-        handler.add_reference_data("n_dof", dof_handler.n_dofs());
+      handler.add_reference_data("n_dof",
+                                 (dim == 3 &&
+                                  dof_handler.has_hp_capabilities()) ?
+                                   0 :
+                                   dof_handler.n_dofs());
     }
 
   /**

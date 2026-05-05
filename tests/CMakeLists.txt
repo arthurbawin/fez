@@ -9,3 +9,8 @@ add_subdirectory(heat)
 add_subdirectory(linear_elasticity)
 add_subdirectory(unit_tests)
 add_subdirectory(unit_tests/metric_tensor)
+add_subdirectory(unit_tests/metric_field)
+
+if(ENABLE_MMG)
+	add_subdirectory(metric_based_adaptation)
+endif()

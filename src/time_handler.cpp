@@ -13,10 +13,17 @@ constexpr auto BDF2 = Parameters::TimeIntegration::Scheme::BDF2;
 TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   : time_parameters(time_parameters)
   , steady_scheme(time_parameters.scheme == STAT)
+  , n_time_intervals(time_parameters.n_time_intervals)
+  , current_time_interval(0)
+  , inverse_time_step_integrals(n_time_intervals, 0.)
+  , n_steps_on_each_interval(n_time_intervals, 0)
   , current_time(time_parameters.t_initial)
   , current_time_iteration(0)
+  , current_time_iteration_in_interval(0)
   , initial_time(time_parameters.t_initial)
   , final_time(time_parameters.t_end)
+  , initial_times(n_time_intervals)
+  , final_times(n_time_intervals)
   , initial_dt(time_parameters.dt)
   , current_dt(time_parameters.dt)
   , scheme(time_parameters.scheme)
@@ -27,6 +34,38 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , last_nonlinear_solver_converged(true)
   , max_cfl_number(0.)
 {
+  if (!steady_scheme)
+  {
+    // Set starting and final times for each time subinterval (default is 1).
+    const double interval_size =
+      (time_parameters.t_end - time_parameters.t_initial) / n_time_intervals;
+    double t0 = time_parameters.t_initial;
+    for (unsigned int i = 0; i < n_time_intervals; ++i)
+    {
+      initial_times[i] = t0;
+      final_times[i]   = t0 + interval_size;
+      t0 += interval_size;
+    }
+
+    // If adaptive time step is disabled (using constant time step), the number
+    // of time subintervals should be compatible with the prescribed time step,
+    // i.e., it should be an integer multiple of dt.
+    if (!with_adaptive_timestep)
+    {
+      const double ratio   = interval_size / initial_dt;
+      const double nearest = std::round(ratio);
+      const double diff    = std::abs(ratio - nearest);
+      AssertThrow(
+        diff < 1e-10,
+        ExcMessage(
+          "The prescribed constant time step is not compatible with the "
+          "prescribed number of time subintervals. When using a constant time "
+          "step, the length of a subinterval should be an integer multiple of "
+          "the time step. In this case, one time subinterval is " +
+          std::to_string(ratio) + " time steps long."));
+    }
+  }
+
   switch (scheme)
   {
     case STAT:
@@ -63,6 +102,21 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
 }
 
 TimeHandler::~TimeHandler() = default;
+
+void TimeHandler::set_time_interval(const unsigned int interval_index)
+{
+  Assert(initial_times.size() > 0, ExcInternalError());
+  Assert(final_times.size() > 0, ExcInternalError());
+  AssertIndexRange(interval_index, n_time_intervals);
+
+  initial_time = initial_times[interval_index];
+  final_time   = final_times[interval_index];
+
+  current_time_iteration_in_interval = 0;
+
+  // Could also simply increment the current interval when the previous is done
+  current_time_interval = interval_index;
+}
 
 void TimeHandler::validate_parameters(const ComponentOrdering &ordering) const
 {
@@ -105,6 +159,11 @@ bool TimeHandler::is_finished() const
   return current_time >= final_time - 1e-10;
 }
 
+double TimeHandler::get_current_timestep() const
+{
+  return time_steps[0];
+}
+
 void TimeHandler::set_bdf_coefficients(
   const bool                                force_scheme,
   const Parameters::TimeIntegration::Scheme forced_scheme)
@@ -138,6 +197,7 @@ void TimeHandler::set_bdf_coefficients(
 void TimeHandler::advance(const ConditionalOStream &pcout)
 {
   current_time_iteration++;
+  current_time_iteration_in_interval++;
 
   if (scheme == STAT)
     return;
@@ -222,6 +282,12 @@ const LA::ParVectorType &TimeHandler::get_error_estimator_as_solution() const
 void TimeHandler::set_last_nonlinear_solve_status(const bool flag) const
 {
   last_nonlinear_solver_converged = flag;
+}
+
+void TimeHandler::increment_inverse_time_step_integral()
+{
+  // inverse_time_step_integrals[current_time_interval] += (1./ current_dt) * ;
+  n_steps_on_each_interval[current_time_interval]++;
 }
 
 bool TimeHandler::is_timestep_accepted(
@@ -336,6 +402,7 @@ accept_step:
   // Accepting step : reset counter and update time step
   n_consecutive_rejected_steps = 0;
   all_simulation_times.push_back(current_time);
+  increment_inverse_time_step_integral();
   set_next_timestep(true);
   return true;
 
@@ -361,6 +428,7 @@ reject_step:
   present_solution = previous_solutions[0];
   current_time -= timestep_copy;
   current_time_iteration--;
+  current_time_iteration_in_interval--;
 
   if (mpi_rank == 0)
     std::cout << "Trying again with time step = " << current_dt << std::endl;
@@ -428,7 +496,8 @@ void TimeHandler::set_next_timestep(const bool step_was_accepted)
     }
 
     // Make sure the last time step is the prescribed end time
-    current_dt = std::min(current_dt, final_time - current_time);
+    if (current_time_interval == n_time_intervals - 1)
+      current_dt = std::min(current_dt, final_time - current_time);
 
     return;
   }
@@ -457,7 +526,9 @@ void TimeHandler::set_next_timestep(const bool step_was_accepted)
     }
 
     // Make sure the last time step is the prescribed end time
-    next_timestep = std::min(next_timestep, final_time - current_time);
+    // FIXME: adjust time step to match the end of the current subinterval
+    if (current_time_interval == n_time_intervals - 1)
+      next_timestep = std::min(next_timestep, final_time - current_time);
   }
   else
   {

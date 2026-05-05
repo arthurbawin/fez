@@ -140,6 +140,11 @@ namespace Parameters
                             "1",
                             Patterns::Integer(-1, 10),
                             "Verbosity level of the MMG library");
+          prm.declare_entry("n time intervals",
+                            "1",
+                            Patterns::Integer(1),
+                            "Number of time sub-intervals for the transient "
+                            "fixed point method");
         }
         prm.leave_subsection();
       }
@@ -178,6 +183,8 @@ namespace Parameters
             prm.get_bool("transfer solution");
           adaptation.metric.mmg_verbosity =
             prm.get_integer("mmg verbosity level");
+          adaptation.metric.n_time_intervals =
+            prm.get_integer("n time intervals");
         }
         prm.leave_subsection();
       }

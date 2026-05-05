@@ -12,10 +12,11 @@
 using namespace dealii;
 
 /**
- *
+ * This class stores the complete set of parameters and callbacks used in the
+ * various solvers.
  */
 template <int dim>
-class ParameterReader
+class ParameterReader : public EnableObserverPointer
 {
 public:
   //
@@ -69,11 +70,22 @@ public:
     : bc_data(bc_data)
   {}
 
-public:
   /**
    * Check that the given parameters are consistent.
    */
   void check_parameters() const;
+
+  /**
+   * Return true if the so-called transient fixed-point mesh adaptation method,
+   * which converges N solution-mesh pairs on time sub-intervals in a
+   * fixed-point loop, is enabled. This requires information from both the mesh
+   * adaptation and time integration parameters.
+   */
+  bool transient_fixed_point_adaptation_enabled() const
+  {
+    return mesh.adaptation.with_metric_based_adaptation() &&
+           !time_integration.is_steady();
+  }
 
   /**
    * Declare (initialize) all the possible parameters
@@ -167,6 +179,9 @@ public:
     mms.read_parameters(prm);
     debug.read_parameters(prm);
     Parameters::read_metric_fields(prm, bc_data.n_metric_fields, metric_fields);
+
+    // Copy info coming from mesh adaptation that affects time integration
+    time_integration.n_time_intervals = mesh.adaptation.metric.n_time_intervals;
 
     check_parameters();
   }

@@ -149,7 +149,19 @@ namespace Parameters
         // For steady simulations, specify whether the solution should be
         // transferred (projected) from the initial mesh to the adapted mesh.
         bool transfer_solution;
+
+        unsigned int n_time_intervals;
+
+        bool is_last_fixed_point_iteration() const
+        {
+          return current_fixed_point_iteration == n_fixed_point - 1;
+        }
       } metric;
+
+      bool with_metric_based_adaptation() const
+      {
+        return enable && strategy == Strategy::RiemannianMetric;
+      }
 
     } adaptation;
 
@@ -483,6 +495,13 @@ namespace Parameters
       std::vector<double> required_times;
       bool                compute_error_on_estimator;
     } adaptation;
+
+    /**
+     * If using the transient fixed point mesh adaptation method, this is the
+     * number of subintervals into which the overall simulation interval is
+     * split.
+     */
+    unsigned int n_time_intervals;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

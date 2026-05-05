@@ -382,6 +382,11 @@ public:
    */
   BOOST_SERIALIZATION_SPLIT_MEMBER()
 
+  /**
+   * Return the (ghosted) solution vector.
+   */
+  virtual LA::ParVectorType &get_present_solution() override;
+
 private:
   /**
    * Get the complete description (names and numbers of components) of the
@@ -488,7 +493,9 @@ protected:
 
   std::map<types::global_dof_index, Point<dim>> initial_positions;
 
-  LA::ParMatrixType              system_matrix;
+  LA::ParMatrixType system_matrix;
+
+  LA::ParVectorType              present_solution;
   std::vector<LA::ParVectorType> previous_solutions;
 
   std::shared_ptr<Function<dim>> source_terms;
@@ -529,6 +536,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::write_structure_mean_position(
   postproc_handler->write_structure_mean_position(out);
 }
 
+template <int dim, bool with_moving_mesh>
+LA::ParVectorType &
+NavierStokesSolver<dim, with_moving_mesh>::get_present_solution()
+{
+  return present_solution;
+}
 
 template <int dim, bool with_moving_mesh>
 const hp::FECollection<dim> *

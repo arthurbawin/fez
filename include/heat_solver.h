@@ -17,6 +17,8 @@
 #include <error_estimation/patches.h>
 #include <error_estimation/solution_recovery.h>
 #include <generic_solver.h>
+#include <mesh_adaptation/transient_fixed_point.h>
+#include <metric_field.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <post_processing_handler.h>
@@ -44,6 +46,16 @@ public:
 
 public:
   virtual void run() override;
+
+  /**
+   *
+   */
+  void set_interval_data(const unsigned int interval_index);
+
+  /**
+   *
+   */
+  void run_time_subinterval(const unsigned int interval_index);
 
   /**
    *
@@ -197,7 +209,20 @@ public:
   /**
    *
    */
+  void compute_riemannian_metric();
+
+  /**
+   *
+   */
   virtual void adapt_mesh() override;
+
+  /**
+   *
+   */
+  virtual LA::ParVectorType &get_present_solution() override
+  {
+    return *present_solution;
+  }
 
 private:
   /**
@@ -223,10 +248,13 @@ protected:
   QSimplex<dim - 1> face_quadrature;
   QSimplex<dim - 1> error_face_quadrature;
 
-  std::unique_ptr<parallel::fullydistributed::Triangulation<dim>> triangulation;
-  std::unique_ptr<Mapping<dim>>                                   mapping;
-  DoFHandler<dim>                                                 dof_handler;
-  TimeHandler                                                     time_handler;
+  std::unique_ptr<Mapping<dim>> mapping;
+  TimeHandler                   time_handler;
+
+  TransientFixedPointData<dim> transient_fixed_point_data;
+
+  parallel::fullydistributed::Triangulation<dim> *triangulation;
+  DoFHandler<dim>                                *dof_handler;
 
   std::unique_ptr<ScratchData> scratch_data;
 
@@ -241,19 +269,22 @@ protected:
   AffineConstraints<double> zero_constraints;
   AffineConstraints<double> nonzero_constraints;
 
-  LA::ParMatrixType              system_matrix;
-  std::vector<LA::ParVectorType> previous_solutions;
+  LA::ParMatrixType system_matrix;
+
+  LA::ParVectorType              *present_solution;
+  std::vector<LA::ParVectorType> *previous_solutions;
 
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;
 
   SolverControl                                          solver_control;
-  std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
+  std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
   std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
 
   std::unique_ptr<ErrorEstimation::PatchHandler<dim>>             patch_handler;
   std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>> recovery;
+  MetricField<dim> *metric_for_adaptation;
 
 protected:
   /**

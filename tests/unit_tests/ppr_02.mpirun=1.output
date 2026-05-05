@@ -1,0 +1,11 @@
+
+DEAL::Convergence rates:
+DEAL::Reconstructed solution and derivatives for solution of degree 1
+n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess   
+384   2.7370e-01 -    2.1591e-01 -    1.5079e+00 -    1.1841e+00 -    8.6445e+00 -    8.6357e+00 -    
+3072  6.2793e-02 2.12 2.7490e-02 2.97 5.1144e-01 1.56 3.9601e-01 1.58 3.8303e+00 1.17 3.8029e+00 1.18 
+DEAL::Convergence rates:
+DEAL::Reconstructed solution and derivatives for solution of degree 2
+n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess   
+384   2.0042e-01 -    8.1763e-02 -    8.6833e-01 -    7.7318e-01 -    5.3503e+00 -    5.1802e+00 -    
+3072  5.7868e-02 1.79 6.2541e-03 3.71 2.1407e-01 2.02 1.6055e-01 2.27 2.4931e+00 1.10 2.3579e+00 1.14 

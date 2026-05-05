@@ -69,15 +69,15 @@ subsection Physical properties
       set Function expression = 2
     end
   end
+  set body force = 0, -0.981
 end
 
 subsection Cahn Hilliard
-  set mobility model      = constant
-  set mobility            = 6.1e-6
-  set surface tension     = 24.5
-  set interface thickness =  7.81e-3
+  set mobility model        = constant
+  set mobility              = 6.1e-6
+  set surface tension       = 24.5
+  set interface thickness   =  7.81e-3
   set enable tracer limiter = false
-  set body force          = 0, -0.981
 end
 
 subsection Initial conditions

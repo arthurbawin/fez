@@ -13,6 +13,7 @@
 #include <solver_info.h>
 #include <utilities.h>
 
+
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
@@ -35,22 +36,22 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                           error_face_quadrature);
 
   if (param.finite_elements.use_quads)
-    fixed_mapping = std::make_shared<MappingQ<dim>>(1);
+    fixed_mapping = std::make_unique<MappingQ<dim>>(1);
   else
-    fixed_mapping = std::make_shared<MappingFE<dim>>(FE_SimplexP<dim>(1));
+    fixed_mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
 
   if (param.mms_param.enable)
-    for (auto norm : param.mms_param.norms_to_compute)
+    for (auto &[norm, handler] : error_handlers)
     {
-      error_handlers[norm]->create_entry("u");
-      error_handlers[norm]->create_entry("p");
+      handler.create_entry("u");
+      handler.create_entry("p");
       if constexpr (with_moving_mesh)
-        error_handlers[norm]->create_entry("x");
+        handler.create_entry("x");
     }
 
   // Direct solver
   direct_solver_reuse =
-    std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 }
 
 
@@ -91,7 +92,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
 
   // Direct solver
   direct_solver_reuse =
-    std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
@@ -132,7 +133,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize()
   if (!postproc_handler)
   {
     const auto description = get_variables_description();
-    postproc_handler       = std::make_shared<PostProcessingHandler<dim>>(
+    postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
       param, triangulation, dof_handler, description);
   }
   time_handler.validate_parameters(*ordering);
@@ -160,6 +161,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   }
 
   setup_mappings();
+  create_scratch_data();
 
   if (param.bc_data.enforce_zero_mean_pressure)
     create_zero_mean_pressure_constraints_data();
@@ -301,12 +303,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_mappings()
 
     // Create the solution-dependent mapping
     moving_mapping =
-      std::make_shared<MappingFEField<dim, dim, LA::ParVectorType>>(
+      std::make_unique<MappingFEField<dim, dim, LA::ParVectorType>>(
         dof_handler, evaluation_point, position_mask);
   }
   else
   {
-    moving_mapping = fixed_mapping;
+    // Moving_mapping and fixed_mapping are identical
+    if (param.finite_elements.use_quads)
+      moving_mapping = std::make_unique<MappingQ<dim>>(1);
+    else
+      moving_mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
   }
 
   // For unsteady simulation, add the number of elements, dofs and/or the time
@@ -314,10 +320,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_mappings()
   if (!time_handler.is_steady() && param.mms_param.enable)
     for (auto &[norm, handler] : error_handlers)
     {
-      handler->add_reference_data("n_elm",
-                                  triangulation.n_global_active_cells());
-      handler->add_reference_data("n_dof", dof_handler.n_dofs());
-      handler->add_time_step(time_handler.initial_dt);
+      handler.add_reference_data("n_elm",
+                                 triangulation.n_global_active_cells());
+      handler.add_reference_data("n_dof", dof_handler.n_dofs());
+      handler.add_time_step(time_handler.initial_dt);
     }
 }
 
@@ -488,6 +494,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
       constrained_pressure_dof,
       zero_mean_pressure_weights);
 
+  // FIXME: group all pressure conditions in this function
+  BoundaryConditions::apply_pressure_boundary_conditions(homogeneous,
+                                                         ordering->p_lower,
+                                                         ordering->n_components,
+                                                         dof_handler,
+                                                         *moving_mapping,
+                                                         param.fluid_bc,
+                                                         *exact_solution,
+                                                         constraints);
   /**
    * Do not close the constraints here, as derived solvers may need
    * to add boundary conditions on their own fields (e.g., Cahn Hilliard)
@@ -703,7 +718,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_and_add_errors(
   const std::string                  &field_name)
 {
   const double time = time_handler.current_time;
-  for (auto norm : param.mms_param.norms_to_compute)
+  for (auto &[norm, handler] : error_handlers)
   {
     const double err =
       compute_error_norm<dim, LA::ParVectorType>(triangulation,
@@ -715,7 +730,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_and_add_errors(
                                                  *error_quadrature,
                                                  norm,
                                                  &comp_function);
-    error_handlers.at(norm)->add_error(field_name, err, time);
+    handler.add_error(field_name, err, time);
   }
 }
 
@@ -733,16 +748,18 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
   Vector<double>     cellwise_errors(n_active_cells);
 
   if (time_handler.is_steady())
-    for (auto norm : param.mms_param.norms_to_compute)
+    for (auto &[norm, handler] : error_handlers)
     {
-      error_handlers.at(norm)->add_reference_data(
-        "n_elm", triangulation.n_global_active_cells());
+      handler.add_reference_data("n_elm",
+                                 triangulation.n_global_active_cells());
 
       // FIXME: Remove the dofs from the convergence table in 3d as long as the
       // hp bug is in deal.II, to allow tests with the docker
-      if (!(dim == 3 && dof_handler.has_hp_capabilities()))
-        error_handlers.at(norm)->add_reference_data("n_dof",
-                                                    dof_handler.n_dofs());
+      handler.add_reference_data("n_dof",
+                                 (dim == 3 &&
+                                  dof_handler.has_hp_capabilities()) ?
+                                   0 :
+                                   dof_handler.n_dofs());
     }
 
   /**
@@ -988,17 +1005,33 @@ void NavierStokesSolver<dim, with_moving_mesh>::load(
   unsigned int n_previous_solutions;
   ar          &n_previous_solutions;
 
-  AssertThrow(
-    n_previous_solutions == previous_solutions.size(),
-    ExcMessage("The number of previous solutions to read from checkpointed "
-               "data does not match the number of previous solutions used for "
-               "the current simulation. This probably indicates that you "
-               "changed the time integration method, which is not supported."));
-
-  for (auto &previous_solution : previous_solutions)
+  // Allow restarting an unsteady simulation from a stationary checkpoint: the
+  // stationary checkpoint contains no previous solutions, so the present
+  // (steady) solution is duplicated into all slots of the unsteady previous
+  // solutions array to serve as the initial condition for the unsteady run.
+  if (n_previous_solutions == 0 && !time_handler.is_steady())
   {
-    ar &previous_solution;
-    previous_solution.update_ghost_values();
+    for (auto &previous_solution : previous_solutions)
+    {
+      previous_solution = present_solution;
+      previous_solution.update_ghost_values();
+    }
+  }
+  else
+  {
+    AssertThrow(n_previous_solutions == previous_solutions.size(),
+                ExcMessage(
+                  "The number of previous solutions to read from checkpointed "
+                  "data does not match the number of previous solutions used "
+                  "for the current simulation. This probably indicates that "
+                  "you changed the time integration method, which is not "
+                  "supported."));
+
+    for (auto &previous_solution : previous_solutions)
+    {
+      ar &previous_solution;
+      previous_solution.update_ghost_values();
+    }
   }
 
   local_evaluation_point = present_solution;

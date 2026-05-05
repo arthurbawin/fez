@@ -12,6 +12,7 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_q.h>
 #include <deal.II/numerics/data_out.h>
+#include <error_estimation/solution_recovery.h>
 #include <mesh_and_dof_tools.h>
 #include <metric_field.h>
 #include <metric_tensor.h>
@@ -25,20 +26,46 @@
 #include <random>
 
 template <int dim>
+MetricField<dim>::MetricField()
+  : param(nullptr, typeid(*this).name())
+  , triangulation(nullptr, typeid(*this).name())
+{}
+
+template <int dim>
 MetricField<dim>::MetricField(const unsigned int          index,
                               const ParameterReader<dim> &param,
                               const Triangulation<dim>   &triangulation)
-  : index(index)
-  , param(param)
-  , triangulation(triangulation)
-  , dof_handler(triangulation)
-  , mpi_communicator(dof_handler.get_mpi_communicator())
-  , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
-  , solution_polynomial_degree(1) // FIXME: Set from the FE solution
-  , n_vertices(triangulation.n_vertices())
-  , metrics(n_vertices)
-  , deterministic_gradation(param.metric_fields[index].gradation.deterministic)
+  : MetricField()
 {
+  reinit(index, param, triangulation);
+}
+
+template <int dim>
+void MetricField<dim>::reinit(const unsigned int          index,
+                              const ParameterReader<dim> &param,
+                              const Triangulation<dim>   &triangulation)
+{
+  // Clear all relevant data
+  this->clear();
+
+  Assert(triangulation.n_vertices() > 0,
+         ExcMessage("The given triangulation is empty"));
+
+  // Initialize
+  this->param         = &param;
+  this->triangulation = &triangulation;
+  dof_handler.reinit(triangulation);
+
+  mpi_communicator = dof_handler.get_mpi_communicator();
+  mpi_rank         = Utilities::MPI::this_mpi_process(mpi_communicator);
+
+  this->index = index;
+
+  solution_polynomial_degree = 1; // FIXME: Set from the FE solution
+  n_vertices                 = triangulation.n_vertices();
+  metrics.resize(n_vertices);
+  deterministic_gradation = param.metric_fields[index].gradation.deterministic;
+
   constexpr unsigned int mapping_degree = 1;
 
   // Isoparametric representation to associate a metric to each mesh vertex
@@ -146,6 +173,21 @@ MetricField<dim>::MetricField(const unsigned int          index,
 
   // Create the edges to apply gradation
   create_edges_for_gradation();
+}
+
+template <int dim>
+void MetricField<dim>::clear()
+{
+  dof_handler.clear();
+  locally_owned_dofs.clear();
+  locally_relevant_dofs.clear();
+  metrics.clear();
+  metrics_fe.clear();
+  local_metrics_fe.clear();
+  vertex_to_metric_dofs.clear();
+  metric_dofs_to_vertex.clear();
+  edges_for_deterministic_gradation.clear();
+  edges_for_nondeterministic_gradation.clear();
 }
 
 template <int dim>
@@ -273,8 +315,8 @@ template <int dim>
 void MetricField<dim>::set_metrics_from_function(
   const TensorFunction<2, dim> &function)
 {
-  const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
-  const std::vector<bool> &used_vertices  = triangulation.get_used_vertices();
+  const std::vector<Point<dim>> &vertices = triangulation->get_vertices();
+  const std::vector<bool> &used_vertices  = triangulation->get_used_vertices();
 
   AssertDimension(vertices.size(), n_vertices);
   AssertDimension(used_vertices.size(), n_vertices);
@@ -289,9 +331,37 @@ void MetricField<dim>::set_metrics_from_function(
 }
 
 template <int dim>
+void MetricField<dim>::set_induced_metric_from_graph(
+  const ErrorEstimation::SolutionRecovery::Scalar<dim> &reconstructed_gradient)
+{
+  AssertThrow(
+    reconstructed_gradient.get_highest_stored_derivative() >= 1,
+    ExcMessage(
+      "You are trying to set a metric field to the induced metric from the "
+      "graph of a scalar field, which requires the gradient of this field, but "
+      "the provided reconstruction does not store a reconstructed gradient. "
+      "The SolutionRecovery must be created with at least "
+      "highest_recovered_derivatives = 1 to store a smoothed gradient."));
+
+  // The gradient of the scalar field at vertices is needed
+  // For now, this gradient is obtained by least-square fitting
+  // using Zhang & Naga's polynomial preserving recovery.
+  const std::vector<Tensor<1, dim>> &gradients =
+    reconstructed_gradient.get_reconstructed_gradient();
+
+  AssertDimension(gradients.size(), n_vertices);
+
+  for (unsigned int i = 0; i < n_vertices; ++i)
+    if (owned_vertices[i])
+      // Set metric as I + grad \otimes grad
+      metrics[i] = MetricTensor<dim>(unit_symmetric_tensor<dim>() +
+                                     outer_product(gradients[i], gradients[i]));
+}
+
+template <int dim>
 void MetricField<dim>::apply_gradation()
 {
-  if (param.metric_fields[index].gradation.enable)
+  if (param->metric_fields[index].gradation.enable)
     if (deterministic_gradation)
       apply_gradation_deterministic();
     else
@@ -304,7 +374,7 @@ void MetricField<dim>::apply_gradation_deterministic()
   // Gather all metrics to the root process
   using MessageType = std::pair<Point<dim>, MetricTensor<dim>>;
 
-  const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
+  const std::vector<Point<dim>> &vertices = triangulation->get_vertices();
 
   std::vector<MessageType>                local_metrics;
   std::vector<types::global_vertex_index> indices(
@@ -328,13 +398,14 @@ void MetricField<dim>::apply_gradation_deterministic()
       for (auto &[pt, metric] : vec)
         all_metrics[pt] = &metric;
 
-    const auto &metric_param   = param.metric_fields[index];
+    const auto &metric_param   = param->metric_fields[index];
     const auto  spanning_space = metric_param.gradation.spanning_space;
     const auto  gradation      = metric_param.gradation.gradation;
     const auto  max_iterations = metric_param.gradation.max_iterations;
     const auto  tolerance      = metric_param.gradation.tolerance;
 
-    if (param.metric_fields[index].verbosity == Parameters::Verbosity::verbose)
+    if (param->metric_fields[index].gradation.verbosity ==
+        Parameters::Verbosity::verbose)
     {
       std::cout << std::endl;
       std::cout
@@ -368,7 +439,7 @@ void MetricField<dim>::apply_gradation_deterministic()
         };
       }
 
-      if (param.metric_fields[index].verbosity ==
+      if (param->metric_fields[index].gradation.verbosity ==
           Parameters::Verbosity::verbose)
         std::cout << "Sweep " << std::setw(3) << iter
                   << " - Number of modified edges: " << n_corrected
@@ -387,13 +458,14 @@ void MetricField<dim>::apply_gradation_deterministic()
 template <int dim>
 void MetricField<dim>::apply_gradation_non_deterministic()
 {
-  const auto &metric_param   = param.metric_fields[index];
+  const auto &metric_param   = param->metric_fields[index];
   const auto  spanning_space = metric_param.gradation.spanning_space;
   const auto  gradation      = metric_param.gradation.gradation;
   const auto  max_iterations = metric_param.gradation.max_iterations;
   const auto  tolerance      = metric_param.gradation.tolerance;
 
-  if (mpi_rank == 0)
+  if (mpi_rank == 0 && param->metric_fields[index].gradation.verbosity ==
+                         Parameters::Verbosity::verbose)
   {
     std::cout << "Applying metric gradation with :" << std::endl;
     std::cout << "deterministic  = " << deterministic_gradation << std::endl;
@@ -402,7 +474,7 @@ void MetricField<dim>::apply_gradation_non_deterministic()
     std::cout << "tolerance      = " << tolerance << std::endl;
   }
 
-  const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
+  const std::vector<Point<dim>> &vertices = triangulation->get_vertices();
 
   unsigned int iter = 0;
 
@@ -472,7 +544,7 @@ double
 MetricField<dim>::compute_integral_determinant(const double exponent) const
 {
   std::unique_ptr<Quadrature<dim>> quadrature;
-  if (param.finite_elements.use_quads)
+  if (param->finite_elements.use_quads)
     quadrature = std::make_unique<QGauss<dim>>(4);
   else
     quadrature = std::make_unique<QGaussSimplex<dim>>(3);
@@ -626,7 +698,7 @@ MetricField<dim>::gather_metrics() const
 
   std::vector<MessageType> global_metrics;
 
-  const std::vector<Point<dim>> &vertices = triangulation.get_vertices();
+  const std::vector<Point<dim>> &vertices = triangulation->get_vertices();
 
   // Gather the mesh vertices and metrics
   std::vector<MessageType> local_metrics;

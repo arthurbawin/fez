@@ -47,13 +47,25 @@ namespace BoundaryConditions
     weak_no_slip,       // Check that lagrange mult is defined, couple
     slip,               // Enforce no_flux
 
+    // Pressure
+    weak_pressure,      // Impose -p*n weakly via surface integral (traction)
+    dirichlet_pressure, // Impose p strongly via interpolation constraint
+
+    // Combined
+    no_tangential_flow_with_weak_pressure, // Enforce no tangential flow +
+                                           // impose -p*n weakly
+
     // These boundary conditions are for flow verification purposes:
     // Set velocity to prescribed manufactured solution
     velocity_mms,
     // Set both the normal and tangential flux to u dot n/t = u_mms dot n/t
     velocity_flux_mms,
+    pressure_mms,
     // Set (-pI + nu*grad(u)) \cdot n = (-p_mmsI + nu*grad(u_mms)) \cdot n
     open_mms,
+
+    // Heat
+    heat_flux, // -k grad(T) * n = q_n
 
     // Pseudo_solid
     fixed, // Enforce 0 displacement. Default when no BC is prescribed?
@@ -113,6 +125,7 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> u;
     std::shared_ptr<Functions::ParsedFunction<dim>> v;
     std::shared_ptr<Functions::ParsedFunction<dim>> w;
+    std::shared_ptr<Functions::ParsedFunction<dim>> p;
 
     bool constrain_u = true;
     bool constrain_v = true;
@@ -132,6 +145,7 @@ namespace BoundaryConditions
       u = std::make_shared<Functions::ParsedFunction<dim>>();
       v = std::make_shared<Functions::ParsedFunction<dim>>();
       w = std::make_shared<Functions::ParsedFunction<dim>>();
+      p = std::make_shared<Functions::ParsedFunction<dim>>();
       angular_velocity =
         std::make_shared<Functions::ParsedFunction<dim>>((dim == 2) ? 1 : dim);
     };
@@ -141,6 +155,7 @@ namespace BoundaryConditions
       u->set_time(new_time);
       v->set_time(new_time);
       w->set_time(new_time);
+      p->set_time(new_time);
       angular_velocity->set_time(new_time);
     }
 
@@ -249,6 +264,25 @@ namespace BoundaryConditions
     const Function<dim>       &exact_solution,
     const Function<dim>       &exact_velocity,
     AffineConstraints<double> &constraints);
+
+
+  /**
+   *
+   *
+   */
+
+  template <int dim>
+  void apply_pressure_boundary_conditions(
+    const bool             homogeneous,
+    const unsigned int     p_lower,
+    const unsigned int     n_components,
+    const DoFHandler<dim> &dof_handler,
+    const Mapping<dim>    &mapping,
+    const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>>
+                              &fluid_bc,
+    const Function<dim>       &exact_solution,
+    AffineConstraints<double> &constraints);
+
 
   /**
    *
@@ -378,6 +412,38 @@ namespace BoundaryConditions
 } // namespace BoundaryConditions
 
 /**
+ * A function with @p n_components, but whose goal is only to be called for
+ * the component @p field_component, for which it returns the value return by
+ * the given callback @p field_fun.
+ *
+ * It returns 0 for all other vector components.
+ */
+template <int dim>
+class ScalarFunctionFromComponents : public Function<dim>
+{
+public:
+  const unsigned int                    field_component;
+  const Functions::ParsedFunction<dim> &field_fun;
+
+  ScalarFunctionFromComponents(const unsigned int field_component,
+                               const unsigned int n_components,
+                               const Functions::ParsedFunction<dim> &field_fun)
+    : Function<dim>(n_components)
+    , field_component(field_component)
+    , field_fun(field_fun)
+  {}
+
+  virtual double value(const Point<dim>  &p,
+                       const unsigned int component = 0) const override
+  {
+    if (component == field_component)
+      return field_fun.value(p);
+    DEAL_II_ASSERT_UNREACHABLE();
+    return 0.;
+  }
+};
+
+/**
  * Vector-valued function described by up to 3 individual ParsedFunctions.
  * The parameter @p lower is the first vector component in the solution vector.
  *
@@ -388,18 +454,18 @@ template <int dim>
 class VectorFunctionFromComponents : public Function<dim>
 {
 public:
-  const unsigned int                              lower;
-  std::shared_ptr<Functions::ParsedFunction<dim>> x_component;
-  std::shared_ptr<Functions::ParsedFunction<dim>> y_component;
-  std::shared_ptr<Functions::ParsedFunction<dim>> z_component;
+  const unsigned int                    lower;
+  const Functions::ParsedFunction<dim> &x_component;
+  const Functions::ParsedFunction<dim> &y_component;
+  const Functions::ParsedFunction<dim> &z_component;
 
 public:
   VectorFunctionFromComponents(
-    const unsigned int                              lower,
-    const unsigned int                              n_components,
-    std::shared_ptr<Functions::ParsedFunction<dim>> x_component,
-    std::shared_ptr<Functions::ParsedFunction<dim>> y_component,
-    std::shared_ptr<Functions::ParsedFunction<dim>> z_component)
+    const unsigned int                    lower,
+    const unsigned int                    n_components,
+    const Functions::ParsedFunction<dim> &x_component,
+    const Functions::ParsedFunction<dim> &y_component,
+    const Functions::ParsedFunction<dim> &z_component)
     : Function<dim>(n_components)
     , lower(lower)
     , x_component(x_component)
@@ -411,11 +477,11 @@ public:
                        unsigned int      component) const override
   {
     if (component == lower + 0)
-      return x_component->value(p);
+      return x_component.value(p);
     if (component == lower + 1)
-      return y_component->value(p);
+      return y_component.value(p);
     if (component == lower + 2)
-      return z_component->value(p);
+      return z_component.value(p);
     return 0.;
   }
 };

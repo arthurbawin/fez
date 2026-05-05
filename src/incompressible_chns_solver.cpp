@@ -41,7 +41,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
   {
     if (param.finite_elements.use_quads)
       if constexpr (with_enlarged)
-        fe = std::make_shared<FESystem<dim>>(
+        fe = std::make_unique<FESystem<dim>>(
           FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
           FE_Q<dim>(param.finite_elements.pressure_degree),
           FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -49,7 +49,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
           FE_Q<dim>(param.finite_elements.potential_degree),
           FE_Q<dim>(param.finite_elements.potential_degree));
       else
-        fe = std::make_shared<FESystem<dim>>(
+        fe = std::make_unique<FESystem<dim>>(
           FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
           FE_Q<dim>(param.finite_elements.pressure_degree),
           FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -57,7 +57,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
           FE_Q<dim>(param.finite_elements.potential_degree));
     else
       if constexpr (with_enlarged)
-        fe = std::make_shared<FESystem<dim>>(
+        fe = std::make_unique<FESystem<dim>>(
           FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
           FE_SimplexP<dim>(param.finite_elements.pressure_degree),
           FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -65,7 +65,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
           FE_SimplexP<dim>(param.finite_elements.potential_degree),
           FE_SimplexP<dim>(param.finite_elements.potential_degree));
       else
-        fe = std::make_shared<FESystem<dim>>(
+        fe = std::make_unique<FESystem<dim>>(
           FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
           FE_SimplexP<dim>(param.finite_elements.pressure_degree),
           FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -73,25 +73,25 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
           FE_SimplexP<dim>(param.finite_elements.potential_degree));
 
     this->ordering =
-      std::make_shared<ComponentOrderingCHNS<dim, true, with_enlarged>>();
+      std::make_unique<ComponentOrderingCHNS<dim, true, with_enlarged>>();
   }
   else
   {
     if (param.finite_elements.use_quads)
-      fe = std::make_shared<FESystem<dim>>(
+      fe = std::make_unique<FESystem<dim>>(
         FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_Q<dim>(param.finite_elements.pressure_degree),
         FE_Q<dim>(param.finite_elements.tracer_degree),
         FE_Q<dim>(param.finite_elements.potential_degree));
     else
-      fe = std::make_shared<FESystem<dim>>(
+      fe = std::make_unique<FESystem<dim>>(
         FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_SimplexP<dim>(param.finite_elements.pressure_degree),
         FE_SimplexP<dim>(param.finite_elements.tracer_degree),
         FE_SimplexP<dim>(param.finite_elements.potential_degree));
 
     this->ordering =
-      std::make_shared<ComponentOrderingCHNS<dim, false, with_enlarged>>();
+      std::make_unique<ComponentOrderingCHNS<dim, false, with_enlarged>>();
   }
 
   this->velocity_extractor =
@@ -150,12 +150,12 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
         this->time_handler.current_time, *this->ordering, param);
 
     // Create entry in error handler for tracer and potential
-    for (auto norm : this->param.mms_param.norms_to_compute)
+    for (auto &[norm, handler] : this->error_handlers)
     {
-      this->error_handlers[norm]->create_entry("phi");
-      this->error_handlers[norm]->create_entry("mu");
+      handler.create_entry("phi");
+      handler.create_entry("mu");
       if constexpr (with_enlarged)
-        this->error_handlers[norm]->create_entry("psi");
+        handler.create_entry("psi");
     }
   }
   else
@@ -201,7 +201,7 @@ void CHNSSolver<dim,
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   const double sigma_tilde_over_eps  = sigma_tilde / epsilon;
   const double sigma_tilde_times_eps = sigma_tilde * epsilon;
-  const auto  &body_force            = cahn_hilliard_param.body_force;
+  const auto  &body_force            = physical_properties.body_force;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
@@ -266,6 +266,19 @@ void CHNSSolver<dim,
       cahn_hilliard_param.epsilon_interface;
     values[psi_lower] = -(psi - phi - L * L * lap_psi);
   }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               *this->fixed_mapping,
+                                               *this->moving_mapping,
+                                               *this->quadrature,
+                                               *this->face_quadrature,
+                                               this->time_handler,
+                                               this->param);
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
@@ -472,15 +485,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *this->fixed_mapping,
-                          *this->moving_mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -499,7 +504,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_matrix()
                   *this,
                   assembly_ptr,
                   &CHNSSolver::copy_local_to_global_matrix,
-                  scratchData,
+                  *scratch_data,
                   copyData);
 
   this->system_matrix.compress(VectorOperation::add);
@@ -536,8 +541,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
@@ -954,15 +959,7 @@ void CHNSSolver<dim,
                 with_moving_mesh,
                 with_enlarged>::compare_analytical_matrix_with_fd()
 {
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *this->fixed_mapping,
-                          *this->moving_mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
@@ -970,7 +967,7 @@ void CHNSSolver<dim,
     *this,
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
-    scratchData,
+    *scratch_data,
     copyData,
     this->present_solution,
     this->evaluation_point,
@@ -997,15 +994,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *this->fixed_mapping,
-                          *this->moving_mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -1013,7 +1002,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_rhs()
                   *this,
                   &CHNSSolver::assemble_local_rhs,
                   &CHNSSolver::copy_local_to_global_rhs,
-                  scratchData,
+                  *scratch_data,
                   copyData);
 
   this->system_rhs.compress(VectorOperation::add);
@@ -1033,8 +1022,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;

@@ -137,20 +137,30 @@ public:
 
   virtual void output_results();
 
+  /**
+   *
+   */
+  virtual LA::ParVectorType &get_present_solution() override
+  {
+    return present_solution;
+  }
+
 protected:
   ParameterReader<dim> param;
 
-  std::shared_ptr<FESystem<dim>> fe;
+  std::unique_ptr<FESystem<dim>> fe;
 
-  std::shared_ptr<Quadrature<dim>>     quadrature;
-  std::shared_ptr<Quadrature<dim>>     error_quadrature;
-  std::shared_ptr<Quadrature<dim - 1>> face_quadrature;
-  std::shared_ptr<Quadrature<dim - 1>> error_face_quadrature;
+  std::unique_ptr<Quadrature<dim>>     quadrature;
+  std::unique_ptr<Quadrature<dim>>     error_quadrature;
+  std::unique_ptr<Quadrature<dim - 1>> face_quadrature;
+  std::unique_ptr<Quadrature<dim - 1>> error_face_quadrature;
 
   parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::shared_ptr<Mapping<dim>>                  mapping;
+  std::unique_ptr<Mapping<dim>>                  mapping;
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler; // dummy
+
+  std::unique_ptr<ScratchData> scratch_data;
 
   FEValuesExtractors::Vector position_extractor;
   ComponentMask              position_mask;
@@ -163,11 +173,13 @@ protected:
 
   LA::ParMatrixType system_matrix;
 
+  LA::ParVectorType present_solution;
+
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;
 
   SolverControl                                          solver_control;
-  std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
+  std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
   double source_term_moving_mesh_multiplier;
   double source_term_fixed_mesh_multiplier;

@@ -36,7 +36,9 @@ namespace BoundaryConditions
       "none",
       Patterns::Selection(
         "none|input_function|outflow|no_slip|weak_no_slip|slip|"
-        "velocity_mms|velocity_flux_mms|open_mms|no_tangential_flow"),
+        "weak_pressure|dirichlet_pressure|"
+        "velocity_mms|velocity_flux_mms|pressure_mms|open_mms|"
+        "no_tangential_flow|no_tangential_flow_with_weak_pressure"),
       "Type of fluid boundary condition");
 
     // To specifie with component of the velocity you want to leave
@@ -66,6 +68,10 @@ namespace BoundaryConditions
 
     prm.enter_subsection("w");
     w->declare_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("p");
+    p->declare_parameters(prm);
     prm.leave_subsection();
 
     prm.declare_entry(
@@ -116,8 +122,16 @@ namespace BoundaryConditions
       type = Type::velocity_mms;
     else if (parsed_type == "velocity_flux_mms")
       type = Type::velocity_flux_mms;
+    else if (parsed_type == "pressure_mms")
+      type = Type::pressure_mms;
     else if (parsed_type == "open_mms")
       type = Type::open_mms;
+    else if (parsed_type == "weak_pressure")
+      type = Type::weak_pressure;
+    else if (parsed_type == "dirichlet_pressure")
+      type = Type::dirichlet_pressure;
+    else if (parsed_type == "no_tangential_flow_with_weak_pressure")
+      type = Type::no_tangential_flow_with_weak_pressure;
     else if (parsed_type == "none")
       throw std::runtime_error(
         "Fluid boundary condition for boundary " + std::to_string(this->id) +
@@ -148,6 +162,10 @@ namespace BoundaryConditions
 
     prm.enter_subsection("w");
     w->parse_parameters(prm);
+    prm.leave_subsection();
+
+    prm.enter_subsection("p");
+    p->parse_parameters(prm);
     prm.leave_subsection();
 
     weak_no_slip_tolerance = prm.get_double("weak no slip tolerance");
@@ -268,7 +286,8 @@ namespace BoundaryConditions
     BoundaryCondition::declare_parameters(prm);
     prm.declare_entry("type",
                       "none",
-                      Patterns::Selection("none|input_function|dirichlet_mms"),
+                      Patterns::Selection(
+                        "none|input_function|dirichlet_mms|no_flux|heat_flux"),
                       "Type of temperature boundary condition");
     prm.enter_subsection("temperature");
     temperature->declare_parameters(prm);
@@ -286,6 +305,10 @@ namespace BoundaryConditions
       type = Type::input_function;
     if (parsed_type == "dirichlet_mms")
       type = Type::dirichlet_mms;
+    if (parsed_type == "no_flux")
+      type = Type::no_flux;
+    if (parsed_type == "heat_flux")
+      type = Type::heat_flux;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Temperature boundary condition for boundary " +
@@ -378,7 +401,7 @@ namespace BoundaryConditions
             dof_handler,
             bc.id,
             VectorFunctionFromComponents<dim>(
-              u_lower, n_components, bc.u, bc.v, bc.w),
+              u_lower, n_components, *bc.u, *bc.v, *bc.w),
             constraints,
             partial_mask);
       }
@@ -402,7 +425,9 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::slip)
         no_flux_boundaries.insert(bc.id);
-      if (bc.type == BoundaryConditions::Type::no_tangential_flow)
+      if (bc.type == BoundaryConditions::Type::no_tangential_flow ||
+          bc.type ==
+            BoundaryConditions::Type::no_tangential_flow_with_weak_pressure)
         no_tangential_flow_boundaries.insert(bc.id);
       if (bc.type == BoundaryConditions::Type::velocity_flux_mms)
       {
@@ -444,6 +469,54 @@ namespace BoundaryConditions
       constraints,
       mapping,
       /*use_manifold_for_normal=*/false);
+  }
+
+  template <int dim>
+  void apply_pressure_boundary_conditions(
+    const bool             homogeneous,
+    const unsigned int     p_lower,
+    const unsigned int     n_components,
+    const DoFHandler<dim> &dof_handler,
+    const Mapping<dim>    &mapping,
+    const std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>>
+                              &fluid_bc,
+    const Function<dim>       &exact_solution,
+    AffineConstraints<double> &constraints)
+  {
+    (void)exact_solution;
+
+    const FEValuesExtractors::Scalar pressure(p_lower);
+    const ComponentMask              pressure_mask =
+      dof_handler.get_fe().component_mask(pressure);
+
+    for (const auto &[boundary_id, bc] : fluid_bc)
+    {
+      (void)boundary_id;
+
+      if (bc.type == BoundaryConditions::Type::dirichlet_pressure)
+      {
+        if (homogeneous)
+        {
+          VectorTools::interpolate_boundary_values(mapping,
+                                                   dof_handler,
+                                                   bc.id,
+                                                   Functions::ZeroFunction<dim>(
+                                                     n_components),
+                                                   constraints,
+                                                   pressure_mask);
+        }
+        else
+        {
+          VectorTools::interpolate_boundary_values(
+            mapping,
+            dof_handler,
+            bc.id,
+            ScalarFunctionFromComponents<dim>(p_lower, n_components, *bc.p),
+            constraints,
+            pressure_mask);
+        }
+      }
+    }
   }
 
   template <int dim>
@@ -495,7 +568,7 @@ namespace BoundaryConditions
             dof_handler,
             bc.id,
             VectorFunctionFromComponents<dim>(
-              x_lower, n_components, bc.x, bc.y, bc.z),
+              x_lower, n_components, *bc.x, *bc.y, *bc.z),
             constraints,
             position_mask);
       }

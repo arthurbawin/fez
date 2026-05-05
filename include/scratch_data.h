@@ -70,7 +70,7 @@ public:
               const Mapping<dim>         &moving_mapping,
               const Quadrature<dim>      &cell_quadrature,
               const Quadrature<dim - 1>  &face_quadrature,
-              const std::vector<double>  &bdf_coefficients,
+              const TimeHandler          &time_handler,
               const ParameterReader<dim> &param);
 
   /**
@@ -86,7 +86,7 @@ public:
               const hp::MappingCollection<dim> &moving_mapping_collection,
               const hp::QCollection<dim>       &cell_quadrature_collection,
               const hp::QCollection<dim - 1>   &face_quadrature_collection,
-              const std::vector<double>        &bdf_coefficients,
+              const TimeHandler                &time_handler,
               const ParameterReader<dim>       &param);
 
   /**
@@ -102,6 +102,7 @@ private:
     const ValueType              &current_value,
     const std::vector<ValueType> &previous_values) const
   {
+    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
     ValueType time_derivative = bdf_coefficients[0] * current_value;
     for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
       time_derivative += bdf_coefficients[i] * previous_values[i - 1];
@@ -114,6 +115,7 @@ private:
     const std::vector<std::vector<ValueType>> &previous_values,
     const unsigned int                         q) const
   {
+    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
     ValueType time_derivative = bdf_coefficients[0] * current_value;
     for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
       time_derivative += bdf_coefficients[i] * previous_values[i - 1][q];
@@ -153,12 +155,12 @@ private:
   //
   // Invariant: must be called before any other reinit_*_cell.
   template <typename VectorType>
-  void reinit_navier_stokes_cell(
-    const FEValues<dim>                  &fe_values,
-    const VectorType                     &current_solution,
-    const std::vector<VectorType>        &previous_solutions,
-    const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+  void
+  reinit_navier_stokes_cell(const FEValues<dim>           &fe_values,
+                            const VectorType              &current_solution,
+                            const std::vector<VectorType> &previous_solutions,
+                            const Function<dim>           &source_terms,
+                            const Function<dim> & /*exact_solution*/)
   {
     fe_values[velocity].get_function_values(current_solution,
                                             present_velocity_values);
@@ -196,9 +198,9 @@ private:
       fe_values[velocity].get_function_values(previous_solutions[i],
                                               previous_velocity_values[i]);
 
-    // Source terms with layout u-v-(w-)p
-    source_terms->vector_value_list(fe_values.get_quadrature_points(),
-                                    source_term_full_moving);
+    // Source terms with layout u-v-(w)-p
+    source_terms.vector_value_list(fe_values.get_quadrature_points(),
+                                   source_term_full_moving);
 
     // Get jacobian, shape functions and set source terms
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -285,32 +287,46 @@ private:
     const FEFaceValues<dim> &fe_face_values,
     const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
-    const std::shared_ptr<Function<dim>> & /*source_terms*/,
-    const std::shared_ptr<Function<dim>> &exact_solution)
+    const Function<dim> & /*source_terms*/,
+    const Function<dim> &exact_solution)
   {
     fe_face_values[velocity].get_function_values(
       current_solution, present_face_velocity_values[i_face]);
 
+    fe_face_values[velocity].get_function_gradients(
+      current_solution, present_face_velocity_gradients[i_face]);
+
     // Exact solution with layout u-v-(w-)p and its gradient
-    exact_solution->vector_value_list(fe_face_values.get_quadrature_points(),
-                                      exact_solution_full);
-    exact_solution->vector_gradient_list(fe_face_values.get_quadrature_points(),
-                                         grad_exact_solution_full);
+    exact_solution.vector_value_list(fe_face_values.get_quadrature_points(),
+                                     exact_solution_full);
+    exact_solution.vector_gradient_list(fe_face_values.get_quadrature_points(),
+                                        grad_exact_solution_full);
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
       face_JxW_moving[i_face][q]     = fe_face_values.JxW(q);
       face_normals_moving[i_face][q] = fe_face_values.normal_vector(q);
 
+      present_face_velocity_sym_gradients[i_face][q] =
+        symmetrize(present_face_velocity_gradients[i_face][q]);
+
       for (int di = 0; di < dim; ++di)
         for (int dj = 0; dj < dim; ++dj)
           exact_face_velocity_gradients[i_face][q][di][dj] =
             grad_exact_solution_full[q][u_lower + di][dj];
+      exact_face_velocity_divergences[i_face][q] =
+        trace(exact_face_velocity_gradients[i_face][q]);
       exact_face_pressure_values[i_face][q] = exact_solution_full[q](p_lower);
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_u_face[i_face][q][k] = fe_face_values[velocity].value(k, q);
+        phi_u_face[i_face][q][k]      = fe_face_values[velocity].value(k, q);
+        phi_p_face[i_face][q][k]      = fe_face_values[pressure].value(k, q);
+        grad_phi_u_face[i_face][q][k] = fe_face_values[velocity].gradient(k, q);
+        sym_grad_phi_u_face[i_face][q][k] =
+          symmetrize(grad_phi_u_face[i_face][q][k]);
+        div_phi_u_face[i_face][q][k] =
+          fe_face_values[velocity].divergence(k, q);
       }
     }
   }
@@ -327,13 +343,143 @@ private:
   //   2. reinit_pseudo_solid_cell       ← fills present_mesh_velocity_values
   //   3. reinit_cahn_hilliard_cell      ← uses present_mesh_velocity_values
   template <typename VectorType>
-  void reinit_pseudo_solid_cell(
-    const FEValues<dim>                  &fe_values_fixed,
-    const FEValues<dim>                  &fe_values_moving,
-    const VectorType                     &current_solution,
-    const std::vector<VectorType>        &previous_solutions,
-    const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+  void
+  reinit_compressible_cell(const FEValues<dim>           &fe_values,
+                           const VectorType              &current_solution,
+                           const std::vector<VectorType> &previous_solutions,
+                           const Function<dim> & /*source_terms*/,
+                           const Function<dim> &exact_solution)
+  {
+    fe_values[temperature].get_function_values(current_solution,
+                                               present_temperature_values);
+    fe_values[temperature].get_function_gradients(
+      current_solution, present_temperature_gradients);
+    fe_values[pressure].get_function_values(current_solution,
+                                            present_pressure_values);
+    fe_values[pressure].get_function_gradients(current_solution,
+                                               present_pressure_gradients);
+
+    for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+    {
+      fe_values[pressure].get_function_values(previous_solutions[i],
+                                              previous_pressure_values[i]);
+      fe_values[temperature].get_function_values(
+        previous_solutions[i], previous_temperature_values[i]);
+    }
+
+    // Exact solution at cell quadrature points (layout u-v-(w-)p-T)
+    exact_solution.vector_value_list(fe_values.get_quadrature_points(),
+                                     exact_solution_full_cell);
+
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      for (unsigned int d = 0; d < dim; ++d)
+        exact_velocity_values_cell[q][d] =
+          exact_solution_full_cell[q](u_lower + d);
+      exact_pressure_values_cell[q]    = exact_solution_full_cell[q](p_lower);
+      exact_temperature_values_cell[q] = exact_solution_full_cell[q](t_lower);
+    }
+
+    // Get jacobian, shape functions and set source terms
+    for (unsigned int q = 0; q < n_q_points; ++q)
+    {
+      source_term_temperature[q] = source_term_full_moving[q](t_lower);
+
+      const double p_star = present_pressure_values[q];
+      const double T_star = present_temperature_values[q];
+
+      // Total pressure p = p_ref + p_star, and similarly for temperature
+      present_pressure_absolute_values[q]    = pressure_ref + p_star;
+      present_temperature_absolute_values[q] = temperature_ref + T_star;
+
+      a_p[q] = alpha_r / (alpha_r * p_star + 1.0);
+      b_T[q] = beta_r / (beta_r * T_star + 1.0);
+
+      density[q] =
+        density_ref * ((alpha_r * p_star + 1.0) / (beta_r * T_star + 1.0));
+
+      for (unsigned int k = 0; k < dofs_per_cell; ++k)
+      {
+        grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
+        phi_T[q][k]      = fe_values[temperature].value(k, q);
+        grad_phi_T[q][k] = fe_values[temperature].gradient(k, q);
+      }
+    }
+  }
+
+  template <typename VectorType>
+  void reinit_compressible_face(
+    const unsigned int       i_face,
+    const FEFaceValues<dim> &fe_face_values,
+    const VectorType        &current_solution,
+    const std::vector<VectorType> & /*previous_solutions*/,
+    const Function<dim> & /*source_terms*/,
+    const Function<dim> &exact_solution)
+  {
+    fe_face_values[pressure].get_function_values(
+      current_solution, present_face_pressure_values[i_face]);
+
+    fe_face_values[temperature].get_function_values(
+      current_solution, present_face_temperature_values[i_face]);
+
+    fe_face_values[temperature].get_function_gradients(
+      current_solution, present_face_temperature_gradients[i_face]);
+
+    exact_solution.vector_gradient_list(fe_face_values.get_quadrature_points(),
+                                        grad_exact_solution_full);
+
+    const auto &quad_points = fe_face_values.get_quadrature_points();
+
+    // Fluid and heat boundary condition on this face
+    // In the compressible solver, both fluid and heat boundary conditions are
+    // expected to be defined on all boundaries.
+    Assert(param.fluid_bc.count(face_boundary_id[i_face]) > 0,
+           ExcInternalError());
+    Assert(param.heat_bc.count(face_boundary_id[i_face]) > 0,
+           ExcInternalError());
+    const auto &fluid_bc = param.fluid_bc.at(face_boundary_id[i_face]);
+    const auto &bc_heat  = param.heat_bc.at(face_boundary_id[i_face]);
+
+    // Imposed pressure if pressure is weakly enforced
+    if (fluid_bc.type == BoundaryConditions::Type::weak_pressure)
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        face_input_pressure_values[i_face][q] =
+          fluid_bc.p->value(quad_points[q]);
+
+    // Imposed heat flux
+    if (bc_heat.type == BoundaryConditions::Type::heat_flux)
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        face_input_heat_flux_values[i_face][q] =
+          bc_heat.temperature->value(quad_points[q]);
+
+    for (unsigned int q = 0; q < n_faces_q_points; ++q)
+    {
+      present_face_velocity_divergence[i_face][q] =
+        trace(present_face_velocity_gradients[i_face][q]);
+
+      present_face_temperature_absolute_values[i_face][q] =
+        temperature_ref + present_face_temperature_values[i_face][q];
+
+      exact_face_temperature_gradients[i_face][q] =
+        grad_exact_solution_full[q][t_lower];
+
+      for (unsigned int k = 0; k < dofs_per_cell; ++k)
+      {
+        phi_T_face[i_face][q][k] = fe_face_values[temperature].value(k, q);
+        grad_phi_T_face[i_face][q][k] =
+          fe_face_values[temperature].gradient(k, q);
+      }
+    }
+  }
+
+  template <typename VectorType>
+  void
+  reinit_pseudo_solid_cell(const FEValues<dim>           &fe_values_fixed,
+                           const FEValues<dim>           &fe_values_moving,
+                           const VectorType              &current_solution,
+                           const std::vector<VectorType> &previous_solutions,
+                           const Function<dim>           &source_terms,
+                           const Function<dim> & /*exact_solution*/)
   {
     fe_values_fixed[position].get_function_values(current_solution,
                                                   present_position_values);
@@ -352,6 +498,8 @@ private:
     }
 
     // Current mesh velocity from displacement
+    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
+
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       present_mesh_velocity_values[q] =
@@ -367,12 +515,12 @@ private:
       fe_values_fixed.get_quadrature_points();
 
     // Source terms on fixed mapping for x
-    source_terms->vector_value_list(fixed_quadrature_points,
-                                    source_term_full_fixed);
+    source_terms.vector_value_list(fixed_quadrature_points,
+                                   source_term_full_fixed);
 
     // This takes a lot of time, and the Newton solver converges without it
     // // Gradient of source term (for u-p only)
-    // source_terms->vector_gradient_list(fe_values.get_quadrature_points(),
+    // source_terms.vector_gradient_list(fe_values.get_quadrature_points(),
     //                                    grad_source_term_full);
 
     for (unsigned int q = 0; q < n_q_points; ++q)
@@ -458,14 +606,14 @@ private:
   }
 
   template <typename VectorType>
-  void reinit_pseudo_solid_face(
-    const unsigned int             i_face,
-    const FEFaceValues<dim>       &fe_face_values_fixed,
-    const FEFaceValues<dim>       &fe_face_values,
-    const VectorType              &current_solution,
-    const std::vector<VectorType> &previous_solutions,
-    const std::shared_ptr<Function<dim>> & /*source_terms*/,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+  void
+  reinit_pseudo_solid_face(const unsigned int             i_face,
+                           const FEFaceValues<dim>       &fe_face_values_fixed,
+                           const FEFaceValues<dim>       &fe_face_values,
+                           const VectorType              &current_solution,
+                           const std::vector<VectorType> &previous_solutions,
+                           const Function<dim> & /*source_terms*/,
+                           const Function<dim> & /*exact_solution*/)
   {
     fe_face_values_fixed[position].get_function_values(
       current_solution, present_face_position_values[i_face]);
@@ -477,6 +625,8 @@ private:
       fe_face_values_fixed[position].get_function_values(
         previous_solutions[i], previous_face_position_values[i_face][i]);
     }
+
+    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
@@ -642,8 +792,8 @@ private:
     const FEFaceValues<dim> &fe_face_values,
     const VectorType        &current_solution,
     const std::vector<VectorType> & /*previous_solutions*/,
-    const std::shared_ptr<Function<dim>> & /*source_terms*/,
-    const std::shared_ptr<Function<dim>> &exact_solution)
+    const Function<dim> & /*source_terms*/,
+    const Function<dim> &exact_solution)
   {
     fe_face_values[lambda].get_function_values(
       current_solution, present_face_lambda_values[i_face]);
@@ -656,9 +806,9 @@ private:
     const auto &quadrature_points = fe_face_values.get_quadrature_points();
 
     // Get exact velocity on face
-    exact_solution->vector_value_list(quadrature_points, exact_solution_full);
-    exact_solution->vector_gradient_list(quadrature_points,
-                                         grad_exact_solution_full);
+    exact_solution.vector_value_list(quadrature_points, exact_solution_full);
+    exact_solution.vector_gradient_list(quadrature_points,
+                                        grad_exact_solution_full);
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
     {
@@ -691,10 +841,10 @@ private:
     // FIXME: The exact_solution should be an MMSFunction, which
     // has a time_derivative function.
     const typename FSISolver<dim>::MMSSolution *sol = nullptr;
-    if (dynamic_cast<typename FSISolver<dim>::MMSSolution *>(
-          exact_solution.get()) != nullptr)
+    if (dynamic_cast<const typename FSISolver<dim>::MMSSolution *>(
+          &exact_solution) != nullptr)
       sol = dynamic_cast<const typename FSISolver<dim>::MMSSolution *>(
-        exact_solution.get());
+        &exact_solution);
     if (sol != nullptr)
     {
       const auto &fixed_quadrature_points =
@@ -709,6 +859,8 @@ private:
             sol->time_derivative(qpoint, x_lower + d);
       }
     }
+#else
+    (void)exact_solution;
 #endif
 
     for (unsigned int q = 0; q < n_faces_q_points; ++q)
@@ -780,13 +932,13 @@ private:
   // After this call, strong_residual_momentum = no_ale + ale (ale was set
   // either by reinit_pseudo_solid_cell or left zero for Eulerian).
   template <typename VectorType>
-  void reinit_cahn_hilliard_cell(
-    const FEValues<dim>                  &fe_values_fixed,
-    const FEValues<dim>                  &fe_values_moving,
-    const VectorType                     &current_solution,
-    const std::vector<VectorType>        &previous_solutions,
-    const std::shared_ptr<Function<dim>> &source_terms,
-    const std::shared_ptr<Function<dim>> & /*exact_solution*/)
+  void
+  reinit_cahn_hilliard_cell(const FEValues<dim>           &fe_values_fixed,
+                            const FEValues<dim>           &fe_values_moving,
+                            const VectorType              &current_solution,
+                            const std::vector<VectorType> &previous_solutions,
+                            const Function<dim>           &source_terms,
+                            const Function<dim> & /*exact_solution*/)
   {
     fe_values_moving[tracer].get_function_values(current_solution,
                                                  tracer_values);
@@ -832,8 +984,8 @@ private:
     }
 
 
-    source_terms->vector_value_list(fe_values_moving.get_quadrature_points(),
-                                    source_term_full_moving);
+    source_terms.vector_value_list(fe_values_moving.get_quadrature_points(),
+                                   source_term_full_moving);
 
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
@@ -968,10 +1120,10 @@ public:
    */
   template <typename VectorType>
   void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
-              const VectorType                     &current_solution,
-              const std::vector<VectorType>        &previous_solutions,
-              const std::shared_ptr<Function<dim>> &source_terms,
-              const std::shared_ptr<Function<dim>> &exact_solution)
+              const VectorType              &current_solution,
+              const std::vector<VectorType> &previous_solutions,
+              const Function<dim>           &source_terms,
+              const Function<dim>           &exact_solution)
   {
     /**
      * Reinit the fe_values on moving mesh on the current cell, and possibly the
@@ -1002,6 +1154,14 @@ public:
                               previous_solutions,
                               source_terms,
                               exact_solution);
+
+    if (enable_compressible)
+      reinit_compressible_cell(*active_fe_values,
+                               current_solution,
+                               previous_solutions,
+                               source_terms,
+                               exact_solution);
+
     if (enable_pseudo_solid)
       reinit_pseudo_solid_cell(*active_fe_values_fixed,
                                *active_fe_values,
@@ -1043,6 +1203,13 @@ public:
                                     previous_solutions,
                                     source_terms,
                                     exact_solution);
+          if (enable_compressible)
+            reinit_compressible_face(i_face,
+                                     *active_fe_face_values,
+                                     current_solution,
+                                     previous_solutions,
+                                     source_terms,
+                                     exact_solution);
           if (enable_pseudo_solid)
             reinit_pseudo_solid_face(i_face,
                                      *active_fe_face_values_fixed,
@@ -1112,7 +1279,7 @@ public:
   unsigned int n_faces_q_points;
   unsigned int dofs_per_cell;
 
-  const std::vector<double> bdf_coefficients;
+  const TimeHandler &time_handler;
 
   std::vector<unsigned int>                components;
   std::vector<double>                      JxW_moving;
@@ -1145,6 +1312,12 @@ public:
 
   // Current values on faces (each face, each quad node)
   std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
+  std::vector<std::vector<Tensor<2, dim>>> present_face_velocity_gradients;
+  std::vector<std::vector<SymmetricTensor<2, dim>>>
+                                   present_face_velocity_sym_gradients;
+  std::vector<std::vector<double>> present_face_velocity_divergence;
+
+  std::vector<std::vector<double>> present_face_pressure_values;
 
   // Shape functions in volume (each quad node and each dof)
   std::vector<std::vector<Tensor<1, dim>>>          phi_u;
@@ -1157,16 +1330,28 @@ public:
 
   // Shape functions on faces (each face, quad node and dof)
   std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
+  std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_u_face;
+  std::vector<std::vector<std::vector<SymmetricTensor<2, dim>>>>
+                                                sym_grad_phi_u_face;
+  std::vector<std::vector<std::vector<double>>> div_phi_u_face;
+  std::vector<std::vector<std::vector<double>>> phi_p_face;
 
   // Source term in volume
   std::vector<Vector<double>> source_term_full_moving;
   std::vector<Tensor<1, dim>> source_term_velocity;
   std::vector<double>         source_term_pressure;
 
-  // Exact solution
+  // Exact solution (cell/volume quadrature points)
+  std::vector<Vector<double>> exact_solution_full_cell;
+  std::vector<Tensor<1, dim>> exact_velocity_values_cell;
+  std::vector<double>         exact_pressure_values_cell;
+  std::vector<double>         exact_temperature_values_cell;
+
+  // Exact solution (faces)
   std::vector<Vector<double>>              exact_solution_full;
   std::vector<std::vector<Tensor<1, dim>>> grad_exact_solution_full;
   std::vector<std::vector<Tensor<2, dim>>> exact_face_velocity_gradients;
+  std::vector<std::vector<double>>         exact_face_velocity_divergences;
   std::vector<std::vector<double>>         exact_face_pressure_values;
 #if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
   std::vector<std::vector<Tensor<1, dim>>> exact_face_velocity_values;
@@ -1178,20 +1363,41 @@ public:
    * Compressible NS
    */
   FEValuesExtractors::Scalar temperature;
+  double                     density_ref;
+  double                     pressure_ref;
+  double                     temperature_ref;
+  double                     alpha_r;
+  double                     beta_r;
+
+  std::vector<std::vector<double>> face_input_pressure_values;
+  std::vector<std::vector<double>> face_input_heat_flux_values;
 
   // Variable density, also used by CHNS models
   std::vector<double> density;
+  std::vector<double> a_p; // alpha_r/(alpha_r p* + 1)
+  std::vector<double> b_T; // beta_r /(beta_r  T* + 1)
 
   std::vector<std::vector<double>> previous_pressure_values;
-  std::vector<double>              temperature_values;
-  std::vector<Tensor<1, dim>>      temperature_gradients;
+  std::vector<double>              present_temperature_values;
+  std::vector<Tensor<1, dim>>      present_temperature_gradients;
   std::vector<std::vector<double>> previous_temperature_values;
 
-  std::vector<std::vector<double>>         phi_t;
-  std::vector<std::vector<Tensor<1, dim>>> grad_phi_t;
+  // Thermodynamic fields: p = p^* + p_ref, T = T^* + T_ref
+  std::vector<double> present_pressure_absolute_values;
+  std::vector<double> present_temperature_absolute_values;
+
+  std::vector<std::vector<double>>         phi_T;
+  std::vector<std::vector<Tensor<1, dim>>> grad_phi_T;
 
   std::vector<double> source_term_temperature;
 
+  // Temperature fields on faces (T = T^* + T_ref for absolute values)
+  std::vector<std::vector<double>> present_face_temperature_values;
+  std::vector<std::vector<double>> present_face_temperature_absolute_values;
+  std::vector<std::vector<Tensor<1, dim>>> exact_face_temperature_gradients;
+  std::vector<std::vector<std::vector<double>>>         phi_T_face;
+  std::vector<std::vector<std::vector<Tensor<1, dim>>>> grad_phi_T_face;
+  std::vector<std::vector<Tensor<1, dim>>> present_face_temperature_gradients;
   /**
    * Pseudo-solid and ALE
    */
@@ -1357,7 +1563,7 @@ public:
                               const Mapping<dim>         &mapping,
                               const Quadrature<dim>      &cell_quadrature,
                               const Quadrature<dim - 1>  &face_quadrature,
-                              const std::vector<double>  &bdf_coefficients,
+                              const TimeHandler          &time_handler,
                               const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ false,
@@ -1369,7 +1575,7 @@ public:
                        mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 
@@ -1396,7 +1602,7 @@ public:
                             const Mapping<dim>         &mapping,
                             const Quadrature<dim>      &cell_quadrature,
                             const Quadrature<dim - 1>  &face_quadrature,
-                            const std::vector<double>  &bdf_coefficients,
+                            const TimeHandler          &time_handler,
                             const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ false,
@@ -1408,7 +1614,7 @@ public:
                        mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 
@@ -1436,7 +1642,7 @@ public:
     const hp::MappingCollection<dim> &mapping_collection,
     const hp::QCollection<dim>       &cell_quadrature_collection,
     const hp::QCollection<dim - 1>   &face_quadrature_collection,
-    const std::vector<double>        &bdf_coefficients,
+    const TimeHandler                &time_handler,
     const ParameterReader<dim>       &param)
     : ScratchData<dim, true>(ordering,
                              /*enable_pseudo_solid = */ false,
@@ -1448,7 +1654,7 @@ public:
                              mapping_collection,
                              cell_quadrature_collection,
                              face_quadrature_collection,
-                             bdf_coefficients,
+                             time_handler,
                              param)
   {}
 
@@ -1477,7 +1683,7 @@ public:
                  const Mapping<dim>         &moving_mapping,
                  const Quadrature<dim>      &cell_quadrature,
                  const Quadrature<dim - 1>  &face_quadrature,
-                 const std::vector<double>  &bdf_coefficients,
+                 const TimeHandler          &time_handler,
                  const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ true,
@@ -1489,7 +1695,7 @@ public:
                        moving_mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 
@@ -1517,7 +1723,7 @@ public:
                     const hp::MappingCollection<dim> &moving_mapping_collection,
                     const hp::QCollection<dim>     &cell_quadrature_collection,
                     const hp::QCollection<dim - 1> &face_quadrature_collection,
-                    const std::vector<double>      &bdf_coefficients,
+                    const TimeHandler              &time_handler,
                     const ParameterReader<dim>     &param)
     : ScratchData<dim, true>(ordering,
                              /*enable_pseudo_solid = */ true,
@@ -1529,7 +1735,7 @@ public:
                              moving_mapping_collection,
                              cell_quadrature_collection,
                              face_quadrature_collection,
-                             bdf_coefficients,
+                             time_handler,
                              param)
   {}
 
@@ -1560,7 +1766,7 @@ public:
                   const Mapping<dim>         &moving_mapping,
                   const Quadrature<dim>      &cell_quadrature,
                   const Quadrature<dim - 1>  &face_quadrature,
-                  const std::vector<double>  &bdf_coefficients,
+                  const TimeHandler          &time_handler,
                   const ParameterReader<dim> &param)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ with_moving_mesh,
@@ -1572,7 +1778,7 @@ public:
                        moving_mapping,
                        cell_quadrature,
                        face_quadrature,
-                       bdf_coefficients,
+                       time_handler,
                        param)
   {}
 

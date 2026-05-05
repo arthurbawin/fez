@@ -7,9 +7,10 @@ void get_owned_mesh_vertices(const Triangulation<dim> &triangulation,
                              const types::subdomain_id subdomain_id,
                              std::vector<bool>        &owned_vertices)
 {
+  owned_vertices.clear();
   owned_vertices.resize(triangulation.n_vertices(), false);
 
-  // Start by marking all cells touching an owned cell as owned
+  // Start by marking all vertices touching an owned cell as owned
   for (const auto &cell : triangulation.active_cell_iterators())
     if (cell->is_locally_owned())
       for (const unsigned int v : cell->vertex_indices())

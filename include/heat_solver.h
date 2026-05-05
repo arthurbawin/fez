@@ -14,7 +14,11 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
 #include <generic_solver.h>
+#include <mesh_adaptation/transient_fixed_point.h>
+#include <metric_field.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <post_processing_handler.h>
@@ -33,6 +37,8 @@ using namespace dealii;
 template <int dim>
 class HeatSolver : public GenericSolver<LA::ParVectorType>
 {
+  using ScratchData = ScratchDataHeat<dim>;
+
 public:
   HeatSolver(const ParameterReader<dim> &param);
 
@@ -44,7 +50,22 @@ public:
   /**
    *
    */
+  void set_interval_data(const unsigned int interval_index);
+
+  /**
+   *
+   */
+  void run_time_subinterval(const unsigned int interval_index);
+
+  /**
+   *
+   */
   void reset();
+
+  /**
+   *
+   */
+  void create_scratch_data();
 
   /**
    *
@@ -125,7 +146,7 @@ public:
    */
   void assemble_local_matrix(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchDataHeat<dim>                                 &scratchData,
+    ScratchData                                          &scratch_data,
     CopyData                                             &copy_data);
 
   /**
@@ -148,8 +169,8 @@ public:
    */
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
-                     ScratchDataHeat<dim> &scratchData,
-                     CopyData             &copy_data);
+                     ScratchData &scratch_data,
+                     CopyData    &copy_data);
 
   /**
    *
@@ -188,7 +209,20 @@ public:
   /**
    *
    */
+  void compute_riemannian_metric();
+
+  /**
+   *
+   */
   virtual void adapt_mesh() override;
+
+  /**
+   *
+   */
+  virtual LA::ParVectorType &get_present_solution() override
+  {
+    return *present_solution;
+  }
 
 private:
   /**
@@ -202,7 +236,7 @@ private:
   }
 
 protected:
-  std::shared_ptr<ComponentOrdering> ordering;
+  std::unique_ptr<ComponentOrdering> ordering;
 
   ParameterReader<dim> param;
 
@@ -214,10 +248,15 @@ protected:
   QSimplex<dim - 1> face_quadrature;
   QSimplex<dim - 1> error_face_quadrature;
 
-  std::unique_ptr<parallel::fullydistributed::Triangulation<dim>> triangulation;
-  std::shared_ptr<Mapping<dim>>                                   mapping;
-  DoFHandler<dim>                                                 dof_handler;
-  TimeHandler                                                     time_handler;
+  std::unique_ptr<Mapping<dim>> mapping;
+  TimeHandler                   time_handler;
+
+  TransientFixedPointData<dim> transient_fixed_point_data;
+
+  parallel::fullydistributed::Triangulation<dim> *triangulation;
+  DoFHandler<dim>                                *dof_handler;
+
+  std::unique_ptr<ScratchData> scratch_data;
 
   std::vector<unsigned char> dofs_to_component;
 
@@ -230,8 +269,10 @@ protected:
   AffineConstraints<double> zero_constraints;
   AffineConstraints<double> nonzero_constraints;
 
-  LA::ParMatrixType              system_matrix;
-  std::vector<LA::ParVectorType> previous_solutions;
+  LA::ParMatrixType system_matrix;
+
+  LA::ParVectorType              *present_solution;
+  std::vector<LA::ParVectorType> *previous_solutions;
 
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;
@@ -240,6 +281,10 @@ protected:
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
   std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
+
+  std::unique_ptr<ErrorEstimation::PatchHandler<dim>>             patch_handler;
+  std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>> recovery;
+  MetricField<dim> *metric_for_adaptation;
 
 protected:
   /**

@@ -17,8 +17,11 @@ namespace MeshTools
 {
   template <int dim>
   void adapt_with_mmg(const ParameterReader<dim> &param,
-                      const Triangulation<dim>   &triangulation,
-                      const MetricField<dim>     &metric_field)
+                      const MetricField<dim>     &metric_field,
+                      const std::string          &adapt_directory,
+                      const std::string          &input_meshfile,
+                      const std::string          &output_meshfile,
+                      const unsigned int          interval_index)
   {
 #if defined(FEZ_WITH_MMG)
     // MMG is serial, so adaptation is performed from the root process
@@ -28,24 +31,30 @@ namespace MeshTools
     const auto gathered_metrics = metric_field.gather_metrics();
 
     const unsigned int mpi_rank =
-      Utilities::MPI::this_mpi_process(triangulation.get_mpi_communicator());
+      Utilities::MPI::this_mpi_process(metric_field.get_mpi_communicator());
 
     if (mpi_rank == 0)
     {
-      std::string       current_meshfile = param.mesh.filename;
-      const std::string adapt_dir =
-        param.output.output_dir + param.mesh.adaptation.adapt_dir;
-      const std::string filename_out =
-        adapt_dir + param.mesh.adaptation.adapted_mesh_extension + ".msh";
-
       if (param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose)
       {
-        std::cout << "Adapting the mesh with Gmsh and MMG..." << std::endl;
-        std::cout << "Current mesh file                 : " << current_meshfile
+        std::cout << std::endl;
+        if (param.time_integration.is_steady())
+          std::cout << "-- Adapting the mesh with Gmsh and MMG..." << std::endl;
+        else
+          std::cout
+            << "-- Adapting the mesh with Gmsh and MMG for time interval "
+            << interval_index << "..." << std::endl;
+        std::cout << "\tCurrent mesh file                 : " << input_meshfile
                   << std::endl;
-        std::cout << "Target mesh file after adaptation : " << filename_out
+        std::cout << "\tTarget mesh file after adaptation : " << output_meshfile
                   << std::endl;
       }
+
+      const std::string current_mesh_in_msh2 = adapt_directory + "to.msh2";
+      const std::string current_mesh_in_medit =
+        adapt_directory + "current.mesh";
+      const std::string current_sizefield_file =
+        adapt_directory + "current_sizefield.sol";
 
 #  if defined(DEAL_II_GMSH_WITH_API)
 
@@ -65,7 +74,7 @@ namespace MeshTools
       // (MMG only takes .msh format 2.2 as input)
       gmsh::initialize();
       gmsh::option::setNumber("General.Verbosity", 2);
-      gmsh::open(current_meshfile);
+      gmsh::open(input_meshfile);
 
       // MMG does not preserve the names of the physical entities after
       // remeshing, so save the physical entities of the current mesh.
@@ -89,7 +98,7 @@ namespace MeshTools
         }
       }
 
-      gmsh::write(adapt_dir + "to.msh2");
+      gmsh::write(current_mesh_in_msh2);
       gmsh::clear();
       gmsh::finalize();
 #  else
@@ -102,11 +111,6 @@ namespace MeshTools
       MMG5_pMesh mmgMesh = NULL;
       MMG5_pSol  mmgSol  = NULL;
       int        ier;
-
-      const std::string filename                = adapt_dir + "to.msh2";
-      const std::string current_mesh_medit_file = adapt_dir + "current.mesh";
-      const std::string current_sizefield_file =
-        adapt_dir + "current_sizefield.sol";
 
       // Get the min and max mesh size from all metric fields
       double min_meshsize = param.metric_fields[0].min_meshsize;
@@ -139,7 +143,7 @@ namespace MeshTools
                                    param.mesh.adaptation.metric.mmg_verbosity);
 
         // Load the 2D mesh
-        ier = MMG2D_loadMshMesh(mmgMesh, mmgSol, filename.c_str());
+        ier = MMG2D_loadMshMesh(mmgMesh, mmgSol, current_mesh_in_msh2.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG2D_loadMshMesh"));
 
         Assert(static_cast<unsigned int>(mmgMesh->np) ==
@@ -152,7 +156,7 @@ namespace MeshTools
         Assert(mmgMesh->np == mmgSol->np, ExcInternalError());
 
         // Save current mesh (MEDIT format) and size field
-        ier = MMG2D_saveMesh(mmgMesh, current_mesh_medit_file.c_str());
+        ier = MMG2D_saveMesh(mmgMesh, current_mesh_in_medit.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG2D_saveMesh"));
         ier = MMG2D_saveSol(mmgMesh, mmgSol, current_sizefield_file.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG2D_saveSol"));
@@ -196,16 +200,16 @@ namespace MeshTools
 
         if (param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose)
         {
-          std::cout << "Successfully adapted the mesh" << std::endl;
-          std::cout << "Number of mesh vertices after adaptation : "
+          std::cout << "\tSuccessfully adapted the mesh" << std::endl;
+          std::cout << "\tNumber of mesh vertices after adaptation : "
                     << mmgMesh->np << std::endl;
           std::cout << std::endl;
         }
 
         // Write the adapted mesh and size field
-        ier = MMG2D_saveMshMesh(mmgMesh, mmgSol, filename_out.c_str());
+        ier = MMG2D_saveMshMesh(mmgMesh, mmgSol, output_meshfile.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG2D_saveMshMesh"));
-        ier = MMG2D_saveSol(mmgMesh, mmgSol, filename_out.c_str());
+        ier = MMG2D_saveSol(mmgMesh, mmgSol, output_meshfile.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG2D_saveSol"));
 
         // Free the MMG structures
@@ -235,7 +239,7 @@ namespace MeshTools
                                    param.mesh.adaptation.metric.mmg_verbosity);
 
         // Load the 3D mesh
-        ier = MMG3D_loadMshMesh(mmgMesh, mmgSol, filename.c_str());
+        ier = MMG3D_loadMshMesh(mmgMesh, mmgSol, current_mesh_in_msh2.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG3D_loadMshMesh"));
 
         Assert(static_cast<unsigned int>(mmgMesh->np) ==
@@ -248,7 +252,7 @@ namespace MeshTools
         Assert(mmgMesh->np == mmgSol->np, ExcInternalError());
 
         // Save initial mesh (MEDIT format) and size field
-        ier = MMG3D_saveMesh(mmgMesh, current_mesh_medit_file.c_str());
+        ier = MMG3D_saveMesh(mmgMesh, current_mesh_in_medit.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG3D_saveMesh"));
         ier = MMG3D_saveSol(mmgMesh, mmgSol, current_sizefield_file.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG3D_saveSol"));
@@ -292,16 +296,16 @@ namespace MeshTools
 
         if (param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose)
         {
-          std::cout << "Successfully adapted the mesh" << filename_out
+          std::cout << "\tSuccessfully adapted the mesh" << output_meshfile
                     << std::endl;
-          std::cout << "Number of mesh vertices after adaptation : "
+          std::cout << "\tNumber of mesh vertices after adaptation : "
                     << mmgMesh->np << std::endl;
         }
 
         // Write the adapted mesh and size field
-        ier = MMG3D_saveMshMesh(mmgMesh, mmgSol, filename_out.c_str());
+        ier = MMG3D_saveMshMesh(mmgMesh, mmgSol, output_meshfile.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG3D_saveMshMesh"));
-        ier = MMG3D_saveSol(mmgMesh, mmgSol, filename_out.c_str());
+        ier = MMG3D_saveSol(mmgMesh, mmgSol, output_meshfile.c_str());
         AssertThrow(ier == 1, ExcMessage("Error in MMG3D_saveSol"));
 
         // Free the MMG structures
@@ -318,7 +322,7 @@ namespace MeshTools
       // here based on the saved my_description.
       gmsh::initialize();
       gmsh::option::setNumber("General.Verbosity", 2); // Errors and warnings
-      gmsh::open(filename_out);
+      gmsh::open(output_meshfile);
 
       gmsh::vectorpair physical_groups;
       gmsh::model::getPhysicalGroups(physical_groups);
@@ -357,7 +361,7 @@ namespace MeshTools
         }
       }
 
-      gmsh::write(filename_out);
+      gmsh::write(output_meshfile);
       gmsh::clear();
       gmsh::finalize();
 #  endif
@@ -368,24 +372,28 @@ namespace MeshTools
      * the other ranks will read a corrupted mesh file, leading to all sorts of
      * problems.
      */
-    MPI_Barrier(triangulation.get_mpi_communicator());
+    MPI_Barrier(metric_field.get_mpi_communicator());
 
 #else
     AssertThrow(false,
                 ExcMessage(
                   "MMG is required to perform anisotropic mesh adaptation."));
     (void)param;
-    (void)triangulation;
     (void)metric_field;
+    (void)interval_index;
 #endif
   }
 
-
-
   template void adapt_with_mmg(const ParameterReader<2> &,
-                               const Triangulation<2> &,
-                               const MetricField<2> &);
+                               const MetricField<2> &,
+                               const std::string &,
+                               const std::string &,
+                               const std::string &,
+                               const unsigned int);
   template void adapt_with_mmg(const ParameterReader<3> &,
-                               const Triangulation<3> &,
-                               const MetricField<3> &);
+                               const MetricField<3> &,
+                               const std::string &,
+                               const std::string &,
+                               const std::string &,
+                               const unsigned int);
 } // namespace MeshTools

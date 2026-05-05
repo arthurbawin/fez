@@ -66,7 +66,6 @@ subsection Cahn Hilliard
   set mobility            = 1.568e-12
   set surface tension     = 1
   set interface thickness = 3.91e-6
-  set body force          = 0, 0
 end
 
 subsection Initial conditions

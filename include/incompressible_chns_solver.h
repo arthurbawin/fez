@@ -36,6 +36,11 @@ public:
   virtual ~CHNSSolver() {}
 
   /**
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() override;
+
+  /**
    * Apply initial condition on the tracer (phase marker)
    */
   virtual void set_solver_specific_initial_conditions() override;
@@ -127,12 +132,14 @@ protected:
   virtual void add_solver_specific_postprocessing_data() override;
 
 protected:
-  std::shared_ptr<FESystem<dim>> fe;
+  std::unique_ptr<FESystem<dim>> fe;
 
   static constexpr ConstexprComponentOrderingCHNS<dim,
                                                   with_moving_mesh,
                                                   with_enlarged>
     const_ordering = {};
+
+  std::unique_ptr<ScratchData> scratch_data;
 
   FEValuesExtractors::Scalar tracer_extractor;
   FEValuesExtractors::Scalar potential_extractor;

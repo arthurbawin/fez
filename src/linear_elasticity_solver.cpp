@@ -43,14 +43,14 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
 
   if (param.finite_elements.use_quads)
   {
-    mapping = std::make_shared<MappingQ<dim>>(1);
-    fe      = std::make_shared<FESystem<dim>>(
+    mapping = std::make_unique<MappingQ<dim>>(1);
+    fe      = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim);
   }
   else
   {
-    mapping = std::make_shared<MappingFE<dim>>(FE_SimplexP<dim>(1));
-    fe      = std::make_shared<FESystem<dim>>(
+    mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+    fe      = std::make_unique<FESystem<dim>>(
       FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim);
   }
 
@@ -59,8 +59,8 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
 
   if (param.mms_param.enable)
   {
-    for (auto norm : param.mms_param.norms_to_compute)
-      error_handlers[norm]->create_entry("x");
+    for (auto &[norm, handler] : error_handlers)
+      handler.create_entry("x");
 
     // Assign the manufactured solution
     exact_solution = param.mms.exact_mesh_position;
@@ -77,7 +77,10 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
 
   // Create direct solver
   direct_solver_reuse =
-    std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+
+  scratch_data = std::make_unique<ScratchData>(
+    *fe, *mapping, *quadrature, *face_quadrature, param);
 }
 
 template <int dim>
@@ -118,7 +121,7 @@ void LinearElasticitySolver<dim>::reset()
 
   // Direct solver
   direct_solver_reuse =
-    std::make_shared<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
@@ -316,7 +319,6 @@ void LinearElasticitySolver<dim>::assemble_matrix()
   TimerOutput::Scope t(computing_timer, "Assemble matrix");
 
   system_matrix = 0;
-  ScratchData scratch_data(*fe, *mapping, *quadrature, *face_quadrature, param);
   CopyData    copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
@@ -338,7 +340,7 @@ void LinearElasticitySolver<dim>::assemble_matrix()
                   *this,
                   assembly_ptr,
                   &LinearElasticitySolver::copy_local_to_global_matrix,
-                  scratch_data,
+                  *scratch_data,
                   copyData);
   system_matrix.compress(VectorOperation::add);
 }
@@ -442,8 +444,7 @@ void LinearElasticitySolver<dim>::copy_local_to_global_matrix(
 template <int dim>
 void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
 {
-  ScratchData scratch_data(*fe, *mapping, *quadrature, *face_quadrature, param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     dof_handler,
@@ -451,7 +452,7 @@ void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
     *this,
     &LinearElasticitySolver::assemble_local_matrix,
     &LinearElasticitySolver::assemble_local_rhs,
-    scratch_data,
+    *scratch_data,
     copyData,
     present_solution,
     evaluation_point,
@@ -477,7 +478,6 @@ void LinearElasticitySolver<dim>::assemble_rhs()
   TimerOutput::Scope t(computing_timer, "Assemble RHS");
 
   system_rhs = 0;
-  ScratchData scratch_data(*fe, *mapping, *quadrature, *face_quadrature, param);
   CopyData    copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
@@ -486,7 +486,7 @@ void LinearElasticitySolver<dim>::assemble_rhs()
                   *this,
                   &LinearElasticitySolver::assemble_local_rhs,
                   &LinearElasticitySolver::copy_local_to_global_rhs,
-                  scratch_data,
+                  *scratch_data,
                   copyData);
 
   system_rhs.compress(VectorOperation::add);
@@ -772,11 +772,10 @@ void LinearElasticitySolver<dim>::compute_errors()
   Vector<double>     cellwise_errors(n_active_cells);
   const ComponentSelectFunction<dim> position_comp_select(0, dim);
 
-  for (auto norm : param.mms_param.norms_to_compute)
+  for (auto &[norm, handler] : error_handlers)
   {
-    error_handlers.at(norm)->add_reference_data(
-      "n_elm", triangulation.n_global_active_cells());
-    error_handlers.at(norm)->add_reference_data("n_dof", dof_handler.n_dofs());
+    handler.add_reference_data("n_elm", triangulation.n_global_active_cells());
+    handler.add_reference_data("n_dof", dof_handler.n_dofs());
     const double err =
       compute_error_norm<dim, LA::ParVectorType>(triangulation,
                                                  *mapping,
@@ -787,7 +786,7 @@ void LinearElasticitySolver<dim>::compute_errors()
                                                  *error_quadrature,
                                                  norm,
                                                  &position_comp_select);
-    error_handlers.at(norm)->add_error("x", err);
+    handler.add_error("x", err);
   }
 }
 

@@ -496,6 +496,25 @@ namespace Parameters
         declare_postprocessing_base(prm);
       }
       prm.leave_subsection();
+
+      prm.enter_subsection("flow diagnostics");
+      {
+        prm.declare_entry("enable",
+                          "false",
+                          Patterns::Bool(),
+                          "Enable/disable flow diagnostic fields in the main VTU.");
+
+        prm.declare_entry("compute vorticity",
+                          "false",
+                          Patterns::Bool(),
+                          "Compute and export the vorticity field.");
+
+        prm.declare_entry("compute Q criterion",
+                          "false",
+                          Patterns::Bool(),
+                          "Compute and export the Q criterion field.");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -561,6 +580,20 @@ namespace Parameters
         read_postprocessing_base(prm, chns_avg_velocity);
       }
       prm.leave_subsection();
+
+      prm.enter_subsection("flow diagnostics");
+      {
+        flow_diagnostics.enable =
+          prm.get_bool("enable");
+
+        flow_diagnostics.compute_vorticity =
+          prm.get_bool("compute vorticity");
+
+        flow_diagnostics.compute_qcriterion =
+          prm.get_bool("compute Q criterion");
+      }
+      prm.leave_subsection();
+
     }
     prm.leave_subsection();
   }

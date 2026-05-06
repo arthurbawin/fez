@@ -863,6 +863,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
     }
   }
 
+  // Generic Navier-Stokes flow diagnostics: vorticity, Q criterion, etc.
+  add_flow_diagnostics_postprocessing_data();
+
   // Let the derived solvers add their own relevant cell and/or dof-based
   // data, to output either in the volume or on the prescribed boundary (skin).
   add_solver_specific_postprocessing_data();
@@ -1084,6 +1087,94 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
   // Update the time handler
   time_handler.update_parameters_after_restart(param.time_integration);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+  add_flow_diagnostics_postprocessing_data()
+{
+  const auto &flow_diag = this->param.postprocessing.flow_diagnostics;
+
+  if (!flow_diag.enable)
+    return;
+
+  if (!this->postproc_handler->should_output_volume_fields(this->time_handler))
+    return;
+
+  /*
+   * Make sure the mapping is synchronized.
+   * This is especially important for moving mesh / ALE cases.
+   */
+  this->present_solution.update_ghost_values();
+
+  if constexpr (with_moving_mesh)
+  {
+    this->evaluation_point = this->present_solution;
+    this->evaluation_point.update_ghost_values();
+  }
+
+  const FEValuesExtractors::Vector velocity_extractor(this->ordering->u_lower);
+
+  /*
+   * Vorticity:
+   * vector-valued field stored on velocity support.
+   */
+  if (flow_diag.compute_vorticity)
+  {
+    LA::ParVectorType vorticity_dof_vector;
+
+    PostProcessingTools::compute_vorticity_dof_vector<dim>(
+      this->dof_handler,
+      *this->moving_mapping,
+      this->present_solution,
+      this->dof_handler.get_fe(),
+      velocity_extractor,
+      velocity_extractor,
+      vorticity_dof_vector);
+
+    auto vorticity_names = this->postproc_handler->get_field_names();
+
+    for (unsigned int c = 0; c < vorticity_names.size(); ++c)
+      vorticity_names[c] = "unused_vorticity_" + std::to_string(c);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      vorticity_names[this->ordering->u_lower + d] = "vorticity";
+
+    this->postproc_handler->add_dof_data_vector(vorticity_dof_vector,
+                                                vorticity_names);
+  }
+
+  /*
+   * Q criterion:
+   * scalar field stored on ux support.
+   * Therefore it uses the velocity polynomial support, e.g. P2 if velocity is P2.
+   */
+  if (flow_diag.compute_qcriterion)
+  {
+    LA::ParVectorType qcriterion_dof_vector;
+
+    const FEValuesExtractors::Scalar qcriterion_p2_extractor(
+      this->ordering->u_lower);
+
+    PostProcessingTools::compute_qcriterion_scalar_dof_vector<dim>(
+      this->dof_handler,
+      *this->moving_mapping,
+      this->present_solution,
+      this->dof_handler.get_fe(),
+      velocity_extractor,
+      qcriterion_p2_extractor,
+      qcriterion_dof_vector);
+
+    auto qcriterion_names = this->postproc_handler->get_field_names();
+
+    for (unsigned int c = 0; c < qcriterion_names.size(); ++c)
+      qcriterion_names[c] = "unused_Qcriterion_" + std::to_string(c);
+
+    qcriterion_names[this->ordering->u_lower] = "Qcriterion";
+
+    this->postproc_handler->add_dof_data_scalar(qcriterion_dof_vector,
+                                                qcriterion_names);
+  }
 }
 
 // Explicit instantiation

@@ -77,6 +77,10 @@ public:
   void add_dof_data_vector(const VectorType               &data,
                            const std::vector<std::string> &names);
 
+  template <typename VectorType>
+  void add_dof_data_scalar(
+    const VectorType               &data,
+    const std::vector<std::string> &names);
   /**
    * Output the fields stored in solution, both in the volume and on the
    * prescribed boundary (skin), if any. Also output the fields that were added
@@ -351,6 +355,23 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
                             names,
                             DataOut<dim>::type_dof_data,
                             data_component_interpretation);
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::add_dof_data_scalar(
+  const VectorType               &data,
+  const std::vector<std::string> &names)
+{
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    scalar_component_interpretation(
+      names.size(),
+      DataComponentInterpretation::component_is_scalar);
+
+  data_out->add_data_vector(data,
+                            names,
+                            DataOut<dim>::type_dof_data,
+                            scalar_component_interpretation);
 }
 
 template <int dim>

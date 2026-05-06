@@ -362,6 +362,8 @@ public:
    */
   void restart();
 
+  void add_flow_diagnostics_postprocessing_data();
+
   /**
    * Save this object to file. See also the comments for the checkpoint()
    * function. This function currently only saves the present and previous

@@ -2741,7 +2741,6 @@ void FSISolver<dim>::add_solver_specific_postprocessing_data()
 {
   if (this->postproc_handler->should_output_volume_fields(this->time_handler))
   {
-    // Export Lamé coefficients on cell (evaluated at center of cell)
     Vector<float> lame_mu_cell(this->triangulation.n_active_cells());
     Vector<float> lame_lambda_cell(this->triangulation.n_active_cells());
 
@@ -2753,14 +2752,67 @@ void FSISolver<dim>::add_solver_specific_postprocessing_data()
     for (const auto &cell : this->dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
       {
-        lame_mu_cell[cell->active_cell_index()] = mu_fun->value(cell->center());
+        lame_mu_cell[cell->active_cell_index()] =
+          mu_fun->value(cell->center());
+
         lame_lambda_cell[cell->active_cell_index()] =
           lambda_fun->value(cell->center());
       }
 
-    this->postproc_handler->add_cell_data_vector(lame_mu_cell, "lame_mu");
+    this->postproc_handler->add_cell_data_vector(lame_mu_cell,
+                                                 "lame_mu");
+
     this->postproc_handler->add_cell_data_vector(lame_lambda_cell,
                                                  "lame_lambda");
+
+  
+    // LA::ParVectorType vorticity_dof_vector;
+    // LA::ParVectorType qcriterion_dof_vector;
+
+    // PostProcessingTools::compute_vorticity_dof_vector<dim>(
+    //   this->dof_handler,
+    //   *this->moving_mapping,
+    //   this->present_solution,
+    //   *fe,
+    //   this->velocity_extractor,
+    //   this->velocity_extractor,
+    //   vorticity_dof_vector);
+
+    // const FEValuesExtractors::Scalar qcriterion_p2_extractor(
+    //   this->ordering->u_lower);
+
+    // PostProcessingTools::compute_qcriterion_scalar_dof_vector<dim>(
+    //   this->dof_handler,
+    //   *this->moving_mapping,
+    //   this->present_solution,
+    //   *fe,
+    //   this->velocity_extractor,
+    //   qcriterion_p2_extractor,
+    //   qcriterion_dof_vector);
+
+    // auto vorticity_names = this->postproc_handler->get_field_names();
+
+    // for (auto &name : vorticity_names)
+    // {
+    //   if (name == "velocity")
+    //     name = "vorticity";
+    //   else
+    //     name = "unused_1" + name;
+    // }
+
+    // auto qcriterion_names = this->postproc_handler->get_field_names();
+
+    // for (unsigned int c = 0; c < qcriterion_names.size(); ++c)
+    //   qcriterion_names[c] = "unused_Qcriterion_" + std::to_string(c);
+
+    // qcriterion_names[this->ordering->u_lower] = "Qcriterion";
+
+    // this->postproc_handler->add_dof_data_vector(vorticity_dof_vector,
+    //                                             vorticity_names);
+
+    // this->postproc_handler->add_dof_data_scalar(qcriterion_dof_vector,
+    //                                             qcriterion_names);
+
   }
 }
 

@@ -75,7 +75,15 @@ public:
    */
   template <typename VectorType>
   void add_dof_data_vector(const VectorType               &data,
-                           const std::vector<std::string> &names);
+                          const std::vector<std::string> &names);
+
+  template <typename VectorType>
+  void add_dof_data_vector(
+    const VectorType               &data,
+    const std::vector<std::string> &names,
+    const std::vector<
+      DataComponentInterpretation::DataComponentInterpretation>
+      &custom_data_component_interpretation); 
 
   template <typename VectorType>
   void add_dof_data_scalar(
@@ -352,9 +360,24 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
   const std::vector<std::string> &names)
 {
   data_out->add_data_vector(data,
-                            names,
-                            DataOut<dim>::type_dof_data,
-                            data_component_interpretation);
+                           names,
+                           DataOut<dim>::type_dof_data,
+                           data_component_interpretation);
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::add_dof_data_vector(
+  const VectorType               &data,
+  const std::vector<std::string> &names,
+  const std::vector<
+    DataComponentInterpretation::DataComponentInterpretation>
+    &custom_data_component_interpretation)
+{
+  data_out->add_data_vector(data,
+                           names,
+                           DataOut<dim>::type_dof_data,
+                           custom_data_component_interpretation);
 }
 
 template <int dim>

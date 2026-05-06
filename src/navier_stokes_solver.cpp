@@ -1113,22 +1113,45 @@ void NavierStokesSolver<dim, with_moving_mesh>::
     this->evaluation_point.update_ghost_values();
   }
 
-  const FEValuesExtractors::Vector velocity_extractor(this->ordering->u_lower);
+  const FEValuesExtractors::Vector velocity_extractor(
+    this->ordering->u_lower);
+
+  /*
+   * Initialize recovery data only once.
+   * The function internally creates one scalar PatchHandler/SolutionRecovery
+   * per velocity component.
+   */
+  PostProcessingTools::initialize_recovered_velocity_gradient_data<dim>(
+    this->param,
+    this->triangulation,
+    this->dof_handler,
+    *this->moving_mapping,
+    this->present_solution,
+    this->dof_handler.get_fe(),
+    velocity_extractor,
+    this->recovered_velocity_gradient_data);
+
+  /*
+   * Update patches and reconstruct fields once per output.
+   */
+  PostProcessingTools::update_recovered_velocity_gradient_data<dim>(
+    *this->moving_mapping,
+    this->present_solution,
+    this->recovered_velocity_gradient_data);
 
   /*
    * Vorticity:
    * vector-valued field stored on velocity support.
+   * Therefore P2 if velocity is P2.
    */
   if (flow_diag.compute_vorticity)
   {
     LA::ParVectorType vorticity_dof_vector;
 
-    PostProcessingTools::compute_vorticity_dof_vector<dim>(
+    PostProcessingTools::compute_recovered_vorticity_dof_vector<dim>(
       this->dof_handler,
-      *this->moving_mapping,
-      this->present_solution,
       this->dof_handler.get_fe(),
-      velocity_extractor,
+      this->recovered_velocity_gradient_data,
       velocity_extractor,
       vorticity_dof_vector);
 
@@ -1144,11 +1167,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::
                                                 vorticity_names);
   }
 
-  /*
-   * Q criterion:
-   * scalar field stored on ux support.
-   * Therefore it uses the velocity polynomial support, e.g. P2 if velocity is P2.
-   */
+  
   if (flow_diag.compute_qcriterion)
   {
     LA::ParVectorType qcriterion_dof_vector;
@@ -1156,11 +1175,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::
     const FEValuesExtractors::Scalar qcriterion_p2_extractor(
       this->ordering->u_lower);
 
-    PostProcessingTools::compute_qcriterion_scalar_dof_vector<dim>(
+    PostProcessingTools::compute_recovered_qcriterion_dof_vector<dim>(
       this->dof_handler,
-      *this->moving_mapping,
-      this->present_solution,
       this->dof_handler.get_fe(),
+      this->recovered_velocity_gradient_data,
       velocity_extractor,
       qcriterion_p2_extractor,
       qcriterion_dof_vector);
@@ -1172,8 +1190,14 @@ void NavierStokesSolver<dim, with_moving_mesh>::
 
     qcriterion_names[this->ordering->u_lower] = "Qcriterion";
 
-    this->postproc_handler->add_dof_data_scalar(qcriterion_dof_vector,
-                                                qcriterion_names);
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    qcriterion_interpretation(
+      this->ordering->n_components,
+      DataComponentInterpretation::component_is_scalar);
+
+    this->postproc_handler->add_dof_data_vector(qcriterion_dof_vector,
+                                                qcriterion_names,
+                                                qcriterion_interpretation);
   }
 }
 

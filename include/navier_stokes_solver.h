@@ -24,6 +24,7 @@
 #include <post_processing_handler.h>
 #include <time_handler.h>
 #include <types.h>
+#include <post_processing_tools.h>
 
 using namespace dealii;
 
@@ -531,6 +532,8 @@ protected:
 
 protected:
   std::unique_ptr<ComponentOrdering> ordering;
+  PostProcessingTools::RecoveredVelocityGradientData<dim>
+  recovered_velocity_gradient_data;
 
   ParameterReader<dim> param;
 

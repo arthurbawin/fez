@@ -1413,6 +1413,52 @@ namespace Parameters
     prm.leave_subsection();
   }
 
+
+  void MeshConcentration::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Mesh concentration");
+    {
+      prm.declare_entry(
+        "enable",
+        "false",
+        Patterns::Bool(),
+        "Enable explicit mesh concentration based on recovered vorticity gradients.");
+
+      prm.declare_entry(
+        "alpha",
+        "0.0",
+        Patterns::Double(),
+        "Amplitude of the explicit pseudosolid source term used for mesh concentration.");
+
+      prm.declare_entry(
+        "eps",
+        "1e-12",
+        Patterns::Double(0.0),
+        "Regularization parameter used when normalizing grad(|omega|^2).");
+
+      prm.declare_entry(
+        "normalize direction",
+        "true",
+        Patterns::Bool(),
+        "If true, use only the direction of grad(|omega|^2), scaled by alpha.");
+    }
+    prm.leave_subsection();
+  }
+
+
+  void MeshConcentration::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Mesh concentration");
+    {
+      enable              = prm.get_bool("enable");
+      alpha               = prm.get_double("alpha");
+      eps                 = prm.get_double("eps");
+      normalize_direction = prm.get_bool("normalize direction");
+    }
+    prm.leave_subsection();
+  }
+
+
   template <int dim>
   void FSI<dim>::declare_parameters(ParameterHandler &prm)
   {

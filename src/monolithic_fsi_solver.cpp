@@ -229,6 +229,16 @@ void FSISolver<dim>::reset_solver_specific_data()
     local_position_master_dofs[d]  = numbers::invalid_unsigned_int;
     global_position_master_dofs[d] = numbers::invalid_unsigned_int;
   }
+
+  for (auto &patch_handler : velocity_patch_handlers)
+    patch_handler.reset();
+
+  for (auto &recovery : velocity_recoveries)
+    recovery.reset();
+
+  recovered_grad_omega_square_at_vertices.clear();
+
+  mesh_concentration_data_ready = false;
 }
 
 template <int dim>
@@ -1898,6 +1908,9 @@ void FSISolver<dim>::assemble_local_rhs(
     const auto &sym_grad_phi_x = scratch_data.sym_grad_phi_x[q];
     const auto &div_phi_x      = scratch_data.div_phi_x[q];
 
+    const auto f_concentration =
+      cell_average_mesh_concentration_force(cell);
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       const unsigned int comp_i = scratch_data.components[i];
@@ -1949,7 +1962,9 @@ void FSISolver<dim>::assemble_local_rhs(
           lame_lambda * present_trace_strain * div_phi_x[i] +
           2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i])
           // Linear elasticity source term
-          + phi_x[i] * source_term_position);
+          + phi_x[i] * source_term_position
+          // Mesh concentration force
+          + phi_x[i] * f_concentration);
         local_rhs_ps_i *= JxW_fixed;
       }
 
@@ -2765,54 +2780,6 @@ void FSISolver<dim>::add_solver_specific_postprocessing_data()
     this->postproc_handler->add_cell_data_vector(lame_lambda_cell,
                                                  "lame_lambda");
 
-  
-    // LA::ParVectorType vorticity_dof_vector;
-    // LA::ParVectorType qcriterion_dof_vector;
-
-    // PostProcessingTools::compute_vorticity_dof_vector<dim>(
-    //   this->dof_handler,
-    //   *this->moving_mapping,
-    //   this->present_solution,
-    //   *fe,
-    //   this->velocity_extractor,
-    //   this->velocity_extractor,
-    //   vorticity_dof_vector);
-
-    // const FEValuesExtractors::Scalar qcriterion_p2_extractor(
-    //   this->ordering->u_lower);
-
-    // PostProcessingTools::compute_qcriterion_scalar_dof_vector<dim>(
-    //   this->dof_handler,
-    //   *this->moving_mapping,
-    //   this->present_solution,
-    //   *fe,
-    //   this->velocity_extractor,
-    //   qcriterion_p2_extractor,
-    //   qcriterion_dof_vector);
-
-    // auto vorticity_names = this->postproc_handler->get_field_names();
-
-    // for (auto &name : vorticity_names)
-    // {
-    //   if (name == "velocity")
-    //     name = "vorticity";
-    //   else
-    //     name = "unused_1" + name;
-    // }
-
-    // auto qcriterion_names = this->postproc_handler->get_field_names();
-
-    // for (unsigned int c = 0; c < qcriterion_names.size(); ++c)
-    //   qcriterion_names[c] = "unused_Qcriterion_" + std::to_string(c);
-
-    // qcriterion_names[this->ordering->u_lower] = "Qcriterion";
-
-    // this->postproc_handler->add_dof_data_vector(vorticity_dof_vector,
-    //                                             vorticity_names);
-
-    // this->postproc_handler->add_dof_data_scalar(qcriterion_dof_vector,
-    //                                             qcriterion_names);
-
   }
 }
 
@@ -2846,7 +2813,197 @@ void FSISolver<dim>::solver_specific_post_processing()
             Parameters::TimeIntegration::BDFStart::initial_condition))
       check_velocity_boundary();
   }
+
+  if (this->param.mesh_concentration.enable)
+    update_mesh_concentration_field();
 }
+
+
+template <int dim>
+void FSISolver<dim>::initialize_mesh_concentration()
+{
+  if (!this->param.mesh_concentration.enable)
+    return;
+
+  for (auto &patch_handler : velocity_patch_handlers)
+    patch_handler.reset();
+
+  for (auto &recovery : velocity_recoveries)
+    recovery.reset();
+
+  const unsigned int recovery_degree =
+    this->param.finite_elements.velocity_degree + 1;
+
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    std::vector<bool> component_mask_values(this->ordering->n_components,
+                                            false);
+    component_mask_values[this->ordering->u_lower + d] = true;
+
+    const ComponentMask component_mask(component_mask_values);
+
+    velocity_patch_handlers[d] =
+      std::make_unique<ErrorEstimation::PatchHandler<dim>>(
+        this->triangulation,
+        *this->moving_mapping,
+        this->dof_handler,
+        this->present_solution,
+        recovery_degree,
+        component_mask);
+
+    velocity_patch_handlers[d]->build_patches();
+
+    velocity_recoveries[d] =
+      std::make_unique<ErrorEstimation::SolutionRecovery::Scalar<dim>>(
+        2,
+        this->param,
+        *velocity_patch_handlers[d],
+        this->dof_handler,
+        this->present_solution,
+        *fe,
+        *this->moving_mapping,
+        component_mask,
+        true,
+        true);
+  }
+
+  recovered_grad_omega_square_at_vertices.resize(
+    this->triangulation.n_vertices());
+
+  mesh_concentration_data_ready = false;
+}
+
+
+template <int dim>
+void FSISolver<dim>::update_mesh_concentration_field()
+{
+  if (!this->param.mesh_concentration.enable)
+    return;
+
+  if (!velocity_patch_handlers[0])
+    initialize_mesh_concentration();
+
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    AssertThrow(velocity_patch_handlers[d],
+                ExcMessage("Mesh concentration PatchHandler was not initialized."));
+
+    AssertThrow(velocity_recoveries[d],
+                ExcMessage("Mesh concentration recovery was not initialized."));
+
+    velocity_recoveries[d]->reconstruct_fields(this->present_solution);
+  }
+
+  const auto &owned_vertices = velocity_recoveries[0]->get_owned_vertices();
+
+  std::array<const std::vector<Tensor<1, dim>> *, dim> grad_u_comp;
+  std::array<const std::vector<Tensor<2, dim>> *, dim> hess_u_comp;
+
+  for (unsigned int c = 0; c < dim; ++c)
+  {
+    grad_u_comp[c] = &velocity_recoveries[c]->get_reconstructed_gradient();
+    hess_u_comp[c] = &velocity_recoveries[c]->get_reconstructed_hessian();
+  }
+
+  for (types::global_vertex_index v = 0;
+       v < this->triangulation.n_vertices();
+       ++v)
+  {
+    recovered_grad_omega_square_at_vertices[v] = Tensor<1, dim>();
+
+    if (!owned_vertices[v])
+      continue;
+
+    Tensor<2, dim> grad_u;
+    for (unsigned int comp = 0; comp < dim; ++comp)
+      for (unsigned int a = 0; a < dim; ++a)
+        grad_u[a][comp] = (*grad_u_comp[comp])[v][a];
+
+    Tensor<1, dim> omega;
+
+    if constexpr (dim == 3)
+    {
+      omega[0] = grad_u[1][2] - grad_u[2][1];
+      omega[1] = grad_u[2][0] - grad_u[0][2];
+      omega[2] = grad_u[0][1] - grad_u[1][0];
+
+      Tensor<2, dim> grad_omega;
+
+      for (unsigned int a = 0; a < dim; ++a)
+      {
+        const Tensor<2, dim> &Hux = (*hess_u_comp[0])[v];
+        const Tensor<2, dim> &Huy = (*hess_u_comp[1])[v];
+        const Tensor<2, dim> &Huz = (*hess_u_comp[2])[v];
+
+        grad_omega[a][0] = Huz[a][1] - Huy[a][2];
+        grad_omega[a][1] = Hux[a][2] - Huz[a][0];
+        grad_omega[a][2] = Huy[a][0] - Hux[a][1];
+      }
+
+      Tensor<1, dim> grad_omega_square;
+      for (unsigned int a = 0; a < dim; ++a)
+        for (unsigned int b = 0; b < dim; ++b)
+          grad_omega_square[a] += 2.0 * omega[b] * grad_omega[a][b];
+
+      recovered_grad_omega_square_at_vertices[v] = grad_omega_square;
+    }
+    else if constexpr (dim == 2)
+    {
+      // omega_z = dv/dx - du/dy
+      const Tensor<2, dim> &Hux = (*hess_u_comp[0])[v];
+      const Tensor<2, dim> &Huy = (*hess_u_comp[1])[v];
+
+      const double omega_z = grad_u[0][1] - grad_u[1][0];
+
+      Tensor<1, dim> grad_omega_z;
+      for (unsigned int a = 0; a < dim; ++a)
+        grad_omega_z[a] = Huy[a][0] - Hux[a][1];
+
+      Tensor<1, dim> grad_omega_square;
+      for (unsigned int a = 0; a < dim; ++a)
+        grad_omega_square[a] = 2.0 * omega_z * grad_omega_z[a];
+
+      recovered_grad_omega_square_at_vertices[v] = grad_omega_square;
+    }
+  }
+
+  mesh_concentration_data_ready = true;
+}
+
+template <int dim>
+Tensor<1, dim>
+FSISolver<dim>::cell_average_mesh_concentration_force(
+  const typename DoFHandler<dim>::active_cell_iterator &cell) const
+{
+  Tensor<1, dim> force;
+
+  if (!this->param.mesh_concentration.enable ||
+      !mesh_concentration_data_ready)
+    return force;
+
+  const unsigned int vertices_per_cell = cell->n_vertices();
+
+  for (unsigned int v = 0; v < vertices_per_cell; ++v)
+  {
+    const auto gv = cell->vertex_index(v);
+
+    AssertIndexRange(gv, recovered_grad_omega_square_at_vertices.size());
+
+    force += recovered_grad_omega_square_at_vertices[gv];
+  }
+
+  force /= static_cast<double>(vertices_per_cell);
+
+  const double norm_force = std::sqrt(force.norm_square());
+
+  if (this->param.mesh_concentration.normalize_direction)
+    force /= (norm_force + this->param.mesh_concentration.eps);
+
+  force *= -this->param.mesh_concentration.alpha;
+
+  return force;
+}
+
 
 // Explicit instantiation
 template class FSISolver<2>;

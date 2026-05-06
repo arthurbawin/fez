@@ -651,6 +651,29 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
+
+
+  /**
+   * Explicit mesh concentration based on recovered vorticity gradients.
+   */
+  struct MeshConcentration
+  {
+    bool enable = false;
+
+    // Amplitude of the explicit pseudosolid source term.
+    double alpha = 0.0;
+
+    // Regularization parameter used when normalizing the concentration direction.
+    double eps = 1e-12;
+
+    // If true, use only the direction of grad(|omega|^2), scaled by alpha.
+    // If false, use the full amplitude alpha * grad(|omega|^2).
+    bool normalize_direction = true;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+  
   /**
    * Fluid-structure interaction
    */

@@ -21,6 +21,9 @@
 #include <time_handler.h>
 #include <types.h>
 
+#include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
+
 using namespace dealii;
 
 // Forward declaration
@@ -74,6 +77,7 @@ public:
   {
     if (this->param.fsi.enable_coupling)
       create_position_lagrange_mult_coupling_data();
+
     create_lagrange_multiplier_constraints();
   }
 
@@ -169,6 +173,15 @@ public:
 
   virtual void solver_specific_post_processing() override;
 
+  void initialize_mesh_concentration();
+
+  void update_mesh_concentration_field();
+
+  Tensor<1, dim>
+  cell_average_mesh_concentration_force(
+    const typename DoFHandler<dim>::active_cell_iterator &cell) const;
+
+
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override
@@ -213,6 +226,21 @@ protected:
   bool has_global_master_position_dofs = false;
   std::array<types::global_dof_index, dim> local_position_master_dofs;
   std::array<types::global_dof_index, dim> global_position_master_dofs;
+
+
+  std::array<
+    std::unique_ptr<ErrorEstimation::PatchHandler<dim>>,
+    dim>
+    velocity_patch_handlers;
+
+  std::array<
+    std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>>,
+    dim>
+    velocity_recoveries;
+
+  std::vector<Tensor<1, dim>> recovered_grad_omega_square_at_vertices;
+
+  bool mesh_concentration_data_ready = false;
 
 public:
   /**

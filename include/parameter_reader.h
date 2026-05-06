@@ -57,6 +57,8 @@ public:
   //
   Parameters::SourceTerms<dim> source_terms;
 
+  Parameters::MeshConcentration mesh_concentration;
+
   //
   // Manufactured solution
   //
@@ -99,6 +101,7 @@ public:
     postprocessing.declare_parameters(prm);
     finite_elements.declare_parameters(prm);
     physical_properties.declare_parameters(prm);
+    mesh_concentration.declare_parameters(prm);
     fsi.declare_parameters(prm);
     time_integration.declare_parameters(prm);
     checkpoint_restart.declare_parameters(prm);
@@ -144,6 +147,7 @@ public:
     postprocessing.read_parameters(prm);
     finite_elements.read_parameters(prm);
     physical_properties.read_parameters(prm);
+    mesh_concentration.read_parameters(prm);
     fsi.read_parameters(prm);
     time_integration.read_parameters(prm);
     checkpoint_restart.read_parameters(prm);

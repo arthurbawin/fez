@@ -438,7 +438,7 @@ namespace BoundaryConditions
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
     }
-    
+
     VectorTools::compute_no_normal_flux_constraints(
       dof_handler, u_lower, no_flux_boundaries, constraints, mapping, false);
 

@@ -160,11 +160,14 @@ void LinearElasticitySolver<dim>::run()
     source_term_moving_mesh_multiplier = c_min;
     source_term_fixed_mesh_multiplier  = 0.;
 
-    // Linear elasticity: geometric progression; neo-Hookean: arithmetic progression
-    const double r =
-      (!use_nh && n_steps > 1) ? std::pow(c_max / c_min, 1.0 / (n_steps - 1)) : 1.;
-    const double step =
-      (use_nh && n_steps > 1) ? (c_max - c_min) / static_cast<double>(n_steps - 1) : 0.;
+    // Linear elasticity: geometric progression; neo-Hookean: arithmetic
+    // progression
+    const double r    = (!use_nh && n_steps > 1) ?
+                          std::pow(c_max / c_min, 1.0 / (n_steps - 1)) :
+                          1.;
+    const double step = (use_nh && n_steps > 1) ?
+                          (c_max - c_min) / static_cast<double>(n_steps - 1) :
+                          0.;
 
     for (unsigned int n = 0; n < n_steps; ++n)
     {
@@ -319,7 +322,7 @@ void LinearElasticitySolver<dim>::assemble_matrix()
   TimerOutput::Scope t(computing_timer, "Assemble matrix");
 
   system_matrix = 0;
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -387,7 +390,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
 
-    const auto &ps = param.physical_properties.pseudosolids[0];
+    const auto &ps                = param.physical_properties.pseudosolids[0];
     const auto  pseudosolid_model = ps.constitutive_model;
 
     const auto &phi_x      = scratch_data.phi_x[q];
@@ -399,29 +402,28 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      const auto &phi_x_i          = phi_x[i];
-      const auto &grad_phi_x_i     = grad_phi_x[i];
-      const auto &div_phi_x_i      = div_phi_x[i];
+      const auto &phi_x_i      = phi_x[i];
+      const auto &grad_phi_x_i = grad_phi_x[i];
+      const auto &div_phi_x_i  = div_phi_x[i];
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
-        const auto &phi_x_j          = phi_x[j];
-        const auto &grad_phi_x_j     = grad_phi_x[j];
-        const auto &div_phi_x_j      = div_phi_x[j];
+        const auto &phi_x_j      = phi_x[j];
+        const auto &grad_phi_x_j = grad_phi_x[j];
+        const auto &div_phi_x_j  = div_phi_x[j];
 
         local_matrix(i, j) +=
-          (Assembly::Pseudosolid::matrix_contribution(pseudosolid_model,
-                                                      lame_mu,
-                                                      lame_lambda,
-                                                      scratch_data
-                                                        .position_inv_gradients[q],
-                                                      scratch_data
-                                                        .position_inv_gradients_T[q],
-                                                      scratch_data.position_J[q],
-                                                      div_phi_x_i,
-                                                      grad_phi_x_i,
-                                                      div_phi_x_j,
-                                                      grad_phi_x_j) +
+          (Assembly::Pseudosolid::matrix_contribution(
+             pseudosolid_model,
+             lame_mu,
+             lame_lambda,
+             scratch_data.position_inv_gradients[q],
+             scratch_data.position_inv_gradients_T[q],
+             scratch_data.position_J[q],
+             div_phi_x_i,
+             grad_phi_x_i,
+             div_phi_x_j,
+             grad_phi_x_j) +
            alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
           JxW;
       }
@@ -478,7 +480,7 @@ void LinearElasticitySolver<dim>::assemble_rhs()
   TimerOutput::Scope t(computing_timer, "Assemble RHS");
 
   system_rhs = 0;
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(dof_handler.begin_active(),
@@ -524,7 +526,7 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
 
-    const auto &ps = param.physical_properties.pseudosolids[0];
+    const auto &ps                = param.physical_properties.pseudosolids[0];
     const auto  pseudosolid_model = ps.constitutive_model;
 
     const auto &source_term_position_moving_mesh =
@@ -536,8 +538,9 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const auto source_term = alpha * source_term_position_moving_mesh +
                              gamma * source_term_position_fixed_mesh;
 
-    const Tensor<2, dim> strain = Tensor<2, dim>(scratch_data.position_strains[q]);
-    const auto  trace_strain = scratch_data.position_trace_strains[q];
+    const Tensor<2, dim> strain =
+      Tensor<2, dim>(scratch_data.position_strains[q]);
+    const auto trace_strain = scratch_data.position_trace_strains[q];
 
     const auto &phi_x      = scratch_data.phi_x[q];
     const auto &grad_phi_x = scratch_data.grad_phi_x[q];
@@ -545,21 +548,19 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      local_rhs(i) -=
-        (Assembly::Pseudosolid::rhs_contribution(pseudosolid_model,
-                                                 lame_mu,
-                                                 lame_lambda,
-                                                 trace_strain,
-                                                 strain,
-                                                 scratch_data
-                                                   .position_gradients[q],
-                                                 scratch_data
-                                                   .position_inv_gradients_T[q],
-                                                 scratch_data.position_J[q],
-                                                 div_phi_x[i],
-                                                 grad_phi_x[i]) +
-         phi_x[i] * source_term) *
-        JxW;
+      local_rhs(i) -= (Assembly::Pseudosolid::rhs_contribution(
+                         pseudosolid_model,
+                         lame_mu,
+                         lame_lambda,
+                         trace_strain,
+                         strain,
+                         scratch_data.position_gradients[q],
+                         scratch_data.position_inv_gradients_T[q],
+                         scratch_data.position_J[q],
+                         div_phi_x[i],
+                         grad_phi_x[i]) +
+                       phi_x[i] * source_term) *
+                      JxW;
     }
   }
 
@@ -627,11 +628,11 @@ void LinearElasticitySolver<dim>::compute_cell_average_strain(
   std::vector<SymmetricTensor<2, dim>> &strain_tensors,
   Vector<double>                       &strain_trace)
 {
-  const QGauss<dim> quadrature_formula(fe->degree + 1);
+  const QGauss<dim>     quadrature_formula(fe->degree + 1);
   const QGauss<dim - 1> face_quadrature_formula(fe->degree + 1);
   ScratchData           scratch_data(
     *fe, *mapping, quadrature_formula, face_quadrature_formula, param);
-  const unsigned int               n_active_cells = triangulation.n_active_cells();
+  const unsigned int n_active_cells = triangulation.n_active_cells();
 
   strain_tensors.assign(n_active_cells, SymmetricTensor<2, dim>());
   strain_trace.reinit(n_active_cells);
@@ -653,9 +654,9 @@ void LinearElasticitySolver<dim>::compute_cell_average_strain(
 
       eps_avg /= measure;
 
-      const unsigned int idx        = cell->active_cell_index();
-      strain_tensors[idx]           = eps_avg;
-      strain_trace(idx)             = trace(eps_avg);
+      const unsigned int idx = cell->active_cell_index();
+      strain_tensors[idx]    = eps_avg;
+      strain_trace(idx)      = trace(eps_avg);
     }
   }
 }
@@ -679,12 +680,12 @@ void LinearElasticitySolver<dim>::output_results()
                              data_component_interpretation);
 
     std::vector<SymmetricTensor<2, dim>> strain_tensors;
-    Vector<double> strain_trace;
+    Vector<double>                       strain_trace;
 
     if (strain_cache_is_valid)
     {
       strain_tensors = cached_strain_tensors;
-      strain_trace = cached_strain_trace;
+      strain_trace   = cached_strain_trace;
     }
     else
       compute_cell_average_strain(strain_tensors, strain_trace);
@@ -695,14 +696,16 @@ void LinearElasticitySolver<dim>::output_results()
       PostProcessingTools::make_tensor_component_names<dim>("strain"),
       PostProcessingTools::make_tensor_component_interpretation<dim>());
 
-    for (const auto &cell : strain_field.get_dof_handler().active_cell_iterators())
+    for (const auto &cell :
+         strain_field.get_dof_handler().active_cell_iterators())
       if (cell->is_locally_owned() || cell->is_ghost())
         strain_field.set_cell_values(cell,
                                      strain_tensors[cell->active_cell_index()]);
 
     PostProcessingTools::add_dg0_data_field(data_out, strain_field);
-    data_out.add_data_vector(
-      strain_trace, "strain_trace", DataOut<dim>::type_cell_data);
+    data_out.add_data_vector(strain_trace,
+                             "strain_trace",
+                             DataOut<dim>::type_cell_data);
     // Partition
     Vector<float> subdomain(triangulation.n_active_cells());
     for (unsigned int i = 0; i < subdomain.size(); ++i)

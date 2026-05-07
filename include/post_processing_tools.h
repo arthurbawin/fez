@@ -6,9 +6,9 @@
 #include <deal.II/base/types.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_dgq.h>
-#include <deal.II/fe/fe_values_extractors.h>
-#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_simplex_p.h>
+#include <deal.II/fe/fe_system.h>
+#include <deal.II/fe/fe_values_extractors.h>
 #include <deal.II/hp/fe_collection.h>
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
@@ -215,42 +215,33 @@ namespace PostProcessingTools
   public:
     using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
 
-    DG0DataField(
-      const Triangulation<dim> &triangulation,
-      const bool                use_quads,
-      const std::vector<std::string> &component_names,
-      const std::vector<DataComponentInterpretation::
-                          DataComponentInterpretation> &component_interpretation);
+    DG0DataField(const Triangulation<dim>       &triangulation,
+                 const bool                      use_quads,
+                 const std::vector<std::string> &component_names,
+                 const std::vector<
+                   DataComponentInterpretation::DataComponentInterpretation>
+                   &component_interpretation);
 
-    const DoFHandler<dim> &
-    get_dof_handler() const
-    {
-      return dof_handler;
-    }
+    const DoFHandler<dim> &get_dof_handler() const { return dof_handler; }
 
-    const Vector<double> &
-    get_data() const
-    {
-      return data;
-    }
+    const Vector<double> &get_data() const { return data; }
 
-    const std::vector<std::string> &
-    get_component_names() const
+    const std::vector<std::string> &get_component_names() const
     {
       return component_names;
     }
 
-    const std::vector<DataComponentInterpretation::
-                        DataComponentInterpretation> &
+    const std::vector<
+      DataComponentInterpretation::DataComponentInterpretation> &
     get_component_interpretation() const
     {
       return component_interpretation;
     }
 
-    void set_cell_values(const CellIterator            &cell,
-                         const std::vector<double>     &values);
-    void set_cell_values(const CellIterator            &cell,
-                         const Tensor<1, dim>          &values);
+    void set_cell_values(const CellIterator        &cell,
+                         const std::vector<double> &values);
+    void set_cell_values(const CellIterator   &cell,
+                         const Tensor<1, dim> &values);
     void set_cell_values(const CellIterator            &cell,
                          const SymmetricTensor<2, dim> &values);
 
@@ -284,7 +275,7 @@ namespace PostProcessingTools
   make_tensor_component_interpretation();
 
   template <int dim>
-  void add_dg0_data_field(DataOut<dim>         &data_out,
+  void add_dg0_data_field(DataOut<dim>            &data_out,
                           const DG0DataField<dim> &field);
 
 } // namespace PostProcessingTools
@@ -293,8 +284,8 @@ namespace PostProcessingTools
 
 template <int dim>
 PostProcessingTools::DG0DataField<dim>::DG0DataField(
-  const Triangulation<dim> &triangulation,
-  const bool                use_quads,
+  const Triangulation<dim>       &triangulation,
+  const bool                      use_quads,
   const std::vector<std::string> &component_names,
   const std::vector<DataComponentInterpretation::DataComponentInterpretation>
     &component_interpretation)
@@ -327,8 +318,7 @@ PostProcessingTools::DG0DataField<dim>::DG0DataField(
 }
 
 template <int dim>
-void
-PostProcessingTools::DG0DataField<dim>::set_cell_values(
+void PostProcessingTools::DG0DataField<dim>::set_cell_values(
   const CellIterator        &cell,
   const std::vector<double> &values)
 {
@@ -344,8 +334,7 @@ PostProcessingTools::DG0DataField<dim>::set_cell_values(
 }
 
 template <int dim>
-void
-PostProcessingTools::DG0DataField<dim>::set_cell_values(
+void PostProcessingTools::DG0DataField<dim>::set_cell_values(
   const CellIterator   &cell,
   const Tensor<1, dim> &values)
 {
@@ -359,8 +348,7 @@ PostProcessingTools::DG0DataField<dim>::set_cell_values(
 }
 
 template <int dim>
-void
-PostProcessingTools::DG0DataField<dim>::set_cell_values(
+void PostProcessingTools::DG0DataField<dim>::set_cell_values(
   const CellIterator            &cell,
   const SymmetricTensor<2, dim> &values)
 {
@@ -405,9 +393,8 @@ PostProcessingTools::make_tensor_component_interpretation()
 }
 
 template <int dim>
-void
-PostProcessingTools::add_dg0_data_field(DataOut<dim>            &data_out,
-                                        const DG0DataField<dim> &field)
+void PostProcessingTools::add_dg0_data_field(DataOut<dim>            &data_out,
+                                             const DG0DataField<dim> &field)
 {
   data_out.add_data_vector(field.get_dof_handler(),
                            field.get_data(),

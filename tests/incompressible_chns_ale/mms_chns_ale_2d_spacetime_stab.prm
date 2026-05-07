@@ -55,6 +55,7 @@ subsection FiniteElements
 end
 
 subsection Physical properties
+  set body force          = 0, 0
   set number of fluids = 2
   subsection Fluid 0
     set density             = 1.1
@@ -80,7 +81,6 @@ subsection Cahn Hilliard
   set mobility            = 0.5
   set surface tension     = 1
   set interface thickness = 1
-  set body force          = 0, 0
 end
 
 subsection Initial conditions

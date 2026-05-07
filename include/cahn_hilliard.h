@@ -37,6 +37,22 @@ namespace CahnHilliard
   }
 
   /**
+   * Return a pointer to the tracer limiter function used for the degenerate
+   * mobility calcul
+   */
+  using MobilityTracerLimiterFunction = double (*)(double);
+
+  template <int dim>
+  MobilityTracerLimiterFunction
+  get_mobility_limiter_function(const Parameters::CahnHilliard<dim> param)
+  {
+    if (param.mobility_tracer_limiter)
+      return &tracer_limiter;
+    else
+      return &tracer_identity;
+  }
+
+  /**
    * Apply linear mixing from value A (when phase marker = 1) to value B (phase
    * marker = -1).
    */
@@ -61,9 +77,8 @@ namespace CahnHilliard
    * Constant mobility
    */
   template <int dim>
-  inline double constant_mobility(
-    const Parameters::CahnHilliard<dim> &param,
-    const double /*phase_marker*/)
+  inline double constant_mobility(const Parameters::CahnHilliard<dim> &param,
+                                  const double /*phase_marker*/)
   {
     return param.mobility;
   }
@@ -73,7 +88,7 @@ namespace CahnHilliard
    */
   template <int dim>
   inline double degenerate_mobility(const Parameters::CahnHilliard<dim> &param,
-    const double phase_marker)
+                                    const double phase_marker)
   {
     dealii::Point<dim> p;
     p[0] = phase_marker;
@@ -84,30 +99,32 @@ namespace CahnHilliard
    * Choice between constant and degenerate mobility
    */
   template <int dim>
-  using MobilityFunction = double (*)(const Parameters::CahnHilliard<dim> &, double);
+  using MobilityFunction = double (*)(const Parameters::CahnHilliard<dim> &,
+                                      double);
 
   template <int dim>
   MobilityFunction<dim>
   get_mobility_function(const Parameters::CahnHilliard<dim> &param)
   {
-    if (param.mobility_model == Parameters::CahnHilliard<dim>::MobilityModel::constant)
+    if (param.mobility_model ==
+        Parameters::CahnHilliard<dim>::MobilityModel::constant)
       return &constant_mobility<dim>;
     else
       return &degenerate_mobility<dim>;
   }
 
   template <int dim>
-  inline double constant_mobility_derivative(
-    const Parameters::CahnHilliard<dim> & /*param*/,
-      const double /*phase_marker*/)
+  inline double
+  constant_mobility_derivative(const Parameters::CahnHilliard<dim> & /*param*/,
+                               const double /*phase_marker*/)
   {
     return 0.;
   }
 
   template <int dim>
-  inline double degenerate_mobility_derivative(
-    const Parameters::CahnHilliard<dim> &param,
-      const double                         phase_marker)
+  inline double
+  degenerate_mobility_derivative(const Parameters::CahnHilliard<dim> &param,
+                                 const double phase_marker)
   {
     dealii::Point<dim> p;
     p[0] = phase_marker;
@@ -116,8 +133,7 @@ namespace CahnHilliard
 
   template <int dim>
   MobilityFunction<dim>
-  get_mobility_derivative_function(
-    const Parameters::CahnHilliard<dim> &param)
+  get_mobility_derivative_function(const Parameters::CahnHilliard<dim> &param)
   {
     if (param.mobility_model ==
         Parameters::CahnHilliard<dim>::MobilityModel::constant)
@@ -145,8 +161,7 @@ namespace CahnHilliard
   }
 
   template <int dim>
-  MobilityFunction<dim>
-  get_mobility_second_derivative_function(
+  MobilityFunction<dim> get_mobility_second_derivative_function(
     const Parameters::CahnHilliard<dim> &param)
   {
     if (param.mobility_model ==

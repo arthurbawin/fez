@@ -947,14 +947,14 @@ void NSSolverLambda<dim>::assemble_local_matrix(
     }
   }
 
-  Assembly::assemble_ns_matrix_stabilization<dim>(*this->ordering,
-                                                  this->coupling_table,
-                                                  scratch_data,
-                                                  nu,
-                                                  bdf_c0,
-                                                  this->param.finite_elements
-                                                    .stabilization,
-                                                  local_matrix);
+  Assembly::assemble_ns_matrix_stabilization<dim>(
+    *this->ordering,
+    this->coupling_table,
+    scratch_data,
+    nu,
+    bdf_c0,
+    this->param.finite_elements.stabilization,
+    local_matrix);
 
   //
   // Face contributions (Lagrange multiplier)
@@ -1129,11 +1129,11 @@ void NSSolverLambda<dim>::assemble_local_rhs(
     }
   }
 
-  Assembly::assemble_ns_rhs_stabilization<dim>(*this->ordering,
-                                               scratch_data,
-                                               this->param.finite_elements
-                                                 .stabilization,
-                                               local_rhs);
+  Assembly::assemble_ns_rhs_stabilization<dim>(
+    *this->ordering,
+    scratch_data,
+    this->param.finite_elements.stabilization,
+    local_rhs);
 
 
   //

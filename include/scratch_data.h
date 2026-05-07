@@ -103,7 +103,7 @@ private:
     const std::vector<ValueType> &previous_values) const
   {
     const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
-    ValueType time_derivative = bdf_coefficients[0] * current_value;
+    ValueType   time_derivative  = bdf_coefficients[0] * current_value;
     for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
       time_derivative += bdf_coefficients[i] * previous_values[i - 1];
     return time_derivative;
@@ -116,7 +116,7 @@ private:
     const unsigned int                         q) const
   {
     const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
-    ValueType time_derivative = bdf_coefficients[0] * current_value;
+    ValueType   time_derivative  = bdf_coefficients[0] * current_value;
     for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
       time_derivative += bdf_coefficients[i] * previous_values[i - 1][q];
     return time_derivative;
@@ -991,11 +991,16 @@ private:
     {
       // Physical properties based on tracer, filter if applicable
       const double filtered_phi = tracer_limiter(tracer_values[q]);
-      mobility_values[q] = mobility_function(cahn_hilliard_param, filtered_phi);
+      const double filtered_phi_mobility =
+        mobility_tracer_limiter(tracer_values[q]);
+      mobility_values[q] =
+        mobility_function(cahn_hilliard_param, filtered_phi_mobility);
       derivative_mobility_wrt_tracer[q] =
-        mobility_derivative_function(cahn_hilliard_param, filtered_phi);
+        mobility_derivative_function(cahn_hilliard_param,
+                                     filtered_phi_mobility);
       second_derivative_mobility_wrt_tracer[q] =
-        mobility_second_derivative_function(cahn_hilliard_param, filtered_phi);
+        mobility_second_derivative_function(cahn_hilliard_param,
+                                            filtered_phi_mobility);
       diffusive_flux_factor_values[q] =
         mobility_values[q] * 0.5 * (density1 - density0);
       density[q] =
@@ -1088,11 +1093,12 @@ private:
           compute_bdf_time_derivative(tracer_values[q],
                                       previous_tracer_values,
                                       q);
-        strong_residual_tracer[q] = dphidt + velocity_dot_tracer_gradient[q] -
-                                    (mobility_values[q] * potential_laplacians[q] +
-                                      derivative_mobility_wrt_tracer[q] *
-                                        (tracer_gradients[q] * potential_gradients[q])) +
-                                    source_term_tracer[q];
+        strong_residual_tracer[q] =
+          dphidt + velocity_dot_tracer_gradient[q] -
+          (mobility_values[q] * potential_laplacians[q] +
+           derivative_mobility_wrt_tracer[q] *
+             (tracer_gradients[q] * potential_gradients[q])) +
+          source_term_tracer[q];
 
         // τ — recalculated with ν_eff (momentum) and mobility (tracer).
         const double h_tau = Stabilization::compute_streamline_length(
@@ -1475,11 +1481,11 @@ public:
   FEValuesExtractors::Scalar potential;
   FEValuesExtractors::Scalar enlarged;
 
-  double         density0;
-  double         density1;
-  double         dynamic_viscosity0;
-  double         dynamic_viscosity1;
-  double         mobility;
+  double                              density0;
+  double                              density1;
+  double                              dynamic_viscosity0;
+  double                              dynamic_viscosity1;
+  double                              mobility;
   CahnHilliard::MobilityFunction<dim> mobility_function;
   CahnHilliard::MobilityFunction<dim> mobility_derivative_function;
   CahnHilliard::MobilityFunction<dim> mobility_second_derivative_function;
@@ -1489,12 +1495,13 @@ public:
   std::vector<double> derivative_mobility_wrt_tracer;
   std::vector<double> diffusive_flux_factor_values;
   std::vector<double> second_derivative_mobility_wrt_tracer;
-  double         epsilon;
-  double         sigma_tilde;
-  double         diffusive_flux_factor;
-  Tensor<1, dim> body_force;
+  double              epsilon;
+  double              sigma_tilde;
+  double              diffusive_flux_factor;
+  Tensor<1, dim>      body_force;
 
-  CahnHilliard::TracerLimiterFunction tracer_limiter;
+  CahnHilliard::TracerLimiterFunction         tracer_limiter;
+  CahnHilliard::MobilityTracerLimiterFunction mobility_tracer_limiter;
 
   std::vector<double> derivative_density_wrt_tracer;
   std::vector<double> dynamic_viscosity;
@@ -1751,9 +1758,7 @@ public:
  * Scratch data for the quasi-incompressible Cahn_hilliard Navier-Stokes solver
  * on fixed mesh.
  */
-template <int dim,
-          bool with_moving_mesh = false,
-          bool with_enlarged    = false>
+template <int dim, bool with_moving_mesh = false, bool with_enlarged = false>
 class ScratchDataCHNS : public ScratchData<dim>
 {
 public:

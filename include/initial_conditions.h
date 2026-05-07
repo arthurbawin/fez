@@ -169,8 +169,7 @@ namespace Parameters
                              initial_chns_enlarged_psi_callback)
       : Function<dim>(n_components)
       , psi_lower(psi_lower)
-      , initial_chns_enlarged_psi_callback(
-          initial_chns_enlarged_psi_callback)
+      , initial_chns_enlarged_psi_callback(initial_chns_enlarged_psi_callback)
     {}
 
     virtual double value(const Point<dim> &p,
@@ -347,7 +346,7 @@ namespace Parameters
   {
     prm.enter_subsection("Initial conditions");
     {
-      set_to_mms = prm.get_bool("to mms");
+      set_to_mms       = prm.get_bool("to mms");
       use_enlarged_psi = prm.get_bool("use enlarged psi");
       prm.enter_subsection("velocity");
       initial_velocity_callback->parse_parameters(prm);

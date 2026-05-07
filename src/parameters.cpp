@@ -1,8 +1,8 @@
 
+#include <deal.II/differentiation/sd/symengine_tensor_operations.h>
 #include <parameters.h>
 #include <solver_info.h>
 #include <utilities.h>
-#include <deal.II/differentiation/sd/symengine_tensor_operations.h>
 
 #include <cmath>
 
@@ -1085,6 +1085,11 @@ namespace Parameters
                         "1.",
                         Patterns::Double(),
                         "Mobility value if constant");
+      prm.declare_entry(
+        "enable mobility tracer limiter",
+        "false",
+        Patterns::Bool(),
+        "Enable tracer limiter for the degenerate mobility calcul");
       prm.enter_subsection("degenerate mobility");
       {
         degenerate_mobility->declare_parameters(prm, 1, "(1 - x*x)*(1 - x*x)");
@@ -1168,14 +1173,16 @@ namespace Parameters
         mobility_model = MobilityModel::degenerate;
       else
         AssertThrow(false, ExcMessage("Unknown mobility model"));
-      mobility            = prm.get_double("mobility");
+      mobility                = prm.get_double("mobility");
+      mobility_tracer_limiter = prm.get_bool("enable mobility tracer limiter");
       prm.enter_subsection("degenerate mobility");
       {
         degenerate_mobility->parse_parameters(prm);
 
         if (mobility_model == MobilityModel::degenerate)
         {
-          const std::string expr = degenerate_mobility->get_function_expression();
+          const std::string expr =
+            degenerate_mobility->get_function_expression();
 
           const Expression f(expr, true);
 
@@ -1183,20 +1190,26 @@ namespace Parameters
           const Expression t("t");
 
           AssertThrow(numbers::value_is_zero(f.differentiate(y)),
-                      ExcMessage("The degenerate mobility must depend only on x (which represents phi), "
-                                "but it depends on y: " + expr));
+                      ExcMessage("The degenerate mobility must depend only on "
+                                 "x (which represents phi), "
+                                 "but it depends on y: " +
+                                 expr));
 
           AssertThrow(numbers::value_is_zero(f.differentiate(t)),
-                      ExcMessage("The degenerate mobility must depend only on x (which represents phi), "
-                                "but it depends on t: " + expr));
+                      ExcMessage("The degenerate mobility must depend only on "
+                                 "x (which represents phi), "
+                                 "but it depends on t: " +
+                                 expr));
 
           if constexpr (dim == 3)
           {
             const Expression z("z");
 
             AssertThrow(numbers::value_is_zero(f.differentiate(z)),
-                        ExcMessage("The degenerate mobility must depend only on x (which represents phi), "
-                                  "but it depends on z: " + expr));
+                        ExcMessage("The degenerate mobility must depend only "
+                                   "on x (which represents phi), "
+                                   "but it depends on z: " +
+                                   expr));
           }
           const unsigned int n_check_points = 1000;
           const double       tolerance      = 1e-12;
@@ -1212,51 +1225,55 @@ namespace Parameters
             const double mobility_value = degenerate_mobility->value(p);
 
             AssertThrow(mobility_value >= -tolerance,
-                        ExcMessage("The degenerate mobility must be non-negative "
-                                  "for x in [-1, 1], but M(" +
-                                  Utilities::to_string(x_value) + ") = " +
-                                  Utilities::to_string(mobility_value) +
-                                  " for expression: " + expr));
+                        ExcMessage(
+                          "The degenerate mobility must be non-negative "
+                          "for x in [-1, 1], but M(" +
+                          Utilities::to_string(x_value) +
+                          ") = " + Utilities::to_string(mobility_value) +
+                          " for expression: " + expr));
           }
           const std::vector<std::string> variable_names =
             Utilities::split_string_list(prm.get("Variable names"));
 
           AssertThrow(variable_names.size() == dim ||
                         variable_names.size() == dim + 1,
-                      ExcMessage("The degenerate mobility variable list must have "
-                                "dim or dim+1 entries."));
+                      ExcMessage(
+                        "The degenerate mobility variable list must have "
+                        "dim or dim+1 entries."));
 
           AssertThrow(variable_names[0] == "x",
-                      ExcMessage("For degenerate mobility, the first variable must be "
-                                "'x', which represents phi."));
+                      ExcMessage(
+                        "For degenerate mobility, the first variable must be "
+                        "'x', which represents phi."));
 
           if constexpr (dim >= 2)
             AssertThrow(variable_names[1] == "y",
-                        ExcMessage("For degenerate mobility, the second variable "
-                                  "must be 'y'."));
+                        ExcMessage(
+                          "For degenerate mobility, the second variable "
+                          "must be 'y'."));
 
           if constexpr (dim == 3)
             AssertThrow(variable_names[2] == "z",
-                        ExcMessage("For degenerate mobility, the third variable "
-                                  "must be 'z'."));
+                        ExcMessage(
+                          "For degenerate mobility, the third variable "
+                          "must be 'z'."));
 
           if (variable_names.size() == dim + 1)
             AssertThrow(variable_names[dim] == "t",
                         ExcMessage("For degenerate mobility, the optional time "
-                                  "variable must be 't'."));
+                                   "variable must be 't'."));
         }
       }
       prm.leave_subsection();
-      surface_tension     = prm.get_double("surface tension");
-      epsilon_interface   = prm.get_double("interface thickness");
+      surface_tension   = prm.get_double("surface tension");
+      epsilon_interface = prm.get_double("interface thickness");
       epsilon_interface_enlarged =
         prm.get_double("enlarged interface thickness");
       psi_interface_width_factor = prm.get_double("psi interface width factor");
       if (psi_interface_width_factor > 0.)
       {
         AssertThrow(psi_interface_width_factor >= 1.,
-                    ExcMessage(
-                      "'psi interface width factor' must be >= 1.0."));
+                    ExcMessage("'psi interface width factor' must be >= 1.0."));
         const double target_eps_eff =
           psi_interface_width_factor * epsilon_interface;
         const double delta_eps =

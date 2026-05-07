@@ -438,17 +438,19 @@ void ScratchData<dim, has_hp_capabilities>::initialize_cahn_hilliard()
   const double nu1   = physical_properties.fluids[1].kinematic_viscosity;
   dynamic_viscosity0 = density0 * nu0;
   dynamic_viscosity1 = density1 * nu1;
-  mobility = cahn_hilliard_param.mobility;
-  mobility_function = CahnHilliard::get_mobility_function(cahn_hilliard_param);
+  mobility           = cahn_hilliard_param.mobility;
+  mobility_function  = CahnHilliard::get_mobility_function(cahn_hilliard_param);
   mobility_derivative_function =
     CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param);
   mobility_second_derivative_function =
     CahnHilliard::get_mobility_second_derivative_function(cahn_hilliard_param);
-  epsilon            = cahn_hilliard_param.epsilon_interface;
+  epsilon     = cahn_hilliard_param.epsilon_interface;
   sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
   body_force            = physical_properties.body_force;
   tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
+  mobility_tracer_limiter =
+    CahnHilliard::get_mobility_limiter_function(cahn_hilliard_param);
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -658,8 +660,9 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     previous_tracer_values_fixed.resize(time_handler.n_previous_solutions,
                                         std::vector<double>(n_q_points));
 
-    previous_tracer_gradients_fixed.resize(
-      time_handler.n_previous_solutions, std::vector<Tensor<1, dim>>(n_q_points));
+    previous_tracer_gradients_fixed.resize(time_handler.n_previous_solutions,
+                                           std::vector<Tensor<1, dim>>(
+                                             n_q_points));
     potential_values.resize(n_q_points);
     potential_gradients.resize(n_q_points);
     potential_laplacians.resize(n_q_points);

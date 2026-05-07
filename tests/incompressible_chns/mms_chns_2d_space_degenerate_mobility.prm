@@ -73,7 +73,6 @@ subsection Cahn Hilliard
   end
   set surface tension     = 1
   set interface thickness = 1
-  set body force          = 0, -9.81
 end
 
 subsection Initial conditions

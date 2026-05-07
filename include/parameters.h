@@ -537,7 +537,8 @@ namespace Parameters
 
     double mobility;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
-      degenerate_mobility;
+           degenerate_mobility;
+    bool   mobility_tracer_limiter;
     double surface_tension;
     double epsilon_interface;
     double epsilon_interface_enlarged;

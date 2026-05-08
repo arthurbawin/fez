@@ -673,7 +673,10 @@ namespace Parameters
 
       global_position_master_to_all_lambda = 2,
 
-      local_position_master_to_lambda_accumulators = 3
+      local_position_master_to_lambda_accumulators = 3,
+
+      global_position_master_to_global_accumulator = 4,
+
     } coupling;
 
     void declare_parameters(ParameterHandler &prm);

@@ -212,13 +212,16 @@ protected:
   bool         has_local_position_master       = false;
   bool         has_local_lambda_accumulator    = false;
   bool         has_global_master_position_dofs = false;
+  bool         has_global_accumulator          = false;
   unsigned int n_ranks_with_position_master;
   unsigned int n_ranks_with_lambda_accumulator;
 
   std::array<types::global_dof_index, dim> local_position_master_dofs;
   std::array<types::global_dof_index, dim> global_position_master_dofs;
 
-  std::array<types::global_dof_index, dim>          local_lambda_accumulators;
+  std::array<types::global_dof_index, dim> local_lambda_accumulators;
+  std::array<types::global_dof_index, dim> global_lambda_accumulators;
+
   std::vector<std::vector<types::global_dof_index>> all_lambda_accumulators;
 
 public:

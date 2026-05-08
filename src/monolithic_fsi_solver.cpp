@@ -228,11 +228,13 @@ void FSISolver<dim>::reset_solver_specific_data()
   has_local_position_master       = false;
   has_local_lambda_accumulator    = false;
   has_global_master_position_dofs = false;
+  has_global_accumulator          = false;
   for (unsigned int d = 0; d < dim; ++d)
   {
     local_position_master_dofs[d]  = numbers::invalid_unsigned_int;
     global_position_master_dofs[d] = numbers::invalid_unsigned_int;
     local_lambda_accumulators[d]   = numbers::invalid_unsigned_int;
+    global_lambda_accumulators[d]  = numbers::invalid_unsigned_int;
     all_lambda_accumulators[d].clear();
   }
 }
@@ -369,16 +371,46 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
     local_position_dofs.n_elements() > 0;
 
   /**
-   * The coupling options 0, 1 and 2 all couple one or more position dofs
-   * to *all* lambda dofs, which requires adding these dofs as ghosts on
-   * the partitions which own a piece of the cylinder.
+   * Set up some flags depending on the coupling strategy.
+   * In particular, we need to know whether:
+   *
+   * - additional ghost lambda dofs should be accounted for. This is the case
+   *   if position (all or masters) dofs are coupled to *all* lambda dofs, in
+   * which case they need all cylinder lambda dofs as ghosts to evaluate the
+   * total force integral.
+   *
+   * - local and global position master dofs should be set, if the coupling
+   * strategy uses position masters.
+   *
+   * - local and global lambda accumulators should be set, if the coupling
+   * strategy uses force accumulators.
    */
+  const auto coupling = this->param.fsi.coupling;
+
   const bool requires_lambda_ghosts =
-    (this->param.fsi.coupling == Coupling::all_position_to_all_lambda) ||
-    (this->param.fsi.coupling ==
-     Coupling::local_position_master_to_all_lambda) ||
-    (this->param.fsi.coupling ==
-     Coupling::global_position_master_to_all_lambda);
+    (coupling == Coupling::all_position_to_all_lambda) ||
+    (coupling == Coupling::local_position_master_to_all_lambda) ||
+    (coupling == Coupling::global_position_master_to_all_lambda);
+
+  // All but the all-to-all strategy use a local position master
+  const bool requires_local_position_master =
+    (coupling != Coupling::all_position_to_all_lambda);
+
+  const bool requires_global_position_master =
+    (coupling == Coupling::global_position_master_to_all_lambda) ||
+    (coupling == Coupling::global_position_master_to_global_accumulator);
+
+  const bool requires_local_lambda_accumulator =
+    (coupling == Coupling::local_position_master_to_lambda_accumulators) ||
+    (coupling == Coupling::global_position_master_to_global_accumulator);
+
+  const bool requires_global_lambda_accumulator =
+    (coupling == Coupling::global_position_master_to_global_accumulator);
+
+  if (requires_global_position_master)
+    Assert(requires_local_position_master, ExcInternalError());
+  if (requires_global_lambda_accumulator)
+    Assert(requires_local_lambda_accumulator, ExcInternalError());
 
   if (requires_lambda_ghosts)
   {
@@ -423,7 +455,10 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
     this->reinit_ghosted_vectors();
   }
 
-  if (this->param.fsi.coupling != Coupling::all_position_to_all_lambda)
+  /**
+   * Set up the local and global position master dofs.
+   */
+  if (requires_local_position_master)
   {
     // Set the local_position_master_dofs
     // Simply take the first owned position dofs on the cylinder
@@ -460,26 +495,13 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
                     << " ranks with local position master dofs" << std::endl;
       }
     }
-  }
 
-  switch (this->param.fsi.coupling)
-  {
-    case Coupling::all_position_to_all_lambda:
-      // Nothing to do
-      break;
-    case Coupling::local_position_master_to_all_lambda:
-      // Couple all local position dofs to local master
-      // Then couple local master to all (global) lambda dofs
-      // Nothing else to do : the local position master was set,
-      // and the lambda dofs on cylinder have been added as ghosts
-      break;
-    case Coupling::global_position_master_to_all_lambda:
+    /**
+     * Set up the global position master as the local master on the lowest rank
+     *  among those with a local position master.
+     */
+    if (requires_global_position_master)
     {
-      // Couple all local position dofs to local master, then to global master
-      // Couple global master to all (global) lambda dofs
-      // We still have to determine the global position master :
-      // it is simply taken as the local master on the lowest rank
-      // among those with a local position master:
       const unsigned int candidate_rank =
         has_local_position_master ? this->mpi_rank :
                                     std::numeric_limits<unsigned int>::max();
@@ -512,255 +534,318 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
                  ExcMessage(
                    "The global position master is invalid after broadcast"));
       }
-
-      break;
     }
-    case Coupling::local_position_master_to_lambda_accumulators:
+  }
+
+  /**
+   * Set up local and global lambda accumulators
+   */
+  if (requires_local_lambda_accumulator)
+  {
+    // Normally, this coupling would require adding "dim" dofs per
+    // partition to store the integral of each component (accumulators).
+    // But we can ruse a little bit: since we are already storing more lambda
+    // dofs than required (even in hp mode), we can just use "dim" of these
+    // useless dofs to store the force on this proc,
+    // while being careful not to affect the no-slip constraint.
+    // The global dof indices of these dofs are stored in
+    // local_lambda_accumulators.
+
+    // Set the accumulator dofs from among the unused lambda dofs:
+    // This rank should have a lambda accumulator if it has at least
+    // one owned face on the cylinder
+    for (const auto &cell : this->dof_handler.active_cell_iterators())
+      if (cell->is_locally_owned())
+        if (cell->at_boundary())
+          for (const auto &face : cell->face_iterators())
+            if (face->at_boundary() &&
+                face->boundary_id() == weak_no_slip_boundary_id)
+            {
+              has_local_lambda_accumulator = true;
+              goto reduce_accumulators;
+            }
+  reduce_accumulators:
+    n_ranks_with_lambda_accumulator =
+      Utilities::MPI::sum(has_local_lambda_accumulator ? 1 : 0,
+                          this->mpi_communicator);
+    if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+      this->pcout << "There are " << n_ranks_with_lambda_accumulator
+                  << " ranks with local lambda accumulators" << std::endl;
+
+    for (unsigned int d = 0; d < dim; ++d)
+      local_lambda_accumulators[d] = numbers::invalid_unsigned_int;
+
+    // Now actually set the dofs for the accumulators, if possible
+    if (has_local_lambda_accumulator)
     {
-      // Couple all local position dofs to local master,
-      // and use local accumulators to sum the lambda integrals on owned faces
-      // Then, couple each local master to all lambda accumulators
+      // We can take as accumulators the first dim lambda dofs on this
+      // partition that would otherwise be constrained to zero
 
-      // Normally, this coupling would require adding "dim" dofs per
-      // partition to store the integral of each component (accumulators).
-      // But we can ruse a little bit: since we are already storing more lambda
-      // dofs than required (even in hp mode), we can just use "dim" of these
-      // useless dofs to store the force on this proc,
-      // while being careful not to affect the no-slip constraint.
-      // The global dof indices of these dofs are stored in
-      // local_lambda_accumulators.
+      // Impact on the no-slip enforcement:
+      // The lambda equations on the relevant boundaries are assembled by
+      // looping over the cell dofs, not only the face dofs, so if we choose
+      // lambda dofs from a cell adjacent to these boundaries, this will
+      // affect the no-slip enforcement. To avoid that we can take lambda dofs
+      // from a cell that touches the boundary by a vertex only, and take dofs
+      // which are not shared which a directly adjacent cell to the boundary.
 
-      // Set the accumulator dofs from among the unused lambda dofs:
-      // This rank should have a lambda accumulator if it has at least
-      // one owned face on the cylinder
+      std::vector<types::global_dof_index> face_dofs(fe->n_dofs_per_face());
+      unsigned int                         n_accumulators = 0;
       for (const auto &cell : this->dof_handler.active_cell_iterators())
         if (cell->is_locally_owned())
-          if (cell->at_boundary())
-            for (const auto &face : cell->face_iterators())
-              if (face->at_boundary() &&
-                  face->boundary_id() == weak_no_slip_boundary_id)
-              {
-                has_local_lambda_accumulator = true;
-                goto reduce_accumulators;
-              }
-    reduce_accumulators:
-      n_ranks_with_lambda_accumulator =
-        Utilities::MPI::sum(has_local_lambda_accumulator ? 1 : 0,
-                            this->mpi_communicator);
-      if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-        this->pcout << "There are " << n_ranks_with_lambda_accumulator
-                    << " ranks with local lambda accumulators" << std::endl;
+        // if (cell_has_lambda(cell))
+        {
+          bool skip_cell = false;
 
-      for (unsigned int d = 0; d < dim; ++d)
-        local_lambda_accumulators[d] = numbers::invalid_unsigned_int;
+          // Skip this cell altogether if it touches the target boundary
+          // with a face
+          for (const auto &face : cell->face_iterators())
+            if (face->at_boundary() &&
+                face->boundary_id() == weak_no_slip_boundary_id)
+            {
+              skip_cell = true;
+              break;
+            };
 
-      // Now actually set the dofs for the accumulators, if possible
-      if (has_local_lambda_accumulator)
-      {
-        // We can take as accumulators the first dim lambda dofs on this
-        // partition that would otherwise be constrained to zero
+          if (!skip_cell)
+            for (const auto i_face : cell->face_indices())
+            {
+              const auto &face      = cell->face(i_face);
+              bool        skip_face = false;
 
-        // Impact on the no-slip enforcement:
-        // The lambda equations on the relevant boundaries are assembled by
-        // looping over the cell dofs, not only the face dofs, so if we choose
-        // lambda dofs from a cell adjacent to these boundaries, this will
-        // affect the no-slip enforcement. To avoid that we can take lambda dofs
-        // from a cell that touches the boundary by a vertex only, and take dofs
-        // which are not shared which a directly adjacent cell to the boundary.
-
-        std::vector<types::global_dof_index> face_dofs(fe->n_dofs_per_face());
-        unsigned int                         n_accumulators = 0;
-        for (const auto &cell : this->dof_handler.active_cell_iterators())
-          if (cell->is_locally_owned())
-          // if (cell_has_lambda(cell))
-          {
-            bool skip_cell = false;
-
-            // Skip this cell altogether if it touches the target boundary
-            // with a face
-            for (const auto &face : cell->face_iterators())
-              if (face->at_boundary() &&
-                  face->boundary_id() == weak_no_slip_boundary_id)
-              {
-                skip_cell = true;
-                break;
-              };
-
-            if (!skip_cell)
-              for (const auto i_face : cell->face_indices())
-              {
-                const auto &face      = cell->face(i_face);
-                bool        skip_face = false;
-
-                // Skip face if neighbouring cell through this face touches
-                // the target boundary
-                auto neighbor = cell->neighbor(i_face);
-                if (neighbor->state() == IteratorState::IteratorStates::valid)
-                  for (const auto neighbor_i_face : neighbor->face_indices())
-                  {
-                    const auto &neighbor_face = neighbor->face(neighbor_i_face);
-                    if (neighbor_face->at_boundary() &&
-                        neighbor_face->boundary_id() ==
-                          weak_no_slip_boundary_id)
-                    {
-                      skip_face = true;
-                      break;
-                    }
-                  }
-
-                if (!skip_face)
+              // Skip face if neighbouring cell through this face touches
+              // the target boundary
+              auto neighbor = cell->neighbor(i_face);
+              if (neighbor->state() == IteratorState::IteratorStates::valid)
+                for (const auto neighbor_i_face : neighbor->face_indices())
                 {
-                  face->get_dof_indices(face_dofs);
-                  for (unsigned int i = 0; i < face_dofs.size(); ++i)
+                  const auto &neighbor_face = neighbor->face(neighbor_i_face);
+                  if (neighbor_face->at_boundary() &&
+                      neighbor_face->boundary_id() == weak_no_slip_boundary_id)
                   {
-                    types::global_dof_index dof = face_dofs[i];
-                    unsigned int            comp =
-                      fe->face_system_to_component_index(i, i_face).first;
-                    unsigned int base =
-                      fe->face_system_to_component_index(i, i_face).second;
-
-                    // FIXME:
-                    // Hardcoded to the first P2 dof of the first face whose
-                    // neighbouring cell does not touch the boundary Its shape
-                    // functions index (base) is 2 in 2D (P2 dof on a line)
-                    // and 3 in 3D (P2 dof on triangle). This is for simplices
-                    // only...
-                    AssertThrow(
-                      !this->param.finite_elements.use_quads &&
-                        this->param.finite_elements
-                            .no_slip_lagrange_mult_degree == 2,
-                      ExcMessage(
-                        "This coupling option for the forces-position on the "
-                        "cylinder for now assumes a P2 Lagrange multiplier "
-                        "on simplices only. If this changes, the lambda dofs "
-                        "chosen as accumulators should be generalized "
-                        "accordingly."));
-                    unsigned int target_base = (dim == 2) ? 2 : 3;
-                    if (base == target_base)
-                      if (this->ordering->is_lambda(comp))
-                        /**
-                         * The accumulator must be an owned dof. It might not
-                         * be possible to assign an accumulator, based on the
-                         * partition used, see the assert below.
-                         */
-                        if (this->locally_owned_dofs.is_element(dof))
-                        {
-                          local_lambda_accumulators[n_accumulators++] = dof;
-                          if (n_accumulators == dim)
-                            goto accumulators_found;
-                        }
+                    skip_face = true;
+                    break;
                   }
                 }
+
+              if (!skip_face)
+              {
+                face->get_dof_indices(face_dofs);
+                for (unsigned int i = 0; i < face_dofs.size(); ++i)
+                {
+                  types::global_dof_index dof = face_dofs[i];
+                  unsigned int            comp =
+                    fe->face_system_to_component_index(i, i_face).first;
+                  unsigned int base =
+                    fe->face_system_to_component_index(i, i_face).second;
+
+                  // FIXME:
+                  // Hardcoded to the first P2 dof of the first face whose
+                  // neighbouring cell does not touch the boundary Its shape
+                  // functions index (base) is 2 in 2D (P2 dof on a line)
+                  // and 3 in 3D (P2 dof on triangle). This is for simplices
+                  // only...
+                  AssertThrow(
+                    !this->param.finite_elements.use_quads &&
+                      this->param.finite_elements
+                          .no_slip_lagrange_mult_degree == 2,
+                    ExcMessage(
+                      "This coupling option for the forces-position on the "
+                      "cylinder for now assumes a P2 Lagrange multiplier "
+                      "on simplices only. If this changes, the lambda dofs "
+                      "chosen as accumulators should be generalized "
+                      "accordingly."));
+                  unsigned int target_base = (dim == 2) ? 2 : 3;
+                  if (base == target_base)
+                    if (this->ordering->is_lambda(comp))
+                      /**
+                       * The accumulator must be an owned dof. It might not
+                       * be possible to assign an accumulator, based on the
+                       * partition used, see the assert below.
+                       */
+                      if (this->locally_owned_dofs.is_element(dof))
+                      {
+                        local_lambda_accumulators[n_accumulators++] = dof;
+                        if (n_accumulators == dim)
+                          goto accumulators_found;
+                      }
+                }
               }
-          }
-      accumulators_found:
-        if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-        {
-          if constexpr (dim == 2)
-          {
-            std::cout << "Set lambda accumulator at dof "
-                      << local_lambda_accumulators[0] << " - "
-                      << local_lambda_accumulators[1] << std::endl;
-          }
-          else
-          {
-            std::cout << "Set lambda accumulator at dof "
-                      << local_lambda_accumulators[0] << " - "
-                      << local_lambda_accumulators[1] << " - "
-                      << local_lambda_accumulators[2] << std::endl;
-          }
+            }
         }
-        for (unsigned int d = 0; d < dim; ++d)
-          /**
-           * On some weird partitions (typically with "too many" MPI procs),
-           * there are owned cells on the boundary, but no owned lambda dof that
-           * can be used to accumulate the local integral.
-           *
-           * This is technically an issue with the coupling method itself, as
-           * accumulators should be defined on their own, without using
-           * otherwise unused lambda dofs. Note that allowing accumulators on a
-           * non-boundary face of elements touching the boundary is not
-           * sufficient, because in some cases the *only* owned lambda dofs are
-           * on a boundary face, and there is really no way to define an
-           * accumulator without modifying the flow solution.
-           */
-          AssertThrow(
-            local_lambda_accumulators[d] != numbers::invalid_unsigned_int,
-            ExcMessage(
-              "\n This rank owns at least one cell touching a boundary where "
-              "no-slip should be enforced with a Lagrange multiplier (lambda). "
-              "But it doesn't own any lambda degree of freedom that can be "
-              "used to safely accumulate the force integral on this rank (all "
-              "its lambda dofs are either ghosts, or owned but on the "
-              "prescribed "
-              "boundary)."
-              "\n\n This can happen on somewhat pathological mesh partitions "
-              "with isolated elements touching the boundary, and it probably "
-              "indicates that the mesh has too few elements for the number of "
-              "MPI processes used."
-              "\n\n To go around this issue, try running with another number "
-              "of MPI processes."));
+    accumulators_found:
+      if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+      {
+        if constexpr (dim == 2)
+        {
+          std::cout << "Set lambda accumulator at dof "
+                    << local_lambda_accumulators[0] << " - "
+                    << local_lambda_accumulators[1] << std::endl;
+        }
+        else
+        {
+          std::cout << "Set lambda accumulator at dof "
+                    << local_lambda_accumulators[0] << " - "
+                    << local_lambda_accumulators[1] << " - "
+                    << local_lambda_accumulators[2] << std::endl;
+        }
+      }
+      for (unsigned int d = 0; d < dim; ++d)
+        /**
+         * On some weird partitions (typically with "too many" MPI procs),
+         * there are owned cells on the boundary, but no owned lambda dof that
+         * can be used to accumulate the local integral.
+         *
+         * This is technically an issue with the coupling method itself, as
+         * accumulators should be defined on their own, without using
+         * otherwise unused lambda dofs. Note that allowing accumulators on a
+         * non-boundary face of elements touching the boundary is not
+         * sufficient, because in some cases the *only* owned lambda dofs are
+         * on a boundary face, and there is really no way to define an
+         * accumulator without modifying the flow solution.
+         */
+        AssertThrow(
+          local_lambda_accumulators[d] != numbers::invalid_unsigned_int,
+          ExcMessage(
+            "\n This rank owns at least one cell touching a boundary where "
+            "no-slip should be enforced with a Lagrange multiplier (lambda). "
+            "But it doesn't own any lambda degree of freedom that can be "
+            "used to safely accumulate the force integral on this rank (all "
+            "its lambda dofs are either ghosts, or owned but on the "
+            "prescribed "
+            "boundary)."
+            "\n\n This can happen on somewhat pathological mesh partitions "
+            "with isolated elements touching the boundary, and it probably "
+            "indicates that the mesh has too few elements for the number of "
+            "MPI processes used."
+            "\n\n To go around this issue, try running with another number "
+            "of MPI processes."));
 
 #if defined(DEBUG_PRINTS)
-        {
-          // Print accumulators
-          std::map<types::global_dof_index, Point<dim>> support_points =
-            DoFTools::map_dofs_to_support_points(fixed_mapping_collection,
-                                                 this->dof_handler);
-
-          {
-            std::ofstream outfile(this->param.output.output_dir +
-                                  "accumulators_dofs" +
-                                  std::to_string(this->mpi_rank) + ".pos");
-            outfile << "View \"accumulators_dofs" << this->mpi_rank << "\"{"
-                    << std::endl;
-            for (const auto dof : local_lambda_accumulators)
-            {
-              const Point<dim> &pt = support_points.at(dof);
-              if constexpr (dim == 2)
-                outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
-                        << std::endl;
-              else
-                outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2]
-                        << "){1};" << std::endl;
-            }
-            outfile << "};" << std::endl;
-            outfile.close();
-          }
-        }
-#endif
-      }
-
-      // Lastly, add accumulators as ghosts on all procs with a position master
-      // and reinit the parallel vectors with these additional ghosts
       {
-        std::vector<std::array<types::global_dof_index, dim>> gathered =
-          Utilities::MPI::all_gather(this->mpi_communicator,
-                                     local_lambda_accumulators);
-        // all_lambda_accumulators.resize(dim);
-        for (unsigned int rank = 0; rank < gathered.size(); ++rank)
-          for (unsigned int d = 0; d < dim; ++d)
-            if (gathered[rank][d] != numbers::invalid_unsigned_int)
-              all_lambda_accumulators[d].push_back(gathered[rank][d]);
+        // Print accumulators
+        std::map<types::global_dof_index, Point<dim>> support_points =
+          DoFTools::map_dofs_to_support_points(fixed_mapping_collection,
+                                               this->dof_handler);
+
+        {
+          std::ofstream outfile(this->param.output.output_dir +
+                                "accumulators_dofs" +
+                                std::to_string(this->mpi_rank) + ".pos");
+          outfile << "View \"accumulators_dofs" << this->mpi_rank << "\"{"
+                  << std::endl;
+          for (const auto dof : local_lambda_accumulators)
+          {
+            const Point<dim> &pt = support_points.at(dof);
+            if constexpr (dim == 2)
+              outfile << "SP(" << pt[0] << "," << pt[1] << ", 0.){1};"
+                      << std::endl;
+            else
+              outfile << "SP(" << pt[0] << "," << pt[1] << "," << pt[2]
+                      << "){1};" << std::endl;
+          }
+          outfile << "};" << std::endl;
+          outfile.close();
+        }
       }
+#endif
+    }
+
+    /**
+     * Set up the global lambda accumulators similarly to the global position
+     * master.
+     */
+    if (requires_global_lambda_accumulator)
+    {
+      const unsigned int candidate_rank =
+        has_local_lambda_accumulator ? this->mpi_rank :
+                                       std::numeric_limits<unsigned int>::max();
+      const unsigned int owner_rank =
+        Utilities::MPI::min(candidate_rank, this->mpi_communicator);
+      has_global_accumulator = (this->mpi_rank == owner_rank);
+
+      if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+        this->pcout << "Global accumulators are on rank " << owner_rank
+                    << std::endl;
+
+      // Set the global accumulator dofs and broadcast them to all ranks
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        global_lambda_accumulators[d] = numbers::invalid_unsigned_int;
+        if (has_global_accumulator)
+          global_lambda_accumulators[d] = local_lambda_accumulators[d];
+      }
+
+      Utilities::MPI::broadcast(global_lambda_accumulators.data(),
+                                dim,
+                                owner_rank,
+                                this->mpi_communicator);
 
       if constexpr (running_in_debug_mode())
       {
-        // Check that there are indeed n_ranks_with_lambda_accumulator dofs for
-        // each dimension
         for (unsigned int d = 0; d < dim; ++d)
-          Assert(all_lambda_accumulators[d].size() ==
-                   n_ranks_with_lambda_accumulator,
+          Assert(global_lambda_accumulators[d] != numbers::invalid_unsigned_int,
                  ExcMessage(
-                   "There are " +
-                   std::to_string(all_lambda_accumulators[d].size()) +
-                   "lambda accumulators in the local vector on this rank, "
-                   "but there are " +
-                   std::to_string(n_ranks_with_lambda_accumulator) +
-                   " ranks with an accumulator."));
+                   "The global position master is invalid after broadcast"));
       }
+    }
 
+    // Lastly, add accumulators as ghosts on all procs who need them,
+    // and reinit the parallel vectors with these additional ghosts.
+    {
+      // Get all the accumulator dofs
+      std::vector<std::array<types::global_dof_index, dim>> gathered =
+        Utilities::MPI::all_gather(this->mpi_communicator,
+                                   local_lambda_accumulators);
+      // all_lambda_accumulators.resize(dim);
+      for (unsigned int rank = 0; rank < gathered.size(); ++rank)
+        for (unsigned int d = 0; d < dim; ++d)
+          if (gathered[rank][d] != numbers::invalid_unsigned_int)
+            all_lambda_accumulators[d].push_back(gathered[rank][d]);
+    }
+
+    if constexpr (running_in_debug_mode())
+    {
+      // Check that there are indeed n_ranks_with_lambda_accumulator dofs for
+      // each dimension
+      for (unsigned int d = 0; d < dim; ++d)
+        Assert(
+          all_lambda_accumulators[d].size() == n_ranks_with_lambda_accumulator,
+          ExcMessage("There are " +
+                     std::to_string(all_lambda_accumulators[d].size()) +
+                     "lambda accumulators in the local vector on this rank, "
+                     "but there are " +
+                     std::to_string(n_ranks_with_lambda_accumulator) +
+                     " ranks with an accumulator."));
+    }
+
+    if (coupling == Coupling::local_position_master_to_lambda_accumulators)
+    {
+      // Each local position master couples to each local accumulator,
+      // and thus needs these accumulators as ghosts.
       if (has_local_lambda_accumulator)
+      {
+        // Each rank with local accumulator
+        for (unsigned int d = 0; d < dim; ++d)
+          this->locally_relevant_dofs.add_indices(
+            all_lambda_accumulators[d].begin(),
+            all_lambda_accumulators[d].end());
+        this->locally_relevant_dofs.compress();
+      }
+      this->reinit_ghosted_vectors();
+    }
+    else if (coupling == Coupling::global_position_master_to_global_accumulator)
+    {
+      // Global position master couples to global accumulator:
+      // - rank with global position master needs global accumulator as ghost
+      // - rank with global accumulator needs the local accumulators as ghosts.
+      if (has_global_master_position_dofs)
+      {
+        for (unsigned int d = 0; d < dim; ++d)
+          this->locally_relevant_dofs.add_index(global_lambda_accumulators[d]);
+        this->locally_relevant_dofs.compress();
+      }
+      if (has_global_accumulator)
       {
         for (unsigned int d = 0; d < dim; ++d)
           this->locally_relevant_dofs.add_indices(
@@ -768,13 +853,8 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
             all_lambda_accumulators[d].end());
         this->locally_relevant_dofs.compress();
       }
-
       this->reinit_ghosted_vectors();
-
-      break;
     }
-    default:
-      DEAL_II_NOT_IMPLEMENTED();
   }
 
   /**
@@ -948,12 +1028,12 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
   }
 
   /**
-   * Either store the local coefficients of the lambda integral (option 3),
-   * or reduce them into a single vector
+   * If using force accumulators, simply store the *local* integral coefficients
+   * in a vector. Otherwise, *all* the coefficients must be gathered to evaluate
+   * the complete force integral.
    */
   lambda_integral_coeffs.resize(dim);
-  if (this->param.fsi.coupling ==
-      Coupling::local_position_master_to_lambda_accumulators)
+  if (requires_local_lambda_accumulator)
   {
     for (unsigned int d = 0; d < dim; ++d)
       lambda_integral_coeffs[d] =
@@ -1387,6 +1467,16 @@ void FSISolver<dim>::create_sparsity_pattern()
     for (const auto &[position_dof, d] : coupled_position_dofs)
       dsp.add(position_dof, local_position_master_dofs[d]);
 
+  // Couple local lambda accumulators (one per dimension) to themselves
+  // and to local lambdas of same dimension
+  if (has_local_lambda_accumulator)
+    for (unsigned int d = 0; d < dim; ++d)
+    {
+      dsp.add(local_lambda_accumulators[d], local_lambda_accumulators[d]);
+      for (const auto &[lambda_dof, weight] : lambda_integral_coeffs[d])
+        dsp.add(local_lambda_accumulators[d], lambda_dof);
+    }
+
   switch (this->param.fsi.coupling)
   {
     case Coupling::all_position_to_all_lambda:
@@ -1445,16 +1535,27 @@ void FSISolver<dim>::create_sparsity_pattern()
           for (const auto &lambda_accumulator : all_lambda_accumulators[d])
             dsp.add(local_position_master_dofs[d], lambda_accumulator);
         }
-
-      if (has_local_lambda_accumulator)
-        // Couple local lambda accumulators (one per dimension) to themselves
-        // and to local lambdas of same dimension
+      break;
+    }
+    case Coupling::global_position_master_to_global_accumulator:
+    {
+      if (has_local_position_master)
         for (unsigned int d = 0; d < dim; ++d)
         {
-          dsp.add(local_lambda_accumulators[d], local_lambda_accumulators[d]);
-          for (const auto &[lambda_dof, weight] : lambda_integral_coeffs[d])
-            dsp.add(local_lambda_accumulators[d], lambda_dof);
+          // Couple local position master to global position master (one way)
+          dsp.add(local_position_master_dofs[d],
+                  global_position_master_dofs[d]);
+
+          // Couple global position master to global accumulator (one way)
+          dsp.add(global_position_master_dofs[d],
+                  global_lambda_accumulators[d]);
         }
+
+      if (has_global_accumulator)
+        // Couple global lambda accumulator to each local accumulator
+        for (unsigned int d = 0; d < dim; ++d)
+          for (const auto &lambda_accumulator : all_lambda_accumulators[d])
+            dsp.add(global_lambda_accumulators[d], lambda_accumulator);
       break;
     }
     default:
@@ -2212,6 +2313,114 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
 
       break;
     }
+    case Coupling::global_position_master_to_global_accumulator:
+    {
+      // Get the accumulator rows
+      std::map<types::global_dof_index, std::vector<LA::ConstMatrixIterator>>
+        accumulator_rows;
+      if (has_local_lambda_accumulator)
+      {
+        for (unsigned int d = 0; d < dim; ++d)
+          if (local_lambda_accumulators[d] != numbers::invalid_unsigned_int)
+          {
+            AssertThrow(
+              this->locally_owned_dofs.is_element(local_lambda_accumulators[d]),
+              ExcMessage("Local accumulator is not locally owned " +
+                         std::to_string(local_lambda_accumulators[d])));
+
+            accumulator_rows[local_lambda_accumulators[d]] =
+              get_matrix_rows(this->system_matrix,
+                              local_lambda_accumulators[d]);
+          }
+      }
+
+      if (has_local_position_master)
+      {
+        // Set x_i - x_local_master = 0 for the other coupled position dofs
+        for (const auto &[pos_dof, d] : coupled_position_dofs)
+          if (this->locally_owned_dofs.is_element(pos_dof) &&
+              pos_dof != local_position_master_dofs[d])
+            constrain_matrix_row(this->system_matrix,
+                                 pos_dof,
+                                 position_rows.at(pos_dof),
+                                 local_position_master_dofs[d],
+                                 -1.);
+
+        if (has_global_master_position_dofs)
+        {
+          // Couple global position master to global accumulator
+          // Constrain: x_global - c * F_global = 0
+          for (unsigned int d = 0; d < dim; ++d)
+            constrain_matrix_row(this->system_matrix,
+                                 global_position_master_dofs[d],
+                                 master_position_rows.at(
+                                   global_position_master_dofs[d]),
+                                 global_lambda_accumulators[d],
+                                 -1.);
+        }
+        else
+        {
+          // Couple local master to global master:
+          // Constrain: x_local_master - x_global_master = 0
+          for (unsigned int d = 0; d < dim; ++d)
+            constrain_matrix_row(this->system_matrix,
+                                 local_position_master_dofs[d],
+                                 master_position_rows.at(
+                                   local_position_master_dofs[d]),
+                                 global_position_master_dofs[d],
+                                 -1.);
+        }
+      }
+
+      if (has_local_lambda_accumulator)
+      {
+        if (has_global_accumulator)
+        {
+          // Couple global accumulator to its local lambda, and to the other
+          // local accumulators.
+          // Constrain: global_accumulator
+          //                      - (sum_j c_j * lambda_j)_{this_rank}
+          //                      - sum_{other_rank} local_accumulator_rank = 0
+          for (unsigned int d = 0; d < dim; ++d)
+          {
+            AssertThrow(this->locally_owned_dofs.is_element(
+                          global_lambda_accumulators[d]),
+                        ExcInternalError());
+
+            // Add the other lambda accumulators to the coupling vector
+            std::vector<std::pair<types::global_dof_index, double>>
+              accumulator_coeffs(lambda_integral_coeffs[d]);
+
+            for (auto lambda_accumulator : all_lambda_accumulators[d])
+              if (lambda_accumulator != global_lambda_accumulators[d])
+                accumulator_coeffs.push_back({lambda_accumulator, 1.});
+
+            constrain_matrix_row(this->system_matrix,
+                                 global_lambda_accumulators[d],
+                                 accumulator_rows.at(
+                                   global_lambda_accumulators[d]),
+                                 accumulator_coeffs);
+          }
+        }
+        else
+        {
+          // Couple local accumulator to its local lambda dofs
+          // Constrain: local_accumulator - sum_j c_j * lambda_j = 0
+          for (unsigned int d = 0; d < dim; ++d)
+            if (this->locally_owned_dofs.is_element(
+                  local_lambda_accumulators[d]))
+              constrain_matrix_row(this->system_matrix,
+                                   local_lambda_accumulators[d],
+                                   accumulator_rows.at(
+                                     local_lambda_accumulators[d]),
+                                   lambda_integral_coeffs[d]);
+        }
+      }
+
+      break;
+    }
+    default:
+      DEAL_II_ASSERT_UNREACHABLE();
   }
 
   this->system_matrix.compress(VectorOperation::insert);
@@ -2227,7 +2436,9 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_rhs()
 
   // Set RHS to zero for local lambda accumulator
   if (this->param.fsi.coupling ==
-      Coupling::local_position_master_to_lambda_accumulators)
+        Coupling::local_position_master_to_lambda_accumulators ||
+      this->param.fsi.coupling ==
+        Coupling::global_position_master_to_global_accumulator)
     for (const auto accumulator_dof : local_lambda_accumulators)
       if (this->locally_owned_dofs.is_element(accumulator_dof))
         this->system_rhs(accumulator_dof) = 0.;
@@ -2393,7 +2604,7 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
   {
     if (std::abs(ratio[d]) < 1e-10)
       continue;
-    if (lambda_integral[d] < 1e-12)
+    if (std::abs(lambda_integral[d]) < 1e-12)
       continue;
 
     const double absolute_error =
@@ -2404,6 +2615,8 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
 
     const double relative_error =
       absolute_error / this->param.fsi.spring_constant;
+
+    this->pcout << "Relative error = " << relative_error << std::endl;
 
     AssertThrow(relative_error <= 1e-2,
                 ExcMessage("Ratio integral vs displacement values is not -k"));

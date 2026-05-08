@@ -1414,14 +1414,15 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "");
-      prm.declare_entry("force-position coupling",
-                        "local_position_master_to_all_lambda",
-                        Patterns::Selection(
-                          "all_position_to_all_lambda|local_position_master_to_"
-                          "all_lambda|global_position_master_to_all_lambda|"
-                          "local_position_master_to_lambda_accumulators"),
-                        "Coupling strategy between force (Lagrange multiplier) "
-                        "and position dofs");
+      prm.declare_entry(
+        "force-position coupling",
+        "local_position_master_to_all_lambda",
+        Patterns::Selection(
+          "all_position_to_all_lambda|local_position_master_to_all_lambda|"
+          "global_position_master_to_all_lambda|local_position_master_to_"
+          "lambda_accumulators|global_position_master_to_global_accumulator"),
+        "Coupling strategy between force (Lagrange multiplier) "
+        "and position dofs");
     }
     prm.leave_subsection();
   }
@@ -1452,6 +1453,10 @@ namespace Parameters
                "local_position_master_to_lambda_accumulators")
         coupling =
           CouplingStrategy::local_position_master_to_lambda_accumulators;
+      else if (parsed_coupling ==
+               "global_position_master_to_global_accumulator")
+        coupling =
+          CouplingStrategy::global_position_master_to_global_accumulator;
       else
         throw std::runtime_error("Unknown force-position coupling: " +
                                  parsed_coupling);

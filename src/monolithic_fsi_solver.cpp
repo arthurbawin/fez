@@ -23,6 +23,177 @@
 #include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
+#include <algorithm>
+#include <deal.II/base/quadrature_lib.h>
+#include <fstream>
+
+namespace MeshConcentrationTools
+{
+  template <int dim>
+  double
+  compute_grad_u_norm(const Tensor<2, dim> &grad_u,
+                      const double          eps)
+  {
+    double G2 = 0.0;
+
+    for (unsigned int i = 0; i < dim; ++i)
+      for (unsigned int j = 0; j < dim; ++j)
+        G2 += grad_u[i][j] * grad_u[i][j];
+
+    return std::sqrt(G2 + eps * eps);
+  }
+
+
+  inline double
+  compute_h_target(const double G,
+                   const double h_min,
+                   const double h_max,
+                   const double G0,
+                   const double exponent)
+  {
+    const double ratio = G / (G + G0);
+    const double s     = std::pow(ratio, exponent);
+
+    const double h_target = h_max - (h_max - h_min) * s;
+
+    return std::max(h_min, std::min(h_max, h_target));
+  }
+
+
+  template <int dim>
+  Tensor<2, dim>
+  compute_directional_metric(const Tensor<2, dim> &grad_u)
+  {
+    Tensor<2, dim> M;
+
+    for (unsigned int i = 0; i < dim; ++i)
+      for (unsigned int j = 0; j < dim; ++j)
+        for (unsigned int k = 0; k < dim; ++k)
+          M[i][j] += grad_u[i][k] * grad_u[j][k];
+
+    return M;
+  }
+
+
+  template <int dim>
+  Tensor<1, dim>
+  compute_principal_direction_power_iteration(const Tensor<2, dim> &M,
+                                              const double          eps)
+  {
+    Tensor<1, dim> n;
+    n[0] = 1.0;
+
+    for (unsigned int iter = 0; iter < 10; ++iter)
+    {
+      const Tensor<1, dim> Mn = M * n;
+      const double norm_Mn = Mn.norm();
+
+      if (norm_Mn <= eps)
+        return Tensor<1, dim>();
+
+      n = Mn / norm_Mn;
+    }
+
+    return n;
+  }
+
+
+  template <int dim>
+  Tensor<2, dim>
+  identity_tensor_2()
+  {
+    Tensor<2, dim> I;
+
+    for (unsigned int d = 0; d < dim; ++d)
+      I[d][d] = 1.0;
+
+    return I;
+  }
+
+
+  template <int dim>
+  Tensor<2, dim>
+  outer_product_nn(const Tensor<1, dim> &n)
+  {
+    Tensor<2, dim> nn;
+
+    for (unsigned int i = 0; i < dim; ++i)
+      for (unsigned int j = 0; j < dim; ++j)
+        nn[i][j] = n[i] * n[j];
+
+    return nn;
+  }
+
+
+  template <int dim>
+  Tensor<2, dim>
+  compute_anisotropic_tensor(const Tensor<1, dim> &n,
+                             const double          normal_weight,
+                             const double          tangential_weight)
+  {
+    const Tensor<2, dim> I  = identity_tensor_2<dim>();
+    const Tensor<2, dim> nn = outer_product_nn<dim>(n);
+
+    return normal_weight * nn + tangential_weight * (I - nn);
+  }
+
+    template <int dim>
+  double
+  forced_center_pressure(const Point<dim> &X)
+  {
+    /*
+     * Domaine test : [0,10] x [0,4]
+     * Centre du domaine : (5,2)
+     */
+    const double x0 = 5.0;
+    const double y0 = 2.0;
+
+    /*
+     * Largeur de la zone de pression.
+     * Plus c'est petit, plus la compression est localisée.
+     */
+    const double wx = 0.75;
+    const double wy = 0.75;
+
+    /*
+     * Amplitude unique de pression.
+     * C'est LA valeur à modifier pour tester.
+     */
+    const double p0 = 10.0;
+
+    const double dx = X[0] - x0;
+    const double dy = X[1] - y0;
+
+    return p0 * std::exp(-0.5 * dx * dx / (wx * wx)
+                         -0.5 * dy * dy / (wy * wy));
+  }
+
+
+  template <int dim>
+  Tensor<2, dim>
+  forced_center_pressure_stress(const Point<dim> &X,
+                                const double      alpha)
+  {
+    const double p = forced_center_pressure<dim>(X);
+
+    const Tensor<2, dim> I = identity_tensor_2<dim>();
+
+    /*
+    * Test de pression isotrope locale.
+    *
+    * alpha vient du fichier .prm :
+    *
+    * subsection alpha
+    *   set Function expression = ...
+    * end
+    *
+    * Si le mouvement est dans le mauvais sens, changer seulement le signe ici.
+    */
+    return alpha * p * I;
+  }
+}
+
+
 
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
@@ -229,16 +400,6 @@ void FSISolver<dim>::reset_solver_specific_data()
     local_position_master_dofs[d]  = numbers::invalid_unsigned_int;
     global_position_master_dofs[d] = numbers::invalid_unsigned_int;
   }
-
-  for (auto &patch_handler : velocity_patch_handlers)
-    patch_handler.reset();
-
-  for (auto &recovery : velocity_recoveries)
-    recovery.reset();
-
-  recovered_grad_omega_square_at_vertices.clear();
-
-  mesh_concentration_data_ready = false;
 }
 
 template <int dim>
@@ -1295,12 +1456,16 @@ void FSISolver<dim>::create_sparsity_pattern()
         if (this->ordering->is_velocity(d) || this->ordering->is_position(d))
           coupling_table[c][d] = DoFTools::always;
 
-      // x couples to itself
-      if (this->ordering->is_position(c) && this->ordering->is_position(d))
+      // x couples to itself through pseudo-solid elasticity.
+      // If mesh concentration is enabled, x also couples to u because
+      // f_c(u) = -alpha * grad(0.5 * |u|^2).
+      if (this->ordering->is_position(c) &&
+          (this->ordering->is_position(d) ||
+          (this->param.mesh_concentration.enable &&
+            this->ordering->is_velocity(d))))
         coupling_table[c][d] = DoFTools::always;
-
-      // Lambda couples only on the relevant boundary faces:
-      // add these coupling on faces only, below.
+            // Lambda couples only on the relevant boundary faces:
+            // add these coupling on faces only, below.
     }
 
   DoFTools::make_sparsity_pattern(this->dof_handler,
@@ -1705,21 +1870,28 @@ void FSISolver<dim>::assemble_local_matrix(
          * Pseudo-solid equation
          */
         double local_ps_matrix_ij = 0.;
-        if (i_is_x && j_is_x)
+
+        if (i_is_x)
         {
-          const auto &gxi = grad_phi_x_i[comp_i - x_lower];
-          const auto &gxj = grad_phi_x[j][comp_j - x_lower];
+          /*
+          * Variation of the pseudo-solid elasticity with respect to x.
+          */
+          if (j_is_x)
+          {
+            const auto &gxi = grad_phi_x_i[comp_i - x_lower];
+            const auto &gxj = grad_phi_x[j][comp_j - x_lower];
 
-          // Linear elasticity
-          local_ps_matrix_ij +=
-            lame_lambda * div_phi_x[j] * div_phi_x_i
+            local_ps_matrix_ij +=
+              lame_lambda * div_phi_x[j] * div_phi_x_i
 
-            // The following is the double contraction
-            // 2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i)
-            // explicited for the symmetric gradient of Lagrange shape functions
-            + lame_mu * gxi[comp_j - x_lower] * gxj[comp_i - x_lower];
-          if (comp_i == comp_j)
-            local_ps_matrix_ij += lame_mu * gxi * gxj;
+              // The following is the double contraction
+              // 2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i)
+              // explicited for the symmetric gradient of Lagrange shape functions
+              + lame_mu * gxi[comp_j - x_lower] * gxj[comp_i - x_lower];
+
+            if (comp_i == comp_j)
+              local_ps_matrix_ij += lame_mu * gxi * gxj;
+          }
 
           local_ps_matrix_ij *= JxW_fixed;
         }
@@ -1849,6 +2021,134 @@ void FSISolver<dim>::assemble_local_rhs(
     this->param.physical_properties.fluids[0].kinematic_viscosity;
   const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
 
+
+  Tensor<2, dim> sigma_concentration_cell;
+
+  // if (this->param.mesh_concentration.enable)
+  // {
+  //   const double eps = this->param.mesh_concentration.eps;
+
+  //   /*
+  //   * Cell-averaged indicator G_K and directional metric M_K.
+  //   */
+  //   double         G_cell = 0.0;
+  //   double         volume_cell = 0.0;
+  //   Tensor<2, dim> M_cell;
+
+  //   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
+  //   {
+  //     const Tensor<2, dim> &grad_u_q =
+  //       scratch_data.present_velocity_gradients[q];
+
+  //     const double G_q =
+  //       MeshConcentrationTools::compute_grad_u_norm<dim>(grad_u_q, eps);
+
+  //     const Tensor<2, dim> M_q =
+  //       MeshConcentrationTools::compute_directional_metric<dim>(grad_u_q);
+
+  //     const double JxW_q = scratch_data.JxW_fixed[q];
+
+  //     G_cell += G_q * JxW_q;
+  //     M_cell += M_q * JxW_q;
+  //     volume_cell += JxW_q;
+  //   }
+
+  //   if (volume_cell > eps)
+  //   {
+  //     G_cell /= volume_cell;
+  //     M_cell *= (1.0 / volume_cell);
+  //   }
+
+  //   /*
+  //   * If the velocity gradient is almost zero, do not add concentration stress.
+  //   */
+  //   if (G_cell > eps)
+  //   {
+  //     const double h_current = cell->diameter();
+
+  //     const double h_target =
+  //       MeshConcentrationTools::compute_h_target(G_cell,
+  //                                               this->param.mesh_concentration.h_min,
+  //                                               this->param.mesh_concentration.h_max,
+  //                                               this->param.mesh_concentration.G0,
+  //                                               this->param.mesh_concentration.exponent);
+
+  //     const double eh =
+  //       (h_current - h_target) / h_target;
+
+  //     const double eh_comp =
+  //       std::max(0.0, eh);
+
+  //     const double eh_dil =
+  //       std::max(0.0, -eh);
+
+  //     const double ratio =
+  //       G_cell / (G_cell + this->param.mesh_concentration.G0);
+
+  //     const double low_gradient_weight =
+  //       1.0 - ratio;
+
+  //     this->param.mesh_concentration.alpha_fun->set_time(
+  //       this->time_handler.current_time);
+
+  //     const double alpha_cell =
+  //       this->param.mesh_concentration.alpha_fun->value(cell->center());
+
+  //     double p_compression =
+  //       alpha_cell * eh_comp * ratio;
+
+  //     double p_dilatation = 0;
+  //       // alpha_cell * eh_dil * low_gradient_weight;
+
+  //     /*
+  //     * Smooth temporal ramp to avoid brutal mesh motion.
+  //     */
+  //     const double ramp_time = this->param.mesh_concentration.ramp_time;
+
+  //     if (ramp_time > eps)
+  //     {
+  //       const double ramp =
+  //         std::min(1.0, this->time_handler.current_time / ramp_time);
+
+  //       p_compression *= ramp;
+  //       p_dilatation  *= ramp;
+  //     }
+
+  //     p_compression =
+  //       std::max(0.0,
+  //               std::min(p_compression,
+  //                         this->param.mesh_concentration.max_pressure));
+
+  //     p_dilatation =
+  //       std::max(0.0,
+  //               std::min(p_dilatation,
+  //                         this->param.mesh_concentration.max_pressure));
+
+  //     /*
+  //     * Principal direction of strongest variation of u.
+  //     */
+  //     const Tensor<1, dim> n =
+  //       MeshConcentrationTools::compute_principal_direction_power_iteration<dim>(
+  //         M_cell, eps);
+
+  //     if (n.norm() > eps && (p_compression > 0.0 || p_dilatation > 0.0))
+  //     {
+  //       const Tensor<2, dim> A_concentration =
+  //         MeshConcentrationTools::compute_anisotropic_tensor<dim>(
+  //           n,
+  //           this->param.mesh_concentration.normal_weight,
+  //           this->param.mesh_concentration.tangential_weight);
+
+  //       const Tensor<2, dim> I =
+  //         MeshConcentrationTools::identity_tensor_2<dim>();
+
+  //       sigma_concentration_cell =
+  //         +p_compression * A_concentration
+  //         +p_dilatation * I;
+  //     }
+  //   }
+  // }
+
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
     //
@@ -1907,9 +2207,23 @@ void FSISolver<dim>::assemble_local_rhs(
     const auto &phi_x          = scratch_data.phi_x[q];
     const auto &sym_grad_phi_x = scratch_data.sym_grad_phi_x[q];
     const auto &div_phi_x      = scratch_data.div_phi_x[q];
+    const auto &grad_phi_x = scratch_data.grad_phi_x[q];
 
-    const auto f_concentration =
-      cell_average_mesh_concentration_force(cell);
+    Tensor<2, dim> sigma_forced_center_q;
+
+    if (this->param.mesh_concentration.enable)
+    {
+      const Point<dim> &Xq = scratch_data.q_points_fixed[q];
+
+      this->param.mesh_concentration.alpha_fun->set_time(
+      this->time_handler.current_time);
+
+      const double alpha =
+        this->param.mesh_concentration.alpha_fun->value(Xq);
+
+      sigma_forced_center_q =
+        MeshConcentrationTools::forced_center_pressure_stress<dim>(Xq, alpha);
+    }
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
@@ -1958,13 +2272,11 @@ void FSISolver<dim>::assemble_local_rhs(
       if (i_is_x)
       {
         local_rhs_ps_i -= (
-          // Linear elasticity : only compute double contraction if needed
           lame_lambda * present_trace_strain * div_phi_x[i] +
-          2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i])
-          // Linear elasticity source term
-          + phi_x[i] * source_term_position
-          // Mesh concentration force
-          + phi_x[i] * f_concentration);
+          2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i]) +
+          phi_x[i] * source_term_position +
+          scalar_product(sigma_forced_center_q, grad_phi_x[i]));
+
         local_rhs_ps_i *= JxW_fixed;
       }
 
@@ -2759,19 +3071,211 @@ void FSISolver<dim>::add_solver_specific_postprocessing_data()
     Vector<float> lame_mu_cell(this->triangulation.n_active_cells());
     Vector<float> lame_lambda_cell(this->triangulation.n_active_cells());
 
+    Vector<float> mesh_G_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_h_current_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_h_target_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_eh_pos_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_eh_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_eh_comp_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_eh_dil_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_p_compression_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_p_dilatation_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_ratio_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_alpha_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_p_concentration_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_nx_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_ny_cell(this->triangulation.n_active_cells());
+
+    Vector<float> mesh_p_forced_center_cell(this->triangulation.n_active_cells());
+
     const auto &mu_fun =
       this->param.physical_properties.pseudosolids[0].lame_mu_fun;
     const auto &lambda_fun =
       this->param.physical_properties.pseudosolids[0].lame_lambda_fun;
 
+    FEValues<dim> fe_values_velocity(
+      *this->moving_mapping,
+      *fe,
+      *this->quadrature,
+      update_gradients | update_JxW_values);
+
+    FEValues<dim> fe_values_fixed(
+      *this->fixed_mapping,
+      *fe,
+      *this->quadrature,
+      update_JxW_values);
+
+    std::vector<Tensor<2, dim>> velocity_gradients(
+      this->quadrature->size());
+
     for (const auto &cell : this->dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
       {
-        lame_mu_cell[cell->active_cell_index()] =
+        const unsigned int cell_id = cell->active_cell_index();
+
+        if (this->param.mesh_concentration.enable)
+        {
+          const double p_forced =
+            MeshConcentrationTools::forced_center_pressure<dim>(cell->center());
+
+          mesh_p_forced_center_cell[cell_id] =
+            static_cast<float>(p_forced);
+        }
+
+        lame_mu_cell[cell_id] =
           mu_fun->value(cell->center());
 
-        lame_lambda_cell[cell->active_cell_index()] =
+        lame_lambda_cell[cell_id] =
           lambda_fun->value(cell->center());
+
+        if (this->param.mesh_concentration.enable)
+        {
+          const double eps = this->param.mesh_concentration.eps;
+
+          fe_values_velocity.reinit(cell);
+          fe_values_fixed.reinit(cell);
+
+          fe_values_velocity[this->velocity_extractor]
+            .get_function_gradients(this->present_solution,
+                                    velocity_gradients);
+
+          double         G_cell = 0.0;
+          double         volume_cell = 0.0;
+          Tensor<2, dim> M_cell;
+
+          for (unsigned int q = 0; q < this->quadrature->size(); ++q)
+          {
+            const Tensor<2, dim> &grad_u_q =
+              velocity_gradients[q];
+
+            const double G_q =
+              MeshConcentrationTools::compute_grad_u_norm<dim>(
+                grad_u_q, eps);
+
+            const Tensor<2, dim> M_q =
+              MeshConcentrationTools::compute_directional_metric<dim>(
+                grad_u_q);
+
+            const double JxW_q = fe_values_fixed.JxW(q);
+
+            G_cell += G_q * JxW_q;
+            M_cell += M_q * JxW_q;
+            volume_cell += JxW_q;
+          }
+
+          if (volume_cell > eps)
+          {
+            G_cell /= volume_cell;
+            M_cell *= (1.0 / volume_cell);
+          }
+
+          const double h_current = cell->diameter();
+
+          const double h_target =
+            MeshConcentrationTools::compute_h_target(
+              G_cell,
+              this->param.mesh_concentration.h_min,
+              this->param.mesh_concentration.h_max,
+              this->param.mesh_concentration.G0,
+              this->param.mesh_concentration.exponent);
+
+          const double eh =
+            (h_current - h_target) / h_target;
+
+          const double eh_comp =
+            std::max(0.0, eh);
+
+          const double eh_dil =
+            std::max(0.0, -eh);
+
+          const double ratio =
+            G_cell / (G_cell + this->param.mesh_concentration.G0);
+
+          const double low_gradient_weight =
+            1.0 - ratio;
+
+          this->param.mesh_concentration.alpha_fun->set_time(
+            this->time_handler.current_time);
+
+          const double alpha =
+            this->param.mesh_concentration.alpha_fun->value(cell->center());
+
+          double p_compression =
+            alpha * eh_comp * ratio;
+
+          double p_dilatation = 0;
+            // alpha * eh_dil * low_gradient_weight;
+
+          const double ramp_time =
+            this->param.mesh_concentration.ramp_time;
+
+          if (ramp_time > eps)
+          {
+            const double ramp =
+              std::min(1.0, this->time_handler.current_time / ramp_time);
+
+            p_compression *= ramp;
+            p_dilatation  *= ramp;
+          }
+
+          p_compression =
+            std::max(0.0,
+                    std::min(p_compression,
+                              this->param.mesh_concentration.max_pressure));
+
+          p_dilatation =
+            std::max(0.0,
+                    std::min(p_dilatation,
+                              this->param.mesh_concentration.max_pressure));
+
+          const Tensor<1, dim> n =
+            MeshConcentrationTools
+              ::compute_principal_direction_power_iteration<dim>(
+                M_cell, eps);
+
+          mesh_G_cell[cell_id] =
+            static_cast<float>(G_cell);
+
+          mesh_h_current_cell[cell_id] =
+            static_cast<float>(h_current);
+
+          mesh_h_target_cell[cell_id] =
+            static_cast<float>(h_target);
+
+          mesh_eh_cell[cell_id] =
+            static_cast<float>(eh);
+
+          mesh_eh_comp_cell[cell_id] =
+            static_cast<float>(eh_comp);
+
+          mesh_eh_dil_cell[cell_id] =
+            static_cast<float>(eh_dil);
+
+          mesh_eh_pos_cell[cell_id] =
+            static_cast<float>(eh_comp);
+
+          mesh_p_compression_cell[cell_id] =
+            static_cast<float>(p_compression);
+
+          mesh_p_dilatation_cell[cell_id] =
+            static_cast<float>(p_dilatation);
+
+          mesh_p_concentration_cell[cell_id] =
+            static_cast<float>(p_compression - p_dilatation);
+
+          mesh_ratio_cell[cell_id] =
+            static_cast<float>(ratio);
+
+          mesh_alpha_cell[cell_id] =
+            static_cast<float>(alpha);
+
+          mesh_nx_cell[cell_id] =
+            static_cast<float>(n[0]);
+
+          if constexpr (dim >= 2)
+            mesh_ny_cell[cell_id] =
+              static_cast<float>(n[1]);
+        }
       }
 
     this->postproc_handler->add_cell_data_vector(lame_mu_cell,
@@ -2780,6 +3284,50 @@ void FSISolver<dim>::add_solver_specific_postprocessing_data()
     this->postproc_handler->add_cell_data_vector(lame_lambda_cell,
                                                  "lame_lambda");
 
+    if (this->param.mesh_concentration.enable)
+    {
+      this->postproc_handler->add_cell_data_vector(mesh_G_cell,
+                                                   "mesh_G");
+
+      this->postproc_handler->add_cell_data_vector(mesh_eh_cell,
+                                                  "mesh_eh");
+
+      this->postproc_handler->add_cell_data_vector(mesh_eh_comp_cell,
+                                                  "mesh_eh_comp");
+
+      this->postproc_handler->add_cell_data_vector(mesh_eh_dil_cell,
+                                                  "mesh_eh_dil");
+
+      this->postproc_handler->add_cell_data_vector(mesh_h_current_cell,
+                                                   "mesh_h_current");
+
+      this->postproc_handler->add_cell_data_vector(mesh_h_target_cell,
+                                                   "mesh_h_target");
+
+      this->postproc_handler->add_cell_data_vector(mesh_eh_pos_cell,
+                                                   "mesh_eh_pos");
+
+      this->postproc_handler->add_cell_data_vector(mesh_ratio_cell,
+                                                   "mesh_ratio");
+
+      this->postproc_handler->add_cell_data_vector(mesh_alpha_cell,
+                                                   "mesh_alpha");
+
+      this->postproc_handler->add_cell_data_vector(mesh_p_compression_cell,
+                                                  "mesh_p_compression");
+
+      this->postproc_handler->add_cell_data_vector(mesh_p_dilatation_cell,
+                                                  "mesh_p_dilatation");
+
+      this->postproc_handler->add_cell_data_vector(mesh_nx_cell,
+                                                   "mesh_nx");
+
+      this->postproc_handler->add_cell_data_vector(mesh_ny_cell,
+                                                   "mesh_ny");
+
+      this->postproc_handler->add_cell_data_vector(mesh_p_forced_center_cell,
+                                             "mesh_p_forced_center");
+    }
   }
 }
 
@@ -2813,197 +3361,7 @@ void FSISolver<dim>::solver_specific_post_processing()
             Parameters::TimeIntegration::BDFStart::initial_condition))
       check_velocity_boundary();
   }
-
-  if (this->param.mesh_concentration.enable)
-    update_mesh_concentration_field();
 }
-
-
-template <int dim>
-void FSISolver<dim>::initialize_mesh_concentration()
-{
-  if (!this->param.mesh_concentration.enable)
-    return;
-
-  for (auto &patch_handler : velocity_patch_handlers)
-    patch_handler.reset();
-
-  for (auto &recovery : velocity_recoveries)
-    recovery.reset();
-
-  const unsigned int recovery_degree =
-    this->param.finite_elements.velocity_degree + 1;
-
-  for (unsigned int d = 0; d < dim; ++d)
-  {
-    std::vector<bool> component_mask_values(this->ordering->n_components,
-                                            false);
-    component_mask_values[this->ordering->u_lower + d] = true;
-
-    const ComponentMask component_mask(component_mask_values);
-
-    velocity_patch_handlers[d] =
-      std::make_unique<ErrorEstimation::PatchHandler<dim>>(
-        this->triangulation,
-        *this->moving_mapping,
-        this->dof_handler,
-        this->present_solution,
-        recovery_degree,
-        component_mask);
-
-    velocity_patch_handlers[d]->build_patches();
-
-    velocity_recoveries[d] =
-      std::make_unique<ErrorEstimation::SolutionRecovery::Scalar<dim>>(
-        2,
-        this->param,
-        *velocity_patch_handlers[d],
-        this->dof_handler,
-        this->present_solution,
-        *fe,
-        *this->moving_mapping,
-        component_mask,
-        true,
-        true);
-  }
-
-  recovered_grad_omega_square_at_vertices.resize(
-    this->triangulation.n_vertices());
-
-  mesh_concentration_data_ready = false;
-}
-
-
-template <int dim>
-void FSISolver<dim>::update_mesh_concentration_field()
-{
-  if (!this->param.mesh_concentration.enable)
-    return;
-
-  if (!velocity_patch_handlers[0])
-    initialize_mesh_concentration();
-
-  for (unsigned int d = 0; d < dim; ++d)
-  {
-    AssertThrow(velocity_patch_handlers[d],
-                ExcMessage("Mesh concentration PatchHandler was not initialized."));
-
-    AssertThrow(velocity_recoveries[d],
-                ExcMessage("Mesh concentration recovery was not initialized."));
-
-    velocity_recoveries[d]->reconstruct_fields(this->present_solution);
-  }
-
-  const auto &owned_vertices = velocity_recoveries[0]->get_owned_vertices();
-
-  std::array<const std::vector<Tensor<1, dim>> *, dim> grad_u_comp;
-  std::array<const std::vector<Tensor<2, dim>> *, dim> hess_u_comp;
-
-  for (unsigned int c = 0; c < dim; ++c)
-  {
-    grad_u_comp[c] = &velocity_recoveries[c]->get_reconstructed_gradient();
-    hess_u_comp[c] = &velocity_recoveries[c]->get_reconstructed_hessian();
-  }
-
-  for (types::global_vertex_index v = 0;
-       v < this->triangulation.n_vertices();
-       ++v)
-  {
-    recovered_grad_omega_square_at_vertices[v] = Tensor<1, dim>();
-
-    if (!owned_vertices[v])
-      continue;
-
-    Tensor<2, dim> grad_u;
-    for (unsigned int comp = 0; comp < dim; ++comp)
-      for (unsigned int a = 0; a < dim; ++a)
-        grad_u[a][comp] = (*grad_u_comp[comp])[v][a];
-
-    Tensor<1, dim> omega;
-
-    if constexpr (dim == 3)
-    {
-      omega[0] = grad_u[1][2] - grad_u[2][1];
-      omega[1] = grad_u[2][0] - grad_u[0][2];
-      omega[2] = grad_u[0][1] - grad_u[1][0];
-
-      Tensor<2, dim> grad_omega;
-
-      for (unsigned int a = 0; a < dim; ++a)
-      {
-        const Tensor<2, dim> &Hux = (*hess_u_comp[0])[v];
-        const Tensor<2, dim> &Huy = (*hess_u_comp[1])[v];
-        const Tensor<2, dim> &Huz = (*hess_u_comp[2])[v];
-
-        grad_omega[a][0] = Huz[a][1] - Huy[a][2];
-        grad_omega[a][1] = Hux[a][2] - Huz[a][0];
-        grad_omega[a][2] = Huy[a][0] - Hux[a][1];
-      }
-
-      Tensor<1, dim> grad_omega_square;
-      for (unsigned int a = 0; a < dim; ++a)
-        for (unsigned int b = 0; b < dim; ++b)
-          grad_omega_square[a] += 2.0 * omega[b] * grad_omega[a][b];
-
-      recovered_grad_omega_square_at_vertices[v] = grad_omega_square;
-    }
-    else if constexpr (dim == 2)
-    {
-      // omega_z = dv/dx - du/dy
-      const Tensor<2, dim> &Hux = (*hess_u_comp[0])[v];
-      const Tensor<2, dim> &Huy = (*hess_u_comp[1])[v];
-
-      const double omega_z = grad_u[0][1] - grad_u[1][0];
-
-      Tensor<1, dim> grad_omega_z;
-      for (unsigned int a = 0; a < dim; ++a)
-        grad_omega_z[a] = Huy[a][0] - Hux[a][1];
-
-      Tensor<1, dim> grad_omega_square;
-      for (unsigned int a = 0; a < dim; ++a)
-        grad_omega_square[a] = 2.0 * omega_z * grad_omega_z[a];
-
-      recovered_grad_omega_square_at_vertices[v] = grad_omega_square;
-    }
-  }
-
-  mesh_concentration_data_ready = true;
-}
-
-template <int dim>
-Tensor<1, dim>
-FSISolver<dim>::cell_average_mesh_concentration_force(
-  const typename DoFHandler<dim>::active_cell_iterator &cell) const
-{
-  Tensor<1, dim> force;
-
-  if (!this->param.mesh_concentration.enable ||
-      !mesh_concentration_data_ready)
-    return force;
-
-  const unsigned int vertices_per_cell = cell->n_vertices();
-
-  for (unsigned int v = 0; v < vertices_per_cell; ++v)
-  {
-    const auto gv = cell->vertex_index(v);
-
-    AssertIndexRange(gv, recovered_grad_omega_square_at_vertices.size());
-
-    force += recovered_grad_omega_square_at_vertices[gv];
-  }
-
-  force /= static_cast<double>(vertices_per_cell);
-
-  const double norm_force = std::sqrt(force.norm_square());
-
-  if (this->param.mesh_concentration.normalize_direction)
-    force /= (norm_force + this->param.mesh_concentration.eps);
-
-  force *= -this->param.mesh_concentration.alpha;
-
-  return force;
-}
-
 
 // Explicit instantiation
 template class FSISolver<2>;

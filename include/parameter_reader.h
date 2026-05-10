@@ -57,7 +57,7 @@ public:
   //
   Parameters::SourceTerms<dim> source_terms;
 
-  Parameters::MeshConcentration mesh_concentration;
+  Parameters::MeshConcentration<dim> mesh_concentration;
 
   //
   // Manufactured solution

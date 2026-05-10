@@ -139,11 +139,14 @@ private:
     // Source terms with layout u-v-(w)-p
     source_terms.vector_value_list(fe_values.get_quadrature_points(),
                                    source_term_full_moving);
+    const auto &moving_quadrature_points =
+        fe_values.get_quadrature_points();
 
     // Get jacobian, shape functions and set source terms
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       JxW_moving[q] = fe_values.JxW(q);
+      q_points_moving[q] = moving_quadrature_points[q];
 
       for (int d = 0; d < dim; ++d)
         source_term_velocity[q][d] = source_term_full_moving[q](u_lower + d);
@@ -392,6 +395,7 @@ private:
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
       JxW_fixed[q] = fe_values_fixed.JxW(q);
+      q_points_fixed[q] = fixed_quadrature_points[q];
 
       const Point<dim> &q_point = fixed_quadrature_points[q];
       lame_mu[q] =
@@ -982,6 +986,8 @@ public:
   std::vector<std::vector<double>>         face_JxW_moving;
   std::vector<std::vector<double>>         face_JxW_fixed;
   std::vector<std::vector<Tensor<1, dim>>> face_normals_moving;
+  std::vector<Point<dim>>                  q_points_moving;
+  std::vector<Point<dim>>                  q_points_fixed;
 
   /**
    * Navier-Stokes

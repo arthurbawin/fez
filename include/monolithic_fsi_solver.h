@@ -177,11 +177,6 @@ public:
 
   void update_mesh_concentration_field();
 
-  Tensor<1, dim>
-  cell_average_mesh_concentration_force(
-    const typename DoFHandler<dim>::active_cell_iterator &cell) const;
-
-
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override
@@ -228,17 +223,10 @@ protected:
   std::array<types::global_dof_index, dim> global_position_master_dofs;
 
 
-  std::array<
-    std::unique_ptr<ErrorEstimation::PatchHandler<dim>>,
-    dim>
-    velocity_patch_handlers;
+  PostProcessingTools::RecoveredVelocityGradientData<dim>
+  mesh_concentration_recovery_data;
 
-  std::array<
-    std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>>,
-    dim>
-    velocity_recoveries;
-
-  std::vector<Tensor<1, dim>> recovered_grad_omega_square_at_vertices;
+  LA::ParVectorType mesh_concentration_force_vector;
 
   bool mesh_concentration_data_ready = false;
 

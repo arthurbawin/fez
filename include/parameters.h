@@ -654,25 +654,36 @@ namespace Parameters
 
 
   /**
-   * Explicit mesh concentration based on recovered vorticity gradients.
+   * Explicit mesh concentration by anisotropic compression pressure.
    */
+  template <int dim>
   struct MeshConcentration
   {
     bool enable = false;
 
-    // Amplitude of the explicit pseudosolid source term.
-    double alpha = 0.0;
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
+      alpha_fun;
 
-    // Regularization parameter used when normalizing the concentration direction.
-    double eps = 1e-12;
+    double h_min             = 0.05;
+    double h_max             = 1.0;
+    double G0                = 1.0;
+    double exponent          = 1.0;
+    double eps               = 1e-12;
+    double max_pressure      = 1e-4;
+    double normal_weight     = 1.0;
+    double tangential_weight = 0.2;
+    double ramp_time         = 0.0;
 
-    // If true, use only the direction of grad(|omega|^2), scaled by alpha.
-    // If false, use the full amplitude alpha * grad(|omega|^2).
-    bool normalize_direction = true;
+    void set_time(const double newtime)
+    {
+      if (alpha_fun)
+        alpha_fun->set_time(newtime);
+    }
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
+  
   
   /**
    * Fluid-structure interaction

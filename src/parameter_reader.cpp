@@ -124,6 +124,40 @@ void ParameterReader<dim>::check_parameters() const
       "be run. This is not compatible, as the source term for the linear "
       "elasticity equation and based on the manufactured solution is expected "
       "to be evaluated on the reference mesh."));
+
+  // Mesh concentration
+  if (mesh_concentration.enable)
+  {
+    AssertThrow(mesh_concentration.h_min > 0.0,
+                ExcMessage("Mesh concentration: h min must be > 0."));
+
+    AssertThrow(mesh_concentration.h_max > 0.0,
+                ExcMessage("Mesh concentration: h max must be > 0."));
+
+    AssertThrow(mesh_concentration.h_min <= mesh_concentration.h_max,
+                ExcMessage("Mesh concentration: h min must be <= h max."));
+
+    AssertThrow(mesh_concentration.G0 > 0.0,
+                ExcMessage("Mesh concentration: G0 must be > 0."));
+
+    AssertThrow(mesh_concentration.exponent > 0.0,
+                ExcMessage("Mesh concentration: exponent must be > 0."));
+
+    AssertThrow(mesh_concentration.eps > 0.0,
+                ExcMessage("Mesh concentration: epsilon must be > 0."));
+
+    AssertThrow(mesh_concentration.max_pressure >= 0.0,
+                ExcMessage("Mesh concentration: max pressure must be >= 0."));
+
+    AssertThrow(mesh_concentration.normal_weight >= 0.0,
+                ExcMessage("Mesh concentration: normal weight must be >= 0."));
+
+    AssertThrow(mesh_concentration.tangential_weight >= 0.0,
+                ExcMessage("Mesh concentration: tangential weight must be >= 0."));
+
+    AssertThrow(mesh_concentration.ramp_time >= 0.0,
+                ExcMessage("Mesh concentration: ramp time must be >= 0."));
+  }
 }
 
 template class ParameterReader<2>;

@@ -252,8 +252,10 @@ namespace PostProcessingTools
     const VectorType                                  &solution,
     const FiniteElement<dim>                          &fe,
     const FEValuesExtractors::Vector                  &velocity_extractor,
-    RecoveredVelocityGradientData<dim>                &data);
-  
+    RecoveredVelocityGradientData<dim>                &data,
+    const unsigned int                                 highest_recovered_derivative = 1);
+
+
   template <int dim, typename VectorType>
   void update_recovered_velocity_gradient_data(
     const Mapping<dim>                 &moving_mapping,
@@ -290,6 +292,18 @@ namespace PostProcessingTools
     const FEValuesExtractors::Scalar   &qcriterion_output_extractor,
     LA::ParVectorType                  &qcriterion_dof_vector);
 
+
+  template <int dim>
+  std::array<Tensor<2, dim>, dim>
+  get_recovered_velocity_hessians_at_velocity_dofs(
+    const RecoveredVelocityGradientData<dim>       &data,
+    const std::array<types::global_dof_index, dim> &velocity_component_dofs);
+
+  template <int dim>
+  Tensor<1, dim>
+  compute_grad_omega_square_from_recovered_data_at_velocity_dofs(
+    const RecoveredVelocityGradientData<dim>       &data,
+    const std::array<types::global_dof_index, dim> &velocity_component_dofs);
 
 } // namespace PostProcessingTools
 
@@ -810,7 +824,8 @@ void PostProcessingTools::initialize_recovered_velocity_gradient_data(
   const VectorType                                  &solution,
   const FiniteElement<dim>                          &fe,
   const FEValuesExtractors::Vector                  &velocity_extractor,
-  RecoveredVelocityGradientData<dim>                &data)
+  RecoveredVelocityGradientData<dim>                &data,
+  const unsigned int                                 highest_recovered_derivative)
 {
   if (data.initialized)
     return;
@@ -850,7 +865,7 @@ void PostProcessingTools::initialize_recovered_velocity_gradient_data(
 
     data.recoveries[d] =
       std::make_shared<ErrorEstimation::SolutionRecovery::Scalar<dim>>(
-        1,
+        highest_recovered_derivative,
         param,
         *data.patch_handlers[d],
         dof_handler,
@@ -858,9 +873,8 @@ void PostProcessingTools::initialize_recovered_velocity_gradient_data(
         fe,
         mapping,
         mask,
-        false, // isoparametric = false -> recovery represented in V_h
-        false  // single_reconstruction = false
-      );
+        false, // same convention as vorticity recovery
+        false);
   }
   data.initialized = true;
 }
@@ -966,6 +980,9 @@ PostProcessingTools::get_recovered_velocity_gradient_at_velocity_dofs(
 
   return grad_u;
 }
+
+
+
 
 template <int dim>
 void PostProcessingTools::compute_recovered_vorticity_dof_vector(
@@ -1153,5 +1170,114 @@ void PostProcessingTools::compute_recovered_qcriterion_dof_vector(
 
   qcriterion_dof_vector = local_qcriterion;
 }
+
+
+template <int dim>
+std::array<Tensor<2, dim>, dim>
+PostProcessingTools::get_recovered_velocity_hessians_at_velocity_dofs(
+  const RecoveredVelocityGradientData<dim>       &data,
+  const std::array<types::global_dof_index, dim> &velocity_component_dofs)
+{
+  std::array<Tensor<2, dim>, dim> hess_u;
+
+  for (unsigned int c = 0; c < dim; ++c)
+  {
+    AssertThrow(data.recoveries[c],
+                ExcMessage("Velocity recovery was not initialized."));
+
+    const auto &recovery = *data.recoveries[c];
+
+    const auto &solution_to_hessian_dofs =
+      recovery.get_solution_to_hessian_dof_map();
+
+    const auto &reconstruction_vector =
+      recovery.get_reconstructions();
+
+    const types::global_dof_index velocity_dof =
+      velocity_component_dofs[c];
+
+    AssertThrow(solution_to_hessian_dofs.count(velocity_dof) > 0,
+                ExcMessage("Velocity DoF not found in "
+                           "solution_to_hessian_dofs map."));
+
+    const auto &hessian_dofs =
+      solution_to_hessian_dofs.at(velocity_dof);
+
+    AssertDimension(hessian_dofs.size(), dim * dim);
+
+    for (unsigned int a = 0; a < dim; ++a)
+      for (unsigned int b = 0; b < dim; ++b)
+      {
+        const unsigned int k =
+          Tensor<2, dim>::component_to_unrolled_index(
+            TableIndices<2>(a, b));
+
+        hess_u[c][a][b] =
+          reconstruction_vector[hessian_dofs[k]];
+      }
+  }
+
+  return hess_u;
+}
+
+template <int dim>
+Tensor<1, dim>
+PostProcessingTools::compute_grad_omega_square_from_recovered_data_at_velocity_dofs(
+  const RecoveredVelocityGradientData<dim>       &data,
+  const std::array<types::global_dof_index, dim> &velocity_component_dofs)
+{
+  const Tensor<2, dim> grad_u =
+    get_recovered_velocity_gradient_at_velocity_dofs<dim>(
+      data, velocity_component_dofs);
+
+  const std::array<Tensor<2, dim>, dim> hess_u =
+    get_recovered_velocity_hessians_at_velocity_dofs<dim>(
+      data, velocity_component_dofs);
+
+  Tensor<1, dim> grad_omega_square;
+
+  if constexpr (dim == 2)
+  {
+    // Convention:
+    // grad_u[i][j] = d u_i / d x_j
+    const double omega_z =
+      grad_u[1][0] - grad_u[0][1];
+
+    Tensor<1, dim> grad_omega_z;
+
+    for (unsigned int a = 0; a < dim; ++a)
+      grad_omega_z[a] =
+        hess_u[1][a][0] - hess_u[0][a][1];
+
+    for (unsigned int a = 0; a < dim; ++a)
+      grad_omega_square[a] =
+        2.0 * omega_z * grad_omega_z[a];
+  }
+  else if constexpr (dim == 3)
+  {
+    Tensor<1, dim> omega;
+
+    omega[0] = grad_u[2][1] - grad_u[1][2];
+    omega[1] = grad_u[0][2] - grad_u[2][0];
+    omega[2] = grad_u[1][0] - grad_u[0][1];
+
+    Tensor<2, dim> grad_omega;
+
+    for (unsigned int a = 0; a < dim; ++a)
+    {
+      grad_omega[a][0] = hess_u[2][a][1] - hess_u[1][a][2];
+      grad_omega[a][1] = hess_u[0][a][2] - hess_u[2][a][0];
+      grad_omega[a][2] = hess_u[1][a][0] - hess_u[0][a][1];
+    }
+
+    for (unsigned int a = 0; a < dim; ++a)
+      for (unsigned int b = 0; b < dim; ++b)
+        grad_omega_square[a] +=
+          2.0 * omega[b] * grad_omega[a][b];
+  }
+
+  return grad_omega_square;
+}
+
 
 #endif

@@ -1414,88 +1414,161 @@ namespace Parameters
   }
 
 
-  void MeshConcentration::declare_parameters(ParameterHandler &prm)
+  template <int dim>
+  void MeshConcentration<dim>::declare_parameters(ParameterHandler &prm)
   {
+    alpha_fun =
+      std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
+
     prm.enter_subsection("Mesh concentration");
     {
       prm.declare_entry(
         "enable",
         "false",
         Patterns::Bool(),
-        "Enable explicit mesh concentration based on recovered vorticity gradients.");
+        "Enable mesh concentration based on an anisotropic compression pressure.");
 
-      prm.declare_entry(
-        "alpha",
-        "0.0",
-        Patterns::Double(),
-        "Amplitude of the explicit pseudosolid source term used for mesh concentration.");
+      prm.declare_entry("h min",
+                        "0.05",
+                        Patterns::Double(0.0),
+                        "Minimum target mesh size in high-gradient regions.");
 
-      prm.declare_entry(
-        "eps",
-        "1e-12",
-        Patterns::Double(0.0),
-        "Regularization parameter used when normalizing grad(|omega|^2).");
+      prm.declare_entry("h max",
+                        "1.0",
+                        Patterns::Double(0.0),
+                        "Maximum target mesh size in low-gradient regions.");
 
-      prm.declare_entry(
-        "normalize direction",
-        "true",
-        Patterns::Bool(),
-        "If true, use only the direction of grad(|omega|^2), scaled by alpha.");
+      prm.declare_entry("G0",
+                        "1.0",
+                        Patterns::Double(0.0),
+                        "Reference velocity-gradient magnitude.");
+
+      prm.declare_entry("exponent",
+                        "1.0",
+                        Patterns::Double(0.0),
+                        "Exponent used in the target-size law.");
+
+      prm.declare_entry("epsilon",
+                        "1e-12",
+                        Patterns::Double(0.0),
+                        "Small regularization value.");
+
+      prm.declare_entry("max pressure",
+                        "1e-4",
+                        Patterns::Double(0.0),
+                        "Maximum allowed concentration pressure.");
+
+      prm.declare_entry("normal weight",
+                        "1.0",
+                        Patterns::Double(0.0),
+                        "Compression weight in the principal gradient direction.");
+
+      prm.declare_entry("tangential weight",
+                        "0.2",
+                        Patterns::Double(0.0),
+                        "Compression weight in tangential directions.");
+
+      prm.declare_entry("ramp time",
+                        "0.0",
+                        Patterns::Double(0.0),
+                        "Time used to ramp up the concentration pressure.");
+
+      prm.enter_subsection("alpha");
+      {
+        alpha_fun->declare_parameters(prm);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
 
-
-  void MeshConcentration::read_parameters(ParameterHandler &prm)
+  template <int dim>
+  void MeshConcentration<dim>::read_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Mesh concentration");
     {
-      enable              = prm.get_bool("enable");
-      alpha               = prm.get_double("alpha");
-      eps                 = prm.get_double("eps");
-      normalize_direction = prm.get_bool("normalize direction");
+      enable = prm.get_bool("enable");
+
+      h_min             = prm.get_double("h min");
+      h_max             = prm.get_double("h max");
+      G0                = prm.get_double("G0");
+      exponent          = prm.get_double("exponent");
+      eps               = prm.get_double("epsilon");
+      max_pressure      = prm.get_double("max pressure");
+      normal_weight     = prm.get_double("normal weight");
+      tangential_weight = prm.get_double("tangential weight");
+      ramp_time         = prm.get_double("ramp time");
+
+      prm.enter_subsection("alpha");
+      {
+        alpha_fun->parse_parameters(prm);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
+
+  template struct MeshConcentration<2>;
+  template struct MeshConcentration<3>;
 
 
   template <int dim>
   void FSI<dim>::declare_parameters(ParameterHandler &prm)
   {
     const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
+
     prm.enter_subsection("FSI");
     {
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
+
       prm.declare_entry("enable coupling",
                         "false",
                         Patterns::Bool(),
                         "Enable coupling between fluid and solid obstacle");
+
       prm.declare_entry("spring constant",
                         "1",
                         Patterns::Double(),
                         "Spring stiffness constant attached to solid object");
+
       prm.declare_entry("damping",
                         "1",
                         Patterns::Double(),
                         "Damping coefficient of the studied system");
+
       prm.declare_entry("mass",
                         "1",
                         Patterns::Double(),
                         "Mass of the studied system");
-      prm.declare_entry("cylinder radius", "1", Patterns::Double(), "");
-      prm.declare_entry("cylinder length", "1", Patterns::Double(), "");
+
+      prm.declare_entry("cylinder radius",
+                        "1",
+                        Patterns::Double(),
+                        "Cylinder radius");
+
+      prm.declare_entry("cylinder length",
+                        "1",
+                        Patterns::Double(),
+                        "Cylinder length");
+
       prm.declare_entry("cylinder center",
                         default_point,
                         Patterns::List(Patterns::Double(), dim, dim, ","),
                         "Center of the cylinder");
-      prm.declare_entry("fix z component", "true", Patterns::Bool(), "");
+
+      prm.declare_entry("fix z component",
+                        "true",
+                        Patterns::Bool(),
+                        "Fix the z component of the structure displacement");
+
       prm.declare_entry("compute error on forces",
                         "false",
                         Patterns::Bool(),
-                        "");
+                        "Compute error on hydrodynamic forces");
     }
     prm.leave_subsection();
   }
+
 
   template <int dim>
   void FSI<dim>::read_parameters(ParameterHandler &prm)

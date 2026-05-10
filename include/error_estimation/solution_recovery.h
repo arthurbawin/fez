@@ -24,7 +24,7 @@ namespace ErrorEstimation
    *
    * This operator provides a C^1 field for the solution and its derivatives,
    * and defines in particular degrees of freedom for the gradient, hessian,
-   * etc., which is not typically defined in a finite element setting.
+   * etc., which are not typically defined in a finite element setting.
    *
    * Possible use cases of this operator are as follows :
    *
@@ -893,7 +893,7 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    FEValues<dim>
+    inline FEValues<dim>
     Base<dim>::get_fe_values(const Mapping<dim>    &mapping,
                              const Quadrature<dim> &quadrature) const
     {
@@ -904,19 +904,19 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    ComponentMask Base<dim>::get_solution_mask() const
+    inline ComponentMask Base<dim>::get_solution_mask() const
     {
       return solution_mask;
     }
 
     template <int dim>
-    ComponentMask Base<dim>::get_gradient_mask() const
+    inline ComponentMask Base<dim>::get_gradient_mask() const
     {
       return gradient_mask;
     }
 
     template <int dim>
-    ComponentMask Base<dim>::get_hessian_mask() const
+    inline ComponentMask Base<dim>::get_hessian_mask() const
     {
       return hessian_mask;
     }

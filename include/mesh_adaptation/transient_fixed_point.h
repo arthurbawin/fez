@@ -1,6 +1,7 @@
 #ifndef TRANSIENT_FIXED_POINT_CPP
 #define TRANSIENT_FIXED_POINT_CPP
 
+#include <deal.II/base/timer.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
 #include <deal.II/dofs/dof_handler.h>
@@ -37,6 +38,7 @@ public:
    * Constructor. Initializes the data for @p n subintervals.
    */
   TransientFixedPointData(const ParameterReader<dim> &param,
+                          TimerOutput                &timer,
                           const unsigned int          n_time_intervals,
                           const MPI_Comm              mpi_communicator);
 
@@ -162,6 +164,11 @@ public:
    *
    */
   const ParameterReader<dim> &param;
+
+  /**
+   *
+   */
+  TimerOutput &timer;
 
   /**
    *

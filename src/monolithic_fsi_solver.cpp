@@ -573,9 +573,13 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
     n_ranks_with_lambda_accumulator =
       Utilities::MPI::sum(has_local_lambda_accumulator ? 1 : 0,
                           this->mpi_communicator);
-    if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
-      this->pcout << "There are " << n_ranks_with_lambda_accumulator
-                  << " ranks with local lambda accumulators" << std::endl;
+
+    if constexpr (running_in_debug_mode())
+    {
+      if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+        this->pcout << "There are " << n_ranks_with_lambda_accumulator
+                    << " ranks with local lambda accumulators" << std::endl;
+    }
 
     for (unsigned int d = 0; d < dim; ++d)
       local_lambda_accumulators[d] = numbers::invalid_unsigned_int;

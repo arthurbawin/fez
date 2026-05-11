@@ -257,6 +257,12 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
                                       {weak_no_slip_boundary_id});
   }
 
+  const bool requires_local_lambda_accumulator =
+    (this->param.fsi.coupling ==
+     Coupling::local_position_master_to_lambda_accumulators) ||
+    (this->param.fsi.coupling ==
+     Coupling::global_position_master_to_global_accumulator);
+
   // There does not seem to be a 2-3 liner way to extract the locally
   // relevant dofs on a boundary for a given component (extract_dofs
   // returns owned dofs).
@@ -273,8 +279,7 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
       // If using the coupling method with accumulators and if dof is a local
       // accumulator, do not constrain it
       bool skip_dof = false;
-      if (this->param.fsi.coupling ==
-          Coupling::local_position_master_to_lambda_accumulators)
+      if (requires_local_lambda_accumulator)
         for (unsigned int d = 0; d < dim; ++d)
           if (local_lambda_accumulators[d] == dof)
           {

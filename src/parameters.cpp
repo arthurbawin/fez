@@ -1527,11 +1527,12 @@ namespace Parameters
                       Patterns::Double(),
                       "Streamwise coordinate at the upstream edge of the band "
                       "(x_start < x_end).");
-    prm.declare_entry("x_end",
-                      "1.0",
-                      Patterns::Double(),
-                      "Streamwise coordinate at the downstream edge of the band "
-                      "(x_start < x_end).");
+    prm.declare_entry(
+      "x_end",
+      "1.0",
+      Patterns::Double(),
+      "Streamwise coordinate at the downstream edge of the band "
+      "(x_start < x_end).");
     prm.declare_entry("sigma_max",
                       "0.46",
                       Patterns::Double(0.),

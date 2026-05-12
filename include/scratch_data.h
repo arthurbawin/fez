@@ -252,35 +252,8 @@ namespace NavierStokesScratch
                               const Function<dim>           &source_terms,
                               const Function<dim> & /*exact_solution*/)
     {
-      fe_values[velocity].get_function_values(current_solution,
-                                              present_velocity_values);
-      fe_values[velocity].get_function_gradients(current_solution,
-                                                 present_velocity_gradients);
-      fe_values[velocity].get_function_symmetric_gradients(
-        current_solution, present_velocity_sym_gradients);
-      fe_values[velocity].get_function_divergences(current_solution,
-                                                   present_velocity_divergence);
-      fe_values[pressure].get_function_values(current_solution,
-                                              present_pressure_values);
-      if (enable_stabilization)
-      {
-        fe_values[velocity].get_function_laplacians(
-          current_solution, present_velocity_laplacians);
-        fe_values[velocity].get_function_hessians(current_solution,
-                                                  present_velocity_hessians);
-        fe_values[pressure].get_function_gradients(current_solution,
-                                                   present_pressure_gradients);
-
-        // Compute grad(div)
-        for (unsigned int q = 0; q < n_q_points; ++q)
-        {
-          present_velocity_grad_div[q] = Tensor<1, dim>();
-          for (unsigned int c = 0; c < dim; ++c)
-            for (unsigned int d = 0; d < dim; ++d)
-              present_velocity_grad_div[q][d] +=
-                present_velocity_hessians[q][c][c][d];
-        }
-      }
+      JxW_moving[q]        = fe_values.JxW(q);
+      quadrature_points[q] = fe_values.quadrature_point(q);
 
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
@@ -1250,7 +1223,14 @@ namespace NavierStokesScratch
     unsigned int       dofs_per_cell;
     const unsigned int max_dofs_per_cell;
 
-    const TimeHandler &time_handler;
+  std::vector<unsigned int>                components;
+  std::vector<double>                      JxW_moving;
+  std::vector<double>                      JxW_fixed;
+  std::vector<Point<dim>>                  quadrature_points;
+  std::vector<unsigned int>                face_boundary_id;
+  std::vector<std::vector<double>>         face_JxW_moving;
+  std::vector<std::vector<double>>         face_JxW_fixed;
+  std::vector<std::vector<Tensor<1, dim>>> face_normals_moving;
 
     std::vector<unsigned int>                components;
     std::vector<double>                      JxW_moving;

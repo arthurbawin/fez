@@ -725,6 +725,55 @@ namespace Parameters
   };
 
   /**
+   * Sponge (absorbing) layer for the compressible NS solver. Adds a relaxation
+   * source term that drives (u, p*, T*) toward a per-band reference state
+   * inside a streamwise band [x_start, x_end] with a quintic Hermite
+   * (smootherstep) ramp.
+   *
+   * The struct holds up to two independently-activable bands so that the same
+   * simulation can absorb perturbations at both ends of the domain:
+   *  - outflow: sigma ramps from 0 at x_start up to sigma_max at x_end (and
+   *    stays at sigma_max past x_end). Use at the downstream end.
+   *  - inflow:  sigma ramps from sigma_max at x_start down to 0 at x_end (and
+   *    stays at sigma_max upstream of x_start). Use at the upstream end.
+   *
+   * x_start < x_end is always required for an enabled band. The two bands
+   * should not overlap geometrically; if they do, the relaxation rates and
+   * reference states are blended consistently (sigma-weighted average).
+   */
+  struct SpongeLayer
+  {
+    /**
+     * One sponge band: a streamwise extent, a peak relaxation rate, and the
+     * reference state toward which the fields are driven inside the band.
+     */
+    struct Band
+    {
+      bool enable;
+
+      double x_start;
+      double x_end;
+      double sigma_max;
+
+      double u;
+      double v;
+      double p_ref;
+      double T_ref;
+
+      void declare_parameters(ParameterHandler &prm);
+      void read_parameters(ParameterHandler &prm);
+    };
+
+    Band inflow;
+    Band outflow;
+
+    bool any_enabled() const { return inflow.enable || outflow.enable; }
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  /**
    * Options for debugging
    */
   struct Debug

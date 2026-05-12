@@ -408,6 +408,9 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
 
   const double bdf_c0 = this->time_handler.bdf_coefficients[0];
 
+  const auto &sponge    = this->param.sponge_layer;
+  const bool  sponge_on = sponge.any_enabled();
+
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
     const double JxW = scratch_data.JxW_moving[q];
@@ -415,6 +418,33 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
     const double rho = scratch_data.density[q];
     const double a_p = scratch_data.a_p[q];
     const double b_T = scratch_data.b_T[q];
+
+    // Sponge profile evaluated at the current quadrature point. Each band
+    // contributes independently; sigma_q is the sum of both. The reference
+    // state is the sigma-weighted average so that the relaxation source
+    // equals sigma_in*(phi - phi_ref_in) + sigma_out*(phi - phi_ref_out)
+    // exactly (both when the bands are disjoint and when they overlap).
+    double         sigma_q = 0.0;
+    Tensor<1, dim> u_inf;
+    double         p_ref_q = 0.0;
+    double         T_ref_q = 0.0;
+    if (sponge_on)
+    {
+      const auto  &qp        = scratch_data.quadrature_points[q];
+      const double sigma_in  = sponge_profile(qp, sponge.inflow,  true);
+      const double sigma_out = sponge_profile(qp, sponge.outflow, false);
+      sigma_q                = sigma_in + sigma_out;
+      if (sigma_q > 0.0)
+      {
+        const double w_in  = sigma_in / sigma_q;
+        const double w_out = sigma_out / sigma_q;
+        u_inf[0] = w_in * sponge.inflow.u + w_out * sponge.outflow.u;
+        if constexpr (dim > 1)
+          u_inf[1] = w_in * sponge.inflow.v + w_out * sponge.outflow.v;
+        p_ref_q  = w_in * sponge.inflow.p_ref + w_out * sponge.outflow.p_ref;
+        T_ref_q  = w_in * sponge.inflow.T_ref + w_out * sponge.outflow.T_ref;
+      }
+    }
 
     const auto &phi_u          = scratch_data.phi_u[q];
     const auto &grad_phi_u     = scratch_data.grad_phi_u[q];
@@ -484,6 +514,13 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
           local_matrix_ij +=
             2.0 * mu * scalar_product(sym_grad_phi_u[j], grad_phi_u[i]);
           local_matrix_ij += -2.0 / 3.0 * mu * div_phi_u[j] * div_phi_u[i];
+
+          // Sponge layer:
+          if (sponge_on)
+            local_matrix_ij += phi_u[i] * rho_ref *
+                               (alpha_r * present_pressure_values + 1.0) /
+                               (beta_r * present_temperature_values + 1.0) *
+                               sigma_q * phi_u[j];
         }
 
         if (i_is_u && j_is_p)
@@ -503,6 +540,13 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
           local_matrix_ij += -rho_ref * body_force * phi_u[i] *
                              (alpha_r * phi_p[j]) /
                              (beta_r * present_temperature_values + 1);
+
+          // Sponge layer: 
+          if (sponge_on)
+            local_matrix_ij += rho_ref * alpha_r * sigma_q /
+                               (beta_r * present_temperature_values + 1.0) *
+                               ((present_velocity_values - u_inf) * phi_u[i]) *
+                               phi_p[j];
         }
 
         if (i_is_u && j_is_T)
@@ -526,6 +570,16 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
             (beta_r * phi_T[j] * (alpha_r * present_pressure_values + 1)) /
             ((beta_r * present_temperature_values + 1) *
              (beta_r * present_temperature_values + 1));
+
+          // Sponge layer:
+          if (sponge_on)
+            local_matrix_ij += -rho_ref * beta_r *
+                               (alpha_r * present_pressure_values + 1.0) *
+                               sigma_q /
+                               ((beta_r * present_temperature_values + 1.0) *
+                                (beta_r * present_temperature_values + 1.0)) *
+                               ((present_velocity_values - u_inf) * phi_u[i]) *
+                               phi_T[j];
         }
 
         if (i_is_p && j_is_u)
@@ -555,6 +609,14 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
                              present_pressure_gradients;
           local_matrix_ij +=
             phi_p[i] * a_p * present_velocity_values * grad_phi_p[j];
+
+          // Sponge layer:
+          if (sponge_on)
+            local_matrix_ij += phi_p[i] * alpha_r * sigma_q *
+                               (1.0 + alpha_r * p_ref_q) /
+                               ((alpha_r * present_pressure_values + 1.0) *
+                                (alpha_r * present_pressure_values + 1.0)) *
+                               phi_p[j];
         }
 
         if (i_is_p && j_is_T)
@@ -573,6 +635,14 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
                              present_temperature_gradients * phi_T[j];
           local_matrix_ij +=
             -phi_p[i] * b_T * present_velocity_values * grad_phi_T[j];
+
+          // Sponge layer:
+          if (sponge_on)
+            local_matrix_ij += -phi_p[i] * beta_r * sigma_q *
+                               (1.0 + beta_r * T_ref_q) /
+                               ((beta_r * present_temperature_values + 1.0) *
+                                (beta_r * present_temperature_values + 1.0)) *
+                               phi_T[j];
         }
 
         if (i_is_T && j_is_u)
@@ -603,6 +673,14 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
           local_matrix_ij += -phi_T[i] * bdf_c0 * phi_p[j];
           local_matrix_ij +=
             -phi_T[i] * present_velocity_values * grad_phi_p[j];
+
+          // Sponge layer: rho_r * alpha_r * cp * sigma * (T* - T*_inf) *
+          //               phi_T[i] * phi_p[j] / (beta_r T* + 1)
+          if (sponge_on)
+            local_matrix_ij += phi_T[i] * rho_ref * alpha_r * cp * sigma_q *
+                               (present_temperature_values - T_ref_q) /
+                               (beta_r * present_temperature_values + 1.0) *
+                               phi_p[j];
         }
 
         if (i_is_T && j_is_T)
@@ -624,6 +702,15 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
           local_matrix_ij +=
             phi_T[i] * rho * cp * present_velocity_values * grad_phi_T[j];
           local_matrix_ij += k * grad_phi_T[i] * grad_phi_T[j];
+
+          // Sponge layer:
+          if (sponge_on)
+            local_matrix_ij += phi_T[i] * rho_ref * cp * sigma_q *
+                               (alpha_r * present_pressure_values + 1.0) *
+                               (1.0 + beta_r * T_ref_q) /
+                               ((beta_r * present_temperature_values + 1.0) *
+                                (beta_r * present_temperature_values + 1.0)) *
+                               phi_T[j];
         }
 
         if (assemble)
@@ -849,6 +936,37 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
     const auto &div_phi_u  = scratch_data.div_phi_u[q];
     const auto &grad_phi_T = scratch_data.grad_phi_T[q];
 
+    // Sponge layer relaxation toward each band's reference state. Both bands
+    // (inflow, outflow) contribute additively; sigma_q is the sum of their
+    // profiles and the per-point reference state is the sigma-weighted
+    // average. This makes the source term equal to
+    //   sigma_in*(phi - phi_ref_in) + sigma_out*(phi - phi_ref_out)
+    // both when the bands are disjoint (the usual case) and when they overlap.
+    const auto &sponge    = this->param.sponge_layer;
+    const bool  sponge_on = sponge.any_enabled();
+
+    double         sigma_q = 0.0;
+    Tensor<1, dim> u_inf;
+    double         p_ref_q = 0.0;
+    double         T_ref_q = 0.0;
+    if (sponge_on)
+    {
+      const auto  &qp        = scratch_data.quadrature_points[q];
+      const double sigma_in  = sponge_profile(qp, sponge.inflow,  true);
+      const double sigma_out = sponge_profile(qp, sponge.outflow, false);
+      sigma_q                = sigma_in + sigma_out;
+      if (sigma_q > 0.0)
+      {
+        const double w_in  = sigma_in / sigma_q;
+        const double w_out = sigma_out / sigma_q;
+        u_inf[0] = w_in * sponge.inflow.u + w_out * sponge.outflow.u;
+        if constexpr (dim > 1)
+          u_inf[1] = w_in * sponge.inflow.v + w_out * sponge.outflow.v;
+        p_ref_q  = w_in * sponge.inflow.p_ref + w_out * sponge.outflow.p_ref;
+        T_ref_q  = w_in * sponge.inflow.T_ref + w_out * sponge.outflow.T_ref;
+      }
+    }
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       double local_rhs_i = -(
@@ -882,6 +1000,21 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
         2.0 / 3.0 * mu * present_velocity_divergence *
           present_velocity_divergence * phi_T[i] +
         source_term_temperature * phi_T[i]);
+
+      // Sponge layer contribution to the residual.
+      if (sponge_on)
+      {
+        local_rhs_i -=
+          // Continuity
+          a_p * sigma_q * (present_pressure_values - p_ref_q) * phi_p[i] -
+          b_T * sigma_q * (present_temperature_values - T_ref_q) *
+            phi_p[i]
+          // Momentum
+          + rho * sigma_q * (present_velocity_values - u_inf) * phi_u[i]
+          // Energy
+          + rho * cp * sigma_q *
+              (present_temperature_values - T_ref_q) * phi_T[i];
+      }
 
       local_rhs_i *= JxW;
       local_rhs(i) += local_rhs_i;
@@ -1449,6 +1582,121 @@ void CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
   this->time_handler.update_parameters_after_restart(
     this->param.time_integration, this->pcout);
 }
+
+template <int dim>
+double CompressibleNSSolver<dim>::sponge_profile(
+  const Point<dim>                          &x,
+  const Parameters::SpongeLayer::Band       &band,
+  const bool                                 is_inflow) const
+{
+  if (!band.enable)
+    return 0.0;
+
+  // Normalized coordinate inside the band, clamped to [0, 1] so that sigma
+  // saturates outside of [x_start, x_end] in a way consistent with the chosen
+  // placement (outflow ramps up, inflow ramps down).
+  const double r_raw = (x[0] - band.x_start) / (band.x_end - band.x_start);
+  const double r     = std::min(std::max(r_raw, 0.0), 1.0);
+
+  // Smootherstep S(r) = 10r^3 - 15r^4 + 6r^5: S(0)=0, S(1)=1, with vanishing
+  // first and second derivatives at both ends.
+  const double S = r * r * r * (10.0 - 15.0 * r + 6.0 * r * r);
+
+  return band.sigma_max * (is_inflow ? (1.0 - S) : S);
+}
+
+template <int dim>
+void CompressibleNSSolver<dim>::compute_force(
+  const types::boundary_id obstacle_id)
+{
+  const auto &fluid    = this->param.physical_properties.fluids[0];
+  const double mu      = fluid.dynamic_viscosity;
+  const double rho_ref = fluid.density;
+  const double diameter = 1.0;
+
+  // Reference velocity: norm of the first prescribed inflow profile evaluated
+  // at the origin (falls back to 1 if no input_function BC is defined).
+  double U_ref = 1.0;
+  for (const auto &[id, bc] : this->param.fluid_bc)
+  {
+    if (bc.type != BoundaryConditions::Type::input_function)
+      continue;
+
+    Tensor<1, dim> u_in;
+    u_in[0] = bc.u->value(Point<dim>());
+    u_in[1] = bc.v->value(Point<dim>());
+    if constexpr (dim == 3)
+      u_in[2] = bc.w->value(Point<dim>());
+    U_ref = u_in.norm();
+    break;
+  }
+
+  const SymmetricTensor<2, dim> I = unit_symmetric_tensor<dim>();
+
+  // Local accumulation of the boundary traction integral per boundary id.
+  std::map<types::boundary_id, Tensor<1, dim>> forces_per_id;
+
+  for (const auto &cell : this->dof_handler.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned() || !cell->at_boundary())
+      continue;
+
+    scratch_data->reinit(cell,
+                         this->evaluation_point,
+                         this->previous_solutions,
+                         *this->source_terms,
+                         *this->exact_solution);
+
+    for (const auto i_face : cell->face_indices())
+    {
+      if (!cell->face(i_face)->at_boundary())
+        continue;
+
+      const types::boundary_id bid = scratch_data->face_boundary_id[i_face];
+      Tensor<1, dim>          &F   = forces_per_id[bid];
+
+      for (unsigned int q = 0; q < scratch_data->n_faces_q_points; ++q)
+      {
+        const auto  &n      = scratch_data->face_normals_moving[i_face][q];
+        const double JxW    = scratch_data->face_JxW_moving[i_face][q];
+        const auto  &grad_u =
+          scratch_data->present_face_velocity_gradients[i_face][q];
+        const double div_u =
+          scratch_data->present_face_velocity_divergence[i_face][q];
+        const double p =
+          scratch_data->present_face_pressure_values[i_face][q];
+
+        const SymmetricTensor<2, dim> tau =
+          2.0 * mu * symmetrize(grad_u) - (2.0 / 3.0) * mu * div_u * I;
+
+        F += ((p * I - tau) * n) * JxW;
+      }
+    }
+  }
+
+  // Globalize the obstacle's traction. Ranks that don't own any face on this
+  // boundary contribute a zero tensor (default-constructed by operator[]).
+  const Tensor<1, dim> F =
+    Utilities::MPI::sum(forces_per_id[obstacle_id], this->mpi_communicator);
+
+  const double dyn_pressure = 0.5 * rho_ref * U_ref * U_ref;
+  const double C_D          = F[0] / (dyn_pressure * diameter);
+  const double C_L          = F[1] / (dyn_pressure * diameter);
+
+  this->pcout << "\nForces on obstacle (boundary id="
+              << static_cast<int>(obstacle_id) << ", U_ref=" << U_ref
+              << ", D=" << diameter << "):" << std::endl;
+  this->pcout << "Fx: " << F[0] << " - C_D: " << C_D << std::endl;
+  this->pcout << "Fy: " << F[1] << " - C_L: " << C_L << std::endl;
+}
+
+template <int dim>
+void CompressibleNSSolver<dim>::solver_specific_post_processing()
+{
+  if (this->time_handler.is_finished())
+    compute_force(/*obstacle_id=*/4);
+}
+
 
 // Explicit instantiation
 template class CompressibleNSSolver<2>;

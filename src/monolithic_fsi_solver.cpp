@@ -26,91 +26,10 @@
 #include <algorithm>
 #include <deal.II/base/quadrature_lib.h>
 #include <fstream>
+#include <limits>
 
 namespace MeshConcentrationTools
 {
-  template <int dim>
-  double
-  compute_grad_u_norm(const Tensor<2, dim> &grad_u,
-                      const double          eps)
-  {
-    double G2 = 0.0;
-
-    for (unsigned int i = 0; i < dim; ++i)
-      for (unsigned int j = 0; j < dim; ++j)
-        G2 += grad_u[i][j] * grad_u[i][j];
-
-    return std::sqrt(G2 + eps * eps);
-  }
-
-
-  inline double
-  compute_h_target(const double G,
-                   const double h_min,
-                   const double h_max,
-                   const double G0,
-                   const double exponent)
-  {
-    const double ratio = G / (G + G0);
-    const double s     = std::pow(ratio, exponent);
-
-    const double h_target = h_max - (h_max - h_min) * s;
-
-    return std::max(h_min, std::min(h_max, h_target));
-  }
-
-
-  template <int dim>
-  Tensor<2, dim>
-  compute_directional_metric(const Tensor<2, dim> &grad_u)
-  {
-    Tensor<2, dim> M;
-
-    for (unsigned int i = 0; i < dim; ++i)
-      for (unsigned int j = 0; j < dim; ++j)
-        for (unsigned int k = 0; k < dim; ++k)
-          M[i][j] += grad_u[i][k] * grad_u[j][k];
-
-    return M;
-  }
-
-
-  template <int dim>
-  Tensor<1, dim>
-  compute_principal_direction_power_iteration(const Tensor<2, dim> &M,
-                                              const double          eps)
-  {
-    Tensor<1, dim> n;
-    n[0] = 1.0;
-
-    for (unsigned int iter = 0; iter < 10; ++iter)
-    {
-      const Tensor<1, dim> Mn = M * n;
-      const double norm_Mn = Mn.norm();
-
-      if (norm_Mn <= eps)
-        return Tensor<1, dim>();
-
-      n = Mn / norm_Mn;
-    }
-
-    return n;
-  }
-
-
-  template <int dim>
-  Tensor<2, dim>
-  identity_tensor_2()
-  {
-    Tensor<2, dim> I;
-
-    for (unsigned int d = 0; d < dim; ++d)
-      I[d][d] = 1.0;
-
-    return I;
-  }
-
-
   template <int dim>
   Tensor<2, dim>
   outer_product_nn(const Tensor<1, dim> &n)
@@ -126,70 +45,822 @@ namespace MeshConcentrationTools
 
 
   template <int dim>
-  Tensor<2, dim>
-  compute_anisotropic_tensor(const Tensor<1, dim> &n,
-                             const double          normal_weight,
-                             const double          tangential_weight)
-  {
-    const Tensor<2, dim> I  = identity_tensor_2<dim>();
-    const Tensor<2, dim> nn = outer_product_nn<dim>(n);
-
-    return normal_weight * nn + tangential_weight * (I - nn);
-  }
-
-    template <int dim>
-  double
-  forced_center_pressure(const Point<dim> &X)
+  Tensor<1, dim>
+  normal_size_direction()
   {
     /*
-     * Domaine test : [0,10] x [0,4]
-     * Centre du domaine : (5,2)
+     * Direction dite "normale" dans ton test 2D.
+     *
+     * Ici n = e_y.
+     *
+     * Donc h_current_n mesure la taille courante dans la direction verticale.
      */
-    const double x0 = 5.0;
-    const double y0 = 2.0;
+    Tensor<1, dim> n;
 
-    /*
-     * Largeur de la zone de pression.
-     * Plus c'est petit, plus la compression est localisée.
-     */
-    const double wx = 0.75;
-    const double wy = 0.75;
+    if constexpr (dim >= 2)
+      n[1] = 1.0;
+    else
+      n[0] = 1.0;
 
-    /*
-     * Amplitude unique de pression.
-     * C'est LA valeur à modifier pour tester.
-     */
-    const double p0 = 10.0;
-
-    const double dx = X[0] - x0;
-    const double dy = X[1] - y0;
-
-    return p0 * std::exp(-0.5 * dx * dx / (wx * wx)
-                         -0.5 * dy * dy / (wy * wy));
+    return n;
   }
 
 
   template <int dim>
-  Tensor<2, dim>
-  forced_center_pressure_stress(const Point<dim> &X,
-                                const double      alpha)
+  Tensor<1, dim>
+  tangential_size_direction()
   {
-    const double p = forced_center_pressure<dim>(X);
+    /*
+     * Direction dite "tangentielle" dans ton test 2D.
+     *
+     * Ici t = e_x.
+     *
+     * Donc h_current_t mesure la taille courante dans la direction horizontale.
+     */
+    Tensor<1, dim> t;
+    t[0] = 1.0;
+    return t;
+  }
 
-    const Tensor<2, dim> I = identity_tensor_2<dim>();
+
+  template <int dim>
+  double
+  cell_extent_in_direction(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const Tensor<1, dim>                                &a,
+    const double                                         eps)
+  {
+    double s_min = std::numeric_limits<double>::max();
+    double s_max = -std::numeric_limits<double>::max();
+
+    for (unsigned int v = 0; v < cell->n_vertices(); ++v)
+    {
+      const Point<dim> Xv = cell->vertex(v);
+
+      double s = 0.0;
+      for (unsigned int d = 0; d < dim; ++d)
+        s += Xv[d] * a[d];
+
+      s_min = std::min(s_min, s);
+      s_max = std::max(s_max, s);
+    }
+
+    return std::max(s_max - s_min, eps);
+  }
+
+
+  template <int dim>
+  double
+  directional_mesh_size(const Tensor<2, dim> &F,
+                        const Tensor<1, dim> &a,
+                        const double          h_ref,
+                        const double          eps)
+  {
+    /*
+     * Taille courante dans la direction a.
+     *
+     * F = dx/dX.
+     * Si un vecteur matériel a est transformé en F a,
+     * sa longueur courante est ||F a||.
+     */
+    const Tensor<1, dim> Fa = F * a;
+    return h_ref * std::max(Fa.norm(), eps);
+  }
+
+
+  template <int dim>
+  double
+  directional_mesh_size_derivative(const Tensor<2, dim> &F,
+                                   const Tensor<2, dim> &dF,
+                                   const Tensor<1, dim> &a,
+                                   const double          h_ref,
+                                   const double          eps)
+  {
+    /*
+     * h = h_ref ||F a||
+     *
+     * dh = h_ref (F a / ||F a||) . (dF a)
+     */
+    const Tensor<1, dim> Fa  = F * a;
+    const Tensor<1, dim> dFa = dF * a;
+
+    const double norm_Fa = std::max(Fa.norm(), eps);
+
+    return h_ref * (Fa * dFa) / norm_Fa;
+  }
+
+
+  inline double
+  clamp_value(const double x,
+              const double xmin,
+              const double xmax)
+  {
+    return std::max(xmin, std::min(x, xmax));
+  }
+
+
+  inline double
+  smooth_step_tanh(const double x,
+                   const double x0,
+                   const double delta)
+  {
+    return 0.5 * (1.0 + std::tanh((x - x0) / delta));
+  }
+
+
+  inline double
+  smooth_step_tanh_derivative(const double x,
+                              const double x0,
+                              const double delta)
+  {
+    const double z     = (x - x0) / delta;
+    const double th    = std::tanh(z);
+    const double sech2 = 1.0 - th * th;
+
+    return 0.5 * sech2 / delta;
+  }
+
+
+  inline double
+  smooth_box_1d(const double x,
+                const double x_min,
+                const double x_max,
+                const double delta)
+  {
+    /*
+     * Fenêtre lissée :
+     *
+     * environ 1 pour x_min < x < x_max,
+     * environ 0 en dehors,
+     * transition douce avec delta.
+     */
+    const double left  = smooth_step_tanh(x, x_min, delta);
+    const double right = smooth_step_tanh(x_max, x, delta);
+
+    return left * right;
+  }
+
+
+  inline double
+  smooth_box_1d_derivative(const double x,
+                           const double x_min,
+                           const double x_max,
+                           const double delta)
+  {
+    const double left  = smooth_step_tanh(x, x_min, delta);
+    const double right = smooth_step_tanh(x_max, x, delta);
+
+    const double dleft_dx =
+      smooth_step_tanh_derivative(x, x_min, delta);
 
     /*
-    * Test de pression isotrope locale.
-    *
-    * alpha vient du fichier .prm :
-    *
-    * subsection alpha
-    *   set Function expression = ...
-    * end
-    *
-    * Si le mouvement est dans le mauvais sens, changer seulement le signe ici.
-    */
-    return alpha * p * I;
+     * right = 0.5 * (1 + tanh((x_max - x) / delta))
+     * donc dérivée négative.
+     */
+    const double z     = (x_max - x) / delta;
+    const double th    = std::tanh(z);
+    const double sech2 = 1.0 - th * th;
+
+    const double dright_dx =
+      -0.5 * sech2 / delta;
+
+    return dleft_dx * right + left * dright_dx;
+  }
+
+
+  inline double
+  gaussian_1d(const double x,
+              const double x0,
+              const double sigma)
+  {
+    const double r = (x - x0) / sigma;
+    return std::exp(-0.5 * r * r);
+  }
+
+
+  inline double
+  gaussian_1d_derivative(const double x,
+                         const double x0,
+                         const double sigma)
+  {
+    const double g = gaussian_1d(x, x0, sigma);
+    return -((x - x0) / (sigma * sigma)) * g;
+  }
+
+
+  struct MovingRectangleBounds
+  {
+    double x_min;
+    double x_max;
+    double y_min;
+    double y_max;
+  };
+
+
+  inline double
+  smooth_ramp_tanh(const double t,
+                   const double t0,
+                   const double delta_t)
+  {
+    /*
+     * Rampe temporelle lissée.
+     *
+     * t << t0 : environ 0
+     * t = t0  : environ 0.5
+     * t >> t0 : environ 1
+     */
+    return 0.5 * (1.0 + std::tanh((t - t0) / delta_t));
+  }
+
+
+  inline MovingRectangleBounds
+  moving_rectangle_bounds(const double time)
+  {
+    /*
+     * Rectangle de référence :
+     *
+     * x in [4, 6]
+     * y in [1, 3]
+     *
+     * centre = (5, 2)
+     * demi-largeur = 1
+     * demi-hauteur = 1
+     */
+
+    const double x_center_0 = 5.0;
+    const double y_center_0 = 2.0;
+
+    const double half_width_0  = 1.0;
+    const double half_height_0 = 1.0;
+
+    /*
+     * Translation du rectangle.
+     *
+     * Pour désactiver la translation :
+     *   translation_x = 0.0;
+     *   translation_y = 0.0;
+     */
+    const double translation_x =
+      0.5 * std::sin(2.0 * M_PI * 0.2 * time);
+
+    const double translation_y =
+      0.0;
+
+    /*
+     * Rétrécissement progressif.
+     *
+     * ramp ≈ 0 au début,
+     * ramp ≈ 1 après time ≈ 2.
+     */
+    const double ramp =
+      smooth_ramp_tanh(time, 2.0, 0.5);
+
+    /*
+     * shrink_x = 0.0 : aucune réduction en x.
+     * shrink_x = 0.3 : demi-largeur réduite de 30 % à long terme.
+     *
+     * Même logique pour shrink_y.
+     */
+    const double shrink_x = 0.3;
+    const double shrink_y = 0.3;
+
+    const double half_width =
+      half_width_0 * (1.0 - shrink_x * ramp);
+
+    const double half_height =
+      half_height_0 * (1.0 - shrink_y * ramp);
+
+    const double x_center =
+      x_center_0 + translation_x;
+
+    const double y_center =
+      y_center_0 + translation_y;
+
+    MovingRectangleBounds bounds;
+
+    bounds.x_min = x_center - half_width;
+    bounds.x_max = x_center + half_width;
+
+    bounds.y_min = y_center - half_height;
+    bounds.y_max = y_center + half_height;
+
+    return bounds;
+  }
+
+
+  template <int dim>
+  double
+  horizontal_edges_weight_current(const Point<dim> &x,
+                                  const double      time)
+  {
+    /*
+     * Poids localisé sur les arêtes horizontales :
+     *
+     * y = y_min(t) et y = y_max(t).
+     *
+     * Ce poids sert à réduire la taille dans la direction e_y.
+     */
+
+    if constexpr (dim < 2)
+      return 0.0;
+
+    const MovingRectangleBounds bounds =
+      moving_rectangle_bounds(time);
+
+    const double x_min = bounds.x_min;
+    const double x_max = bounds.x_max;
+
+    const double y_min = bounds.y_min;
+    const double y_max = bounds.y_max;
+
+    /*
+     * sigma_edge contrôle l'épaisseur normale de la bande autour de l'arête.
+     */
+    const double sigma_edge = 0.12;
+
+    /*
+     * delta_window contrôle la coupure tangentielle douce aux extrémités.
+     */
+    const double delta_window = 0.08;
+
+    /*
+     * Extension tangentielle.
+     *
+     * But :
+     * éviter que la fenêtre tangentielle tombe à 0.5 exactement aux coins.
+     * Les bouts réels des arêtes restent donc pleinement actifs.
+     */
+    const double edge_extension = 0.25;
+
+    const double window_x =
+      smooth_box_1d(x[0],
+                    x_min - edge_extension,
+                    x_max + edge_extension,
+                    delta_window);
+
+    const double g_bottom =
+      gaussian_1d(x[1], y_min, sigma_edge);
+
+    const double g_top =
+      gaussian_1d(x[1], y_max, sigma_edge);
+
+    const double w =
+      window_x * (g_bottom + g_top);
+
+    return clamp_value(w, 0.0, 1.0);
+  }
+
+
+  template <int dim>
+  double
+  vertical_edges_weight_current(const Point<dim> &x,
+                                const double      time)
+  {
+    /*
+     * Poids localisé sur les arêtes verticales :
+     *
+     * x = x_min(t) et x = x_max(t).
+     *
+     * Ce poids sert à réduire la taille dans la direction e_x.
+     */
+
+    if constexpr (dim < 2)
+      return 0.0;
+
+    const MovingRectangleBounds bounds =
+      moving_rectangle_bounds(time);
+
+    const double x_min = bounds.x_min;
+    const double x_max = bounds.x_max;
+
+    const double y_min = bounds.y_min;
+    const double y_max = bounds.y_max;
+
+    const double sigma_edge    = 0.12;
+    const double delta_window  = 0.08;
+    const double edge_extension = 0.25;
+
+    const double window_y =
+      smooth_box_1d(x[1],
+                    y_min - edge_extension,
+                    y_max + edge_extension,
+                    delta_window);
+
+    const double g_left =
+      gaussian_1d(x[0], x_min, sigma_edge);
+
+    const double g_right =
+      gaussian_1d(x[0], x_max, sigma_edge);
+
+    const double w =
+      window_y * (g_left + g_right);
+
+    return clamp_value(w, 0.0, 1.0);
+  }
+
+
+  template <int dim>
+  Tensor<1, dim>
+  horizontal_edges_weight_gradient_current(const Point<dim> &x,
+                                           const double      time)
+  {
+    Tensor<1, dim> grad_w;
+
+    if constexpr (dim >= 2)
+    {
+      const MovingRectangleBounds bounds =
+        moving_rectangle_bounds(time);
+
+      const double x_min = bounds.x_min;
+      const double x_max = bounds.x_max;
+
+      const double y_min = bounds.y_min;
+      const double y_max = bounds.y_max;
+
+      const double sigma_edge     = 0.12;
+      const double delta_window   = 0.08;
+      const double edge_extension = 0.25;
+
+      const double window_x =
+        smooth_box_1d(x[0],
+                      x_min - edge_extension,
+                      x_max + edge_extension,
+                      delta_window);
+
+      const double dwindow_x =
+        smooth_box_1d_derivative(x[0],
+                                 x_min - edge_extension,
+                                 x_max + edge_extension,
+                                 delta_window);
+
+      const double g_bottom =
+        gaussian_1d(x[1], y_min, sigma_edge);
+
+      const double g_top =
+        gaussian_1d(x[1], y_max, sigma_edge);
+
+      const double dg_bottom =
+        gaussian_1d_derivative(x[1], y_min, sigma_edge);
+
+      const double dg_top =
+        gaussian_1d_derivative(x[1], y_max, sigma_edge);
+
+      /*
+       * w = window_x(x) * (g_bottom(y) + g_top(y))
+       */
+      grad_w[0] =
+        dwindow_x * (g_bottom + g_top);
+
+      grad_w[1] =
+        window_x * (dg_bottom + dg_top);
+    }
+
+    return grad_w;
+  }
+
+
+  template <int dim>
+  Tensor<1, dim>
+  vertical_edges_weight_gradient_current(const Point<dim> &x,
+                                         const double      time)
+  {
+    Tensor<1, dim> grad_w;
+
+    if constexpr (dim >= 2)
+    {
+      const MovingRectangleBounds bounds =
+        moving_rectangle_bounds(time);
+
+      const double x_min = bounds.x_min;
+      const double x_max = bounds.x_max;
+
+      const double y_min = bounds.y_min;
+      const double y_max = bounds.y_max;
+
+      const double sigma_edge     = 0.12;
+      const double delta_window   = 0.08;
+      const double edge_extension = 0.25;
+
+      const double window_y =
+        smooth_box_1d(x[1],
+                      y_min - edge_extension,
+                      y_max + edge_extension,
+                      delta_window);
+
+      const double dwindow_y =
+        smooth_box_1d_derivative(x[1],
+                                 y_min - edge_extension,
+                                 y_max + edge_extension,
+                                 delta_window);
+
+      const double g_left =
+        gaussian_1d(x[0], x_min, sigma_edge);
+
+      const double g_right =
+        gaussian_1d(x[0], x_max, sigma_edge);
+
+      const double dg_left =
+        gaussian_1d_derivative(x[0], x_min, sigma_edge);
+
+      const double dg_right =
+        gaussian_1d_derivative(x[0], x_max, sigma_edge);
+
+      /*
+       * w = window_y(y) * (g_left(x) + g_right(x))
+       */
+      grad_w[0] =
+        window_y * (dg_left + dg_right);
+
+      grad_w[1] =
+        dwindow_y * (g_left + g_right);
+    }
+
+    return grad_w;
+  }
+
+
+  inline double
+  target_size_from_weight(const double w,
+                          const double h_background,
+                          const double h_min)
+  {
+    /*
+     * w = 0 : h_target = h_background
+     * w = 1 : h_target = h_min
+     */
+    return h_background + w * (h_min - h_background);
+  }
+
+
+  template <int dim>
+  double
+  target_size_normal_current(const Point<dim> &x,
+                             const double      h_background,
+                             const double      time)
+  {
+    /*
+     * Direction normale n_size = e_y.
+     *
+     * Petite taille en e_y près des arêtes horizontales.
+     */
+    const double h_min_y = 0.025;
+
+    const double w =
+      horizontal_edges_weight_current<dim>(x, time);
+
+    return target_size_from_weight(w, h_background, h_min_y);
+  }
+
+
+  template <int dim>
+  double
+  target_size_tangential_current(const Point<dim> &x,
+                                 const double      h_background,
+                                 const double      time)
+  {
+    /*
+     * Direction tangentielle t_size = e_x.
+     *
+     * Petite taille en e_x près des arêtes verticales.
+     */
+    const double h_min_x = 0.025;
+
+    const double w =
+      vertical_edges_weight_current<dim>(x, time);
+
+    return target_size_from_weight(w, h_background, h_min_x);
+  }
+
+
+  template <int dim>
+  double
+  target_size_normal_current_derivative(const Point<dim>      &x,
+                                        const Tensor<1, dim> &dx,
+                                        const double           h_background,
+                                        const double           time)
+  {
+    const double h_min_y = 0.025;
+
+    const Tensor<1, dim> grad_w =
+      horizontal_edges_weight_gradient_current<dim>(x, time);
+
+    return (h_min_y - h_background) * (grad_w * dx);
+  }
+
+
+  template <int dim>
+  double
+  target_size_tangential_current_derivative(const Point<dim>      &x,
+                                            const Tensor<1, dim> &dx,
+                                            const double           h_background,
+                                            const double           time)
+  {
+    const double h_min_x = 0.025;
+
+    const Tensor<1, dim> grad_w =
+      vertical_edges_weight_gradient_current<dim>(x, time);
+
+    return (h_min_x - h_background) * (grad_w * dx);
+  }
+
+
+  inline double
+  required_compression_pressure(const double h_background,
+                                const double h_target,
+                                const double stiffness,
+                                const double alpha,
+                                const double eps)
+  {
+    /*
+     * Niveau de pression à maintenir.
+     *
+     * Si h_target = h_background : p_required = 0.
+     * Si h_target < h_background : p_required > 0.
+     *
+     * Ne dépend pas de h_current.
+     * Donc p_required ne s'annule pas quand h_current atteint h_target.
+     */
+    const double ratio =
+      std::max(h_background, eps) / std::max(h_target, eps);
+
+    if (ratio <= 1.0)
+      return 0.0;
+
+    return alpha * stiffness * std::log(ratio);
+  }
+
+
+  inline double
+  required_compression_pressure_derivative_wrt_h_target(
+    const double h_background,
+    const double h_target,
+    const double stiffness,
+    const double alpha,
+    const double eps)
+  {
+    const double ratio =
+      std::max(h_background, eps) / std::max(h_target, eps);
+
+    if (ratio <= 1.0)
+      return 0.0;
+
+    return -alpha * stiffness / std::max(h_target, eps);
+  }
+
+
+  inline double
+  compression_activation(const double h_current,
+                         const double h_target,
+                         const double release_ratio,
+                         const double transition_width,
+                         const double eps)
+  {
+    /*
+     * Activation maintenue.
+     *
+     * release_ratio < 1 permet de garder la pression active même
+     * lorsque h_current atteint h_target.
+     */
+    const double r =
+      std::max(h_current, eps) / std::max(h_target, eps);
+
+    return smooth_step_tanh(r, release_ratio, transition_width);
+  }
+
+
+  inline double
+  compression_activation_derivative_wrt_ratio(
+    const double h_current,
+    const double h_target,
+    const double release_ratio,
+    const double transition_width,
+    const double eps)
+  {
+    const double r =
+      std::max(h_current, eps) / std::max(h_target, eps);
+
+    const double z =
+      (r - release_ratio) / transition_width;
+
+    const double th =
+      std::tanh(z);
+
+    const double sech2 =
+      1.0 - th * th;
+
+    return 0.5 * sech2 / transition_width;
+  }
+
+
+  inline double
+  maintained_size_pressure_law(const double h_current,
+                               const double h_background,
+                               const double h_target,
+                               const double stiffness,
+                               const double alpha,
+                               const double release_ratio,
+                               const double transition_width,
+                               const double eps)
+  {
+    /*
+     * p = activation(h_current/h_target) * p_required(h_background/h_target)
+     */
+    const double p_required =
+      required_compression_pressure(h_background,
+                                    h_target,
+                                    stiffness,
+                                    alpha,
+                                    eps);
+
+    const double activation =
+      compression_activation(h_current,
+                             h_target,
+                             release_ratio,
+                             transition_width,
+                             eps);
+
+    return activation * p_required;
+  }
+
+
+  inline double
+  maintained_size_pressure_derivative_wrt_h_current(
+    const double h_current,
+    const double h_background,
+    const double h_target,
+    const double stiffness,
+    const double alpha,
+    const double release_ratio,
+    const double transition_width,
+    const double eps)
+  {
+    const double p_required =
+      required_compression_pressure(h_background,
+                                    h_target,
+                                    stiffness,
+                                    alpha,
+                                    eps);
+
+    const double dA_dr =
+      compression_activation_derivative_wrt_ratio(h_current,
+                                                  h_target,
+                                                  release_ratio,
+                                                  transition_width,
+                                                  eps);
+
+    const double dr_dh_current =
+      1.0 / std::max(h_target, eps);
+
+    return p_required * dA_dr * dr_dh_current;
+  }
+
+
+  inline double
+  maintained_size_pressure_derivative_wrt_h_target(
+    const double h_current,
+    const double h_background,
+    const double h_target,
+    const double stiffness,
+    const double alpha,
+    const double release_ratio,
+    const double transition_width,
+    const double eps)
+  {
+    const double p_required =
+      required_compression_pressure(h_background,
+                                    h_target,
+                                    stiffness,
+                                    alpha,
+                                    eps);
+
+    const double dp_required_dh_target =
+      required_compression_pressure_derivative_wrt_h_target(
+        h_background,
+        h_target,
+        stiffness,
+        alpha,
+        eps);
+
+    const double activation =
+      compression_activation(h_current,
+                             h_target,
+                             release_ratio,
+                             transition_width,
+                             eps);
+
+    const double dA_dr =
+      compression_activation_derivative_wrt_ratio(h_current,
+                                                  h_target,
+                                                  release_ratio,
+                                                  transition_width,
+                                                  eps);
+
+    const double dr_dh_target =
+      -std::max(h_current, eps) /
+      std::pow(std::max(h_target, eps), 2.0);
+
+    return activation * dp_required_dh_target
+         + p_required * dA_dr * dr_dh_target;
   }
 }
 
@@ -1460,9 +2131,7 @@ void FSISolver<dim>::create_sparsity_pattern()
       // If mesh concentration is enabled, x also couples to u because
       // f_c(u) = -alpha * grad(0.5 * |u|^2).
       if (this->ordering->is_position(c) &&
-          (this->ordering->is_position(d) ||
-          (this->param.mesh_concentration.enable &&
-            this->ordering->is_velocity(d))))
+          this->ordering->is_position(d))
         coupling_table[c][d] = DoFTools::always;
             // Lambda couples only on the relevant boundary faces:
             // add these coupling on faces only, below.
@@ -1659,6 +2328,8 @@ void FSISolver<dim>::assemble_local_matrix(
 
   if (!cell->is_locally_owned())
     return;
+  this->param.mesh_concentration.set_time(this->time_handler.current_time);
+  
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
@@ -1676,14 +2347,48 @@ void FSISolver<dim>::assemble_local_matrix(
 
   std::vector<Tensor<1, dim>> to_multiply_by_phi_u_i_momentum(
     scratch_data.dofs_per_cell);
+
   std::vector<Tensor<1, dim>> to_multiply_by_phi_u_i_position(
     scratch_data.dofs_per_cell);
-  std::vector<double> trace_gradu_dot_grad_phi_x_j(scratch_data.dofs_per_cell);
+
+  std::vector<double> trace_gradu_dot_grad_phi_x_j(
+    scratch_data.dofs_per_cell);
+
   std::vector<Tensor<2, dim>> sym_gradu_dot_grad_phi_x_j(
     scratch_data.dofs_per_cell);
 
   const auto u_lower = const_ordering.u_lower;
   const auto x_lower = const_ordering.x_lower;
+
+  /*
+   * Données pour la concentration anisotrope de maillage.
+   */
+  const double eps =
+    this->param.mesh_concentration.eps;
+
+  const Tensor<1, dim> n_size =
+    MeshConcentrationTools::normal_size_direction<dim>();
+
+  const Tensor<1, dim> t_size =
+    MeshConcentrationTools::tangential_size_direction<dim>();
+
+  const Tensor<2, dim> nn_size =
+    MeshConcentrationTools::outer_product_nn<dim>(n_size);
+
+  const Tensor<2, dim> tt_size =
+    MeshConcentrationTools::outer_product_nn<dim>(t_size);
+
+  const double h_ref_n =
+    MeshConcentrationTools::cell_extent_in_direction<dim>(
+      cell,
+      n_size,
+      eps);
+
+  const double h_ref_t =
+    MeshConcentrationTools::cell_extent_in_direction<dim>(
+      cell,
+      t_size,
+      eps);
 
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
@@ -1705,43 +2410,67 @@ void FSISolver<dim>::assemble_local_matrix(
 
     const auto &present_velocity_values =
       scratch_data.present_velocity_values[q];
+
     const auto &present_velocity_gradients =
       scratch_data.present_velocity_gradients[q];
+
     const auto &present_velocity_sym_gradients =
       scratch_data.present_velocity_sym_gradients[q];
+
     const double present_velocity_divergence =
       trace(present_velocity_gradients);
+
     const double present_pressure_values =
       scratch_data.present_pressure_values[q];
 
-    const auto &dxdt = scratch_data.present_mesh_velocity_values[q];
+    const auto &dxdt =
+      scratch_data.present_mesh_velocity_values[q];
 
-    const auto u_ale            = present_velocity_values - dxdt;
-    const auto u_dot_grad_u_ale = present_velocity_gradients * u_ale;
+    const auto u_ale =
+      present_velocity_values - dxdt;
 
-    // BDF: current dudt
+    const auto u_dot_grad_u_ale =
+      present_velocity_gradients * u_ale;
+
+    /*
+     * BDF : dérivée temporelle courante.
+     */
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratch_data.previous_velocity_values);
+        q,
+        present_velocity_values,
+        scratch_data.previous_velocity_values);
 
-    // Precompute quantities depending only on j
+    /*
+     * Pré-calculs dépendant seulement de j.
+     */
     for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
     {
-      const auto &phi_u_j      = phi_u[j];
-      const auto &grad_phi_u_j = grad_phi_u[j];
+      const auto &phi_u_j =
+        phi_u[j];
 
-      to_multiply_by_phi_u_i_momentum[j] = bdf_c0 * phi_u_j +
-                                           grad_phi_u_j * u_ale +
-                                           present_velocity_gradients * phi_u_j;
+      const auto &grad_phi_u_j =
+        grad_phi_u[j];
 
-      const auto &phi_x_j            = phi_x[j];
-      const auto &grad_phi_x_j       = grad_phi_x[j];
-      const auto  trace_grad_phi_x_j = trace_grad_phi_x[j];
+      to_multiply_by_phi_u_i_momentum[j] =
+        bdf_c0 * phi_u_j +
+        grad_phi_u_j * u_ale +
+        present_velocity_gradients * phi_u_j;
+
+      const auto &phi_x_j =
+        phi_x[j];
+
+      const auto &grad_phi_x_j =
+        grad_phi_x[j];
+
+      const auto trace_grad_phi_x_j =
+        trace_grad_phi_x[j];
 
       const auto gradu_dot_grad_phi_x_j =
         present_velocity_gradients * grad_phi_x_j;
 
-      trace_gradu_dot_grad_phi_x_j[j] = trace(gradu_dot_grad_phi_x_j);
+      trace_gradu_dot_grad_phi_x_j[j] =
+        trace(gradu_dot_grad_phi_x_j);
 
       sym_gradu_dot_grad_phi_x_j[j] =
         present_velocity_sym_gradients * grad_phi_x_j;
@@ -1754,157 +2483,364 @@ void FSISolver<dim>::assemble_local_matrix(
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      const unsigned int comp_i = scratch_data.components[i];
-      const bool         i_is_u =
-        const_ordering.u_lower <= comp_i && comp_i < const_ordering.u_upper;
-      const bool i_is_p = comp_i == const_ordering.p_lower;
+      const unsigned int comp_i =
+        scratch_data.components[i];
+
+      const bool i_is_u =
+        const_ordering.u_lower <= comp_i &&
+        comp_i < const_ordering.u_upper;
+
+      const bool i_is_p =
+        comp_i == const_ordering.p_lower;
+
       const bool i_is_x =
-        const_ordering.x_lower <= comp_i && comp_i < const_ordering.x_upper;
+        const_ordering.x_lower <= comp_i &&
+        comp_i < const_ordering.x_upper;
+
       const bool i_is_l =
-        const_ordering.l_lower <= comp_i && comp_i < const_ordering.l_upper;
+        const_ordering.l_lower <= comp_i &&
+        comp_i < const_ordering.l_upper;
+
       if (i_is_l)
         continue;
 
-      const auto &coupling_row = this->coupling_table[comp_i];
+      const auto &coupling_row =
+        this->coupling_table[comp_i];
 
-      const auto &phi_u_i      = phi_u[i];
-      const auto &grad_phi_u_i = grad_phi_u[i];
-      const auto &div_phi_u_i  = div_phi_u[i];
-      const auto &phi_p_i      = phi_p[i];
-      const auto &grad_phi_x_i = grad_phi_x[i];
-      const auto &div_phi_x_i  = div_phi_x[i];
+      const auto &phi_u_i =
+        phi_u[i];
+
+      const auto &grad_phi_u_i =
+        grad_phi_u[i];
+
+      const auto &div_phi_u_i =
+        div_phi_u[i];
+
+      const auto &phi_p_i =
+        phi_p[i];
+
+      const auto &grad_phi_x_i =
+        grad_phi_x[i];
+
+      const auto &div_phi_x_i =
+        div_phi_x[i];
 
       const Tensor<2, dim> sym_grad_u_dot_grad_phi_u_i =
         present_velocity_sym_gradients * grad_phi_u_i;
+
       const double trace_sym_grad_u_dot_grad_phi_u_i =
         trace(sym_grad_u_dot_grad_phi_u_i);
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
-        const unsigned int comp_j = scratch_data.components[j];
+        const unsigned int comp_j =
+          scratch_data.components[j];
 
-        // If lambda dof, continue before reading the coupling table
         const bool j_is_l =
-          const_ordering.l_lower <= comp_j && comp_j < const_ordering.l_upper;
+          const_ordering.l_lower <= comp_j &&
+          comp_j < const_ordering.l_upper;
+
         if (j_is_l)
           continue;
+
         if (coupling_row[comp_j] != DoFTools::always)
           continue;
+
         const bool j_is_u =
-          const_ordering.u_lower <= comp_j && comp_j < const_ordering.u_upper;
-        const bool j_is_p = comp_j == const_ordering.p_lower;
+          const_ordering.u_lower <= comp_j &&
+          comp_j < const_ordering.u_upper;
+
+        const bool j_is_p =
+          comp_j == const_ordering.p_lower;
+
         const bool j_is_x =
-          const_ordering.x_lower <= comp_j && comp_j < const_ordering.x_upper;
+          const_ordering.x_lower <= comp_j &&
+          comp_j < const_ordering.x_upper;
 
-        // Account for the pressure gradient when initializing
-        double local_flow_matrix_ij = j_is_p ? -div_phi_u_i * phi_p[j] : 0.;
+        /*
+         * Terme fluide local.
+         *
+         * Le terme de pression dans l'équation de quantité de mouvement
+         * est pris en compte ici lors de l'initialisation.
+         */
+        double local_flow_matrix_ij =
+          j_is_p ? -div_phi_u_i * phi_p[j] : 0.0;
 
-        /**
-         * Momentum equation
+        /*
+         * Équation de quantité de mouvement.
          */
         if (i_is_u)
         {
           if (j_is_u)
           {
-            const auto &gui = grad_phi_u_i[comp_i];
-            const auto &guj = grad_phi_u[j][comp_j];
+            const auto &gui =
+              grad_phi_u_i[comp_i];
 
-            // Time derivative, convection (including ALE) and diffusion
+            const auto &guj =
+              grad_phi_u[j][comp_j];
+
             local_flow_matrix_ij +=
               phi_u_i * to_multiply_by_phi_u_i_momentum[j]
-
-              // The following is the diffusion term
-              // 2. * nu * scalar_product(sym_grad_phi_u[j], sym_grad_phi_u_i),
-              // explicited for the symmetric gradient of Lagrange shape
-              // functions
               + nu * (gui[comp_j - u_lower] * guj[comp_i - u_lower]);
+
             if (comp_i == comp_j)
-              local_flow_matrix_ij += nu * gui * guj;
+              local_flow_matrix_ij +=
+                nu * gui * guj;
           }
 
           if (j_is_x)
           {
-            // Variation of all momentum terms on moving mesh w.r.t. position
-            // Does not include variation of the velocity source term : this
-            // term is only needed for manufactured solutions, and slows down
-            // the assembly. Ommitting it does not seem to affect convergence of
-            // the nonlinear solver.
-            const auto trace_grad_phi_x_j = trace_grad_phi_x[j];
+            const auto trace_grad_phi_x_j =
+              trace_grad_phi_x[j];
 
             local_flow_matrix_ij +=
-              phi_u_i * to_multiply_by_phi_u_i_position[j] +
-              2. * nu *
-                (-2. * scalar_product(sym_grad_phi_x[j],
-                                      sym_grad_u_dot_grad_phi_u_i) +
-                 trace_grad_phi_x_j * trace_sym_grad_u_dot_grad_phi_u_i) -
-              present_pressure_values * (trace(-grad_phi_u_i * grad_phi_x[j]) +
-                                         div_phi_u_i * trace_grad_phi_x_j);
+              phi_u_i * to_multiply_by_phi_u_i_position[j]
+              + 2.0 * nu *
+                  (-2.0 * scalar_product(sym_grad_phi_x[j],
+                                          sym_grad_u_dot_grad_phi_u_i)
+                   + trace_grad_phi_x_j *
+                       trace_sym_grad_u_dot_grad_phi_u_i)
+              - present_pressure_values *
+                  (trace(-grad_phi_u_i * grad_phi_x[j])
+                   + div_phi_u_i * trace_grad_phi_x_j);
           }
         }
 
-        /**
-         * Continuity equation
+        /*
+         * Équation de continuité.
          */
         if (i_is_p)
         {
           if (j_is_u)
           {
-            // Continuity : variation w.r.t. u
-            local_flow_matrix_ij += -phi_p_i * div_phi_u[j];
+            local_flow_matrix_ij +=
+              -phi_p_i * div_phi_u[j];
           }
 
           if (j_is_x)
           {
-            // Continuity : variation w.r.t. x
-            // Does not include variation of the pressure source term : this
-            // term is only needed for manufactured solutions, and slows down
-            // the assembly. Ommitting it does not seem to affect convergence of
-            // the nonlinear solver.
             local_flow_matrix_ij +=
-              phi_p_i * (trace_gradu_dot_grad_phi_x_j[j] -
-                         present_velocity_divergence * trace_grad_phi_x[j]);
+              phi_p_i *
+              (trace_gradu_dot_grad_phi_x_j[j]
+               - present_velocity_divergence * trace_grad_phi_x[j]);
           }
         }
 
-        /**
-         * Pseudo-solid equation
+        /*
+         * Équation pseudo-solide.
          */
-        double local_ps_matrix_ij = 0.;
+        double local_ps_matrix_ij = 0.0;
 
         if (i_is_x)
         {
           /*
-          * Variation of the pseudo-solid elasticity with respect to x.
-          */
+           * Variation de l'élasticité pseudo-solide par rapport à x.
+           */
           if (j_is_x)
           {
-            const auto &gxi = grad_phi_x_i[comp_i - x_lower];
-            const auto &gxj = grad_phi_x[j][comp_j - x_lower];
+            const auto &gxi =
+              grad_phi_x_i[comp_i - x_lower];
+
+            const auto &gxj =
+              grad_phi_x[j][comp_j - x_lower];
 
             local_ps_matrix_ij +=
               lame_lambda * div_phi_x[j] * div_phi_x_i
-
-              // The following is the double contraction
-              // 2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i)
-              // explicited for the symmetric gradient of Lagrange shape functions
-              + lame_mu * gxi[comp_j - x_lower] * gxj[comp_i - x_lower];
+              + lame_mu *
+                  gxi[comp_j - x_lower] *
+                  gxj[comp_i - x_lower];
 
             if (comp_i == comp_j)
-              local_ps_matrix_ij += lame_mu * gxi * gxj;
+              local_ps_matrix_ij +=
+                lame_mu * gxi * gxj;
+
+            /*
+             * Tangente de la contrainte anisotrope de concentration.
+             *
+             * sigma_size = p_n n⊗n + p_t t⊗t
+             *
+             * avec :
+             *
+             * h_current = h_ref ||F a||
+             * h_target  = h_target(x_current)
+             *
+             * Donc :
+             *
+             * dp = dp/dh_current dh_current
+             *    + dp/dh_target  dh_target.
+             */
+            if (this->param.mesh_concentration.enable)
+            {
+              const Tensor<2, dim> &F =
+                scratch_data.present_position_gradients[q];
+
+              Point<dim> x_current;
+
+              for (unsigned int d = 0; d < dim; ++d)
+                x_current[d] =
+                  scratch_data.present_position_values[q][d];
+                const double alpha =
+                  this->param.mesh_concentration.alpha_fun->value(x_current);
+
+              const double h_current_n =
+                MeshConcentrationTools::directional_mesh_size<dim>(
+                  F,
+                  n_size,
+                  h_ref_n,
+                  eps);
+
+              const double h_current_t =
+                MeshConcentrationTools::directional_mesh_size<dim>(
+                  F,
+                  t_size,
+                  h_ref_t,
+                  eps);
+
+              const double h_target_n =
+                MeshConcentrationTools::target_size_normal_current<dim>(
+                  x_current,
+                  h_ref_n,
+                  this->time_handler.current_time);
+
+              const double h_target_t =
+                MeshConcentrationTools::target_size_tangential_current<dim>(
+                  x_current,
+                  h_ref_t,
+                  this->time_handler.current_time);
+
+              const double size_stiffness =
+                2.0 * lame_mu + lame_lambda;
+
+              const double release_ratio =
+                0.85;
+
+              const double transition_width =
+                0.05;
+
+              /*
+               * Variation de F = grad(x).
+               */
+              const Tensor<2, dim> &dF_j =
+                grad_phi_x[j];
+
+              const double dh_current_n_j =
+                MeshConcentrationTools::directional_mesh_size_derivative<dim>(
+                  F,
+                  dF_j,
+                  n_size,
+                  h_ref_n,
+                  eps);
+
+              const double dh_current_t_j =
+                MeshConcentrationTools::directional_mesh_size_derivative<dim>(
+                  F,
+                  dF_j,
+                  t_size,
+                  h_ref_t,
+                  eps);
+
+              /*
+               * Variation de la position courante :
+               *
+               * dx_j = phi_x[j].
+               */
+              const Tensor<1, dim> &dx_j =
+                phi_x[j];
+
+
+              const double dh_target_n_j =
+                MeshConcentrationTools::target_size_normal_current_derivative<dim>(
+                  x_current,
+                  dx_j,
+                  h_ref_n,
+                  this->time_handler.current_time);
+
+              const double dh_target_t_j =
+                MeshConcentrationTools::target_size_tangential_current_derivative<dim>(
+                  x_current,
+                  dx_j,
+                  h_ref_t,
+                  this->time_handler.current_time);
+
+              const double dp_n_dh_current =
+                MeshConcentrationTools::
+                  maintained_size_pressure_derivative_wrt_h_current(
+                    h_current_n,
+                    h_ref_n,
+                    h_target_n,
+                    size_stiffness,
+                    alpha,
+                    release_ratio,
+                    transition_width,
+                    eps);
+
+              const double dp_t_dh_current =
+                MeshConcentrationTools::
+                  maintained_size_pressure_derivative_wrt_h_current(
+                    h_current_t,
+                    h_ref_t,
+                    h_target_t,
+                    size_stiffness,
+                    alpha,
+                    release_ratio,
+                    transition_width,
+                    eps);
+
+              const double dp_n_dh_target =
+                MeshConcentrationTools::
+                  maintained_size_pressure_derivative_wrt_h_target(
+                    h_current_n,
+                    h_ref_n,
+                    h_target_n,
+                    size_stiffness,
+                    alpha,
+                    release_ratio,
+                    transition_width,
+                    eps);
+
+              const double dp_t_dh_target =
+                MeshConcentrationTools::
+                  maintained_size_pressure_derivative_wrt_h_target(
+                    h_current_t,
+                    h_ref_t,
+                    h_target_t,
+                    size_stiffness,
+                    alpha,
+                    release_ratio,
+                    transition_width,
+                    eps);
+
+              const double dp_n_j =
+                dp_n_dh_current * dh_current_n_j
+                + dp_n_dh_target * dh_target_n_j;
+
+              const double dp_t_j =
+                dp_t_dh_current * dh_current_t_j
+                + dp_t_dh_target * dh_target_t_j;
+
+              const Tensor<2, dim> dsigma_size_j =
+                dp_n_j * nn_size
+                + dp_t_j * tt_size;
+
+              local_ps_matrix_ij +=
+                scalar_product(dsigma_size_j, grad_phi_x[i]);
+            }
           }
 
           local_ps_matrix_ij *= JxW_fixed;
         }
 
         local_flow_matrix_ij *= JxW_moving;
-        local_matrix(i, j) += local_flow_matrix_ij + local_ps_matrix_ij;
+
+        local_matrix(i, j) +=
+          local_flow_matrix_ij + local_ps_matrix_ij;
       }
     }
   }
 
-  //
-  // Face contributions (Lagrange multiplier)
-  //
+  /*
+   * Contributions de face : multiplicateur de Lagrange.
+   */
   if (cell->at_boundary())
   {
     for (const auto i_face : cell->face_indices())
@@ -1913,9 +2849,9 @@ void FSISolver<dim>::assemble_local_matrix(
 
       if (face->at_boundary())
       {
-        const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
+        const auto &fluid_bc =
+          this->param.fluid_bc.at(face->boundary_id());
 
-        // Lagrange multiplier for no-slip
         if (fluid_bc.type == BoundaryConditions::Type::weak_no_slip)
         {
           Assembly::weakly_enforced_no_slip_matrix<true, dim>(
@@ -1928,6 +2864,7 @@ void FSISolver<dim>::assemble_local_matrix(
       }
     }
   }
+
   cell->get_dof_indices(copy_data.local_dof_indices);
 }
 
@@ -2007,6 +2944,8 @@ void FSISolver<dim>::assemble_local_rhs(
 
   if (!cell->is_locally_owned())
     return;
+  
+  this->param.mesh_concentration.set_time(this->time_handler.current_time);
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
@@ -2022,132 +2961,28 @@ void FSISolver<dim>::assemble_local_rhs(
   const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
 
 
-  Tensor<2, dim> sigma_concentration_cell;
+  const double eps =
+  this->param.mesh_concentration.eps;
 
-  // if (this->param.mesh_concentration.enable)
-  // {
-  //   const double eps = this->param.mesh_concentration.eps;
+  const Tensor<1, dim> n_size =
+    MeshConcentrationTools::normal_size_direction<dim>();
 
-  //   /*
-  //   * Cell-averaged indicator G_K and directional metric M_K.
-  //   */
-  //   double         G_cell = 0.0;
-  //   double         volume_cell = 0.0;
-  //   Tensor<2, dim> M_cell;
+  const Tensor<1, dim> t_size =
+    MeshConcentrationTools::tangential_size_direction<dim>();
 
-  //   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
-  //   {
-  //     const Tensor<2, dim> &grad_u_q =
-  //       scratch_data.present_velocity_gradients[q];
+  const Tensor<2, dim> nn_size =
+    MeshConcentrationTools::outer_product_nn<dim>(n_size);
 
-  //     const double G_q =
-  //       MeshConcentrationTools::compute_grad_u_norm<dim>(grad_u_q, eps);
+  const Tensor<2, dim> tt_size =
+    MeshConcentrationTools::outer_product_nn<dim>(t_size);
 
-  //     const Tensor<2, dim> M_q =
-  //       MeshConcentrationTools::compute_directional_metric<dim>(grad_u_q);
+  const double h_ref_n =
+    MeshConcentrationTools::cell_extent_in_direction<dim>(
+      cell, n_size, eps);
 
-  //     const double JxW_q = scratch_data.JxW_fixed[q];
-
-  //     G_cell += G_q * JxW_q;
-  //     M_cell += M_q * JxW_q;
-  //     volume_cell += JxW_q;
-  //   }
-
-  //   if (volume_cell > eps)
-  //   {
-  //     G_cell /= volume_cell;
-  //     M_cell *= (1.0 / volume_cell);
-  //   }
-
-  //   /*
-  //   * If the velocity gradient is almost zero, do not add concentration stress.
-  //   */
-  //   if (G_cell > eps)
-  //   {
-  //     const double h_current = cell->diameter();
-
-  //     const double h_target =
-  //       MeshConcentrationTools::compute_h_target(G_cell,
-  //                                               this->param.mesh_concentration.h_min,
-  //                                               this->param.mesh_concentration.h_max,
-  //                                               this->param.mesh_concentration.G0,
-  //                                               this->param.mesh_concentration.exponent);
-
-  //     const double eh =
-  //       (h_current - h_target) / h_target;
-
-  //     const double eh_comp =
-  //       std::max(0.0, eh);
-
-  //     const double eh_dil =
-  //       std::max(0.0, -eh);
-
-  //     const double ratio =
-  //       G_cell / (G_cell + this->param.mesh_concentration.G0);
-
-  //     const double low_gradient_weight =
-  //       1.0 - ratio;
-
-  //     this->param.mesh_concentration.alpha_fun->set_time(
-  //       this->time_handler.current_time);
-
-  //     const double alpha_cell =
-  //       this->param.mesh_concentration.alpha_fun->value(cell->center());
-
-  //     double p_compression =
-  //       alpha_cell * eh_comp * ratio;
-
-  //     double p_dilatation = 0;
-  //       // alpha_cell * eh_dil * low_gradient_weight;
-
-  //     /*
-  //     * Smooth temporal ramp to avoid brutal mesh motion.
-  //     */
-  //     const double ramp_time = this->param.mesh_concentration.ramp_time;
-
-  //     if (ramp_time > eps)
-  //     {
-  //       const double ramp =
-  //         std::min(1.0, this->time_handler.current_time / ramp_time);
-
-  //       p_compression *= ramp;
-  //       p_dilatation  *= ramp;
-  //     }
-
-  //     p_compression =
-  //       std::max(0.0,
-  //               std::min(p_compression,
-  //                         this->param.mesh_concentration.max_pressure));
-
-  //     p_dilatation =
-  //       std::max(0.0,
-  //               std::min(p_dilatation,
-  //                         this->param.mesh_concentration.max_pressure));
-
-  //     /*
-  //     * Principal direction of strongest variation of u.
-  //     */
-  //     const Tensor<1, dim> n =
-  //       MeshConcentrationTools::compute_principal_direction_power_iteration<dim>(
-  //         M_cell, eps);
-
-  //     if (n.norm() > eps && (p_compression > 0.0 || p_dilatation > 0.0))
-  //     {
-  //       const Tensor<2, dim> A_concentration =
-  //         MeshConcentrationTools::compute_anisotropic_tensor<dim>(
-  //           n,
-  //           this->param.mesh_concentration.normal_weight,
-  //           this->param.mesh_concentration.tangential_weight);
-
-  //       const Tensor<2, dim> I =
-  //         MeshConcentrationTools::identity_tensor_2<dim>();
-
-  //       sigma_concentration_cell =
-  //         +p_compression * A_concentration
-  //         +p_dilatation * I;
-  //     }
-  //   }
-  // }
+  const double h_ref_t =
+    MeshConcentrationTools::cell_extent_in_direction<dim>(
+      cell, t_size, eps);
 
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
@@ -2209,20 +3044,78 @@ void FSISolver<dim>::assemble_local_rhs(
     const auto &div_phi_x      = scratch_data.div_phi_x[q];
     const auto &grad_phi_x = scratch_data.grad_phi_x[q];
 
-    Tensor<2, dim> sigma_forced_center_q;
+    Tensor<2, dim> sigma_size_q;
 
     if (this->param.mesh_concentration.enable)
     {
-      const Point<dim> &Xq = scratch_data.q_points_fixed[q];
+      const Tensor<2, dim> &F =
+        present_position_gradients;
 
-      this->param.mesh_concentration.alpha_fun->set_time(
-      this->time_handler.current_time);
+      Point<dim> x_current;
+
+      for (unsigned int d = 0; d < dim; ++d)
+        x_current[d] = scratch_data.present_position_values[q][d];
 
       const double alpha =
-        this->param.mesh_concentration.alpha_fun->value(Xq);
+        this->param.mesh_concentration.alpha_fun->value(x_current);
 
-      sigma_forced_center_q =
-        MeshConcentrationTools::forced_center_pressure_stress<dim>(Xq, alpha);
+      const double h_current_n =
+        MeshConcentrationTools::directional_mesh_size<dim>(
+          F,
+          n_size,
+          h_ref_n,
+          eps);
+
+      const double h_current_t =
+        MeshConcentrationTools::directional_mesh_size<dim>(
+          F,
+          t_size,
+          h_ref_t,
+          eps);
+
+      const double h_target_n =
+        MeshConcentrationTools::target_size_normal_current<dim>(
+          x_current,
+          h_ref_n,
+          this->time_handler.current_time);
+
+      const double h_target_t =
+        MeshConcentrationTools::target_size_tangential_current<dim>(
+          x_current,
+          h_ref_t,
+          this->time_handler.current_time);
+
+      const double size_stiffness =
+        2.0 * lame_mu + lame_lambda;
+
+      const double release_ratio = 0.85;
+      const double transition_width = 0.05;
+
+      const double p_n =
+        MeshConcentrationTools::maintained_size_pressure_law(
+          h_current_n,
+          h_ref_n,
+          h_target_n,
+          size_stiffness,
+          alpha,
+          release_ratio,
+          transition_width,
+          eps);
+
+      const double p_t =
+        MeshConcentrationTools::maintained_size_pressure_law(
+          h_current_t,
+          h_ref_t,
+          h_target_t,
+          size_stiffness,
+          alpha,
+          release_ratio,
+          transition_width,
+          eps);
+
+      sigma_size_q =
+        p_n * nn_size +
+        p_t * tt_size;
     }
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
@@ -2275,7 +3168,7 @@ void FSISolver<dim>::assemble_local_rhs(
           lame_lambda * present_trace_strain * div_phi_x[i] +
           2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i]) +
           phi_x[i] * source_term_position +
-          scalar_product(sigma_forced_center_q, grad_phi_x[i]));
+          scalar_product(sigma_size_q, grad_phi_x[i]));
 
         local_rhs_ps_i *= JxW_fixed;
       }
@@ -3068,213 +3961,266 @@ void FSISolver<dim>::add_solver_specific_postprocessing_data()
 {
   if (this->postproc_handler->should_output_volume_fields(this->time_handler))
   {
+    this->param.mesh_concentration.set_time(this->time_handler.current_time);
     Vector<float> lame_mu_cell(this->triangulation.n_active_cells());
     Vector<float> lame_lambda_cell(this->triangulation.n_active_cells());
 
-    Vector<float> mesh_G_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_h_current_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_h_target_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_eh_pos_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_eh_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_eh_comp_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_eh_dil_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_p_compression_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_p_dilatation_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_ratio_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_hn_current_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_ht_current_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_hn_target_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_ht_target_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_en_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_et_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_pn_cell(this->triangulation.n_active_cells());
+    Vector<float> mesh_pt_cell(this->triangulation.n_active_cells());
     Vector<float> mesh_alpha_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_p_concentration_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_nx_cell(this->triangulation.n_active_cells());
-    Vector<float> mesh_ny_cell(this->triangulation.n_active_cells());
-
-    Vector<float> mesh_p_forced_center_cell(this->triangulation.n_active_cells());
 
     const auto &mu_fun =
       this->param.physical_properties.pseudosolids[0].lame_mu_fun;
+
     const auto &lambda_fun =
       this->param.physical_properties.pseudosolids[0].lame_lambda_fun;
 
-    FEValues<dim> fe_values_velocity(
-      *this->moving_mapping,
-      *fe,
-      *this->quadrature,
-      update_gradients | update_JxW_values);
-
-    FEValues<dim> fe_values_fixed(
+    /*
+     * On a besoin :
+     * - des valeurs de position x(X), pour évaluer la zone cible
+     *   dans la géométrie courante ;
+     * - des gradients de position grad_X(x), pour calculer les tailles
+     *   courantes via F = dx/dX ;
+     * - des JxW pour moyenner par cellule.
+     */
+    FEValues<dim> fe_values_position(
       *this->fixed_mapping,
       *fe,
       *this->quadrature,
-      update_JxW_values);
+      update_values | update_gradients | update_JxW_values);
 
-    std::vector<Tensor<2, dim>> velocity_gradients(
+    std::vector<Tensor<1, dim>> position_values(
+      this->quadrature->size());
+
+    std::vector<Tensor<2, dim>> position_gradients(
       this->quadrature->size());
 
     for (const auto &cell : this->dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
       {
-        const unsigned int cell_id = cell->active_cell_index();
-
-        if (this->param.mesh_concentration.enable)
-        {
-          const double p_forced =
-            MeshConcentrationTools::forced_center_pressure<dim>(cell->center());
-
-          mesh_p_forced_center_cell[cell_id] =
-            static_cast<float>(p_forced);
-        }
+        const unsigned int cell_id =
+          cell->active_cell_index();
 
         lame_mu_cell[cell_id] =
-          mu_fun->value(cell->center());
+          static_cast<float>(mu_fun->value(cell->center()));
 
         lame_lambda_cell[cell_id] =
-          lambda_fun->value(cell->center());
+          static_cast<float>(lambda_fun->value(cell->center()));
 
         if (this->param.mesh_concentration.enable)
         {
-          const double eps = this->param.mesh_concentration.eps;
+          const double eps =
+            this->param.mesh_concentration.eps;
 
-          fe_values_velocity.reinit(cell);
-          fe_values_fixed.reinit(cell);
+          /*
+           * Valeurs locales des coefficients du pseudo-solide.
+           * Pour le post-traitement, on prend la valeur au centre de cellule.
+           */
+          const double lame_mu_cell_value =
+            mu_fun->value(cell->center());
 
-          fe_values_velocity[this->velocity_extractor]
+          const double lame_lambda_cell_value =
+            lambda_fun->value(cell->center());
+
+          const double size_stiffness =
+            2.0 * lame_mu_cell_value + lame_lambda_cell_value;
+
+          /*
+           * Directions de contrôle des tailles :
+           * n_size : direction normale forte, ici e_y ;
+           * t_size : direction tangentielle, ici e_x.
+           */
+          const Tensor<1, dim> n_size =
+            MeshConcentrationTools::normal_size_direction<dim>();
+
+          const Tensor<1, dim> t_size =
+            MeshConcentrationTools::tangential_size_direction<dim>();
+
+          /*
+           * Taille de référence de la cellule initiale dans chaque direction.
+           */
+          const double h_ref_n =
+            MeshConcentrationTools::cell_extent_in_direction<dim>(
+              cell,
+              n_size,
+              eps);
+
+          const double h_ref_t =
+            MeshConcentrationTools::cell_extent_in_direction<dim>(
+              cell,
+              t_size,
+              eps);
+
+          /*
+           * Récupération de x(X) et F = grad_X(x)
+           * aux points de quadrature.
+           */
+          fe_values_position.reinit(cell);
+
+          fe_values_position[this->position_extractor]
+            .get_function_values(this->present_solution,
+                                 position_values);
+
+          fe_values_position[this->position_extractor]
             .get_function_gradients(this->present_solution,
-                                    velocity_gradients);
+                                    position_gradients);
 
-          double         G_cell = 0.0;
-          double         volume_cell = 0.0;
-          Tensor<2, dim> M_cell;
+          double h_current_n = 0.0;
+          double h_current_t = 0.0;
+          double h_target_n  = 0.0;
+          double h_target_t  = 0.0;
+          double p_n         = 0.0;
+          double p_t         = 0.0;
+          double alpha_cell = 0.0;
+          double volume_cell = 0.0;
+
+          /*
+           * Même paramètres que dans l'assemblage du résidu/matrice.
+           */
+          const double release_ratio =
+            0.85;
+
+          const double transition_width =
+            0.05;
 
           for (unsigned int q = 0; q < this->quadrature->size(); ++q)
           {
-            const Tensor<2, dim> &grad_u_q =
-              velocity_gradients[q];
+            const Tensor<2, dim> &F_q =
+              position_gradients[q];
 
-            const double G_q =
-              MeshConcentrationTools::compute_grad_u_norm<dim>(
-                grad_u_q, eps);
+            /*
+             * position_values[q] est un Tensor<1,dim>, alors que les fonctions
+             * de cible prennent un Point<dim>. On convertit explicitement.
+             */
+            Point<dim> x_current_q;
 
-            const Tensor<2, dim> M_q =
-              MeshConcentrationTools::compute_directional_metric<dim>(
-                grad_u_q);
+            for (unsigned int d = 0; d < dim; ++d)
+              x_current_q[d] = position_values[q][d];
 
-            const double JxW_q = fe_values_fixed.JxW(q);
+            const double alpha_q =
+              this->param.mesh_concentration.alpha_fun->value(x_current_q);
 
-            G_cell += G_q * JxW_q;
-            M_cell += M_q * JxW_q;
+            const double JxW_q =
+              fe_values_position.JxW(q);
+
+            const double h_current_n_q =
+              MeshConcentrationTools::directional_mesh_size<dim>(
+                F_q,
+                n_size,
+                h_ref_n,
+                eps);
+
+            const double h_current_t_q =
+              MeshConcentrationTools::directional_mesh_size<dim>(
+                F_q,
+                t_size,
+                h_ref_t,
+                eps);
+
+            /*
+             * Taille cible évaluée dans la géométrie courante.
+             * Donc la zone de concentration suit bien les coordonnées
+             * actuelles x, pas seulement les cellules initiales.
+             */
+            const double h_target_n_q =
+              MeshConcentrationTools::target_size_normal_current<dim>(
+                x_current_q,
+                h_ref_n,
+                this->time_handler.current_time);
+
+            const double h_target_t_q =
+              MeshConcentrationTools::target_size_tangential_current<dim>(
+                x_current_q,
+                h_ref_t,
+                this->time_handler.current_time);
+
+            /*
+             * Nouvelle loi de pression maintenue :
+             * elle ne retombe pas à zéro lorsque h_current = h_target.
+             */
+            const double p_n_q =
+              MeshConcentrationTools::maintained_size_pressure_law(
+                h_current_n_q,
+                h_ref_n,
+                h_target_n_q,
+                size_stiffness,
+                alpha_q,
+                release_ratio,
+                transition_width,
+                eps);
+
+            const double p_t_q =
+              MeshConcentrationTools::maintained_size_pressure_law(
+                h_current_t_q,
+                h_ref_t,
+                h_target_t_q,
+                size_stiffness,
+                alpha_q,
+                release_ratio,
+                transition_width,
+                eps);
+
+            h_current_n += h_current_n_q * JxW_q;
+            h_current_t += h_current_t_q * JxW_q;
+
+            h_target_n += h_target_n_q * JxW_q;
+            h_target_t += h_target_t_q * JxW_q;
+
+            p_n += p_n_q * JxW_q;
+            p_t += p_t_q * JxW_q;
+
             volume_cell += JxW_q;
+            alpha_cell += alpha_q * JxW_q;
           }
 
           if (volume_cell > eps)
           {
-            G_cell /= volume_cell;
-            M_cell *= (1.0 / volume_cell);
+            h_current_n /= volume_cell;
+            h_current_t /= volume_cell;
+
+            h_target_n /= volume_cell;
+            h_target_t /= volume_cell;
+
+            p_n /= volume_cell;
+            p_t /= volume_cell;
+            alpha_cell /= volume_cell;
           }
 
-          const double h_current = cell->diameter();
+          const double e_n =
+            (h_current_n - h_target_n) / std::max(h_target_n, eps);
 
-          const double h_target =
-            MeshConcentrationTools::compute_h_target(
-              G_cell,
-              this->param.mesh_concentration.h_min,
-              this->param.mesh_concentration.h_max,
-              this->param.mesh_concentration.G0,
-              this->param.mesh_concentration.exponent);
+          const double e_t =
+            (h_current_t - h_target_t) / std::max(h_target_t, eps);
 
-          const double eh =
-            (h_current - h_target) / h_target;
+          mesh_hn_current_cell[cell_id] =
+            static_cast<float>(h_current_n);
 
-          const double eh_comp =
-            std::max(0.0, eh);
+          mesh_ht_current_cell[cell_id] =
+            static_cast<float>(h_current_t);
 
-          const double eh_dil =
-            std::max(0.0, -eh);
+          mesh_hn_target_cell[cell_id] =
+            static_cast<float>(h_target_n);
 
-          const double ratio =
-            G_cell / (G_cell + this->param.mesh_concentration.G0);
+          mesh_ht_target_cell[cell_id] =
+            static_cast<float>(h_target_t);
 
-          const double low_gradient_weight =
-            1.0 - ratio;
+          mesh_en_cell[cell_id] =
+            static_cast<float>(e_n);
 
-          this->param.mesh_concentration.alpha_fun->set_time(
-            this->time_handler.current_time);
+          mesh_et_cell[cell_id] =
+            static_cast<float>(e_t);
 
-          const double alpha =
-            this->param.mesh_concentration.alpha_fun->value(cell->center());
+          mesh_pn_cell[cell_id] =
+            static_cast<float>(p_n);
 
-          double p_compression =
-            alpha * eh_comp * ratio;
-
-          double p_dilatation = 0;
-            // alpha * eh_dil * low_gradient_weight;
-
-          const double ramp_time =
-            this->param.mesh_concentration.ramp_time;
-
-          if (ramp_time > eps)
-          {
-            const double ramp =
-              std::min(1.0, this->time_handler.current_time / ramp_time);
-
-            p_compression *= ramp;
-            p_dilatation  *= ramp;
-          }
-
-          p_compression =
-            std::max(0.0,
-                    std::min(p_compression,
-                              this->param.mesh_concentration.max_pressure));
-
-          p_dilatation =
-            std::max(0.0,
-                    std::min(p_dilatation,
-                              this->param.mesh_concentration.max_pressure));
-
-          const Tensor<1, dim> n =
-            MeshConcentrationTools
-              ::compute_principal_direction_power_iteration<dim>(
-                M_cell, eps);
-
-          mesh_G_cell[cell_id] =
-            static_cast<float>(G_cell);
-
-          mesh_h_current_cell[cell_id] =
-            static_cast<float>(h_current);
-
-          mesh_h_target_cell[cell_id] =
-            static_cast<float>(h_target);
-
-          mesh_eh_cell[cell_id] =
-            static_cast<float>(eh);
-
-          mesh_eh_comp_cell[cell_id] =
-            static_cast<float>(eh_comp);
-
-          mesh_eh_dil_cell[cell_id] =
-            static_cast<float>(eh_dil);
-
-          mesh_eh_pos_cell[cell_id] =
-            static_cast<float>(eh_comp);
-
-          mesh_p_compression_cell[cell_id] =
-            static_cast<float>(p_compression);
-
-          mesh_p_dilatation_cell[cell_id] =
-            static_cast<float>(p_dilatation);
-
-          mesh_p_concentration_cell[cell_id] =
-            static_cast<float>(p_compression - p_dilatation);
-
-          mesh_ratio_cell[cell_id] =
-            static_cast<float>(ratio);
-
-          mesh_alpha_cell[cell_id] =
-            static_cast<float>(alpha);
-
-          mesh_nx_cell[cell_id] =
-            static_cast<float>(n[0]);
-
-          if constexpr (dim >= 2)
-            mesh_ny_cell[cell_id] =
-              static_cast<float>(n[1]);
+          mesh_pt_cell[cell_id] =
+            static_cast<float>(p_t);
         }
       }
 
@@ -3286,47 +4232,32 @@ void FSISolver<dim>::add_solver_specific_postprocessing_data()
 
     if (this->param.mesh_concentration.enable)
     {
-      this->postproc_handler->add_cell_data_vector(mesh_G_cell,
-                                                   "mesh_G");
+      this->postproc_handler->add_cell_data_vector(mesh_hn_current_cell,
+                                                   "mesh_hn_current");
 
-      this->postproc_handler->add_cell_data_vector(mesh_eh_cell,
-                                                  "mesh_eh");
+      this->postproc_handler->add_cell_data_vector(mesh_ht_current_cell,
+                                                   "mesh_ht_current");
 
-      this->postproc_handler->add_cell_data_vector(mesh_eh_comp_cell,
-                                                  "mesh_eh_comp");
+      this->postproc_handler->add_cell_data_vector(mesh_hn_target_cell,
+                                                   "mesh_hn_target");
 
-      this->postproc_handler->add_cell_data_vector(mesh_eh_dil_cell,
-                                                  "mesh_eh_dil");
+      this->postproc_handler->add_cell_data_vector(mesh_ht_target_cell,
+                                                   "mesh_ht_target");
 
-      this->postproc_handler->add_cell_data_vector(mesh_h_current_cell,
-                                                   "mesh_h_current");
+      this->postproc_handler->add_cell_data_vector(mesh_en_cell,
+                                                   "mesh_en");
 
-      this->postproc_handler->add_cell_data_vector(mesh_h_target_cell,
-                                                   "mesh_h_target");
+      this->postproc_handler->add_cell_data_vector(mesh_et_cell,
+                                                   "mesh_et");
 
-      this->postproc_handler->add_cell_data_vector(mesh_eh_pos_cell,
-                                                   "mesh_eh_pos");
+      this->postproc_handler->add_cell_data_vector(mesh_pn_cell,
+                                                   "mesh_pn");
 
-      this->postproc_handler->add_cell_data_vector(mesh_ratio_cell,
-                                                   "mesh_ratio");
+      this->postproc_handler->add_cell_data_vector(mesh_pt_cell,
+                                                   "mesh_pt");
 
       this->postproc_handler->add_cell_data_vector(mesh_alpha_cell,
-                                                   "mesh_alpha");
-
-      this->postproc_handler->add_cell_data_vector(mesh_p_compression_cell,
-                                                  "mesh_p_compression");
-
-      this->postproc_handler->add_cell_data_vector(mesh_p_dilatation_cell,
-                                                  "mesh_p_dilatation");
-
-      this->postproc_handler->add_cell_data_vector(mesh_nx_cell,
-                                                   "mesh_nx");
-
-      this->postproc_handler->add_cell_data_vector(mesh_ny_cell,
-                                                   "mesh_ny");
-
-      this->postproc_handler->add_cell_data_vector(mesh_p_forced_center_cell,
-                                             "mesh_p_forced_center");
+                                                  "mesh_alpha");
     }
   }
 }

@@ -663,6 +663,11 @@ namespace Parameters
 
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       alpha_fun;
+    void set_time(const double newtime) const
+    {
+      if (alpha_fun)
+        alpha_fun->set_time(newtime);
+    }
 
     double h_min             = 0.05;
     double h_max             = 1.0;

@@ -121,10 +121,6 @@ public:
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
-  void compute_force(const types::boundary_id obstacle_id);
-
-  virtual void solver_specific_post_processing() override;
-
   /**
    *
    */

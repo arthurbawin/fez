@@ -125,6 +125,39 @@ namespace PostProcessingTools
     const FEValuesExtractors::Vector &lambda_extractor,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
+
+  /**
+   * Compute hydrodynamic forces on a boundary for the compressible
+   * Navier-Stokes solver by integrating the compressible traction
+   * (p I - tau) n, with tau = 2 mu eps(u) - 2/3 mu div(u) I.
+   */
+  template <int dim, typename VectorType>
+  Tensor<1, dim> compute_compressible_forces_on_boundary(
+    const DoFHandler<dim>            &dof_handler,
+    const Mapping<dim>               &mapping,
+    const Quadrature<dim - 1>        &face_quadrature,
+    const VectorType                 &solution,
+    const types::boundary_id          boundary_id,
+    const FEValuesExtractors::Vector &velocity_extractor,
+    const FEValuesExtractors::Scalar &pressure_extractor,
+    const double                      dynamic_viscosity,
+    std::vector<Tensor<1, dim>>      &force_per_face);
+
+  /**
+   * hp-version of the function above
+   */
+  template <int dim, typename VectorType>
+  Tensor<1, dim> compute_compressible_forces_on_boundary(
+    const DoFHandler<dim>            &dof_handler,
+    const hp::MappingCollection<dim> &mapping_collection,
+    const hp::QCollection<dim - 1>   &face_quadrature_collection,
+    const VectorType                 &solution,
+    const types::boundary_id          boundary_id,
+    const FEValuesExtractors::Vector &velocity_extractor,
+    const FEValuesExtractors::Scalar &pressure_extractor,
+    const double                      dynamic_viscosity,
+    std::vector<Tensor<1, dim>>      &force_per_face);
+
   /**
    * Compute the mean value on the boundary with @p boundary_id of the
    * vector-valued field described by @p field_extractor.
@@ -460,6 +493,145 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
   // solver...
   return -lambda_integral;
 }
+
+
+template <int dim, typename VectorType>
+Tensor<1, dim> PostProcessingTools::compute_compressible_forces_on_boundary(
+  const DoFHandler<dim>            &dof_handler,
+  const Mapping<dim>               &mapping,
+  const Quadrature<dim - 1>        &face_quadrature,
+  const VectorType                 &solution,
+  const types::boundary_id          boundary_id,
+  const FEValuesExtractors::Vector &velocity_extractor,
+  const FEValuesExtractors::Scalar &pressure_extractor,
+  const double                      dynamic_viscosity,
+  std::vector<Tensor<1, dim>>      &force_per_face)
+{
+  Tensor<1, dim> forces, forces_local;
+  const SymmetricTensor<2, dim> I = unit_symmetric_tensor<dim>();
+  const double   mu = dynamic_viscosity;
+
+  FEFaceValues<dim> fe_face_values(mapping,
+                                   dof_handler.get_fe(),
+                                   face_quadrature,
+                                   update_values | update_gradients |
+                                     update_JxW_values | update_normal_vectors);
+
+  const unsigned int n_faces_q_points = face_quadrature.size();
+  std::vector<Tensor<2, dim>> velocity_gradients(n_faces_q_points);
+  std::vector<double>                  pressure_values(n_faces_q_points);
+
+  for (auto cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
+      {
+        const auto &face = cell->face(i_face);
+        if (face->at_boundary() && face->boundary_id() == boundary_id)
+        {
+          fe_face_values.reinit(cell, i_face);
+          const auto &normals = fe_face_values.get_normal_vectors();
+          fe_face_values[velocity_extractor].get_function_gradients(
+            solution, velocity_gradients);
+          fe_face_values[pressure_extractor].get_function_values(
+            solution, pressure_values);
+
+          auto &f = force_per_face[face->index()];
+          f       = 0;
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            const double p          = pressure_values[q];
+            const auto &grad_u = velocity_gradients[q];
+            const double div_u = trace(grad_u);
+
+            const auto &n           = normals[q];
+
+            const SymmetricTensor<2, dim> tau =
+                2.0 * mu * symmetrize(grad_u) - (2.0 / 3.0) * mu * div_u * I;
+
+            const Tensor<1, dim> traction = (p * I - tau) * n;
+
+            f += traction * fe_face_values.JxW(q);
+          }
+
+          forces_local += f;
+        }
+      }
+  for (unsigned int d = 0; d < dim; ++d)
+    forces[d] =
+      Utilities::MPI::sum(forces_local[d], dof_handler.get_mpi_communicator());
+  return forces;
+}
+
+template <int dim, typename VectorType>
+Tensor<1, dim> PostProcessingTools::compute_compressible_forces_on_boundary(
+  const DoFHandler<dim>            &dof_handler,
+  const hp::MappingCollection<dim> &mapping_collection,
+  const hp::QCollection<dim - 1>   &face_quadrature_collection,
+  const VectorType                 &solution,
+  const types::boundary_id          boundary_id,
+  const FEValuesExtractors::Vector &velocity_extractor,
+  const FEValuesExtractors::Scalar &pressure_extractor,
+  const double                      dynamic_viscosity,
+  std::vector<Tensor<1, dim>>      &force_per_face)
+{
+  Tensor<1, dim> forces, forces_local;
+  const SymmetricTensor<2, dim> I = unit_symmetric_tensor<dim>();
+  const double   mu = dynamic_viscosity;
+
+  hp::FEFaceValues<dim> hp_fe_face_values(mapping_collection,
+                                   dof_handler.get_fe_collection(),
+                                   face_quadrature_collection,
+                                   update_values | update_gradients |
+                                     update_JxW_values | update_normal_vectors);
+
+  for (auto cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
+      {
+        const auto &face = cell->face(i_face);
+        if (face->at_boundary() && face->boundary_id() == boundary_id)
+        {
+          const unsigned int fe_index = cell->active_fe_index();
+          const unsigned int n_faces_q_points = face_quadrature_collection[fe_index].size();
+
+          std::vector<Tensor<2, dim>> velocity_gradients(n_faces_q_points);
+          std::vector<double>         pressure_values(n_faces_q_points);
+
+          hp_fe_face_values.reinit(cell, i_face);
+          const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
+          const auto &normals = fe_face_values.get_normal_vectors();
+          fe_face_values[velocity_extractor].get_function_gradients(
+            solution, velocity_gradients);
+          fe_face_values[pressure_extractor].get_function_values(
+            solution, pressure_values);
+
+          auto &f = force_per_face[face->index()];
+          f       = 0;
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            const double p          = pressure_values[q];
+            const auto &grad_u = velocity_gradients[q];
+            const double div_u = trace(grad_u);
+
+            const auto &n           = normals[q];
+
+            const SymmetricTensor<2, dim> tau =
+                2.0 * mu * symmetrize(grad_u) - (2.0 / 3.0) * mu * div_u * I;
+
+            const Tensor<1, dim> traction = (p * I - tau) * n;
+
+            f += traction * fe_face_values.JxW(q);
+          }
+
+          forces_local += f;
+        }
+      }
+  for (unsigned int d = 0; d < dim; ++d)
+    forces[d] =
+      Utilities::MPI::sum(forces_local[d], dof_handler.get_mpi_communicator());
+  return forces;
+}
+
 
 template <int dim, typename VectorType>
 Tensor<1, dim> PostProcessingTools::compute_vector_mean_value_on_boundary(

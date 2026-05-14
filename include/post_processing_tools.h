@@ -507,9 +507,9 @@ Tensor<1, dim> PostProcessingTools::compute_compressible_forces_on_boundary(
   const double                      dynamic_viscosity,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
-  Tensor<1, dim> forces, forces_local;
-  const SymmetricTensor<2, dim> I = unit_symmetric_tensor<dim>();
-  const double   mu = dynamic_viscosity;
+  Tensor<1, dim>                forces, forces_local;
+  const SymmetricTensor<2, dim> I  = unit_symmetric_tensor<dim>();
+  const double                  mu = dynamic_viscosity;
 
   FEFaceValues<dim> fe_face_values(mapping,
                                    dof_handler.get_fe(),
@@ -517,9 +517,9 @@ Tensor<1, dim> PostProcessingTools::compute_compressible_forces_on_boundary(
                                    update_values | update_gradients |
                                      update_JxW_values | update_normal_vectors);
 
-  const unsigned int n_faces_q_points = face_quadrature.size();
+  const unsigned int          n_faces_q_points = face_quadrature.size();
   std::vector<Tensor<2, dim>> velocity_gradients(n_faces_q_points);
-  std::vector<double>                  pressure_values(n_faces_q_points);
+  std::vector<double>         pressure_values(n_faces_q_points);
 
   for (auto cell : dof_handler.active_cell_iterators())
     if (cell->is_locally_owned())
@@ -539,14 +539,14 @@ Tensor<1, dim> PostProcessingTools::compute_compressible_forces_on_boundary(
           f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
-            const double p          = pressure_values[q];
-            const auto &grad_u = velocity_gradients[q];
-            const double div_u = trace(grad_u);
+            const double p      = pressure_values[q];
+            const auto  &grad_u = velocity_gradients[q];
+            const double div_u  = trace(grad_u);
 
-            const auto &n           = normals[q];
+            const auto &n = normals[q];
 
             const SymmetricTensor<2, dim> tau =
-                2.0 * mu * symmetrize(grad_u) - (2.0 / 3.0) * mu * div_u * I;
+              2.0 * mu * symmetrize(grad_u) - (2.0 / 3.0) * mu * div_u * I;
 
             const Tensor<1, dim> traction = (p * I - tau) * n;
 
@@ -574,15 +574,16 @@ Tensor<1, dim> PostProcessingTools::compute_compressible_forces_on_boundary(
   const double                      dynamic_viscosity,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
-  Tensor<1, dim> forces, forces_local;
-  const SymmetricTensor<2, dim> I = unit_symmetric_tensor<dim>();
-  const double   mu = dynamic_viscosity;
+  Tensor<1, dim>                forces, forces_local;
+  const SymmetricTensor<2, dim> I  = unit_symmetric_tensor<dim>();
+  const double                  mu = dynamic_viscosity;
 
   hp::FEFaceValues<dim> hp_fe_face_values(mapping_collection,
-                                   dof_handler.get_fe_collection(),
-                                   face_quadrature_collection,
-                                   update_values | update_gradients |
-                                     update_JxW_values | update_normal_vectors);
+                                          dof_handler.get_fe_collection(),
+                                          face_quadrature_collection,
+                                          update_values | update_gradients |
+                                            update_JxW_values |
+                                            update_normal_vectors);
 
   for (auto cell : dof_handler.active_cell_iterators())
     if (cell->is_locally_owned())
@@ -592,13 +593,15 @@ Tensor<1, dim> PostProcessingTools::compute_compressible_forces_on_boundary(
         if (face->at_boundary() && face->boundary_id() == boundary_id)
         {
           const unsigned int fe_index = cell->active_fe_index();
-          const unsigned int n_faces_q_points = face_quadrature_collection[fe_index].size();
+          const unsigned int n_faces_q_points =
+            face_quadrature_collection[fe_index].size();
 
           std::vector<Tensor<2, dim>> velocity_gradients(n_faces_q_points);
           std::vector<double>         pressure_values(n_faces_q_points);
 
           hp_fe_face_values.reinit(cell, i_face);
-          const auto &fe_face_values = hp_fe_face_values.get_present_fe_values();
+          const auto &fe_face_values =
+            hp_fe_face_values.get_present_fe_values();
           const auto &normals = fe_face_values.get_normal_vectors();
           fe_face_values[velocity_extractor].get_function_gradients(
             solution, velocity_gradients);
@@ -609,14 +612,14 @@ Tensor<1, dim> PostProcessingTools::compute_compressible_forces_on_boundary(
           f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
-            const double p          = pressure_values[q];
-            const auto &grad_u = velocity_gradients[q];
-            const double div_u = trace(grad_u);
+            const double p      = pressure_values[q];
+            const auto  &grad_u = velocity_gradients[q];
+            const double div_u  = trace(grad_u);
 
-            const auto &n           = normals[q];
+            const auto &n = normals[q];
 
             const SymmetricTensor<2, dim> tau =
-                2.0 * mu * symmetrize(grad_u) - (2.0 / 3.0) * mu * div_u * I;
+              2.0 * mu * symmetrize(grad_u) - (2.0 / 3.0) * mu * div_u * I;
 
             const Tensor<1, dim> traction = (p * I - tau) * n;
 

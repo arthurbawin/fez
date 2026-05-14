@@ -42,6 +42,8 @@ namespace
     parameters.adaptation.reject_cfl_factor                = 2.;
     parameters.adaptation.compute_error_on_estimator       = false;
 
+    parameters.n_time_intervals = 1;
+
     return parameters;
   }
 

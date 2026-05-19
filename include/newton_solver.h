@@ -45,6 +45,8 @@ public:
     const bool verbose =
       this->param.verbosity == Parameters::Verbosity::verbose;
 
+    auto &present_solution = solver->get_present_solution();
+
     // Throw on failure for these cases:
     // - simulation is steady-state
     // - time adaptation is disabled
@@ -55,7 +57,7 @@ public:
       time_handler.is_starting_step() ||
       time_handler.last_step_was_starting_step();
 
-    solver->evaluation_point = solver->present_solution;
+    solver->evaluation_point = present_solution;
 
     while (!stop)
     {
@@ -132,7 +134,7 @@ public:
         for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
         {
           // Compute NL(u + alpha * du) and check if residual decreases
-          solver->local_evaluation_point = solver->present_solution;
+          solver->local_evaluation_point = present_solution;
           solver->local_evaluation_point.add(alpha, solver->newton_update);
           solver->distribute_nonzero_constraints();
           solver->evaluation_point = solver->local_evaluation_point;
@@ -194,7 +196,7 @@ public:
             if (verbose)
               solver->pcout << "\tRejecting last step and backtracking"
                             << std::endl;
-            solver->local_evaluation_point = solver->present_solution;
+            solver->local_evaluation_point = present_solution;
             solver->local_evaluation_point.add(best_alpha,
                                                solver->newton_update);
             solver->distribute_nonzero_constraints();
@@ -216,7 +218,7 @@ public:
         {
           if (best_alpha > 0.)
           {
-            solver->local_evaluation_point = solver->present_solution;
+            solver->local_evaluation_point = present_solution;
             solver->local_evaluation_point.add(best_alpha,
                                                solver->newton_update);
             solver->distribute_nonzero_constraints();
@@ -231,14 +233,14 @@ public:
               solver->pcout << "\tLine search failed: all residuals "
                                "non-finite, rejecting step"
                             << std::endl;
-            solver->evaluation_point = solver->present_solution;
+            solver->evaluation_point = present_solution;
             stop                     = true;
           }
         }
 
         if (!stop && accepted_step)
           // Update present solution for the next Newton iteration
-          solver->present_solution = solver->evaluation_point;
+          present_solution = solver->evaluation_point;
       }
       else
       {
@@ -255,7 +257,7 @@ public:
     }
 
     // Update present solution
-    solver->present_solution = solver->evaluation_point;
+    present_solution = solver->evaluation_point;
 
     if (!solution_found && throw_on_failure)
       throw std::runtime_error("Nonlinear solver did not converge.");

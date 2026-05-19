@@ -219,5 +219,4 @@ void create_mesh_vertex_to_tensor_dofs_maps(
     }
   }
 }
-
 #endif

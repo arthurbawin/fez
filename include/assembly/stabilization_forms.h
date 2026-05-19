@@ -1,6 +1,7 @@
 #ifndef ASSEMBLY_STABILIZATION_FORMS_H
 #define ASSEMBLY_STABILIZATION_FORMS_H
 
+#include <assembly/ale_geometry.h>
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -349,29 +350,64 @@ namespace Assembly
                         {
                           const Tensor<2, dim> &G   =
                             scratch.grad_phi_x_moving[q][j];
-                          const Tensor<2, dim>  GT  = transpose(G);
-                          const double          trG = trace(G);
+                          const Tensor<3, dim> &K =
+                            scratch.hessian_phi_x_moving[q][j];
+                          const double trG = Assembly::ALE::jacobian_trace(G);
 
                           const Tensor<1, dim> du_conv_dx_j =
-                            -bdf_c0 * scratch.phi_x[q][j];
+                            Assembly::ALE::mesh_velocity_variation(
+                              bdf_c0, scratch.phi_x[q][j]);
                           const Tensor<2, dim> dgrad_u_dx_j =
-                            -scratch.present_velocity_gradients[q] * G;
+                            Assembly::ALE::vector_gradient_variation(
+                              scratch.present_velocity_gradients[q], G);
                           const Tensor<1, dim> dgrad_p_dx_j =
-                            -GT * scratch.present_pressure_gradients[q];
+                            Assembly::ALE::gradient_variation(
+                              scratch.present_pressure_gradients[q], G);
                           const Tensor<1, dim> dgrad_mu_dx_j =
-                            -GT * scratch.potential_gradients[q];
+                            Assembly::ALE::gradient_variation(
+                              scratch.potential_gradients[q], G);
+                          const Tensor<1, dim> dgrad_tracer_dx_j =
+                            Assembly::ALE::gradient_variation(
+                              scratch.tracer_gradients[q], G);
+
+                          const Tensor<1, dim> ddiffusive_flux_dx_j =
+                            scratch.diffusive_flux_factor *
+                            (dgrad_u_dx_j * scratch.potential_gradients[q] +
+                             scratch.present_velocity_gradients[q] *
+                               dgrad_mu_dx_j);
+
+                          const Tensor<1, dim> d_lap_plus_graddiv_u_dx_j =
+                            Assembly::ALE::vector_lap_plus_graddiv_variation(
+                              scratch.present_velocity_hessians[q],
+                              scratch.present_velocity_gradients[q],
+                              G,
+                              K);
+                          const SymmetricTensor<2, dim> d_sym_grad_u_dx_j =
+                            symmetrize(dgrad_u_dx_j);
+                          const Tensor<1, dim> d_div_viscous_scaled_dx_j =
+                            scratch.stabilization_nu_eff[q] *
+                              d_lap_plus_graddiv_u_dx_j +
+                            2. * scratch.stabilization_inv_rho[q] *
+                              scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
+                              (dgrad_tracer_dx_j *
+                                 scratch.present_velocity_sym_gradients[q] +
+                               scratch.tracer_gradients[q] *
+                                 d_sym_grad_u_dx_j);
 
                           const Tensor<1, dim> dR_dx_j =
                             dgrad_u_dx_j * u_conv +
                             scratch.present_velocity_gradients[q] * du_conv_dx_j +
                             scratch.stabilization_inv_rho[q] * dgrad_p_dx_j +
                             scratch.stabilization_inv_rho[q] *
-                              scratch.tracer_values[q] * dgrad_mu_dx_j;
+                              (ddiffusive_flux_dx_j +
+                               scratch.tracer_values[q] * dgrad_mu_dx_j) -
+                            d_div_viscous_scaled_dx_j;
 
                           if (i_is_p)
                             {
                               const Tensor<1, dim> dgrad_phi_p_i_dx_j =
-                                -GT * grad_phi_p_i;
+                                Assembly::ALE::gradient_variation(
+                                  grad_phi_p_i, G);
                               local_matrix_ij -= tau_mom * dR_dx_j * grad_phi_p_i;
                               local_matrix_ij -=
                                 tau_mom * scratch.strong_residual_momentum[q] *
@@ -384,7 +420,8 @@ namespace Assembly
                           if (i_is_u)
                             {
                               const Tensor<2, dim> dgrad_phi_u_i_dx_j =
-                                -grad_phi_u_i * G;
+                                Assembly::ALE::vector_gradient_variation(
+                                  grad_phi_u_i, G);
                               const Tensor<1, dim> d_supg_test_dx_j =
                                 dgrad_phi_u_i_dx_j * u_conv +
                                 grad_phi_u_i * du_conv_dx_j;
@@ -433,19 +470,30 @@ namespace Assembly
                         {
                           const Tensor<2, dim> &G   =
                             scratch.grad_phi_x_moving[q][j];
-                          const Tensor<2, dim>  GT  = transpose(G);
-                          const double          trG = trace(G);
+                          const Tensor<3, dim> &K =
+                            scratch.hessian_phi_x_moving[q][j];
+                          const double trG = Assembly::ALE::jacobian_trace(G);
 
                           const Tensor<1, dim> du_conv_dx_j =
-                            -bdf_c0 * scratch.phi_x[q][j];
+                            Assembly::ALE::mesh_velocity_variation(
+                              bdf_c0, scratch.phi_x[q][j]);
                           const Tensor<1, dim> dgrad_tracer_dx_j =
-                            -GT * scratch.tracer_gradients[q];
+                            Assembly::ALE::gradient_variation(
+                              scratch.tracer_gradients[q], G);
+                          const double dlaplacian_mu_dx_j =
+                            Assembly::ALE::scalar_laplacian_variation(
+                              scratch.potential_hessians[q],
+                              scratch.potential_gradients[q],
+                              G,
+                              K);
                           const double dR_dx_j =
                             du_conv_dx_j * scratch.tracer_gradients[q] +
-                            u_conv * dgrad_tracer_dx_j;
+                            u_conv * dgrad_tracer_dx_j -
+                            scratch.mobility * dlaplacian_mu_dx_j;
 
                           const Tensor<1, dim> dgrad_shape_phi_i_dx_j =
-                            -GT * grad_shape_phi_i;
+                            Assembly::ALE::gradient_variation(
+                              grad_shape_phi_i, G);
                           const double d_supg_test_dx_j =
                             du_conv_dx_j * grad_shape_phi_i +
                             u_conv * dgrad_shape_phi_i_dx_j;

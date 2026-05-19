@@ -11,8 +11,8 @@ PostProcessingHandler<dim>::PostProcessingHandler(
   , output_param(param.output)
   , physical_properties(param.physical_properties)
   , mms_param(param.mms_param)
-  , triangulation(triangulation)
-  , dof_handler(dof_handler)
+  , triangulation(&triangulation, typeid(*this).name())
+  , dof_handler(&dof_handler, typeid(*this).name())
   , mpi_communicator(dof_handler.get_mpi_communicator())
   , mpi_rank(Utilities::MPI::this_mpi_process(mpi_communicator))
 {
@@ -48,6 +48,32 @@ PostProcessingHandler<dim>::PostProcessingHandler(
         triangulation, output_param.skin.boundary_id);
     data_out_skin->attach_dof_handler(dof_handler);
   }
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
+  const Triangulation<dim> &triangulation,
+  const DoFHandler<dim>    &dof_handler)
+{
+  Assert(&dof_handler.get_triangulation() == &triangulation,
+         ExcMessage("The provided triangulation does not match the one "
+                    "attached to the provided DoFHandler"));
+
+  // Assign triangulation and dof handler to this object
+  this->triangulation = &triangulation;
+  this->dof_handler   = &dof_handler;
+
+  // Create new DataOuts
+  data_out = std::make_unique<DataOut<dim>>();
+  data_out->attach_dof_handler(dof_handler);
+  data_out_skin =
+    std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
+      triangulation, output_param.skin.boundary_id);
+  data_out_skin->attach_dof_handler(dof_handler);
+
+  // Clear the stored cell-based vectors
+  subdomains.reinit(0);
+  slice_indices.reinit(0);
 }
 
 template <int dim>
@@ -89,7 +115,7 @@ void PostProcessingHandler<dim>::create_slices()
                                        SliceAxis::z);
 
   PostProcessingTools::set_slice_index_on_boundary<dim>(
-    triangulation,
+    *triangulation,
     post_proc_param.slices.boundary_id,
     post_proc_param.slices.n_slices,
     axis);
@@ -97,8 +123,8 @@ void PostProcessingHandler<dim>::create_slices()
   // Store slice indices as cell-based data.
   // If a face is on the sliced boundary, set its cell slice index to the
   // face user index.
-  slice_indices.reinit(triangulation.n_active_cells());
-  for (const auto &cell : triangulation.active_cell_iterators())
+  slice_indices.reinit(triangulation->n_active_cells());
+  for (const auto &cell : triangulation->active_cell_iterators())
     if (cell->is_locally_owned())
       for (const auto &face : cell->face_iterators())
         if (face->at_boundary() &&

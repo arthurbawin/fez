@@ -1,6 +1,7 @@
 #ifndef ASSEMBLY_CHNS_ENLARGED_FORMS_H
 #define ASSEMBLY_CHNS_ENLARGED_FORMS_H
 
+#include <assembly/ale_geometry.h>
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -165,21 +166,18 @@ namespace Assembly
               if constexpr (with_moving_mesh)
                 if (ordering.is_position(comp_j))
                   {
-                    const Tensor<2, dim> &G   = scratch.grad_phi_x_moving[q][j];
-                    const double          trG = trace(G);
+                    const Tensor<2, dim> &G = scratch.grad_phi_x_moving[q][j];
 
                     local_matrix_ij +=
                       phi_i *
-                      (scratch.psi_values[q] - scratch.tracer_values[q] -
-                       psi_mu_correction) *
-                      trG;
+                      Assembly::ALE::jacobian_weighted_value_variation(
+                        scratch.psi_values[q] - scratch.tracer_values[q] -
+                          psi_mu_correction,
+                        G);
                     local_matrix_ij +=
                       length_scale_sq *
-                      (scalar_product(-transpose(G) * grad_i,
-                                      scratch.psi_gradients[q]) +
-                       scalar_product(grad_i,
-                                      -transpose(G) * scratch.psi_gradients[q]) +
-                       scalar_product(grad_i, scratch.psi_gradients[q]) * trG);
+                      Assembly::ALE::gradient_inner_product_jacobian_variation(
+                        grad_i, scratch.psi_gradients[q], G);
                   }
 
               local_matrix(i, j) += local_matrix_ij * scratch.JxW_moving[q];

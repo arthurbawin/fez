@@ -1,6 +1,7 @@
 #ifndef METRIC_TENSOR_TOOLS_H
 #define METRIC_TENSOR_TOOLS_H
 
+#include <error_estimation/solution_recovery.h>
 #include <metric_intersection_mmg.h>
 #include <metric_tensor.h>
 
@@ -273,6 +274,47 @@ namespace MetricTensorTools
   }
 
   /**
+   * Compute the anisotropic measure Q from the reconstruct derivatives at
+   * (owned) mesh vertex @p vertex_index.
+   */
+  template <int dim>
+  MetricTensor<dim> anisotropic_measure(
+    const Parameters::MetricField<dim>                 &metric_param,
+    const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
+    const unsigned int                                  component,
+    const types::global_vertex_index                    vertex_index);
+
+  /**
+   *
+   */
+  template <int dim>
+  MetricTensor<dim>
+  anisotropic_measure_P1(const Parameters::MetricField<dim> &metric_param,
+                         const SymmetricTensor<2, dim>      &hessian);
+
+  /**
+   *
+   */
+  template <int dim>
+  MetricTensor<dim>
+  anisotropic_measure_P2(const Parameters::MetricField<dim> &metric_param,
+                         const Tensor<3, dim>               &third_derivatives)
+  {
+    (void)metric_param;
+    (void)third_derivatives;
+    DEAL_II_NOT_IMPLEMENTED();
+  }
+
+  /**
+   *
+   */
+  template <int dim>
+  MetricTensor<dim> anisotropic_measure_Pn()
+  {
+    DEAL_II_NOT_IMPLEMENTED();
+  }
+
+  /**
    * Apply metric gradation on the mesh edge @p p - @p q.
    */
   template <int dim>
@@ -283,39 +325,97 @@ namespace MetricTensorTools
     const double                                    gradation,
     const double                                    relative_tolerance,
     MetricTensor<dim>                              &Mp,
-    MetricTensor<dim>                              &Mq)
-  {
-    bool metricChanged = false;
-
-    // Span Mp to q, intersect and check if Mq needs to be reduced
-    MetricTensor<dim> MpAtq = Mp.span_metric(spanning_space, gradation, q - p);
-    MpAtq                   = Mq.intersection(MpAtq);
-
-    const double relative_norm_q = (MpAtq - Mq).norm() / Mq.norm();
-
-    if (relative_norm_q > relative_tolerance)
-    {
-      Mq            = MpAtq;
-      metricChanged = true;
-    };
-
-    // FIXME: We already span Mq, to save one iteration.
-    // Is it always the best choice?
-
-    // Idem for Mq at p
-    MetricTensor<dim> MqAtp = Mq.span_metric(spanning_space, gradation, p - q);
-    MqAtp                   = Mp.intersection(MqAtp);
-
-    const double relative_norm_p = (MqAtp - Mp).norm() / Mp.norm();
-
-    if (relative_norm_p > relative_tolerance)
-    {
-      Mp            = MqAtp;
-      metricChanged = true;
-    };
-
-    return metricChanged;
-  }
+    MetricTensor<dim>                              &Mq);
 } // namespace MetricTensorTools
+
+/* ---------------- template and inline functions ----------------- */
+
+template <int dim>
+MetricTensor<dim> MetricTensorTools::anisotropic_measure(
+  const Parameters::MetricField<dim>                 &metric_param,
+  const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
+  const unsigned int                                  component,
+  const types::global_vertex_index                    vertex_index)
+{
+  // Need derivatives of order p + 1 if solution is of degree p.
+  const auto degree = recovery.get_solution_degree();
+  Assert(recovery.get_highest_stored_derivative() >= degree + 1,
+         ExcMessage("Derivatives of order p + 1 are needed to compute the "
+                    "anisotropic measure for a solution of degree p."));
+  Assert(recovery.has_mesh_vertex(vertex_index), ExcInternalError());
+
+  if (degree == 1)
+  {
+    const SymmetricTensor<2, dim> hessian =
+      metric_param.multiscale.use_analytical_derivatives ?
+        metric_param.analytical_field->hessian(
+          recovery.get_dof_handler()
+            .get_triangulation()
+            .get_vertices()[vertex_index]) :
+        symmetrize(recovery.get_reconstructed_hessian(component)[vertex_index]);
+    return MetricTensorTools::anisotropic_measure_P1(metric_param, hessian);
+  }
+  else if (degree == 2)
+  {
+    const Tensor<3, dim> dummy;
+    return MetricTensorTools::anisotropic_measure_P2(metric_param, dummy);
+  }
+  else
+    return MetricTensorTools::anisotropic_measure_Pn<dim>();
+  DEAL_II_ASSERT_UNREACHABLE();
+  return MetricTensor<dim>();
+}
+
+template <int dim>
+MetricTensor<dim> MetricTensorTools::anisotropic_measure_P1(
+  const Parameters::MetricField<dim> &metric_param,
+  const SymmetricTensor<2, dim>      &hessian)
+{
+  return MetricTensorTools::absolute_value(hessian,
+                                           metric_param.min_eigenvalue,
+                                           metric_param.max_eigenvalue);
+}
+
+template <int dim>
+bool MetricTensorTools::gradation_on_edge(
+  const Point<dim>                               &p,
+  const Point<dim>                               &q,
+  const typename MetricTensor<dim>::SpanningSpace spanning_space,
+  const double                                    gradation,
+  const double                                    relative_tolerance,
+  MetricTensor<dim>                              &Mp,
+  MetricTensor<dim>                              &Mq)
+{
+  bool metricChanged = false;
+
+  // Span Mp to q, intersect and check if Mq needs to be reduced
+  MetricTensor<dim> MpAtq = Mp.span_metric(spanning_space, gradation, q - p);
+  MpAtq                   = Mq.intersection(MpAtq);
+
+  const double relative_norm_q = (MpAtq - Mq).norm() / Mq.norm();
+
+  if (relative_norm_q > relative_tolerance)
+  {
+    Mq            = MpAtq;
+    metricChanged = true;
+  };
+
+  // FIXME: We already span Mq, to save one iteration.
+  // Is it always the best choice?
+
+  // Idem for Mq at p
+  MetricTensor<dim> MqAtp = Mq.span_metric(spanning_space, gradation, p - q);
+  MqAtp                   = Mp.intersection(MqAtp);
+
+  const double relative_norm_p = (MqAtp - Mp).norm() / Mp.norm();
+
+  if (relative_norm_p > relative_tolerance)
+  {
+    Mp            = MqAtp;
+    metricChanged = true;
+  };
+
+  return metricChanged;
+}
 
 #endif

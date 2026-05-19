@@ -149,7 +149,19 @@ namespace Parameters
         // For steady simulations, specify whether the solution should be
         // transferred (projected) from the initial mesh to the adapted mesh.
         bool transfer_solution;
+
+        unsigned int n_time_intervals;
+
+        bool is_last_fixed_point_iteration() const
+        {
+          return current_fixed_point_iteration == n_fixed_point - 1;
+        }
       } metric;
+
+      bool with_metric_based_adaptation() const
+      {
+        return enable && strategy == Strategy::RiemannianMetric;
+      }
 
     } adaptation;
 
@@ -260,7 +272,7 @@ namespace Parameters
     unsigned int tracer_degree;
     unsigned int potential_degree;
 
-    // Degree of the temperature for the heat equation
+    // Degree of the temperature for the heat equation and energy equation
     unsigned int temperature_degree;
 
     struct QuadratureRule
@@ -284,9 +296,32 @@ namespace Parameters
 
   struct Fluid
   {
+    // If using the incompressible Navier-Stokes solver, this is the constant
+    // fluid density. If using the compressible Navier-Stokes solver, this is
+    // the reference density.
     double density;
+
+    // Kinematic viscosity
     double kinematic_viscosity;
+
+    // Dynamic viscosity
     double dynamic_viscosity;
+
+    // Thermal conductivity
+    double thermal_conductivity;
+
+    // Heat capacity at constant pressure c_p
+    double heat_capacity_at_constant_pressure;
+
+    // Gas constant for this specific gas (R^*, and not R)
+    double gas_constant;
+
+    // Reference pressure and temperature represent the conditions around which
+    // the equations are linearized in the compressible solver, and are used to
+    // compute the alpha_r and beta_r coefficients. p = p_ref + p^*   and   T =
+    // T_ref + T^*
+    double pressure_ref;
+    double temperature_ref;
 
     void declare_parameters(ParameterHandler &prm, unsigned int index);
     void read_parameters(ParameterHandler &prm, unsigned int index);
@@ -335,6 +370,15 @@ namespace Parameters
     const unsigned int            max_pseudosolids = 1;
     unsigned int                  n_pseudosolids;
     std::vector<PseudoSolid<dim>> pseudosolids;
+
+    /**
+     * Body force vector (e.g., gravitational acceleration). In solvers where
+     * the momentum equation is divided by density (incompressible single-fluid
+     * NS), this is used directly as a kinematic acceleration. In solvers with
+     * variable density (CHNS, compressible NS), it is multiplied by the local
+     * density to obtain the volumetric force term.
+     */
+    Tensor<1, dim> body_force;
 
   public:
     void set_time(const double newtime)
@@ -468,6 +512,13 @@ namespace Parameters
       bool                compute_error_on_estimator;
     } adaptation;
 
+    /**
+     * If using the transient fixed point mesh adaptation method, this is the
+     * number of subintervals into which the overall simulation interval is
+     * split.
+     */
+    unsigned int n_time_intervals;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
     bool is_steady() const { return scheme == Scheme::stationary; }
@@ -482,12 +533,6 @@ namespace Parameters
       constant
     } mobility_model;
 
-    enum class MeshForcingLaw
-    {
-      simple,
-      regularized_band
-    } mesh_forcing_law = MeshForcingLaw::regularized_band;
-
     double mobility;
     double surface_tension;
     double epsilon_interface;
@@ -495,19 +540,13 @@ namespace Parameters
     double psi_interface_width_factor;
     bool   with_tracer_limiter;
 
-    // Mesh forcing parameters : these parameters control the behavior of the
-    // source term in the pseudosolid equation, in the CHNS-ALE model.
-    double mff_enlarged_compression_factor;
-    double mff_physics_compression_factor;
-    double mff_transport_factor;
-    double mff_band_factor;
-    double psi_mu_correction_factor;
-    /**
-     * We differentiate between the body force which is multiplied by the
-     * mixture density (typically gravity), and the generic source term (e.g.,
-     * for manufactured solutions) which is not.
-     */
-    Tensor<1, dim> body_force;
+    // Moving-mesh forcing terms in the CHNS-ALE pseudosolid equation.
+    double mff_enlarged_compression_factor = 0.;
+    double mff_physics_compression_factor  = 0.;
+    double mff_transport_factor            = 0.;
+    double mff_regularization_gamma        = 0.;
+    double mff_enlarged_factor_equalization_exponent = 1.;
+    double psi_mu_correction_factor                     = 0.;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

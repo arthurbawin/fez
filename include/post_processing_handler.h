@@ -43,6 +43,24 @@ public:
                           &fields_description);
 
   /**
+   * (Re-)attach a @p triangulation and @p dof_handler to this object.
+   *
+   * The main use of this function is to keep a single post-processing handler
+   * even when the domain is completely remeshed during the simulation, such as
+   * when using the transient fixed-point method with metric-based remeshing.
+   * In that case, multiple unrelated meshes are used throughout the simulation,
+   * and the triangulation and dof handler must be updated accordingly to output
+   * the results on each mesh.
+   *
+   * As for the constructor, this function accepts an empty mesh and/or dof
+   * handler, but they will need to be initialized before adding data vectors to
+   * this object.
+   */
+  void
+  attach_triangulation_and_dof_handler(const Triangulation<dim> &triangulation,
+                                       const DoFHandler<dim>    &dof_handler);
+
+  /**
    * Add a cell-based vector of data associated to a field with name "name" to
    * the underlying DataOut object. The vector data should have a size equal to
    * the number of mesh elements on this partitions, e.g., by reinit'ing the
@@ -281,10 +299,13 @@ private:
   const Parameters::PhysicalProperties<dim> &physical_properties;
   const Parameters::MMS                     &mms_param;
 
-  const Triangulation<dim> &triangulation;
-  const DoFHandler<dim>    &dof_handler;
-  MPI_Comm                  mpi_communicator;
-  const unsigned int        mpi_rank;
+  ObserverPointer<const Triangulation<dim>, PostProcessingHandler<dim>>
+    triangulation;
+  ObserverPointer<const DoFHandler<dim>, PostProcessingHandler<dim>>
+    dof_handler;
+
+  MPI_Comm           mpi_communicator;
+  const unsigned int mpi_rank;
 
   std::unique_ptr<DataOut<dim>> data_out;
   std::unique_ptr<PostProcessingTools::DataOutFacesOnBoundary<dim>>
@@ -361,12 +382,12 @@ void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
   if (subdomains.size() == 0)
   {
     Assert(
-      triangulation.n_active_cells() > 0,
+      triangulation->n_active_cells() > 0,
       ExcMessage(
         "Cannot create subdomains vector because triangulation is empty."));
-    subdomains.reinit(triangulation.n_active_cells());
+    subdomains.reinit(triangulation->n_active_cells());
     for (unsigned int i = 0; i < subdomains.size(); ++i)
-      subdomains(i) = triangulation.locally_owned_subdomain();
+      subdomains(i) = triangulation->locally_owned_subdomain();
   }
 
   // Compute slices indices once
@@ -425,7 +446,7 @@ void PostProcessingHandler<dim>::output_skin_fields(
 {
   // build_patches is not (yet) implemented for DataOutFaces in hp context
   AssertThrow(
-    !dof_handler.has_hp_capabilities(),
+    !dof_handler->has_hp_capabilities(),
     ExcMessage(
       "\nYou are using a solver with hp capabilities (i.e., "
       "incompressible_ns_lambda or fsi), and you are also trying "
@@ -567,7 +588,7 @@ void PostProcessingHandler<dim>::compute_forces(
     std::vector<Tensor<1, dim>> forces_per_slice_local(slices_param.n_slices);
     std::vector<Tensor<1, dim>> forces_per_slice = forces_per_slice_local;
 
-    for (const auto &face : triangulation.active_face_iterators())
+    for (const auto &face : triangulation->active_face_iterators())
     {
       if (face->user_index() != numbers::invalid_unsigned_int)
         forces_per_slice_local[face->user_index()] +=

@@ -2,7 +2,12 @@
 #define ERROR_HANDLER_H
 
 #include <deal.II/base/convergence_table.h>
+#include <deal.II/dofs/dof_handler.h>
+#include <deal.II/grid/tria.h>
+#include <mesh_adaptation/transient_fixed_point.h>
+#include <parameter_reader.h>
 #include <parameters.h>
+#include <time_handler.h>
 
 using namespace dealii;
 
@@ -15,7 +20,8 @@ public:
   /**
    * Constructor.
    */
-  ErrorHandler(const Parameters::MMS             &mms_parameters,
+  ErrorHandler(const Parameters::Mesh            &mesh_param,
+               const Parameters::MMS             &mms_parameters,
                const Parameters::TimeIntegration &time_parameters);
 
   /**
@@ -23,6 +29,17 @@ public:
    * in time for a given field.
    */
   void create_entry(const std::string &field_name);
+
+  /**
+   * Add all required reference data (number of mesh elements, vertices, etc.)
+   * for this convergence study.
+   */
+  template <int dim>
+  void add_reference_data(
+    const TimeHandler                  &time_handler,
+    const TransientFixedPointData<dim> &transient_fixed_point_data,
+    const Triangulation<dim>           &triangulation,
+    const DoFHandler<dim>              &dof_handler);
 
   /**
    * Add an integer reference value (number of mesh elements or dof).
@@ -84,7 +101,7 @@ public:
    * Write the convergence table to the given stream.
    * Simply forward the call to the underlying ConvergenceTable.
    */
-  void write_rates(std::ostream &out = std::cout);
+  void write_rates(std::ostream &out = std::cout) const;
 
 private:
   /**
@@ -100,9 +117,15 @@ private:
                           const double       time);
 
 public:
-  const Parameters::MMS             &mms_param;
+  const Parameters::Mesh &mesh_param;
+
+  const Parameters::MMS &mms_param;
+
   const Parameters::TimeIntegration &time_param;
-  bool                               is_steady;
+
+  bool is_steady;
+
+  bool with_metric_based_adaptation;
 
   // For unsteady problems: keep the spatial errors at all time steps
   // For each field, a vector of (t, error(t)) pairs.
@@ -111,40 +134,11 @@ public:
   ConvergenceTable error_table;
 
   // Use vector of keys to maintain prescribed errors order
-  std::vector<std::string>                       ordered_field_keys;
+  std::vector<std::string> ordered_field_keys;
+
   std::map<std::string, std::unique_ptr<double>> domain_errors;
 };
 
 /* ---------------- Template functions ----------------- */
-
-template <int dim>
-void ErrorHandler::compute_rates()
-{
-  for (const auto &key : ordered_field_keys)
-  {
-    if (mms_param.type == Parameters::MMS::Type::space ||
-        mms_param.type == Parameters::MMS::Type::spacetime)
-      error_table.evaluate_convergence_rates(
-        key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
-    if (mms_param.type == Parameters::MMS::Type::time)
-    {
-      if (time_param.adaptation.enable)
-      {
-        // When using an adaptive time step, compute convergence rates based
-        // on the total number of time steps
-        error_table.evaluate_convergence_rates(
-          key, "n_steps", ConvergenceTable::reduction_rate_log2, 1);
-      }
-      else
-      {
-        // Without adaptivity, compute rates based on the constant time step
-        error_table.evaluate_convergence_rates(
-          key, "dt", ConvergenceTable::reduction_rate_log2, 1);
-      }
-    }
-    error_table.set_precision(key, 4);
-    error_table.set_scientific(key, true);
-  }
-}
 
 #endif

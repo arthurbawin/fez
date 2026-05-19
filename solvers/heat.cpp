@@ -40,9 +40,7 @@ int main(int argc, char *argv[])
       HeatSolver<2> problem(param);
       if (param.mms_param.enable)
         problem.run_convergence_loop<2>();
-      else if (param.mesh.adaptation.enable &&
-               param.mesh.adaptation.strategy ==
-                 Parameters::Mesh::Adaptation::Strategy::RiemannianMetric)
+      else if (param.mesh.adaptation.with_metric_based_adaptation())
         problem.run_fixed_point_loop();
       else
         problem.run();
@@ -59,9 +57,7 @@ int main(int argc, char *argv[])
       HeatSolver<3> problem(param);
       if (param.mms_param.enable)
         problem.run_convergence_loop<3>();
-      else if (param.mesh.adaptation.enable &&
-               param.mesh.adaptation.strategy ==
-                 Parameters::Mesh::Adaptation::Strategy::RiemannianMetric)
+      else if (param.mesh.adaptation.with_metric_based_adaptation())
         problem.run_fixed_point_loop();
       else
         problem.run();

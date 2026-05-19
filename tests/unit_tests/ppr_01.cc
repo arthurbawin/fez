@@ -95,7 +95,9 @@ public:
 };
 
 template <int dim>
-void test_ppr(const unsigned int field_polynomial_degree)
+void test_ppr(const unsigned int field_polynomial_degree,
+              const bool         isoparametric,
+              const bool         single_reconstruction)
 {
   MPI_Comm mpi_communicator(MPI_COMM_WORLD);
 
@@ -165,9 +167,10 @@ void test_ppr(const unsigned int field_polynomial_degree)
       solution,
       fe,
       mapping,
-      fe.component_mask(FEValuesExtractors::Scalar(0)));
-    // recovery.compute_least_squares_matrices();
-    recovery.reconstruct_fields();
+      fe.component_mask(FEValuesExtractors::Scalar(0)),
+      isoparametric,
+      single_reconstruction);
+    recovery.reconstruct_fields(solution);
 
     const ScalarFieldWithDerivatives<dim> exact_solution;
     const QGaussSimplex<dim>              cell_quadrature(4);
@@ -226,10 +229,16 @@ void test_ppr(const unsigned int field_polynomial_degree)
         error_table.set_scientific(key, true);
       }
 
+    deallog << std::endl;
     deallog << "Convergence rates:" << std::endl;
-    deallog << "Reconstructed solution and derivatives for solution of degree "
+    deallog << "Reconstructions for solution of degree           : "
             << field_polynomial_degree << std::endl;
+    deallog << "Isoparametric representation                     : "
+            << (isoparametric ? "yes" : "no") << std::endl;
+    deallog << "Computing derivatives from single reconstruction : "
+            << (single_reconstruction ? "yes" : "no") << std::endl;
     error_table.write_text(deallog.get_file_stream());
+    deallog << "OK" << std::endl;
   }
 }
 
@@ -240,8 +249,17 @@ int main(int argc, char *argv[])
     initlog();
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
     // MPILogInitAll                    log;
-    test_ppr<2>(1);
-    test_ppr<2>(2);
+
+    // Linear field
+    // Without and with isoparametric rerpesentation of the recovery operator
+    test_ppr<2>(1, false, false);
+    test_ppr<2>(1, true, false);
+    test_ppr<2>(1, true, true);
+
+    // Quadratic field
+    test_ppr<2>(2, false, false);
+    test_ppr<2>(2, true, false);
+    test_ppr<2>(2, true, true);
   }
   catch (const std::exception &exc)
   {

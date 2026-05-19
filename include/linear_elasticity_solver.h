@@ -127,6 +127,7 @@ public:
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
   void move_mesh();
+  void write_final_msh();
 
   void postprocess_solution();
   void compute_cell_average_strain(

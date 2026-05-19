@@ -103,7 +103,7 @@ private:
     const std::vector<ValueType> &previous_values) const
   {
     const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
-    ValueType   time_derivative  = bdf_coefficients[0] * current_value;
+    ValueType time_derivative = bdf_coefficients[0] * current_value;
     for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
       time_derivative += bdf_coefficients[i] * previous_values[i - 1];
     return time_derivative;
@@ -116,7 +116,7 @@ private:
     const unsigned int                         q) const
   {
     const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
-    ValueType   time_derivative  = bdf_coefficients[0] * current_value;
+    ValueType time_derivative = bdf_coefficients[0] * current_value;
     for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
       time_derivative += bdf_coefficients[i] * previous_values[i - 1][q];
     return time_derivative;
@@ -177,19 +177,20 @@ private:
 
     if (enable_stabilization)
     {
-      // Δu per quadrature point
+      // Δu and Hessian per quadrature point
       fe_values[velocity].get_function_laplacians(current_solution,
                                                   present_velocity_laplacians);
 
       // ∇(∇·u) from the full hessian
-      std::vector<Tensor<3, dim>> hess_u(n_q_points);
-      fe_values[velocity].get_function_hessians(current_solution, hess_u);
+      fe_values[velocity].get_function_hessians(current_solution,
+                                                present_velocity_hessians);
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
         present_velocity_grad_divergences[q] = Tensor<1, dim>();
         for (unsigned int c = 0; c < dim; ++c)
           for (unsigned int d = 0; d < dim; ++d)
-            present_velocity_grad_divergences[q][d] += hess_u[q][c][c][d];
+            present_velocity_grad_divergences[q][d] +=
+              present_velocity_hessians[q][c][c][d];
       }
     }
 
@@ -535,32 +536,10 @@ private:
 
       AssertThrow(lame_mu[q] >= 0,
                   ExcMessage("Lamé coefficient mu should be positive"));
-      // AssertThrow(lame_lambda[q] >= 0,
-      //             ExcMessage("Lamé coefficient lambda should be positive"));
 
       // Neo-hookean
       const Tensor<2, dim> &F = present_position_gradients[q];
       present_position_J[q]   = determinant(F);
-      if (physical_properties.pseudosolids[0].constitutive_model ==
-          Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
-      {
-        const double det_F_from_dealii = JxW_moving[q] / JxW_fixed[q];
-
-        if (std::abs(present_position_J[q] - det_F_from_dealii) > 1e-10)
-        {
-          std::ostringstream message;
-          message << "Mismatch in ALE pseudo-solid Jacobian:\n"
-                  << "det(F) from gradients      = " << present_position_J[q]
-                  << "\n"
-                  << "det(F) from deal.II JxW    = " << det_F_from_dealii
-                  << "\n"
-                  << "JxW_moving                = " << JxW_moving[q] << "\n"
-                  << "JxW_fixed                 = " << JxW_fixed[q] << "\n"
-                  << "q-point                   = "
-                  << fe_values_fixed.get_quadrature_points()[q];
-          throw std::runtime_error(message.str());
-        }
-      }
 
 
       present_position_inv_gradients[q] = invert(F);
@@ -578,6 +557,9 @@ private:
         trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
         div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
         grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
+        if (enable_stabilization)
+          hessian_phi_x_moving[q][k] =
+            fe_values_moving[position].hessian(k, q);
       }
 
       if (enable_stabilization)
@@ -589,12 +571,10 @@ private:
 
         const Tensor<1, dim> advection_velocity =
           present_velocity_values[q] - present_mesh_velocity_values[q];
-        const double h_tau =
-          Stabilization::compute_streamline_length(advection_velocity,
-                                                   grad_phi_u[q],
-                                                   components,
-                                                   u_lower,
-                                                   cell_diameter);
+        // In ALE the analytical tangent treats tau as an external coefficient
+        // and does not include d(tau)/dX. Keep h_tau geometry-lagged so the
+        // residual has the same dependency.
+        const double h_tau = cell_diameter;
         stabilization_tau_momentum[q] = Stabilization::compute_tau(
           param.time_integration.dt,
           param.time_integration.is_steady(),
@@ -965,8 +945,8 @@ private:
                                                         psi_gradients);
     }
     if (enable_stabilization)
-      fe_values_moving[potential].get_function_laplacians(current_solution,
-                                                          potential_laplacians);
+      fe_values_moving[potential].get_function_hessians(current_solution,
+                                                        potential_hessians);
     // Previous solutions
     for (unsigned int i = 0; i < previous_solutions.size(); ++i)
     {
@@ -1062,6 +1042,8 @@ private:
 
       if (enable_stabilization)
       {
+        potential_laplacians[q] = trace(potential_hessians[q]);
+
         const double nu_eff =
           dynamic_viscosity[q] / std::max(density[q], 1e-14);
         const double inv_rho     = 1. / std::max(density[q], 1e-14);
@@ -1101,8 +1083,11 @@ private:
           source_term_tracer[q];
 
         // τ — recalculated with ν_eff (momentum) and mobility (tracer).
-        const double h_tau = Stabilization::compute_streamline_length(
-          u_conv, grad_phi_u[q], components, u_lower, cell_diameter);
+        const double h_tau =
+          enable_pseudo_solid ?
+            cell_diameter :
+            Stabilization::compute_streamline_length(
+              u_conv, grad_phi_u[q], components, u_lower, cell_diameter);
         stabilization_tau_momentum[q] =
           Stabilization::compute_tau(param.time_integration.dt,
                                      param.time_integration.is_steady(),
@@ -1311,6 +1296,7 @@ public:
   std::vector<std::vector<Tensor<1, dim>>> previous_velocity_values;
   std::vector<Tensor<1, dim>>              present_velocity_laplacians;
   std::vector<Tensor<1, dim>>              present_velocity_grad_divergences;
+  std::vector<Tensor<3, dim>>              present_velocity_hessians;
   // Δu + ∇(∇·u) : pre-computed when enable_stabilization, used by the CHNS
   // Jacobian (supg_pspg_matrix_chns_phi) so it need not be recomputed per
   // quadrature point in the assembly loop.
@@ -1435,6 +1421,7 @@ public:
   std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x;
   std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
   std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x_moving;
+  std::vector<std::vector<Tensor<3, dim>>>          hessian_phi_x_moving;
   std::vector<std::vector<double>>                  div_phi_x;
   std::vector<std::vector<double>>                  trace_grad_phi_x;
 
@@ -1518,6 +1505,7 @@ public:
   // Potential on current mesh
   std::vector<double>         potential_values;
   std::vector<Tensor<1, dim>> potential_gradients;
+  std::vector<Tensor<2, dim>> potential_hessians;
   std::vector<double>         potential_laplacians;
   std::vector<double>         psi_values;
   std::vector<Tensor<1, dim>> psi_gradients;

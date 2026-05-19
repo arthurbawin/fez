@@ -1,3 +1,4 @@
+#include <assembly/ale_geometry.h>
 #include <assembly/moving_mesh_forcing_forms.h>
 #include <assembly/pseudosolid_forms.h>
 #include <assembly/stabilization_forms.h>
@@ -18,9 +19,15 @@
 #include <incompressible_chns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_and_dof_tools.h>
 #include <mesh_forcing_postprocessing.h>
 #include <scratch_data.h>
 #include <utilities.h>
+
+#include <deal.II/base/quadrature_lib.h>
+#include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
+#include <metric_field.h>
 
 #include <cmath>
 
@@ -55,21 +62,22 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
           FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
           FE_Q<dim>(param.finite_elements.tracer_degree),
           FE_Q<dim>(param.finite_elements.potential_degree));
-    else if constexpr (with_enlarged)
-      fe = std::make_unique<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
-        FE_SimplexP<dim>(param.finite_elements.pressure_degree),
-        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
-        FE_SimplexP<dim>(param.finite_elements.tracer_degree),
-        FE_SimplexP<dim>(param.finite_elements.potential_degree),
-        FE_SimplexP<dim>(param.finite_elements.potential_degree));
     else
-      fe = std::make_unique<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
-        FE_SimplexP<dim>(param.finite_elements.pressure_degree),
-        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
-        FE_SimplexP<dim>(param.finite_elements.tracer_degree),
-        FE_SimplexP<dim>(param.finite_elements.potential_degree));
+      if constexpr (with_enlarged)
+        fe = std::make_unique<FESystem<dim>>(
+          FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FE_SimplexP<dim>(param.finite_elements.pressure_degree),
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FE_SimplexP<dim>(param.finite_elements.tracer_degree),
+          FE_SimplexP<dim>(param.finite_elements.potential_degree),
+          FE_SimplexP<dim>(param.finite_elements.potential_degree));
+      else
+        fe = std::make_unique<FESystem<dim>>(
+          FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FE_SimplexP<dim>(param.finite_elements.pressure_degree),
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FE_SimplexP<dim>(param.finite_elements.tracer_degree),
+          FE_SimplexP<dim>(param.finite_elements.potential_degree));
 
     this->ordering =
       std::make_unique<ComponentOrderingCHNS<dim, true, with_enlarged>>();
@@ -253,14 +261,22 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   if constexpr (with_enlarged)
   {
     const double lap_psi = mms.exact_psi->laplacian(p);
-    const double L       = cahn_hilliard_param.epsilon_interface_enlarged -
-                     cahn_hilliard_param.epsilon_interface;
-    values[psi_lower] = -(psi - phi - L * L * lap_psi);
+    const double L =
+      cahn_hilliard_param.epsilon_interface_enlarged -
+      cahn_hilliard_param.epsilon_interface;
+    const double correction_prefactor =
+      Assembly::compute_psi_mu_correction_prefactor(
+        cahn_hilliard_param, sigma_tilde, epsilon, L * L);
+    const double psi_mu_correction =
+      correction_prefactor * Assembly::psi_mu_correction_eta(phi) * mu;
+    values[psi_lower] = -(psi - phi - psi_mu_correction - L * L * lap_psi);
   }
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
-void CHNSSolver<dim, with_moving_mesh, with_enlarged>::create_scratch_data()
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::create_scratch_data()
 {
   scratch_data = std::make_unique<ScratchData>(*this->ordering,
                                                *fe,
@@ -273,8 +289,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::create_scratch_data()
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
-void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
-  create_solver_specific_zero_constraints()
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::create_solver_specific_zero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
@@ -467,6 +484,8 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
+
+  this->update_constraints_for_evaluation_point();
 
   this->system_matrix = 0;
 
@@ -699,13 +718,14 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             {
               // Variation of momentum equation w.r.t. moving mesh position
               const auto  &G   = (*grad_phi_x_moving)[j];
-              const double trG = trace(G);
+              const double trG = Assembly::ALE::jacobian_trace(G);
 
               local_flow_ij += phi_u_i * to_multiply_by_phi_u_i_tr_G * trG;
 
               // ALE term
               local_flow_ij += phi_u_i * rho * present_velocity_gradients *
-                               (-bdf_c0 * (*phi_x_j) - G * u_conv);
+                               Assembly::ALE::convective_direction_variation(
+                                 bdf_c0, *phi_x_j, G, u_conv);
 
               // Viscous term
               local_flow_ij +=
@@ -728,12 +748,14 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                 phi_u_i * diffusive_flux_factor *
                 (-(present_velocity_gradients * G) * potential_gradient +
                  present_velocity_gradients *
-                   (-transpose(G) * potential_gradient) +
+                   Assembly::ALE::gradient_variation(potential_gradient, G) +
                  (present_velocity_gradients * potential_gradient) * trG);
 
               // Korteweg term
               local_flow_ij +=
-                phi_u_i * (-tracer_value * transpose(G) * potential_gradient +
+                phi_u_i * (tracer_value *
+                             Assembly::ALE::gradient_variation(
+                               potential_gradient, G) +
                            tracer_value * potential_gradient * trG);
             }
           }
@@ -776,7 +798,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             {
               // Continuity : variation w.r.t. x
               const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = trace(G);
+              const double          trG = Assembly::ALE::jacobian_trace(G);
 
               local_flow_ij +=
                 phi_p_i * (source_term_pressure * trG +
@@ -804,19 +826,24 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                 comp_j < const_ordering.x_upper)
             {
               const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = trace(G);
+              const double          trG = Assembly::ALE::jacobian_trace(G);
 
               local_flow_ij += phi_phi_i * to_multipliy_by_phi_phi_i_tr_G * trG;
 
               // ALE (advection) term
               local_flow_ij +=
-                phi_phi_i * ((-bdf_c0) * (*phi_x_j) * tracer_gradient +
-                             u_conv * (-(transpose(G)) * tracer_gradient));
+                phi_phi_i *
+                (Assembly::ALE::mesh_velocity_variation(bdf_c0, *phi_x_j) *
+                   tracer_gradient +
+                 u_conv *
+                   Assembly::ALE::gradient_variation(tracer_gradient, G));
               // Laplacian term
               local_flow_ij +=
                 mobility *
-                ((-(transpose(G)) * grad_phi_phi_i) * potential_gradient +
-                 grad_phi_phi_i * (-(transpose(G)) * potential_gradient) +
+                (Assembly::ALE::gradient_variation(grad_phi_phi_i, G) *
+                   potential_gradient +
+                 grad_phi_phi_i *
+                   Assembly::ALE::gradient_variation(potential_gradient, G) +
                  (grad_phi_phi_i * potential_gradient) * trG);
             }
           }
@@ -862,7 +889,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             {
               // Variation of potential equation w.r.t. x
               const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = trace(G);
+              const double          trG = Assembly::ALE::jacobian_trace(G);
               local_flow_ij += phi_mu_i * source_term_potential * trG;
               local_flow_ij +=
                 phi_mu_i *
@@ -871,11 +898,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                 trG;
               local_flow_ij +=
                 -sigma_tilde_times_eps *
-                (scalar_product(grad_phi_mu_i,
-                                -transpose(G) * tracer_gradient) +
-                 scalar_product(-transpose(G) * grad_phi_mu_i,
-                                tracer_gradient) +
-                 scalar_product(grad_phi_mu_i, tracer_gradient) * trG);
+                Assembly::ALE::gradient_inner_product_jacobian_variation(
+                  grad_phi_mu_i, tracer_gradient, G);
             }
           }
         }
@@ -890,6 +914,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
     *this->ordering,
     this->coupling_table,
     scratch_data,
+    this->param.cahn_hilliard,
     enlarged_length_sq,
     local_matrix);
 
@@ -969,6 +994,8 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_rhs()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble RHS");
+
+  this->update_constraints_for_evaluation_point();
 
   this->system_rhs = 0;
 
@@ -1117,7 +1144,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   }
 
   CHNSEnlargedOps<dim, with_moving_mesh, with_enlarged>::assemble_rhs_terms(
-    *this->ordering, scratch_data, enlarged_length_sq, local_rhs);
+    *this->ordering,
+    scratch_data,
+    this->param.cahn_hilliard,
+    enlarged_length_sq,
+    local_rhs);
 
   Assembly::assemble_chns_rhs_stabilization<dim>(
     *this->ordering,
@@ -1200,8 +1231,216 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
-void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
-  compute_solver_specific_errors()
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::solver_specific_post_processing()
+{
+  if (!should_output_mesh_quality())
+    return;
+
+  output_mesh_quality_field();
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+bool CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::should_output_mesh_quality() const
+{
+  if (this->param.bc_data.n_metric_fields == 0)
+    return false;
+
+  if (this->param.finite_elements.use_quads)
+    return false;
+
+  const unsigned int output_frequency =
+    this->param.metric_fields[0].mesh_quality_output_frequency;
+
+  if (output_frequency == 0)
+    return false;
+
+  if (this->time_handler.current_time_iteration == 1)
+    return true;
+
+  return (this->time_handler.current_time_iteration % output_frequency) == 0;
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+std::vector<Tensor<2, dim>>
+CHNSSolver<dim, with_moving_mesh, with_enlarged>::compute_vertexwise_F_inv_T()
+  const
+{
+  std::vector<Tensor<2, dim>> vertex_F_inv_T(this->triangulation.n_vertices());
+  std::vector<double>         vertex_weights(this->triangulation.n_vertices(),
+                                     0.0);
+  std::vector<bool>           owned_vertices;
+
+  get_owned_mesh_vertices(this->triangulation,
+                          Utilities::MPI::this_mpi_process(
+                            this->triangulation.get_mpi_communicator()),
+                          owned_vertices);
+
+  QGaussSimplex<dim> cell_quadrature(2);
+  FEValues<dim>      fe_values(*this->fixed_mapping,
+                          *fe,
+                          cell_quadrature,
+                          update_gradients | update_JxW_values);
+  std::vector<Tensor<2, dim>> position_gradients(cell_quadrature.size());
+
+  for (const auto &cell : this->dof_handler.active_cell_iterators())
+  {
+    if (cell->is_artificial())
+      continue;
+
+    fe_values.reinit(cell);
+    fe_values[this->position_extractor].get_function_gradients(
+      this->present_solution, position_gradients);
+
+    Tensor<2, dim> averaged_F_inv_T;
+    double         cell_weight = 0.0;
+
+    for (unsigned int q = 0; q < cell_quadrature.size(); ++q)
+    {
+      const double JxW = fe_values.JxW(q);
+      averaged_F_inv_T += transpose(invert(position_gradients[q])) * JxW;
+      cell_weight += JxW;
+    }
+
+    if (cell_weight > 0.0)
+      averaged_F_inv_T /= cell_weight;
+
+    for (const unsigned int v : cell->vertex_indices())
+    {
+      const auto vertex_index = cell->vertex_index(v);
+      if (!owned_vertices[vertex_index])
+        continue;
+
+      vertex_F_inv_T[vertex_index] += averaged_F_inv_T * cell_weight;
+      vertex_weights[vertex_index] += cell_weight;
+    }
+  }
+
+  for (types::global_vertex_index v = 0; v < this->triangulation.n_vertices();
+       ++v)
+    if (owned_vertices[v] && vertex_weights[v] > 0.0)
+      vertex_F_inv_T[v] /= vertex_weights[v];
+
+  return vertex_F_inv_T;
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::transport_reconstructed_phi_gradient(
+  ErrorEstimation::SolutionRecovery::Scalar<dim> &recovery) const
+{
+  if constexpr (!with_moving_mesh)
+    return;
+
+  std::vector<Tensor<1, dim>> transported_gradient =
+    recovery.get_reconstructed_gradient();
+  const auto                  vertex_F_inv_T = compute_vertexwise_F_inv_T();
+  std::vector<bool>           owned_vertices;
+
+  get_owned_mesh_vertices(this->triangulation,
+                          Utilities::MPI::this_mpi_process(
+                            this->triangulation.get_mpi_communicator()),
+                          owned_vertices);
+
+  // Recover phi on the reference mesh and push its nodal gradient forward to
+  // the studied ALE configuration through a vertex-averaged F^{-T}.
+  for (types::global_vertex_index v = 0; v < this->triangulation.n_vertices();
+       ++v)
+    if (owned_vertices[v])
+      transported_gradient[v] = vertex_F_inv_T[v] * transported_gradient[v];
+
+  recovery.overwrite_reconstructed_gradient(transported_gradient);
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::output_mesh_quality_field()
+{
+  TimerOutput::Scope t(this->computing_timer, "Output mesh quality field");
+
+  AssertThrow(this->param.bc_data.n_metric_fields > 0,
+              ExcMessage("Mesh quality output requires at least one metric "
+                         "field in the parameter file."));
+
+  AssertThrow(!this->param.finite_elements.use_quads,
+              ExcMessage("Metric quality output is currently implemented "
+                         "only for simplex meshes."));
+
+  ErrorEstimation::PatchHandler<dim> patch_handler(this->triangulation,
+                                                   *this->fixed_mapping,
+                                                   this->dof_handler,
+                                                   this->present_solution,
+                                                   this->param
+                                                       .finite_elements
+                                                       .tracer_degree +
+                                                     1,
+                                                   tracer_mask);
+
+  this->computing_timer.enter_subsection("Build patches");
+  patch_handler.build_patches();
+  this->computing_timer.leave_subsection();
+
+  ErrorEstimation::SolutionRecovery::Scalar<dim> recovery(1,
+                                                          this->param,
+                                                          patch_handler,
+                                                          this->dof_handler,
+                                                          this->present_solution,
+                                                          *fe,
+                                                          *this->fixed_mapping,
+                                                          tracer_mask);
+
+  this->computing_timer.enter_subsection("Reconstruct fields and derivatives");
+  recovery.reconstruct_fields(this->present_solution);
+  this->computing_timer.leave_subsection();
+
+  const Mapping<dim> &study_mapping =
+    with_moving_mesh ? *this->moving_mapping : *this->fixed_mapping;
+
+  if constexpr (with_moving_mesh)
+    transport_reconstructed_phi_gradient(recovery);
+
+  MetricField<dim> field(0, this->param, this->triangulation);
+  field.set_induced_metric_from_graph(recovery);
+  field.apply_gradation();
+
+  QGaussSimplex<dim> cell_quadrature(3);
+  QGauss<1>          edge_quadrature(3);
+
+  Vector<float> cell_quality =
+    field.compute_cell_quality_field(study_mapping,
+                                     cell_quadrature,
+                                     edge_quadrature);
+
+  DataOut<dim> data_out;
+  data_out.attach_triangulation(this->triangulation);
+  data_out.add_data_vector(cell_quality,
+                           "cell_quality",
+                           DataOut<dim>::type_cell_data);
+  // Always export the mesh-quality field on the mesh that is being studied.
+  data_out.build_patches(study_mapping);
+
+  const auto &metric_param = this->param.metric_fields[0];
+  data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
+                                      metric_param.mesh_quality_output_name,
+                                      this->time_handler.current_time_iteration,
+                                      this->dof_handler.get_mpi_communicator(),
+                                      5);
+
+  this->pcout << "Wrote mesh-quality field '"
+              << metric_param.mesh_quality_output_name
+              << "' at time step "
+              << this->time_handler.current_time_iteration << std::endl;
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::compute_solver_specific_errors()
 {
   const unsigned int n_active_cells = this->triangulation.n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);

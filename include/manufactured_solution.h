@@ -321,10 +321,20 @@ namespace ManufacturedSolutions
      * First Piola-Kirchhoff stress:
      * P = mu * (F - F^{-T}) + lambda * ln(det(F)) * F^{-T}.
      */
-    virtual Tensor<1, dim> divergence_neo_hookean_stress_variable_coefficients(
-      const Point<dim>                          &p,
-      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
-      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
+	    virtual Tensor<1, dim> divergence_neo_hookean_stress_variable_coefficients(
+	      const Point<dim>                          &p,
+	      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+	      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
+
+	    /**
+	     * First Piola-Kirchhoff stress:
+	     * P = mu * (F - F^{-T}) + lambda / beta * (1 - J^{-beta}) * F^{-T}.
+	     */
+	    virtual Tensor<1, dim> divergence_ogden_stress_variable_coefficients(
+	      const Point<dim>                          &p,
+	      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+	      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda,
+	      const double                               beta) const final;
 
     /**
      * Check that the provided time and spatial derivatives match

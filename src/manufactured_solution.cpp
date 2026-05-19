@@ -481,11 +481,11 @@ namespace ManufacturedSolutions
   }
 
   template <int dim>
-  Tensor<1, dim>
-  MMSFunction<dim>::divergence_neo_hookean_stress_variable_coefficients(
-    const Point<dim>                          &p,
-    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
-    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const
+	  Tensor<1, dim>
+	  MMSFunction<dim>::divergence_neo_hookean_stress_variable_coefficients(
+	    const Point<dim>                          &p,
+	    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+	    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const
   {
     const double         mu          = lame_mu->value(p);
     const double         lambda      = lame_lambda->value(p);
@@ -525,6 +525,65 @@ namespace ManufacturedSolutions
           mu * (dF_dXj[i][j] - dF_inv_T_dXj[i][j]) +
           (grad_lambda[j] * log_J + lambda * d_log_J_dXj) * F_inv_T[i][j] +
           lambda * log_J * dF_inv_T_dXj[i][j];
+      }
+    }
+
+    return div_P;
+  }
+
+  template <int dim>
+  Tensor<1, dim>
+  MMSFunction<dim>::divergence_ogden_stress_variable_coefficients(
+    const Point<dim>                          &p,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda,
+    const double                               beta) const
+  {
+    AssertThrow(std::abs(beta) > 1e-14,
+                ExcMessage("Ogden pseudosolid law requires beta != 0."));
+
+    const double         mu          = lame_mu->value(p);
+    const double         lambda      = lame_lambda->value(p);
+    const Tensor<1, dim> grad_mu     = lame_mu->gradient(p);
+    const Tensor<1, dim> grad_lambda = lame_lambda->gradient(p);
+
+    const Tensor<2, dim> F = gradient_vi_xj(p);
+    const double         J = determinant(F);
+
+    AssertThrow(std::isfinite(J) && J > 0.0,
+                ExcMessage("Ogden requires det(F) > 0."));
+
+    const Tensor<2, dim> F_inv   = invert(F);
+    const Tensor<2, dim> F_inv_T = transpose(F_inv);
+    const double         Jm_beta = std::pow(J, -beta);
+    const double         volumetric_stress =
+      (1.0 / beta) * (1.0 - Jm_beta);
+
+    Tensor<1, dim> div_P = {};
+
+    for (unsigned int j = 0; j < dim; ++j)
+    {
+      Tensor<2, dim> dF_dXj;
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        const SymmetricTensor<2, dim> hessian_i = this->hessian(p, i);
+        for (unsigned int k = 0; k < dim; ++k)
+          dF_dXj[i][k] = hessian_i[j][k];
+      }
+
+      const double d_log_J_dXj = trace(F_inv * dF_dXj);
+      const double d_volumetric_stress_dXj = Jm_beta * d_log_J_dXj;
+      const Tensor<2, dim> dF_inv_T_dXj =
+        -F_inv_T * transpose(dF_dXj) * F_inv_T;
+
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        div_P[i] +=
+          grad_mu[j] * (F[i][j] - F_inv_T[i][j]) +
+          mu * (dF_dXj[i][j] - dF_inv_T_dXj[i][j]) +
+          grad_lambda[j] * volumetric_stress * F_inv_T[i][j] +
+          lambda * d_volumetric_stress_dXj * F_inv_T[i][j] +
+          lambda * volumetric_stress * dF_inv_T_dXj[i][j];
       }
     }
 

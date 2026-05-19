@@ -13,9 +13,9 @@ namespace Parameters
   template <int dim>
   class InitialCHNSTracer;
   template <int dim>
-  class InitialCHNSEnlargedPsi;
-  template <int dim>
   class InitialPressure;
+  template <int dim>
+  class InitialCHNSEnlargedPsi;
   template <int dim>
   class InitialTemperature;
 
@@ -51,9 +51,9 @@ namespace Parameters
           std::make_shared<Functions::ParsedFunction<dim>>(dim))
       , initial_chns_tracer_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
-      , initial_chns_enlarged_psi_callback(
-          std::make_shared<Functions::ParsedFunction<dim>>(1))
       , initial_pressure_callback(
+          std::make_shared<Functions::ParsedFunction<dim>>(1))
+      , initial_chns_enlarged_psi_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
       , initial_temperature_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
@@ -131,14 +131,15 @@ namespace Parameters
                                             initial_chns_tracer_callback;
     std::shared_ptr<InitialCHNSTracer<dim>> initial_chns_tracer;
 
+    // Pressure data
+    std::shared_ptr<Functions::ParsedFunction<dim>> initial_pressure_callback;
+    std::shared_ptr<InitialPressure<dim>>           initial_pressure;
+
     // Enlarged CHNS psi data
     bool use_enlarged_psi = false;
     std::shared_ptr<Functions::ParsedFunction<dim>>
       initial_chns_enlarged_psi_callback;
     std::shared_ptr<InitialCHNSEnlargedPsi<dim>> initial_chns_enlarged_psi;
-    // Pressure data
-    std::shared_ptr<Functions::ParsedFunction<dim>> initial_pressure_callback;
-    std::shared_ptr<InitialPressure<dim>>           initial_pressure;
 
     // Temperature data
     std::shared_ptr<Functions::ParsedFunction<dim>>
@@ -328,11 +329,11 @@ namespace Parameters
       prm.enter_subsection("cahn hilliard tracer");
       initial_chns_tracer_callback->declare_parameters(prm, 1);
       prm.leave_subsection();
-      prm.enter_subsection("enlarged psi");
-      initial_chns_enlarged_psi_callback->declare_parameters(prm, 1);
-      prm.leave_subsection();
       prm.enter_subsection("pressure");
       initial_pressure_callback->declare_parameters(prm, 1);
+      prm.leave_subsection();
+      prm.enter_subsection("enlarged psi");
+      initial_chns_enlarged_psi_callback->declare_parameters(prm, 1);
       prm.leave_subsection();
       prm.enter_subsection("temperature");
       initial_temperature_callback->declare_parameters(prm, 1);
@@ -354,11 +355,11 @@ namespace Parameters
       prm.enter_subsection("cahn hilliard tracer");
       initial_chns_tracer_callback->parse_parameters(prm);
       prm.leave_subsection();
-      prm.enter_subsection("enlarged psi");
-      initial_chns_enlarged_psi_callback->parse_parameters(prm);
-      prm.leave_subsection();
       prm.enter_subsection("pressure");
       initial_pressure_callback->parse_parameters(prm);
+      prm.leave_subsection();
+      prm.enter_subsection("enlarged psi");
+      initial_chns_enlarged_psi_callback->parse_parameters(prm);
       prm.leave_subsection();
       prm.enter_subsection("temperature");
       initial_temperature_callback->parse_parameters(prm);

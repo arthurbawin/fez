@@ -496,6 +496,7 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
                                   std::vector<Tensor<1, dim>>(n_q_points));
   present_velocity_laplacians.resize(n_q_points);
   present_velocity_grad_divergences.resize(n_q_points);
+  present_velocity_hessians.resize(n_q_points);
 
   present_face_velocity_values.resize(
     n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
@@ -605,6 +606,9 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
                           std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
     grad_phi_x_moving.resize(n_q_points,
                              std::vector<Tensor<2, dim>>(dofs_per_cell));
+    if (enable_stabilization)
+      hessian_phi_x_moving.resize(
+        n_q_points, std::vector<Tensor<3, dim>>(dofs_per_cell));
     div_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
     trace_grad_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
     phi_x_face.resize(n_faces,
@@ -660,11 +664,12 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     previous_tracer_values_fixed.resize(time_handler.n_previous_solutions,
                                         std::vector<double>(n_q_points));
 
-    previous_tracer_gradients_fixed.resize(time_handler.n_previous_solutions,
-                                           std::vector<Tensor<1, dim>>(
-                                             n_q_points));
+    previous_tracer_gradients_fixed.resize(
+      time_handler.n_previous_solutions,
+      std::vector<Tensor<1, dim>>(n_q_points));
     potential_values.resize(n_q_points);
     potential_gradients.resize(n_q_points);
+    potential_hessians.resize(n_q_points);
     potential_laplacians.resize(n_q_points);
     previous_tracer_values.resize(time_handler.n_previous_solutions,
                                   std::vector<double>(n_q_points));

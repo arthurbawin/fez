@@ -1,6 +1,7 @@
 #ifndef METRIC_FIELD_h
 #define METRIC_FIELD_h
 
+#include <deal.II/lac/vector.h>
 #include <deal.II/base/tensor_function.h>
 #include <deal.II/numerics/data_postprocessor.h>
 #include <error_estimation/solution_recovery.h>
@@ -140,6 +141,69 @@ public:
   double compute_integral_determinant(const double exponent) const;
 
   /**
+   * Compute the measure of the given @p cell with respect to this Riemannian
+   * metric field.
+   *
+   * The metric is interpolated inside the current cell from its nodal values
+   * through the FE representation of this MetricField.
+   *
+   * The input @p fe_values is expected to have already been reinitialized on
+   * the target cell and to provide both metric values and JxW values.
+   */
+  double
+  compute_cell_measure(const FEValues<dim> &fe_values) const;
+
+  /**
+   * Compute the measure of the given cell edge with respect to this
+   * Riemannian metric field.
+   *
+   * The metric is interpolated linearly along the edge from the nodal values
+   * stored at the edge endpoints. This implementation is restricted to simplex
+   * cells and assumes a 1D quadrature on the reference interval.
+   */
+  double
+  compute_cell_edge_measure(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const unsigned int                                    edge_no,
+    const Quadrature<1>                                  &edge_quadrature) const;
+
+  /**
+   * Compute the quality of the given cell with respect to this Riemannian
+   * metric field.
+   *
+   * The input @p fe_values is expected to be reinitialized on @p cell.
+   */
+  double
+  compute_cell_quality(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const FEValues<dim>                                  &fe_values,
+    const Quadrature<1>                                  &edge_quadrature) const;
+
+  /**
+   * Compute a cell-wise field of metric qualities on all active cells.
+   *
+   * The FE representation of the metric field is synchronized from the nodal
+   * metric storage before evaluating the qualities.
+   *
+   * Locally owned cells are assigned their metric quality, while non-owned
+   * cells are filled with zero so that the returned vector can be written as
+   * cell data with DataOut in parallel.
+   */
+  Vector<float>
+  compute_cell_quality_field(const Quadrature<dim> &cell_quadrature,
+                             const Quadrature<1>   &edge_quadrature);
+
+  Vector<float>
+  compute_cell_quality_field(const Mapping<dim>    &geometry_mapping,
+                             const Quadrature<dim> &cell_quadrature,
+                             const Quadrature<1>   &edge_quadrature);
+
+  void
+  write_cell_quality_pvtu(const std::string     &filename,
+                          const Quadrature<dim> &cell_quadrature,
+                          const Quadrature<1>   &edge_quadrature);
+
+  /**
    * Compute the Riemannian metric minimizing an interpolation error estimate in
    * W^{s,p} norm, as described by F. Alauzet & A. Loseille [ref] and J.-M.
    * Mirebeau [ref]. This metric writes:
@@ -249,6 +313,10 @@ public:
   void write_pvtu(const std::string &filename,
                   bool               write_inverse_metrics = true);
 
+  void write_pvtu(const Mapping<dim> &geometry_mapping,
+                  const std::string  &filename,
+                  bool                write_inverse_metrics = true);
+
   /**
    * Multiply all the metrics in this field by @p factor, which should be
    * a positive number (this is checked in debug).
@@ -313,6 +381,20 @@ private:
    * metrics.
    */
   void metrics_to_tensor_solution();
+
+  double
+  compute_cell_edge_measure(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const unsigned int                                    edge_no,
+    const Quadrature<1>                                  &edge_quadrature,
+    const Mapping<dim>                                   &geometry_mapping) const;
+
+  double
+  compute_cell_quality(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const FEValues<dim>                                  &fe_values,
+    const Quadrature<1>                                  &edge_quadrature,
+    const Mapping<dim>                                   &geometry_mapping) const;
 
   /**
    * Transfer the metrics from their components represented as dofs to the

@@ -1,4 +1,5 @@
 
+#include <assembly/chns_enlarged_forms.h>
 #include <deal.II/differentiation/sd/symengine_tensor_operations.h>
 #include <parameters.h>
 #include <solver_info.h>
@@ -8,12 +9,7 @@
 
 namespace Parameters
 {
-  using Differentiation::SD::Expression;
-
-  namespace
-  {
-    constexpr double psi_width_calibration_coefficient = 1.21860379;
-  }
+  using namespace Differentiation::SD;
 
   /**
    * These should agree with the declare_entry in utilities.h
@@ -655,8 +651,13 @@ namespace Parameters
       prm.leave_subsection();
       prm.declare_entry("constitutive model",
                         "linear elasticity",
-                        Patterns::Selection("linear elasticity|neo hookean"),
+                        Patterns::Selection(
+                          "linear elasticity|neo hookean|ogden"),
                         "Constitutive law for the pseudosolid");
+      prm.declare_entry("ogden beta",
+                        "1.0",
+                        Patterns::Double(),
+                        "Volumetric exponent for the Ogden pseudosolid law");
     }
     prm.leave_subsection();
   }
@@ -675,10 +676,14 @@ namespace Parameters
       prm.leave_subsection();
 
       const std::string parsed_constitutive = prm.get("constitutive model");
+      ogden_beta = prm.get_double("ogden beta");
+
       if (parsed_constitutive == "linear elasticity")
         constitutive_model = ConstitutiveModel::linear_elasticity;
       else if (parsed_constitutive == "neo hookean")
         constitutive_model = ConstitutiveModel::neo_hookean;
+      else if (parsed_constitutive == "ogden")
+        constitutive_model = ConstitutiveModel::ogden;
       else
         AssertThrow(false,
                     ExcMessage("Unknown pseudosolid constitutive model"));
@@ -1114,10 +1119,6 @@ namespace Parameters
         Patterns::Double(0.0),
         "Target ratio eps_eff(psi) / eps. If > 0, this calibrated factor "
         "takes precedence over 'enlarged interface thickness'.");
-      prm.declare_entry("body force",
-                        default_point,
-                        Patterns::List(Patterns::Double(), dim, dim, ","),
-                        "Body force vector (e.g., gravity acceleration)");
       prm.declare_entry("enable tracer limiter",
                         "false",
                         Patterns::Bool(),
@@ -1129,34 +1130,39 @@ namespace Parameters
         Patterns::Double(),
         "Compression factor used only by the enlarged moving-mesh forcing "
         "term mff_enlarged_compression_factor * eps_enlarged * f(marker) * "
-        "grad(marker), where f follows 'mesh forcing law'.");
+        "grad(marker).");
       prm.declare_entry(
         "mff_physics_compression_factor",
         "0.0",
         Patterns::Double(),
         "Compression factor used in the physical-interface moving-mesh "
         "forcing correction "
-        "mff_physics_compression_factor * eps * f(phi) * grad(phi), where f "
-        "follows 'mesh forcing law'.");
+        "mff_physics_compression_factor * eps * f(phi) * grad(phi).");
       prm.declare_entry("mff_transport_factor",
                         "0.0",
                         Patterns::Double(),
                         "Transport factor used in the moving-mesh forcing term "
                         "mff_transport_factor * (u_ALE * grad(marker)) * "
                         "grad(marker).");
-      prm.declare_entry("mff_band_factor",
+      prm.declare_entry("mff_regularization_gamma",
                         "0.0",
-                        Patterns::Double(),
-                        "Band factor used by the regularized-band moving-mesh "
-                        "forcing law.");
-      prm.declare_entry("mesh forcing law",
-                        "regularized_band",
-                        Patterns::Selection("simple|regularized_band"),
-                        "Moving-mesh forcing law. 'simple' uses "
-                        "f(s)=s, while 'regularized_band' uses the "
-                        "mff_band_factor-regularized band formulation. This "
-                        "law is applied to both enlarged and physics "
-                        "compression terms.");
+                        Patterns::Double(0.0),
+                        "Gamma in the moving-mesh forcing law "
+                        "f(marker)=marker/(1-gamma^2 center(marker)^2).");
+      prm.declare_entry(
+        "mff_enlarged_factor_equalization_exponent",
+        "1.0",
+        Patterns::Double(0.0),
+        "Exponent q applied only to the enlarged forcing marker before the "
+        "mesh forcing law. q=1 is neutral; values below 1 boost "
+        "under-saturated |psi| values smoothly.");
+      prm.declare_entry(
+        "psi mu correction factor",
+        "0.0",
+        Patterns::Double(),
+        "Coefficient lambda used in the enlarged-marker reconstruction "
+        "correction term "
+        "-lambda * eta(phi) * (L^2 / (eps * sigma_tilde)) * mu.");
     }
     prm.leave_subsection();
   }
@@ -1271,18 +1277,9 @@ namespace Parameters
         prm.get_double("enlarged interface thickness");
       psi_interface_width_factor = prm.get_double("psi interface width factor");
       if (psi_interface_width_factor > 0.)
-      {
-        AssertThrow(psi_interface_width_factor >= 1.,
-                    ExcMessage("'psi interface width factor' must be >= 1.0."));
-        const double target_eps_eff =
-          psi_interface_width_factor * epsilon_interface;
-        const double delta_eps =
-          std::sqrt((target_eps_eff * target_eps_eff -
-                     epsilon_interface * epsilon_interface) /
-                    psi_width_calibration_coefficient);
-        epsilon_interface_enlarged = epsilon_interface + delta_eps;
-      }
-      body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
+        epsilon_interface_enlarged =
+          Assembly::calibrated_enlarged_interface_thickness(
+            epsilon_interface, psi_interface_width_factor);
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
       mff_enlarged_compression_factor =
@@ -1290,14 +1287,20 @@ namespace Parameters
       mff_physics_compression_factor =
         prm.get_double("mff_physics_compression_factor");
       mff_transport_factor = prm.get_double("mff_transport_factor");
-      mff_band_factor      = prm.get_double("mff_band_factor");
-      const std::string parsed_mesh_forcing_law = prm.get("mesh forcing law");
-      if (parsed_mesh_forcing_law == "simple")
-        mesh_forcing_law = MeshForcingLaw::simple;
-      else if (parsed_mesh_forcing_law == "regularized_band")
-        mesh_forcing_law = MeshForcingLaw::regularized_band;
-      else
-        AssertThrow(false, ExcMessage("Unknown mesh forcing law"));
+      mff_regularization_gamma = prm.get_double("mff_regularization_gamma");
+      mff_enlarged_factor_equalization_exponent =
+        prm.get_double("mff_enlarged_factor_equalization_exponent");
+      AssertThrow(
+        mff_enlarged_factor_equalization_exponent > 0.0,
+        ExcMessage(
+          "'mff_enlarged_factor_equalization_exponent' must be strictly "
+          "positive."));
+      psi_mu_correction_factor = prm.get_double("psi mu correction factor");
+      AssertThrow(std::abs(psi_mu_correction_factor) < 1e-14 ||
+                    std::abs(surface_tension) > 1e-14,
+                  ExcMessage(
+                    "A nonzero 'psi mu correction factor' requires a nonzero "
+                    "surface tension to define sigma_tilde."));
     }
     prm.leave_subsection();
   }
@@ -1309,6 +1312,12 @@ namespace Parameters
   {
     prm.enter_subsection("Linear elasticity");
     {
+      prm.declare_entry(
+        "write final msh",
+        "false",
+        Patterns::Bool(),
+        "If true, write the final deformed mesh as a Gmsh .msh file at the "
+        "end of the linear elasticity solve.");
       prm.enter_subsection("current mesh source term");
       {
         prm.declare_entry(
@@ -1347,6 +1356,7 @@ namespace Parameters
   {
     prm.enter_subsection("Linear elasticity");
     {
+      write_final_msh = prm.get_bool("write final msh");
       prm.enter_subsection("current mesh source term");
       {
         enable_source_term_on_current_mesh = prm.get_bool("enable");

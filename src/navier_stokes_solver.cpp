@@ -13,7 +13,6 @@
 #include <solver_info.h>
 #include <utilities.h>
 
-
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
@@ -377,6 +376,34 @@ void NavierStokesSolver<dim, with_moving_mesh>::
   // The mean pressure constraint added pressure ghost dofs,
   // so parallel vectors should be reinitialized to account for them.
   reinit_ghosted_vectors();
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+  update_constraints_for_evaluation_point()
+{
+  if constexpr (with_moving_mesh)
+  {
+    if (!param.bc_data.enforce_zero_mean_pressure)
+      return;
+
+    BoundaryConditions::update_zero_mean_pressure_constraint_weights(
+      triangulation,
+      dof_handler,
+      locally_relevant_dofs,
+      *moving_mapping,
+      *quadrature,
+      ordering->p_lower,
+      constrained_pressure_dof,
+      zero_mean_pressure_weights);
+
+    create_zero_constraints();
+    create_nonzero_constraints();
+
+    local_evaluation_point = evaluation_point;
+    nonzero_constraints.distribute(local_evaluation_point);
+    evaluation_point = local_evaluation_point;
+  }
 }
 
 template <int dim, bool with_moving_mesh>

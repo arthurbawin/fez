@@ -12,6 +12,9 @@
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <utilities.h>
 
+#include <array>
+#include <optional>
+
 using namespace dealii;
 
 /**
@@ -177,6 +180,12 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> x;
     std::shared_ptr<Functions::ParsedFunction<dim>> y;
     std::shared_ptr<Functions::ParsedFunction<dim>> z;
+
+    /**
+     * Optional per-coordinate condition. If a component is empty, it inherits
+     * the boundary-wide condition stored in type.
+     */
+    std::array<std::optional<Type>, 3> component_types;
 
   public:
     PseudosolidBC()
@@ -354,6 +363,22 @@ namespace BoundaryConditions
     const DoFHandler<dim>      &dof_handler,
     IndexSet                   &locally_relevant_dofs,
     std::vector<unsigned char> &dofs_to_component,
+    const Mapping<dim>         &mapping,
+    const Quadrature<dim>      &quadrature,
+    const unsigned int          p_lower,
+    types::global_dof_index    &constrained_pressure_dof,
+    std::vector<std::pair<types::global_dof_index, double>>
+      &constraint_weights);
+
+  /**
+   * Recompute the zero-mean pressure weights for the current mapping, without
+   * changing the constrained pressure DoF or locally relevant DoF set.
+   */
+  template <int dim>
+  void update_zero_mean_pressure_constraint_weights(
+    const Triangulation<dim>   &tria,
+    const DoFHandler<dim>      &dof_handler,
+    const IndexSet             &locally_relevant_dofs,
     const Mapping<dim>         &mapping,
     const Quadrature<dim>      &quadrature,
     const unsigned int          p_lower,

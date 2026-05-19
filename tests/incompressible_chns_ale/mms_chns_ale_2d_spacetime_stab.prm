@@ -74,6 +74,7 @@ subsection Physical properties
       set Function expression = 1
     end
   end
+  set body force          = 0, 0
 end
 
 subsection Cahn Hilliard

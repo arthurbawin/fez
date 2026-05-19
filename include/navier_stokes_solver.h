@@ -71,6 +71,8 @@ public:
    */
   virtual void run() override;
 
+  void update_constraints_for_evaluation_point();
+
   /**
    * Reset the solver between two runs. This is typically useful when running
    * convergence studies, to properly reset the mesh, time integration data,

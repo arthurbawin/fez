@@ -1,28 +1,148 @@
 
+#include <deal.II/dofs/dof_handler.h>
+#include <deal.II/grid/tria.h>
 #include <error_handler.h>
+#include <parameter_reader.h>
 #include <parameters.h>
+#include <time_handler.h>
 
 #include <iomanip>
 #include <iostream>
 
-ErrorHandler::ErrorHandler(const Parameters::MMS             &mms_parameters,
+ErrorHandler::ErrorHandler(const Parameters::Mesh            &mesh_param,
+                           const Parameters::MMS             &mms_parameters,
                            const Parameters::TimeIntegration &time_parameters)
-  : mms_param(mms_parameters)
+  : mesh_param(mesh_param)
+  , mms_param(mms_parameters)
   , time_param(time_parameters)
-  , is_steady(time_parameters.scheme ==
-              Parameters::TimeIntegration::Scheme::stationary)
-{}
+  , is_steady(time_parameters.is_steady())
+  , with_metric_based_adaptation(
+      mesh_param.adaptation.with_metric_based_adaptation())
+{
+  // Declare the reference data so they always appear first
+  // See comments in add_reference_data() below.
+  if (is_steady)
+  {
+    if (with_metric_based_adaptation)
+    {
+      error_table.declare_column("target_nvrt");
+      error_table.declare_column("n_vrt");
+    }
+    error_table.declare_column("n_elm");
+    error_table.declare_column("n_dof");
+  }
+  else
+  {
+    if (with_metric_based_adaptation)
+    {
+      error_table.declare_column("target_nvrt");
+      error_table.declare_column("n_st");
+      error_table.declare_column("n_tot_vrt");
+      error_table.declare_column("n_tot_elm");
+      error_table.declare_column("n_tot_dof");
+      error_table.declare_column("dt");
+    }
+    else
+    {
+      error_table.declare_column("n_elm");
+      error_table.declare_column("n_dof");
+      error_table.declare_column("dt");
+    }
+  }
+}
 
 void ErrorHandler::create_entry(const std::string &field_name)
 {
   ordered_field_keys.push_back(field_name);
   domain_errors.insert({field_name, std::make_unique<double>()});
 
-  // TODO: Reserve vectors with an estimate on the number of time steps?
-  // This is easy if only constant time steps are expected for convergence
-  // studies, because then the number of time steps is known.
+  // FIXME: Reserve vectors with an estimate on the number of time steps?
   unsteady_errors[field_name].clear();
 }
+
+template <int dim>
+void ErrorHandler::add_reference_data(
+  const TimeHandler                  &time_handler,
+  const TransientFixedPointData<dim> &transient_fixed_point_data,
+  const Triangulation<dim>           &triangulation,
+  const DoFHandler<dim>              &dof_handler)
+{
+  const auto n_global_active_cells = triangulation.n_global_active_cells();
+  const auto n_dofs                = dof_handler.n_dofs();
+
+  Assert(n_global_active_cells > 0,
+         ExcMessage("The provided triangulation is empty"));
+  Assert(n_dofs > 0,
+         ExcMessage(
+           "The provided dof handler does not store any degree of freedom"));
+
+  if (is_steady)
+  {
+    // Steady-state computation.
+
+    if (with_metric_based_adaptation)
+    {
+      // Also add the spatial complexity (number of mesh vertices) and the
+      // target spatial complexity.
+      add_reference_data("target_nvrt", mms_param.n_target_vertices);
+      add_reference_data("n_vrt",
+                         transient_fixed_point_data.get_sum_of_vertices());
+    }
+
+    add_reference_data("n_elm", n_global_active_cells);
+    add_reference_data("n_dof", n_dofs);
+  }
+  else
+  {
+    // Unsteady convergence study with constant time step.
+    // Add initial time step as reference data.
+    // The case with adaptive time step is handled in compute_temporal_error(),
+    // by adding the total number of time steps when the simulation is finished.
+
+    // FIXME: For adaptive time stepping, add "n_steps" as reference data here,
+    // not in another function
+
+    if (with_metric_based_adaptation)
+    {
+      // Simulation with multiple time subintervals.
+      // Convergence is computed with respect to either the total spatial
+      // complexity (= sum of vertices across all meshes), or the total space-
+      // time complexity (= total spatial complexity * number of time steps).
+      // In the case with constant time step, both complexities are available at
+      // the beginning of the simulation, since all meshes are available.
+      // With adaptive time step, the total space-time complexity must be
+      // computed once the simulation is finished.
+      add_reference_data("target_nvrt", mms_param.n_target_vertices);
+      add_reference_data("n_st",
+                         transient_fixed_point_data
+                           .get_effective_space_time_complexity(time_handler));
+      add_reference_data("n_tot_vrt",
+                         transient_fixed_point_data.get_sum_of_vertices());
+      add_reference_data("n_tot_elm",
+                         transient_fixed_point_data.get_sum_of_active_cells());
+      add_reference_data("n_tot_dof",
+                         transient_fixed_point_data.get_sum_of_dofs());
+      add_time_step(time_handler.initial_dt);
+    }
+    else
+    {
+      add_reference_data("n_elm", n_global_active_cells);
+      add_reference_data("n_dof", n_dofs);
+      add_time_step(time_handler.initial_dt);
+    }
+  }
+}
+
+template void
+ErrorHandler::add_reference_data(const TimeHandler &,
+                                 const TransientFixedPointData<2> &,
+                                 const Triangulation<2> &,
+                                 const DoFHandler<2> &);
+template void
+ErrorHandler::add_reference_data(const TimeHandler &,
+                                 const TransientFixedPointData<3> &,
+                                 const Triangulation<3> &,
+                                 const DoFHandler<3> &);
 
 void ErrorHandler::add_reference_data(const std::string &name,
                                       const unsigned int value)
@@ -179,7 +299,71 @@ void ErrorHandler::clear_error_history()
     error_vec.clear();
 }
 
-void ErrorHandler::write_rates(std::ostream &out)
+template <int dim>
+void ErrorHandler::compute_rates()
+{
+  for (const auto &key : ordered_field_keys)
+  {
+    if (mms_param.type == Parameters::MMS::Type::space ||
+        mms_param.type == Parameters::MMS::Type::spacetime)
+    {
+      if (with_metric_based_adaptation)
+      {
+        if (is_steady)
+        {
+          // Spatial convergence study with metric based mesh adaptation.
+          // Compute convergence rate w.r.t. the final spatial complexity
+          // (i.e., the number of mesh vertices in the last adapted mesh).
+          error_table.evaluate_convergence_rates(
+            key, "n_vrt", ConvergenceTable::reduction_rate_log2, dim);
+        }
+        else
+        {
+          // Unsteady simulation with metric based mesh adaptation.
+          // Compute convergence w.r.t. the total spatial complexity
+          // and w.r.t. the total space-time complexity.
+
+          // FIXME: this is computed only w.r.t. spatial complexity for now
+          // Should maybe duplicate the columns for which we want to compute
+          // rate w.r.t space-time complexity, or set the reference data as a
+          // parameter.
+          error_table.evaluate_convergence_rates(
+            key, "n_tot_vrt", ConvergenceTable::reduction_rate_log2, dim);
+        }
+      }
+      else
+        // Default spatial convergence study without mesh adaptation.
+        // Compute convergence rate w.r.t. number of mesh elements.
+        error_table.evaluate_convergence_rates(
+          key, "n_elm", ConvergenceTable::reduction_rate_log2, dim);
+    }
+
+    if (mms_param.type == Parameters::MMS::Type::time)
+    {
+      if (time_param.adaptation.enable)
+      {
+        // When using an adaptive time step, compute convergence rates based
+        // on the total number of time steps
+        error_table.evaluate_convergence_rates(
+          key, "n_steps", ConvergenceTable::reduction_rate_log2, 1);
+      }
+      else
+      {
+        // Without adaptivity, compute rates based on the constant time step
+        error_table.evaluate_convergence_rates(
+          key, "dt", ConvergenceTable::reduction_rate_log2, 1);
+      }
+    }
+
+    error_table.set_precision(key, 4);
+    error_table.set_scientific(key, true);
+  }
+}
+
+template void ErrorHandler::compute_rates<2>();
+template void ErrorHandler::compute_rates<3>();
+
+void ErrorHandler::write_rates(std::ostream &out) const
 {
   error_table.write_text(out);
 }

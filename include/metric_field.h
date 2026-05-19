@@ -8,6 +8,7 @@
 #include <metric_tensor.h>
 #include <parameter_reader.h>
 #include <parameters.h>
+#include <time_handler.h>
 #include <types.h>
 
 #if defined(FEZ_WITH_MMG)
@@ -15,6 +16,10 @@
 #endif
 
 using namespace dealii;
+
+// Forward declaration
+template <int dim>
+class TransientFixedPointData;
 
 /**
  * A metric field is a discrete field of MetricTensors, stored at the owned mesh
@@ -42,18 +47,38 @@ class MetricField
 
 public:
   /**
+   * Standard constructor, not initializing any data. After constructing an
+   * object with this constructor, use reinit() to get a valid MetricField.
+   */
+  MetricField();
+
+  /**
    * Constructor. The parameter @p index specifies that this metric field is
    * created from the index-th metric field parameters in param.metric_fields.
    * A reference to the whole set of parameters is still kept for convenience.
    */
-  MetricField(const unsigned int          index,
-              const ParameterReader<dim> &param,
-              const Triangulation<dim>   &triangulation);
+  explicit MetricField(const unsigned int          index,
+                       const ParameterReader<dim> &param,
+                       const Triangulation<dim>   &triangulation);
 
   /**
    * Copy constructor. Deleted to avoid copying by mistake.
    */
   MetricField(const MetricField<dim> &other) = delete;
+
+  /**
+   * Initialize this object from a valid (initialized) triangulation.
+   */
+  void reinit(const unsigned int          index,
+              const ParameterReader<dim> &param,
+              const Triangulation<dim>   &triangulation);
+
+  /**
+   * Clear the dof handler and index sets, and reset the vectors (both vertex
+   * and FE representation of the metric field, maps from vertex data to dof
+   * data, edges for gradation).
+   */
+  void clear();
 
   /**
    * Set the metrics of this field to the analytical field described by @p function.
@@ -75,7 +100,41 @@ public:
   void set_induced_metric_from_graph(
     const ErrorEstimation::SolutionRecovery::Scalar<dim>
       &reconstructed_gradient);
-  
+
+  /**
+   * Compute the unscaled metric Q in the formulation of the optimal metric,
+   * then perform either of the following:
+   *
+   * - if the simulation is steady, set M = Q, i.e., set this metric field to
+   *   the optimal field before scaling.
+   *
+   * - if the simulation is unsteady, increment the time integral of the
+   * anisotropic measure Q for this time step. This integral, given by:
+   *
+   *                             /t_{i+1}
+   *                     M =     |        Q(t) dt,
+   *                             /t_i
+   *
+   *  is the optimal metric before scaling when using the transient fixed-point
+   *  adaptation method.
+   *
+   * This function does not require a recovery operator, and is thus intended
+   * only to compute the anisotropic measure from given exact derivatives. To
+   * compute the metric from the smoothed derivatives of a numerical solution,
+   * use the function below.
+   */
+  void increment_anisotropic_measure(const TimeHandler &time_handler);
+
+  /**
+   * Same as the function above, but compute the anisotropic measure from the
+   * smoothed derivatives stored in recovery, which is expected to store the
+   * derivatives of order up to p + 1, where p is the degree of the solution.
+   */
+  void increment_anisotropic_measure(
+    const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
+    const TimeHandler                                  &time_handler,
+    const unsigned int                                  component = 0);
+
   /**
    * Compute integral on mesh of metric determinant.
    */
@@ -159,9 +218,7 @@ public:
    * solution, which can be either recovered numerically or given through
    * analytical derivatives callbacks.
    */
-  void compute_optimal_multiscale_metric(
-    const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
-    const unsigned int                                  component = 0);
+  void apply_optimal_steady_multiscale_scaling();
 
   /**
    * Return the vector of MetricTensors constituting this field.
@@ -219,10 +276,26 @@ public:
 #endif
 
   /**
-   * Return the number of owned mesh vertices on all rank, i.e., the total
+   * Return the number of owned mesh vertices on this rank.
+   */
+  unsigned int get_n_owned_vertices() const;
+
+  /**
+   * Return the number of owned mesh vertices on all ranks, i.e., the total
    * number of mesh vertices in the triangulation.
    */
   unsigned int get_n_total_owned_vertices() const;
+
+  /**
+   * Return the MPI communicator.
+   */
+  MPI_Comm get_mpi_communicator() const;
+
+  /**
+   * Return true if this field's vector of owned vertices matches
+   * @p owned_vertices.
+   */
+  bool has_same_owned_vertices(const std::vector<bool> owned_vertices) const;
 
   /**
    * Write the metrics and their associated mesh vertex to the given stream,
@@ -267,32 +340,40 @@ private:
   void apply_gradation_non_deterministic();
 
   /**
-   * Compute the unscaled metric Q in the formulation of the optimal metric.
+   * Compute the unscaled metric Q in the formulation of the optimal metric,
+   * then perform either M = factor * Q or M += factor * Q, depending on @p add.
+   *
+   * A recovery operator is not needed if the anisotropic measure is computed
+   * from the exact derivatives of a known field.
    */
-  void compute_anisotropic_measure(
-    const ErrorEstimation::SolutionRecovery::Base<dim> &recovery,
+  void set_to_or_add_anisotropic_measure(
+    const double                                        factor,
+    const bool                                          add,
+    const ErrorEstimation::SolutionRecovery::Base<dim> *recovery  = nullptr,
     const unsigned int                                  component = 0);
 
   /**
    * Compute the unscaled metric Q assuming a linearly interpolated field.
    * In this case, Q is simply the absolute value of the Hessian matrix.
    */
-  void compute_anisotropic_measure_P1(
-    const std::vector<Tensor<2, dim>> &solution_hessians);
+  void set_to_or_add_anisotropic_measure_P1(
+    const std::vector<Tensor<2, dim>> &solution_hessians,
+    const double                       factor,
+    const bool                         add);
 
   /**
    * Compute the unscaled metric Q assuming a quadratic FE solution.
    * This function is called in 2D only and uses J.-M. Mirebeau's analytical
    * solution. Not sure there is an exact solution in 3D.
    */
-  void compute_anisotropic_measure_P2();
+  void set_to_or_add_anisotropic_measure_P2();
 
   /**
    * Compute the unscaled metric Q for the general case of a FE solution of
    * arbitrary polynomial degree, in 2D or 3D. Uses the log-simplex method
    * from Coulaud & Loseille [ref].
    */
-  void compute_anisotropic_measure_Pn();
+  void set_to_or_add_anisotropic_measure_Pn();
 
   /**
    * Transfer the MetricTensor<dim> stored in the metrics std::vector to their
@@ -322,10 +403,10 @@ private:
   void tensor_solution_to_metrics();
 
 private:
-  const unsigned int          index;
-  const ParameterReader<dim> &param;
-  const Triangulation<dim>   &triangulation;
-  DoFHandler<dim>             dof_handler;
+  ObserverPointer<const ParameterReader<dim>, MetricField<dim>> param;
+  ObserverPointer<const Triangulation<dim>, MetricField<dim>>   triangulation;
+
+  DoFHandler<dim> dof_handler;
 
   MPI_Comm     mpi_communicator;
   unsigned int mpi_rank;
@@ -333,6 +414,8 @@ private:
   // The FE space used for dummy computations
   std::shared_ptr<FiniteElement<dim>> fe;
   std::shared_ptr<Mapping<dim>>       mapping;
+
+  unsigned int index;
 
   // The polynomial degree of the field used to compute this metric field
   unsigned int solution_polynomial_degree;
@@ -397,6 +480,11 @@ private:
     edges_for_deterministic_gradation;
   std::vector<std::pair<types::global_vertex_index, types::global_vertex_index>>
     edges_for_nondeterministic_gradation;
+
+  // The class TransientFixedPointData handles the scaling of a collection of
+  // metrics, and is thus granted access to the vector of metrics, to avoid
+  // repeated calls to metric_to_tensor_solution to update the ghost values.
+  friend class TransientFixedPointData<dim>;
 };
 
 /**
@@ -451,9 +539,33 @@ public:
 /* ---------------- template and inline functions ----------------- */
 
 template <int dim>
+inline unsigned int MetricField<dim>::get_n_owned_vertices() const
+{
+  return n_owned_vertices;
+}
+
+template <int dim>
 inline unsigned int MetricField<dim>::get_n_total_owned_vertices() const
 {
   return n_total_owned_vertices;
+}
+
+template <int dim>
+inline MPI_Comm MetricField<dim>::get_mpi_communicator() const
+{
+  return mpi_communicator;
+}
+
+template <int dim>
+inline bool MetricField<dim>::has_same_owned_vertices(
+  const std::vector<bool> other_owned_vertices) const
+{
+  if (owned_vertices.size() != other_owned_vertices.size())
+    return false;
+  for (unsigned int i = 0; i < n_vertices; ++i)
+    if (owned_vertices[i] != other_owned_vertices[i])
+      return false;
+  return true;
 }
 
 template <int dim>

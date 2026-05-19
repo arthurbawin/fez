@@ -240,13 +240,13 @@ public:
    * necessarily vector spaces, so it does not make sense to add them in
    * general, and the incrementation with another tensor is deleted.
    */
-  constexpr MetricTensor<dim> &
-  operator+=(const SymmetricTensor<2, dim> &) = delete;
+  constexpr MetricTensor<dim> &operator+=(const MetricTensor<dim> &);
 
   /**
-   * Same as above but deletes incremention with a MetricTensor<dim>.
+   * Delete addition of metric with arbitrary symmetric tensor
    */
-  constexpr MetricTensor<dim> &operator+=(const MetricTensor<dim> &) = delete;
+  constexpr MetricTensor<dim> &
+  operator+=(const SymmetricTensor<2, dim> &) = delete;
 
   /**
    * In addition to the comments for the incrementation operator, decrementing
@@ -458,18 +458,33 @@ MetricTensor<dim>::operator/=(const double &d)
   return *this;
 }
 
+template <int dim>
+constexpr inline MetricTensor<dim> &
+MetricTensor<dim>::operator+=(const MetricTensor<dim> &m)
+{
+  // Both operands are SPD, sum will be SPD
+  // Simply call base class operator
+  SymmetricTensor<2, dim>::operator+=(m);
+  return *this;
+}
+
 /* ----------------- Non-member functions operating on metric tensors. ------ */
 
 /**
- * The sum of two MetricTensors is not meaningful in general (even though it
- * preserves positive-definiteness), and is thus deleted.
+ * Sum of two metric tensors. See comments for the += operator.
  */
 template <int dim>
 constexpr MetricTensor<dim> operator+(const MetricTensor<dim> &left,
-                                      const MetricTensor<dim> &right) = delete;
+                                      const MetricTensor<dim> &right)
+{
+  MetricTensor<dim> tmp = left;
+  tmp += right;
+  return tmp;
+}
 
 /**
- * Sum of SymmetricTensor and MetricTensor. See comment above.
+ * Sum of SymmetricTensor and MetricTensor is deleted, as the result is not
+ * guaranteed to be SPD.
  */
 template <int dim>
 constexpr MetricTensor<dim> operator+(const SymmetricTensor<2, dim> &left,

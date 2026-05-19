@@ -1,3 +1,4 @@
+add_subdirectory(compressible_ns)
 add_subdirectory(incompressible_ns)
 add_subdirectory(incompressible_ns_lambda)
 add_subdirectory(monolithic_fsi)
@@ -9,3 +10,8 @@ add_subdirectory(heat)
 add_subdirectory(linear_elasticity)
 add_subdirectory(unit_tests)
 add_subdirectory(unit_tests/metric_tensor)
+add_subdirectory(unit_tests/metric_field)
+
+if(ENABLE_MMG)
+	add_subdirectory(metric_based_adaptation)
+endif()

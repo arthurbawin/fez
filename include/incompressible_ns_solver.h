@@ -57,7 +57,13 @@ public:
   virtual ~NSSolver() {}
 
   /**
-   *
+   * Create the scratch data structure for this solver.
+   */
+  virtual void create_scratch_data() override;
+
+  /**
+   * Create the matrix sparsity pattern, given the finite element spaces and
+   * constraints.
    */
   virtual void create_sparsity_pattern() override;
 
@@ -113,21 +119,34 @@ public:
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
 protected:
+  /**
+   * Get the descriptions (name and number of components) of the variables
+   * solved for in the derived solvers, aside from velocity, pressure and mesh
+   * position.
+   */
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override
   {
     return std::vector<std::pair<std::string, unsigned int>>();
   }
 
+  /**
+   * Return the FESystem used by this solver.
+   */
   virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
 
+  /**
+   * Return whether this solver uses hp capabilities.
+   */
   virtual bool uses_hp_capabilities() const override { return false; };
 
 protected:
-  std::shared_ptr<FESystem<dim>> fe;
+  std::unique_ptr<FESystem<dim>> fe;
 
-  // Non-owning pointer to base class fixed_mapping, used for clarity.
+  // Non-owning pointer to base class fixed_mapping, used for convenience.
   const Mapping<dim> *mapping;
+
+  std::unique_ptr<ScratchData> scratch_data;
 
   /**
    * Exact solution when performing a convergence study with a manufactured

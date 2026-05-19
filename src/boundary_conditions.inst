@@ -22,6 +22,26 @@ namespace BoundaryConditions
     const Function<3> &,
     const Function<3> &,
     AffineConstraints<double> &);
+  
+  template void apply_pressure_boundary_conditions(
+    const bool,
+    const unsigned int,
+    const unsigned int,
+    const DoFHandler<2> &,
+    const Mapping<2> &,
+    const std::map<types::boundary_id, FluidBC<2>> &,
+    const Function<2> &,
+    AffineConstraints<double> &);
+
+  template void apply_pressure_boundary_conditions(
+    const bool,
+    const unsigned int,
+    const unsigned int,
+    const DoFHandler<3> &,
+    const Mapping<3> &,
+    const std::map<types::boundary_id, FluidBC<3>> &,
+    const Function<3> &,
+    AffineConstraints<double> &);
 
   template void apply_mesh_position_boundary_conditions(
     const bool,
@@ -83,6 +103,26 @@ namespace BoundaryConditions
     const DoFHandler<3> &,
     IndexSet &,
     std::vector<unsigned char> &,
+    const Mapping<3> &,
+    const Quadrature<3> &,
+    const unsigned int,
+    types::global_dof_index &,
+    std::vector<std::pair<types::global_dof_index, double>> &);
+
+  template void update_zero_mean_pressure_constraint_weights(
+    const Triangulation<2> &,
+    const DoFHandler<2> &,
+    const IndexSet &,
+    const Mapping<2> &,
+    const Quadrature<2> &,
+    const unsigned int,
+    types::global_dof_index &,
+    std::vector<std::pair<types::global_dof_index, double>> &);
+
+  template void update_zero_mean_pressure_constraint_weights(
+    const Triangulation<3> &,
+    const DoFHandler<3> &,
+    const IndexSet &,
     const Mapping<3> &,
     const Quadrature<3> &,
     const unsigned int,

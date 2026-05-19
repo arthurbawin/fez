@@ -11,6 +11,29 @@ void ParameterReader<dim>::check_parameters() const
       "\n Both fixing a pressure DoF *and* enforcing zero-mean pressure "
       "may be ill-posed. Please choose one or the other."));
 
+  bool has_strong_pressure_bc = false;
+  for (const auto &[id, bc] : fluid_bc)
+    if (bc.type == BoundaryConditions::Type::dirichlet_pressure)
+    {
+      has_strong_pressure_bc = true;
+      break;
+    }
+
+  AssertThrow(
+    !(has_strong_pressure_bc && bc_data.fix_pressure_constant),
+    ExcMessage(
+      "Incompatible pressure constraints: a Dirichlet pressure boundary "
+      "condition is prescribed while 'fix pressure constant = true'. "
+      "Disable 'fix pressure constant' when pressure is imposed "
+      "on a boundary with a Dirichlet condition."));
+  AssertThrow(
+    !(has_strong_pressure_bc && bc_data.enforce_zero_mean_pressure),
+    ExcMessage(
+      "Incompatible pressure constraints: a Dirichlet pressure boundary "
+      "condition is prescribed while 'enforce zero mean pressure = true'. "
+      "Disable 'enforce zero mean pressure' when pressure is imposed "
+      "on a boundary with a Dirichlet condition."));
+
   /**
    * Do not allow to apply both an exact pressure field and a zero-mean
    * constraint, as in general, these conditions won't agree. As an alternative,

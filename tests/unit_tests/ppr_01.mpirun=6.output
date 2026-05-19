@@ -1,15 +1,67 @@
 
+DEAL::
 DEAL::Convergence rates:
-DEAL::Reconstructed solution and derivatives for solution of degree 1
+DEAL::Reconstructions for solution of degree           : 1
+DEAL::Isoparametric representation                     : no
+DEAL::Computing derivatives from single reconstruction : no
 n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess   
 32    1.6264e-01 -    7.5587e-02 -    8.8228e-01 -    8.1058e-01 -    6.4426e+00 -    6.8160e+00 -    
 128   3.9464e-02 2.04 1.4074e-02 2.43 3.6093e-01 1.29 3.9737e-01 1.03 3.3133e+00 0.96 3.4798e+00 0.97 
 288   1.7305e-02 2.03 4.9508e-03 2.58 1.7998e-01 1.72 1.9744e-01 1.73 2.2680e+00 0.93 2.3535e+00 0.96 
 512   9.6827e-03 2.02 2.2126e-03 2.80 1.0531e-01 1.86 1.1538e-01 1.87 1.7138e+00 0.97 1.7699e+00 0.99 
+DEAL::OK
+DEAL::
 DEAL::Convergence rates:
-DEAL::Reconstructed solution and derivatives for solution of degree 2
+DEAL::Reconstructions for solution of degree           : 1
+DEAL::Isoparametric representation                     : yes
+DEAL::Computing derivatives from single reconstruction : no
+n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess   
+32    1.6264e-01 -    7.5587e-02 -    8.8228e-01 -    8.1058e-01 -    6.4426e+00 -    6.8160e+00 -    
+128   3.9464e-02 2.04 1.4074e-02 2.43 3.6093e-01 1.29 3.9737e-01 1.03 3.3133e+00 0.96 3.4798e+00 0.97 
+288   1.7305e-02 2.03 4.9508e-03 2.58 1.7998e-01 1.72 1.9744e-01 1.73 2.2680e+00 0.93 2.3535e+00 0.96 
+512   9.6827e-03 2.02 2.2126e-03 2.80 1.0531e-01 1.86 1.1538e-01 1.87 1.7138e+00 0.97 1.7699e+00 0.99 
+DEAL::OK
+DEAL::
+DEAL::Convergence rates:
+DEAL::Reconstructions for solution of degree           : 1
+DEAL::Isoparametric representation                     : yes
+DEAL::Computing derivatives from single reconstruction : yes
+n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess   
+32    1.6264e-01 -    7.5587e-02 -    8.8228e-01 -    8.1058e-01 -    6.2772e+00 -    6.6274e+00 -    
+128   3.9464e-02 2.04 1.4074e-02 2.43 3.6093e-01 1.29 3.9737e-01 1.03 3.5849e+00 0.81 3.7286e+00 0.83 
+288   1.7305e-02 2.03 4.9508e-03 2.58 1.7998e-01 1.72 1.9744e-01 1.73 2.4488e+00 0.94 2.5399e+00 0.95 
+512   9.6827e-03 2.02 2.2126e-03 2.80 1.0531e-01 1.86 1.1538e-01 1.87 1.8522e+00 0.97 1.9193e+00 0.97 
+DEAL::OK
+DEAL::
+DEAL::Convergence rates:
+DEAL::Reconstructions for solution of degree           : 2
+DEAL::Isoparametric representation                     : no
+DEAL::Computing derivatives from single reconstruction : no
+n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess   
+32    3.2516e-02 -    3.5207e-02 -    4.5502e-01 -    4.9610e-01 -    3.5981e+00 -    3.8762e+00 -    
+128   2.4007e-03 3.76 1.9307e-03 4.19 7.9756e-02 2.51 8.6168e-02 2.53 1.3290e+00 1.44 1.3886e+00 1.48 
+288   6.2600e-04 3.32 3.6424e-04 4.11 2.4446e-02 2.92 2.6436e-02 2.91 6.1773e-01 1.89 6.4653e-01 1.89 
+512   2.4990e-04 3.19 1.1679e-04 3.95 1.0436e-02 2.96 1.1289e-02 2.96 3.5289e-01 1.95 3.6963e-01 1.94 
+DEAL::OK
+DEAL::
+DEAL::Convergence rates:
+DEAL::Reconstructions for solution of degree           : 2
+DEAL::Isoparametric representation                     : yes
+DEAL::Computing derivatives from single reconstruction : no
 n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess   
 32    1.3729e-01 -    3.5207e-02 -    4.8707e-01 -    4.9610e-01 -    3.5602e+00 -    3.8762e+00 -    
 128   3.8156e-02 1.85 1.9307e-03 4.19 1.2190e-01 2.00 8.6168e-02 2.53 1.4847e+00 1.26 1.3886e+00 1.48 
 288   1.7037e-02 1.99 2.9240e-04 4.66 5.3941e-02 2.01 2.6436e-02 2.91 7.0810e-01 1.83 6.4653e-01 1.89 
 512   9.5967e-03 2.00 9.3561e-05 3.96 3.0284e-02 2.01 1.1289e-02 2.96 4.0566e-01 1.94 3.6963e-01 1.94 
+DEAL::OK
+DEAL::
+DEAL::Convergence rates:
+DEAL::Reconstructions for solution of degree           : 2
+DEAL::Isoparametric representation                     : yes
+DEAL::Computing derivatives from single reconstruction : yes
+n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess   
+32    1.3729e-01 -    3.5207e-02 -    4.8707e-01 -    4.9610e-01 -    3.8189e+00 -    4.1430e+00 -    
+128   3.8156e-02 1.85 1.9307e-03 4.19 1.2190e-01 2.00 8.6168e-02 2.53 1.2216e+00 1.64 1.0602e+00 1.97 
+288   1.7037e-02 1.99 2.9240e-04 4.66 5.3941e-02 2.01 2.6436e-02 2.91 5.5791e-01 1.93 4.8085e-01 1.95 
+512   9.5967e-03 2.00 9.3561e-05 3.96 3.0284e-02 2.01 1.1289e-02 2.96 3.1681e-01 1.97 2.7237e-01 1.98 
+DEAL::OK

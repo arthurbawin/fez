@@ -169,8 +169,7 @@ void test_ppr(const unsigned int field_polynomial_degree)
       fe,
       mapping,
       fe.component_mask(FEValuesExtractors::Scalar(0)));
-    // recovery.compute_least_squares_matrices();
-    recovery.reconstruct_fields();
+    recovery.reconstruct_fields(solution);
 
     const ScalarFieldWithDerivatives<dim> exact_solution;
     const QGaussSimplex<dim>              cell_quadrature(4);

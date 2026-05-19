@@ -1,3 +1,4 @@
+#include <assembly/ale_geometry.h>
 #include <assembly/moving_mesh_forcing_forms.h>
 #include <assembly/pseudosolid_forms.h>
 #include <assembly/stabilization_forms.h>
@@ -47,7 +48,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
   {
     if (param.finite_elements.use_quads)
       if constexpr (with_enlarged)
-        fe = std::make_shared<FESystem<dim>>(
+        fe = std::make_unique<FESystem<dim>>(
           FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
           FE_Q<dim>(param.finite_elements.pressure_degree),
           FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -55,7 +56,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
           FE_Q<dim>(param.finite_elements.potential_degree),
           FE_Q<dim>(param.finite_elements.potential_degree));
       else
-        fe = std::make_shared<FESystem<dim>>(
+        fe = std::make_unique<FESystem<dim>>(
           FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
           FE_Q<dim>(param.finite_elements.pressure_degree),
           FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -63,7 +64,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
           FE_Q<dim>(param.finite_elements.potential_degree));
     else
       if constexpr (with_enlarged)
-        fe = std::make_shared<FESystem<dim>>(
+        fe = std::make_unique<FESystem<dim>>(
           FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
           FE_SimplexP<dim>(param.finite_elements.pressure_degree),
           FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -71,7 +72,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
           FE_SimplexP<dim>(param.finite_elements.potential_degree),
           FE_SimplexP<dim>(param.finite_elements.potential_degree));
       else
-        fe = std::make_shared<FESystem<dim>>(
+        fe = std::make_unique<FESystem<dim>>(
           FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
           FE_SimplexP<dim>(param.finite_elements.pressure_degree),
           FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
@@ -79,25 +80,25 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
           FE_SimplexP<dim>(param.finite_elements.potential_degree));
 
     this->ordering =
-      std::make_shared<ComponentOrderingCHNS<dim, true, with_enlarged>>();
+      std::make_unique<ComponentOrderingCHNS<dim, true, with_enlarged>>();
   }
   else
   {
     if (param.finite_elements.use_quads)
-      fe = std::make_shared<FESystem<dim>>(
+      fe = std::make_unique<FESystem<dim>>(
         FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_Q<dim>(param.finite_elements.pressure_degree),
         FE_Q<dim>(param.finite_elements.tracer_degree),
         FE_Q<dim>(param.finite_elements.potential_degree));
     else
-      fe = std::make_shared<FESystem<dim>>(
+      fe = std::make_unique<FESystem<dim>>(
         FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
         FE_SimplexP<dim>(param.finite_elements.pressure_degree),
         FE_SimplexP<dim>(param.finite_elements.tracer_degree),
         FE_SimplexP<dim>(param.finite_elements.potential_degree));
 
     this->ordering =
-      std::make_shared<ComponentOrderingCHNS<dim, false, with_enlarged>>();
+      std::make_unique<ComponentOrderingCHNS<dim, false, with_enlarged>>();
   }
 
   this->velocity_extractor =
@@ -156,12 +157,12 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
         this->time_handler.current_time, *this->ordering, param);
 
     // Create entry in error handler for tracer and potential
-    for (auto norm : this->param.mms_param.norms_to_compute)
+    for (auto &[norm, handler] : this->error_handlers)
     {
-      this->error_handlers[norm]->create_entry("phi");
-      this->error_handlers[norm]->create_entry("mu");
+      handler.create_entry("phi");
+      handler.create_entry("mu");
       if constexpr (with_enlarged)
-        this->error_handlers[norm]->create_entry("psi");
+        handler.create_entry("psi");
     }
   }
   else
@@ -200,7 +201,7 @@ void CHNSSolver<dim,
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   const double sigma_tilde_over_eps  = sigma_tilde / epsilon;
   const double sigma_tilde_times_eps = sigma_tilde * epsilon;
-  const auto  &body_force            = cahn_hilliard_param.body_force;
+  const auto  &body_force            = physical_properties.body_force;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
@@ -268,6 +269,21 @@ void CHNSSolver<dim,
       correction_prefactor * Assembly::psi_mu_correction_eta(phi) * mu;
     values[psi_lower] = -(psi - phi - psi_mu_correction - L * L * lap_psi);
   }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::create_scratch_data()
+{
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               *this->fixed_mapping,
+                                               *this->moving_mapping,
+                                               *this->quadrature,
+                                               *this->face_quadrature,
+                                               this->time_handler,
+                                               this->param);
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
@@ -472,17 +488,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
 
+  this->update_constraints_for_evaluation_point();
+
   this->system_matrix = 0;
 
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *this->fixed_mapping,
-                          *this->moving_mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -501,7 +511,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_matrix()
                   *this,
                   assembly_ptr,
                   &CHNSSolver::copy_local_to_global_matrix,
-                  scratchData,
+                  *scratch_data,
                   copyData);
 
   this->system_matrix.compress(VectorOperation::add);
@@ -538,8 +548,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_matrix = copy_data.local_matrix;
   local_matrix       = 0;
@@ -707,13 +717,14 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             {
               // Variation of momentum equation w.r.t. moving mesh position
               const auto  &G   = (*grad_phi_x_moving)[j];
-              const double trG = trace(G);
+              const double trG = Assembly::ALE::jacobian_trace(G);
 
               local_flow_ij += phi_u_i * to_multiply_by_phi_u_i_tr_G * trG;
 
               // ALE term
               local_flow_ij += phi_u_i * rho * present_velocity_gradients *
-                               (-bdf_c0 * (*phi_x_j) - G * u_conv);
+                               Assembly::ALE::convective_direction_variation(
+                                 bdf_c0, *phi_x_j, G, u_conv);
 
               // Viscous term
               local_flow_ij +=
@@ -736,12 +747,14 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                 phi_u_i * diffusive_flux_factor *
                 (-(present_velocity_gradients * G) * potential_gradient +
                  present_velocity_gradients *
-                   (-transpose(G) * potential_gradient) +
+                   Assembly::ALE::gradient_variation(potential_gradient, G) +
                  (present_velocity_gradients * potential_gradient) * trG);
 
               // Korteweg term
               local_flow_ij +=
-                phi_u_i * (-tracer_value * transpose(G) * potential_gradient +
+                phi_u_i * (tracer_value *
+                             Assembly::ALE::gradient_variation(
+                               potential_gradient, G) +
                            tracer_value * potential_gradient * trG);
             }
           }
@@ -781,7 +794,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             {
               // Continuity : variation w.r.t. x
               const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = trace(G);
+              const double          trG = Assembly::ALE::jacobian_trace(G);
 
               local_flow_ij +=
                 phi_p_i * (source_term_pressure * trG +
@@ -809,19 +822,24 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                 comp_j < const_ordering.x_upper)
             {
               const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = trace(G);
+              const double          trG = Assembly::ALE::jacobian_trace(G);
 
               local_flow_ij += phi_phi_i * to_multipliy_by_phi_phi_i_tr_G * trG;
 
               // ALE (advection) term
               local_flow_ij +=
-                phi_phi_i * ((-bdf_c0) * (*phi_x_j) * tracer_gradient +
-                             u_conv * (-(transpose(G)) * tracer_gradient));
+                phi_phi_i *
+                (Assembly::ALE::mesh_velocity_variation(bdf_c0, *phi_x_j) *
+                   tracer_gradient +
+                 u_conv *
+                   Assembly::ALE::gradient_variation(tracer_gradient, G));
               // Laplacian term
               local_flow_ij +=
                 mobility *
-                ((-(transpose(G)) * grad_phi_phi_i) * potential_gradient +
-                 grad_phi_phi_i * (-(transpose(G)) * potential_gradient) +
+                (Assembly::ALE::gradient_variation(grad_phi_phi_i, G) *
+                   potential_gradient +
+                 grad_phi_phi_i *
+                   Assembly::ALE::gradient_variation(potential_gradient, G) +
                  (grad_phi_phi_i * potential_gradient) * trG);
             }
           }
@@ -865,7 +883,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             {
               // Variation of potential equation w.r.t. x
               const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = trace(G);
+              const double          trG = Assembly::ALE::jacobian_trace(G);
               local_flow_ij += phi_mu_i * source_term_potential * trG;
               local_flow_ij +=
                 phi_mu_i *
@@ -874,11 +892,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                 trG;
               local_flow_ij +=
                 -sigma_tilde_times_eps *
-                (scalar_product(grad_phi_mu_i,
-                                -transpose(G) * tracer_gradient) +
-                 scalar_product(-transpose(G) * grad_phi_mu_i,
-                                tracer_gradient) +
-                 scalar_product(grad_phi_mu_i, tracer_gradient) * trG);
+                Assembly::ALE::gradient_inner_product_jacobian_variation(
+                  grad_phi_mu_i, tracer_gradient, G);
             }
           }
         }
@@ -946,15 +961,7 @@ void CHNSSolver<dim,
                 with_moving_mesh,
                 with_enlarged>::compare_analytical_matrix_with_fd()
 {
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *this->fixed_mapping,
-                          *this->moving_mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     this->dof_handler,
@@ -962,7 +969,7 @@ void CHNSSolver<dim,
     *this,
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
-    scratchData,
+    *scratch_data,
     copyData,
     this->present_solution,
     this->evaluation_point,
@@ -987,17 +994,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_rhs()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble RHS");
 
+  this->update_constraints_for_evaluation_point();
+
   this->system_rhs = 0;
 
-  ScratchData scratchData(*this->ordering,
-                          *fe,
-                          *this->fixed_mapping,
-                          *this->moving_mapping,
-                          *this->quadrature,
-                          *this->face_quadrature,
-                          this->time_handler.bdf_coefficients,
-                          this->param);
-  CopyData    copyData(fe->n_dofs_per_cell());
+  CopyData copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler.begin_active(),
@@ -1005,7 +1006,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_rhs()
                   *this,
                   &CHNSSolver::assemble_local_rhs,
                   &CHNSSolver::copy_local_to_global_rhs,
-                  scratchData,
+                  *scratch_data,
                   copyData);
 
   this->system_rhs.compress(VectorOperation::add);
@@ -1025,8 +1026,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       this->previous_solutions,
-                      this->source_terms,
-                      this->exact_solution);
+                      *this->source_terms,
+                      *this->exact_solution);
 
   auto &local_rhs = copy_data.local_rhs;
   local_rhs       = 0;
@@ -1394,7 +1395,7 @@ void CHNSSolver<dim,
                                                           tracer_mask);
 
   this->computing_timer.enter_subsection("Reconstruct fields and derivatives");
-  recovery.reconstruct_fields();
+  recovery.reconstruct_fields(this->present_solution);
   this->computing_timer.leave_subsection();
 
   const Mapping<dim> &study_mapping =

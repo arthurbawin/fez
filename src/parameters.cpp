@@ -141,6 +141,11 @@ namespace Parameters
                             "1",
                             Patterns::Integer(-1, 10),
                             "Verbosity level of the MMG library");
+          prm.declare_entry("n time intervals",
+                            "1",
+                            Patterns::Integer(1),
+                            "Number of time sub-intervals for the transient "
+                            "fixed point method");
         }
         prm.leave_subsection();
       }
@@ -179,6 +184,8 @@ namespace Parameters
             prm.get_bool("transfer solution");
           adaptation.metric.mmg_verbosity =
             prm.get_integer("mmg verbosity level");
+          adaptation.metric.n_time_intervals =
+            prm.get_integer("n time intervals");
         }
         prm.leave_subsection();
       }
@@ -560,11 +567,37 @@ namespace Parameters
   {
     prm.enter_subsection("Fluid " + std::to_string(index));
     {
-      prm.declare_entry("density", "1", Patterns::Double(), "Fluid density");
+      prm.declare_entry("density",
+                        "1",
+                        Patterns::Double(0.),
+                        "Fluid density for incompressible solvers and "
+                        "reference density for compressible solvers");
       prm.declare_entry("kinematic viscosity",
                         "1",
                         Patterns::Double(),
                         "Fluid kinematic viscosity");
+      prm.declare_entry(
+        "dynamic viscosity",
+        "-1",
+        Patterns::Double(),
+        "Fluid dynamic viscosity. If set to a negative value (default), it "
+        "is computed automatically as density * kinematic viscosity.");
+      prm.declare_entry("thermal conductivity",
+                        "1",
+                        Patterns::Double(),
+                        "Fluid thermal conductivity");
+      prm.declare_entry("heat capacity at constant pressure",
+                        "1",
+                        Patterns::Double(),
+                        "Fluid heat capacity at constant pressure");
+      prm.declare_entry("pressure reference",
+                        "1",
+                        Patterns::Double(0.),
+                        "Fluid pressure reference");
+      prm.declare_entry("temperature reference",
+                        "1",
+                        Patterns::Double(0.),
+                        "Fluid temperature reference");
     }
     prm.leave_subsection();
   }
@@ -575,7 +608,23 @@ namespace Parameters
     {
       density             = prm.get_double("density");
       kinematic_viscosity = prm.get_double("kinematic viscosity");
-      dynamic_viscosity   = density * kinematic_viscosity;
+      dynamic_viscosity   = prm.get_double("dynamic viscosity");
+      if (dynamic_viscosity < 0.)
+        dynamic_viscosity = density * kinematic_viscosity;
+      thermal_conductivity = prm.get_double("thermal conductivity");
+      heat_capacity_at_constant_pressure =
+        prm.get_double("heat capacity at constant pressure");
+      pressure_ref    = prm.get_double("pressure reference");
+      temperature_ref = prm.get_double("temperature reference");
+
+      AssertThrow(
+        std::abs(density * temperature_ref) > 1e-14,
+        ExcMessage(
+          "The product density * reference temperature is too small."));
+
+      gas_constant = pressure_ref / (density * temperature_ref);
+
+      AssertThrow(gas_constant > 0, ExcInternalError());
     }
     prm.leave_subsection();
   }
@@ -645,6 +694,7 @@ namespace Parameters
   template <int dim>
   void PhysicalProperties<dim>::declare_parameters(ParameterHandler &prm)
   {
+    const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
     prm.enter_subsection("Physical properties");
     {
       // Declare the fluid subsections
@@ -667,6 +717,11 @@ namespace Parameters
       pseudosolids.resize(max_pseudosolids);
       for (unsigned int i = 0; i < max_pseudosolids; ++i)
         pseudosolids[i].declare_parameters(prm, i);
+
+      prm.declare_entry("body force",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Body force vector (e.g., gravity acceleration)");
     }
     prm.leave_subsection();
   }
@@ -692,6 +747,8 @@ namespace Parameters
 
       for (unsigned int i = 0; i < n_pseudosolids; ++i)
         pseudosolids[i].read_parameters(prm, i);
+
+      body_force = parse_rank_1_tensor<dim>(prm.get("body force"));
     }
     prm.leave_subsection();
   }
@@ -1047,10 +1104,6 @@ namespace Parameters
         Patterns::Double(0.0),
         "Target ratio eps_eff(psi) / eps. If > 0, this calibrated factor "
         "takes precedence over 'enlarged interface thickness'.");
-      prm.declare_entry("body force",
-                        default_point,
-                        Patterns::List(Patterns::Double(), dim, dim, ","),
-                        "Body force vector (e.g., gravity acceleration)");
       prm.declare_entry("enable tracer limiter",
                         "false",
                         Patterns::Bool(),
@@ -1062,26 +1115,32 @@ namespace Parameters
         Patterns::Double(),
         "Compression factor used only by the enlarged moving-mesh forcing "
         "term mff_enlarged_compression_factor * eps_enlarged * f(marker) * "
-        "grad(marker), where f follows 'mesh forcing law'.");
+        "grad(marker).");
       prm.declare_entry(
         "mff_physics_compression_factor",
         "0.0",
         Patterns::Double(),
         "Compression factor used in the physical-interface moving-mesh "
         "forcing correction "
-        "mff_physics_compression_factor * eps * f(phi) * grad(phi), where f "
-        "follows 'mesh forcing law'.");
+        "mff_physics_compression_factor * eps * f(phi) * grad(phi).");
       prm.declare_entry("mff_transport_factor",
                         "0.0",
                         Patterns::Double(),
                         "Transport factor used in the moving-mesh forcing term "
                         "mff_transport_factor * (u_ALE * grad(marker)) * "
                         "grad(marker).");
-      prm.declare_entry("mff_band_factor",
+      prm.declare_entry("mff_regularization_gamma",
                         "0.0",
-                        Patterns::Double(),
-                        "Band factor used by the regularized-band moving-mesh "
-                        "forcing law.");
+                        Patterns::Double(0.0),
+                        "Gamma in the moving-mesh forcing law "
+                        "f(marker)=marker/(1-gamma^2 center(marker)^2).");
+      prm.declare_entry(
+        "mff_enlarged_factor_equalization_exponent",
+        "1.0",
+        Patterns::Double(0.0),
+        "Exponent q applied only to the enlarged forcing marker before the "
+        "mesh forcing law. q=1 is neutral; values below 1 boost "
+        "under-saturated |psi| values smoothly.");
       prm.declare_entry(
         "psi mu correction factor",
         "0.0",
@@ -1089,14 +1148,6 @@ namespace Parameters
         "Coefficient lambda used in the enlarged-marker reconstruction "
         "correction term "
         "-lambda * eta(phi) * (L^2 / (eps * sigma_tilde)) * mu.");
-      prm.declare_entry("mesh forcing law",
-                        "regularized_band",
-                        Patterns::Selection("simple|regularized_band"),
-                        "Moving-mesh forcing law. 'simple' uses "
-                        "f(s)=s, while 'regularized_band' uses the "
-                        "mff_band_factor-regularized band formulation. This "
-                        "law is applied to both enlarged and physics "
-                        "compression terms.");
     }
     prm.leave_subsection();
   }
@@ -1119,7 +1170,6 @@ namespace Parameters
         epsilon_interface_enlarged =
           Assembly::calibrated_enlarged_interface_thickness(
             epsilon_interface, psi_interface_width_factor);
-      body_force          = parse_rank_1_tensor<dim>(prm.get("body force"));
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
       mff_enlarged_compression_factor =
@@ -1127,20 +1177,20 @@ namespace Parameters
       mff_physics_compression_factor =
         prm.get_double("mff_physics_compression_factor");
       mff_transport_factor = prm.get_double("mff_transport_factor");
-      mff_band_factor      = prm.get_double("mff_band_factor");
+      mff_regularization_gamma = prm.get_double("mff_regularization_gamma");
+      mff_enlarged_factor_equalization_exponent =
+        prm.get_double("mff_enlarged_factor_equalization_exponent");
+      AssertThrow(
+        mff_enlarged_factor_equalization_exponent > 0.0,
+        ExcMessage(
+          "'mff_enlarged_factor_equalization_exponent' must be strictly "
+          "positive."));
       psi_mu_correction_factor = prm.get_double("psi mu correction factor");
       AssertThrow(std::abs(psi_mu_correction_factor) < 1e-14 ||
                     std::abs(surface_tension) > 1e-14,
                   ExcMessage(
                     "A nonzero 'psi mu correction factor' requires a nonzero "
                     "surface tension to define sigma_tilde."));
-      const std::string parsed_mesh_forcing_law = prm.get("mesh forcing law");
-      if (parsed_mesh_forcing_law == "simple")
-        mesh_forcing_law = MeshForcingLaw::simple;
-      else if (parsed_mesh_forcing_law == "regularized_band")
-        mesh_forcing_law = MeshForcingLaw::regularized_band;
-      else
-        AssertThrow(false, ExcMessage("Unknown mesh forcing law"));
     }
     prm.leave_subsection();
   }

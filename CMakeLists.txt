@@ -86,15 +86,6 @@ if(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
   add_compile_definitions(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
 endif()
 
-message(STATUS "FEZ_WITH_PETSC    = ${FEZ_WITH_PETSC}")
-message(STATUS "FEZ_WITH_TRILINOS = ${FEZ_WITH_TRILINOS}")
-message(STATUS "------------------------------------------")
-
-if(ENABLE_MMG)
-  find_package(MMG)
-  add_compile_definitions(FEZ_WITH_MMG)
-endif()
-
 # === Add Eigen (standard + unsupported) ===
 set(EIGEN3_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/contrib/eigen)
 include_directories(${EIGEN3_INCLUDE_DIR})
@@ -111,6 +102,17 @@ target_include_directories(project_src PUBLIC include)
 # Ensure project_src is built with deal.II flags
 deal_ii_setup_target(project_src)
 
+if(ENABLE_MMG)
+  add_compile_definitions(FEZ_WITH_MMG)
+  target_include_directories(project_src PUBLIC ${MMG_INCLUDE_DIRS})
+  target_link_libraries(project_src ${MMG_LIBRARIES})
+endif()
+
+message(STATUS "FEZ_WITH_PETSC    = ${FEZ_WITH_PETSC}")
+message(STATUS "FEZ_WITH_TRILINOS = ${FEZ_WITH_TRILINOS}")
+message(STATUS "FEZ_WITH_MMG      = ${ENABLE_MMG}")
+message(STATUS "------------------------------------------")
+
 # === Build solvers executables ===
 file(GLOB SOLVER_FILES CONFIGURE_DEPENDS solvers/*.cpp)
 
@@ -123,14 +125,6 @@ foreach(solver_src ${SOLVER_FILES})
     # Link with project source code and deal.II
     target_link_libraries(${solver_name} project_src)
     deal_ii_setup_target(${solver_name})
-
-    if(ENABLE_MMG)
-      target_include_directories(${solver_name} PRIVATE ${MMG_INCLUDE_DIRS})
-      target_link_libraries( ${solver_name} ${MMG_LIBRARIES})
-      MESSAGE(STATUS "${solver_name}")
-      MESSAGE(STATUS "${MMG_LIBRARIES}")
-      MESSAGE(STATUS "${MMG_INCLUDE_DIRS}")
-  endif()
 endforeach()
 
 # Tests

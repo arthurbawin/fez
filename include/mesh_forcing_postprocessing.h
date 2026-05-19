@@ -104,7 +104,7 @@ namespace MeshForcingPostProcessing
       const Tensor<1, dim> u_conv = velocity_values[q] - mesh_velocity;
       double enlarged_factor          = 0.;
       double enlarged_factor_jacobian = 0.;
-      Assembly::MovingMeshForcing::mesh_forcing_factor_and_jacobian(
+      Assembly::MovingMeshForcing::enlarged_mesh_forcing_factor_and_jacobian(
         cahn_hilliard_param,
         enlarged_values[q],
         enlarged_factor,

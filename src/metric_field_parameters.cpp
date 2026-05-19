@@ -91,6 +91,7 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("Gradation");
       {
+        DECLARE_VERBOSITY_PARAM(prm, "verbose")
         prm.declare_entry("enable", "false", Patterns::Bool(), "");
         prm.declare_entry("deterministic", "false", Patterns::Bool(), "");
         prm.declare_entry("gradation", "1.5", Patterns::Double(1.01), "");
@@ -182,6 +183,7 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("Gradation");
       {
+        READ_VERBOSITY_PARAM(prm, gradation.verbosity)
         gradation.enable               = prm.get_bool("enable");
         gradation.deterministic        = prm.get_bool("deterministic");
         gradation.gradation            = prm.get_double("gradation");

@@ -157,13 +157,10 @@ public:
 
       AssertThrow(lame_mu[q] >= 0,
                   ExcMessage("Lamé coefficient mu should be positive"));
-      // AssertThrow(lame_lambda[q] >= 0,
-      //             ExcMessage("Lamé coefficient lambda should be positive"));
 
       // neo-hookean
       const Tensor<2, dim> &F = position_gradients[q];
       position_J[q]           = determinant(F);
-
 
       position_inv_gradients[q]   = invert(F);
       position_inv_gradients_T[q] = transpose(position_inv_gradients[q]);

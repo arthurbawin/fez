@@ -13,67 +13,121 @@ using namespace dealii;
 
 namespace Assembly::Pseudosolid
 {
-  template <int dim>
-  inline double
-  linear_matrix_contribution(const double          lame_mu,
-                             const double          lame_lambda,
-                             const double          div_test,
-                             const Tensor<2, dim> &grad_test,
-                             const double          div_trial,
-                             const Tensor<2, dim> &grad_trial)
+  namespace MaterialLaw
   {
-    return lame_lambda * div_trial * div_test +
-           lame_mu * scalar_product(grad_trial + transpose(grad_trial), grad_test);
-  }
+    template <int dim>
+    inline double
+    linear_matrix_contribution(const double          lame_mu,
+                               const double          lame_lambda,
+                               const double          div_test,
+                               const Tensor<2, dim> &grad_test,
+                               const double          div_trial,
+                               const Tensor<2, dim> &grad_trial)
+    {
+      return lame_lambda * div_trial * div_test +
+             lame_mu *
+               scalar_product(grad_trial + transpose(grad_trial), grad_test);
+    }
 
-  template <int dim>
-  inline double
-  neo_hookean_matrix_contribution(const double          lame_mu,
-                                  const double          lame_lambda,
-                                  const Tensor<2, dim> &F_inv,
-                                  const Tensor<2, dim> &F_inv_T,
-                                  const double          J,
-                                  const Tensor<2, dim> &grad_test,
-                                  const Tensor<2, dim> &grad_trial)
-  {
-    const Tensor<2, dim> dP =
-      lame_mu * grad_trial +
-      (lame_mu - lame_lambda * std::log(J)) *
-        (F_inv_T * transpose(grad_trial) * F_inv_T) +
-      lame_lambda * trace(F_inv * grad_trial) * F_inv_T;
+    template <int dim>
+    inline double
+    neo_hookean_matrix_contribution(const double          lame_mu,
+                                    const double          lame_lambda,
+                                    const Tensor<2, dim> &F_inv,
+                                    const Tensor<2, dim> &F_inv_T,
+                                    const double          J,
+                                    const Tensor<2, dim> &grad_test,
+                                    const Tensor<2, dim> &grad_trial)
+    {
+      const Tensor<2, dim> dP =
+        lame_mu * grad_trial +
+        (lame_mu - lame_lambda * std::log(J)) *
+          (F_inv_T * transpose(grad_trial) * F_inv_T) +
+        lame_lambda * trace(F_inv * grad_trial) * F_inv_T;
 
-    return scalar_product(dP, grad_test);
-  }
+      return scalar_product(dP, grad_test);
+    }
 
-  template <int dim>
-  inline double
-  ogden_matrix_contribution(const double          lame_mu,
+    template <int dim>
+    inline double
+    ogden_matrix_contribution(const double          lame_mu,
+                              const double          lame_lambda,
+                              const double          beta,
+                              const Tensor<2, dim> &,
+                              const Tensor<2, dim> &F_inv,
+                              const Tensor<2, dim> &F_inv_T,
+                              const double          J,
+                              const Tensor<2, dim> &grad_test,
+                              const Tensor<2, dim> &grad_trial)
+    {
+      AssertThrow(std::abs(beta) > 1e-14,
+                  ExcMessage("Ogden pseudosolid law requires beta != 0."));
+
+      const Tensor<2, dim> dF         = grad_trial;
+      const Tensor<2, dim> dF_inv_T   = -F_inv_T * transpose(dF) * F_inv_T;
+      const double         Jm_beta    = std::pow(J, -beta);
+      const double         tr_Finv_dF = trace(F_inv * dF);
+      const double         volumetric_stress =
+        (1.0 / beta) * (1.0 - Jm_beta);
+
+      const Tensor<2, dim> dP_vol =
+        lame_lambda * (Jm_beta * tr_Finv_dF * F_inv_T +
+                       volumetric_stress * dF_inv_T);
+      const Tensor<2, dim> dP_shape = lame_mu * (dF - dF_inv_T);
+
+      return scalar_product(dP_shape + dP_vol, grad_test);
+    }
+
+    template <int dim>
+    inline double
+    linear_rhs_contribution(const double          lame_mu,
                             const double          lame_lambda,
-                            const double          beta,
-                            const Tensor<2, dim> &,
-                            const Tensor<2, dim> &F_inv,
-                            const Tensor<2, dim> &F_inv_T,
-                            const double          J,
-                            const Tensor<2, dim> &grad_test,
-                            const Tensor<2, dim> &grad_trial)
-  {
-    AssertThrow(std::abs(beta) > 1e-14,
-                ExcMessage("Ogden pseudosolid law requires beta != 0."));
+                            const double          trace_strain,
+                            const Tensor<2, dim> &strain,
+                            const double          div_test,
+                            const Tensor<2, dim> &grad_test)
+    {
+      return lame_lambda * trace_strain * div_test +
+             2.0 * lame_mu * scalar_product(strain, grad_test);
+    }
 
-    const Tensor<2, dim> dF         = grad_trial;
-    const Tensor<2, dim> dF_inv_T   = -F_inv_T * transpose(dF) * F_inv_T;
-    const double         Jm_beta    = std::pow(J, -beta);
-    const double         tr_Finv_dF = trace(F_inv * dF);
-    const double         volumetric_stress =
-      (1.0 / beta) * (1.0 - Jm_beta);
+    template <int dim>
+    inline double
+    neo_hookean_rhs_contribution(const double          lame_mu,
+                                 const double          lame_lambda,
+                                 const Tensor<2, dim> &F,
+                                 const Tensor<2, dim> &F_inv_T,
+                                 const double          J,
+                                 const Tensor<2, dim> &grad_test)
+    {
+      const Tensor<2, dim> P =
+        lame_mu * (F - F_inv_T) + lame_lambda * std::log(J) * F_inv_T;
 
-    const Tensor<2, dim> dP_vol =
-      lame_lambda * (Jm_beta * tr_Finv_dF * F_inv_T +
-                     volumetric_stress * dF_inv_T);
-    const Tensor<2, dim> dP_shape = lame_mu * (dF - dF_inv_T);
+      return scalar_product(P, grad_test);
+    }
 
-    return scalar_product(dP_shape + dP_vol, grad_test);
-  }
+    template <int dim>
+    inline double
+    ogden_rhs_contribution(const double          lame_mu,
+                           const double          lame_lambda,
+                           const double          beta,
+                           const Tensor<2, dim> &F,
+                           const Tensor<2, dim> &F_inv_T,
+                           const double          J,
+                           const Tensor<2, dim> &grad_test)
+    {
+      AssertThrow(std::abs(beta) > 1e-14,
+                  ExcMessage("Ogden pseudosolid law requires beta != 0."));
+
+      const double Jm_beta = std::pow(J, -beta);
+
+      const Tensor<2, dim> P_shape = lame_mu * (F - F_inv_T);
+      const Tensor<2, dim> P_vol =
+        lame_lambda * (1.0 / beta) * (1.0 - Jm_beta) * F_inv_T;
+
+      return scalar_product(P_shape + P_vol, grad_test);
+    }
+  } // namespace MaterialLaw
 
   template <int dim>
   inline double
@@ -92,72 +146,23 @@ namespace Assembly::Pseudosolid
   {
     if (pseudosolid_parameters.constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
-      return neo_hookean_matrix_contribution(
+      return MaterialLaw::neo_hookean_matrix_contribution(
         lame_mu, lame_lambda, F_inv, F_inv_T, J, grad_test, grad_trial);
     if (pseudosolid_parameters.constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
-      return ogden_matrix_contribution(lame_mu,
-                                       lame_lambda,
-                                       pseudosolid_parameters.ogden_beta,
-                                       F,
-                                       F_inv,
-                                       F_inv_T,
-                                       J,
-                                       grad_test,
-                                       grad_trial);
+      return MaterialLaw::ogden_matrix_contribution(
+        lame_mu,
+        lame_lambda,
+        pseudosolid_parameters.ogden_beta,
+        F,
+        F_inv,
+        F_inv_T,
+        J,
+        grad_test,
+        grad_trial);
 
-    return linear_matrix_contribution(
+    return MaterialLaw::linear_matrix_contribution(
       lame_mu, lame_lambda, div_test, grad_test, div_trial, grad_trial);
-  }
-
-  template <int dim>
-  inline double
-  linear_rhs_contribution(const double          lame_mu,
-                          const double          lame_lambda,
-                          const double          trace_strain,
-                          const Tensor<2, dim> &strain,
-                          const double          div_test,
-                          const Tensor<2, dim> &grad_test)
-  {
-    return lame_lambda * trace_strain * div_test +
-           2.0 * lame_mu * scalar_product(strain, grad_test);
-  }
-
-  template <int dim>
-  inline double
-  neo_hookean_rhs_contribution(const double          lame_mu,
-                               const double          lame_lambda,
-                               const Tensor<2, dim> &F,
-                               const Tensor<2, dim> &F_inv_T,
-                               const double          J,
-                               const Tensor<2, dim> &grad_test)
-  {
-    const Tensor<2, dim> P =
-      lame_mu * (F - F_inv_T) + lame_lambda * std::log(J) * F_inv_T;
-
-    return scalar_product(P, grad_test);
-  }
-
-  template <int dim>
-  inline double
-  ogden_rhs_contribution(const double          lame_mu,
-                         const double          lame_lambda,
-                         const double          beta,
-                         const Tensor<2, dim> &F,
-                         const Tensor<2, dim> &F_inv_T,
-                         const double          J,
-                         const Tensor<2, dim> &grad_test)
-  {
-    AssertThrow(std::abs(beta) > 1e-14,
-                ExcMessage("Ogden pseudosolid law requires beta != 0."));
-
-    const double         Jm_beta = std::pow(J, -beta);
-
-    const Tensor<2, dim> P_shape = lame_mu * (F - F_inv_T);
-    const Tensor<2, dim> P_vol =
-      lame_lambda * (1.0 / beta) * (1.0 - Jm_beta) * F_inv_T;
-
-    return scalar_product(P_shape + P_vol, grad_test);
   }
 
   template <int dim>
@@ -176,19 +181,19 @@ namespace Assembly::Pseudosolid
   {
     if (pseudosolid_parameters.constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
-      return neo_hookean_rhs_contribution(
+      return MaterialLaw::neo_hookean_rhs_contribution(
         lame_mu, lame_lambda, F, F_inv_T, J, grad_test);
     if (pseudosolid_parameters.constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
-      return ogden_rhs_contribution(lame_mu,
-                                    lame_lambda,
-                                    pseudosolid_parameters.ogden_beta,
-                                    F,
-                                    F_inv_T,
-                                    J,
-                                    grad_test);
+      return MaterialLaw::ogden_rhs_contribution(lame_mu,
+                                                 lame_lambda,
+                                                 pseudosolid_parameters.ogden_beta,
+                                                 F,
+                                                 F_inv_T,
+                                                 J,
+                                                 grad_test);
 
-    return linear_rhs_contribution(
+    return MaterialLaw::linear_rhs_contribution(
       lame_mu, lame_lambda, trace_strain, strain, div_test, grad_test);
   }
 

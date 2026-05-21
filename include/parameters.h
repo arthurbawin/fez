@@ -260,6 +260,9 @@ namespace Parameters
     // Degree of the mesh position interpolation
     unsigned int mesh_position_degree;
 
+    // Degree of the target mesh-size interpolation
+    unsigned int h_target_degree;
+
     // Degree of the Lagrange multipliers interpolation
     // when enforcing weak no-slip constraints
     unsigned int no_slip_lagrange_mult_degree;
@@ -678,6 +681,31 @@ namespace Parameters
       global_position_master_to_global_accumulator = 4,
 
     } coupling;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  /**
+   * Target mesh-size equation.
+   */
+  struct HTarget
+  {
+    bool enable_h_target_equation;
+
+    double h_min;
+    double gradient_min;
+    double gradient_ref;
+    double gradient_max;
+    double gradient_exponent;
+    double eps;
+    double helmholtz_filter_length;
+
+    // Mesh-concentration stress parameters
+    bool   enable_mesh_concentration_stress;
+    double size_pressure_coefficient;
+    double current_size_weight;
+    double mesh_concentration_ramp_time;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

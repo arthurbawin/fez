@@ -7,7 +7,8 @@
 static UpdateFlags get_cell_update_flags(const bool enable_pseudo_solid,
                                          const bool enable_lagrange_multiplier,
                                          const bool enable_cahn_hilliard,
-                                         const bool enable_compressible)
+                                         const bool enable_compressible,
+                                         const bool enable_h_target)
 {
   // Flags for Navier-Stokes on fixed mesh only
   UpdateFlags flags = update_values | update_gradients |
@@ -30,6 +31,10 @@ static UpdateFlags get_cell_update_flags(const bool enable_pseudo_solid,
   {
     // No additional flag
   }
+  if (enable_h_target)
+  {
+    // No additional flag
+  }
   return flags;
 }
 
@@ -39,7 +44,8 @@ static UpdateFlags get_cell_update_flags(const bool enable_pseudo_solid,
 static UpdateFlags get_face_update_flags(const bool enable_pseudo_solid,
                                          const bool enable_lagrange_multiplier,
                                          const bool enable_cahn_hilliard,
-                                         const bool enable_compressible)
+                                         const bool enable_compressible,
+                                         const bool enable_h_target)
 {
   // Flags for Navier-Stokes on fixed mesh only
   UpdateFlags flags = update_values | update_gradients |
@@ -63,6 +69,10 @@ static UpdateFlags get_face_update_flags(const bool enable_pseudo_solid,
   {
     // No additional flag
   }
+  if (enable_h_target)
+  {
+    // No additional flag
+  }
   return flags;
 }
 
@@ -73,6 +83,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   const bool                  enable_lagrange_multiplier,
   const bool                  enable_cahn_hilliard,
   const bool                  enable_compressible,
+  const bool                  enable_h_target,
   const FESystem<dim>        &fe,
   const Mapping<dim>         &fixed_mapping,
   const Mapping<dim>         &moving_mapping,
@@ -88,6 +99,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   , enable_lagrange_multiplier(enable_lagrange_multiplier)
   , enable_cahn_hilliard(enable_cahn_hilliard)
   , enable_compressible(enable_compressible)
+  , enable_h_target(enable_h_target)
   , physical_properties(param.physical_properties)
   , cahn_hilliard_param(param.cahn_hilliard)
   , fe_values(std::make_unique<FEValues<dim>>(
@@ -97,7 +109,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_cell_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_h_target)))
   , fe_values_fixed(std::make_unique<FEValues<dim>>(
       fixed_mapping,
       fe,
@@ -105,7 +118,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_cell_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_h_target)))
   , fe_face_values(std::make_unique<FEFaceValues<dim>>(
       moving_mapping,
       fe,
@@ -113,7 +127,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_face_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_h_target)))
   , fe_face_values_fixed(std::make_unique<FEFaceValues<dim>>(
       fixed_mapping,
       fe,
@@ -121,7 +136,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_face_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_h_target)))
   , n_q_points(cell_quadrature.size())
   , n_faces(fe.reference_cell().n_faces())
   , n_faces_q_points(face_quadrature.size())
@@ -149,6 +165,9 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   if (enable_compressible)
     initialize_compressible();
 
+  if (enable_h_target)
+    initialize_h_target();
+
   allocate();
 }
 
@@ -159,6 +178,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   const bool                        enable_lagrange_multiplier,
   const bool                        enable_cahn_hilliard,
   const bool                        enable_compressible,
+  const bool                        enable_h_target,
   const hp::FECollection<dim>      &fe_collection,
   const hp::MappingCollection<dim> &fixed_mapping_collection,
   const hp::MappingCollection<dim> &moving_mapping_collection,
@@ -174,6 +194,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   , enable_lagrange_multiplier(enable_lagrange_multiplier)
   , enable_cahn_hilliard(enable_cahn_hilliard)
   , enable_compressible(enable_compressible)
+  , enable_h_target(enable_h_target)
   , physical_properties(param.physical_properties)
   , cahn_hilliard_param(param.cahn_hilliard)
   , hp_fe_values(std::make_unique<hp::FEValues<dim>>(
@@ -183,7 +204,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_cell_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_h_target)))
   , hp_fe_values_fixed(std::make_unique<hp::FEValues<dim>>(
       fixed_mapping_collection,
       fe_collection,
@@ -191,7 +213,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_cell_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_h_target)))
   , hp_fe_face_values(std::make_unique<hp::FEFaceValues<dim>>(
       moving_mapping_collection,
       fe_collection,
@@ -199,7 +222,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_face_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_h_target)))
   , hp_fe_face_values_fixed(std::make_unique<hp::FEFaceValues<dim>>(
       fixed_mapping_collection,
       fe_collection,
@@ -207,7 +231,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
       get_face_update_flags(enable_pseudo_solid,
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
-                            enable_compressible)))
+                            enable_compressible,
+                            enable_h_target)))
   , time_handler(time_handler)
 {
   if constexpr (!has_hp_capabilities)
@@ -261,6 +286,9 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   if (enable_compressible)
     initialize_compressible();
 
+  if (enable_h_target)
+    initialize_h_target();
+
   allocate();
 }
 
@@ -274,6 +302,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(const ScratchData &other)
   , enable_lagrange_multiplier(other.enable_lagrange_multiplier)
   , enable_cahn_hilliard(other.enable_cahn_hilliard)
   , enable_compressible(other.enable_compressible)
+  , enable_h_target(other.enable_h_target)
   , physical_properties(other.physical_properties)
   , cahn_hilliard_param(other.cahn_hilliard_param)
   , n_q_points(other.n_q_points)
@@ -342,6 +371,9 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(const ScratchData &other)
 
   if (enable_compressible)
     initialize_compressible();
+
+  if (enable_h_target)
+    initialize_h_target();
 
   allocate();
 }
@@ -471,6 +503,18 @@ void ScratchData<dim, has_hp_capabilities>::initialize_compressible()
   temperature_ref = physical_properties.fluids[0].temperature_ref;
   alpha_r         = 1.0 / pressure_ref;
   beta_r          = 1.0 / temperature_ref;
+}
+
+template <int dim, bool has_hp_capabilities>
+void ScratchData<dim, has_hp_capabilities>::initialize_h_target()
+{
+  AssertThrow(
+    ordering.h_lower != numbers::invalid_unsigned_int,
+    ExcMessage(
+      "Cannot create ScratchData with h_target data because solver does "
+      "not have an h_target variable."));
+
+  h_target.component = h_lower = ordering.h_lower;
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -714,6 +758,18 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     a_p.resize(n_q_points);
     b_T.resize(n_q_points);
+  }
+
+  if (enable_h_target)
+  {
+    present_h_target_values.resize(n_q_points);
+    present_h_target_gradients.resize(n_q_points);
+    previous_h_target_values.resize(time_handler.n_previous_solutions,
+                                    std::vector<double>(n_q_points));
+
+    phi_h.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    grad_phi_h.resize(n_q_points,
+                      std::vector<Tensor<1, dim>>(dofs_per_cell));
   }
 }
 

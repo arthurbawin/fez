@@ -60,6 +60,7 @@ public:
               const bool                  enable_lagrange_multiplier,
               const bool                  enable_cahn_hilliard,
               const bool                  enable_compressible,
+              const bool                  enable_h_target,
               const FESystem<dim>        &fe,
               const Mapping<dim>         &fixed_mapping,
               const Mapping<dim>         &moving_mapping,
@@ -76,6 +77,7 @@ public:
               const bool                        enable_lagrange_multiplier,
               const bool                        enable_cahn_hilliard,
               const bool                        enable_compressible,
+              const bool                        enable_h_target,
               const hp::FECollection<dim>      &fe_collection,
               const hp::MappingCollection<dim> &fixed_mapping_collection,
               const hp::MappingCollection<dim> &moving_mapping_collection,
@@ -97,6 +99,7 @@ private:
   void initialize_lagrange_multiplier();
   void initialize_cahn_hilliard();
   void initialize_compressible();
+  void initialize_h_target();
 
   /**
    * Reinit FEValues or FEFaceValues and return a reference to it.
@@ -417,6 +420,28 @@ private:
         grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
       }
     }
+  }
+
+  template <typename VectorType>
+  void reinit_h_target_cell(const FEValues<dim>           &fe_values_moving,
+                            const VectorType              &current_solution,
+                            const std::vector<VectorType> &previous_solutions)
+  {
+    fe_values_moving[h_target].get_function_values(current_solution,
+                                                   present_h_target_values);
+    fe_values_moving[h_target].get_function_gradients(
+      current_solution, present_h_target_gradients);
+
+    for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+      fe_values_moving[h_target].get_function_values(
+        previous_solutions[i], previous_h_target_values[i]);
+
+    for (unsigned int q = 0; q < n_q_points; ++q)
+      for (unsigned int k = 0; k < dofs_per_cell; ++k)
+      {
+        phi_h[q][k]      = fe_values_moving[h_target].value(k, q);
+        grad_phi_h[q][k] = fe_values_moving[h_target].gradient(k, q);
+      }
   }
 
   template <typename VectorType>
@@ -875,6 +900,10 @@ public:
                                 previous_solutions,
                                 source_terms,
                                 exact_solution);
+    if (enable_h_target)
+      reinit_h_target_cell(*active_fe_values,
+                           current_solution,
+                           previous_solutions);
     /**
      * Face contributions
      */
@@ -940,12 +969,14 @@ private:
   unsigned int phi_lower;
   unsigned int mu_lower;
   unsigned int t_lower;
+  unsigned int h_lower;
 
 public:
   const bool enable_pseudo_solid;
   const bool enable_lagrange_multiplier;
   const bool enable_cahn_hilliard;
   const bool enable_compressible;
+  const bool enable_h_target;
 
 private:
   Parameters::PhysicalProperties<dim> physical_properties;
@@ -1193,6 +1224,18 @@ public:
 
   std::vector<double> source_term_tracer;
   std::vector<double> source_term_potential;
+
+  /**
+   * Target mesh size
+   */
+  FEValuesExtractors::Scalar h_target;
+
+  std::vector<double>              present_h_target_values;
+  std::vector<Tensor<1, dim>>      present_h_target_gradients;
+  std::vector<std::vector<double>> previous_h_target_values;
+
+  std::vector<std::vector<double>>         phi_h;
+  std::vector<std::vector<Tensor<1, dim>>> grad_phi_h;
 };
 
 /**
@@ -1217,6 +1260,7 @@ public:
                        /*enable_lagrange_multiplier = */ false,
                        /*enable_cahn_hilliard = */ false,
                        /*enable_compressible = */ false,
+                       /*enable_h_target = */ false,
                        fe,
                        mapping,
                        mapping,
@@ -1256,6 +1300,7 @@ public:
                        /*enable_lagrange_multiplier = */ false,
                        /*enable_cahn_hilliard = */ false,
                        /*enable_compressible = */ true,
+                       /*enable_h_target = */ false,
                        fe,
                        mapping,
                        mapping,
@@ -1296,6 +1341,7 @@ public:
                              /*enable_lagrange_multiplier = */ true,
                              /*enable_cahn_hilliard = */ false,
                              /*enable_compressible = */ false,
+                             /*enable_h_target = */ false,
                              fe_collection,
                              mapping_collection,
                              mapping_collection,
@@ -1331,12 +1377,14 @@ public:
                  const Quadrature<dim>      &cell_quadrature,
                  const Quadrature<dim - 1>  &face_quadrature,
                  const TimeHandler          &time_handler,
-                 const ParameterReader<dim> &param)
+                 const ParameterReader<dim> &param,
+                 const bool                  enable_h_target = false)
     : ScratchData<dim>(ordering,
                        /*enable_pseudo_solid = */ true,
                        /*enable_lagrange_multiplier = */ true,
                        /*enable_cahn_hilliard = */ false,
                        /*enable_compressible = */ false,
+                       enable_h_target,
                        fe,
                        fixed_mapping,
                        moving_mapping,
@@ -1351,6 +1399,34 @@ public:
    */
   ScratchDataFSI(const ScratchDataFSI &other)
     : ScratchData<dim>(other)
+  {}
+};
+
+template <int dim>
+class ScratchDataFSIHTarget : public ScratchDataFSI<dim>
+{
+public:
+  ScratchDataFSIHTarget(const ComponentOrdering    &ordering,
+                        const FESystem<dim>        &fe,
+                        const Mapping<dim>         &fixed_mapping,
+                        const Mapping<dim>         &moving_mapping,
+                        const Quadrature<dim>      &cell_quadrature,
+                        const Quadrature<dim - 1>  &face_quadrature,
+                        const TimeHandler          &time_handler,
+                        const ParameterReader<dim> &param)
+    : ScratchDataFSI<dim>(ordering,
+                          fe,
+                          fixed_mapping,
+                          moving_mapping,
+                          cell_quadrature,
+                          face_quadrature,
+                          time_handler,
+                          param,
+                          /*enable_h_target = */ true)
+  {}
+
+  ScratchDataFSIHTarget(const ScratchDataFSIHTarget &other)
+    : ScratchDataFSI<dim>(other)
   {}
 };
 
@@ -1377,6 +1453,7 @@ public:
                              /*enable_lagrange_multiplier = */ true,
                              /*enable_cahn_hilliard = */ false,
                              /*enable_compressible = */ false,
+                             /*enable_h_target = */ false,
                              fe_collection,
                              fixed_mapping_collection,
                              moving_mapping_collection,
@@ -1418,6 +1495,7 @@ public:
                        /*enable_lagrange_multiplier = */ false,
                        /*enable_cahn_hilliard = */ true,
                        /*enable_compressible = */ false,
+                       /*enable_h_target = */ false,
                        fe,
                        fixed_mapping,
                        moving_mapping,

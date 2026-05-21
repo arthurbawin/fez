@@ -43,6 +43,9 @@ public:
   // Temperature
   unsigned int t_lower = invalid;
   unsigned int t_upper = invalid;
+  // Target mesh size
+  unsigned int h_lower = invalid;
+  unsigned int h_upper = invalid;
 
   /**
    * Return true if @p component is the queried variable
@@ -75,6 +78,10 @@ public:
   {
     return t_lower == component;
   }
+  inline bool is_h_target(const unsigned int component) const
+  {
+    return h_lower == component;
+  }
 
   /**
    * Return true if the solver with this ordering support the queried variable
@@ -96,6 +103,8 @@ public:
       return mu_lower != invalid;
     else if (variable_type == Type::temperature)
       return t_lower != invalid;
+    else if (variable_type == Type::h_target)
+      return h_lower != invalid;
     else
       DEAL_II_ASSERT_UNREACHABLE();
   }
@@ -117,6 +126,8 @@ public:
       return SolverInfo::VariableType::phase_potential;
     else if (is_temperature(component))
       return SolverInfo::VariableType::temperature;
+    else if (is_h_target(component))
+      return SolverInfo::VariableType::h_target;
     else
       DEAL_II_ASSERT_UNREACHABLE();
   }
@@ -216,6 +227,49 @@ public:
     l_lower      = 2 * dim + 1;
     l_upper      = 3 * dim + 1;
   }
+};
+
+/**
+ * Components ordering for the fluid-structure solver with ALE and h_target.
+ */
+template <int dim>
+class ComponentOrderingFSIHTarget : public ComponentOrdering
+{
+public:
+  ComponentOrderingFSIHTarget()
+    : ComponentOrdering()
+  {
+    n_components = 3 * dim + 2;
+    u_lower      = 0;
+    u_upper      = dim;
+    p_lower      = dim;
+    p_upper      = dim + 1;
+    x_lower      = dim + 1;
+    x_upper      = 2 * dim + 1;
+    h_lower      = 2 * dim + 1;
+    h_upper      = 2 * dim + 2;
+    l_lower      = 2 * dim + 2;
+    l_upper      = 3 * dim + 2;
+  }
+};
+
+template <int dim>
+class ConstexprComponentOrderingFSIHTarget
+{
+public:
+  constexpr ConstexprComponentOrderingFSIHTarget() = default;
+
+  static constexpr unsigned int n_components = 3 * dim + 2;
+  static constexpr unsigned int u_lower      = 0;
+  static constexpr unsigned int u_upper      = dim;
+  static constexpr unsigned int p_lower      = dim;
+  static constexpr unsigned int p_upper      = dim + 1;
+  static constexpr unsigned int x_lower      = dim + 1;
+  static constexpr unsigned int x_upper      = 2 * dim + 1;
+  static constexpr unsigned int h_lower      = 2 * dim + 1;
+  static constexpr unsigned int h_upper      = 2 * dim + 2;
+  static constexpr unsigned int l_lower      = 2 * dim + 2;
+  static constexpr unsigned int l_upper      = 3 * dim + 2;
 };
 
 template <int dim>

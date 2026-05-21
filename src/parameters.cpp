@@ -433,6 +433,10 @@ namespace Parameters
                         "1",
                         Patterns::Integer(),
                         "Polynomial degree of the mesh position interpolant");
+      prm.declare_entry("h target degree",
+                        "1",
+                        Patterns::Integer(),
+                        "Polynomial degree of the target mesh-size interpolant");
       prm.declare_entry(
         "Lagrange multiplier degree",
         "2",
@@ -534,6 +538,7 @@ namespace Parameters
       velocity_degree      = prm.get_integer("Velocity degree");
       pressure_degree      = prm.get_integer("Pressure degree");
       mesh_position_degree = prm.get_integer("Mesh position degree");
+      h_target_degree      = prm.get_integer("h target degree");
       no_slip_lagrange_mult_degree =
         prm.get_integer("Lagrange multiplier degree");
       tracer_degree      = prm.get_integer("Tracer degree");
@@ -1466,6 +1471,103 @@ namespace Parameters
 
   template struct FSI<2>;
   template struct FSI<3>;
+
+  void HTarget::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("HTarget");
+    {
+      prm.declare_entry("enable h target equation",
+                        "true",
+                        Patterns::Bool(),
+                        "Enable the auxiliary target mesh-size equation");
+      prm.declare_entry("h min",
+                        "0.01",
+                        Patterns::Double(0.),
+                        "Smallest desired mesh size");
+      prm.declare_entry("gradient min",
+                        "0.",
+                        Patterns::Double(),
+                        "Lower gradient threshold for the h_target law");
+      prm.declare_entry("gradient ref",
+                        "1.",
+                        Patterns::Double(),
+                        "Reference gradient for compatibility with previous "
+                        "target-size laws");
+      prm.declare_entry("gradient max",
+                        "1.",
+                        Patterns::Double(),
+                        "Upper gradient threshold for the h_target law");
+      prm.declare_entry("gradient exponent",
+                        "1.",
+                        Patterns::Double(),
+                        "Exponent for compatibility with previous target-size "
+                        "laws");
+      prm.declare_entry("eps",
+                        "1e-12",
+                        Patterns::Double(0.),
+                        "Regularization parameter for velocity and gradient "
+                        "norms");
+      prm.declare_entry("helmholtz filter length",
+                        "0.",
+                        Patterns::Double(0.),
+                        "Length scale of the optional Helmholtz filter");
+      // Mesh-concentration stress parameters
+      prm.declare_entry("enable mesh concentration stress",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable mesh-concentration stress in the pseudo-solid "
+                        "equation");
+      prm.declare_entry("size pressure coefficient",
+                        "1.0",
+                        Patterns::Double(0.),
+                        "Pressure coefficient for the mesh-concentration stress");
+      prm.declare_entry("current size weight",
+                        "0.0",
+                        Patterns::Double(),
+                        "Weight for the current mesh size term in the "
+                        "concentration pressure law");
+      prm.declare_entry("mesh concentration ramp time",
+                        "0.0",
+                        Patterns::Double(0.),
+                        "Time over which the mesh-concentration stress is "
+                        "smoothly ramped from zero to full strength. Set to 0 "
+                        "to disable ramping.");
+    }
+    prm.leave_subsection();
+  }
+
+  void HTarget::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("HTarget");
+    {
+      enable_h_target_equation = prm.get_bool("enable h target equation");
+      h_min                    = prm.get_double("h min");
+      gradient_min             = prm.get_double("gradient min");
+      gradient_ref             = prm.get_double("gradient ref");
+      gradient_max             = prm.get_double("gradient max");
+      gradient_exponent        = prm.get_double("gradient exponent");
+      eps                      = prm.get_double("eps");
+      helmholtz_filter_length =
+        prm.get_double("helmholtz filter length");
+
+      // Mesh-concentration stress parameters
+      enable_mesh_concentration_stress =
+        prm.get_bool("enable mesh concentration stress");
+      size_pressure_coefficient =
+        prm.get_double("size pressure coefficient");
+      current_size_weight =
+        prm.get_double("current size weight");
+      mesh_concentration_ramp_time =
+        prm.get_double("mesh concentration ramp time");
+
+      AssertThrow(h_min > 0., ExcMessage("h min must be positive"));
+      AssertThrow(gradient_max >= gradient_min,
+                  ExcMessage("gradient max must be >= gradient min"));
+      AssertThrow(size_pressure_coefficient >= 0.,
+                  ExcMessage("size pressure coefficient must be non-negative"));
+    }
+    prm.leave_subsection();
+  }
 
   void Debug::declare_parameters(ParameterHandler &prm)
   {

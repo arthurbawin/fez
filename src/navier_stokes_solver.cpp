@@ -395,7 +395,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
    */
   for (const auto &[field_name, mask] : field_names_and_masks)
   {
-    if (param.mms.set_field_as_solution.at(field_name))
+    const auto set_field_as_solution =
+      param.mms.set_field_as_solution.find(field_name);
+    if (set_field_as_solution != param.mms.set_field_as_solution.end() &&
+        set_field_as_solution->second)
     {
       /**
        * Setting mesh position first is already accounted for in

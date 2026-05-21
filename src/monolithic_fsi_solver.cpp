@@ -16,6 +16,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
+#include <h_target_tools.h>
 #include <lagrange_multiplier_tools.h>
 #include <linear_solver.h>
 #include <mesh.h>
@@ -23,6 +24,17 @@
 #include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
+
+namespace
+{
+  template <int dim>
+  double
+  mesh_concentration_size_stiffness(const double lame_lambda,
+                                    const double lame_mu)
+  {
+    return std::max(lame_lambda + 2. * lame_mu / dim, 1e-14);
+  }
+}
 
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
@@ -1407,6 +1419,17 @@ void FSISolver<dim>::create_sparsity_pattern()
       if (this->ordering->is_position(c) && this->ordering->is_position(d))
         coupling_table[c][d] = DoFTools::always;
 
+      // Mesh-concentration stress adds eta_h -> x coupling.
+      if (this->param.h_target.enable_mesh_concentration_stress &&
+          this->ordering->is_position(c) && this->ordering->is_h_target(d))
+        coupling_table[c][d] = DoFTools::always;
+
+      // h_target couples to itself and to the velocity indicator.
+      if (this->ordering->is_h_target(c))
+        if (this->ordering->is_h_target(d) ||
+            this->ordering->is_velocity(d) || this->ordering->is_position(d))
+          coupling_table[c][d] = DoFTools::always;
+
       // Lambda couples only on the relevant boundary faces:
       // add these coupling on faces only, below.
     }
@@ -1652,8 +1675,23 @@ void FSISolver<dim>::assemble_local_matrix(
   std::vector<Tensor<2, dim>> sym_gradu_dot_grad_phi_x_j(
     scratch_data.dofs_per_cell);
 
-  const auto u_lower = const_ordering.u_lower;
-  const auto x_lower = const_ordering.x_lower;
+  const auto u_lower = this->ordering->u_lower;
+  const auto x_lower = this->ordering->x_lower;
+  const bool has_h_target =
+    this->ordering->h_lower != numbers::invalid_unsigned_int;
+  const double ell_h2 =
+    this->param.h_target.helmholtz_filter_length *
+    this->param.h_target.helmholtz_filter_length;
+  const double reference_cell_size =
+    HTargetTools::reference_size_from_cell_measure<dim>(cell->measure());
+  const double h_background =
+    std::max(reference_cell_size,
+             this->param.h_target.h_min * (1. + 1e-8));
+  const double h_current_reference = reference_cell_size;
+  const double mesh_concentration_ramp =
+    HTargetTools::smooth_time_ramp(
+      this->time_handler.current_time,
+      this->param.h_target.mesh_concentration_ramp_time);
 
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
@@ -1670,8 +1708,13 @@ void FSISolver<dim>::assemble_local_matrix(
     const auto &phi_x            = scratch_data.phi_x[q];
     const auto &grad_phi_x       = scratch_data.grad_phi_x[q];
     const auto &sym_grad_phi_x   = scratch_data.sym_grad_phi_x[q];
+    const auto &grad_phi_x_moving = scratch_data.grad_phi_x_moving[q];
     const auto &div_phi_x        = scratch_data.div_phi_x[q];
     const auto &trace_grad_phi_x = scratch_data.trace_grad_phi_x[q];
+    const auto *phi_h =
+      has_h_target ? &scratch_data.phi_h[q] : nullptr;
+    const auto *grad_phi_h =
+      has_h_target ? &scratch_data.grad_phi_h[q] : nullptr;
 
     const auto &present_velocity_values =
       scratch_data.present_velocity_values[q];
@@ -1689,10 +1732,116 @@ void FSISolver<dim>::assemble_local_matrix(
     const auto u_ale            = present_velocity_values - dxdt;
     const auto u_dot_grad_u_ale = present_velocity_gradients * u_ale;
 
+    double         h_raw = 0.;
+    Tensor<1, dim> dh_raw_d_grad_abs_u;
+    double         h_value = 0.;
+    double         dh_deta = 0.;
+    Tensor<1, dim> grad_h;
+
+    if (has_h_target)
+    {
+      const double eta =
+        scratch_data.present_h_target_values[q];
+
+      dh_deta =
+        HTargetTools::target_size_derivative_from_unbounded_variable(eta);
+
+      h_value =
+        HTargetTools::target_size_from_unbounded_variable(
+          eta,
+          this->param.h_target.h_min);
+
+      grad_h =
+        dh_deta * scratch_data.present_h_target_gradients[q];
+
+      const Tensor<1, dim> grad_abs_u =
+        HTargetTools::gradient_abs_velocity_from_recovered_gradient(
+          present_velocity_values,
+          present_velocity_gradients,
+          this->param.h_target.eps);
+
+      h_raw =
+        HTargetTools::target_size_from_gradient_abs_velocity(
+          grad_abs_u,
+          h_background,
+          this->param.h_target.h_min,
+          this->param.h_target.gradient_min,
+          this->param.h_target.gradient_ref,
+          this->param.h_target.gradient_max,
+          this->param.h_target.gradient_exponent,
+          this->param.h_target.eps);
+
+      dh_raw_d_grad_abs_u =
+        HTargetTools::target_size_from_gradient_abs_velocity_derivative(
+          grad_abs_u,
+          h_background,
+          this->param.h_target.h_min,
+          this->param.h_target.gradient_min,
+          this->param.h_target.gradient_ref,
+          this->param.h_target.gradient_max,
+          this->param.h_target.gradient_exponent,
+          this->param.h_target.eps);
+    }
+
     // BDF: current dudt
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, present_velocity_values, scratch_data.previous_velocity_values);
+
+    // Compute ALE data (deformation gradient, Jacobian, inverse transpose)
+    // only if h_target and mesh concentration is enabled
+    const auto &present_position_gradients =
+      scratch_data.present_position_gradients[q];
+    const SymmetricTensor<2, dim> identity_tensor =
+      unit_symmetric_tensor<dim>();
+    
+    Tensor<2, dim> F = identity_tensor;
+    Tensor<2, dim> F_inv_T;
+    double         J = 1.0;
+    double         h_current = h_current_reference;
+    double         p_size = 0.;
+    
+    const bool enable_size_stress =
+      has_h_target && this->param.h_target.enable_mesh_concentration_stress;
+    
+    if (enable_size_stress)
+    {
+      // present_position_gradients is the deformation gradient ∇_X x.
+      F = present_position_gradients;
+      
+      // Compute Jacobian J = det(F)
+      J = determinant(F);
+      
+      // Safeguard: J should be positive
+      J = std::max(J, 1e-14);
+      
+      // Compute F_inv_T
+      F_inv_T = transpose(invert(F));
+      
+      // Current mesh size
+      h_current = h_current_reference *
+                  std::pow(J, 1.0 / dim);
+      
+      // Safeguard h_current
+      h_current = std::max(h_current, 1e-14);
+      
+      // Compute p_size
+      const double eps_h = 1e-14;
+      const double h_safe = std::max(h_value, this->param.h_target.h_min + eps_h);
+      const double h_bg_safe =
+        std::max(h_background, eps_h);
+      
+      const double c =
+        mesh_concentration_ramp *
+        this->param.h_target.size_pressure_coefficient *
+        mesh_concentration_size_stiffness<dim>(
+          lame_lambda,
+          lame_mu);
+      const double beta = this->param.h_target.current_size_weight;
+      
+      p_size = c * (std::log(h_bg_safe / h_safe) +
+                    beta * std::log(h_current / h_safe));
+    }
 
     // Precompute quantities depending only on j
     for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
@@ -1726,12 +1875,13 @@ void FSISolver<dim>::assemble_local_matrix(
     {
       const unsigned int comp_i = scratch_data.components[i];
       const bool         i_is_u =
-        const_ordering.u_lower <= comp_i && comp_i < const_ordering.u_upper;
-      const bool i_is_p = comp_i == const_ordering.p_lower;
+        this->ordering->u_lower <= comp_i && comp_i < this->ordering->u_upper;
+      const bool i_is_p = comp_i == this->ordering->p_lower;
       const bool i_is_x =
-        const_ordering.x_lower <= comp_i && comp_i < const_ordering.x_upper;
+        this->ordering->x_lower <= comp_i && comp_i < this->ordering->x_upper;
+      const bool i_is_h = this->ordering->is_h_target(comp_i);
       const bool i_is_l =
-        const_ordering.l_lower <= comp_i && comp_i < const_ordering.l_upper;
+        this->ordering->l_lower <= comp_i && comp_i < this->ordering->l_upper;
       if (i_is_l)
         continue;
 
@@ -1755,16 +1905,17 @@ void FSISolver<dim>::assemble_local_matrix(
 
         // If lambda dof, continue before reading the coupling table
         const bool j_is_l =
-          const_ordering.l_lower <= comp_j && comp_j < const_ordering.l_upper;
+          this->ordering->l_lower <= comp_j && comp_j < this->ordering->l_upper;
         if (j_is_l)
           continue;
         if (coupling_row[comp_j] != DoFTools::always)
           continue;
         const bool j_is_u =
-          const_ordering.u_lower <= comp_j && comp_j < const_ordering.u_upper;
-        const bool j_is_p = comp_j == const_ordering.p_lower;
+          this->ordering->u_lower <= comp_j && comp_j < this->ordering->u_upper;
+        const bool j_is_p = comp_j == this->ordering->p_lower;
         const bool j_is_x =
-          const_ordering.x_lower <= comp_j && comp_j < const_ordering.x_upper;
+          this->ordering->x_lower <= comp_j && comp_j < this->ordering->x_upper;
+        const bool j_is_h = this->ordering->is_h_target(comp_j);
 
         // Account for the pressure gradient when initializing
         double local_flow_matrix_ij = j_is_p ? -div_phi_u_i * phi_p[j] : 0.;
@@ -1856,11 +2007,137 @@ void FSISolver<dim>::assemble_local_matrix(
           if (comp_i == comp_j)
             local_ps_matrix_ij += lame_mu * gxi * gxj;
 
+          // Mesh-concentration stress contribution: x-x block
+          if (enable_size_stress)
+          {
+            const Tensor<2, dim> &A_j = grad_phi_x_moving[j];
+            const double         div_dx_j = trace(A_j);
+            
+            const double beta = this->param.h_target.current_size_weight;
+            const double c =
+              mesh_concentration_ramp *
+              this->param.h_target.size_pressure_coefficient *
+              mesh_concentration_size_stiffness<dim>(
+                lame_lambda,
+                lame_mu);
+            
+            const double delta_p_x =
+              c * beta / dim * div_dx_j;
+            
+            // dP_x = J * (p_size * div_dx * F_inv_T + delta_p_x * F_inv_T
+            //            - p_size * A_j^T * F_inv_T)
+            const Tensor<2, dim> dP_x =
+              J * ((p_size * div_dx_j + delta_p_x) * F_inv_T -
+                   p_size * transpose(A_j) * F_inv_T);
+            
+            local_ps_matrix_ij += scalar_product(dP_x, grad_phi_x_i);
+          }
+
           local_ps_matrix_ij *= JxW_fixed;
         }
 
+        // Mesh-concentration stress contribution: x-h block
+        double local_ps_h_matrix_ij = 0.;
+        if (enable_size_stress && i_is_x && j_is_h)
+        {
+          const double beta = this->param.h_target.current_size_weight;
+          const double c =
+            mesh_concentration_ramp *
+            this->param.h_target.size_pressure_coefficient *
+            mesh_concentration_size_stiffness<dim>(
+              lame_lambda,
+              lame_mu);
+          
+          const double delta_eta = (*phi_h)[j];
+          const double delta_h = dh_deta * delta_eta;
+          
+          const double eps_h = 1e-14;
+          const double h_safe = std::max(h_value, this->param.h_target.h_min + eps_h);
+          
+          // delta_p_eta = -c * (1 + beta) * delta_h / h
+          const double delta_p_eta = -c * (1.0 + beta) * delta_h / h_safe;
+          
+          // dP_eta = J * delta_p_eta * F_inv_T
+          const Tensor<2, dim> dP_eta = J * delta_p_eta * F_inv_T;
+          
+          local_ps_h_matrix_ij =
+            scalar_product(dP_eta, grad_phi_x_i) * JxW_fixed;
+        }
+
+        double local_h_matrix_ij = 0.;
+        if (i_is_h)
+        {
+          if (j_is_h)
+          {
+            const double d2h_deta2 =
+              HTargetTools::target_size_second_derivative_from_unbounded_variable(
+                scratch_data.present_h_target_values[q]);
+
+            const Tensor<1, dim> d_grad_h =
+              d2h_deta2 * (*phi_h)[j] *
+                scratch_data.present_h_target_gradients[q]
+              + dh_deta * (*grad_phi_h)[j];
+
+            local_h_matrix_ij +=
+              (*phi_h)[i] * dh_deta * (*phi_h)[j]
+              + ell_h2 * ((*grad_phi_h)[i] * d_grad_h);
+          }
+
+          if (j_is_u)
+          {
+            const Tensor<1, dim> d_grad_abs_u =
+              HTargetTools::gradient_abs_velocity_variation(
+                present_velocity_values,
+                present_velocity_gradients,
+                phi_u[j],
+                grad_phi_u[j],
+                this->param.h_target.eps);
+            const double dh_raw_du = dh_raw_d_grad_abs_u * d_grad_abs_u;
+            local_h_matrix_ij += -(*phi_h)[i] * dh_raw_du;
+          }
+
+          if (j_is_x)
+          {
+            const Tensor<2, dim> &A_j =
+              grad_phi_x_moving[j];
+
+            const double div_dx_j =
+              trace(A_j);
+
+            const Tensor<1, dim> &grad_phi_i_h =
+              (*grad_phi_h)[i];
+
+            const Tensor<1, dim> d_grad_phi_i_h =
+              -transpose(A_j) * grad_phi_i_h;
+
+            const Tensor<1, dim> d_grad_h =
+              -transpose(A_j) * grad_h;
+
+            const Tensor<1, dim> d_grad_abs_u =
+              HTargetTools::gradient_abs_velocity_variation_wrt_position(
+                present_velocity_values,
+                present_velocity_gradients,
+                A_j,
+                this->param.h_target.eps);
+
+            const double dh_raw_dx =
+              dh_raw_d_grad_abs_u * d_grad_abs_u;
+
+            local_h_matrix_ij +=
+              (*phi_h)[i] * (h_value - h_raw) * div_dx_j
+              - (*phi_h)[i] * dh_raw_dx
+              + ell_h2 * (grad_phi_i_h * grad_h) * div_dx_j
+              + ell_h2 * (d_grad_phi_i_h * grad_h)
+              + ell_h2 * (grad_phi_i_h * d_grad_h);
+          }
+
+          local_h_matrix_ij *= JxW_moving;
+        }
+
         local_flow_matrix_ij *= JxW_moving;
-        local_matrix(i, j) += local_flow_matrix_ij + local_ps_matrix_ij;
+        local_matrix(i, j) +=
+          local_flow_matrix_ij + local_ps_matrix_ij + local_ps_h_matrix_ij +
+          local_h_matrix_ij;
       }
     }
   }
@@ -1983,6 +2260,21 @@ void FSISolver<dim>::assemble_local_rhs(
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
   const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
+  const bool has_h_target =
+    this->ordering->h_lower != numbers::invalid_unsigned_int;
+  const double ell_h2 =
+    this->param.h_target.helmholtz_filter_length *
+    this->param.h_target.helmholtz_filter_length;
+  const double reference_cell_size =
+    HTargetTools::reference_size_from_cell_measure<dim>(cell->measure());
+  const double h_background =
+    std::max(reference_cell_size,
+             this->param.h_target.h_min * (1. + 1e-8));
+  const double h_current_reference = reference_cell_size;
+  const double mesh_concentration_ramp =
+    HTargetTools::smooth_time_ramp(
+      this->time_handler.current_time,
+      this->param.h_target.mesh_concentration_ramp_time);
 
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
@@ -2043,16 +2335,111 @@ void FSISolver<dim>::assemble_local_rhs(
     const auto &sym_grad_phi_x = scratch_data.sym_grad_phi_x[q];
     const auto &div_phi_x      = scratch_data.div_phi_x[q];
 
+    const auto *phi_h =
+      has_h_target ? &scratch_data.phi_h[q] : nullptr;
+
+    const auto *grad_phi_h =
+      has_h_target ? &scratch_data.grad_phi_h[q] : nullptr;
+
+    double         h_raw = 0.;
+    double         h_value = 0.;
+    Tensor<1, dim> grad_h;
+    
+    // Compute ALE data for mesh-concentration stress
+    Tensor<2, dim> F = identity_tensor;
+    Tensor<2, dim> F_inv_T;
+    double         J = 1.0;
+    double         h_current = h_current_reference;
+    double         p_size = 0.;
+    
+    const bool enable_size_stress =
+      has_h_target && this->param.h_target.enable_mesh_concentration_stress;
+
+    if (has_h_target)
+    {
+      const double eta =
+        scratch_data.present_h_target_values[q];
+
+      const double dh_deta =
+        HTargetTools::target_size_derivative_from_unbounded_variable(eta);
+
+      h_value =
+        HTargetTools::target_size_from_unbounded_variable(
+          eta,
+          this->param.h_target.h_min);
+
+      grad_h =
+        dh_deta * scratch_data.present_h_target_gradients[q];
+
+      const Tensor<1, dim> grad_abs_u =
+        HTargetTools::gradient_abs_velocity_from_recovered_gradient(
+          present_velocity_values,
+          present_velocity_gradients,
+          this->param.h_target.eps);
+
+      h_raw =
+        HTargetTools::target_size_from_gradient_abs_velocity(
+          grad_abs_u,
+          h_background,
+          this->param.h_target.h_min,
+          this->param.h_target.gradient_min,
+          this->param.h_target.gradient_ref,
+          this->param.h_target.gradient_max,
+          this->param.h_target.gradient_exponent,
+          this->param.h_target.eps);
+      
+      // Compute ALE data for mesh-concentration stress
+      if (enable_size_stress)
+      {
+        // present_position_gradients is the deformation gradient ∇_X x.
+        F = present_position_gradients;
+        
+        // Compute Jacobian J = det(F)
+        J = determinant(F);
+        
+        // Safeguard: J should be positive
+        J = std::max(J, 1e-14);
+        
+        // Compute F_inv_T
+        F_inv_T = transpose(invert(F));
+        
+	        // Current mesh size
+	        h_current = h_current_reference *
+	                    std::pow(J, 1.0 / dim);
+        
+        // Safeguard h_current
+        h_current = std::max(h_current, 1e-14);
+        
+        // Compute p_size
+        const double eps_h = 1e-14;
+	        const double h_safe = std::max(h_value, this->param.h_target.h_min + eps_h);
+	        const double h_bg_safe =
+	          std::max(h_background, eps_h);
+	        
+		        const double c =
+		          mesh_concentration_ramp *
+		          this->param.h_target.size_pressure_coefficient *
+		          mesh_concentration_size_stiffness<dim>(
+	            lame_lambda,
+	            lame_mu);
+        const double beta = this->param.h_target.current_size_weight;
+        
+        p_size = c * (std::log(h_bg_safe / h_safe) +
+                      beta * std::log(h_current / h_safe));
+      }
+    }
+
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
       const unsigned int comp_i = scratch_data.components[i];
       const bool         i_is_u =
-        const_ordering.u_lower <= comp_i && comp_i < const_ordering.u_upper;
-      const bool i_is_p = comp_i == const_ordering.p_lower;
+        this->ordering->u_lower <= comp_i && comp_i < this->ordering->u_upper;
+      const bool i_is_p = comp_i == this->ordering->p_lower;
       const bool i_is_x =
-        const_ordering.x_lower <= comp_i && comp_i < const_ordering.x_upper;
+        this->ordering->x_lower <= comp_i && comp_i < this->ordering->x_upper;
+      const bool i_is_h = this->ordering->is_h_target(comp_i);
       const bool i_is_l =
-        const_ordering.l_lower <= comp_i && comp_i < const_ordering.l_upper;
+        this->ordering->l_lower <= comp_i && comp_i < this->ordering->l_upper;
 
       if (i_is_l)
         continue;
@@ -2095,10 +2482,31 @@ void FSISolver<dim>::assemble_local_rhs(
           2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i])
           // Linear elasticity source term
           + phi_x[i] * source_term_position);
+        
+        // Mesh-concentration stress residual
+        if (enable_size_stress)
+        {
+          // P_size = J * p_size * F_inv_T
+          const Tensor<2, dim> P_size = J * p_size * F_inv_T;
+          
+          // R_x_size = P_size : ∇_X phi_x
+          const auto &grad_phi_x_i_ref = scratch_data.grad_phi_x[q][i];
+          local_rhs_ps_i -= scalar_product(P_size, grad_phi_x_i_ref);
+        }
+        
         local_rhs_ps_i *= JxW_fixed;
       }
 
-      local_rhs(i) += local_rhs_flow_i + local_rhs_ps_i;
+      double local_rhs_h_i = 0.;
+      if (i_is_h)
+      {
+        local_rhs_h_i -=
+          ((*phi_h)[i] * (h_value - h_raw)
+          + ell_h2 * ((*grad_phi_h)[i] * grad_h))
+          * JxW_moving;
+      }
+
+      local_rhs(i) += local_rhs_flow_i + local_rhs_ps_i + local_rhs_h_i;
     }
   }
 

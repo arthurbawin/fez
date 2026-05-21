@@ -30,6 +30,7 @@ public:
   Parameters::FiniteElements<dim>     finite_elements;
   Parameters::PhysicalProperties<dim> physical_properties;
   Parameters::FSI<dim>                fsi;
+  Parameters::HTarget                 h_target;
   Parameters::TimeIntegration         time_integration;
   Parameters::CheckpointRestart       checkpoint_restart;
   std::map<SolverInfo::SolverType, Parameters::LinearSolver> linear_solver;
@@ -100,6 +101,7 @@ public:
     finite_elements.declare_parameters(prm);
     physical_properties.declare_parameters(prm);
     fsi.declare_parameters(prm);
+    h_target.declare_parameters(prm);
     time_integration.declare_parameters(prm);
     checkpoint_restart.declare_parameters(prm);
 
@@ -145,6 +147,7 @@ public:
     finite_elements.read_parameters(prm);
     physical_properties.read_parameters(prm);
     fsi.read_parameters(prm);
+    h_target.read_parameters(prm);
     time_integration.read_parameters(prm);
     checkpoint_restart.read_parameters(prm);
 

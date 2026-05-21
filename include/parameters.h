@@ -672,6 +672,12 @@ namespace Parameters
     double h_min             = 0.05;
     double h_max             = 1.0;
     double G0                = 1.0;
+    double velocity_min      = 0.0;
+    double velocity_ref      = 1.0;
+    double velocity_max      = 2.0;
+    double velocity_gradient_min = 0.0;
+    double velocity_gradient_ref = 1.0;
+    double velocity_gradient_max = 2.0;
     double exponent          = 1.0;
     double eps               = 1e-12;
     double max_pressure      = 1e-4;
@@ -711,6 +717,20 @@ namespace Parameters
     bool fix_z_component;
 
     bool compute_error_on_forces;
+
+    enum class CouplingStrategy : unsigned int
+    {
+      all_position_to_all_lambda = 0,
+
+      local_position_master_to_all_lambda = 1,
+
+      global_position_master_to_all_lambda = 2,
+
+      local_position_master_to_lambda_accumulators = 3,
+
+      global_position_master_to_global_accumulator = 4,
+
+    } coupling;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

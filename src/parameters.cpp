@@ -1441,7 +1441,40 @@ namespace Parameters
       prm.declare_entry("G0",
                         "1.0",
                         Patterns::Double(0.0),
-                        "Reference velocity-gradient magnitude.");
+                        "Legacy reference value for velocity-gradient laws.");
+
+      prm.declare_entry("velocity min",
+                        "0.0",
+                        Patterns::Double(0.0),
+                        "Velocity magnitude where mesh concentration starts.");
+
+      prm.declare_entry("velocity ref",
+                        "1.0",
+                        Patterns::Double(0.0),
+                        "Reference velocity magnitude inside the concentration scale.");
+
+      prm.declare_entry("velocity max",
+                        "2.0",
+                        Patterns::Double(0.0),
+                        "Velocity magnitude where mesh concentration reaches its maximum.");
+
+      prm.declare_entry(
+        "velocity gradient min",
+        "0.0",
+        Patterns::Double(0.0),
+        "Magnitude of grad(|u|) where mesh concentration starts.");
+
+      prm.declare_entry(
+        "velocity gradient ref",
+        "1.0",
+        Patterns::Double(0.0),
+        "Reference magnitude of grad(|u|) inside the concentration scale.");
+
+      prm.declare_entry(
+        "velocity gradient max",
+        "2.0",
+        Patterns::Double(0.0),
+        "Magnitude of grad(|u|) where mesh concentration reaches its maximum.");
 
       prm.declare_entry("exponent",
                         "1.0",
@@ -1492,6 +1525,12 @@ namespace Parameters
       h_min             = prm.get_double("h min");
       h_max             = prm.get_double("h max");
       G0                = prm.get_double("G0");
+      velocity_min      = prm.get_double("velocity min");
+      velocity_ref      = prm.get_double("velocity ref");
+      velocity_max      = prm.get_double("velocity max");
+      velocity_gradient_min = prm.get_double("velocity gradient min");
+      velocity_gradient_ref = prm.get_double("velocity gradient ref");
+      velocity_gradient_max = prm.get_double("velocity gradient max");
       exponent          = prm.get_double("exponent");
       eps               = prm.get_double("epsilon");
       max_pressure      = prm.get_double("max pressure");
@@ -1564,7 +1603,16 @@ namespace Parameters
       prm.declare_entry("compute error on forces",
                         "false",
                         Patterns::Bool(),
-                        "Compute error on hydrodynamic forces");
+                        "");
+      prm.declare_entry(
+        "force-position coupling",
+        "local_position_master_to_all_lambda",
+        Patterns::Selection(
+          "all_position_to_all_lambda|local_position_master_to_all_lambda|"
+          "global_position_master_to_all_lambda|local_position_master_to_"
+          "lambda_accumulators|global_position_master_to_global_accumulator"),
+        "Coupling strategy between force (Lagrange multiplier) "
+        "and position dofs");
     }
     prm.leave_subsection();
   }
@@ -1585,6 +1633,24 @@ namespace Parameters
       cylinder_center = parse_rank_1_tensor<dim>(prm.get("cylinder center"));
       fix_z_component = prm.get_bool("fix z component");
       compute_error_on_forces = prm.get_bool("compute error on forces");
+      const std::string parsed_coupling = prm.get("force-position coupling");
+      if (parsed_coupling == "all_position_to_all_lambda")
+        coupling = CouplingStrategy::all_position_to_all_lambda;
+      else if (parsed_coupling == "local_position_master_to_all_lambda")
+        coupling = CouplingStrategy::local_position_master_to_all_lambda;
+      else if (parsed_coupling == "global_position_master_to_all_lambda")
+        coupling = CouplingStrategy::global_position_master_to_all_lambda;
+      else if (parsed_coupling ==
+               "local_position_master_to_lambda_accumulators")
+        coupling =
+          CouplingStrategy::local_position_master_to_lambda_accumulators;
+      else if (parsed_coupling ==
+               "global_position_master_to_global_accumulator")
+        coupling =
+          CouplingStrategy::global_position_master_to_global_accumulator;
+      else
+        throw std::runtime_error("Unknown force-position coupling: " +
+                                 parsed_coupling);
     }
     prm.leave_subsection();
   }

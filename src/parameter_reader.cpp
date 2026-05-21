@@ -140,6 +140,24 @@ void ParameterReader<dim>::check_parameters() const
     AssertThrow(mesh_concentration.G0 > 0.0,
                 ExcMessage("Mesh concentration: G0 must be > 0."));
 
+    AssertThrow(mesh_concentration.velocity_ref >
+                  mesh_concentration.velocity_min,
+                ExcMessage("Mesh concentration: velocity ref must be > velocity min."));
+
+    AssertThrow(mesh_concentration.velocity_max >
+                  mesh_concentration.velocity_ref,
+                ExcMessage("Mesh concentration: velocity max must be > velocity ref."));
+
+    AssertThrow(mesh_concentration.velocity_gradient_ref >
+                  mesh_concentration.velocity_gradient_min,
+                ExcMessage("Mesh concentration: velocity gradient ref must be "
+                           "> velocity gradient min."));
+
+    AssertThrow(mesh_concentration.velocity_gradient_max >
+                  mesh_concentration.velocity_gradient_ref,
+                ExcMessage("Mesh concentration: velocity gradient max must be "
+                           "> velocity gradient ref."));
+
     AssertThrow(mesh_concentration.exponent > 0.0,
                 ExcMessage("Mesh concentration: exponent must be > 0."));
 

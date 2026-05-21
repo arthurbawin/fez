@@ -38,6 +38,7 @@ template <int dim>
 class FSISolver : public NavierStokesSolver<dim, true>
 {
   using ScratchData = ScratchDataFSI<dim>;
+  using Coupling    = typename Parameters::FSI<dim>::CouplingStrategy;
 
 public:
   /**
@@ -177,6 +178,9 @@ public:
 
   void update_mesh_concentration_field();
 
+  void update_mesh_concentration_field(
+    const LA::ParVectorType &solution_for_indicator);
+
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override
@@ -208,27 +212,30 @@ protected:
 
   AffineConstraints<double> lambda_constraints;
 
-  // Position-lambda constraints on the cylinder
+  /**
+   * Data used to enforce the force-position coupling
+   */
   // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
   std::vector<std::vector<std::pair<unsigned int, double>>>
-                                                  position_lambda_coeffs;
+                                                  lambda_integral_coeffs;
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
 
-  // The master position dofs on this rank.
-  // All other position dofs on the cylinder on this rank are constrained
-  // to be equal to these ones.
-  bool has_chunk_of_cylinder           = false;
-  bool has_global_master_position_dofs = false;
+  bool         has_local_position_master       = false;
+  bool         has_local_lambda_accumulator    = false;
+  bool         has_global_master_position_dofs = false;
+  bool         has_global_accumulator          = false;
+  unsigned int n_ranks_with_position_master;
+  unsigned int n_ranks_with_lambda_accumulator;
+
   std::array<types::global_dof_index, dim> local_position_master_dofs;
   std::array<types::global_dof_index, dim> global_position_master_dofs;
 
+  std::array<types::global_dof_index, dim> local_lambda_accumulators;
+  std::array<types::global_dof_index, dim> global_lambda_accumulators;
 
-  PostProcessingTools::RecoveredVelocityGradientData<dim>
-  mesh_concentration_recovery_data;
+  std::vector<std::vector<types::global_dof_index>> all_lambda_accumulators;
 
-  LA::ParVectorType mesh_concentration_force_vector;
-
-  bool mesh_concentration_data_ready = false;
+  LA::ParVectorType mesh_concentration_grad_abs_velocity;
 
 public:
   /**

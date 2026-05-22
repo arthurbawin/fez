@@ -14,7 +14,7 @@ get_cell_update_flags(const bool enable_pseudo_solid,
                       update_quadrature_points | update_JxW_values;
 
   if (enable_stabilization)
-    flags |= update_hessians;
+    flags |= update_hessians | update_inverse_jacobians;
 
   if (enable_pseudo_solid)
     flags |= update_jacobians;

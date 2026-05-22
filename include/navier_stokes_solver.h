@@ -349,11 +349,12 @@ public:
    * Compute the maximum CFL number based on the current mesh and solution.
    * This is the max over all mesh elements and quadrature nodes of
    *
-   *  CFL = ||u|| * dt/ h,
+   *  CFL = ||u_adv|| * dt / h_stream,
    *
-   * where ||u|| is the velocity norm and h is the (isotropic) cell size.
-   * The result is stored in the TimeHandler, to be used for time step
-   * adaptation.
+   * where h_stream is the same directional mesh length used by the
+   * SUPG/PSPG stabilization. In ALE, the advective velocity is relative to the
+   * mesh motion: u_adv = u - w_mesh. The result is stored in the TimeHandler,
+   * to be used for time step adaptation.
    */
   void compute_max_cfl();
 

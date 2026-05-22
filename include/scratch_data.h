@@ -271,13 +271,18 @@ private:
         strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
 
         const double h_tau = Stabilization::compute_streamline_length(
-          u_conv, grad_phi_u[q], components, u_lower, cell_diameter);
+          u_conv,
+          fe_values.inverse_jacobian(q),
+          fe_values.get_quadrature().point(q),
+          use_quads,
+          cell_diameter);
         stabilization_tau_momentum[q] =
-          Stabilization::compute_tau(param.time_integration.dt,
+          Stabilization::compute_tau(time_handler.get_current_timestep(),
                                      param.time_integration.is_steady(),
                                      u_conv.norm(),
                                      nu,
-                                     h_tau);
+                                     h_tau,
+                                     param.finite_elements.velocity_degree);
       }
     }
   }
@@ -571,16 +576,22 @@ private:
 
         const Tensor<1, dim> advection_velocity =
           present_velocity_values[q] - present_mesh_velocity_values[q];
-        // In ALE the analytical tangent treats tau as an external coefficient
-        // and does not include d(tau)/dX. Keep h_tau geometry-lagged so the
-        // residual has the same dependency.
-        const double h_tau = cell_diameter;
+        // Tau is treated as an assembly-frozen coefficient: it follows the
+        // current mapped geometry here, but d(tau)/dX is not included in the
+        // analytical tangent.
+        const double h_tau = Stabilization::compute_streamline_length(
+          advection_velocity,
+          fe_values_moving.inverse_jacobian(q),
+          fe_values_moving.get_quadrature().point(q),
+          use_quads,
+          cell_diameter);
         stabilization_tau_momentum[q] = Stabilization::compute_tau(
-          param.time_integration.dt,
+          time_handler.get_current_timestep(),
           param.time_integration.is_steady(),
           advection_velocity.norm(),
           param.physical_properties.fluids[0].kinematic_viscosity,
-          h_tau);
+          h_tau,
+          param.finite_elements.velocity_degree);
       }
     }
   }
@@ -1068,23 +1079,26 @@ private:
                                     source_term_tracer[q];
 
         // τ — recalculated with ν_eff (momentum) and mobility (tracer).
-        const double h_tau =
-          enable_pseudo_solid ?
-            cell_diameter :
-            Stabilization::compute_streamline_length(
-              u_conv, grad_phi_u[q], components, u_lower, cell_diameter);
+        const double h_tau = Stabilization::compute_streamline_length(
+          u_conv,
+          fe_values_moving.inverse_jacobian(q),
+          fe_values_moving.get_quadrature().point(q),
+          use_quads,
+          cell_diameter);
         stabilization_tau_momentum[q] =
-          Stabilization::compute_tau(param.time_integration.dt,
+          Stabilization::compute_tau(time_handler.get_current_timestep(),
                                      param.time_integration.is_steady(),
                                      u_conv.norm(),
                                      nu_eff,
-                                     h_tau);
+                                     h_tau,
+                                     param.finite_elements.velocity_degree);
         stabilization_tau_tracer[q] =
-          Stabilization::compute_tau(param.time_integration.dt,
+          Stabilization::compute_tau(time_handler.get_current_timestep(),
                                      param.time_integration.is_steady(),
                                      u_conv.norm(),
                                      mobility,
-                                     h_tau);
+                                     h_tau,
+                                     param.finite_elements.tracer_degree);
       }
     }
   }

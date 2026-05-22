@@ -147,6 +147,7 @@ namespace Assembly
         if (tau_mom <= 0. && tau_tracer <= 0.)
           continue;
 
+        const double rho = scratch.density[q];
         const auto &u_conv = scratch.present_convective_velocity[q];
 
         for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
@@ -162,7 +163,7 @@ namespace Assembly
 
                 if (ordering.is_velocity(comp_i))
                   local_rhs_i -=
-                    tau_mom *
+                    tau_mom * rho *
                     ((scratch.grad_phi_u[q][i] * u_conv) *
                      scratch.strong_residual_momentum[q]);
               }
@@ -202,6 +203,7 @@ namespace Assembly
         if (tau_mom <= 0. && tau_tracer <= 0.)
           continue;
 
+        const double rho = scratch.density[q];
         const auto &u_conv = scratch.present_convective_velocity[q];
 
         for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
@@ -215,8 +217,10 @@ namespace Assembly
               i_is_p ? scratch.grad_phi_p[q][i] : Tensor<1, dim>();
             const Tensor<2, dim> grad_phi_u_i =
               i_is_u ? scratch.grad_phi_u[q][i] : Tensor<2, dim>();
-            const Tensor<1, dim> supg_test_momentum =
+            const Tensor<1, dim> supg_test_momentum_unscaled =
               i_is_u ? grad_phi_u_i * u_conv : Tensor<1, dim>();
+            const Tensor<1, dim> supg_test_momentum =
+              rho * supg_test_momentum_unscaled;
             const Tensor<1, dim> grad_shape_phi_i =
               i_is_tracer ? scratch.grad_shape_phi[q][i] : Tensor<1, dim>();
             const double supg_test_tracer =
@@ -250,7 +254,7 @@ namespace Assembly
                         if (i_is_u)
                           {
                             local_matrix_ij +=
-                              tau_mom * (grad_phi_u_i * phi_u_j) *
+                              tau_mom * rho * (grad_phi_u_i * phi_u_j) *
                               scratch.strong_residual_momentum[q];
                             local_matrix_ij +=
                               tau_mom * supg_test_momentum * dR_du_j;
@@ -325,8 +329,18 @@ namespace Assembly
                         if (i_is_p)
                           local_matrix_ij -= tau_mom * dR_dphi_j * grad_phi_p_i;
                         if (i_is_u)
-                          local_matrix_ij +=
-                            tau_mom * supg_test_momentum * dR_dphi_j;
+                          {
+                            const Tensor<1, dim> d_supg_test_drho_dphi_j =
+                              scratch.derivative_density_wrt_tracer[q] *
+                              scratch.shape_phi[q][j] *
+                              supg_test_momentum_unscaled;
+
+                            local_matrix_ij +=
+                              tau_mom * supg_test_momentum * dR_dphi_j;
+                            local_matrix_ij +=
+                              tau_mom * d_supg_test_drho_dphi_j *
+                              scratch.strong_residual_momentum[q];
+                          }
                       }
 
                     if (ordering.is_potential(comp_j))
@@ -429,7 +443,7 @@ namespace Assembly
                               local_matrix_ij +=
                                 tau_mom * supg_test_momentum * dR_dx_j;
                               local_matrix_ij +=
-                                tau_mom * d_supg_test_dx_j *
+                                tau_mom * rho * d_supg_test_dx_j *
                                 scratch.strong_residual_momentum[q];
                               local_matrix_ij +=
                                 tau_mom * supg_test_momentum *

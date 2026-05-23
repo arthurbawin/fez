@@ -214,13 +214,6 @@ namespace Assembly::Pseudosolid
           continue;
 
         for (unsigned int j = 0; j < scratch.dofs_per_cell; ++j)
-        {
-          if (coupling_table[scratch.components[i]][scratch.components[j]] !=
-                DoFTools::always ||
-              !ordering.is_position(scratch.components[j]))
-            continue;
-
-          for (unsigned int j = 0; j < scratch.dofs_per_cell; ++j)
           {
             if (coupling_table[scratch.components[i]][scratch.components[j]] !=
                   DoFTools::always ||
@@ -241,7 +234,6 @@ namespace Assembly::Pseudosolid
                                   scratch.grad_phi_x[q][j]) *
               scratch.JxW_fixed[q];
           }
-        }
       }
   }
 

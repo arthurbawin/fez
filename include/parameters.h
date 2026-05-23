@@ -693,6 +693,20 @@ namespace Parameters
 
     bool compute_error_on_forces;
 
+    enum class CouplingStrategy : unsigned int
+    {
+      all_position_to_all_lambda = 0,
+
+      local_position_master_to_all_lambda = 1,
+
+      global_position_master_to_all_lambda = 2,
+
+      local_position_master_to_lambda_accumulators = 3,
+
+      global_position_master_to_global_accumulator = 4,
+
+    } coupling;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };

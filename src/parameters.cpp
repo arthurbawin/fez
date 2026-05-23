@@ -1521,6 +1521,15 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "");
+      prm.declare_entry(
+        "force-position coupling",
+        "local_position_master_to_all_lambda",
+        Patterns::Selection(
+          "all_position_to_all_lambda|local_position_master_to_all_lambda|"
+          "global_position_master_to_all_lambda|local_position_master_to_"
+          "lambda_accumulators|global_position_master_to_global_accumulator"),
+        "Coupling strategy between force (Lagrange multiplier) "
+        "and position dofs");
     }
     prm.leave_subsection();
   }
@@ -1540,6 +1549,24 @@ namespace Parameters
       cylinder_center = parse_rank_1_tensor<dim>(prm.get("cylinder center"));
       fix_z_component = prm.get_bool("fix z component");
       compute_error_on_forces = prm.get_bool("compute error on forces");
+      const std::string parsed_coupling = prm.get("force-position coupling");
+      if (parsed_coupling == "all_position_to_all_lambda")
+        coupling = CouplingStrategy::all_position_to_all_lambda;
+      else if (parsed_coupling == "local_position_master_to_all_lambda")
+        coupling = CouplingStrategy::local_position_master_to_all_lambda;
+      else if (parsed_coupling == "global_position_master_to_all_lambda")
+        coupling = CouplingStrategy::global_position_master_to_all_lambda;
+      else if (parsed_coupling ==
+               "local_position_master_to_lambda_accumulators")
+        coupling =
+          CouplingStrategy::local_position_master_to_lambda_accumulators;
+      else if (parsed_coupling ==
+               "global_position_master_to_global_accumulator")
+        coupling =
+          CouplingStrategy::global_position_master_to_global_accumulator;
+      else
+        throw std::runtime_error("Unknown force-position coupling: " +
+                                 parsed_coupling);
     }
     prm.leave_subsection();
   }

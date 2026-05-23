@@ -477,7 +477,7 @@ namespace BoundaryConditions
         velocity_tangential_flux_functions[bc.id] = &exact_velocity;
       }
     }
-    
+
     // deal.II averages normals from different cells within a single call.
     // Calling once per boundary id preserves true corners where two slip
     // boundaries meet and should jointly imply u=0.

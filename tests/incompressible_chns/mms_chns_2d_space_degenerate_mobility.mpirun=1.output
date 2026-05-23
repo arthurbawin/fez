@@ -1,4 +1,4 @@
-Number of MPI processes: 6
+Number of MPI processes: 1
 Convergence test with manufactured solution:
 Mesh file was changed to 0.msh
 Mesh info:
@@ -9,7 +9,7 @@ ID 0 -> x_min
 ID 1 -> x_max
 ID 2 -> y_min
 ID 3 -> y_max
-Number of degrees of freedom: 225
+Number of degrees of freedom: 441
 Convergence test with manufactured solution:
 Mesh file was changed to 1.msh
 Mesh info:
@@ -20,19 +20,19 @@ ID 0 -> x_min
 ID 1 -> x_max
 ID 2 -> y_min
 ID 3 -> y_max
-Number of degrees of freedom: 765
+Number of degrees of freedom: 1581
 
 L2_norm
 n_elm n_dof   dt          u               p              phi             mu        
-   64   225 0.1000 8.3844e-03    - 1.8396e-01    - 6.7036e-03    - 5.8487e-03    - 
-  256   765 0.0500 2.1844e-03 1.94 5.3151e-02 1.79 1.8309e-03 1.87 1.4329e-03 2.03 
+   64   441 0.1000 2.3689e-02    - 4.4387e+00    - 1.1184e-01    - 2.7047e-01    - 
+  256  1581 0.1000 6.8301e-03 1.79 1.1390e+00 1.96 3.0901e-02 1.86 7.7892e-02 1.80 
 
 Linfty_norm
 n_elm n_dof   dt          u               p              phi             mu        
-   64   225 0.1000 1.0889e-02    - 3.1649e-01    - 1.1701e-02    - 9.9587e-03    - 
-  256   765 0.0500 2.8742e-03 1.92 1.1567e-01 1.45 3.2369e-03 1.85 2.5114e-03 1.99 
+   64   441 0.1000 3.8080e-02    - 9.2162e+00    - 1.9652e-01    - 3.7965e-01    - 
+  256  1581 0.1000 1.0509e-02 1.86 2.3347e+00 1.98 5.5451e-02 1.83 1.1299e-01 1.75 
 
 H1_seminorm
 n_elm n_dof   dt          u               p              phi             mu        
-   64   225 0.1000 1.0775e-01    - 7.3817e-01    - 7.4094e-02    - 7.4471e-02    - 
-  256   765 0.0500 5.4701e-02 0.98 3.4610e-01 1.09 3.8163e-02 0.96 3.8252e-02 0.96 
+   64   441 0.1000 3.2662e-01    - 2.9849e+01    - 1.1869e+00    - 1.4843e+00    - 
+  256  1581 0.1000 9.1246e-02 1.84 8.7317e+00 1.77 6.1087e-01 0.96 6.8751e-01 1.11 

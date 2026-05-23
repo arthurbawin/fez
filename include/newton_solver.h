@@ -122,14 +122,16 @@ public:
 
       if (this->param.enable_line_search)
       {
-        double       norm_ls_residual;
-        double       last_ls_residual = last_residual; // fixed reference: pre-Newton residual (Armijo)
-        double       prev_ls_residual = last_residual; // sliding: previous alpha's residual (backtrack)
-        double       best_ls_residual = std::numeric_limits<double>::infinity();
-        double       best_alpha       = 0.;
-        bool         accepted_step    = false;
-        last_residual                 = norm_residual;
-        unsigned int ls_iter          = 0;
+        double norm_ls_residual;
+        double last_ls_residual =
+          last_residual; // fixed reference: pre-Newton residual (Armijo)
+        double prev_ls_residual =
+          last_residual; // sliding: previous alpha's residual (backtrack)
+        double best_ls_residual = std::numeric_limits<double>::infinity();
+        double best_alpha       = 0.;
+        bool   accepted_step    = false;
+        last_residual           = norm_residual;
+        unsigned int ls_iter    = 0;
 
         for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
         {
@@ -201,9 +203,9 @@ public:
                                                solver->newton_update);
             solver->distribute_nonzero_constraints();
             solver->evaluation_point = solver->local_evaluation_point;
-            norm_residual             = best_ls_residual;
-            recompute_rhs             = true;
-            accepted_step             = true;
+            norm_residual            = best_ls_residual;
+            recompute_rhs            = true;
+            accepted_step            = true;
             break;
           }
 

@@ -55,6 +55,7 @@ subsection FiniteElements
 end
 
 subsection Physical properties
+  set body force          = 0, 0
   set number of fluids = 2
   subsection Fluid 0
     set density             = 1.1

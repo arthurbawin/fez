@@ -253,9 +253,7 @@ public:
 
 
 
-template <int dim,
-          bool with_moving_mesh = false,
-          bool with_enlarged    = false>
+template <int dim, bool with_moving_mesh = false, bool with_enlarged = false>
 class ConstexprComponentOrderingCHNS
 {
 public:
@@ -264,9 +262,8 @@ public:
   // The enlarged ALE layout appends psi after mu to minimize disruption in
   // the existing CHNS component ordering.
   static constexpr unsigned int n_components =
-    with_moving_mesh ?
-      (with_enlarged ? (2 * dim + 4) : (2 * dim + 3)) :
-      (dim + 3);
+    with_moving_mesh ? (with_enlarged ? (2 * dim + 4) : (2 * dim + 3)) :
+                       (dim + 3);
   static constexpr unsigned int u_lower = 0;
   static constexpr unsigned int u_upper = dim;
   static constexpr unsigned int p_lower = dim;
@@ -283,13 +280,11 @@ public:
   static constexpr unsigned int mu_upper =
     with_moving_mesh ? 2 * dim + 3 : dim + 3;
   static constexpr unsigned int psi_lower =
-    (with_moving_mesh && with_enlarged) ?
-      (2 * dim + 3) :
-      dealii::numbers::invalid_unsigned_int;
+    (with_moving_mesh && with_enlarged) ? (2 * dim + 3) :
+                                          dealii::numbers::invalid_unsigned_int;
   static constexpr unsigned int psi_upper =
-    (with_moving_mesh && with_enlarged) ?
-      (2 * dim + 4) :
-      dealii::numbers::invalid_unsigned_int;
+    (with_moving_mesh && with_enlarged) ? (2 * dim + 4) :
+                                          dealii::numbers::invalid_unsigned_int;
 };
 
 template <int dim, bool with_moving_mesh, bool with_enlarged = false>
@@ -298,7 +293,7 @@ class ComponentOrderingCHNS : public ComponentOrdering
 public:
   ComponentOrderingCHNS()
   {
-    using C      =
+    using C =
       ConstexprComponentOrderingCHNS<dim, with_moving_mesh, with_enlarged>;
     n_components = C::n_components;
 

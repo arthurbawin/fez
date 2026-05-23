@@ -271,13 +271,18 @@ private:
         strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
 
         const double h_tau = Stabilization::compute_streamline_length(
-          u_conv, grad_phi_u[q], components, u_lower, cell_diameter);
+          u_conv,
+          fe_values.inverse_jacobian(q),
+          fe_values.get_quadrature().point(q),
+          use_quads,
+          cell_diameter);
         stabilization_tau_momentum[q] =
-          Stabilization::compute_tau(param.time_integration.dt,
+          Stabilization::compute_tau(time_handler.get_current_timestep(),
                                      param.time_integration.is_steady(),
                                      u_conv.norm(),
                                      nu,
-                                     h_tau);
+                                     h_tau,
+                                     param.finite_elements.velocity_degree);
       }
     }
   }
@@ -600,16 +605,22 @@ private:
 
         const Tensor<1, dim> advection_velocity =
           present_velocity_values[q] - present_mesh_velocity_values[q];
-        // In ALE the analytical tangent treats tau as an external coefficient
-        // and does not include d(tau)/dX. Keep h_tau geometry-lagged so the
-        // residual has the same dependency.
-        const double h_tau = cell_diameter;
+        // Tau is treated as an assembly-frozen coefficient: it follows the
+        // current mapped geometry here, but d(tau)/dX is not included in the
+        // analytical tangent.
+        const double h_tau = Stabilization::compute_streamline_length(
+          advection_velocity,
+          fe_values_moving.inverse_jacobian(q),
+          fe_values_moving.get_quadrature().point(q),
+          use_quads,
+          cell_diameter);
         stabilization_tau_momentum[q] = Stabilization::compute_tau(
-          param.time_integration.dt,
+          time_handler.get_current_timestep(),
           param.time_integration.is_steady(),
           advection_velocity.norm(),
           param.physical_properties.fluids[0].kinematic_viscosity,
-          h_tau);
+          h_tau,
+          param.finite_elements.velocity_degree);
       }
     }
   }
@@ -1000,6 +1011,18 @@ private:
     {
       // Physical properties based on tracer, filter if applicable
       const double filtered_phi = tracer_limiter(tracer_values[q]);
+      const double filtered_phi_mobility =
+        mobility_tracer_limiter(tracer_values[q]);
+      mobility_values[q] =
+        mobility_function(cahn_hilliard_param, filtered_phi_mobility);
+      derivative_mobility_wrt_tracer[q] =
+        mobility_derivative_function(cahn_hilliard_param,
+                                     filtered_phi_mobility);
+      second_derivative_mobility_wrt_tracer[q] =
+        mobility_second_derivative_function(cahn_hilliard_param,
+                                            filtered_phi_mobility);
+      diffusive_flux_factor_values[q] =
+        mobility_values[q] * 0.5 * (density1 - density0);
       density[q] =
         CahnHilliard::linear_mixing(filtered_phi, density0, density1);
       dynamic_viscosity[q] = CahnHilliard::linear_mixing(filtered_phi,
@@ -1019,7 +1042,7 @@ private:
       if (psi_lower != numbers::invalid_unsigned_int)
         source_term_psi[q] = source_term_full_moving[q](psi_lower);
 
-      diffusive_flux[q] = diffusive_flux_factor *
+      diffusive_flux[q] = diffusive_flux_factor_values[q] *
                           present_velocity_gradients[q] *
                           potential_gradients[q];
 
@@ -1092,28 +1115,34 @@ private:
           compute_bdf_time_derivative(tracer_values[q],
                                       previous_tracer_values,
                                       q);
-        strong_residual_tracer[q] = dphidt + velocity_dot_tracer_gradient[q] -
-                                    mobility * potential_laplacians[q] +
-                                    source_term_tracer[q];
+        strong_residual_tracer[q] =
+          dphidt + velocity_dot_tracer_gradient[q] -
+          (mobility_values[q] * potential_laplacians[q] +
+           derivative_mobility_wrt_tracer[q] *
+             (tracer_gradients[q] * potential_gradients[q])) +
+          source_term_tracer[q];
 
         // τ — recalculated with ν_eff (momentum) and mobility (tracer).
-        const double h_tau =
-          enable_pseudo_solid ?
-            cell_diameter :
-            Stabilization::compute_streamline_length(
-              u_conv, grad_phi_u[q], components, u_lower, cell_diameter);
+        const double h_tau = Stabilization::compute_streamline_length(
+          u_conv,
+          fe_values_moving.inverse_jacobian(q),
+          fe_values_moving.get_quadrature().point(q),
+          use_quads,
+          cell_diameter);
         stabilization_tau_momentum[q] =
-          Stabilization::compute_tau(param.time_integration.dt,
+          Stabilization::compute_tau(time_handler.get_current_timestep(),
                                      param.time_integration.is_steady(),
                                      u_conv.norm(),
                                      nu_eff,
-                                     h_tau);
+                                     h_tau,
+                                     param.finite_elements.velocity_degree);
         stabilization_tau_tracer[q] =
-          Stabilization::compute_tau(param.time_integration.dt,
+          Stabilization::compute_tau(time_handler.get_current_timestep(),
                                      param.time_integration.is_steady(),
                                      u_conv.norm(),
-                                     mobility,
-                                     h_tau);
+                                     mobility_values[q],
+                                     h_tau,
+                                     param.finite_elements.tracer_degree);
       }
     }
   }
@@ -1482,17 +1511,27 @@ public:
   FEValuesExtractors::Scalar potential;
   FEValuesExtractors::Scalar enlarged;
 
-  double         density0;
-  double         density1;
-  double         dynamic_viscosity0;
-  double         dynamic_viscosity1;
-  double         mobility;
-  double         epsilon;
-  double         sigma_tilde;
-  double         diffusive_flux_factor;
-  Tensor<1, dim> body_force;
+  double                              density0;
+  double                              density1;
+  double                              dynamic_viscosity0;
+  double                              dynamic_viscosity1;
+  double                              mobility;
+  CahnHilliard::MobilityFunction<dim> mobility_function;
+  CahnHilliard::MobilityFunction<dim> mobility_derivative_function;
+  CahnHilliard::MobilityFunction<dim> mobility_second_derivative_function;
 
-  CahnHilliard::TracerLimiterFunction tracer_limiter;
+
+  std::vector<double> mobility_values;
+  std::vector<double> derivative_mobility_wrt_tracer;
+  std::vector<double> diffusive_flux_factor_values;
+  std::vector<double> second_derivative_mobility_wrt_tracer;
+  double              epsilon;
+  double              sigma_tilde;
+  double              diffusive_flux_factor;
+  Tensor<1, dim>      body_force;
+
+  CahnHilliard::TracerLimiterFunction         tracer_limiter;
+  CahnHilliard::MobilityTracerLimiterFunction mobility_tracer_limiter;
 
   std::vector<double> derivative_density_wrt_tracer;
   std::vector<double> dynamic_viscosity;
@@ -1750,9 +1789,7 @@ public:
  * Scratch data for the quasi-incompressible Cahn_hilliard Navier-Stokes solver
  * on fixed mesh.
  */
-template <int dim,
-          bool with_moving_mesh = false,
-          bool with_enlarged    = false>
+template <int dim, bool with_moving_mesh = false, bool with_enlarged = false>
 class ScratchDataCHNS : public ScratchData<dim>
 {
 public:

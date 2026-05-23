@@ -14,7 +14,7 @@ get_cell_update_flags(const bool enable_pseudo_solid,
                       update_quadrature_points | update_JxW_values;
 
   if (enable_stabilization)
-    flags |= update_hessians;
+    flags |= update_hessians | update_inverse_jacobians;
 
   if (enable_pseudo_solid)
     flags |= update_jacobians;
@@ -439,11 +439,18 @@ void ScratchData<dim, has_hp_capabilities>::initialize_cahn_hilliard()
   dynamic_viscosity0 = density0 * nu0;
   dynamic_viscosity1 = density1 * nu1;
   mobility           = cahn_hilliard_param.mobility;
-  epsilon            = cahn_hilliard_param.epsilon_interface;
+  mobility_function  = CahnHilliard::get_mobility_function(cahn_hilliard_param);
+  mobility_derivative_function =
+    CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param);
+  mobility_second_derivative_function =
+    CahnHilliard::get_mobility_second_derivative_function(cahn_hilliard_param);
+  epsilon     = cahn_hilliard_param.epsilon_interface;
   sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
   diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
   body_force            = physical_properties.body_force;
   tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
+  mobility_tracer_limiter =
+    CahnHilliard::get_mobility_limiter_function(cahn_hilliard_param);
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -684,6 +691,11 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
     source_term_tracer.resize(n_q_points);
     source_term_potential.resize(n_q_points);
+
+    mobility_values.resize(n_q_points);
+    derivative_mobility_wrt_tracer.resize(n_q_points);
+    diffusive_flux_factor_values.resize(n_q_points);
+    second_derivative_mobility_wrt_tracer.resize(n_q_points);
 
     if (psi_lower != numbers::invalid_unsigned_int)
     {

@@ -100,7 +100,7 @@ namespace Assembly
         }
   }
 
-  template <int dim,
+  template <int  dim,
             bool with_moving_mesh,
             typename ScratchDataType,
             typename CouplingTableType,
@@ -140,7 +140,7 @@ namespace Assembly
                   DoFTools::always)
                 continue;
 
-              const unsigned int comp_j = scratch.components[j];
+              const unsigned int comp_j          = scratch.components[j];
               double             local_matrix_ij = 0.;
 
               if (ordering.is_psi(comp_j))

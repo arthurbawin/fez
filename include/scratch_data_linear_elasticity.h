@@ -157,8 +157,8 @@ public:
 
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
-      JxW[q] = fe_values.JxW(q);
-      position_strains[q] = position_sym_gradients[q] - identity_tensor;
+      JxW[q]                    = fe_values.JxW(q);
+      position_strains[q]       = position_sym_gradients[q] - identity_tensor;
       position_trace_strains[q] = trace(position_strains[q]);
 
       for (unsigned int d = 0; d < dim; ++d)

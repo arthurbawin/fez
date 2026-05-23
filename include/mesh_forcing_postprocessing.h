@@ -70,8 +70,8 @@ namespace MeshForcingPostProcessing
   void fill_marker_fields(const FEValues<dim>              &fe_values_moving,
                           const FEValuesExtractors::Scalar &marker_extractor,
                           const VectorType                 &present_solution,
-                          std::vector<double>             &marker_values,
-                          std::vector<Tensor<1, dim>>     &marker_gradients)
+                          std::vector<double>              &marker_values,
+                          std::vector<Tensor<1, dim>>      &marker_gradients)
   {
     fe_values_moving[marker_extractor].get_function_values(present_solution,
                                                            marker_values);
@@ -81,17 +81,17 @@ namespace MeshForcingPostProcessing
 
   template <int dim, bool with_enlarged>
   CellDiagnostics<dim> compute_cell_diagnostics(
-    const FEValues<dim>                                   &fe_values_fixed,
-    const std::vector<Tensor<1, dim>>                     &velocity_values,
-    const std::vector<Tensor<1, dim>>                     &position_values,
-    const std::vector<std::vector<Tensor<1, dim>>>        &previous_position_values,
-    const std::vector<double>                             &enlarged_values,
-    const std::vector<Tensor<1, dim>>                     &enlarged_gradients,
-    const std::vector<double>                             &tracer_values,
-    const std::vector<Tensor<1, dim>>                     &tracer_gradients,
-    const TimeHandler                                     &time_handler,
-    const Parameters::CahnHilliard<dim>                   &cahn_hilliard_param,
-    const double                                           enlarged_forcing_epsilon)
+    const FEValues<dim>                            &fe_values_fixed,
+    const std::vector<Tensor<1, dim>>              &velocity_values,
+    const std::vector<Tensor<1, dim>>              &position_values,
+    const std::vector<std::vector<Tensor<1, dim>>> &previous_position_values,
+    const std::vector<double>                      &enlarged_values,
+    const std::vector<Tensor<1, dim>>              &enlarged_gradients,
+    const std::vector<double>                      &tracer_values,
+    const std::vector<Tensor<1, dim>>              &tracer_gradients,
+    const TimeHandler                              &time_handler,
+    const Parameters::CahnHilliard<dim>            &cahn_hilliard_param,
+    const double                                    enlarged_forcing_epsilon)
   {
     CellDiagnostics<dim> diagnostics;
     double               cell_measure = 0.;
@@ -122,9 +122,9 @@ namespace MeshForcingPostProcessing
 
       Tensor<1, dim> enlarged_alpha;
       if constexpr (with_enlarged)
-        enlarged_alpha =
-          cahn_hilliard_param.mff_enlarged_compression_factor *
-          enlarged_forcing_epsilon * enlarged_factor * enlarged_gradients[q];
+        enlarged_alpha = cahn_hilliard_param.mff_enlarged_compression_factor *
+                         enlarged_forcing_epsilon * enlarged_factor *
+                         enlarged_gradients[q];
       const Tensor<1, dim> enlarged_beta =
         cahn_hilliard_param.mff_transport_factor *
         (enlarged_forcing_epsilon * enlarged_forcing_epsilon) *
@@ -152,23 +152,23 @@ namespace MeshForcingPostProcessing
   }
 
   template <int dim, bool with_enlarged, typename VectorType>
-  void export_diagnostics(
-    const Mapping<dim>                                 &moving_mapping,
-    const Mapping<dim>                                 &fixed_mapping,
-    const FESystem<dim>                                &fe_system,
-    const Quadrature<dim>                              &quadrature,
-    const DoFHandler<dim>                              &dof_handler,
-    const FEValuesExtractors::Vector                   &velocity_extractor,
-    const FEValuesExtractors::Vector                   &position_extractor,
-    const FEValuesExtractors::Scalar                   &tracer_extractor,
-    const FEValuesExtractors::Scalar                   &psi_extractor,
-    const VectorType                                   &present_solution,
-    const std::vector<VectorType>                      &previous_solutions,
-    const TimeHandler                                  &time_handler,
-    const Parameters::CahnHilliard<dim>                &cahn_hilliard_param,
-    PostProcessingHandler<dim>                         &postproc_handler)
+  void
+  export_diagnostics(const Mapping<dim>                  &moving_mapping,
+                     const Mapping<dim>                  &fixed_mapping,
+                     const FESystem<dim>                 &fe_system,
+                     const Quadrature<dim>               &quadrature,
+                     const DoFHandler<dim>               &dof_handler,
+                     const FEValuesExtractors::Vector    &velocity_extractor,
+                     const FEValuesExtractors::Vector    &position_extractor,
+                     const FEValuesExtractors::Scalar    &tracer_extractor,
+                     const FEValuesExtractors::Scalar    &psi_extractor,
+                     const VectorType                    &present_solution,
+                     const std::vector<VectorType>       &previous_solutions,
+                     const TimeHandler                   &time_handler,
+                     const Parameters::CahnHilliard<dim> &cahn_hilliard_param,
+                     PostProcessingHandler<dim>          &postproc_handler)
   {
-    const bool use_quads = fe_system.reference_cell().is_hyper_cube();
+    const bool        use_quads = fe_system.reference_cell().is_hyper_cube();
     OutputFields<dim> output_fields(dof_handler.get_triangulation(), use_quads);
 
     FEValues<dim> fe_values_moving(moving_mapping,
@@ -180,12 +180,11 @@ namespace MeshForcingPostProcessing
                                   quadrature,
                                   update_values | update_JxW_values);
 
-    const unsigned int n_q_points = quadrature.size();
-    std::vector<Tensor<1, dim>> velocity_values(n_q_points);
-    std::vector<Tensor<1, dim>> position_values(n_q_points);
+    const unsigned int                       n_q_points = quadrature.size();
+    std::vector<Tensor<1, dim>>              velocity_values(n_q_points);
+    std::vector<Tensor<1, dim>>              position_values(n_q_points);
     std::vector<std::vector<Tensor<1, dim>>> previous_position_values(
-      previous_solutions.size(),
-      std::vector<Tensor<1, dim>>(n_q_points));
+      previous_solutions.size(), std::vector<Tensor<1, dim>>(n_q_points));
     std::vector<double>         enlarged_values(n_q_points);
     std::vector<Tensor<1, dim>> enlarged_gradients(n_q_points);
     std::vector<double>         tracer_values(n_q_points);
@@ -230,8 +229,7 @@ namespace MeshForcingPostProcessing
                               time_handler,
                               cahn_hilliard_param,
                               with_enlarged ?
-                                cahn_hilliard_param
-                                  .epsilon_interface_enlarged :
+                                cahn_hilliard_param.epsilon_interface_enlarged :
                                 cahn_hilliard_param.epsilon_interface));
       }
 

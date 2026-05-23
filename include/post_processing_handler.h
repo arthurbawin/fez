@@ -360,8 +360,7 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
 }
 
 template <int dim>
-void
-PostProcessingHandler<dim>::add_cell_dg0_data_field(
+void PostProcessingHandler<dim>::add_cell_dg0_data_field(
   std::unique_ptr<PostProcessingTools::DG0DataField<dim>> field)
 {
   AssertThrow(data_out != nullptr,

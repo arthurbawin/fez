@@ -433,11 +433,10 @@ namespace ManufacturedSolutions
                             preset_mesh_position;
     exact_tracer =
       (preset_tracer_type == PresetMMS::none) ? sym_tracer : preset_tracer;
-    exact_potential   = (preset_potential_type == PresetMMS::none) ?
-                          sym_potential :
-                          preset_potential;
-    exact_psi         =
-      (preset_psi_type == PresetMMS::none) ? sym_psi : preset_psi;
+    exact_potential = (preset_potential_type == PresetMMS::none) ?
+                        sym_potential :
+                        preset_potential;
+    exact_psi = (preset_psi_type == PresetMMS::none) ? sym_psi : preset_psi;
     exact_temperature = (preset_temperature_type == PresetMMS::none) ?
                           sym_temperature :
                           preset_temperature;

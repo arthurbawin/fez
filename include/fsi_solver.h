@@ -312,8 +312,6 @@ protected:
   std::array<types::global_dof_index, dim>          local_lambda_accumulators;
   std::vector<std::vector<types::global_dof_index>> all_lambda_accumulators;
 
-  TableHandler cylinder_position_table;
-
 protected:
   /**
    * Source term.

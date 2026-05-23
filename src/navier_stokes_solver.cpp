@@ -923,13 +923,33 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_max_cfl()
   {
     TimerOutput::Scope               t(computing_timer, "Compute CFL");
     const FEValuesExtractors::Vector velocity_extractor(ordering->u_lower);
-    const double                     cfl =
-      PostProcessingTools::compute_max_cfl(time_handler.current_dt,
-                                           *moving_mapping,
-                                           dof_handler,
-                                           *quadrature,
-                                           present_solution,
-                                           velocity_extractor);
+    double                           cfl = 0.;
+
+    if constexpr (with_moving_mesh)
+    {
+      const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
+      cfl =
+        PostProcessingTools::compute_max_cfl(time_handler.get_current_timestep(),
+                                             *moving_mapping,
+                                             dof_handler,
+                                             *quadrature,
+                                             present_solution,
+                                             velocity_extractor,
+                                             param.finite_elements.use_quads,
+                                             &previous_solutions,
+                                             &bdf_coefficients,
+                                             &position_extractor);
+    }
+    else
+      cfl =
+        PostProcessingTools::compute_max_cfl(time_handler.get_current_timestep(),
+                                             *moving_mapping,
+                                             dof_handler,
+                                             *quadrature,
+                                             present_solution,
+                                             velocity_extractor,
+                                             param.finite_elements.use_quads);
+
     time_handler.set_max_cfl(cfl);
   }
 }

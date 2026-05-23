@@ -126,6 +126,8 @@ subsection FSI
   set cylinder radius = 0.5
   # set cylinder length = 0.5
   # set fix z component = true
+  
+  set force-position coupling = local_position_master_to_lambda_accumulators
 end
 
 subsection Initial conditions
@@ -191,6 +193,5 @@ end
 
 subsection Debug
   set verbosity            = verbose
-  set fsi_coupling_option  = 1
   set write partition gmsh = true
 end

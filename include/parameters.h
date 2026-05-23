@@ -530,10 +530,14 @@ namespace Parameters
   public:
     enum class MobilityModel
     {
-      constant
+      constant,
+      degenerate
     } mobility_model;
 
     double mobility;
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
+           degenerate_mobility;
+    bool   mobility_tracer_limiter;
     double surface_tension;
     double epsilon_interface;
     double epsilon_interface_enlarged;
@@ -695,6 +699,20 @@ namespace Parameters
     bool fix_z_component;
 
     bool compute_error_on_forces;
+
+    enum class CouplingStrategy : unsigned int
+    {
+      all_position_to_all_lambda = 0,
+
+      local_position_master_to_all_lambda = 1,
+
+      global_position_master_to_all_lambda = 2,
+
+      local_position_master_to_lambda_accumulators = 3,
+
+      global_position_master_to_global_accumulator = 4,
+
+    } coupling;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

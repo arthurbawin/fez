@@ -22,10 +22,10 @@ struct CHNSEnlargedOps<dim, with_moving_mesh, false>
     std::vector<std::pair<std::string, unsigned int>> & /*description*/)
   {}
 
-  static void extend_coupling_table(
-    const ComponentOrdering & /*ordering*/,
-    const bool /*stabilization*/,
-    Table<2, DoFTools::Coupling> & /*coupling_table*/)
+  static void
+  extend_coupling_table(const ComponentOrdering & /*ordering*/,
+                        const bool /*stabilization*/,
+                        Table<2, DoFTools::Coupling> & /*coupling_table*/)
   {}
 
   template <typename ScratchDataType>
@@ -103,10 +103,10 @@ struct CHNSEnlargedOps<dim, true, true>
     table[ordering.psi_lower][ordering.mu_lower]  = DoFTools::always;
     table[ordering.psi_lower][ordering.psi_lower] = DoFTools::always;
     for (unsigned int d = ordering.x_lower; d < ordering.x_upper; ++d)
-      {
-        table[ordering.psi_lower][d] = DoFTools::always;
-        table[d][ordering.psi_lower] = DoFTools::always;
-      }
+    {
+      table[ordering.psi_lower][d] = DoFTools::always;
+      table[d][ordering.psi_lower] = DoFTools::always;
+    }
   }
 
   template <typename ScratchDataType>

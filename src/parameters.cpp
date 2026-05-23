@@ -1,5 +1,6 @@
 
 #include <assembly/chns_enlarged_forms.h>
+#include <deal.II/differentiation/sd/symengine_tensor_operations.h>
 #include <parameters.h>
 #include <solver_info.h>
 #include <utilities.h>
@@ -8,6 +9,8 @@
 
 namespace Parameters
 {
+  using namespace Differentiation::SD;
+
   /**
    * These should agree with the declare_entry in utilities.h
    */
@@ -1075,16 +1078,28 @@ namespace Parameters
   void CahnHilliard<dim>::declare_parameters(ParameterHandler &prm)
   {
     const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
+    degenerate_mobility =
+      std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
     prm.enter_subsection("Cahn Hilliard");
     {
       prm.declare_entry("mobility model",
                         "constant",
-                        Patterns::Selection("constant"),
+                        Patterns::Selection("constant|degenerate"),
                         "Model for the mobility tensor");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
                         "Mobility value if constant");
+      prm.declare_entry(
+        "enable mobility tracer limiter",
+        "false",
+        Patterns::Bool(),
+        "Enable tracer limiter for the degenerate mobility calcul");
+      prm.enter_subsection("degenerate mobility");
+      {
+        degenerate_mobility->declare_parameters(prm, 1, "(1 - x*x)*(1 - x*x)");
+      }
+      prm.leave_subsection();
       prm.declare_entry("surface tension",
                         "1.",
                         Patterns::Double(),
@@ -1158,11 +1173,106 @@ namespace Parameters
     prm.enter_subsection("Cahn Hilliard");
     {
       const std::string parsed_mobility_model = prm.get("mobility model");
-      if (parsed_mobility_model == "linear")
+      if (parsed_mobility_model == "constant")
         mobility_model = MobilityModel::constant;
-      mobility            = prm.get_double("mobility");
-      surface_tension     = prm.get_double("surface tension");
-      epsilon_interface   = prm.get_double("interface thickness");
+      else if (parsed_mobility_model == "degenerate")
+        mobility_model = MobilityModel::degenerate;
+      else
+        AssertThrow(false, ExcMessage("Unknown mobility model"));
+      mobility                = prm.get_double("mobility");
+      mobility_tracer_limiter = prm.get_bool("enable mobility tracer limiter");
+      prm.enter_subsection("degenerate mobility");
+      {
+        degenerate_mobility->parse_parameters(prm);
+
+        if (mobility_model == MobilityModel::degenerate)
+        {
+          const std::string expr =
+            degenerate_mobility->get_function_expression();
+
+          const Expression f(expr, true);
+
+          const Expression y("y");
+          const Expression t("t");
+
+          AssertThrow(numbers::value_is_zero(f.differentiate(y)),
+                      ExcMessage("The degenerate mobility must depend only on "
+                                 "x (which represents phi), "
+                                 "but it depends on y: " +
+                                 expr));
+
+          AssertThrow(numbers::value_is_zero(f.differentiate(t)),
+                      ExcMessage("The degenerate mobility must depend only on "
+                                 "x (which represents phi), "
+                                 "but it depends on t: " +
+                                 expr));
+
+          if constexpr (dim == 3)
+          {
+            const Expression z("z");
+
+            AssertThrow(numbers::value_is_zero(f.differentiate(z)),
+                        ExcMessage("The degenerate mobility must depend only "
+                                   "on x (which represents phi), "
+                                   "but it depends on z: " +
+                                   expr));
+          }
+          const unsigned int n_check_points = 1000;
+          const double       tolerance      = 1e-12;
+
+          for (unsigned int i = 0; i <= n_check_points; ++i)
+          {
+            const double x_value =
+              -1.0 + 2.0 * static_cast<double>(i) / n_check_points;
+
+            Point<dim> p;
+            p[0] = x_value;
+
+            const double mobility_value = degenerate_mobility->value(p);
+
+            AssertThrow(mobility_value >= -tolerance,
+                        ExcMessage(
+                          "The degenerate mobility must be non-negative "
+                          "for x in [-1, 1], but M(" +
+                          Utilities::to_string(x_value) +
+                          ") = " + Utilities::to_string(mobility_value) +
+                          " for expression: " + expr));
+          }
+          const std::vector<std::string> variable_names =
+            Utilities::split_string_list(prm.get("Variable names"));
+
+          AssertThrow(variable_names.size() == dim ||
+                        variable_names.size() == dim + 1,
+                      ExcMessage(
+                        "The degenerate mobility variable list must have "
+                        "dim or dim+1 entries."));
+
+          AssertThrow(variable_names[0] == "x",
+                      ExcMessage(
+                        "For degenerate mobility, the first variable must be "
+                        "'x', which represents phi."));
+
+          if constexpr (dim >= 2)
+            AssertThrow(variable_names[1] == "y",
+                        ExcMessage(
+                          "For degenerate mobility, the second variable "
+                          "must be 'y'."));
+
+          if constexpr (dim == 3)
+            AssertThrow(variable_names[2] == "z",
+                        ExcMessage(
+                          "For degenerate mobility, the third variable "
+                          "must be 'z'."));
+
+          if (variable_names.size() == dim + 1)
+            AssertThrow(variable_names[dim] == "t",
+                        ExcMessage("For degenerate mobility, the optional time "
+                                   "variable must be 't'."));
+        }
+      }
+      prm.leave_subsection();
+      surface_tension   = prm.get_double("surface tension");
+      epsilon_interface = prm.get_double("interface thickness");
       epsilon_interface_enlarged =
         prm.get_double("enlarged interface thickness");
       psi_interface_width_factor = prm.get_double("psi interface width factor");

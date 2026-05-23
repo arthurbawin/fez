@@ -14,9 +14,7 @@ using namespace dealii;
  * Quasi-incompressible Cahn-Hilliard Navier-Stokes solver.
  * TODO: Add equations.
  */
-template <int dim,
-          bool with_moving_mesh = false,
-          bool with_enlarged    = false>
+template <int dim, bool with_moving_mesh = false, bool with_enlarged = false>
 class CHNSSolver : public NavierStokesSolver<dim, with_moving_mesh>
 {
   using ScratchData = ScratchDataCHNS<dim, with_moving_mesh, with_enlarged>;
@@ -119,10 +117,8 @@ protected:
     std::vector<std::pair<std::string, unsigned int>> description;
     description.push_back({"tracer", 1});
     description.push_back({"potential", 1});
-    CHNSEnlargedOps<dim,
-                    with_moving_mesh,
-                    with_enlarged>::extend_additional_variables_description(
-      description);
+    CHNSEnlargedOps<dim, with_moving_mesh, with_enlarged>::
+      extend_additional_variables_description(description);
     return description;
   }
 

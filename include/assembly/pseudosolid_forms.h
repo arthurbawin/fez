@@ -4,10 +4,9 @@
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <parameters.h>
 
 #include <cmath>
-
-#include <parameters.h>
 
 using namespace dealii;
 
@@ -201,18 +200,24 @@ namespace Assembly::Pseudosolid
             typename ScratchData,
             typename CouplingTableType,
             typename MatrixType>
-  inline void
-  assemble_chns_matrix(
-    const ComponentOrdering &ordering,
-    const CouplingTableType &coupling_table,
+  inline void assemble_chns_matrix(
+    const ComponentOrdering            &ordering,
+    const CouplingTableType            &coupling_table,
     const Parameters::PseudoSolid<dim> &pseudosolid_parameters,
-    const ScratchData &scratch,
-    MatrixType        &local_matrix)
+    const ScratchData                  &scratch,
+    MatrixType                         &local_matrix)
   {
     for (unsigned int q = 0; q < scratch.n_q_points; ++q)
       for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
+      {
+        if (!ordering.is_position(scratch.components[i]))
+          continue;
+
+        for (unsigned int j = 0; j < scratch.dofs_per_cell; ++j)
         {
-          if (!ordering.is_position(scratch.components[i]))
+          if (coupling_table[scratch.components[i]][scratch.components[j]] !=
+                DoFTools::always ||
+              !ordering.is_position(scratch.components[j]))
             continue;
 
           for (unsigned int j = 0; j < scratch.dofs_per_cell; ++j)
@@ -237,23 +242,23 @@ namespace Assembly::Pseudosolid
               scratch.JxW_fixed[q];
           }
         }
+      }
   }
 
   template <int dim, typename ScratchData, typename VectorType>
   inline void
-  assemble_chns_rhs(
-    const ComponentOrdering &ordering,
-    const Parameters::PseudoSolid<dim> &pseudosolid_parameters,
-    const ScratchData &scratch,
-    VectorType        &local_rhs)
+  assemble_chns_rhs(const ComponentOrdering            &ordering,
+                    const Parameters::PseudoSolid<dim> &pseudosolid_parameters,
+                    const ScratchData                  &scratch,
+                    VectorType                         &local_rhs)
   {
     for (unsigned int q = 0; q < scratch.n_q_points; ++q)
-      {
-        const double          trace_strain =
-          trace(scratch.present_position_gradients[q]) - static_cast<double>(dim);
-        const Tensor<2, dim> strain =
-          Tensor<2, dim>(symmetrize(scratch.present_position_gradients[q]) -
-                         unit_symmetric_tensor<dim>());
+    {
+      const double trace_strain =
+        trace(scratch.present_position_gradients[q]) - static_cast<double>(dim);
+      const Tensor<2, dim> strain =
+        Tensor<2, dim>(symmetrize(scratch.present_position_gradients[q]) -
+                       unit_symmetric_tensor<dim>());
 
         for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
           if (ordering.is_position(scratch.components[i]))

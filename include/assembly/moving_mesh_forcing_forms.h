@@ -5,11 +5,10 @@
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <parameters.h>
 
 #include <algorithm>
 #include <cmath>
-
-#include <parameters.h>
 
 using namespace dealii;
 
@@ -102,8 +101,7 @@ namespace Assembly::MovingMeshForcing
   }
 
   template <int dim>
-  inline void
-  mesh_forcing_factor_and_jacobian(
+  inline void mesh_forcing_factor_and_jacobian(
     const Parameters::CahnHilliard<dim> &cahn_hilliard,
     const double                         phase_value,
     double                              &factor,
@@ -224,7 +222,10 @@ namespace Assembly::MovingMeshForcing
            ((convective_velocity * marker_gradient) * marker_gradient);
   }
 
-  template <int dim, bool with_enlarged, typename ScratchData, typename VectorType>
+  template <int  dim,
+            bool with_enlarged,
+            typename ScratchData,
+            typename VectorType>
   inline void
   assemble_chns_rhs(const ComponentOrdering             &ordering,
                     const Parameters::CahnHilliard<dim> &cahn_hilliard,
@@ -265,14 +266,14 @@ namespace Assembly::MovingMeshForcing
           tracer_factor,
           scratch.tracer_gradients[q]);
 
-        for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
-          if (ordering.is_position(scratch.components[i]))
-            local_rhs(i) +=
-              scratch.phi_x[q][i] * mesh_forcing * scratch.JxW_fixed[q];
-      }
+      for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
+        if (ordering.is_position(scratch.components[i]))
+          local_rhs(i) +=
+            scratch.phi_x[q][i] * mesh_forcing * scratch.JxW_fixed[q];
+    }
   }
 
-  template <int dim,
+  template <int  dim,
             bool with_enlarged,
             typename ScratchData,
             typename CouplingTableType,
@@ -320,7 +321,7 @@ namespace Assembly::MovingMeshForcing
                     DoFTools::always)
                   continue;
 
-                const unsigned int comp_j = scratch.components[j];
+                const unsigned int comp_j   = scratch.components[j];
                 double             local_ij = 0.;
 
                 if (ordering.is_velocity(comp_j))
@@ -338,11 +339,10 @@ namespace Assembly::MovingMeshForcing
                       Assembly::ALE::mesh_velocity_variation(bdf_c0,
                                                              scratch.phi_x[q][j]);
                     const Tensor<1, dim> transported_marker_gradient =
-                      Assembly::ALE::gradient_variation(
-                        marker_gradient, G);
+                      Assembly::ALE::gradient_variation(marker_gradient, G);
                     const Tensor<1, dim> transported_tracer_gradient =
-                      Assembly::ALE::gradient_variation(
-                        scratch.tracer_gradients[q], G);
+                      Assembly::ALE::gradient_variation(scratch.tracer_gradients[q],
+                                                        G);
 
                     local_ij -=
                       phi_x_i *

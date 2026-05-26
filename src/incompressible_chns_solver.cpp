@@ -923,6 +923,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
     this->coupling_table,
     scratch_data,
     bdf_c0,
+    this->param.finite_elements.velocity_degree,
+    this->param.finite_elements.tracer_degree,
     this->param.finite_elements.stabilization,
     local_matrix);
 

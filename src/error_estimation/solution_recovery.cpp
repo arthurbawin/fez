@@ -184,6 +184,17 @@ namespace ErrorEstimation
               "2 to reconstruct the Hessian of the solution."));
           component_select = hessian_comp_select.get();
           break;
+        case RecoveryType::third_derivatives:
+          AssertThrow(
+            highest_recovered_derivative > 2,
+            ExcMessage(
+              "You are trying to compute the nodal error over reconstructed "
+              "third derivatives, but this quantity was not reconstructed by "
+              "this "
+              "SolutionRecovery. Set highest_recovered_derivative to at least "
+              "3 to reconstruct the third derivatives of the solution."));
+          component_select = third_derivatives_comp_select.get();
+          break;
         default:
           DEAL_II_NOT_IMPLEMENTED();
       }
@@ -239,6 +250,17 @@ namespace ErrorEstimation
               "SolutionRecovery. Set highest_recovered_derivative to at least "
               "2 to reconstruct the Hessian of the solution."));
           mask = &hessian_mask;
+          break;
+        case RecoveryType::third_derivatives:
+          AssertThrow(
+            highest_recovered_derivative > 2,
+            ExcMessage(
+              "You are trying to compute the nodal error over reconstructed "
+              "third derivatives, but this quantity was not reconstructed by "
+              "this "
+              "SolutionRecovery. Set highest_recovered_derivative to at least "
+              "3 to reconstruct the third derivatives of the solution."));
+          mask = &third_derivatives_mask;
           break;
         default:
           DEAL_II_NOT_IMPLEMENTED();
@@ -400,14 +422,17 @@ namespace ErrorEstimation
       vertices_to_solution_dofs.clear();
       vertices_to_gradient_dofs.clear();
       vertices_to_hessian_dofs.clear();
+      vertices_to_third_derivatives_dofs.clear();
 
       vertices_to_solution_dofs.resize(this->n_vertices);
       vertices_to_gradient_dofs.resize(this->n_vertices);
       vertices_to_hessian_dofs.resize(this->n_vertices);
+      vertices_to_third_derivatives_dofs.resize(this->n_vertices);
 
       solution_dofs_to_recovery_dofs.clear();
       solution_dofs_to_gradient_dofs.clear();
       solution_dofs_to_hessian_dofs.clear();
+      solution_dofs_to_third_derivatives_dofs.clear();
 
       const unsigned int n_isoparam_dofs_per_cell =
         this->isoparam_fe->n_dofs_per_cell();
@@ -514,6 +539,27 @@ namespace ErrorEstimation
               }
             }
           }
+
+          // Map the smoothed third derivatives dofs
+          if (this->highest_recovered_derivative >= 2)
+          {
+            const int c_third = comp - third_derivative_offset;
+            if (0 <= c_third &&
+                c_third < (int)third_derivative_type::n_independent_components)
+            {
+              solution_dofs_to_third_derivatives_dofs[solution_dofs[shape]]
+                                                     [c_third] =
+                                                       local_rec_dof_indices[i];
+
+              // Map the vertex data to isoparametric recovery dofs
+              if (shape < n_isoparam_dofs_per_cell)
+              {
+                const auto vertex_index = cell->vertex_index(shape);
+                vertices_to_third_derivatives_dofs[vertex_index][c_third] =
+                  local_rec_dof_indices[i];
+              }
+            }
+          }
         }
       }
     }
@@ -540,8 +586,6 @@ namespace ErrorEstimation
                   isoparametric,
                   single_reconstruction)
       , recovered_solution_at_vertices(this->n_vertices)
-      , recovered_gradient_at_vertices(this->n_vertices)
-      , recovered_hessian_at_vertices(this->n_vertices)
     {
       AssertThrow(
         mask.n_selected_components(fe.n_components()) == 1,
@@ -551,6 +595,13 @@ namespace ErrorEstimation
           "component. Use a mask for a single scalar component, or "
           "alternatively create a SolutionRecovery::Vector to reconstruct the "
           "derivatives of a vector-valued field."));
+
+      if (highest_recovered_derivative > 0)
+        recovered_gradient_at_vertices.resize(this->n_vertices);
+      if (highest_recovered_derivative > 1)
+        recovered_hessian_at_vertices.resize(this->n_vertices);
+      if (highest_recovered_derivative > 2)
+        recovered_third_derivatives_at_vertices.resize(this->n_vertices);
 
       constexpr unsigned int mapping_degree = 1;
 
@@ -590,6 +641,16 @@ namespace ErrorEstimation
               FE_Q<dim>(recovery_degree) ^
                 hessian_type::n_independent_components);
             break;
+          case 3:
+            this->fe = std::make_unique<FESystem<dim>>(
+              FE_Q<dim>(recovery_degree),
+              FE_Q<dim>(recovery_degree) ^
+                gradient_type::n_independent_components,
+              FE_Q<dim>(recovery_degree) ^
+                hessian_type::n_independent_components,
+              FE_Q<dim>(recovery_degree) ^
+                third_derivative_type::n_independent_components);
+            break;
           default:
             DEAL_II_NOT_IMPLEMENTED();
         }
@@ -618,10 +679,21 @@ namespace ErrorEstimation
               FE_SimplexP<dim>(recovery_degree) ^
                 hessian_type::n_independent_components);
             break;
+          case 3:
+            this->fe = std::make_unique<FESystem<dim>>(
+              FE_SimplexP<dim>(recovery_degree),
+              FE_SimplexP<dim>(recovery_degree) ^
+                gradient_type::n_independent_components,
+              FE_SimplexP<dim>(recovery_degree) ^
+                hessian_type::n_independent_components,
+              FE_SimplexP<dim>(recovery_degree) ^
+                third_derivative_type::n_independent_components);
+            break;
           default:
             DEAL_II_NOT_IMPLEMENTED();
         }
       }
+
       this->dh.distribute_dofs(*this->fe);
 
       // Total number of vector components in this object's FESystem
@@ -693,6 +765,21 @@ namespace ErrorEstimation
             std::make_pair(hessian_offset,
                            hessian_offset +
                              hessian_type::n_independent_components),
+            this->n_components);
+      }
+      if (highest_recovered_derivative > 2)
+      {
+        std::vector<bool> third_component_mask(this->n_components, false);
+        for (unsigned int i = 0;
+             i < third_derivative_type::n_independent_components;
+             ++i)
+          third_component_mask[third_derivative_offset + i] = true;
+        this->third_derivatives_mask = ComponentMask(third_component_mask);
+        this->third_derivatives_comp_select =
+          std::make_unique<ComponentSelectFunction<dim>>(
+            std::make_pair(third_derivative_offset,
+                           third_derivative_offset +
+                             third_derivative_type::n_independent_components),
             this->n_components);
       }
 
@@ -1007,28 +1094,12 @@ namespace ErrorEstimation
         contributions_to_ghosts);
     }
 
-    /**
-     * Update the solution storing the smoothed data.
-     *
-     * Given the coefficients of the polynomials stored in
-     * this->recoveries_coefficients, evaluate the polynomials at the
-     * non-vertices dofs and average them using the
-     * pre-computed weights. Store the result in the @p component-th vector
-     * component of @p local_dof_data, and update the ghosts
-     * in @p dof_data.
-     *
-     * This function only fills the non-vertices dofs in local_dof_data, that
-     * is, the dofs whose support point is not also a mesh vertex.
-     *
-     * If @p gradient is true, then we actually evaluate and average the
-     * gradient of the polynomials stored in this->recoveries_coefficients.
-     */
     template <int dim>
     void Scalar<dim>::evaluate_and_average_recovery_solution(
       const RecoveryType type,
       const unsigned int derivative_order,
       const unsigned int reconstruction_component,
-      const bool         gradient)
+      const bool         compute_gradient)
     {
       const auto &coefficients =
         this
@@ -1043,14 +1114,15 @@ namespace ErrorEstimation
 
       // Reset this component in local_recovery_solution
       std::vector<bool> component_mask(this->n_components, false);
-      if (gradient)
+      if (compute_gradient)
       {
-        unsigned int offset = 1; // components of solution
+        unsigned int offset = gradient_offset;
         if (type == RecoveryType::gradient)
-          offset += gradient_type::n_independent_components +
-                    reconstruction_component * dim;
-        else if (type == RecoveryType::hessian)
-          DEAL_II_NOT_IMPLEMENTED();
+          offset = hessian_offset;
+        if (type == RecoveryType::hessian)
+          offset = third_derivative_offset;
+        
+        offset += reconstruction_component * dim;
 
         for (unsigned int d = 0; d < dim; ++d)
           component_mask[offset + d] = true;
@@ -1063,6 +1135,9 @@ namespace ErrorEstimation
           component_mask[gradient_offset + reconstruction_component] = true;
         else if (type == RecoveryType::hessian)
           component_mask[hessian_offset + reconstruction_component] = true;
+        else if (type == RecoveryType::third_derivatives)
+          component_mask[third_derivative_offset + reconstruction_component] =
+            true;
         else
           DEAL_II_NOT_IMPLEMENTED();
       }
@@ -1091,7 +1166,7 @@ namespace ErrorEstimation
               for (unsigned int d = 0; d < dim; ++d)
                 pt[d] *= patch.scaling[d];
 
-              if (gradient)
+              if (compute_gradient)
               {
                 // Evaluate the gradient of the polynomial reconstruction at
                 // this dof's support point.
@@ -1102,9 +1177,12 @@ namespace ErrorEstimation
                 {
                   const double val = data.averaging_weight * grad[d];
 
-                  // Get the dof to increment in the recovery solution
-                  // Since this is the gradient, take the dof from the
-                  // appropriate derviative
+
+                  /* Get the dof index to increment in the recovery solution.
+                   * Since we are averaging the gradient of the last obtained
+                   * polynomials, get the dof index from the appropriate
+                   * derivative dof map.
+                   */
                   unsigned int dof = numbers::invalid_unsigned_int;
                   if (type == RecoveryType::solution)
                   {
@@ -1117,11 +1195,17 @@ namespace ErrorEstimation
                     Assert(solution_dofs_to_hessian_dofs.count(data.dof) > 0,
                            ExcInternalError());
                     dof = solution_dofs_to_hessian_dofs.at(
-                      data.dof)[reconstruction_component *
-                                  gradient_type::n_independent_components +
-                                d];
+                      data.dof)[reconstruction_component * dim + d];
                   }
                   else if (type == RecoveryType::hessian)
+                  {
+                    Assert(solution_dofs_to_third_derivatives_dofs.count(
+                             data.dof) > 0,
+                           ExcInternalError());
+                    dof = solution_dofs_to_third_derivatives_dofs.at(
+                      data.dof)[reconstruction_component * dim + d];
+                  }
+                  else
                   {
                     DEAL_II_NOT_IMPLEMENTED();
                   }
@@ -1169,6 +1253,10 @@ namespace ErrorEstimation
                          ExcInternalError());
                   dof = solution_dofs_to_hessian_dofs.at(
                     data.dof)[reconstruction_component];
+                }
+                else
+                {
+                  DEAL_II_NOT_IMPLEMENTED();
                 }
 
                 Assert(dof != numbers::invalid_unsigned_int,
@@ -1256,12 +1344,24 @@ namespace ErrorEstimation
               this->recovery_solution,
               vertices_to_hessian_dofs);
         }
+        else if (type == RecoveryType::hessian)
+        {
+          if (this->highest_recovered_derivative >= derivative_order + 1)
+            // Store vertex-based third derivatives in FE solution
+            this->template vertex_to_isoparametric<
+              3,
+              third_derivative_type::n_independent_components>(
+              recovered_third_derivatives_at_vertices,
+              this->local_recovery_solution,
+              this->recovery_solution,
+              vertices_to_third_derivatives_dofs);
+        }
         else
           DEAL_II_NOT_IMPLEMENTED();
 
         if (this->single_reconstruction)
         {
-          if (this->degree >= 1)
+          if (this->highest_recovered_derivative > 1)
             this->template vertex_to_isoparametric<
               2,
               hessian_type::n_independent_components>(
@@ -1269,6 +1369,14 @@ namespace ErrorEstimation
               this->local_recovery_solution,
               this->recovery_solution,
               vertices_to_hessian_dofs);
+          if (this->highest_recovered_derivative > 2)
+            this->template vertex_to_isoparametric<
+              3,
+              third_derivative_type::n_independent_components>(
+              recovered_third_derivatives_at_vertices,
+              this->local_recovery_solution,
+              this->recovery_solution,
+              vertices_to_third_derivatives_dofs);
         }
       }
       else
@@ -1287,7 +1395,7 @@ namespace ErrorEstimation
           evaluate_and_average_recovery_solution(type,
                                                  derivative_order,
                                                  reconstruction_component,
-                                                 false);
+                                                 /* compute_gradient =*/false);
 
         if (this->highest_recovered_derivative >= derivative_order + 1)
         {
@@ -1295,7 +1403,7 @@ namespace ErrorEstimation
           evaluate_and_average_recovery_solution(type,
                                                  derivative_order,
                                                  reconstruction_component,
-                                                 true);
+                                                 /* compute_gradient =*/true);
         }
       }
     }
@@ -1382,22 +1490,24 @@ namespace ErrorEstimation
        * each previously reconstructed component is reconstructed.
        */
       RecoveryType type;
-      unsigned int n_components_to_reconstruct, n_components_to_obtain;
+      unsigned int n_components_to_reconstruct, n_components_to_store;
       if (derivative_order == 0)
       {
         // Reconstruct the scalar field, yielding a scalar field.
         // Store 1 polynomial at each mesh vertex.
         type                        = RecoveryType::solution;
         n_components_to_reconstruct = n_solution_components;
-        n_components_to_obtain      = n_solution_components;
+        n_components_to_store       = n_solution_components;
       }
       else if (derivative_order == 1)
       {
-        // Reconstruct the gradient of a scalar field.
-        // Store *dim* polynomials at each mesh vertex.
+        // Reconstruct the gradient of a scalar field, that is, take the
+        // gradient of n_solution_components (= 1) component, and reconstruct
+        // each compoennt of this gradient. Store these *dim* polynomials at
+        // each mesh vertex.
         type                        = RecoveryType::gradient;
         n_components_to_reconstruct = n_solution_components;
-        n_components_to_obtain      = gradient_type::n_independent_components;
+        n_components_to_store       = gradient_type::n_independent_components;
       }
       else if (derivative_order == 2)
       {
@@ -1405,14 +1515,23 @@ namespace ErrorEstimation
         // Store *dim*dim* polynomials at each mesh vertex.
         type                        = RecoveryType::hessian;
         n_components_to_reconstruct = gradient_type::n_independent_components;
-        n_components_to_obtain      = hessian_type::n_independent_components;
+        n_components_to_store       = hessian_type::n_independent_components;
+      }
+      else if (derivative_order == 3)
+      {
+        type                        = RecoveryType::third_derivatives;
+        n_components_to_reconstruct = hessian_type::n_independent_components;
+        n_components_to_store = third_derivative_type::n_independent_components;
       }
       else
         DEAL_II_NOT_IMPLEMENTED();
 
       this->recoveries_coefficients[derivative_order].resize(
-        n_components_to_obtain);
+        n_components_to_store);
 
+      /**
+       * Loop over each tensor component to reconstruct.
+       */
       for (unsigned int i_comp = 0; i_comp < n_components_to_reconstruct;
            ++i_comp)
       {
@@ -1426,11 +1545,16 @@ namespace ErrorEstimation
 
         for (unsigned int d = 0; d < dim_to_reconstruct; ++d)
         {
-          const unsigned int comp_to_reconstruct =
-            i_comp * dim_to_reconstruct + d;
+          // Local component within the solution, gradient, hessian, etc. array
+          // This is in the following half-open intervals:
+          //  derivative_order = 0 : [0, 1)
+          //  derivative_order = 1 : [0, dim)
+          //  derivative_order = 2 : [0, dim * dim)
+          // etc.
+          const unsigned int local_component = i_comp * dim_to_reconstruct + d;
+
           auto &coefficients =
-            this
-              ->recoveries_coefficients[derivative_order][comp_to_reconstruct];
+            this->recoveries_coefficients[derivative_order][local_component];
           coefficients.resize(this->n_vertices);
 
           if (derivative_order > 0)
@@ -1450,6 +1574,9 @@ namespace ErrorEstimation
             if (!this->owned_vertices[v])
               continue;
 
+            /**
+             * Solve the least-squares problem
+             */
             auto &coeffs = coefficients[v];
             coeffs.reinit(this->dim_recovery_basis);
             this->solve_least_squares_problem(v, coeffs);
@@ -1461,34 +1588,51 @@ namespace ErrorEstimation
               recovered_gradient_at_vertices[v] =
                 this->gradient_at_origin(coeffs);
 
+              /**
+               * If a single reconstruction is required (to reduce the noise
+               * from successive reconstructions), then we evaluate directly
+               * all the derivatives up to the required order.
+               */
               if (this->single_reconstruction)
               {
-                /**
-                 * Evaluate directly the derivatives of order p + 1
-                 */
-                if (this->degree >= 1)
+                if (this->highest_recovered_derivative > 1)
                   recovered_hessian_at_vertices[v] =
                     this->hessian_at_origin(coeffs);
-                if (this->degree >= 2)
+                if (this->highest_recovered_derivative > 2)
+                  recovered_third_derivatives_at_vertices[v] =
+                    this->third_derivatives_at_origin(coeffs);
+                if (this->highest_recovered_derivative > 3)
                 {
-                  // FIXME: uncomment when third derivatives are added
-                  // recovered_third_derivatives_at_vertices[v] =
-                  // this->third_derivatives_at_origin(coeffs);
+                  DEAL_II_NOT_IMPLEMENTED();
                 }
               }
             }
             else if (derivative_order == 1)
             {
-              // The gradient was already stored, by it has been reconstructed
+              // The gradient was already stored, but it has been reconstructed
               // with a polynomial of degree p + 1. Update its values with the
-              // more accurate values
-              recovered_gradient_at_vertices[v][d] = coeffs[0];
+              // "more accurate" values.
+              //
+              // NOTE: Updating the gradient is optional, as these values may
+              // not be more accurate as it was obtained from a second
+              // least-squares fitting. In the tests in ppr_0*.cc, the error is
+              // slightly less important *without* updating the gradient.
+              // recovered_gradient_at_vertices[v][d] = coeffs[0];
+
               recovered_hessian_at_vertices[v][d] =
                 this->gradient_at_origin(coeffs);
             }
             else if (derivative_order == 2)
             {
-              DEAL_II_NOT_IMPLEMENTED();
+              const unsigned int di = i_comp;
+              const unsigned int dj = d;
+
+              // Same comment here: update (or not) the hessians with the data
+              //  from the latest polynomial fitting.
+              // recovered_hessian_at_vertices[v][di][dj] = coeffs[0];
+
+              recovered_third_derivatives_at_vertices[v][di][dj] =
+                this->gradient_at_origin(coeffs);
             }
             else
               DEAL_II_NOT_IMPLEMENTED();
@@ -1499,14 +1643,15 @@ namespace ErrorEstimation
            * This function assigns the values at dofs and defines the PPR
            * operator per se.
            */
-          update_recovery_solution(type, derivative_order, d);
+          update_recovery_solution(type, derivative_order, local_component);
         }
       }
     }
 
     template <int dim>
-    void Scalar<dim>::write_pvtu(const Mapping<dim> &mapping,
-                                 const std::string  &filename) const
+    void
+    Scalar<dim>::write_pvtu(const Mapping<dim> &mapping,
+                            const std::string &filename_without_extension) const
     {
       std::vector<std::string> data_names(this->n_components);
       std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -1532,6 +1677,24 @@ namespace ErrorEstimation
           data_interpretation[hessian_offset + i] =
             DataComponentInterpretation::component_is_part_of_tensor;
         }
+      if (this->highest_recovered_derivative > 2)
+      {
+        // Rank 3 tensors cannot be exported as is, instead they are exported
+        // by writing the hessian of each gradient component.
+        for (unsigned int d = 0; d < dim; ++d)
+          for (unsigned int i = 0; i < hessian_type::n_independent_components;
+               ++i)
+          {
+            data_names[third_derivative_offset +
+                       d * hessian_type::n_independent_components + i] =
+              "third_derivatives_(hessian_of_grad_comp_" + std::to_string(d) +
+              ")";
+            data_interpretation[third_derivative_offset +
+                                d * hessian_type::n_independent_components +
+                                i] =
+              DataComponentInterpretation::component_is_part_of_tensor;
+          }
+      }
 
       DataOut<dim> data_out;
       data_out.attach_dof_handler(this->dh);
@@ -1540,8 +1703,11 @@ namespace ErrorEstimation
                                DataOut<dim>::type_dof_data,
                                data_interpretation);
       data_out.build_patches(mapping, 2);
-      data_out.write_vtu_with_pvtu_record(
-        "./", filename, 0, this->mpi_communicator, 2);
+      data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
+                                          filename_without_extension,
+                                          0,
+                                          this->mpi_communicator,
+                                          2);
     }
 
     template class Base<2>;

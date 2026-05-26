@@ -84,7 +84,7 @@ namespace ErrorEstimation
    * gradient, then recovering the gradient and obtaining its smoothed hessian,
    * etc.
    *
-   * Successive differentiations of numerical data is known to quickly become
+   * Successive differentiations of numerical data are known to quickly become
    * noisy, especially near the boundaries. In the case where the higher-order
    * derivatives are only needed at the mesh vertices (that is, if @p isoparametric
    * is set to true), these derivatives can be computed at these vertices with a
@@ -129,7 +129,7 @@ namespace ErrorEstimation
       solution,
       gradient,
       hessian,
-      // third_derivatives
+      third_derivatives
     };
 
     /**
@@ -316,10 +316,19 @@ namespace ErrorEstimation
       get_reconstructed_hessian(const unsigned int component = 0) const = 0;
 
       /**
+       * Return the reconstructed 3rd derivatives of the @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
+       */
+      virtual const std::vector<Tensor<3, dim>> &
+      get_reconstructed_third_derivatives(
+        const unsigned int component = 0) const = 0;
+
+      /**
        * Write all the reconstructed fields to a pvtu file for visualization.
        */
-      virtual void write_pvtu(const Mapping<dim> &mapping,
-                              const std::string  &filename) const = 0;
+      virtual void
+      write_pvtu(const Mapping<dim> &mapping,
+                 const std::string  &filename_without_extension) const = 0;
 
       /**
        * Write the least-squares matrices and polynomials associated
@@ -537,9 +546,12 @@ namespace ErrorEstimation
       ComponentMask                                 solution_mask;
       ComponentMask                                 gradient_mask;
       ComponentMask                                 hessian_mask;
+      ComponentMask                                 third_derivatives_mask;
       std::unique_ptr<ComponentSelectFunction<dim>> solution_comp_select;
       std::unique_ptr<ComponentSelectFunction<dim>> gradient_comp_select;
       std::unique_ptr<ComponentSelectFunction<dim>> hessian_comp_select;
+      std::unique_ptr<ComponentSelectFunction<dim>>
+        third_derivatives_comp_select;
 
       /**
        * Degree of the FE field whose derivatives are reconstructed.
@@ -635,6 +647,8 @@ namespace ErrorEstimation
       static constexpr unsigned int solution_offset = 0;
       static constexpr unsigned int gradient_offset = 1;
       static constexpr unsigned int hessian_offset  = 1 + dim;
+      static constexpr unsigned int third_derivative_offset =
+        1 + dim + dim * dim;
 
       /**
        * Number of components for the solution (since we cannot use
@@ -678,6 +692,14 @@ namespace ErrorEstimation
         const unsigned int component = 0) const override;
 
       /**
+       * Return the reconstructed 3rd derivatives of the @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
+       */
+      virtual const std::vector<Tensor<3, dim>> &
+      get_reconstructed_third_derivatives(
+        const unsigned int component = 0) const override;
+
+      /**
        * Return the map from the solver's solution dof to the recovery dof
        * in this object's solution vector.
        */
@@ -706,8 +728,9 @@ namespace ErrorEstimation
       /**
        * Write all the reconstructed fields to a pvtu file for visualization.
        */
-      virtual void write_pvtu(const Mapping<dim> &mapping,
-                              const std::string  &filename) const override;
+      virtual void
+      write_pvtu(const Mapping<dim> &mapping,
+                 const std::string  &filename_without_extension) const override;
 
     protected:
       /**
@@ -743,15 +766,26 @@ namespace ErrorEstimation
                                  const unsigned int gradient_component);
 
       /**
-       * If isoparametric is false and the full PPR operator is defined, this
-       * functions assigns the values at non-vertex dofs by evaluating the
-       * polynomials from adjacent vertices and averaging these evaluations.
+       * When using a non-isoparametric representation of the PPR operator, this
+       * functions completes the operator by assigning the missing values at
+       * non-vertex dofs, by evaluating the polynomials from adjacent vertices
+       * (stored in recoveries_coefficients) and averaging these evaluations,
+       * using the pre-computed weights. If @p compute_gradient is true, then
+       * the gradient of these polynomials are evaluated and averaged instead of
+       * the polynomials themselves.
+       *
+       * Communication is involved to exchange contributions from patch dofs on
+       * remote partitions.
+       *
+       * The result of these evaluations is stored in the @p component-th vector
+       * component of local_recovery_solution, then the ghost values are updated
+       * in recovery_solution.
        */
       void evaluate_and_average_recovery_solution(
         const RecoveryType type,
         const unsigned int derivative_order,
         const unsigned int component,
-        const bool         gradient = true);
+        const bool         compute_gradient = true);
 
       /**
        * Update the recovery solution with the last polynomials computed.
@@ -771,6 +805,8 @@ namespace ErrorEstimation
       std::vector<value_type>    recovered_solution_at_vertices;
       std::vector<gradient_type> recovered_gradient_at_vertices;
       std::vector<hessian_type>  recovered_hessian_at_vertices;
+      std::vector<third_derivative_type>
+        recovered_third_derivatives_at_vertices;
 
       /**
        * Maps to go from data stored at (owned) mesh vertices to their
@@ -784,6 +820,9 @@ namespace ErrorEstimation
       std::vector<std::array<types::global_dof_index,
                              hessian_type::n_independent_components>>
         vertices_to_hessian_dofs;
+      std::vector<std::array<types::global_dof_index,
+                             third_derivative_type::n_independent_components>>
+        vertices_to_third_derivatives_dofs;
 
       /**
        * Maps from FE solution dofs (in local_solution) to the dofs of their
@@ -799,6 +838,10 @@ namespace ErrorEstimation
                std::array<types::global_dof_index,
                           hessian_type::n_independent_components>>
         solution_dofs_to_hessian_dofs;
+      std::map<types::global_dof_index,
+               std::array<types::global_dof_index,
+                          third_derivative_type::n_independent_components>>
+        solution_dofs_to_third_derivatives_dofs;
     };
 
     /**
@@ -997,6 +1040,13 @@ namespace ErrorEstimation
     Scalar<dim>::get_reconstructed_hessian(const unsigned int) const
     {
       return recovered_hessian_at_vertices;
+    }
+
+    template <int dim>
+    const std::vector<Tensor<3, dim>> &
+    Scalar<dim>::get_reconstructed_third_derivatives(const unsigned int) const
+    {
+      return recovered_third_derivatives_at_vertices;
     }
 
     template <int dim>

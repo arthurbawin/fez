@@ -248,6 +248,9 @@ private:
         const Tensor<1, dim> u_conv = present_velocity_values[q];
         const double         nu =
           param.physical_properties.fluids[0].kinematic_viscosity;
+        const double tau_direction_threshold =
+          Stabilization::direction_norm_threshold_from_bdf(
+            time_handler.get_bdf_coefficients()[0]);
 
         // Δu + ∇(∇·u) — pure differential quantity, physic-independent.
         // Stored for reuse in CHNS Jacobian (supg_pspg_matrix_chns_phi).
@@ -270,12 +273,18 @@ private:
         strong_residual_momentum_ale[q] = Tensor<1, dim>();
         strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
 
-        const double h_tau = Stabilization::compute_streamline_length(
-          u_conv,
+        Stabilization::compute_geometry_shape_gradients<dim>(
           fe_values.inverse_jacobian(q),
           fe_values.get_quadrature().point(q),
           use_quads,
-          cell_diameter);
+          stabilization_geometry_shape_gradients[q]);
+        const double h_tau =
+          Stabilization::compute_streamline_length_from_geometry_gradients(
+            u_conv,
+            stabilization_geometry_shape_gradients[q],
+            cell_diameter,
+            tau_direction_threshold);
+        stabilization_h_tau[q] = h_tau;
         stabilization_tau_momentum[q] =
           Stabilization::compute_tau(time_handler.get_current_timestep(),
                                      param.time_integration.is_steady(),
@@ -605,15 +614,21 @@ private:
 
         const Tensor<1, dim> advection_velocity =
           present_velocity_values[q] - present_mesh_velocity_values[q];
-        // Tau is treated as an assembly-frozen coefficient: it follows the
-        // current mapped geometry here, but d(tau)/dX is not included in the
-        // analytical tangent.
-        const double h_tau = Stabilization::compute_streamline_length(
-          advection_velocity,
+        const double tau_direction_threshold =
+          Stabilization::direction_norm_threshold_from_bdf(
+            time_handler.get_bdf_coefficients()[0]);
+        Stabilization::compute_geometry_shape_gradients<dim>(
           fe_values_moving.inverse_jacobian(q),
           fe_values_moving.get_quadrature().point(q),
           use_quads,
-          cell_diameter);
+          stabilization_geometry_shape_gradients[q]);
+        const double h_tau =
+          Stabilization::compute_streamline_length_from_geometry_gradients(
+            advection_velocity,
+            stabilization_geometry_shape_gradients[q],
+            cell_diameter,
+            tau_direction_threshold);
+        stabilization_h_tau[q] = h_tau;
         stabilization_tau_momentum[q] = Stabilization::compute_tau(
           time_handler.get_current_timestep(),
           param.time_integration.is_steady(),
@@ -1050,6 +1065,9 @@ private:
       // reinit_pseudo_solid_cell, or is zero when enable_pseudo_solid is false.
       const Tensor<1, dim> u_conv =
         present_velocity_values[q] - present_mesh_velocity_values[q];
+      const double tau_direction_threshold =
+        Stabilization::direction_norm_threshold_from_bdf(
+          time_handler.get_bdf_coefficients()[0]);
 
       velocity_dot_tracer_gradient[q] = u_conv * tracer_gradients[q];
       present_convective_velocity[q]  = u_conv;
@@ -1123,12 +1141,18 @@ private:
           source_term_tracer[q];
 
         // τ — recalculated with ν_eff (momentum) and mobility (tracer).
-        const double h_tau = Stabilization::compute_streamline_length(
-          u_conv,
+        Stabilization::compute_geometry_shape_gradients<dim>(
           fe_values_moving.inverse_jacobian(q),
           fe_values_moving.get_quadrature().point(q),
           use_quads,
-          cell_diameter);
+          stabilization_geometry_shape_gradients[q]);
+        const double h_tau =
+          Stabilization::compute_streamline_length_from_geometry_gradients(
+            u_conv,
+            stabilization_geometry_shape_gradients[q],
+            cell_diameter,
+            tau_direction_threshold);
+        stabilization_h_tau[q] = h_tau;
         stabilization_tau_momentum[q] =
           Stabilization::compute_tau(time_handler.get_current_timestep(),
                                      param.time_integration.is_steady(),
@@ -1576,6 +1600,9 @@ public:
   std::vector<double>         strong_residual_tracer;
   std::vector<double>         stabilization_tau_momentum;
   std::vector<double>         stabilization_tau_tracer;
+  std::vector<double>         stabilization_h_tau;
+  std::vector<std::vector<Tensor<1, dim>>>
+    stabilization_geometry_shape_gradients;
   // CHNS: precomputed to avoid repeated division in assembly
   std::vector<double> stabilization_nu_eff;
   std::vector<double> stabilization_inv_rho;

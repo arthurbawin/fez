@@ -1354,7 +1354,7 @@ namespace ErrorEstimation
                 // Evaluate the polynomial reconstruction
                 const double val =
                   data.averaging_weight *
-                  this->evaluate_polynomial(pt,
+                  this->evaluate_polynomial(data.local_pt,
                                             *this->monomials_recovery,
                                             coeffs,
                                             basis);

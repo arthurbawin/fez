@@ -1,6 +1,167 @@
 
 #include <parameter_reader.h>
 
+#include <sstream>
+
+namespace
+{
+  void enter_path(ParameterHandler                &prm,
+                  const std::vector<std::string> &path)
+  {
+    for (const auto &subsection : path)
+      prm.enter_subsection(subsection);
+  }
+
+  void leave_path(ParameterHandler                &prm,
+                  const std::vector<std::string> &path)
+  {
+    for (unsigned int i = 0; i < path.size(); ++i)
+      prm.leave_subsection();
+  }
+
+  void append_parameter(std::ostringstream              &out,
+                        ParameterHandler               &prm,
+                        const std::vector<std::string> &path,
+                        const std::string              &entry)
+  {
+    enter_path(prm, path);
+    out << "/";
+    for (const auto &subsection : path)
+      out << subsection << "/";
+    out << entry << "=" << prm.get(entry) << "\n";
+    leave_path(prm, path);
+  }
+} // namespace
+
+template <int dim>
+std::string
+ParameterReader<dim>::make_presolved_mesh_position_fingerprint(
+  ParameterHandler &prm) const
+{
+  std::ostringstream out;
+
+  out << "format=1\n";
+  out << "template_dimension=" << dim << "\n";
+
+  append_parameter(out, prm, {"Dimension"}, "dimension");
+
+  append_parameter(out, prm, {"Mesh"}, "mesh file");
+  append_parameter(out, prm, {"Mesh"}, "use dealii cube mesh");
+  append_parameter(out, prm, {"Mesh"}, "dealii preset mesh");
+  append_parameter(out, prm, {"Mesh"}, "dealii mesh parameters");
+  append_parameter(out, prm, {"Mesh"}, "refinement level");
+
+  append_parameter(out, prm, {"FiniteElements"}, "use quads");
+  append_parameter(out, prm, {"FiniteElements"}, "Mesh position degree");
+
+  append_parameter(out, prm, {"Linear elasticity", "source term"},
+                   "Function expression");
+  append_parameter(out, prm, {"Linear elasticity", "source term"},
+                   "Function constants");
+  append_parameter(out, prm, {"Linear elasticity", "current mesh source term"},
+                   "enable");
+  append_parameter(out, prm, {"Linear elasticity", "current mesh source term"},
+                   "min multiplier");
+  append_parameter(out, prm, {"Linear elasticity", "current mesh source term"},
+                   "max multiplier");
+  append_parameter(out, prm, {"Linear elasticity", "current mesh source term"},
+                   "continuation steps");
+
+  append_parameter(out, prm, {"Physical properties"}, "number of pseudosolids");
+  for (unsigned int i = 0; i < physical_properties.n_pseudosolids; ++i)
+  {
+    const std::string subsection = "Pseudosolid " + std::to_string(i);
+    append_parameter(out,
+                     prm,
+                     {"Physical properties", subsection},
+                     "constitutive model");
+    append_parameter(out, prm, {"Physical properties", subsection},
+                     "ogden beta");
+    append_parameter(out,
+                     prm,
+                     {"Physical properties", subsection, "lame lambda"},
+                     "Function expression");
+    append_parameter(out,
+                     prm,
+                     {"Physical properties", subsection, "lame lambda"},
+                     "Function constants");
+    append_parameter(out,
+                     prm,
+                     {"Physical properties", subsection, "lame mu"},
+                     "Function expression");
+    append_parameter(out,
+                     prm,
+                     {"Physical properties", subsection, "lame mu"},
+                     "Function constants");
+  }
+
+  append_parameter(out, prm, {"Pseudosolid boundary conditions"}, "number");
+  for (unsigned int i = 0; i < bc_data.n_pseudosolid_bc; ++i)
+  {
+    const std::string subsection = "boundary " + std::to_string(i);
+    append_parameter(out,
+                     prm,
+                     {"Pseudosolid boundary conditions", subsection},
+                     "id");
+    append_parameter(out,
+                     prm,
+                     {"Pseudosolid boundary conditions", subsection},
+                     "name");
+    append_parameter(out,
+                     prm,
+                     {"Pseudosolid boundary conditions", subsection},
+                     "type");
+    for (const std::string component : {"x", "y", "z"})
+    {
+      append_parameter(out,
+                       prm,
+                       {"Pseudosolid boundary conditions",
+                        subsection,
+                        component},
+                       "type");
+      append_parameter(out,
+                       prm,
+                       {"Pseudosolid boundary conditions",
+                        subsection,
+                        component},
+                       "Function expression");
+      append_parameter(out,
+                       prm,
+                       {"Pseudosolid boundary conditions",
+                        subsection,
+                        component},
+                       "Function constants");
+    }
+  }
+
+  append_parameter(out, prm, {"Nonlinear solver"}, "tolerance");
+  append_parameter(out, prm, {"Nonlinear solver"}, "divergence_tolerance");
+  append_parameter(out, prm, {"Nonlinear solver"}, "max_iterations");
+  append_parameter(out, prm, {"Nonlinear solver"}, "enable_line_search");
+  append_parameter(out, prm, {"Nonlinear solver"}, "analytic_jacobian");
+  append_parameter(out,
+                   prm,
+                   {"Nonlinear solver", "reassembly heuristic"},
+                   "decrease tolerance");
+
+  append_parameter(out, prm, {"Linear solver", "linear elasticity"}, "method");
+  append_parameter(out,
+                   prm,
+                   {"Linear solver", "linear elasticity"},
+                   "tolerance");
+  append_parameter(out,
+                   prm,
+                   {"Linear solver", "linear elasticity"},
+                   "max iterations");
+  append_parameter(out,
+                   prm,
+                   {"Linear solver", "linear elasticity"},
+                   "ilu fill level");
+  append_parameter(out, prm, {"Linear solver", "linear elasticity"}, "reuse");
+
+  return out.str();
+}
+
 template <int dim>
 void ParameterReader<dim>::check_parameters() const
 {
@@ -116,6 +277,27 @@ void ParameterReader<dim>::check_parameters() const
       "be run. This is not compatible, as the source term for the linear "
       "elasticity equation and based on the manufactured solution is expected "
       "to be evaluated on the reference mesh."));
+
+  const auto cache_mode =
+    linear_elasticity.presolved_mesh_position_cache.mode;
+  const bool cache_enabled =
+    cache_mode !=
+    Parameters::LinearElasticity::PresolvedMeshPositionCache::Mode::off;
+
+  AssertThrow(
+    !(cache_enabled && checkpoint_restart.restart),
+    ExcMessage("The presolved mesh position cache is an initial-condition "
+               "cache and cannot be combined with a full checkpoint restart."));
+  AssertThrow(
+    !(cache_enabled && !linear_elasticity.use_as_presolver),
+    ExcMessage("The presolved mesh position cache is enabled, but "
+               "'use as presolver' is false. Keep 'use as presolver = true' "
+               "to request a presolved initial mesh position, and let the "
+               "cache mode decide whether it is loaded or recomputed."));
+  AssertThrow(
+    !(cache_enabled &&
+      linear_elasticity.presolved_mesh_position_cache.filename.empty()),
+    ExcMessage("The presolved mesh position cache filename cannot be empty."));
 }
 
 template class ParameterReader<2>;

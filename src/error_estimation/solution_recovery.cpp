@@ -13,6 +13,7 @@
 #include <utilities.h>
 
 #include <Eigen/Dense>
+#include <Eigen/IterativeLinearSolvers>
 
 namespace ErrorEstimation
 {
@@ -417,151 +418,189 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    void Scalar<dim>::create_solution_dofs_to_recovery_dofs_map()
+    double Base<dim>::evaluate_polynomial(
+      const Point<dim>             &p,
+      const PolynomialSpace<dim>   &polynomial_space,
+      const dealii::Vector<double> &polynomial_coeffs,
+      std::vector<double>          &basis)
     {
-      vertices_to_solution_dofs.clear();
-      vertices_to_gradient_dofs.clear();
-      vertices_to_hessian_dofs.clear();
-      vertices_to_third_derivatives_dofs.clear();
+      AssertDimension(polynomial_coeffs.size(), basis.size());
 
-      vertices_to_solution_dofs.resize(this->n_vertices);
-      vertices_to_gradient_dofs.resize(this->n_vertices);
-      vertices_to_hessian_dofs.resize(this->n_vertices);
-      vertices_to_third_derivatives_dofs.resize(this->n_vertices);
+      // Evaluate the polynomial space at p.
+      // Since the empty_* vectors are empty, only the basis is computed.
+      polynomial_space.evaluate(p,
+                                basis,
+                                empty_polynomial_space_grads,
+                                empty_polynomial_space_grad_grads,
+                                empty_polynomial_space_third_derivatives,
+                                empty_polynomial_space_fourth_derivatives);
+      double             res = 0;
+      const unsigned int n   = basis.size();
+      for (unsigned int i = 0; i < n; ++i)
+        res += polynomial_coeffs[i] * basis[i];
+      return res;
+    }
 
-      solution_dofs_to_recovery_dofs.clear();
-      solution_dofs_to_gradient_dofs.clear();
-      solution_dofs_to_hessian_dofs.clear();
-      solution_dofs_to_third_derivatives_dofs.clear();
+    template <int dim>
+    Tensor<1, dim> Base<dim>::evaluate_polynomial_gradient(
+      const Point<dim>             &p,
+      const PolynomialSpace<dim>   &polynomial_space,
+      const dealii::Vector<double> &scaled_polynomial_coeffs,
+      std::vector<Tensor<1, dim>>  &basis_gradients,
+      const Point<dim>             &scaling)
+    {
+      AssertDimension(scaled_polynomial_coeffs.size(), basis_gradients.size());
 
-      const unsigned int n_isoparam_dofs_per_cell =
-        this->isoparam_fe->n_dofs_per_cell();
+      // Evaluate the gradient of the polynomial space at p.
+      // Since the empty_* vectors are empty, only the gradient is computed.
+      polynomial_space.evaluate(p,
+                                empty_polynomial_space_values,
+                                basis_gradients,
+                                empty_polynomial_space_grad_grads,
+                                empty_polynomial_space_third_derivatives,
+                                empty_polynomial_space_fourth_derivatives);
+      Tensor<1, dim>     grad;
+      const unsigned int n = basis_gradients.size();
+      for (unsigned int i = 0; i < n; ++i)
+        grad += scaled_polynomial_coeffs[i] * basis_gradients[i];
+      for (unsigned int d = 0; d < dim; ++d)
+        grad[d] /= scaling[d];
+      return grad;
+    }
 
-      const unsigned int n_rec_dofs_per_cell = this->fe->n_dofs_per_cell();
-      std::vector<types::global_dof_index> local_rec_dof_indices(
-        n_rec_dofs_per_cell);
-
-      const unsigned int n_sol_dofs_per_cell =
-        this->solution_fe.n_dofs_per_cell();
-      std::vector<types::global_dof_index> local_sol_dof_indices(
-        n_sol_dofs_per_cell);
-
-      const unsigned int n_dofs_selected_component =
-        this->solution_fe.get_sub_fe(this->mask).n_dofs_per_cell();
-      std::vector<types::global_dof_index> solution_dofs(
-        n_dofs_selected_component);
-
-      // Loop over cells using the *recovery* dof handler
-      for (const auto &cell : this->dh.active_cell_iterators())
+    // Get the solution field u_h at the vertices of a patch
+    template <int dim>
+    void get_solution_values_on_patch(
+      const LA::ParVectorType &solution_with_additional_ghosts,
+      const Patch<dim>        &patch,
+      dealii::Vector<double>  &values_out)
+    {
+      unsigned int i = 0;
+      for (const auto &data : patch.neighbours)
       {
-        cell->get_dof_indices(local_rec_dof_indices);
-
-        // Get this cell as a solution dh iterator
-        const auto solution_cell =
-          cell->as_dof_handler_iterator(this->solution_dh);
-        solution_cell->get_dof_indices(local_sol_dof_indices);
-
-        // Get the solution dofs for this mask on this cell
-        for (unsigned int i = 0; i < n_sol_dofs_per_cell; ++i)
-        {
-          const auto component_shape =
-            this->solution_fe.system_to_component_index(i);
-          const unsigned int comp  = component_shape.first;
-          const unsigned int shape = component_shape.second;
-
-          if (this->mask[comp])
-            solution_dofs[shape] = local_sol_dof_indices[i];
-        }
-
-        // For each recovery dof on this cell, map it to the associated solution
-        // dof if their shape indices match.
-        for (unsigned int i = 0; i < n_rec_dofs_per_cell; ++i)
-        {
-          const auto component_shape = this->fe->system_to_component_index(i);
-          const unsigned int comp    = component_shape.first;
-          const unsigned int shape   = component_shape.second;
-
-          AssertIndexRange(shape, n_dofs_selected_component);
-
-          // Map the smoothed solution dofs
-          const int c_sol = comp - solution_offset;
-          if (c_sol == 0)
-          {
-            solution_dofs_to_recovery_dofs[solution_dofs[shape]][c_sol] =
-              local_rec_dof_indices[i];
-
-            // Also map the vertex data to isoparametric recovery dofs
-            // use "shape" as vertex_index
-            if (shape < n_isoparam_dofs_per_cell)
-            {
-              const auto vertex_index = cell->vertex_index(shape);
-              vertices_to_solution_dofs[vertex_index][c_sol] =
-                local_rec_dof_indices[i];
-            }
-          }
-
-          // Map the smoothed gradient dofs
-          if (this->highest_recovered_derivative > 0)
-          {
-            const int c_grad = comp - gradient_offset;
-            if (0 <= c_grad &&
-                c_grad < (int)gradient_type::n_independent_components)
-            {
-              solution_dofs_to_gradient_dofs[solution_dofs[shape]][c_grad] =
-                local_rec_dof_indices[i];
-
-              // Map the vertex data to isoparametric recovery dofs
-              if (shape < n_isoparam_dofs_per_cell)
-              {
-                const auto vertex_index = cell->vertex_index(shape);
-                vertices_to_gradient_dofs[vertex_index][c_grad] =
-                  local_rec_dof_indices[i];
-              }
-            }
-          }
-
-          // Map the smoothed hessian dofs
-          if (this->highest_recovered_derivative >= 1)
-          {
-            const int c_hess = comp - hessian_offset;
-            if (0 <= c_hess &&
-                c_hess < (int)hessian_type::n_independent_components)
-            {
-              solution_dofs_to_hessian_dofs[solution_dofs[shape]][c_hess] =
-                local_rec_dof_indices[i];
-
-              // Map the vertex data to isoparametric recovery dofs
-              if (shape < n_isoparam_dofs_per_cell)
-              {
-                const auto vertex_index = cell->vertex_index(shape);
-                vertices_to_hessian_dofs[vertex_index][c_hess] =
-                  local_rec_dof_indices[i];
-              }
-            }
-          }
-
-          // Map the smoothed third derivatives dofs
-          if (this->highest_recovered_derivative >= 2)
-          {
-            const int c_third = comp - third_derivative_offset;
-            if (0 <= c_third &&
-                c_third < (int)third_derivative_type::n_independent_components)
-            {
-              solution_dofs_to_third_derivatives_dofs[solution_dofs[shape]]
-                                                     [c_third] =
-                                                       local_rec_dof_indices[i];
-
-              // Map the vertex data to isoparametric recovery dofs
-              if (shape < n_isoparam_dofs_per_cell)
-              {
-                const auto vertex_index = cell->vertex_index(shape);
-                vertices_to_third_derivatives_dofs[vertex_index][c_third] =
-                  local_rec_dof_indices[i];
-              }
-            }
-          }
-        }
+        values_out[i] = solution_with_additional_ghosts[data.dof];
+        ++i;
       }
+    }
+
+    template <int dim>
+    void Base<dim>::solve_least_squares_problem(
+      const unsigned int      vertex_index,
+      dealii::Vector<double> &scaled_coeffs)
+    {
+      const Patch<dim> &patch  = this->patches[vertex_index];
+      const auto       &ls_mat = this->least_squares_matrices[vertex_index];
+      dealii::Vector<double> rhs(ls_mat.n());
+
+      // Extract local solution values for each component
+      get_solution_values_on_patch(this->solution_with_additional_ghosts,
+                                   patch,
+                                   rhs);
+
+      // Solve the least-squares system
+      ls_mat.vmult(scaled_coeffs, rhs);
+
+      /**
+       * FIXME:
+       * The least-squares matrix is full-rank but may be badly conditionned,
+       * typically near the boundaries where information is missing from one
+       * side. This yields solution coefficients which vary by orders of
+       * magnitude, in turn yielding noisy derivatives.
+       *
+       * To try and circumvent this, we can increase the size of the
+       * stencil by adding an extra layer of elements (not done yet, TODO),
+       * or solve only approximately the least-squares problem A*x = b, with
+       * A rectangular.
+       * This can be done here using Eigen's LeastSquaresConjugateGradient
+       * solver with a very lenient tolerance (e.g., 1e-4). It would be nice
+       * to find a criterion (e.g., a condition number threshold) to decide
+       * whether this solve is needed instead of the exact solve.
+       *
+       */
+      const bool solution_is_inaccurate = false;
+
+      if (solution_is_inaccurate)
+      {
+        const auto        &A = patch_handler.vandermonde_matrices[vertex_index];
+        const unsigned int m = A.m();
+        const unsigned int n = A.n();
+        Eigen::MatrixXd    emat = Eigen::MatrixXd::Zero(m, n);
+        Eigen::VectorXd    esol(n), erhs(m);
+        for (unsigned int i = 0; i < m; ++i)
+        {
+          erhs(i) = rhs(i);
+          for (unsigned int j = 0; j < n; ++j)
+            emat(i, j) = A(i, j);
+        }
+
+        /**
+         * Solve the least-squares system A*x = b directly, without using
+         * the least-squares matrix (A^T*A)^{-1} * A^T.
+         *
+         * The number of iterations and error can be retrieved with
+         * lscg.iterations() and lscg.error() respectively.
+         */
+        Eigen::LeastSquaresConjugateGradient<Eigen::MatrixXd> lscg;
+        lscg.compute(emat);
+        lscg.setTolerance(1e-5);
+        esol = lscg.solve(erhs);
+
+        for (unsigned int j = 0; j < n; ++j)
+          scaled_coeffs(j) = esol(j);
+      }
+    }
+
+    // Compute gradient at origin = sum_i coeffs_i * grad(P_i)(0)
+    template <int dim>
+    Tensor<1, dim> Base<dim>::gradient_at_origin(
+      const dealii::Vector<double> &scaled_polynomial_coeffs,
+      const Point<dim>             &scaling) const
+    {
+      Tensor<1, dim> grad;
+      // Compute scaled gradient
+      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
+        grad += scaled_polynomial_coeffs[i] *
+                this->gradients_of_recovery_monomials[i];
+      // Scale back
+      for (unsigned int d = 0; d < dim; ++d)
+        grad[d] /= scaling[d];
+      return grad;
+    }
+
+    // Compute hessian at origin = sum_i coeffs_i * hess(P_i)(0)
+    template <int dim>
+    Tensor<2, dim> Base<dim>::hessian_at_origin(
+      const dealii::Vector<double> &scaled_polynomial_coeffs,
+      const Point<dim>             &scaling) const
+    {
+      Tensor<2, dim> hess;
+      // Compute scaled hessian
+      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
+        hess +=
+          scaled_polynomial_coeffs[i] * this->hessians_of_recovery_monomials[i];
+      // Scale back
+      for (unsigned int di = 0; di < dim; ++di)
+        for (unsigned int dj = 0; dj < dim; ++dj)
+          hess[di][dj] /= (scaling[di] * scaling[dj]);
+      return hess;
+    }
+
+    template <int dim>
+    Tensor<3, dim> Base<dim>::third_derivatives_at_origin(
+      const dealii::Vector<double> &scaled_polynomial_coeffs,
+      const Point<dim>             &scaling) const
+    {
+      Tensor<3, dim> third;
+      // Compute scaled third derivatives
+      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
+        third += scaled_polynomial_coeffs[i] *
+                 this->third_derivatives_of_recovery_monomials[i];
+      // Scale back
+      for (unsigned int di = 0; di < dim; ++di)
+        for (unsigned int dj = 0; dj < dim; ++dj)
+          for (unsigned int dk = 0; dk < dim; ++dk)
+            third[di][dj][dk] /= (scaling[di] * scaling[dj] * scaling[dk]);
+      return third;
     }
 
     template <int dim>
@@ -790,51 +829,151 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    double Base<dim>::evaluate_polynomial(
-      const Point<dim>             &p,
-      const PolynomialSpace<dim>   &polynomial_space,
-      const dealii::Vector<double> &polynomial_coeffs,
-      std::vector<double>          &basis)
+    void Scalar<dim>::create_solution_dofs_to_recovery_dofs_map()
     {
-      AssertDimension(polynomial_coeffs.size(), basis.size());
+      vertices_to_solution_dofs.clear();
+      vertices_to_gradient_dofs.clear();
+      vertices_to_hessian_dofs.clear();
+      vertices_to_third_derivatives_dofs.clear();
 
-      // Evaluate the polynomial space at p.
-      // Since the empty_* vectors are empty, only the basis is computed.
-      polynomial_space.evaluate(p,
-                                basis,
-                                empty_polynomial_space_grads,
-                                empty_polynomial_space_grad_grads,
-                                empty_polynomial_space_third_derivatives,
-                                empty_polynomial_space_fourth_derivatives);
-      double             res = 0;
-      const unsigned int n   = basis.size();
-      for (unsigned int i = 0; i < n; ++i)
-        res += polynomial_coeffs[i] * basis[i];
-      return res;
-    }
+      vertices_to_solution_dofs.resize(this->n_vertices);
+      vertices_to_gradient_dofs.resize(this->n_vertices);
+      vertices_to_hessian_dofs.resize(this->n_vertices);
+      vertices_to_third_derivatives_dofs.resize(this->n_vertices);
 
-    template <int dim>
-    Tensor<1, dim> Base<dim>::evaluate_polynomial_gradient(
-      const Point<dim>             &p,
-      const PolynomialSpace<dim>   &polynomial_space,
-      const dealii::Vector<double> &polynomial_coeffs,
-      std::vector<Tensor<1, dim>>  &basis_gradients)
-    {
-      AssertDimension(polynomial_coeffs.size(), basis_gradients.size());
+      solution_dofs_to_recovery_dofs.clear();
+      solution_dofs_to_gradient_dofs.clear();
+      solution_dofs_to_hessian_dofs.clear();
+      solution_dofs_to_third_derivatives_dofs.clear();
 
-      // Evaluate the gradient of the polynomial space at p.
-      // Since the empty_* vectors are empty, only the gradient is computed.
-      polynomial_space.evaluate(p,
-                                empty_polynomial_space_values,
-                                basis_gradients,
-                                empty_polynomial_space_grad_grads,
-                                empty_polynomial_space_third_derivatives,
-                                empty_polynomial_space_fourth_derivatives);
-      Tensor<1, dim>     res;
-      const unsigned int n = basis_gradients.size();
-      for (unsigned int i = 0; i < n; ++i)
-        res += polynomial_coeffs[i] * basis_gradients[i];
-      return res;
+      const unsigned int n_isoparam_dofs_per_cell =
+        this->isoparam_fe->n_dofs_per_cell();
+
+      const unsigned int n_rec_dofs_per_cell = this->fe->n_dofs_per_cell();
+      std::vector<types::global_dof_index> local_rec_dof_indices(
+        n_rec_dofs_per_cell);
+
+      const unsigned int n_sol_dofs_per_cell =
+        this->solution_fe.n_dofs_per_cell();
+      std::vector<types::global_dof_index> local_sol_dof_indices(
+        n_sol_dofs_per_cell);
+
+      const unsigned int n_dofs_selected_component =
+        this->solution_fe.get_sub_fe(this->mask).n_dofs_per_cell();
+      std::vector<types::global_dof_index> solution_dofs(
+        n_dofs_selected_component);
+
+      // Loop over cells using the *recovery* dof handler
+      for (const auto &cell : this->dh.active_cell_iterators())
+      {
+        cell->get_dof_indices(local_rec_dof_indices);
+
+        // Get this cell as a solution dh iterator
+        const auto solution_cell =
+          cell->as_dof_handler_iterator(this->solution_dh);
+        solution_cell->get_dof_indices(local_sol_dof_indices);
+
+        // Get the solution dofs for this mask on this cell
+        for (unsigned int i = 0; i < n_sol_dofs_per_cell; ++i)
+        {
+          const auto component_shape =
+            this->solution_fe.system_to_component_index(i);
+          const unsigned int comp  = component_shape.first;
+          const unsigned int shape = component_shape.second;
+
+          if (this->mask[comp])
+            solution_dofs[shape] = local_sol_dof_indices[i];
+        }
+
+        // For each recovery dof on this cell, map it to the associated solution
+        // dof if their shape indices match.
+        for (unsigned int i = 0; i < n_rec_dofs_per_cell; ++i)
+        {
+          const auto component_shape = this->fe->system_to_component_index(i);
+          const unsigned int comp    = component_shape.first;
+          const unsigned int shape   = component_shape.second;
+
+          AssertIndexRange(shape, n_dofs_selected_component);
+
+          // Map the smoothed solution dofs
+          const int c_sol = comp - solution_offset;
+          if (c_sol == 0)
+          {
+            solution_dofs_to_recovery_dofs[solution_dofs[shape]][c_sol] =
+              local_rec_dof_indices[i];
+
+            // Also map the vertex data to isoparametric recovery dofs
+            // use "shape" as vertex_index
+            if (shape < n_isoparam_dofs_per_cell)
+            {
+              const auto vertex_index = cell->vertex_index(shape);
+              vertices_to_solution_dofs[vertex_index][c_sol] =
+                local_rec_dof_indices[i];
+            }
+          }
+
+          // Map the smoothed gradient dofs
+          if (this->highest_recovered_derivative > 0)
+          {
+            const int c_grad = comp - gradient_offset;
+            if (0 <= c_grad &&
+                c_grad < (int)gradient_type::n_independent_components)
+            {
+              solution_dofs_to_gradient_dofs[solution_dofs[shape]][c_grad] =
+                local_rec_dof_indices[i];
+
+              // Map the vertex data to isoparametric recovery dofs
+              if (shape < n_isoparam_dofs_per_cell)
+              {
+                const auto vertex_index = cell->vertex_index(shape);
+                vertices_to_gradient_dofs[vertex_index][c_grad] =
+                  local_rec_dof_indices[i];
+              }
+            }
+          }
+
+          // Map the smoothed hessian dofs
+          if (this->highest_recovered_derivative >= 1)
+          {
+            const int c_hess = comp - hessian_offset;
+            if (0 <= c_hess &&
+                c_hess < (int)hessian_type::n_independent_components)
+            {
+              solution_dofs_to_hessian_dofs[solution_dofs[shape]][c_hess] =
+                local_rec_dof_indices[i];
+
+              // Map the vertex data to isoparametric recovery dofs
+              if (shape < n_isoparam_dofs_per_cell)
+              {
+                const auto vertex_index = cell->vertex_index(shape);
+                vertices_to_hessian_dofs[vertex_index][c_hess] =
+                  local_rec_dof_indices[i];
+              }
+            }
+          }
+
+          // Map the smoothed third derivatives dofs
+          if (this->highest_recovered_derivative >= 2)
+          {
+            const int c_third = comp - third_derivative_offset;
+            if (0 <= c_third &&
+                c_third < (int)third_derivative_type::n_independent_components)
+            {
+              solution_dofs_to_third_derivatives_dofs[solution_dofs[shape]]
+                                                     [c_third] =
+                                                       local_rec_dof_indices[i];
+
+              // Map the vertex data to isoparametric recovery dofs
+              if (shape < n_isoparam_dofs_per_cell)
+              {
+                const auto vertex_index = cell->vertex_index(shape);
+                vertices_to_third_derivatives_dofs[vertex_index][c_third] =
+                  local_rec_dof_indices[i];
+              }
+            }
+          }
+        }
+      }
     }
 
     template <int dim>
@@ -1058,19 +1197,14 @@ namespace ErrorEstimation
           for (const auto &data : patch.neighbours)
             if (std::abs(data.averaging_weight) > 1e-14)
             {
-              Point<dim> pt = data.local_pt;
-
-              // Scale back?
-              // FIXME: it's probably more robust to keep the coefficients
-              // scaled in reconstruct_field(), and to keep the local coord
-              // here as well, instead of scaling back both...
-              for (unsigned int d = 0; d < dim; ++d)
-                pt[d] *= patch.scaling[d];
-
               // Evaluate the gradient of the polynomial reconstruction at
               // this dof's support point
-              const Tensor<1, dim> grad = this->evaluate_polynomial_gradient(
-                pt, *this->monomials_recovery, coeffs, basis_gradients);
+              const Tensor<1, dim> grad =
+                this->evaluate_polynomial_gradient(data.local_pt,
+                                                   *this->monomials_recovery,
+                                                   coeffs,
+                                                   basis_gradients,
+                                                   patch.scaling);
 
               // Add weighted average
               if (this->locally_owned_dofs.is_element(data.dof))
@@ -1121,7 +1255,7 @@ namespace ErrorEstimation
           offset = hessian_offset;
         if (type == RecoveryType::hessian)
           offset = third_derivative_offset;
-        
+
         offset += reconstruction_component * dim;
 
         for (unsigned int d = 0; d < dim; ++d)
@@ -1157,26 +1291,20 @@ namespace ErrorEstimation
           for (const auto &data : patch.neighbours)
             if (std::abs(data.averaging_weight) > 1e-14)
             {
-              Point<dim> pt = data.local_pt;
-
-              // Scale back?
-              // FIXME: it's probably more robust to keep the coefficients
-              // scaled in reconstruct_field(), and to keep the local coord
-              // here as well, instead of scaling back both...
-              for (unsigned int d = 0; d < dim; ++d)
-                pt[d] *= patch.scaling[d];
-
               if (compute_gradient)
               {
                 // Evaluate the gradient of the polynomial reconstruction at
                 // this dof's support point.
-                const Tensor<1, dim> grad = this->evaluate_polynomial_gradient(
-                  pt, *this->monomials_recovery, coeffs, basis_gradients);
+                const Tensor<1, dim> grad =
+                  this->evaluate_polynomial_gradient(data.local_pt,
+                                                     *this->monomials_recovery,
+                                                     coeffs,
+                                                     basis_gradients,
+                                                     patch.scaling);
 
                 for (unsigned int d = 0; d < dim; ++d)
                 {
                   const double val = data.averaging_weight * grad[d];
-
 
                   /* Get the dof index to increment in the recovery solution.
                    * Since we are averaging the gradient of the last obtained
@@ -1408,76 +1536,6 @@ namespace ErrorEstimation
       }
     }
 
-    // Get the solution field u_h at the vertices of a patch
-    template <int dim>
-    void get_solution_values_on_patch(
-      const LA::ParVectorType &solution_with_additional_ghosts,
-      const Patch<dim>        &patch,
-      dealii::Vector<double>  &values_out)
-    {
-      unsigned int i = 0;
-      for (const auto &data : patch.neighbours)
-      {
-        values_out[i] = solution_with_additional_ghosts[data.dof];
-        ++i;
-      }
-    }
-
-    template <int dim>
-    void Base<dim>::solve_least_squares_problem(const unsigned int vertex_index,
-                                                dealii::Vector<double> &coeffs)
-    {
-      const Patch<dim> &patch  = this->patches[vertex_index];
-      const auto       &ls_mat = this->least_squares_matrices[vertex_index];
-      dealii::Vector<double> rhs(ls_mat.n());
-
-      // Extract local solution values for each component
-      get_solution_values_on_patch(this->solution_with_additional_ghosts,
-                                   patch,
-                                   rhs);
-
-      // Solve the least-squares system
-      ls_mat.vmult(coeffs, rhs);
-
-      // Scale back
-      // FIXME: see other comment on scaling.
-      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
-        coeffs[i] /= this->monomials_recovery->compute_value(i, patch.scaling);
-    }
-
-    // Compute gradient at origin = sum_i coeffs_i * grad(P_i)(0)
-    template <int dim>
-    Tensor<1, dim> Base<dim>::gradient_at_origin(
-      const dealii::Vector<double> &polynomial_coeffs) const
-    {
-      Tensor<1, dim> grad;
-      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
-        grad += polynomial_coeffs[i] * this->gradients_of_recovery_monomials[i];
-      return grad;
-    }
-
-    // Compute hessian at origin = sum_i coeffs_i * hess(P_i)(0)
-    template <int dim>
-    Tensor<2, dim> Base<dim>::hessian_at_origin(
-      const dealii::Vector<double> &polynomial_coeffs) const
-    {
-      Tensor<2, dim> hess;
-      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
-        hess += polynomial_coeffs[i] * this->hessians_of_recovery_monomials[i];
-      return hess;
-    }
-
-    template <int dim>
-    Tensor<3, dim> Base<dim>::third_derivatives_at_origin(
-      const dealii::Vector<double> &polynomial_coeffs) const
-    {
-      Tensor<3, dim> res;
-      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
-        res += polynomial_coeffs[i] *
-               this->third_derivatives_of_recovery_monomials[i];
-      return res;
-    }
-
     template <int dim>
     void Scalar<dim>::reconstruct_field(const unsigned int derivative_order)
     {
@@ -1586,7 +1644,7 @@ namespace ErrorEstimation
             {
               recovered_solution_at_vertices[v] = coeffs[0];
               recovered_gradient_at_vertices[v] =
-                this->gradient_at_origin(coeffs);
+                this->gradient_at_origin(coeffs, this->patches[v].scaling);
 
               /**
                * If a single reconstruction is required (to reduce the noise
@@ -1597,10 +1655,11 @@ namespace ErrorEstimation
               {
                 if (this->highest_recovered_derivative > 1)
                   recovered_hessian_at_vertices[v] =
-                    this->hessian_at_origin(coeffs);
+                    this->hessian_at_origin(coeffs, this->patches[v].scaling);
                 if (this->highest_recovered_derivative > 2)
                   recovered_third_derivatives_at_vertices[v] =
-                    this->third_derivatives_at_origin(coeffs);
+                    this->third_derivatives_at_origin(coeffs,
+                                                      this->patches[v].scaling);
                 if (this->highest_recovered_derivative > 3)
                 {
                   DEAL_II_NOT_IMPLEMENTED();
@@ -1620,7 +1679,7 @@ namespace ErrorEstimation
               // recovered_gradient_at_vertices[v][d] = coeffs[0];
 
               recovered_hessian_at_vertices[v][d] =
-                this->gradient_at_origin(coeffs);
+                this->gradient_at_origin(coeffs, this->patches[v].scaling);
             }
             else if (derivative_order == 2)
             {
@@ -1632,7 +1691,7 @@ namespace ErrorEstimation
               // recovered_hessian_at_vertices[v][di][dj] = coeffs[0];
 
               recovered_third_derivatives_at_vertices[v][di][dj] =
-                this->gradient_at_origin(coeffs);
+                this->gradient_at_origin(coeffs, this->patches[v].scaling);
             }
             else
               DEAL_II_NOT_IMPLEMENTED();

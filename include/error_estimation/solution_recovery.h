@@ -372,9 +372,44 @@ namespace ErrorEstimation
                                      n_tensor_components>> &vertex_to_dofs);
 
       /**
-       * Evaluate at @p p the polynomial described by the basis
+       * Convenience function to solve the least square problem at a mesh
+       * vertex, and store the result in @p scaled_polynomial_coeffs.
+       *
+       * The least-squares matrix (from the PatchHandler) is expected to have
+       * been computed from the scaled position of the patch support points,
+       * in the local frame centered at the patch center. Thus, this function
+       * computes the scaled polynomial \hat{p}(\hat{x}), where
+       *
+       * \hat{x}_i := (x_i - x_center,i) / scaling_i.
+       *
+       * This polynomial is such that p(x) = \hat{p}(\hat{x}), so there is no
+       * need to scale back to evaluate to polynomial itself, but its
+       * derivatives must be scaled back according to the chain rule, for
+       * instance:
+       *
+       * grad p(x)
+       *  = (\partial \hat{x}/\partial x)^T \cdot \hat{grad}\hat{p}(\hat{x}).
+       *
+       * The transformation \partial \hat{x}/\partial x is diagonal, so one
+       * simply has to divide each component of the gradient, hessian, etc. by
+       * the corresponding scaling component, e.g.:
+       *
+       * (grad p(x))_i = (\hat{grad}\hat{p}(\hat{x}))_i / scaling_i,
+       *
+       * (hess p(x))_ij
+       *  = (\hat{hess}\hat{p}(\hat{x}))_ij / (scaling_i * scaling_j),
+       *
+       * and so on.
+       */
+      void solve_least_squares_problem(
+        const unsigned int      vertex_index,
+        dealii::Vector<double> &scaled_polynomial_coeffs);
+
+      /**
+       * Evaluate at @p p the scaled polynomial described by the basis
        * @p polynomial_space and the coefficients @p polynomial_coeffs.
-       * @p basis is a used as a temporary vector to store the polynomial basis at @p p.
+       * @p basis is used as a temporary vector to store the polynomial basis
+       * at @p p.
        */
       double
       evaluate_polynomial(const Point<dim>             &p,
@@ -383,46 +418,48 @@ namespace ErrorEstimation
                           std::vector<double>          &basis);
 
       /**
-       * Evaluate at @p p the gradient of the polynomial described by the basis
-       * @p polynomial_space and the coefficients @p polynomial_coeffs.
-       * @p basis_gradients is a used as a temporary vector to store the
+       * Evaluate at @p p the gradient of the scaled polynomial described by the
+       * basis @p polynomial_space and the coefficients @p scaled_polynomial_coeffs,
+       * then scale back the result to yield the gradient in physical
+       * coordinates according to the comments for the
+       * solve_least_squares_problem function.
+       * @p basis_gradients is used as a temporary vector to store the
        * gradient of the polynomial basis at @p p.
        */
       Tensor<1, dim> evaluate_polynomial_gradient(
         const Point<dim>             &p,
         const PolynomialSpace<dim>   &polynomial_space,
-        const dealii::Vector<double> &polynomial_coeffs,
-        std::vector<Tensor<1, dim>>  &basis_gradients);
+        const dealii::Vector<double> &scaled_polynomial_coeffs,
+        std::vector<Tensor<1, dim>>  &basis_gradients,
+        const Point<dim>             &scaling);
 
       /**
-       * Evaluate at 0 the gradient of the polynomial described by the local
-       * frame coefficients @p polynomial_coeffs.
+       * Evaluate at 0 the gradient of the scaled polynomial described by the
+       * local frame coefficients @p scaled_polynomial_coeffs, and scale back the
+       * result to yield the gradient in physical coordinates according to the
+       * comments for the solve_least_squares_problem function.
        */
       Tensor<1, dim>
-      gradient_at_origin(const dealii::Vector<double> &polynomial_coeffs) const;
+      gradient_at_origin(const dealii::Vector<double> &scaled_polynomial_coeffs,
+                         const Point<dim>             &scaling) const;
 
       /**
-       * Evaluate at 0 the hessian of the polynomial described by the local
-       * frame coefficients @p polynomial_coeffs.
+       * Evaluate at 0 the hessian of the scaled polynomial described by the
+       * local frame coefficients @p scaled_polynomial_coeffs, and scale back
+       * the result.
        */
       Tensor<2, dim>
-      hessian_at_origin(const dealii::Vector<double> &polynomial_coeffs) const;
+      hessian_at_origin(const dealii::Vector<double> &scaled_polynomial_coeffs,
+                        const Point<dim>             &scaling) const;
 
       /**
-       * Evaluate at 0 the third derivatives of the polynomial described by the
-       * local frame coefficients @p polynomial_coeffs.
+       * Evaluate at 0 the third derivatives of the scaled polynomial described
+       * by the local frame coefficients @p scaled_polynomial_coeffs, and scale
+       * back the result.
        */
       Tensor<3, dim> third_derivatives_at_origin(
-        const dealii::Vector<double> &polynomial_coeffs) const;
-
-      /**
-       * Convenience function to solve the least square problem at a mesh
-       * vertex,
-       * and store the result in @p polynomial_coeffs.
-       */
-      void
-      solve_least_squares_problem(const unsigned int      vertex_index,
-                                  dealii::Vector<double> &polynomial_coeffs);
+        const dealii::Vector<double> &scaled_polynomial_coeffs,
+        const Point<dim>             &scaling) const;
 
     protected:
       /**

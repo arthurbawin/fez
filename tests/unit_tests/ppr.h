@@ -16,7 +16,7 @@
 #include "types.h"
 
 /**
- * Tests the convergence of reconstructed solution and derivatives with the 
+ * Tests the convergence of reconstructed solution and derivatives with the
  * PPR (polynomial preserving recovery) operator.
  */
 template <int dim>

@@ -109,6 +109,16 @@ public:
   void write_pvd() const;
 
   /**
+   * Reload existing .pvd entries up to @p max_time.
+   *
+   * This is used after a checkpoint restart to preserve the visualization
+   * history written before the checkpoint, while dropping entries that may have
+   * been produced after the checkpoint but are no longer part of the restarted
+   * run.
+   */
+  void restore_pvd_entries_until_time(double max_time);
+
+  /**
    * Compute the hydrodynamic forces on the boundary prescribed in the forces
    * postprocessing parameters at the current time step. Adds these forces
    * to the forces table and write the table to the prescribed file if the time
@@ -288,6 +298,11 @@ private:
     const TableHandler                                   &table,
     const Parameters::PostProcessing::PostProcessingBase &postproc_base) const;
 
+  void remove_visualization_record(
+    std::vector<std::pair<double, std::string>> &visualization_records,
+    double                                      time,
+    const std::string                          &filename) const;
+
   /**
    * Assign a slice index to the faces on the sliced boundary.
    */
@@ -430,6 +445,9 @@ void PostProcessingHandler<dim>::output_volume_fields(
                                          time_handler.current_time_iteration,
                                          mpi_communicator,
                                          2);
+  remove_visualization_record(visualization_times_and_names,
+                              time_handler.current_time,
+                              pvtu_file);
   visualization_times_and_names.emplace_back(time_handler.current_time,
                                              pvtu_file);
   data_out->clear_data_vectors();
@@ -478,6 +496,9 @@ void PostProcessingHandler<dim>::output_skin_fields(
     time_handler.current_time_iteration,
     mpi_communicator,
     2);
+  remove_visualization_record(visualization_times_and_names_skin,
+                              time_handler.current_time,
+                              pvtu_file);
   visualization_times_and_names_skin.emplace_back(time_handler.current_time,
                                                   pvtu_file);
   data_out_skin->clear_data_vectors();

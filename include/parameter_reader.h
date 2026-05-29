@@ -77,6 +77,14 @@ public:
   void check_parameters() const;
 
   /**
+   * Build a canonical string containing the parameters that define the
+   * presolved mesh position. This string is stored in the cache metadata and
+   * compared before reusing a cached position field.
+   */
+  std::string
+  make_presolved_mesh_position_fingerprint(ParameterHandler &prm) const;
+
+  /**
    * Return true if the so-called transient fixed-point mesh adaptation method,
    * which converges N solution-mesh pairs on time sub-intervals in a
    * fixed-point loop, is enabled. This requires information from both the mesh
@@ -182,6 +190,9 @@ public:
     mms.read_parameters(prm);
     debug.read_parameters(prm);
     Parameters::read_metric_fields(prm, bc_data.n_metric_fields, metric_fields);
+
+    linear_elasticity.presolved_mesh_position_fingerprint =
+      make_presolved_mesh_position_fingerprint(prm);
 
     // Copy info coming from mesh adaptation that affects time integration
     time_integration.n_time_intervals = mesh.adaptation.metric.n_time_intervals;

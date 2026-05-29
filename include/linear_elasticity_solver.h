@@ -70,6 +70,20 @@ public:
    */
   virtual void run() override;
 
+  /**
+   * Try to initialize the solver from the presolved mesh position cache. This
+   * sets up the mesh, DoFs and vectors exactly as a presolver run would, then
+   * loads the cached position field by matching support points if its metadata
+   * matches the current parameters. Returns false when the cache is unavailable
+   * or stale in auto mode, and throws in read-only mode.
+   */
+  bool try_load_presolved_mesh_position_cache();
+
+  /**
+   * Write the current mesh position field to the presolved mesh position cache.
+   */
+  void write_presolved_mesh_position_cache() const;
+
   void reset();
 
   void set_time();

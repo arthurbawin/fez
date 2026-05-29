@@ -558,6 +558,20 @@ namespace Parameters
 
   struct LinearElasticity
   {
+    struct PresolvedMeshPositionCache
+    {
+      enum class Mode
+      {
+        off,
+        automatic,
+        force_recompute,
+        read_only
+      } mode;
+
+      // Filename used to write/read the cache file in the output directory.
+      std::string filename;
+    } presolved_mesh_position_cache;
+
     // If true, then the provided position source term is to be evaluated on
     // the current mesh, and not on the reference mesh where the elasticity
     // equation is solved (that is, we evaluate f(x(X)) instead of f(X).
@@ -582,6 +596,10 @@ namespace Parameters
     // of the linear elasticity solve. This requires that the input mesh also
     // comes from a .msh file.
     bool write_final_msh;
+
+    // Canonical description of the parameters that define the presolved mesh
+    // position. This is filled by ParameterReader once all parameters are read.
+    std::string presolved_mesh_position_fingerprint;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

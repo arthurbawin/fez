@@ -10,7 +10,22 @@ ID 4 -> InnerBoundary
 ID 5 -> Domain
 Number of degrees of freedom: 12938
 
-Time step 1 - Advancing to t = 0.1.
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = 0.000000000000e+00
+Fy = 0.000000000000e+00
+
+Mean position (geometric center) on boundary with id 4:
+x = +8.0000000000e+00
+y = +8.0000000000e+00
+
+Checking consistency between lambda integral and position BC:
+Integral of lambda on cylinder is +0.00000000e+00 +0.00000000e+00
+Prescribed displacement        is +0.00000000e+00 +8.88178420e-16
+                         Ratio is +0.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
+Max diff between displacements is +8.88178420e-16 +1.77635684e-15
+
+
+Time step 1 - Advancing to t = +1.00000000e-01.
 
 Forces on boundary with id 4 computed with method : lagrange_multiplier
 Fx = -0.000000000000e+00

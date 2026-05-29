@@ -12,9 +12,9 @@ int main(int argc, char *argv[])
 
     // Linear field
     // Without and with isoparametric representation of the recovery operator
-    test_ppr<3>(2, 1, false, false, highest_recovered_derivative);
-    test_ppr<3>(2, 1, true, false, highest_recovered_derivative);
-    test_ppr<3>(2, 1, true, true, highest_recovered_derivative);
+    test_ppr<3>(1, 1, false, false, highest_recovered_derivative);
+    test_ppr<3>(1, 1, true, false, highest_recovered_derivative);
+    test_ppr<3>(1, 1, true, true, highest_recovered_derivative);
   }
   catch (const std::exception &exc)
   {

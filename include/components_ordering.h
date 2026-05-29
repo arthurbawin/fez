@@ -100,6 +100,33 @@ public:
       DEAL_II_ASSERT_UNREACHABLE();
   }
 
+  /**
+   * Return the first variable component. Return an invalid number if the solver
+   * does not store the required variable, so it's best to check first if
+   * has_variable() above returns true for that variable.
+   */
+  inline unsigned int variable_to_first_component(
+    const SolverInfo::VariableType variable_type) const
+  {
+    using Type = SolverInfo::VariableType;
+    if (variable_type == Type::velocity)
+      return u_lower;
+    else if (variable_type == Type::pressure)
+      return p_lower;
+    else if (variable_type == Type::mesh_position)
+      return x_lower;
+    else if (variable_type == Type::lagrange_mult)
+      return l_lower;
+    else if (variable_type == Type::phase_tracer)
+      return phi_lower;
+    else if (variable_type == Type::phase_potential)
+      return mu_lower;
+    else if (variable_type == Type::temperature)
+      return t_lower;
+    else
+      DEAL_II_ASSERT_UNREACHABLE();
+  }
+
   inline SolverInfo::VariableType
   component_to_variable_type(const unsigned int component) const
   {

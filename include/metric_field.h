@@ -66,6 +66,11 @@ public:
   MetricField(const MetricField<dim> &other) = delete;
 
   /**
+   * Copy operator is deleted as well.
+   */
+  MetricField &operator=(const MetricField<dim> &other) = delete;
+
+  /**
    * Initialize this object from a valid (initialized) triangulation.
    */
   void reinit(const unsigned int          index,
@@ -78,6 +83,14 @@ public:
    * data, edges for gradation).
    */
   void clear();
+
+  /**
+   * Copy the metric tensors stored in @p other into the current metric field.
+   * This function simply copies the values into both underlying metrics
+   * representations, then updates the ghost values. Thus, it expects @p other
+   * to be a MetricField initialized on the same triangulation as this field.
+   */
+  void copy_metrics_from(const MetricField<dim> &other);
 
   /**
    * Set the metrics of this field to the analytical field described by @p function.

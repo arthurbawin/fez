@@ -12,6 +12,23 @@ ID 6 -> Outlet
 ID 7 -> Cylinder
 ID 8 -> Domain
 Number of degrees of freedom: 6477
+
+Forces on boundary with id 7 computed with method : stress_vector
+Fx = +1.157228e+02
+Fy = -9.081968e-02
+Fz = -1.132610e-03
+
+Forces per slice on boundary with id 7:
+Slice 0: Fx = +1.132103e+01	Fy = -1.630500e-01	Fz = +9.619221e-03	
+Slice 1: Fx = +1.004106e+01	Fy = -3.769826e-02	Fz = -3.991417e-03	
+Slice 2: Fx = +1.498380e+01	Fy = +3.870245e-01	Fz = -1.389610e-03	
+Slice 3: Fx = +9.663613e+00	Fy = +1.264879e-01	Fz = -8.147561e-03	
+Slice 4: Fx = +1.322031e+01	Fy = -9.909086e-03	Fz = +1.587426e-03	
+Slice 5: Fx = +1.036900e+01	Fy = -2.907477e-02	Fz = +3.546772e-04	
+Slice 6: Fx = +1.006035e+01	Fy = -2.870085e-02	Fz = +4.993968e-04	
+Slice 7: Fx = +1.357131e+01	Fy = +9.855680e-03	Fz = +4.251462e-03	
+Slice 8: Fx = +1.129190e+01	Fy = -1.436357e-01	Fz = +4.176992e-03	
+Slice 9: Fx = +1.120041e+01	Fy = -2.021190e-01	Fz = -8.093199e-03
 Newton iter.  0:          nonlinear residual = 8.43213200e+00
 Newton iter.  1:          nonlinear residual = 1.86194198e+00	(M)
 Newton iter.  2:          nonlinear residual = 7.54395525e-03	(M)

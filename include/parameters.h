@@ -141,7 +141,7 @@ namespace Parameters
          */
         unsigned int n_fixed_point;
 
-        unsigned int current_fixed_point_iteration;
+        unsigned int current_fixed_point_iteration = 0;
 
         // Level of verbosity of the MMG library
         unsigned int mmg_verbosity;
@@ -271,6 +271,31 @@ namespace Parameters
 
     // Degree of the temperature for the heat equation and energy equation
     unsigned int temperature_degree;
+
+    unsigned int
+    get_variable_degree(const SolverInfo::VariableType variable) const
+    {
+      using V = SolverInfo::VariableType;
+      switch (variable)
+      {
+        case V::velocity:
+          return velocity_degree;
+        case V::pressure:
+          return pressure_degree;
+        case V::mesh_position:
+          return mesh_position_degree;
+        case V::temperature:
+          return temperature_degree;
+        case V::phase_tracer:
+          return tracer_degree;
+        case V::phase_potential:
+          return potential_degree;
+        case V::lagrange_mult:
+          return no_slip_lagrange_mult_degree;
+        default:
+          DEAL_II_ASSERT_UNREACHABLE();
+      }
+    }
 
     struct QuadratureRule
     {

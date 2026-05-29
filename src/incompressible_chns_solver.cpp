@@ -1206,14 +1206,56 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   add_solver_specific_postprocessing_data()
 {
-  if constexpr (!with_moving_mesh)
+  if (!this->postproc_handler->should_output_volume_fields(this->time_handler))
     return;
-  else
-  {
-    if (!this->postproc_handler->should_output_volume_fields(
-          this->time_handler))
-      return;
 
+  const auto tracer_limiter =
+    CahnHilliard::get_limiter_function(this->param.cahn_hilliard);
+  const double density0 =
+    this->param.physical_properties.fluids[0].density;
+  const double density1 =
+    this->param.physical_properties.fluids[1].density;
+
+  auto density_field =
+    std::make_unique<PostProcessingTools::DG0DataField<dim>>(
+      this->triangulation,
+      fe->reference_cell().is_hyper_cube(),
+      std::vector<std::string>{"density"},
+      std::vector<DataComponentInterpretation::DataComponentInterpretation>{
+        DataComponentInterpretation::component_is_scalar});
+
+  FEValues<dim> fe_values(*this->moving_mapping,
+                          *fe,
+                          *this->quadrature,
+                          update_values | update_JxW_values);
+  std::vector<double> tracer_values(this->quadrature->size());
+
+  for (const auto &cell : this->dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+    {
+      fe_values.reinit(cell);
+      fe_values[tracer_extractor].get_function_values(this->present_solution,
+                                                       tracer_values);
+
+      double density_average = 0.0;
+      double cell_measure    = 0.0;
+      for (unsigned int q = 0; q < this->quadrature->size(); ++q)
+      {
+        const double JxW = fe_values.JxW(q);
+        const double phi = tracer_limiter(tracer_values[q]);
+        density_average +=
+          CahnHilliard::linear_mixing(phi, density0, density1) * JxW;
+        cell_measure += JxW;
+      }
+
+      density_field->set_cell_values(
+        cell, std::vector<double>{density_average / cell_measure});
+    }
+
+  this->postproc_handler->add_cell_dg0_data_field(std::move(density_field));
+
+  if constexpr (with_moving_mesh)
+  {
     MeshForcingPostProcessing::export_diagnostics<dim, with_enlarged>(
       *this->moving_mapping,
       *this->fixed_mapping,

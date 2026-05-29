@@ -5,12 +5,21 @@
 #include <deal.II/base/tensor.h>
 #include <deal.II/base/types.h>
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/fe/fe_dgq.h>
+#include <deal.II/fe/fe_simplex_p.h>
+#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values_extractors.h>
 #include <deal.II/hp/fe_collection.h>
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/vector.h>
+#include <deal.II/numerics/data_component_interpretation.h>
+#include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/data_out_faces.h>
+#include <stabilization_utils.h>
+
+#include <limits>
+#include <memory>
 
 using namespace dealii;
 
@@ -162,7 +171,13 @@ namespace PostProcessingTools
                          const DoFHandler<dim>            &dof_handler,
                          const hp::QCollection<dim> &cell_quadrature_collection,
                          const VectorType           &solution,
-                         const FEValuesExtractors::Vector &velocity_extractor);
+                         const FEValuesExtractors::Vector &velocity_extractor,
+                         const bool                        use_quads,
+                         const std::vector<VectorType>    *previous_solutions =
+                           nullptr,
+                         const std::vector<double> *bdf_coefficients = nullptr,
+                         const FEValuesExtractors::Vector *position_extractor =
+                           nullptr);
 
   /**
    * Non-hp version of the function above.
@@ -173,7 +188,13 @@ namespace PostProcessingTools
                          const DoFHandler<dim>            &dof_handler,
                          const Quadrature<dim>            &cell_quadrature,
                          const VectorType                 &solution,
-                         const FEValuesExtractors::Vector &velocity_extractor);
+                         const FEValuesExtractors::Vector &velocity_extractor,
+                         const bool                        use_quads,
+                         const std::vector<VectorType>    *previous_solutions =
+                           nullptr,
+                         const std::vector<double> *bdf_coefficients = nullptr,
+                         const FEValuesExtractors::Vector *position_extractor =
+                           nullptr);
 
   enum class SliceAxis : unsigned int
   {
@@ -198,9 +219,202 @@ namespace PostProcessingTools
                                    const unsigned int        n_slices,
                                    const SliceAxis           axis);
 
+  /**
+   * Discontinuous degree-zero auxiliary field used to export cellwise vector
+   * or tensor data as genuine dof-based VTU fields.
+   */
+  template <int dim>
+  class DG0DataField
+  {
+  public:
+    using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
+
+    DG0DataField(const Triangulation<dim>       &triangulation,
+                 const bool                      use_quads,
+                 const std::vector<std::string> &component_names,
+                 const std::vector<
+                   DataComponentInterpretation::DataComponentInterpretation>
+                   &component_interpretation);
+
+    const DoFHandler<dim> &get_dof_handler() const { return dof_handler; }
+
+    const Vector<double> &get_data() const { return data; }
+
+    const std::vector<std::string> &get_component_names() const
+    {
+      return component_names;
+    }
+
+    const std::vector<
+      DataComponentInterpretation::DataComponentInterpretation> &
+    get_component_interpretation() const
+    {
+      return component_interpretation;
+    }
+
+    void set_cell_values(const CellIterator        &cell,
+                         const std::vector<double> &values);
+    void set_cell_values(const CellIterator   &cell,
+                         const Tensor<1, dim> &values);
+    void set_cell_values(const CellIterator            &cell,
+                         const SymmetricTensor<2, dim> &values);
+
+  private:
+    std::unique_ptr<FiniteElement<dim>> fe;
+    DoFHandler<dim>                     dof_handler;
+    Vector<double>                      data;
+    std::vector<std::string>            component_names;
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      component_interpretation;
+    // Lookup table: active_cell_index -> DG0 global DOF indices.
+    // Built once at construction so set_cell_values works correctly regardless
+    // of which DoFHandler the caller's cell iterator comes from.
+    std::vector<std::vector<types::global_dof_index>> cell_to_dof_indices;
+  };
+
+  template <int dim>
+  std::vector<std::string>
+  make_vector_component_names(const std::string &field_name);
+
+  template <int dim>
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+  make_vector_component_interpretation();
+
+  template <int dim>
+  std::vector<std::string>
+  make_tensor_component_names(const std::string &field_name);
+
+  template <int dim>
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+  make_tensor_component_interpretation();
+
+  template <int dim>
+  void add_dg0_data_field(DataOut<dim>            &data_out,
+                          const DG0DataField<dim> &field);
+
 } // namespace PostProcessingTools
 
 /* ---------------- Template functions ----------------- */
+
+template <int dim>
+PostProcessingTools::DG0DataField<dim>::DG0DataField(
+  const Triangulation<dim>       &triangulation,
+  const bool                      use_quads,
+  const std::vector<std::string> &component_names,
+  const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    &component_interpretation)
+  : dof_handler(triangulation)
+  , component_names(component_names)
+  , component_interpretation(component_interpretation)
+{
+  AssertDimension(this->component_names.size(),
+                  this->component_interpretation.size());
+
+  if (use_quads)
+    fe = std::make_unique<FESystem<dim>>(FE_DGQ<dim>(0),
+                                         this->component_names.size());
+  else
+    fe = std::make_unique<FESystem<dim>>(FE_SimplexDGP<dim>(0),
+                                         this->component_names.size());
+
+  dof_handler.distribute_dofs(*fe);
+  data.reinit(dof_handler.n_dofs());
+
+  // Build lookup table: active_cell_index -> DG0 DOF indices.
+  cell_to_dof_indices.resize(triangulation.n_active_cells());
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned() || cell->is_ghost())
+    {
+      std::vector<types::global_dof_index> indices(fe->n_dofs_per_cell());
+      cell->get_dof_indices(indices);
+      cell_to_dof_indices[cell->active_cell_index()] = std::move(indices);
+    }
+}
+
+template <int dim>
+void PostProcessingTools::DG0DataField<dim>::set_cell_values(
+  const CellIterator        &cell,
+  const std::vector<double> &values)
+{
+  AssertDimension(values.size(), component_names.size());
+
+  // Use the pre-built table so this works regardless of which DoFHandler
+  // the caller's cell iterator is associated with.
+  const auto &local_dof_indices =
+    cell_to_dof_indices[cell->active_cell_index()];
+
+  for (unsigned int c = 0; c < values.size(); ++c)
+    data[local_dof_indices[c]] = values[c];
+}
+
+template <int dim>
+void PostProcessingTools::DG0DataField<dim>::set_cell_values(
+  const CellIterator   &cell,
+  const Tensor<1, dim> &values)
+{
+  AssertDimension(component_names.size(), dim);
+
+  std::vector<double> flattened(dim);
+  for (unsigned int d = 0; d < dim; ++d)
+    flattened[d] = values[d];
+
+  set_cell_values(cell, flattened);
+}
+
+template <int dim>
+void PostProcessingTools::DG0DataField<dim>::set_cell_values(
+  const CellIterator            &cell,
+  const SymmetricTensor<2, dim> &values)
+{
+  AssertDimension(component_names.size(), dim * dim);
+
+  std::vector<double> flattened(dim * dim);
+  for (unsigned int i = 0; i < dim; ++i)
+    for (unsigned int j = 0; j < dim; ++j)
+      flattened[i * dim + j] = values[i][j];
+
+  set_cell_values(cell, flattened);
+}
+
+template <int dim>
+std::vector<std::string>
+PostProcessingTools::make_vector_component_names(const std::string &field_name)
+{
+  return std::vector<std::string>(dim, field_name);
+}
+
+template <int dim>
+std::vector<DataComponentInterpretation::DataComponentInterpretation>
+PostProcessingTools::make_vector_component_interpretation()
+{
+  return std::vector<DataComponentInterpretation::DataComponentInterpretation>(
+    dim, DataComponentInterpretation::component_is_part_of_vector);
+}
+
+template <int dim>
+std::vector<std::string>
+PostProcessingTools::make_tensor_component_names(const std::string &field_name)
+{
+  return std::vector<std::string>(dim * dim, field_name);
+}
+
+template <int dim>
+std::vector<DataComponentInterpretation::DataComponentInterpretation>
+PostProcessingTools::make_tensor_component_interpretation()
+{
+  return std::vector<DataComponentInterpretation::DataComponentInterpretation>(
+    dim * dim, DataComponentInterpretation::component_is_part_of_tensor);
+}
+
+template <int dim>
+void PostProcessingTools::add_dg0_data_field(DataOut<dim>            &data_out,
+                                             const DG0DataField<dim> &field)
+{
+  data_out.add_data_vector(field.get_dof_handler(),
+                           field.get_data(),
+                           field.get_component_names(),
+                           field.get_component_interpretation());
+}
 
 template <int dim, typename VectorType>
 Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
@@ -595,32 +809,84 @@ double PostProcessingTools::compute_max_cfl(
   const DoFHandler<dim>            &dof_handler,
   const hp::QCollection<dim>       &cell_quadrature_collection,
   const VectorType                 &solution,
-  const FEValuesExtractors::Vector &velocity_extractor)
+  const FEValuesExtractors::Vector &velocity_extractor,
+  const bool                        use_quads,
+  const std::vector<VectorType>    *previous_solutions,
+  const std::vector<double>        *bdf_coefficients,
+  const FEValuesExtractors::Vector *position_extractor)
 {
   AssertDimension(solution.size(), dof_handler.n_dofs());
+
+  const bool use_mesh_velocity =
+    previous_solutions != nullptr && bdf_coefficients != nullptr &&
+    position_extractor != nullptr;
+  Assert((previous_solutions == nullptr) == (bdf_coefficients == nullptr),
+         ExcInternalError());
+  Assert((previous_solutions == nullptr) == (position_extractor == nullptr),
+         ExcInternalError());
+  if (use_mesh_velocity)
+    AssertDimension(bdf_coefficients->size(), previous_solutions->size() + 1);
 
   hp::FEValues<dim> hp_fe_values(mapping_collection,
                                  dof_handler.get_fe_collection(),
                                  cell_quadrature_collection,
-                                 UpdateFlags(update_values));
+                                 UpdateFlags(update_values |
+                                             update_inverse_jacobians));
 
   double                      local_max_cfl = 0.;
-  std::vector<Tensor<1, dim>> values;
+  std::vector<Tensor<1, dim>> velocity_values;
+  std::vector<Tensor<1, dim>> position_values;
+  std::vector<std::vector<Tensor<1, dim>>> previous_position_values;
+  if (use_mesh_velocity)
+    previous_position_values.resize(previous_solutions->size());
 
   for (const auto &cell : dof_handler.active_cell_iterators() |
                             IteratorFilters::LocallyOwnedCell())
   {
-    const double h = cell->diameter();
+    const double fallback_length = cell->diameter();
 
     hp_fe_values.reinit(cell);
     const FEValues<dim> &fe_values = hp_fe_values.get_present_fe_values();
 
-    values.resize(fe_values.n_quadrature_points);
-    fe_values[velocity_extractor].get_function_values(solution, values);
+    velocity_values.resize(fe_values.n_quadrature_points);
+    fe_values[velocity_extractor].get_function_values(solution, velocity_values);
+
+    if (use_mesh_velocity)
+    {
+      position_values.resize(fe_values.n_quadrature_points);
+      fe_values[*position_extractor].get_function_values(solution,
+                                                         position_values);
+      for (unsigned int i = 0; i < previous_solutions->size(); ++i)
+      {
+        previous_position_values[i].resize(fe_values.n_quadrature_points);
+        fe_values[*position_extractor].get_function_values(
+          (*previous_solutions)[i], previous_position_values[i]);
+      }
+    }
+
     for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
     {
-      const double velocity_norm = values[q].norm();
-      local_max_cfl              = std::max(local_max_cfl, velocity_norm / h);
+      Tensor<1, dim> advection_velocity = velocity_values[q];
+      if (use_mesh_velocity)
+      {
+        Tensor<1, dim> mesh_velocity =
+          (*bdf_coefficients)[0] * position_values[q];
+        for (unsigned int i = 1; i < bdf_coefficients->size(); ++i)
+          mesh_velocity +=
+            (*bdf_coefficients)[i] * previous_position_values[i - 1][q];
+        advection_velocity -= mesh_velocity;
+      }
+
+      const double h_stream = Stabilization::compute_streamline_length(
+        advection_velocity,
+        fe_values.inverse_jacobian(q),
+        fe_values.get_quadrature().point(q),
+        use_quads,
+        fallback_length);
+
+      if (h_stream > std::numeric_limits<double>::epsilon())
+        local_max_cfl =
+          std::max(local_max_cfl, advection_velocity.norm() / h_stream);
     }
   }
 
@@ -639,7 +905,11 @@ double PostProcessingTools::compute_max_cfl(
   const DoFHandler<dim>            &dof_handler,
   const Quadrature<dim>            &cell_quadrature,
   const VectorType                 &solution,
-  const FEValuesExtractors::Vector &velocity_extractor)
+  const FEValuesExtractors::Vector &velocity_extractor,
+  const bool                        use_quads,
+  const std::vector<VectorType>    *previous_solutions,
+  const std::vector<double>        *bdf_coefficients,
+  const FEValuesExtractors::Vector *position_extractor)
 {
   return PostProcessingTools::compute_max_cfl(
     timestep,
@@ -647,7 +917,11 @@ double PostProcessingTools::compute_max_cfl(
     dof_handler,
     hp::QCollection<dim>(cell_quadrature),
     solution,
-    velocity_extractor);
+    velocity_extractor,
+    use_quads,
+    previous_solutions,
+    bdf_coefficients,
+    position_extractor);
 }
 
 #endif

@@ -16,6 +16,8 @@
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <generic_solver.h>
+#include <linear_elasticity_solver.h>
+#include <mesh_and_dof_tools.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <post_processing_handler.h>
@@ -68,6 +70,8 @@ public:
    * in time until the end of the simulation.
    */
   virtual void run() override;
+
+  void update_constraints_for_evaluation_point();
 
   /**
    * Reset the solver between two runs. This is typically useful when running
@@ -187,6 +191,50 @@ public:
   virtual AffineConstraints<double> &get_nonzero_constraints() override;
 
   /**
+   * Overwrite SOlution from another solver
+   */
+  void
+  overwrite_position_from_presolver(LinearElasticitySolver<dim> &presolver);
+
+  void attach_presolver(LinearElasticitySolver<dim> *ps) { presolver = ps; }
+  // ANcienne approche de copie de la triangulation. Desormais on va copier le
+  // vecteur solution
+  //  parallel::fullydistributed::Triangulation<dim> &get_triangulation()
+  //  {
+  //   return triangulation;
+  //  }
+
+  // void steal_mesh(LinearElasticitySolver<dim> &other_solver)
+  // {
+  //   auto &my_mesh = this->get_triangulation();
+  //   auto &other_mesh = other_solver.get_triangulation();
+  //   my_mesh.copy_triangulation(other_mesh);
+  //   //other_mesh.clear();
+  //   const auto &comm = mpi_communicator;
+  //   const unsigned int rank =
+  //     dealii::Utilities::MPI::this_mpi_process(comm);
+
+  //   const unsigned long local =
+  //     my_mesh.n_locally_owned_active_cells();
+
+  //   const unsigned long sum =
+  //     dealii::Utilities::MPI::sum(local, comm);
+
+  //   if (rank == 0)
+  //   {
+  //     std::cout << "SUM locally_owned_active_cells = "
+  //               << sum
+  //               << " | global_active_cells = "
+  //               << my_mesh.n_global_active_cells()
+  //               << std::endl;
+  //   }
+
+  //   std::cout << "rank " << rank
+  //             << " owned_cells = " << local
+  //             << std::endl;
+  // }
+
+  /**
    * Update the inhomogeneous boundary conditions for the current time, after
    * time has been updated.
    */
@@ -301,11 +349,12 @@ public:
    * Compute the maximum CFL number based on the current mesh and solution.
    * This is the max over all mesh elements and quadrature nodes of
    *
-   *  CFL = ||u|| * dt/ h,
+   *  CFL = ||u_adv|| * dt / h_stream,
    *
-   * where ||u|| is the velocity norm and h is the (isotropic) cell size.
-   * The result is stored in the TimeHandler, to be used for time step
-   * adaptation.
+   * where h_stream is the same directional mesh length used by the
+   * SUPG/PSPG stabilization. In ALE, the advective velocity is relative to the
+   * mesh motion: u_adv = u - w_mesh. The result is stored in the TimeHandler,
+   * to be used for time step adaptation.
    */
   void compute_max_cfl();
 
@@ -450,6 +499,8 @@ protected:
 
 protected:
   std::unique_ptr<ComponentOrdering> ordering;
+
+  LinearElasticitySolver<dim> *presolver = nullptr;
 
   ParameterReader<dim> param;
 

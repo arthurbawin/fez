@@ -1,6 +1,7 @@
 
 #include <assembly/boundary_forms.h>
 #include <assembly/lagrange_multiplier.h>
+#include <assembly/stabilization_forms.h>
 #include <boundary_conditions.h>
 #include <compare_matrix.h>
 #include <components_ordering.h>
@@ -805,6 +806,11 @@ void NSSolverLambda<dim>::create_sparsity_pattern()
         if (this->ordering->is_velocity(d))
           coupling[c][d] = DoFTools::always;
 
+      // p-p coupling for PSPG stabilization
+      if (this->ordering->is_pressure(c) && this->ordering->is_pressure(d))
+        if (this->param.finite_elements.stabilization)
+          coupling[c][d] = DoFTools::always;
+
       // lambda couples to u
       if (this->ordering->is_lambda(c))
         if (this->ordering->is_velocity(d))
@@ -907,14 +913,13 @@ void NSSolverLambda<dim>::assemble_local_matrix(
         if (i_is_u && j_is_u)
         {
           assemble = true;
-
           // Time-dependent
           local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
           // Convection
           local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
                               present_velocity_gradients * phi_u[j]) *
                              phi_u[i];
-          // Diffusion
+          // Diffusion (divergence formulation)
           local_matrix_ij +=
             2. * nu * scalar_product(sym_grad_phi_u[j], grad_phi_u[i]);
         }
@@ -922,7 +927,6 @@ void NSSolverLambda<dim>::assemble_local_matrix(
         if (i_is_u && j_is_p)
         {
           assemble = true;
-
           // Pressure gradient
           local_matrix_ij += -div_phi_u[i] * phi_p[j];
         }
@@ -930,8 +934,7 @@ void NSSolverLambda<dim>::assemble_local_matrix(
         if (i_is_p && j_is_u)
         {
           assemble = true;
-
-          // Continuity : variation w.r.t. u
+          // Continuity
           local_matrix_ij += -phi_p[i] * div_phi_u[j];
         }
 
@@ -943,6 +946,15 @@ void NSSolverLambda<dim>::assemble_local_matrix(
       }
     }
   }
+
+  Assembly::assemble_ns_matrix_stabilization<dim>(
+    *this->ordering,
+    this->coupling_table,
+    scratch_data,
+    nu,
+    bdf_c0,
+    this->param.finite_elements.stabilization,
+    local_matrix);
 
   //
   // Face contributions (Lagrange multiplier)
@@ -1099,30 +1111,30 @@ void NSSolverLambda<dim>::assemble_local_rhs(
       double local_rhs_i = -(
         // Transient
         dudt * phi_u[i]
-
         // Convection
         + (present_velocity_gradients * present_velocity_values) * phi_u[i]
-
-        // Diffusion
+        // Diffusion (divergence formulation)
         +
         2. * nu * scalar_product(present_velocity_sym_gradients, grad_phi_u[i])
-
         // Pressure gradient
         - div_phi_u[i] * present_pressure_values
-
         // Momentum source term
         + phi_u[i] * source_term_velocity
-
         // Continuity
         - present_velocity_divergence * phi_p[i]
-
         // Pressure source term
         + source_term_pressure * phi_p[i]);
 
-      local_rhs_i *= JxW_moving;
-      local_rhs(i) += local_rhs_i;
+      local_rhs(i) += local_rhs_i * JxW_moving;
     }
   }
+
+  Assembly::assemble_ns_rhs_stabilization<dim>(
+    *this->ordering,
+    scratch_data,
+    this->param.finite_elements.stabilization,
+    local_rhs);
+
 
   //
   // Face contributions

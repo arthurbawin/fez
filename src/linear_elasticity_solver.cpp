@@ -1,4 +1,4 @@
-
+#include <assembly/pseudosolid_forms.h>
 #include <compare_matrix.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -8,6 +8,7 @@
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/vector_tools_evaluate.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
@@ -17,6 +18,22 @@
 #include <post_processing_tools.h>
 #include <solver_info.h>
 #include <utilities.h>
+
+#include <cmath>
+
+#if defined(DEAL_II_GMSH_WITH_API)
+#  include <gmsh.h>
+#endif
+
+namespace
+{
+  bool
+  has_msh_extension(const std::string &filename)
+  {
+    return filename.size() >= 4 &&
+           filename.substr(filename.size() - 4, 4) == ".msh";
+  }
+} // namespace
 
 template <int dim>
 LinearElasticitySolver<dim>::LinearElasticitySolver(
@@ -86,11 +103,26 @@ void LinearElasticitySolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
-  Tensor<1, dim> f = mms.exact_mesh_position
-                       ->divergence_linear_elastic_stress_variable_coefficients(
-                         p,
-                         physical_properties.pseudosolids[0].lame_mu_fun,
-                         physical_properties.pseudosolids[0].lame_lambda_fun);
+  const auto    &pseudosolid = physical_properties.pseudosolids[0];
+  Tensor<1, dim> f;
+
+  if (pseudosolid.constitutive_model ==
+      Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
+    f = mms.exact_mesh_position
+          ->divergence_neo_hookean_stress_variable_coefficients(
+            p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
+	  else if (pseudosolid.constitutive_model ==
+	           Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
+	    f = mms.exact_mesh_position
+	          ->divergence_ogden_stress_variable_coefficients(
+	            p,
+	            pseudosolid.lame_mu_fun,
+	            pseudosolid.lame_lambda_fun,
+	            pseudosolid.ogden_beta);
+  else
+    f = mms.exact_mesh_position
+          ->divergence_linear_elastic_stress_variable_coefficients(
+            p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[d] = f[d];
@@ -103,6 +135,9 @@ void LinearElasticitySolver<dim>::reset()
   param.mms_param.mesh_suffix  = mms_param.mesh_suffix;
   param.mesh.filename          = mesh_param.filename;
   param.time_integration.dt    = time_param.dt;
+  strain_cache_is_valid        = false;
+  cached_strain_trace.reinit(0);
+  cached_strain_tensors.clear();
 
   // Mesh
   triangulation.clear();
@@ -141,12 +176,27 @@ void LinearElasticitySolver<dim>::run()
       param.linear_elasticity.max_current_mesh_source_term_multiplier;
     const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
 
+    const auto constitutive_model =
+      param.physical_properties.pseudosolids[0].constitutive_model;
+    const bool use_arithmetic_continuation =
+      constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean ||
+      constitutive_model ==
+        Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden;
+
     source_term_moving_mesh_multiplier = c_min;
     source_term_fixed_mesh_multiplier  = 0.;
 
-    // Use a geometric progression to increase the continuation parameter
+    // Linear elasticity: geometric progression; finite-deformation
+    // hyperelastic laws: arithmetic progression.
     const double r =
-      n_steps > 1 ? std::pow(c_max / c_min, 1.0 / (n_steps - 1)) : 1.;
+      (!use_arithmetic_continuation && n_steps > 1) ?
+        std::pow(c_max / c_min, 1.0 / (n_steps - 1)) :
+        1.;
+    const double step =
+      (use_arithmetic_continuation && n_steps > 1) ?
+        (c_max - c_min) / static_cast<double>(n_steps - 1) :
+        0.;
 
     for (unsigned int n = 0; n < n_steps; ++n)
     {
@@ -160,7 +210,10 @@ void LinearElasticitySolver<dim>::run()
         compare_analytical_matrix_with_fd();
       solve_nonlinear_problem(time_handler);
 
-      source_term_moving_mesh_multiplier *= r;
+      if (!use_arithmetic_continuation)
+        source_term_moving_mesh_multiplier *= r;
+      else
+        source_term_moving_mesh_multiplier += step;
     }
   }
   else
@@ -298,7 +351,6 @@ void LinearElasticitySolver<dim>::assemble_matrix()
   TimerOutput::Scope t(computing_timer, "Assemble matrix");
 
   system_matrix = 0;
-
   CopyData copyData(fe->n_dofs_per_cell());
 
 #if defined(FEZ_WITH_PETSC)
@@ -357,6 +409,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
   local_matrix       = 0;
 
   const double alpha = source_term_moving_mesh_multiplier;
+  const auto  &ps    = param.physical_properties.pseudosolids[0];
 
   //
   // Volume contributions
@@ -366,28 +419,41 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
     const double JxW         = scratch_data.JxW[q];
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
-    const auto  &phi_x       = scratch_data.phi_x[q];
-    const auto  &grad_phi_x  = scratch_data.grad_phi_x[q];
-    const auto  &div_phi_x   = scratch_data.div_phi_x[q];
+
+    const auto &phi_x      = scratch_data.phi_x[q];
+    const auto &grad_phi_x = scratch_data.grad_phi_x[q];
+    const auto &div_phi_x  = scratch_data.div_phi_x[q];
 
     const Tensor<2, dim> &grad_source_current_mesh =
       scratch_data.grad_source_term_position_current_mesh[q];
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      const auto &phi_x_i          = phi_x[i];
-      const auto &sym_grad_phi_x_i = symmetrize(grad_phi_x[i]);
-      const auto &div_phi_x_i      = div_phi_x[i];
+      const auto &phi_x_i      = phi_x[i];
+      const auto &grad_phi_x_i = grad_phi_x[i];
+      const auto &div_phi_x_i  = div_phi_x[i];
 
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
-        const auto &phi_x_j          = phi_x[j];
-        const auto &sym_grad_phi_x_j = symmetrize(grad_phi_x[j]);
-        const auto &div_phi_x_j      = div_phi_x[j];
+        const auto &phi_x_j      = phi_x[j];
+        const auto &grad_phi_x_j = grad_phi_x[j];
+        const auto &div_phi_x_j  = div_phi_x[j];
 
         local_matrix(i, j) +=
-          (lame_lambda * div_phi_x_j * div_phi_x_i +
-           2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i) +
+          (Assembly::Pseudosolid::matrix_contribution(ps,
+                                                      lame_mu,
+                                                      lame_lambda,
+                                                      scratch_data
+                                                        .position_gradients[q],
+                                                      scratch_data
+                                                        .position_inv_gradients[q],
+                                                      scratch_data
+                                                        .position_inv_gradients_T[q],
+                                                      scratch_data.position_J[q],
+                                                      div_phi_x_i,
+                                                      grad_phi_x_i,
+                                                      div_phi_x_j,
+                                                      grad_phi_x_j) +
            alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
           JxW;
       }
@@ -444,7 +510,6 @@ void LinearElasticitySolver<dim>::assemble_rhs()
   TimerOutput::Scope t(computing_timer, "Assemble RHS");
 
   system_rhs = 0;
-
   CopyData copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
@@ -477,12 +542,11 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
 
   const double alpha = source_term_moving_mesh_multiplier;
   const double gamma = source_term_fixed_mesh_multiplier;
+  const auto  &ps    = param.physical_properties.pseudosolids[0];
 
   // alpha and gamma cannot both be nonzero
   Assert(!(std::abs(alpha) > 1e-14 && std::abs(gamma) > 1e-14),
          ExcInternalError());
-
-  const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
 
   //
   // Volume contributions
@@ -493,19 +557,18 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     const double lame_mu     = scratch_data.lame_mu[q];
     const double lame_lambda = scratch_data.lame_lambda[q];
 
-    const auto &position_sym_gradient = scratch_data.position_sym_gradients[q];
     const auto &source_term_position_moving_mesh =
       scratch_data.source_term_position_current_mesh[q];
     const auto &source_term_position_fixed_mesh =
       scratch_data.source_term_position[q];
-
     // The source term to use : using coefficients which cannot be both nonzero
     // avois using a condition
     const auto source_term = alpha * source_term_position_moving_mesh +
                              gamma * source_term_position_fixed_mesh;
 
-    const auto strain       = position_sym_gradient - identity_tensor;
-    const auto trace_strain = trace(strain);
+    const Tensor<2, dim> strain =
+      Tensor<2, dim>(scratch_data.position_strains[q]);
+    const auto trace_strain = scratch_data.position_trace_strains[q];
 
     const auto &phi_x      = scratch_data.phi_x[q];
     const auto &grad_phi_x = scratch_data.grad_phi_x[q];
@@ -513,10 +576,21 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
-      local_rhs(i) -= (lame_lambda * trace_strain * div_phi_x[i] +
-                       2. * lame_mu * scalar_product(strain, grad_phi_x[i]) +
-                       phi_x[i] * source_term) *
-                      JxW;
+      local_rhs(i) -=
+        (Assembly::Pseudosolid::rhs_contribution(ps,
+                                                 lame_mu,
+                                                 lame_lambda,
+                                                 trace_strain,
+                                                 strain,
+                                                 scratch_data
+                                                   .position_gradients[q],
+                                                 scratch_data
+                                                   .position_inv_gradients_T[q],
+                                                 scratch_data.position_J[q],
+                                                 div_phi_x[i],
+                                                 grad_phi_x[i]) +
+         phi_x[i] * source_term) *
+        JxW;
     }
   }
 
@@ -580,6 +654,44 @@ void LinearElasticitySolver<dim>::solve_linear_system()
 }
 
 template <int dim>
+void LinearElasticitySolver<dim>::compute_cell_average_strain(
+  std::vector<SymmetricTensor<2, dim>> &strain_tensors,
+  Vector<double>                       &strain_trace)
+{
+  const QGauss<dim>     quadrature_formula(fe->degree + 1);
+  const QGauss<dim - 1> face_quadrature_formula(fe->degree + 1);
+  ScratchData           scratch_data(
+    *fe, *mapping, quadrature_formula, face_quadrature_formula, param);
+  const unsigned int n_active_cells = triangulation.n_active_cells();
+
+  strain_tensors.assign(n_active_cells, SymmetricTensor<2, dim>());
+  strain_trace.reinit(n_active_cells);
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+  {
+    if (cell->is_locally_owned() || cell->is_ghost())
+    {
+      scratch_data.reinit(cell, present_solution, source_terms, exact_solution);
+
+      SymmetricTensor<2, dim> eps_avg;
+      double                  measure = 0.0;
+
+      for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
+      {
+        eps_avg += scratch_data.position_strains[q] * scratch_data.JxW[q];
+        measure += scratch_data.JxW[q];
+      }
+
+      eps_avg /= measure;
+
+      const unsigned int idx = cell->active_cell_index();
+      strain_tensors[idx]    = eps_avg;
+      strain_trace(idx)      = trace(eps_avg);
+    }
+  }
+}
+
+template <int dim>
 void LinearElasticitySolver<dim>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
@@ -596,6 +708,34 @@ void LinearElasticitySolver<dim>::output_results()
                              solution_names,
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
+
+    std::vector<SymmetricTensor<2, dim>> strain_tensors;
+    Vector<double>                       strain_trace;
+
+    if (strain_cache_is_valid)
+    {
+      strain_tensors = cached_strain_tensors;
+      strain_trace   = cached_strain_trace;
+    }
+    else
+      compute_cell_average_strain(strain_tensors, strain_trace);
+
+    PostProcessingTools::DG0DataField<dim> strain_field(
+      triangulation,
+      param.finite_elements.use_quads,
+      PostProcessingTools::make_tensor_component_names<dim>("strain"),
+      PostProcessingTools::make_tensor_component_interpretation<dim>());
+
+    for (const auto &cell :
+         strain_field.get_dof_handler().active_cell_iterators())
+      if (cell->is_locally_owned() || cell->is_ghost())
+        strain_field.set_cell_values(cell,
+                                     strain_tensors[cell->active_cell_index()]);
+
+    PostProcessingTools::add_dg0_data_field(data_out, strain_field);
+    data_out.add_data_vector(strain_trace,
+                             "strain_trace",
+                             DataOut<dim>::type_cell_data);
     // Partition
     Vector<float> subdomain(triangulation.n_active_cells());
     for (unsigned int i = 0; i < subdomain.size(); ++i)
@@ -617,18 +757,131 @@ void LinearElasticitySolver<dim>::output_results()
 template <int dim>
 void LinearElasticitySolver<dim>::move_mesh()
 {
+  present_solution.update_ghost_values();
+
+  const IndexSet locally_owned = dof_handler.locally_owned_dofs();
+
   std::vector<bool> vertex_moved(triangulation.n_vertices(), false);
+  std::vector<bool> vertex_locally_moved(triangulation.n_vertices(), false);
+
   for (auto &cell : dof_handler.active_cell_iterators())
     if (cell->is_locally_owned())
       for (const auto v : cell->vertex_indices())
-        // if (owned_vertices[cell->vertex_index(v)])
-        if (!vertex_moved[cell->vertex_index(v)])
-        {
-          vertex_moved[cell->vertex_index(v)] = true;
-          for (unsigned int d = 0; d < dim; ++d)
-            cell->vertex(v)[d] = present_solution(cell->vertex_dof_index(v, d));
-        }
+      {
+        const auto vid = cell->vertex_index(v);
+        if (vertex_moved[vid])
+          continue;
+
+        // this rank owns the vertex if all dim position dofs are locally-owned
+        bool i_own_vertex = true;
+        for (unsigned int d = 0; d < dim; ++d)
+          i_own_vertex = i_own_vertex &&
+                         locally_owned.is_element(cell->vertex_dof_index(v, d));
+
+        // mark as visited so we don't process it again
+        vertex_moved[vid] = true;
+
+        if (!i_own_vertex)
+          continue;
+
+        // move vertex to its new position
+        for (unsigned int d = 0; d < dim; ++d)
+          cell->vertex(v)[d] = present_solution(cell->vertex_dof_index(v, d));
+
+        vertex_locally_moved[vid] = true;
+      }
+
+  // sync moved vertices across MPI boundaries
+  triangulation.communicate_locally_moved_vertices(vertex_locally_moved);
 }
+
+template <int dim>
+void LinearElasticitySolver<dim>::write_final_msh()
+{
+  if (!param.linear_elasticity.write_final_msh)
+    return;
+
+  AssertThrow(
+    has_msh_extension(param.mesh.filename),
+    ExcMessage("Writing the final deformed mesh requires the input mesh to "
+               "come from a Gmsh .msh file."));
+
+#if defined(DEAL_II_GMSH_WITH_API)
+  const unsigned int rank = Utilities::MPI::this_mpi_process(mpi_communicator);
+
+  std::vector<std::size_t> node_tags;
+  std::vector<double>      node_coordinates;
+  std::vector<Point<dim>>  evaluation_points;
+
+  if (rank == 0)
+  {
+    gmsh::initialize();
+    gmsh::option::setNumber("General.Verbosity", 2);
+    gmsh::open(param.mesh.filename);
+
+    std::vector<double> parametric_coordinates;
+    gmsh::model::mesh::getNodes(node_tags,
+                                node_coordinates,
+                                parametric_coordinates,
+                                -1,
+                                -1,
+                                false,
+                                false);
+
+    evaluation_points.reserve(node_tags.size());
+    for (unsigned int i = 0; i < node_tags.size(); ++i)
+    {
+      Point<dim> point;
+      for (unsigned int d = 0; d < dim; ++d)
+        point[d] = node_coordinates[3 * i + d];
+      evaluation_points.push_back(point);
+    }
+  }
+
+  present_solution.update_ghost_values();
+
+  Utilities::MPI::RemotePointEvaluation<dim> cache;
+  const auto deformed_positions = VectorTools::point_values<dim>(
+    *mapping, dof_handler, present_solution, evaluation_points, cache);
+
+  AssertThrow(cache.all_points_found(),
+              ExcMessage(
+                "Could not evaluate the deformed mesh position at all Gmsh "
+                "nodes when writing the final .msh file."));
+
+  if (rank == 0)
+  {
+    AssertDimension(deformed_positions.size(), node_tags.size());
+
+    for (unsigned int i = 0; i < node_tags.size(); ++i)
+    {
+      std::vector<double> coordinates(3, 0.0);
+      for (unsigned int d = 0; d < dim; ++d)
+        coordinates[d] = deformed_positions[i][d];
+      if constexpr (dim == 2)
+        coordinates[2] = node_coordinates[3 * i + 2];
+
+      gmsh::model::mesh::setNode(node_tags[i], coordinates, {});
+    }
+
+    const std::string output_mesh_filename =
+      param.output.output_dir + param.output.output_prefix +
+      "linear_elasticity_final_mesh.msh";
+
+    gmsh::write(output_mesh_filename);
+    gmsh::clear();
+    gmsh::finalize();
+
+    pcout << "Wrote final deformed mesh to " << output_mesh_filename
+          << std::endl;
+  }
+#else
+  AssertThrow(false,
+              ExcMessage("Gmsh API support is required to write the final "
+                         "deformed .msh file."));
+#endif
+}
+
 
 template <int dim>
 void LinearElasticitySolver<dim>::compute_errors()
@@ -664,8 +917,13 @@ void LinearElasticitySolver<dim>::postprocess_solution()
   if (param.mms_param.enable)
     compute_errors();
 
+  compute_cell_average_strain(cached_strain_tensors, cached_strain_trace);
+  strain_cache_is_valid = true;
+
+  write_final_msh();
   move_mesh();
   output_results();
+  strain_cache_is_valid = false;
 }
 
 // Explicit instantiation

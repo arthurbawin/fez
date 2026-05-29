@@ -51,7 +51,7 @@ struct SolverInfo
   }
 
   // Number of variables solved for in the available models
-  static constexpr unsigned int n_variables = 8;
+  static constexpr unsigned int n_variables = 9;
 
   /**
    * The available variables
@@ -65,7 +65,8 @@ struct SolverInfo
     phase_tracer    = 4,
     phase_potential = 5,
     lagrange_mult   = 6,
-    h_target        = 7
+    phase_enlarged  = 7,
+    h_target        = 8
   };
 
   /**
@@ -79,6 +80,7 @@ struct SolverInfo
      VariableType::phase_tracer,
      VariableType::phase_potential,
      VariableType::lagrange_mult,
+     VariableType::phase_enlarged,
      VariableType::h_target}};
 
   static constexpr std::array<std::string_view, n_variables> variable_names = {
@@ -89,6 +91,7 @@ struct SolverInfo
      "phase_tracer",
      "phase_potential",
      "lagrange_mult",
+     "phase_enlarged",
      "h_target"}};
 
   /**
@@ -112,6 +115,8 @@ struct SolverInfo
         return "phase_potential";
       case VariableType::lagrange_mult:
         return "lagrange_mult";
+      case VariableType::phase_enlarged:
+        return "phase_enlarged";
       case VariableType::h_target:
         return "h_target";
     }
@@ -142,6 +147,9 @@ struct SolverInfo
     else if (variable_name == "lagrange_mult" ||
              variable_name == "lagrange mult")
       return VariableType::lagrange_mult;
+    else if (variable_name == "phase_enlarged" ||
+             variable_name == "phase enlarged" || variable_name == "psi")
+      return VariableType::phase_enlarged;
     else if (variable_name == "h_target" || variable_name == "h target")
       return VariableType::h_target;
     else

@@ -1,6 +1,7 @@
 
 #include <assembly/boundary_forms.h>
 #include <assembly/lagrange_multiplier.h>
+#include <assembly/pseudosolid_forms.h>
 #include <compare_matrix.h>
 #include <components_ordering.h>
 #include <copy_data.h>
@@ -263,12 +264,26 @@ void FSISolverLessLambda<dim>::MMSSourceTerm::vector_value(
 
   // Pseudosolid (mesh position) source term
   // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
-  Tensor<1, dim> f_PS =
-    mms.exact_mesh_position
-      ->divergence_linear_elastic_stress_variable_coefficients(
-        p,
-        physical_properties.pseudosolids[0].lame_mu_fun,
-        physical_properties.pseudosolids[0].lame_lambda_fun);
+  const auto    &pseudosolid = physical_properties.pseudosolids[0];
+  Tensor<1, dim> f_PS;
+
+  if (pseudosolid.constitutive_model ==
+      Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
+    f_PS = mms.exact_mesh_position
+             ->divergence_neo_hookean_stress_variable_coefficients(
+               p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
+  else if (pseudosolid.constitutive_model ==
+           Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
+    f_PS = mms.exact_mesh_position
+             ->divergence_ogden_stress_variable_coefficients(
+               p,
+               pseudosolid.lame_mu_fun,
+               pseudosolid.lame_lambda_fun,
+               pseudosolid.ogden_beta);
+  else
+    f_PS = mms.exact_mesh_position
+             ->divergence_linear_elastic_stress_variable_coefficients(
+               p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[ordering.x_lower + d] = f_PS[d];
@@ -1881,7 +1896,7 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
     scratch_data.dofs_per_cell);
 
   const auto u_lower = const_ordering.u_lower;
-  const auto x_lower = const_ordering.x_lower;
+  const auto &pseudosolid = this->param.physical_properties.pseudosolids[0];
 
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
@@ -2070,21 +2085,20 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
         double local_ps_matrix_ij = 0.;
         if (i_is_x && j_is_x)
         {
-          const auto &gxi = grad_phi_x_i[comp_i - x_lower];
-          const auto &gxj = grad_phi_x[j][comp_j - x_lower];
-
-          // Linear elasticity
-          local_ps_matrix_ij +=
-            lame_lambda * div_phi_x[j] * div_phi_x_i
-
-            // The following is the double contraction
-            // 2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i)
-            // explicited for the symmetric gradient of Lagrange shape functions
-            + lame_mu * gxi[comp_j - x_lower] * gxj[comp_i - x_lower];
-          if (comp_i == comp_j)
-            local_ps_matrix_ij += lame_mu * gxi * gxj;
-
-          local_ps_matrix_ij *= JxW_fixed;
+          local_ps_matrix_ij =
+            Assembly::Pseudosolid::matrix_contribution(
+              pseudosolid,
+              lame_mu,
+              lame_lambda,
+              scratch_data.present_position_gradients[q],
+              scratch_data.present_position_inv_gradients[q],
+              scratch_data.present_position_inv_gradients_T[q],
+              scratch_data.present_position_J[q],
+              div_phi_x_i,
+              grad_phi_x_i,
+              div_phi_x[j],
+              grad_phi_x[j]) *
+            JxW_fixed;
         }
 
         local_flow_matrix_ij *= JxW_moving;
@@ -2218,6 +2232,7 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
   const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
+  const auto &pseudosolid = this->param.physical_properties.pseudosolids[0];
 
   for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
   {
@@ -2262,8 +2277,8 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
       scratch_data.present_position_gradients[q];
     const double present_displacement_divergence =
       trace(present_position_gradients);
-    const auto present_strain =
-      symmetrize(present_position_gradients) - identity_tensor;
+    const Tensor<2, dim> present_strain =
+      Tensor<2, dim>(symmetrize(present_position_gradients) - identity_tensor);
     const double present_trace_strain =
       present_displacement_divergence - (double)dim;
     const auto &source_term_position = scratch_data.source_term_position[q];
@@ -2275,7 +2290,6 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
       (dudt + u_dot_grad_u_ale + source_term_velocity);
 
     const auto &phi_x          = scratch_data.phi_x[q];
-    const auto &sym_grad_phi_x = scratch_data.sym_grad_phi_x[q];
     const auto &div_phi_x      = scratch_data.div_phi_x[q];
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
@@ -2325,10 +2339,17 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
       if (i_is_x)
       {
         local_rhs_ps_i -= (
-          // Linear elasticity : only compute double contraction if needed
-          lame_lambda * present_trace_strain * div_phi_x[i] +
-          2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i])
-          // Linear elasticity source term
+          Assembly::Pseudosolid::rhs_contribution(
+            pseudosolid,
+            lame_mu,
+            lame_lambda,
+            present_trace_strain,
+            present_strain,
+            scratch_data.present_position_gradients[q],
+            scratch_data.present_position_inv_gradients_T[q],
+            scratch_data.present_position_J[q],
+            div_phi_x[i],
+            scratch_data.grad_phi_x[q][i])
           + phi_x[i] * source_term_position);
         local_rhs_ps_i *= JxW_fixed;
       }

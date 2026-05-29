@@ -47,7 +47,8 @@ jobs:
           cd build
           # These tests may time out or require too much memory, and are not run:
           # incompressible_ns_lambda/mms_3d
-          ctest -V --output-on-failure -E "(mpirun=[2-9]|incompressible_ns_lambda/mms_3d)" -j ${{ env.N_JOBS }}
+          # incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab
+          ctest -V --output-on-failure -E "(mpirun=[2-9]|incompressible_ns_lambda/mms_3d|incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab)" -j ${{ env.N_JOBS }}
 
       # Run the parallel tests one at a time 
       - name: Run parallel tests in debug
@@ -55,4 +56,5 @@ jobs:
           cd build
           # These tests may time out or require too much memory, and are not run:
           # incompressible_ns_lambda/steady_cylinder_3d.mpirun=6
-          ctest -V --output-on-failure -R "mpirun=[2-9]" -E "incompressible_ns_lambda/steady_cylinder_3d" -j 1
+          # incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab
+          ctest -V --output-on-failure -R "mpirun=[2-9]" -E "(incompressible_ns_lambda/steady_cylinder_3d|incompressible_chns_ale/mms_chns_ale_2d_spacetime_stab)" -j 1

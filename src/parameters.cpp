@@ -1,4 +1,6 @@
 
+#include <assembly/chns_enlarged_forms.h>
+#include <deal.II/differentiation/sd/symengine_tensor_operations.h>
 #include <parameters.h>
 #include <solver_info.h>
 #include <utilities.h>
@@ -7,6 +9,8 @@
 
 namespace Parameters
 {
+  using namespace Differentiation::SD;
+
   /**
    * These should agree with the declare_entry in utilities.h
    */
@@ -421,6 +425,10 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "If true, use quads/hexes instead of simplices");
+      prm.declare_entry("stabilization",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable residual-based stabilization terms");
       prm.declare_entry("Velocity degree",
                         "2",
                         Patterns::Integer(),
@@ -535,6 +543,7 @@ namespace Parameters
     prm.enter_subsection("FiniteElements");
     {
       use_quads            = prm.get_bool("use quads");
+      stabilization        = prm.get_bool("stabilization");
       velocity_degree      = prm.get_integer("Velocity degree");
       pressure_degree      = prm.get_integer("Pressure degree");
       mesh_position_degree = prm.get_integer("Mesh position degree");
@@ -645,6 +654,15 @@ namespace Parameters
       prm.enter_subsection("lame mu");
       lame_mu_fun->declare_parameters(prm);
       prm.leave_subsection();
+      prm.declare_entry("constitutive model",
+                        "linear elasticity",
+                        Patterns::Selection(
+                          "linear elasticity|neo hookean|ogden"),
+                        "Constitutive law for the pseudosolid");
+      prm.declare_entry("ogden beta",
+                        "1.0",
+                        Patterns::Double(),
+                        "Volumetric exponent for the Ogden pseudosolid law");
     }
     prm.leave_subsection();
   }
@@ -661,6 +679,19 @@ namespace Parameters
       prm.enter_subsection("lame mu");
       lame_mu_fun->parse_parameters(prm);
       prm.leave_subsection();
+
+      const std::string parsed_constitutive = prm.get("constitutive model");
+      ogden_beta = prm.get_double("ogden beta");
+
+      if (parsed_constitutive == "linear elasticity")
+        constitutive_model = ConstitutiveModel::linear_elasticity;
+      else if (parsed_constitutive == "neo hookean")
+        constitutive_model = ConstitutiveModel::neo_hookean;
+      else if (parsed_constitutive == "ogden")
+        constitutive_model = ConstitutiveModel::ogden;
+      else
+        AssertThrow(false,
+                    ExcMessage("Unknown pseudosolid constitutive model"));
     }
     prm.leave_subsection();
   }
@@ -685,11 +716,11 @@ namespace Parameters
         fluids[i].declare_parameters(prm, i);
 
       // Declare the pseudosolid subsections
-      prm.declare_entry(
-        "number of pseudosolids",
-        "0",
-        Patterns::Integer(),
-        "Number of pseudosolids (linear elastic analogy for mesh movement)");
+      prm.declare_entry("number of pseudosolids",
+                        "0",
+                        Patterns::Integer(),
+                        "Number of pseudosolids (Linear elasticity elastic "
+                        "analogy for mesh movement)");
 
       pseudosolids.resize(max_pseudosolids);
       for (unsigned int i = 0; i < max_pseudosolids; ++i)
@@ -1051,16 +1082,29 @@ namespace Parameters
   template <int dim>
   void CahnHilliard<dim>::declare_parameters(ParameterHandler &prm)
   {
+    const std::string default_point = (dim == 2) ? "0, 0" : "0, 0, 0";
+    degenerate_mobility =
+      std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
     prm.enter_subsection("Cahn Hilliard");
     {
       prm.declare_entry("mobility model",
                         "constant",
-                        Patterns::Selection("constant"),
+                        Patterns::Selection("constant|degenerate"),
                         "Model for the mobility tensor");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
                         "Mobility value if constant");
+      prm.declare_entry(
+        "enable mobility tracer limiter",
+        "false",
+        Patterns::Bool(),
+        "Enable tracer limiter for the degenerate mobility calcul");
+      prm.enter_subsection("degenerate mobility");
+      {
+        degenerate_mobility->declare_parameters(prm, 1, "(1 - x*x)*(1 - x*x)");
+      }
+      prm.leave_subsection();
       prm.declare_entry("surface tension",
                         "1.",
                         Patterns::Double(),
@@ -1069,21 +1113,61 @@ namespace Parameters
                         "1e-2",
                         Patterns::Double(),
                         "Interface thickness (epsilon)");
+      prm.declare_entry(
+        "enlarged interface thickness",
+        "1e-2",
+        Patterns::Double(),
+        "Interface thickness used to build the enlarged marker psi.");
+      prm.declare_entry(
+        "psi interface width factor",
+        "0",
+        Patterns::Double(0.0),
+        "Target ratio eps_eff(psi) / eps. If > 0, this calibrated factor "
+        "takes precedence over 'enlarged interface thickness'.");
       prm.declare_entry("enable tracer limiter",
                         "false",
                         Patterns::Bool(),
                         "Enable limiter for the tracer (phase field marker)");
       // Mesh forcing parameters
       prm.declare_entry(
-        "alpha",
+        "mff_enlarged_compression_factor",
         "0.0",
         Patterns::Double(),
-        "Coefficient of pseudosolid source term alpha * phi * grad(phi).");
-      prm.declare_entry("beta",
+        "Compression factor used only by the enlarged moving-mesh forcing "
+        "term mff_enlarged_compression_factor * eps_enlarged * f(marker) * "
+        "grad(marker).");
+      prm.declare_entry(
+        "mff_physics_compression_factor",
+        "0.0",
+        Patterns::Double(),
+        "Compression factor used in the physical-interface moving-mesh "
+        "forcing correction "
+        "mff_physics_compression_factor * eps * f(phi) * grad(phi).");
+      prm.declare_entry("mff_transport_factor",
                         "0.0",
                         Patterns::Double(),
-                        "Coefficient of pseudosolid source term beta * (u_ALE "
-                        "* grad(phi)) * grad(phi).");
+                        "Transport factor used in the moving-mesh forcing term "
+                        "mff_transport_factor * (u_ALE * grad(marker)) * "
+                        "grad(marker).");
+      prm.declare_entry("mff_regularization_gamma",
+                        "0.0",
+                        Patterns::Double(0.0),
+                        "Gamma in the moving-mesh forcing law "
+                        "f(marker)=marker/(1-gamma^2 center(marker)^2).");
+      prm.declare_entry(
+        "mff_enlarged_factor_equalization_exponent",
+        "1.0",
+        Patterns::Double(0.0),
+        "Exponent q applied only to the enlarged forcing marker before the "
+        "mesh forcing law. q=1 is neutral; values below 1 boost "
+        "under-saturated |psi| values smoothly.");
+      prm.declare_entry(
+        "psi mu correction factor",
+        "0.0",
+        Patterns::Double(),
+        "Coefficient lambda used in the enlarged-marker reconstruction "
+        "correction term "
+        "-lambda * eta(phi) * (L^2 / (eps * sigma_tilde)) * mu.");
     }
     prm.leave_subsection();
   }
@@ -1094,15 +1178,134 @@ namespace Parameters
     prm.enter_subsection("Cahn Hilliard");
     {
       const std::string parsed_mobility_model = prm.get("mobility model");
-      if (parsed_mobility_model == "linear")
+      if (parsed_mobility_model == "constant")
         mobility_model = MobilityModel::constant;
-      mobility            = prm.get_double("mobility");
-      surface_tension     = prm.get_double("surface tension");
-      epsilon_interface   = prm.get_double("interface thickness");
+      else if (parsed_mobility_model == "degenerate")
+        mobility_model = MobilityModel::degenerate;
+      else
+        AssertThrow(false, ExcMessage("Unknown mobility model"));
+      mobility                = prm.get_double("mobility");
+      mobility_tracer_limiter = prm.get_bool("enable mobility tracer limiter");
+      prm.enter_subsection("degenerate mobility");
+      {
+        degenerate_mobility->parse_parameters(prm);
+
+        if (mobility_model == MobilityModel::degenerate)
+        {
+          const std::string expr =
+            degenerate_mobility->get_function_expression();
+
+          const Expression f(expr, true);
+
+          const Expression y("y");
+          const Expression t("t");
+
+          AssertThrow(numbers::value_is_zero(f.differentiate(y)),
+                      ExcMessage("The degenerate mobility must depend only on "
+                                 "x (which represents phi), "
+                                 "but it depends on y: " +
+                                 expr));
+
+          AssertThrow(numbers::value_is_zero(f.differentiate(t)),
+                      ExcMessage("The degenerate mobility must depend only on "
+                                 "x (which represents phi), "
+                                 "but it depends on t: " +
+                                 expr));
+
+          if constexpr (dim == 3)
+          {
+            const Expression z("z");
+
+            AssertThrow(numbers::value_is_zero(f.differentiate(z)),
+                        ExcMessage("The degenerate mobility must depend only "
+                                   "on x (which represents phi), "
+                                   "but it depends on z: " +
+                                   expr));
+          }
+          const unsigned int n_check_points = 1000;
+          const double       tolerance      = 1e-12;
+
+          for (unsigned int i = 0; i <= n_check_points; ++i)
+          {
+            const double x_value =
+              -1.0 + 2.0 * static_cast<double>(i) / n_check_points;
+
+            Point<dim> p;
+            p[0] = x_value;
+
+            const double mobility_value = degenerate_mobility->value(p);
+
+            AssertThrow(mobility_value >= -tolerance,
+                        ExcMessage(
+                          "The degenerate mobility must be non-negative "
+                          "for x in [-1, 1], but M(" +
+                          Utilities::to_string(x_value) +
+                          ") = " + Utilities::to_string(mobility_value) +
+                          " for expression: " + expr));
+          }
+          const std::vector<std::string> variable_names =
+            Utilities::split_string_list(prm.get("Variable names"));
+
+          AssertThrow(variable_names.size() == dim ||
+                        variable_names.size() == dim + 1,
+                      ExcMessage(
+                        "The degenerate mobility variable list must have "
+                        "dim or dim+1 entries."));
+
+          AssertThrow(variable_names[0] == "x",
+                      ExcMessage(
+                        "For degenerate mobility, the first variable must be "
+                        "'x', which represents phi."));
+
+          if constexpr (dim >= 2)
+            AssertThrow(variable_names[1] == "y",
+                        ExcMessage(
+                          "For degenerate mobility, the second variable "
+                          "must be 'y'."));
+
+          if constexpr (dim == 3)
+            AssertThrow(variable_names[2] == "z",
+                        ExcMessage(
+                          "For degenerate mobility, the third variable "
+                          "must be 'z'."));
+
+          if (variable_names.size() == dim + 1)
+            AssertThrow(variable_names[dim] == "t",
+                        ExcMessage("For degenerate mobility, the optional time "
+                                   "variable must be 't'."));
+        }
+      }
+      prm.leave_subsection();
+      surface_tension   = prm.get_double("surface tension");
+      epsilon_interface = prm.get_double("interface thickness");
+      epsilon_interface_enlarged =
+        prm.get_double("enlarged interface thickness");
+      psi_interface_width_factor = prm.get_double("psi interface width factor");
+      if (psi_interface_width_factor > 0.)
+        epsilon_interface_enlarged =
+          Assembly::calibrated_enlarged_interface_thickness(
+            epsilon_interface, psi_interface_width_factor);
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
-      alpha = prm.get_double("alpha");
-      beta  = prm.get_double("beta");
+      mff_enlarged_compression_factor =
+        prm.get_double("mff_enlarged_compression_factor");
+      mff_physics_compression_factor =
+        prm.get_double("mff_physics_compression_factor");
+      mff_transport_factor = prm.get_double("mff_transport_factor");
+      mff_regularization_gamma = prm.get_double("mff_regularization_gamma");
+      mff_enlarged_factor_equalization_exponent =
+        prm.get_double("mff_enlarged_factor_equalization_exponent");
+      AssertThrow(
+        mff_enlarged_factor_equalization_exponent > 0.0,
+        ExcMessage(
+          "'mff_enlarged_factor_equalization_exponent' must be strictly "
+          "positive."));
+      psi_mu_correction_factor = prm.get_double("psi mu correction factor");
+      AssertThrow(std::abs(psi_mu_correction_factor) < 1e-14 ||
+                    std::abs(surface_tension) > 1e-14,
+                  ExcMessage(
+                    "A nonzero 'psi mu correction factor' requires a nonzero "
+                    "surface tension to define sigma_tilde."));
     }
     prm.leave_subsection();
   }
@@ -1114,6 +1317,12 @@ namespace Parameters
   {
     prm.enter_subsection("Linear elasticity");
     {
+      prm.declare_entry(
+        "write final msh",
+        "false",
+        Patterns::Bool(),
+        "If true, write the final deformed mesh as a Gmsh .msh file at the "
+        "end of the linear elasticity solve.");
       prm.enter_subsection("current mesh source term");
       {
         prm.declare_entry(
@@ -1124,18 +1333,24 @@ namespace Parameters
           "current mesh (and not on the reference mesh as usual)");
         prm.declare_entry("min multiplier",
                           "1.",
-                          Patterns::Double(1.),
+                          Patterns::Double(),
                           "Minimum coefficient multiplying the source term "
                           "evaluated on the current mesh");
         prm.declare_entry("max multiplier",
                           "1.",
-                          Patterns::Double(1.),
+                          Patterns::Double(),
                           "Maximum coefficient multiplying the source term "
                           "evaluated on the current mesh");
         prm.declare_entry("continuation steps",
                           "1",
                           Patterns::Integer(1),
                           "Number of steps to use in the continuation method");
+        prm.declare_entry(
+          "use as presolver",
+          "false",
+          Patterns::Bool(),
+          "If true, runs the linear elasticity solver first and uses its "
+          "solution to initialize the ALE mesh position of the actual solver.");
       }
       prm.leave_subsection();
     }
@@ -1146,6 +1361,7 @@ namespace Parameters
   {
     prm.enter_subsection("Linear elasticity");
     {
+      write_final_msh = prm.get_bool("write final msh");
       prm.enter_subsection("current mesh source term");
       {
         enable_source_term_on_current_mesh = prm.get_bool("enable");
@@ -1158,6 +1374,7 @@ namespace Parameters
                     ExcMessage("Max source term multiplier should be greater "
                                "than the min multiplier"));
         n_continuation_steps = prm.get_integer("continuation steps");
+        use_as_presolver     = prm.get_bool("use as presolver");
       }
       prm.leave_subsection();
     }

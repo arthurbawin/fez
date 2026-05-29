@@ -5,8 +5,38 @@
 #include <deal.II/fe/mapping.h>
 #include <deal.II/grid/grid_tools_geometry.h>
 
+#include <algorithm>
+
 namespace BoundaryConditions
 {
+  Type parse_pseudosolid_type(const std::string &parsed_type,
+                              const types::boundary_id id)
+  {
+    if (parsed_type == "fixed")
+      return Type::fixed;
+    if (parsed_type == "coupled_to_fluid")
+      return Type::coupled_to_fluid;
+    if (parsed_type == "no_flux")
+      return Type::no_flux;
+    if (parsed_type == "input_function")
+      return Type::input_function;
+    if (parsed_type == "position_mms")
+      return Type::position_mms;
+    if (parsed_type == "position_flux_mms")
+      return Type::position_flux_mms;
+    if (parsed_type == "none")
+      throw std::runtime_error(
+        "Pseudosolid boundary condition for boundary " + std::to_string(id) +
+        " is set to \"none\".\n"
+        "Either you specified this type by mistake, or the number of \n"
+        "prescribed pseudosolid boundary conditions is smaller than "
+        "the specified \"number\" field.");
+
+    throw std::runtime_error("Unknown pseudosolid boundary condition type \"" +
+                             parsed_type + "\" for boundary " +
+                             std::to_string(id));
+  }
+
   void BoundaryCondition::declare_parameters(ParameterHandler &prm)
   {
     prm.declare_entry(
@@ -40,6 +70,22 @@ namespace BoundaryConditions
         "velocity_mms|velocity_flux_mms|pressure_mms|open_mms|"
         "no_tangential_flow|no_tangential_flow_with_weak_pressure"),
       "Type of fluid boundary condition");
+
+    // To specifie with component of the velocity you want to leave
+    // unconstrained
+    prm.declare_entry("constrain_u",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain x-velocity component on this boundary");
+    prm.declare_entry("constrain_v",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain y-velocity component on this boundary");
+    prm.declare_entry(
+      "constrain_w",
+      "true",
+      Patterns::Bool(),
+      "Constrain z-velocity component on this boundary (3D only)");
 
     // Imposed functions, if any
     prm.enter_subsection("u");
@@ -124,6 +170,18 @@ namespace BoundaryConditions
         "prescribed fluid boundary conditions is smaller than "
         "the specified \"number\" field.");
 
+    constrain_u = prm.get_bool("constrain_u");
+    constrain_v = prm.get_bool("constrain_v");
+    constrain_w = prm.get_bool("constrain_w");
+
+    if constexpr (dim == 2)
+      constrain_w = false;
+
+    AssertThrow(constrain_u || constrain_v || constrain_w,
+                ExcMessage(
+                  "Fluid BC " + std::to_string(this->id) +
+                  ": at least one velocity component must be constrained."));
+
     prm.enter_subsection("u");
     u->parse_parameters(prm);
     prm.leave_subsection();
@@ -167,14 +225,32 @@ namespace BoundaryConditions
 
     // Input component functions, same pattern as FluidBC u/v/w
     prm.enter_subsection("x");
+    prm.declare_entry("type",
+                      "inherit",
+                      Patterns::Selection(
+                        "inherit|fixed|no_flux|input_function|position_mms|"
+                        "position_flux_mms"),
+                      "Optional x-component pseudosolid boundary condition");
     x->declare_parameters(prm);
     prm.leave_subsection();
 
     prm.enter_subsection("y");
+    prm.declare_entry("type",
+                      "inherit",
+                      Patterns::Selection(
+                        "inherit|fixed|no_flux|input_function|position_mms|"
+                        "position_flux_mms"),
+                      "Optional y-component pseudosolid boundary condition");
     y->declare_parameters(prm);
     prm.leave_subsection();
 
     prm.enter_subsection("z");
+    prm.declare_entry("type",
+                      "inherit",
+                      Patterns::Selection(
+                        "inherit|fixed|no_flux|input_function|position_mms|"
+                        "position_flux_mms"),
+                      "Optional z-component pseudosolid boundary condition");
     z->declare_parameters(prm);
     prm.leave_subsection();
   }
@@ -187,36 +263,27 @@ namespace BoundaryConditions
     physics_str  = "pseudosolid";
 
     const std::string parsed_type = prm.get("type");
-    if (parsed_type == "fixed")
-      type = Type::fixed;
-    else if (parsed_type == "coupled_to_fluid")
-      type = Type::coupled_to_fluid;
-    else if (parsed_type == "no_flux")
-      type = Type::no_flux;
-    else if (parsed_type == "input_function")
-      type = Type::input_function;
-    else if (parsed_type == "position_mms")
-      type = Type::position_mms;
-    else if (parsed_type == "position_flux_mms")
-      type = Type::position_flux_mms;
-    else if (parsed_type == "none")
-      throw std::runtime_error(
-        "Pseudosolid boundary condition for boundary " +
-        std::to_string(this->id) +
-        " is set to \"none\".\n"
-        "Either you specified this type by mistake, or the number of \n"
-        "prescribed pseudosolid boundary conditions is smaller than "
-        "the specified \"number\" field.");
+    type = parse_pseudosolid_type(parsed_type, this->id);
+    component_types               = {};
 
     prm.enter_subsection("x");
+    if (prm.get("type") != "inherit")
+      component_types[0] =
+        parse_pseudosolid_type(prm.get("type"), this->id);
     x->parse_parameters(prm);
     prm.leave_subsection();
 
     prm.enter_subsection("y");
+    if (prm.get("type") != "inherit")
+      component_types[1] =
+        parse_pseudosolid_type(prm.get("type"), this->id);
     y->parse_parameters(prm);
     prm.leave_subsection();
 
     prm.enter_subsection("z");
+    if (prm.get("type") != "inherit")
+      component_types[2] =
+        parse_pseudosolid_type(prm.get("type"), this->id);
     z->parse_parameters(prm);
     prm.leave_subsection();
   }
@@ -321,6 +388,20 @@ namespace BoundaryConditions
     const ComponentMask              velocity_mask =
       dof_handler.get_fe().component_mask(velocity);
 
+    const auto make_partial_velocity_mask =
+      [&](const BoundaryConditions::FluidBC<dim> &bc) -> ComponentMask {
+      std::vector<bool> mask(n_components, false);
+      if (bc.constrain_u)
+        mask[u_lower + 0] = true;
+      if constexpr (dim >= 2)
+        if (bc.constrain_v)
+          mask[u_lower + 1] = true;
+      if constexpr (dim == 3)
+        if (bc.constrain_w)
+          mask[u_lower + 2] = true;
+      return ComponentMask(mask);
+    };
+
     std::set<types::boundary_id> no_flux_boundaries;
     std::set<types::boundary_id> no_tangential_flow_boundaries;
     std::set<types::boundary_id> velocity_normal_flux_boundaries;
@@ -344,6 +425,7 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
+        const ComponentMask partial_mask = make_partial_velocity_mask(bc);
         if (homogeneous)
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
@@ -351,7 +433,7 @@ namespace BoundaryConditions
                                                    Functions::ZeroFunction<dim>(
                                                      n_components),
                                                    constraints,
-                                                   velocity_mask);
+                                                   partial_mask);
         else
           VectorTools::interpolate_boundary_values(
             mapping,
@@ -360,7 +442,7 @@ namespace BoundaryConditions
             VectorFunctionFromComponents<dim>(
               u_lower, n_components, *bc.u, *bc.v, *bc.w),
             constraints,
-            velocity_mask);
+            partial_mask);
       }
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
@@ -396,21 +478,22 @@ namespace BoundaryConditions
       }
     }
 
-    // Add no velocity flux constraints
-    VectorTools::compute_no_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      no_flux_boundaries,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
-    VectorTools::compute_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      no_tangential_flow_boundaries,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
+    // deal.II averages normals from different cells within a single call.
+    // Calling once per boundary id preserves true corners where two slip
+    // boundaries meet and should jointly imply u=0.
+    for (const auto boundary_id : no_flux_boundaries)
+      VectorTools::compute_no_normal_flux_constraints(
+        dof_handler, u_lower, {boundary_id}, constraints, mapping, false);
+
+
+    for (const auto boundary_id : no_tangential_flow_boundaries)
+      VectorTools::compute_normal_flux_constraints(dof_handler,
+                                                   u_lower,
+                                                   {boundary_id},
+                                                   constraints,
+                                                   mapping,
+                                                   false);
+
 
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,
@@ -507,8 +590,89 @@ namespace BoundaryConditions
     std::set<types::boundary_id> mms_normal_flux_boundaries;
     std::map<types::boundary_id, const Function<dim> *>
       mms_position_flux_functions;
+
+    const auto make_position_component_mask =
+      [&](const unsigned int d) -> ComponentMask {
+      std::vector<bool> mask(n_components, false);
+      mask[x_lower + d] = true;
+      return ComponentMask(mask);
+    };
+
     for (const auto &[id, bc] : pseudosolid_bc)
     {
+      const bool has_component_types =
+        std::any_of(bc.component_types.begin(),
+                    bc.component_types.begin() + dim,
+                    [](const auto &component_type) {
+                      return component_type.has_value();
+                    });
+
+      if (has_component_types)
+      {
+        for (unsigned int d = 0; d < dim; ++d)
+        {
+          const auto component_type = bc.component_types[d].value_or(bc.type);
+          const ComponentMask component_mask = make_position_component_mask(d);
+
+          if (component_type == BoundaryConditions::Type::fixed)
+          {
+            fun_ptr = homogeneous ? static_cast<const Function<dim> *>(
+                                      &zero_fun) :
+                                    static_cast<const Function<dim> *>(
+                                      &fixed_mesh);
+            VectorTools::interpolate_boundary_values(mapping,
+                                                     dof_handler,
+                                                     bc.id,
+                                                     *fun_ptr,
+                                                     constraints,
+                                                     component_mask);
+          }
+          if (component_type == BoundaryConditions::Type::no_flux)
+            continue;
+          if (component_type == BoundaryConditions::Type::input_function)
+          {
+            if (homogeneous)
+              VectorTools::interpolate_boundary_values(mapping,
+                                                       dof_handler,
+                                                       bc.id,
+                                                       zero_fun,
+                                                       constraints,
+                                                       component_mask);
+            else
+              VectorTools::interpolate_boundary_values(
+                mapping,
+                dof_handler,
+                bc.id,
+                VectorFunctionFromComponents<dim>(
+                  x_lower, n_components, *bc.x, *bc.y, *bc.z),
+                constraints,
+                component_mask);
+          }
+          if (component_type == BoundaryConditions::Type::position_mms)
+          {
+            fun_ptr = homogeneous ? &zero_fun : &exact_solution;
+            VectorTools::interpolate_boundary_values(mapping,
+                                                     dof_handler,
+                                                     bc.id,
+                                                     *fun_ptr,
+                                                     constraints,
+                                                     component_mask);
+          }
+          if (component_type == BoundaryConditions::Type::position_flux_mms)
+          {
+            fun_ptr = homogeneous ? &zero_fun : &exact_mesh_position;
+            VectorTools::interpolate_boundary_values(mapping,
+                                                     dof_handler,
+                                                     bc.id,
+                                                     *fun_ptr,
+                                                     constraints,
+                                                     component_mask);
+          }
+        }
+
+        continue;
+      }
+
       if (bc.type == BoundaryConditions::Type::fixed)
       {
         if (homogeneous)
@@ -554,25 +718,29 @@ namespace BoundaryConditions
     }
 
     // Add position nonzero flux constraints (tangential movement)
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dof_handler,
-      x_lower,
-      normal_flux_boundaries,
-      position_flux_functions,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
+    // See the fluid slip treatment above: keep distinct boundary ids distinct
+    // so corners collect all normal constraints instead of an averaged normal.
+    for (const auto boundary_id : normal_flux_boundaries)
+      VectorTools::compute_nonzero_normal_flux_constraints(
+        dof_handler,
+        x_lower,
+        {boundary_id},
+        {{boundary_id, position_flux_functions.at(boundary_id)}},
+        constraints,
+        mapping,
+        /*use_manifold_for_normal=*/false);
 
     // Add position nonzero flux constraints from manufactured solution
     // (tangential movement)
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dof_handler,
-      x_lower,
-      mms_normal_flux_boundaries,
-      mms_position_flux_functions,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
+    for (const auto boundary_id : mms_normal_flux_boundaries)
+      VectorTools::compute_nonzero_normal_flux_constraints(
+        dof_handler,
+        x_lower,
+        {boundary_id},
+        {{boundary_id, mms_position_flux_functions.at(boundary_id)}},
+        constraints,
+        mapping,
+        /*use_manifold_for_normal=*/false);
   }
 
   template <int dim>
@@ -663,64 +831,16 @@ namespace BoundaryConditions
   }
 
   template <int dim>
-  void create_zero_mean_pressure_constraints_data(
+  void update_zero_mean_pressure_constraint_weights(
     const Triangulation<dim>   &tria,
     const DoFHandler<dim>      &dof_handler,
-    IndexSet                   &locally_relevant_dofs,
-    std::vector<unsigned char> &dofs_to_component,
+    const IndexSet             &locally_relevant_dofs,
     const Mapping<dim>         &mapping,
     const Quadrature<dim>      &quadrature,
     const unsigned int          p_lower,
     types::global_dof_index    &constrained_pressure_dof,
     std::vector<std::pair<types::global_dof_index, double>> &constraint_weights)
   {
-    const FEValuesExtractors::Scalar pressure(p_lower);
-    const ComponentMask              pressure_mask =
-      dof_handler.get_fe().component_mask(pressure);
-
-    /**
-     * One pressure dof will be coupled with all other pressure dofs,
-     * which are not in the list of locally relevant dofs. Add them.
-     */
-    IndexSet local_pressure_dofs =
-      DoFTools::extract_dofs(dof_handler, pressure_mask);
-
-    // const unsigned int n_local_pressure_dofs =
-    // local_pressure_dofs.n_elements();
-
-    // Gather all lists to all processes
-    std::vector<std::vector<types::global_dof_index>> gathered_dofs =
-      Utilities::MPI::all_gather(dof_handler.get_mpi_communicator(),
-                                 local_pressure_dofs.get_index_vector());
-
-    std::vector<types::global_dof_index> gathered_dofs_flattened;
-    for (const auto &vec : gathered_dofs)
-      gathered_dofs_flattened.insert(gathered_dofs_flattened.end(),
-                                     vec.begin(),
-                                     vec.end());
-
-    std::sort(gathered_dofs_flattened.begin(), gathered_dofs_flattened.end());
-
-    // Add the pressure DoFs to the list of locally relevant dofs
-    // FIXME: do this only if the proc has the constrained pressure dof has
-    // owned or relevant?
-    locally_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
-                                      gathered_dofs_flattened.end());
-    locally_relevant_dofs.compress();
-
-    // (Re-)create the dofs_to_component map and specify that
-    // the added non-local dofs are pressure dofs
-    fill_dofs_to_component(dof_handler,
-                           locally_relevant_dofs,
-                           dofs_to_component);
-    AssertDimension(dofs_to_component.size(),
-                    locally_relevant_dofs.n_elements());
-    for (const auto dof : gathered_dofs_flattened)
-      dofs_to_component[locally_relevant_dofs.index_within_set(dof)] = p_lower;
-
-    //
-    // Compute integral of p over partition
-    //
     std::map<types::global_dof_index, double> coeffs;
 
     const auto   &fe = dof_handler.get_fe();
@@ -804,6 +924,72 @@ namespace BoundaryConditions
       val /= -a_0;
 
     constraint_weights = coeffs_vec;
+  }
+
+  template <int dim>
+  void create_zero_mean_pressure_constraints_data(
+    const Triangulation<dim>   &tria,
+    const DoFHandler<dim>      &dof_handler,
+    IndexSet                   &locally_relevant_dofs,
+    std::vector<unsigned char> &dofs_to_component,
+    const Mapping<dim>         &mapping,
+    const Quadrature<dim>      &quadrature,
+    const unsigned int          p_lower,
+    types::global_dof_index    &constrained_pressure_dof,
+    std::vector<std::pair<types::global_dof_index, double>> &constraint_weights)
+  {
+    const FEValuesExtractors::Scalar pressure(p_lower);
+    const ComponentMask              pressure_mask =
+      dof_handler.get_fe().component_mask(pressure);
+
+    /**
+     * One pressure dof will be coupled with all other pressure dofs,
+     * which are not in the list of locally relevant dofs. Add them.
+     */
+    IndexSet local_pressure_dofs =
+      DoFTools::extract_dofs(dof_handler, pressure_mask);
+
+    // const unsigned int n_local_pressure_dofs =
+    // local_pressure_dofs.n_elements();
+
+    // Gather all lists to all processes
+    std::vector<std::vector<types::global_dof_index>> gathered_dofs =
+      Utilities::MPI::all_gather(dof_handler.get_mpi_communicator(),
+                                 local_pressure_dofs.get_index_vector());
+
+    std::vector<types::global_dof_index> gathered_dofs_flattened;
+    for (const auto &vec : gathered_dofs)
+      gathered_dofs_flattened.insert(gathered_dofs_flattened.end(),
+                                     vec.begin(),
+                                     vec.end());
+
+    std::sort(gathered_dofs_flattened.begin(), gathered_dofs_flattened.end());
+
+    // Add the pressure DoFs to the list of locally relevant dofs
+    // FIXME: do this only if the proc has the constrained pressure dof has
+    // owned or relevant?
+    locally_relevant_dofs.add_indices(gathered_dofs_flattened.begin(),
+                                      gathered_dofs_flattened.end());
+    locally_relevant_dofs.compress();
+
+    // (Re-)create the dofs_to_component map and specify that
+    // the added non-local dofs are pressure dofs
+    fill_dofs_to_component(dof_handler,
+                           locally_relevant_dofs,
+                           dofs_to_component);
+    AssertDimension(dofs_to_component.size(),
+                    locally_relevant_dofs.n_elements());
+    for (const auto dof : gathered_dofs_flattened)
+      dofs_to_component[locally_relevant_dofs.index_within_set(dof)] = p_lower;
+
+    update_zero_mean_pressure_constraint_weights(tria,
+                                                 dof_handler,
+                                                 locally_relevant_dofs,
+                                                 mapping,
+                                                 quadrature,
+                                                 p_lower,
+                                                 constrained_pressure_dof,
+                                                 constraint_weights);
   }
 
   void add_zero_mean_pressure_constraints(

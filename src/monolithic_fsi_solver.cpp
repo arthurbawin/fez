@@ -1,6 +1,7 @@
 
 #include <assembly/boundary_forms.h>
 #include <assembly/lagrange_multiplier.h>
+#include <assembly/pseudosolid_forms.h>
 #include <compare_matrix.h>
 #include <components_ordering.h>
 #include <copy_data.h>
@@ -24,17 +25,6 @@
 #include <post_processing_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
-
-namespace
-{
-  template <int dim>
-  double
-  mesh_concentration_size_stiffness(const double lame_lambda,
-                                    const double lame_mu)
-  {
-    return std::max(lame_lambda + 2. * lame_mu / dim, 1e-14);
-  }
-}
 
 template <int dim>
 FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
@@ -214,12 +204,26 @@ void FSISolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
 
   // Pseudosolid (mesh position) source term
   // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
-  Tensor<1, dim> f_PS =
-    mms.exact_mesh_position
-      ->divergence_linear_elastic_stress_variable_coefficients(
-        p,
-        physical_properties.pseudosolids[0].lame_mu_fun,
-        physical_properties.pseudosolids[0].lame_lambda_fun);
+  const auto    &pseudosolid = physical_properties.pseudosolids[0];
+  Tensor<1, dim> f_PS;
+
+  if (pseudosolid.constitutive_model ==
+      Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean)
+    f_PS = mms.exact_mesh_position
+             ->divergence_neo_hookean_stress_variable_coefficients(
+               p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
+  else if (pseudosolid.constitutive_model ==
+           Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
+    f_PS = mms.exact_mesh_position
+             ->divergence_ogden_stress_variable_coefficients(
+               p,
+               pseudosolid.lame_mu_fun,
+               pseudosolid.lame_lambda_fun,
+               pseudosolid.ogden_beta);
+  else
+    f_PS = mms.exact_mesh_position
+             ->divergence_linear_elastic_stress_variable_coefficients(
+               p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[ordering.x_lower + d] = f_PS[d];
@@ -1676,7 +1680,7 @@ void FSISolver<dim>::assemble_local_matrix(
     scratch_data.dofs_per_cell);
 
   const auto u_lower = this->ordering->u_lower;
-  const auto x_lower = this->ordering->x_lower;
+  const auto &pseudosolid = this->param.physical_properties.pseudosolids[0];
   const bool has_h_target =
     this->ordering->h_lower != numbers::invalid_unsigned_int;
   const double ell_h2 =
@@ -1825,22 +1829,23 @@ void FSISolver<dim>::assemble_local_matrix(
       // Safeguard h_current
       h_current = std::max(h_current, 1e-14);
       
-      // Compute p_size
-      const double eps_h = 1e-14;
-      const double h_safe = std::max(h_value, this->param.h_target.h_min + eps_h);
-      const double h_bg_safe =
-        std::max(h_background, eps_h);
-      
       const double c =
-        mesh_concentration_ramp *
-        this->param.h_target.size_pressure_coefficient *
-        mesh_concentration_size_stiffness<dim>(
-          lame_lambda,
-          lame_mu);
+        Assembly::Pseudosolid::MeshConcentration::pressure_coefficient(
+          mesh_concentration_ramp,
+          this->param.h_target.size_pressure_coefficient,
+          Assembly::Pseudosolid::MeshConcentration::
+            equivalent_size_stiffness(
+              pseudosolid, lame_mu, lame_lambda));
       const double beta = this->param.h_target.current_size_weight;
       
-      p_size = c * (std::log(h_bg_safe / h_safe) +
-                    beta * std::log(h_current / h_safe));
+      p_size =
+        Assembly::Pseudosolid::MeshConcentration::size_pressure(
+          c,
+          beta,
+          h_background,
+          h_current,
+          h_value,
+          this->param.h_target.h_min);
     }
 
     // Precompute quantities depending only on j
@@ -1993,42 +1998,37 @@ void FSISolver<dim>::assemble_local_matrix(
         double local_ps_matrix_ij = 0.;
         if (i_is_x && j_is_x)
         {
-          const auto &gxi = grad_phi_x_i[comp_i - x_lower];
-          const auto &gxj = grad_phi_x[j][comp_j - x_lower];
-
-          // Linear elasticity
           local_ps_matrix_ij +=
-            lame_lambda * div_phi_x[j] * div_phi_x_i
-
-            // The following is the double contraction
-            // 2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i)
-            // explicited for the symmetric gradient of Lagrange shape functions
-            + lame_mu * gxi[comp_j - x_lower] * gxj[comp_i - x_lower];
-          if (comp_i == comp_j)
-            local_ps_matrix_ij += lame_mu * gxi * gxj;
+            Assembly::Pseudosolid::matrix_contribution(
+              pseudosolid,
+              lame_mu,
+              lame_lambda,
+              scratch_data.present_position_gradients[q],
+              scratch_data.present_position_inv_gradients[q],
+              scratch_data.present_position_inv_gradients_T[q],
+              scratch_data.present_position_J[q],
+              div_phi_x_i,
+              grad_phi_x_i,
+              div_phi_x[j],
+              grad_phi_x[j]);
 
           // Mesh-concentration stress contribution: x-x block
           if (enable_size_stress)
           {
             const Tensor<2, dim> &A_j = grad_phi_x_moving[j];
-            const double         div_dx_j = trace(A_j);
             
             const double beta = this->param.h_target.current_size_weight;
             const double c =
-              mesh_concentration_ramp *
-              this->param.h_target.size_pressure_coefficient *
-              mesh_concentration_size_stiffness<dim>(
-                lame_lambda,
-                lame_mu);
-            
-            const double delta_p_x =
-              c * beta / dim * div_dx_j;
-            
-            // dP_x = J * (p_size * div_dx * F_inv_T + delta_p_x * F_inv_T
-            //            - p_size * A_j^T * F_inv_T)
+              Assembly::Pseudosolid::MeshConcentration::pressure_coefficient(
+                mesh_concentration_ramp,
+                this->param.h_target.size_pressure_coefficient,
+                Assembly::Pseudosolid::MeshConcentration::
+                  equivalent_size_stiffness(
+                    pseudosolid, lame_mu, lame_lambda));
             const Tensor<2, dim> dP_x =
-              J * ((p_size * div_dx_j + delta_p_x) * F_inv_T -
-                   p_size * transpose(A_j) * F_inv_T);
+              Assembly::Pseudosolid::MeshConcentration::
+                piola_derivative_wrt_position(
+                  c, beta, p_size, F_inv_T, J, A_j);
             
             local_ps_matrix_ij += scalar_product(dP_x, grad_phi_x_i);
           }
@@ -2042,23 +2042,22 @@ void FSISolver<dim>::assemble_local_matrix(
         {
           const double beta = this->param.h_target.current_size_weight;
           const double c =
-            mesh_concentration_ramp *
-            this->param.h_target.size_pressure_coefficient *
-            mesh_concentration_size_stiffness<dim>(
-              lame_lambda,
-              lame_mu);
-          
-          const double delta_eta = (*phi_h)[j];
-          const double delta_h = dh_deta * delta_eta;
-          
-          const double eps_h = 1e-14;
-          const double h_safe = std::max(h_value, this->param.h_target.h_min + eps_h);
-          
-          // delta_p_eta = -c * (1 + beta) * delta_h / h
-          const double delta_p_eta = -c * (1.0 + beta) * delta_h / h_safe;
-          
-          // dP_eta = J * delta_p_eta * F_inv_T
-          const Tensor<2, dim> dP_eta = J * delta_p_eta * F_inv_T;
+            Assembly::Pseudosolid::MeshConcentration::pressure_coefficient(
+              mesh_concentration_ramp,
+              this->param.h_target.size_pressure_coefficient,
+              Assembly::Pseudosolid::MeshConcentration::
+                equivalent_size_stiffness(
+                  pseudosolid, lame_mu, lame_lambda));
+          const Tensor<2, dim> dP_eta =
+            Assembly::Pseudosolid::MeshConcentration::
+              piola_derivative_wrt_h(c,
+                                     beta,
+                                     h_value,
+                                     this->param.h_target.h_min,
+                                     dh_deta,
+                                     (*phi_h)[j],
+                                     F_inv_T,
+                                     J);
           
           local_ps_h_matrix_ij =
             scalar_product(dP_eta, grad_phi_x_i) * JxW_fixed;
@@ -2260,6 +2259,7 @@ void FSISolver<dim>::assemble_local_rhs(
   const double nu =
     this->param.physical_properties.fluids[0].kinematic_viscosity;
   const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
+  const auto &pseudosolid = this->param.physical_properties.pseudosolids[0];
   const bool has_h_target =
     this->ordering->h_lower != numbers::invalid_unsigned_int;
   const double ell_h2 =
@@ -2319,8 +2319,8 @@ void FSISolver<dim>::assemble_local_rhs(
       scratch_data.present_position_gradients[q];
     const double present_displacement_divergence =
       trace(present_position_gradients);
-    const auto present_strain =
-      symmetrize(present_position_gradients) - identity_tensor;
+    const Tensor<2, dim> present_strain =
+      Tensor<2, dim>(symmetrize(present_position_gradients) - identity_tensor);
     const double present_trace_strain =
       present_displacement_divergence - (double)dim;
     const auto &source_term_position = scratch_data.source_term_position[q];
@@ -2332,7 +2332,6 @@ void FSISolver<dim>::assemble_local_rhs(
       (dudt + u_dot_grad_u_ale + source_term_velocity);
 
     const auto &phi_x          = scratch_data.phi_x[q];
-    const auto &sym_grad_phi_x = scratch_data.sym_grad_phi_x[q];
     const auto &div_phi_x      = scratch_data.div_phi_x[q];
 
     const auto *phi_h =
@@ -2400,32 +2399,28 @@ void FSISolver<dim>::assemble_local_rhs(
         // Safeguard: J should be positive
         J = std::max(J, 1e-14);
         
-        // Compute F_inv_T
         F_inv_T = transpose(invert(F));
-        
-	        // Current mesh size
-	        h_current = h_current_reference *
-	                    std::pow(J, 1.0 / dim);
-        
-        // Safeguard h_current
-        h_current = std::max(h_current, 1e-14);
-        
-        // Compute p_size
-        const double eps_h = 1e-14;
-	        const double h_safe = std::max(h_value, this->param.h_target.h_min + eps_h);
-	        const double h_bg_safe =
-	          std::max(h_background, eps_h);
-	        
-		        const double c =
-		          mesh_concentration_ramp *
-		          this->param.h_target.size_pressure_coefficient *
-		          mesh_concentration_size_stiffness<dim>(
-	            lame_lambda,
-	            lame_mu);
+
+        h_current =
+          std::max(h_current_reference * std::pow(J, 1.0 / dim), 1e-14);
+
+        const double c =
+          Assembly::Pseudosolid::MeshConcentration::pressure_coefficient(
+            mesh_concentration_ramp,
+            this->param.h_target.size_pressure_coefficient,
+            Assembly::Pseudosolid::MeshConcentration::
+              equivalent_size_stiffness(
+                pseudosolid, lame_mu, lame_lambda));
         const double beta = this->param.h_target.current_size_weight;
         
-        p_size = c * (std::log(h_bg_safe / h_safe) +
-                      beta * std::log(h_current / h_safe));
+        p_size =
+          Assembly::Pseudosolid::MeshConcentration::size_pressure(
+            c,
+            beta,
+            h_background,
+            h_current,
+            h_value,
+            this->param.h_target.h_min);
       }
     }
 
@@ -2477,17 +2472,25 @@ void FSISolver<dim>::assemble_local_rhs(
       if (i_is_x)
       {
         local_rhs_ps_i -= (
-          // Linear elasticity : only compute double contraction if needed
-          lame_lambda * present_trace_strain * div_phi_x[i] +
-          2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i])
-          // Linear elasticity source term
+          Assembly::Pseudosolid::rhs_contribution(
+            pseudosolid,
+            lame_mu,
+            lame_lambda,
+            present_trace_strain,
+            present_strain,
+            scratch_data.present_position_gradients[q],
+            scratch_data.present_position_inv_gradients_T[q],
+            scratch_data.present_position_J[q],
+            div_phi_x[i],
+            scratch_data.grad_phi_x[q][i])
           + phi_x[i] * source_term_position);
         
         // Mesh-concentration stress residual
         if (enable_size_stress)
         {
-          // P_size = J * p_size * F_inv_T
-          const Tensor<2, dim> P_size = J * p_size * F_inv_T;
+          const Tensor<2, dim> P_size =
+            Assembly::Pseudosolid::MeshConcentration::piola_stress(
+              p_size, F_inv_T, J);
           
           // R_x_size = P_size : ∇_X phi_x
           const auto &grad_phi_x_i_ref = scratch_data.grad_phi_x[q][i];

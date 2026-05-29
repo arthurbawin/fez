@@ -13,7 +13,6 @@
 #include <solver_info.h>
 #include <utilities.h>
 
-
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
@@ -380,6 +379,34 @@ void NavierStokesSolver<dim, with_moving_mesh>::
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+  update_constraints_for_evaluation_point()
+{
+  if constexpr (with_moving_mesh)
+  {
+    if (!param.bc_data.enforce_zero_mean_pressure)
+      return;
+
+    BoundaryConditions::update_zero_mean_pressure_constraint_weights(
+      triangulation,
+      dof_handler,
+      locally_relevant_dofs,
+      *moving_mapping,
+      *quadrature,
+      ordering->p_lower,
+      constrained_pressure_dof,
+      zero_mean_pressure_weights);
+
+    create_zero_constraints();
+    create_nonzero_constraints();
+
+    local_evaluation_point = evaluation_point;
+    nonzero_constraints.distribute(local_evaluation_point);
+    evaluation_point = local_evaluation_point;
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
   const bool                 homogeneous,
   AffineConstraints<double> &constraints)
@@ -395,10 +422,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
    */
   for (const auto &[field_name, mask] : field_names_and_masks)
   {
-    const auto set_field_as_solution =
-      param.mms.set_field_as_solution.find(field_name);
-    if (set_field_as_solution != param.mms.set_field_as_solution.end() &&
-        set_field_as_solution->second)
+    const auto it = param.mms.set_field_as_solution.find(field_name);
+    const bool set_as_solution =
+      (it != param.mms.set_field_as_solution.end()) && it->second;
+
+    if (set_as_solution)
     {
       /**
        * Setting mesh position first is already accounted for in
@@ -551,9 +579,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
     VectorTools::interpolate(
       *fixed_mapping, dof_handler, *mesh_fun, newton_update, position_mask);
 
+    present_solution = newton_update;
+    if (this->presolver != nullptr)
+    {
+      pcout
+        << "Injecting initial mesh position from linear elasticity presolver..."
+        << std::endl;
+      overwrite_position_from_presolver(*(this->presolver));
+      newton_update = present_solution;
+    }
     // Update MappingFEField *BEFORE* interpolating velocity
     evaluation_point = newton_update;
   }
+
 
   // Set velocity with moving mapping
   VectorTools::interpolate(
@@ -885,13 +923,33 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_max_cfl()
   {
     TimerOutput::Scope               t(computing_timer, "Compute CFL");
     const FEValuesExtractors::Vector velocity_extractor(ordering->u_lower);
-    const double                     cfl =
-      PostProcessingTools::compute_max_cfl(time_handler.current_dt,
-                                           *moving_mapping,
-                                           dof_handler,
-                                           *quadrature,
-                                           present_solution,
-                                           velocity_extractor);
+    double                           cfl = 0.;
+
+    if constexpr (with_moving_mesh)
+    {
+      const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
+      cfl =
+        PostProcessingTools::compute_max_cfl(time_handler.get_current_timestep(),
+                                             *moving_mapping,
+                                             dof_handler,
+                                             *quadrature,
+                                             present_solution,
+                                             velocity_extractor,
+                                             param.finite_elements.use_quads,
+                                             &previous_solutions,
+                                             &bdf_coefficients,
+                                             &position_extractor);
+    }
+    else
+      cfl =
+        PostProcessingTools::compute_max_cfl(time_handler.get_current_timestep(),
+                                             *moving_mapping,
+                                             dof_handler,
+                                             *quadrature,
+                                             present_solution,
+                                             velocity_extractor,
+                                             param.finite_elements.use_quads);
+
     time_handler.set_max_cfl(cfl);
   }
 }
@@ -1087,6 +1145,44 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
   // Update the time handler
   time_handler.update_parameters_after_restart(param.time_integration);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+  overwrite_position_from_presolver(LinearElasticitySolver<dim> &presolver)
+{
+  this->local_evaluation_point = this->present_solution;
+  // find the starting component index for position in the NS FESystem
+  unsigned int       pos_start_comp = 0;
+  const unsigned int n_comp         = this->dof_handler.get_fe().n_components();
+  for (unsigned int c = 0; c < n_comp; ++c)
+  {
+    if (this->position_mask[c])
+    {
+      pos_start_comp = c;
+      break;
+    }
+  }
+
+  // build component map: elasticity component -> NS component
+  std::map<unsigned int, unsigned int> comp_map;
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    comp_map[d] = pos_start_comp + d;
+  }
+
+  // extract and inject into the ghost-free vector (local_evaluation_point)
+  extract_subsolution<dim, LA::ParVectorType>(presolver.get_dof_handler(),
+                                              this->dof_handler,
+                                              presolver.get_present_solution(),
+                                              this->local_evaluation_point,
+                                              comp_map);
+
+  // compress and sync across MPI
+  this->local_evaluation_point.compress(VectorOperation::insert);
+
+  this->present_solution = this->local_evaluation_point;
+  this->evaluation_point = this->present_solution;
 }
 
 // Explicit instantiation

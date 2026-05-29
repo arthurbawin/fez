@@ -251,6 +251,9 @@ namespace Parameters
     // If true, use hypercubes, otherwise use simplices (default).
     bool use_quads;
 
+    // If true, enable residual-based stabilization terms.
+    bool stabilization;
+
     // Degree of the velocity interpolation
     unsigned int velocity_degree;
 
@@ -331,6 +334,16 @@ namespace Parameters
   class PseudoSolid
   {
   public:
+    enum class ConstitutiveModel
+    {
+      linear_elasticity,
+      neo_hookean,
+      ogden
+    };
+
+    ConstitutiveModel constitutive_model = ConstitutiveModel::linear_elasticity;
+    double            ogden_beta          = 1.0;
+
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_lambda_fun;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
@@ -517,19 +530,27 @@ namespace Parameters
   public:
     enum class MobilityModel
     {
-      constant
+      constant,
+      degenerate
     } mobility_model;
 
     double mobility;
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
+           degenerate_mobility;
+    bool   mobility_tracer_limiter;
     double surface_tension;
     double epsilon_interface;
+    double epsilon_interface_enlarged;
+    double psi_interface_width_factor;
     bool   with_tracer_limiter;
 
-    // Mesh forcing parameters : these parameters control the behavior of the
-    // source term in the pseudosolid equation, in the CHNS-ALE model
-    // FIXME: use more explicit names, when the formulation has been decided
-    double alpha;
-    double beta;
+    // Moving-mesh forcing terms in the CHNS-ALE pseudosolid equation.
+    double mff_enlarged_compression_factor = 0.;
+    double mff_physics_compression_factor  = 0.;
+    double mff_transport_factor            = 0.;
+    double mff_regularization_gamma        = 0.;
+    double mff_enlarged_factor_equalization_exponent = 1.;
+    double psi_mu_correction_factor                     = 0.;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -550,6 +571,17 @@ namespace Parameters
     // Number of steps to use in the continuation method when the source term
     // is applied on the current configuration.
     unsigned int n_continuation_steps;
+
+    // If true, runs the linear elasticity solver as a pre-processing step
+    // to compute an initial mesh deformation. The resulting position field
+    // is used to initialize the ALE mesh of the CHNS solver, typically when
+    // mesh forcing is activated.
+    bool use_as_presolver;
+
+    // If true, write the final deformed mesh to a Gmsh .msh file at the end
+    // of the linear elasticity solve. This requires that the input mesh also
+    // comes from a .msh file.
+    bool write_final_msh;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -731,5 +763,5 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 } // namespace Parameters
-
+#include "pseudosolid_material.impl.h"
 #endif

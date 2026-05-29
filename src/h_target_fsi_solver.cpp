@@ -4,6 +4,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 
+#include <assembly/pseudosolid_forms.h>
 #include <h_target_fsi_solver.h>
 #include <h_target_tools.h>
 
@@ -38,13 +39,6 @@ namespace
                     h_min * (1. + 1e-8));
   }
 
-  template <int dim>
-  double
-  mesh_concentration_size_stiffness(const double lame_lambda,
-                                    const double lame_mu)
-  {
-    return std::max(lame_lambda + 2. * lame_mu / dim, 1e-14);
-  }
 }
 
 template <int dim>
@@ -264,21 +258,25 @@ void FSISolverHTarget<dim>::add_solver_specific_postprocessing_data()
           this->param.physical_properties.pseudosolids[0].lame_lambda_fun->value(
             cell->center());
         const double c =
-          HTargetTools::smooth_time_ramp(
-            this->time_handler.current_time,
-            this->param.h_target.mesh_concentration_ramp_time) *
-          this->param.h_target.size_pressure_coefficient *
-          mesh_concentration_size_stiffness<dim>(
-            lame_lambda,
-            lame_mu);
+          Assembly::Pseudosolid::MeshConcentration::pressure_coefficient(
+            HTargetTools::smooth_time_ramp(
+              this->time_handler.current_time,
+              this->param.h_target.mesh_concentration_ramp_time),
+            this->param.h_target.size_pressure_coefficient,
+            Assembly::Pseudosolid::MeshConcentration::
+              equivalent_size_stiffness(
+                this->param.physical_properties.pseudosolids[0],
+                lame_mu,
+                lame_lambda));
 
-        const double h_safe =
-          std::max(h_q, this->param.h_target.h_min + 1e-14);
         const double p_size =
-          c *
-          (std::log(std::max(h_background, 1e-14) / h_safe) +
-           this->param.h_target.current_size_weight *
-             std::log(h_current / h_safe));
+          Assembly::Pseudosolid::MeshConcentration::size_pressure(
+            c,
+            this->param.h_target.current_size_weight,
+            h_background,
+            h_current,
+            h_q,
+            this->param.h_target.h_min);
 
         h_current_integral += h_current * JxW;
         p_size_integral += p_size * JxW;

@@ -214,7 +214,7 @@ void test_restart()
   prm.set("max timestep increase", "10");
   prm.set("max timestep reduction", "1e-1");
   prm.set("adaptation strategy", "cfl");
-  prm.set("target cfl number", "1");
+  prm.set("target cfl number", "0.2");
   prm.set("reject timestep with large cfl", "true");
   prm.set("cfl ratio to reject", "2");
   prm.leave_subsection();

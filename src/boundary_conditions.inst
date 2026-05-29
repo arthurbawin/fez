@@ -109,4 +109,24 @@ namespace BoundaryConditions
     types::global_dof_index &,
     std::vector<std::pair<types::global_dof_index, double>> &);
 
+  template void update_zero_mean_pressure_constraint_weights(
+    const Triangulation<2> &,
+    const DoFHandler<2> &,
+    const IndexSet &,
+    const Mapping<2> &,
+    const Quadrature<2> &,
+    const unsigned int,
+    types::global_dof_index &,
+    std::vector<std::pair<types::global_dof_index, double>> &);
+
+  template void update_zero_mean_pressure_constraint_weights(
+    const Triangulation<3> &,
+    const DoFHandler<3> &,
+    const IndexSet &,
+    const Mapping<3> &,
+    const Quadrature<3> &,
+    const unsigned int,
+    types::global_dof_index &,
+    std::vector<std::pair<types::global_dof_index, double>> &);
+
 } // namespace BoundaryConditions

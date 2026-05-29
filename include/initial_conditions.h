@@ -15,6 +15,8 @@ namespace Parameters
   template <int dim>
   class InitialPressure;
   template <int dim>
+  class InitialCHNSEnlargedPsi;
+  template <int dim>
   class InitialTemperature;
 
   /**
@@ -50,6 +52,8 @@ namespace Parameters
       , initial_chns_tracer_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
       , initial_pressure_callback(
+          std::make_shared<Functions::ParsedFunction<dim>>(1))
+      , initial_chns_enlarged_psi_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
       , initial_temperature_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
@@ -91,6 +95,18 @@ namespace Parameters
     }
 
     /**
+     * Create the actual initial enlarged psi, once the components and layout
+     * are known.
+     */
+    void create_initial_chns_enlarged_psi(const unsigned int psi_lower,
+                                          const unsigned int n_components)
+    {
+      initial_chns_enlarged_psi =
+        std::make_shared<Parameters::InitialCHNSEnlargedPsi<dim>>(
+          psi_lower, n_components, initial_chns_enlarged_psi_callback);
+    }
+
+    /**
      * Create the actual initial temperature, once the components and layout are
      * known.
      */
@@ -119,6 +135,12 @@ namespace Parameters
     std::shared_ptr<Functions::ParsedFunction<dim>> initial_pressure_callback;
     std::shared_ptr<InitialPressure<dim>>           initial_pressure;
 
+    // Enlarged CHNS psi data
+    bool use_enlarged_psi = false;
+    std::shared_ptr<Functions::ParsedFunction<dim>>
+      initial_chns_enlarged_psi_callback;
+    std::shared_ptr<InitialCHNSEnlargedPsi<dim>> initial_chns_enlarged_psi;
+
     // Temperature data
     std::shared_ptr<Functions::ParsedFunction<dim>>
                                              initial_temperature_callback;
@@ -126,6 +148,38 @@ namespace Parameters
 
     // If true, the initial condition is specified by a manufactured solution
     bool set_to_mms;
+  };
+
+  /**
+   * Initial condition for the scalar enlarged psi in enlarged CHNS models.
+   * This is a function with @p n_components components, which only fills
+   * the psi_lower-th component.
+   */
+  template <int dim>
+  class InitialCHNSEnlargedPsi : public Function<dim>
+  {
+  public:
+    const unsigned int psi_lower;
+    std::shared_ptr<Functions::ParsedFunction<dim>>
+      initial_chns_enlarged_psi_callback;
+
+  public:
+    InitialCHNSEnlargedPsi(const unsigned int psi_lower,
+                           const unsigned int n_components,
+                           std::shared_ptr<Functions::ParsedFunction<dim>>
+                             initial_chns_enlarged_psi_callback)
+      : Function<dim>(n_components)
+      , psi_lower(psi_lower)
+      , initial_chns_enlarged_psi_callback(initial_chns_enlarged_psi_callback)
+    {}
+
+    virtual double value(const Point<dim> &p,
+                         unsigned int      component) const override
+    {
+      if (component == psi_lower)
+        return initial_chns_enlarged_psi_callback->value(p);
+      return 0.;
+    }
   };
 
   /**
@@ -263,6 +317,12 @@ namespace Parameters
                         Patterns::Bool(),
                         "If true, initial conditions are specified by the "
                         "prescribed manufactured solution.");
+      prm.declare_entry("use enlarged psi",
+                        "false",
+                        Patterns::Bool(),
+                        "If true, use the dedicated enlarged psi initial "
+                        "condition. If false, enlarged psi is initialized "
+                        "from the tracer initial condition.");
       prm.enter_subsection("velocity");
       initial_velocity_callback->declare_parameters(prm, dim);
       prm.leave_subsection();
@@ -271,6 +331,9 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("pressure");
       initial_pressure_callback->declare_parameters(prm, 1);
+      prm.leave_subsection();
+      prm.enter_subsection("enlarged psi");
+      initial_chns_enlarged_psi_callback->declare_parameters(prm, 1);
       prm.leave_subsection();
       prm.enter_subsection("temperature");
       initial_temperature_callback->declare_parameters(prm, 1);
@@ -284,7 +347,8 @@ namespace Parameters
   {
     prm.enter_subsection("Initial conditions");
     {
-      set_to_mms = prm.get_bool("to mms");
+      set_to_mms       = prm.get_bool("to mms");
+      use_enlarged_psi = prm.get_bool("use enlarged psi");
       prm.enter_subsection("velocity");
       initial_velocity_callback->parse_parameters(prm);
       prm.leave_subsection();
@@ -293,6 +357,9 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("pressure");
       initial_pressure_callback->parse_parameters(prm);
+      prm.leave_subsection();
+      prm.enter_subsection("enlarged psi");
+      initial_chns_enlarged_psi_callback->parse_parameters(prm);
       prm.leave_subsection();
       prm.enter_subsection("temperature");
       initial_temperature_callback->parse_parameters(prm);

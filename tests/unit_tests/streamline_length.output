@@ -1,0 +1,7 @@
+
+DEAL::affine Q1 analytic/native max diff = 0.000e+00
+DEAL::affine P1 simplex analytic/native max diff = 0.000e+00
+DEAL::quadratic mapping Q1 analytic/native max diff = 0.000e+00
+DEAL::quadratic mapping min h_stream = 6.133e-01
+DEAL::tau polynomial degree scaling OK
+DEAL::OK

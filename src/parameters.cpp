@@ -1318,6 +1318,21 @@ namespace Parameters
         Patterns::Bool(),
         "If true, write the final deformed mesh as a Gmsh .msh file at the "
         "end of the linear elasticity solve.");
+      prm.enter_subsection("presolved mesh position");
+      {
+        prm.declare_entry(
+          "mode",
+          "off",
+          Patterns::Selection("off|auto|force recompute|read only"),
+          "Control the cache for the presolved mesh position. In auto mode, "
+          "the cache is used when compatible and recomputed otherwise.");
+        prm.declare_entry(
+          "file",
+          "presolved_mesh_position",
+          Patterns::FileName(),
+          "Root filename for the presolved mesh position cache files.");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("current mesh source term");
       {
         prm.declare_entry(
@@ -1357,6 +1372,28 @@ namespace Parameters
     prm.enter_subsection("Linear elasticity");
     {
       write_final_msh = prm.get_bool("write final msh");
+      prm.enter_subsection("presolved mesh position");
+      {
+        const std::string parsed_mode = prm.get("mode");
+        if (parsed_mode == "off")
+          presolved_mesh_position_cache.mode =
+            PresolvedMeshPositionCache::Mode::off;
+        else if (parsed_mode == "auto")
+          presolved_mesh_position_cache.mode =
+            PresolvedMeshPositionCache::Mode::automatic;
+        else if (parsed_mode == "force recompute")
+          presolved_mesh_position_cache.mode =
+            PresolvedMeshPositionCache::Mode::force_recompute;
+        else if (parsed_mode == "read only")
+          presolved_mesh_position_cache.mode =
+            PresolvedMeshPositionCache::Mode::read_only;
+        else
+          AssertThrow(false,
+                      ExcMessage("Unknown presolved mesh position cache mode"));
+
+        presolved_mesh_position_cache.filename = prm.get("file");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("current mesh source term");
       {
         enable_source_term_on_current_mesh = prm.get_bool("enable");

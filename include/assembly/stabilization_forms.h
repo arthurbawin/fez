@@ -5,6 +5,7 @@
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <stabilization_utils.h>
 
 using namespace dealii;
 
@@ -190,6 +191,8 @@ namespace Assembly
                                      const CouplingTableType &coupling_table,
                                      const ScratchData       &scratch,
                                      const double             bdf_c0,
+                                     const unsigned int       velocity_degree,
+                                     const unsigned int       tracer_degree,
                                      const bool               stabilization_enabled,
                                      MatrixType              &local_matrix)
   {
@@ -200,6 +203,7 @@ namespace Assembly
       {
         const double tau_mom    = scratch.stabilization_tau_momentum[q];
         const double tau_tracer = scratch.stabilization_tau_tracer[q];
+        const double h_tau      = scratch.stabilization_h_tau[q];
         const double mobility   = scratch.mobility_values[q];
         const double dM_dphi = scratch.derivative_mobility_wrt_tracer[q];
         const double ddM_dphi2 =
@@ -213,6 +217,8 @@ namespace Assembly
 
         const double rho = scratch.density[q];
         const auto &u_conv = scratch.present_convective_velocity[q];
+        const double tau_direction_threshold =
+          Stabilization::direction_norm_threshold_from_bdf(bdf_c0);
 
         for (unsigned int i = 0; i < scratch.dofs_per_cell; ++i)
           {
@@ -241,10 +247,100 @@ namespace Assembly
                   continue;
 
                 const unsigned int comp_j = scratch.components[j];
-                double             local_matrix_ij = 0.;
+                Tensor<1, dim>     du_conv_tau_j;
+                double             dh_tau_j         = 0.;
+                double             dnu_eff_tau_j    = 0.;
+                double             dmobility_tau_j  = 0.;
+                bool               tau_varies_j     = false;
+
+                if (h_tau > 0.)
+                  {
+                    if (ordering.is_velocity(comp_j))
+                      {
+                        du_conv_tau_j = scratch.phi_u[q][j];
+                        dh_tau_j =
+                          Stabilization::compute_streamline_length_variation<
+                            dim>(u_conv,
+                                 du_conv_tau_j,
+                                 scratch.stabilization_geometry_shape_gradients[q],
+                                 h_tau,
+                                 nullptr,
+                                 tau_direction_threshold);
+                        tau_varies_j = true;
+                      }
+
+                    if constexpr (with_moving_mesh)
+                      if (ordering.is_position(comp_j))
+                        {
+                          du_conv_tau_j =
+                            Assembly::ALE::mesh_velocity_variation(
+                              bdf_c0, scratch.phi_x[q][j]);
+                          dh_tau_j =
+                            Stabilization::compute_streamline_length_variation<
+                              dim>(
+                              u_conv,
+                              du_conv_tau_j,
+                              scratch.stabilization_geometry_shape_gradients[q],
+                              h_tau,
+                              &scratch.grad_phi_x_moving[q][j],
+                              tau_direction_threshold);
+                          tau_varies_j = true;
+                        }
+
+                    if (ordering.is_tracer(comp_j))
+                      {
+                        const double dnueff_dphi =
+                          scratch.stabilization_inv_rho[q] *
+                            scratch.derivative_dynamic_viscosity_wrt_tracer[q] -
+                          scratch.stabilization_nu_eff[q] *
+                            scratch.stabilization_inv_rho[q] *
+                            scratch.derivative_density_wrt_tracer[q];
+                        dnu_eff_tau_j =
+                          dnueff_dphi * scratch.shape_phi[q][j];
+                        dmobility_tau_j = dM_dphi * scratch.shape_phi[q][j];
+                        tau_varies_j    = true;
+                      }
+                  }
+
+                const double dtau_mom_j =
+                  tau_varies_j ?
+                    Stabilization::compute_tau_variation<dim>(
+                      tau_mom,
+                      u_conv,
+                      du_conv_tau_j,
+                      scratch.stabilization_nu_eff[q],
+                      dnu_eff_tau_j,
+                      h_tau,
+                      dh_tau_j,
+                      velocity_degree) :
+                    0.;
+                const double dtau_tracer_j =
+                  tau_varies_j ?
+                    Stabilization::compute_tau_variation<dim>(
+                      tau_tracer,
+                      u_conv,
+                      du_conv_tau_j,
+                      mobility,
+                      dmobility_tau_j,
+                      h_tau,
+                      dh_tau_j,
+                      tracer_degree) :
+                    0.;
+
+                double local_matrix_ij = 0.;
 
                 if (tau_mom > 0. && (i_is_u || i_is_p))
                   {
+                    if (i_is_p)
+                      local_matrix_ij -=
+                        dtau_mom_j * scratch.strong_residual_momentum[q] *
+                        grad_phi_p_i;
+
+                    if (i_is_u)
+                      local_matrix_ij +=
+                        dtau_mom_j * supg_test_momentum *
+                        scratch.strong_residual_momentum[q];
+
                     if (ordering.is_velocity(comp_j))
                       {
                         const auto &phi_u_j      = scratch.phi_u[q][j];
@@ -466,6 +562,10 @@ namespace Assembly
 
                 if (tau_tracer > 0. && i_is_tracer)
                   {
+                    local_matrix_ij +=
+                      dtau_tracer_j * supg_test_tracer *
+                      scratch.strong_residual_tracer[q];
+
                     if (ordering.is_velocity(comp_j))
                       {
                         local_matrix_ij +=

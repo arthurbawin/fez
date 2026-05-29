@@ -722,6 +722,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     // Stabilization parameters
     stabilization_tau_momentum.resize(n_q_points);
     stabilization_tau_tracer.resize(n_q_points);
+    stabilization_h_tau.resize(n_q_points);
+    stabilization_geometry_shape_gradients.resize(n_q_points);
 
     // CHNS: nu_eff and inv_rho precomputed in reinit, reused in assembly
     stabilization_nu_eff.resize(n_q_points);

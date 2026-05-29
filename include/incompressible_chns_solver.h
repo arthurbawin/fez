@@ -40,6 +40,11 @@ public:
   virtual void create_scratch_data() override;
 
   /**
+   * Update time-dependent Cahn-Hilliard boundary functions.
+   */
+  virtual void set_solver_specific_time() override;
+
+  /**
    * Apply initial condition on the tracer (phase marker)
    */
   virtual void set_solver_specific_initial_conditions() override;

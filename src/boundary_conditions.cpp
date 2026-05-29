@@ -294,8 +294,12 @@ namespace BoundaryConditions
     BoundaryCondition::declare_parameters(prm);
     prm.declare_entry("type",
                       "none",
-                      Patterns::Selection("none|no_flux|dirichlet_mms"),
+                      Patterns::Selection(
+                        "none|no_flux|dirichlet_mms|input_function"),
                       "Type of Cahn-Hilliard boundary condition");
+    prm.enter_subsection("tracer");
+    tracer->declare_parameters(prm);
+    prm.leave_subsection();
   }
 
   template <int dim>
@@ -309,6 +313,8 @@ namespace BoundaryConditions
       type = Type::no_flux;
     if (parsed_type == "dirichlet_mms")
       type = Type::dirichlet_mms;
+    if (parsed_type == "input_function")
+      type = Type::input_function;
     if (parsed_type == "none")
       throw std::runtime_error(
         "Cahn-Hilliard boundary condition for boundary " +
@@ -317,6 +323,9 @@ namespace BoundaryConditions
         "Either you specified this type by mistake, or the number of \n"
         "prescribed Cahn-Hilliard boundary conditions is smaller than "
         "the specified \"number\" field.");
+    prm.enter_subsection("tracer");
+    tracer->parse_parameters(prm);
+    prm.leave_subsection();
   }
 
   template <int dim>

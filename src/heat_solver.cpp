@@ -40,6 +40,7 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   , mapping(std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1)))
   , time_handler(param.time_integration)
   , transient_fixed_point_data(this->param,
+                               computing_timer,
                                param.time_integration.n_time_intervals,
                                mpi_communicator)
   , triangulation(transient_fixed_point_data.get_triangulation(0))
@@ -71,10 +72,6 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   {
     source_terms = param.source_terms.temperature_source;
   }
-
-  // Create direct solver
-  direct_solver_reuse =
-    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 }
 
 template <int dim>
@@ -99,10 +96,6 @@ void HeatSolver<dim>::reset()
 
   // Clear mesh(es) and dof handler(s)
   transient_fixed_point_data.clear();
-
-  // Direct solver
-  direct_solver_reuse =
-    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
@@ -201,6 +194,10 @@ void HeatSolver<dim>::set_interval_data(const unsigned int interval_index)
   else
     postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
                                                            *dof_handler);
+
+  // Create a direct solver for each interval
+  direct_solver_reuse =
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 }
 
 template <int dim>

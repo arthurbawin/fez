@@ -1,8 +1,11 @@
 
 #include <deal.II/base/function.h>
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/mpi_remote_point_evaluation.h>
 #include <deal.II/base/table_handler.h>
+#include <deal.II/base/timer.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <mesh_adaptation/transient_fixed_point.h>
 #include <mesh_adaptation_tools.h>
@@ -14,9 +17,11 @@
 template <int dim>
 TransientFixedPointData<dim>::TransientFixedPointData(
   const ParameterReader<dim> &param,
+  TimerOutput                &timer,
   const unsigned int          n_time_intervals,
   const MPI_Comm              mpi_communicator)
   : param(param)
+  , timer(timer)
   , mpi_communicator(mpi_communicator)
   , n_time_intervals(n_time_intervals)
   , triangulations(n_time_intervals)
@@ -170,42 +175,130 @@ void TransientFixedPointData<dim>::transfer_solution(
   const Mapping<dim>  &mapping,
   const Function<dim> &exact_solution)
 {
+  TimerOutput::Scope t(timer, "Transfer solutions between intervals");
+
   AssertIndexRange(interval_index, n_time_intervals);
   Assert(interval_index > 0, ExcInternalError());
 
-  // Transfer solution from previous interval
-  // Possible steps:
-  /**
-   * - get the support points of the new dofs on this partition
-   * - locate on which partition in the old mesh they are located
-   * - for each proc, create a list of support points whose values (for each
-   * component) are requested
-   * - send and receive the lists of requests
-   * - fulfill the requests and send back the values
-   */
+  const bool interpolate_from_solution = false;
 
-  // For now and for prototyping: simply evaluate re-interpolate the exact
-  // solution at the beginning of this interval.
-  auto &present_solution = *present_solutions[interval_index];
-  auto &dof_handler      = *dof_handlers[interval_index];
+  if (interpolate_from_solution)
+  {
+    // Interpolate the exact solutions at the beginning of this interval.
+    auto &present_solution = *present_solutions[interval_index];
+    auto &dof_handler      = *dof_handlers[interval_index];
 
-  LA::ParVectorType distributed_present_solution(
-    dof_handler.locally_owned_dofs(), mpi_communicator);
+    LA::ParVectorType distributed_present_solution(
+      dof_handler.locally_owned_dofs(), mpi_communicator);
 
-  // Interpolate present solution
-  VectorTools::interpolate(mapping,
-                           dof_handler,
-                           exact_solution,
-                           distributed_present_solution);
-  present_solution = distributed_present_solution;
+    // Interpolate present solution
+    VectorTools::interpolate(mapping,
+                             dof_handler,
+                             exact_solution,
+                             distributed_present_solution);
+    present_solution = distributed_present_solution;
 
-  // Copy/interpolate previous solutions
-  auto &previous_solutions_this_interval = *previous_solutions[interval_index];
-  auto &previous_solutions_previous_interval =
-    *previous_solutions[interval_index - 1];
-  for (unsigned int i = 0; i < previous_solutions_this_interval.size(); ++i)
-    previous_solutions_this_interval[i] =
-      previous_solutions_previous_interval[i];
+    // FIXME: TODO: interpolate previous solutions
+    // This was just tested for the first fixed point iteration, which uses
+    // copies of the initial mesh, so the previous solution can juste be copied.
+    // Should interpolate solution at previous times instead.
+    AssertThrow(param.mesh.adaptation.metric.current_fixed_point_iteration == 0,
+                ExcMessage("For prototyping, evaluate the exact solution at "
+                           "the previous times on the previous solutions."));
+
+    auto &previous_solutions_this_interval =
+      *previous_solutions[interval_index];
+    auto &previous_solutions_previous_interval =
+      *previous_solutions[interval_index - 1];
+    for (unsigned int i = 0; i < previous_solutions_this_interval.size(); ++i)
+      previous_solutions_this_interval[i] =
+        previous_solutions_previous_interval[i];
+  }
+  else
+  {
+    /**
+     * Transfer solution from the previous interval in parallel, using the
+     * Utilities::MPI::RemotePointEvaluation tools.
+     *
+     * This is (a priori) the worst possible case for solution transfer, as we
+     * use different fully_distributed triangulations across intervals, whose
+     * partitions are completely unrelated.
+     *
+     * This function is not expected to scale well, but it is only called
+     * N_intervals - 1 times, where N_intervals is typically small compared to
+     * the number of time steps per interval.
+     */
+
+    // Data on the current interval, to be transferred into
+    const auto &dh                   = *dof_handlers[interval_index];
+    auto       &solution             = *present_solutions[interval_index];
+    auto &previous_solutions_current = *previous_solutions[interval_index];
+
+    // Data on the previous interval, to be transferred from
+    const auto &dh_prev       = *dof_handlers[interval_index - 1];
+    const auto &solution_prev = *present_solutions[interval_index - 1];
+    const auto &previous_solutions_prev =
+      *previous_solutions[interval_index - 1];
+
+    Assert(previous_solutions_current.size() == previous_solutions_prev.size(),
+           ExcInternalError());
+
+    LA::ParVectorType distributed_solution(dh.locally_owned_dofs(),
+                                           mpi_communicator);
+
+    const unsigned int n_components = dh_prev.get_fe().n_components();
+
+    AssertThrow(n_components == 1,
+                ExcMessage("Need to know n_components at compile time"));
+
+    // The support points at which the solutions on previous interval are
+    // evaluated
+    const std::map<types::global_dof_index, Point<dim>> support_points =
+      DoFTools::map_dofs_to_support_points(mapping, dh);
+
+    // Split support_points into vectors of dof indices and of points,
+    // since point_values() takes a vector of Point<dim>.
+    const unsigned int                   n_pts = support_points.size();
+    std::vector<types::global_dof_index> local_dofs(n_pts);
+    std::vector<Point<dim>>              evaluation_points(n_pts);
+    unsigned int                         i = 0;
+    for (const auto &[dof, pt] : support_points)
+    {
+      local_dofs[i]        = dof;
+      evaluation_points[i] = pt;
+      ++i;
+    }
+
+    Utilities::MPI::RemotePointEvaluation<dim, dim> rpe;
+
+    {
+      // Transfer current solution from the previous interval onto this interval
+      // Call point_values() overload with 5 arguments to initialize the cache
+      // once
+      const std::vector<double> transferred_solution =
+        VectorTools::point_values<1>(
+          mapping, dh_prev, solution_prev, evaluation_points, rpe);
+
+      for (unsigned int i = 0; i < n_pts; ++i)
+        distributed_solution[local_dofs[i]] = transferred_solution[i];
+      distributed_solution.compress(VectorOperation::insert);
+      solution = distributed_solution;
+    }
+
+    // Then transfer the previous solutions defined on the previous interval.
+    // Call point_values() overload with 3 arguments, which does *not*
+    // reinitialize the cache
+    for (unsigned int k = 0; k < previous_solutions_current.size(); ++k)
+    {
+      const auto               &previous_sol_prev = previous_solutions_prev[k];
+      const std::vector<double> transferred_solution =
+        VectorTools::point_values<1>(rpe, dh_prev, previous_sol_prev);
+      for (unsigned int i = 0; i < n_pts; ++i)
+        distributed_solution[local_dofs[i]] = transferred_solution[i];
+      distributed_solution.compress(VectorOperation::insert);
+      previous_solutions_current[k] = distributed_solution;
+    }
+  }
 }
 
 template <int dim>

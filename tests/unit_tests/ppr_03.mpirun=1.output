@@ -1,0 +1,28 @@
+
+DEAL::
+DEAL::Convergence rates:
+DEAL::Reconstructions for solution of degree           : 2
+DEAL::Isoparametric representation                     : no
+DEAL::Computing derivatives from single reconstruction : no
+n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess     e_int_third     e_nodal_third  
+384   9.1042e-02 -    8.1763e-02 -    7.2845e-01 -    7.7318e-01 -    5.0273e+00 -    5.1802e+00 -    2.0747e+01 -     2.3702e+01 -    
+3072  7.3166e-03 3.64 6.2541e-03 3.71 1.4680e-01 2.31 1.6055e-01 2.27 2.3224e+00 1.11 2.3579e+00 1.14 2.3002e+01 -0.15 2.3592e+01 0.01 
+DEAL::OK
+DEAL::
+DEAL::Convergence rates:
+DEAL::Reconstructions for solution of degree           : 2
+DEAL::Isoparametric representation                     : yes
+DEAL::Computing derivatives from single reconstruction : no
+n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess     e_int_third     e_nodal_third  
+384   2.0042e-01 -    8.1763e-02 -    8.6833e-01 -    7.7318e-01 -    5.3503e+00 -    5.1802e+00 -    2.1349e+01 -     2.3702e+01 -    
+3072  5.7868e-02 1.79 6.2541e-03 3.71 2.1407e-01 2.02 1.6055e-01 2.27 2.4931e+00 1.10 2.3579e+00 1.14 2.1874e+01 -0.04 2.2199e+01 0.09 
+DEAL::OK
+DEAL::
+DEAL::Convergence rates:
+DEAL::Reconstructions for solution of degree           : 2
+DEAL::Isoparametric representation                     : yes
+DEAL::Computing derivatives from single reconstruction : yes
+n_elm    e_int_sol      e_nodal_sol     e_int_grad     e_nodal_grad     e_int_hess     e_nodal_hess     e_int_third    e_nodal_third  
+384   2.0042e-01 -    8.1763e-02 -    8.6833e-01 -    7.7318e-01 -    5.5329e+00 -    5.3991e+00 -    2.0969e+01 -    2.0360e+01 -    
+3072  5.7868e-02 1.79 6.2541e-03 3.71 2.1407e-01 2.02 1.6055e-01 2.27 2.3610e+00 1.23 2.1601e+00 1.32 1.0599e+01 0.98 1.0663e+01 0.93 
+DEAL::OK

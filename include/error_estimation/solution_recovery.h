@@ -24,7 +24,7 @@ namespace ErrorEstimation
    *
    * This operator provides a C^1 field for the solution and its derivatives,
    * and defines in particular degrees of freedom for the gradient, hessian,
-   * etc., which is not typically defined in a finite element setting.
+   * etc., which are not typically defined in a finite element setting.
    *
    * Possible use cases of this operator are as follows :
    *
@@ -84,7 +84,7 @@ namespace ErrorEstimation
    * gradient, then recovering the gradient and obtaining its smoothed hessian,
    * etc.
    *
-   * Successive differentiations of numerical data is known to quickly become
+   * Successive differentiations of numerical data are known to quickly become
    * noisy, especially near the boundaries. In the case where the higher-order
    * derivatives are only needed at the mesh vertices (that is, if @p isoparametric
    * is set to true), these derivatives can be computed at these vertices with a
@@ -129,7 +129,7 @@ namespace ErrorEstimation
       solution,
       gradient,
       hessian,
-      // third_derivatives
+      third_derivatives
     };
 
     /**
@@ -316,10 +316,19 @@ namespace ErrorEstimation
       get_reconstructed_hessian(const unsigned int component = 0) const = 0;
 
       /**
+       * Return the reconstructed 3rd derivatives of the @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
+       */
+      virtual const std::vector<Tensor<3, dim>> &
+      get_reconstructed_third_derivatives(
+        const unsigned int component = 0) const = 0;
+
+      /**
        * Write all the reconstructed fields to a pvtu file for visualization.
        */
-      virtual void write_pvtu(const Mapping<dim> &mapping,
-                              const std::string  &filename) const = 0;
+      virtual void
+      write_pvtu(const Mapping<dim> &mapping,
+                 const std::string  &filename_without_extension) const = 0;
 
       /**
        * Write the least-squares matrices and polynomials associated
@@ -363,9 +372,44 @@ namespace ErrorEstimation
                                      n_tensor_components>> &vertex_to_dofs);
 
       /**
-       * Evaluate at @p p the polynomial described by the basis
+       * Convenience function to solve the least square problem at a mesh
+       * vertex, and store the result in @p scaled_polynomial_coeffs.
+       *
+       * The least-squares matrix (from the PatchHandler) is expected to have
+       * been computed from the scaled position of the patch support points,
+       * in the local frame centered at the patch center. Thus, this function
+       * computes the scaled polynomial \hat{p}(\hat{x}), where
+       *
+       * \hat{x}_i := (x_i - x_center,i) / scaling_i.
+       *
+       * This polynomial is such that p(x) = \hat{p}(\hat{x}), so there is no
+       * need to scale back to evaluate to polynomial itself, but its
+       * derivatives must be scaled back according to the chain rule, for
+       * instance:
+       *
+       * grad p(x)
+       *  = (\partial \hat{x}/\partial x)^T \cdot \hat{grad}\hat{p}(\hat{x}).
+       *
+       * The transformation \partial \hat{x}/\partial x is diagonal, so one
+       * simply has to divide each component of the gradient, hessian, etc. by
+       * the corresponding scaling component, e.g.:
+       *
+       * (grad p(x))_i = (\hat{grad}\hat{p}(\hat{x}))_i / scaling_i,
+       *
+       * (hess p(x))_ij
+       *  = (\hat{hess}\hat{p}(\hat{x}))_ij / (scaling_i * scaling_j),
+       *
+       * and so on.
+       */
+      void solve_least_squares_problem(
+        const unsigned int      vertex_index,
+        dealii::Vector<double> &scaled_polynomial_coeffs);
+
+      /**
+       * Evaluate at @p p the scaled polynomial described by the basis
        * @p polynomial_space and the coefficients @p polynomial_coeffs.
-       * @p basis is a used as a temporary vector to store the polynomial basis at @p p.
+       * @p basis is used as a temporary vector to store the polynomial basis
+       * at @p p.
        */
       double
       evaluate_polynomial(const Point<dim>             &p,
@@ -374,46 +418,48 @@ namespace ErrorEstimation
                           std::vector<double>          &basis);
 
       /**
-       * Evaluate at @p p the gradient of the polynomial described by the basis
-       * @p polynomial_space and the coefficients @p polynomial_coeffs.
-       * @p basis_gradients is a used as a temporary vector to store the
+       * Evaluate at @p p the gradient of the scaled polynomial described by the
+       * basis @p polynomial_space and the coefficients @p scaled_polynomial_coeffs,
+       * then scale back the result to yield the gradient in physical
+       * coordinates according to the comments for the
+       * solve_least_squares_problem function.
+       * @p basis_gradients is used as a temporary vector to store the
        * gradient of the polynomial basis at @p p.
        */
       Tensor<1, dim> evaluate_polynomial_gradient(
         const Point<dim>             &p,
         const PolynomialSpace<dim>   &polynomial_space,
-        const dealii::Vector<double> &polynomial_coeffs,
-        std::vector<Tensor<1, dim>>  &basis_gradients);
+        const dealii::Vector<double> &scaled_polynomial_coeffs,
+        std::vector<Tensor<1, dim>>  &basis_gradients,
+        const Point<dim>             &scaling);
 
       /**
-       * Evaluate at 0 the gradient of the polynomial described by the local
-       * frame coefficients @p polynomial_coeffs.
+       * Evaluate at 0 the gradient of the scaled polynomial described by the
+       * local frame coefficients @p scaled_polynomial_coeffs, and scale back the
+       * result to yield the gradient in physical coordinates according to the
+       * comments for the solve_least_squares_problem function.
        */
       Tensor<1, dim>
-      gradient_at_origin(const dealii::Vector<double> &polynomial_coeffs) const;
+      gradient_at_origin(const dealii::Vector<double> &scaled_polynomial_coeffs,
+                         const Point<dim>             &scaling) const;
 
       /**
-       * Evaluate at 0 the hessian of the polynomial described by the local
-       * frame coefficients @p polynomial_coeffs.
+       * Evaluate at 0 the hessian of the scaled polynomial described by the
+       * local frame coefficients @p scaled_polynomial_coeffs, and scale back
+       * the result.
        */
       Tensor<2, dim>
-      hessian_at_origin(const dealii::Vector<double> &polynomial_coeffs) const;
+      hessian_at_origin(const dealii::Vector<double> &scaled_polynomial_coeffs,
+                        const Point<dim>             &scaling) const;
 
       /**
-       * Evaluate at 0 the third derivatives of the polynomial described by the
-       * local frame coefficients @p polynomial_coeffs.
+       * Evaluate at 0 the third derivatives of the scaled polynomial described
+       * by the local frame coefficients @p scaled_polynomial_coeffs, and scale
+       * back the result.
        */
       Tensor<3, dim> third_derivatives_at_origin(
-        const dealii::Vector<double> &polynomial_coeffs) const;
-
-      /**
-       * Convenience function to solve the least square problem at a mesh
-       * vertex,
-       * and store the result in @p polynomial_coeffs.
-       */
-      void
-      solve_least_squares_problem(const unsigned int      vertex_index,
-                                  dealii::Vector<double> &polynomial_coeffs);
+        const dealii::Vector<double> &scaled_polynomial_coeffs,
+        const Point<dim>             &scaling) const;
 
     protected:
       /**
@@ -537,9 +583,12 @@ namespace ErrorEstimation
       ComponentMask                                 solution_mask;
       ComponentMask                                 gradient_mask;
       ComponentMask                                 hessian_mask;
+      ComponentMask                                 third_derivatives_mask;
       std::unique_ptr<ComponentSelectFunction<dim>> solution_comp_select;
       std::unique_ptr<ComponentSelectFunction<dim>> gradient_comp_select;
       std::unique_ptr<ComponentSelectFunction<dim>> hessian_comp_select;
+      std::unique_ptr<ComponentSelectFunction<dim>>
+        third_derivatives_comp_select;
 
       /**
        * Degree of the FE field whose derivatives are reconstructed.
@@ -635,6 +684,8 @@ namespace ErrorEstimation
       static constexpr unsigned int solution_offset = 0;
       static constexpr unsigned int gradient_offset = 1;
       static constexpr unsigned int hessian_offset  = 1 + dim;
+      static constexpr unsigned int third_derivative_offset =
+        1 + dim + dim * dim;
 
       /**
        * Number of components for the solution (since we cannot use
@@ -678,6 +729,14 @@ namespace ErrorEstimation
         const unsigned int component = 0) const override;
 
       /**
+       * Return the reconstructed 3rd derivatives of the @p component-th component of the solution,
+       * stored at the (owned) mesh vertices of this partition.
+       */
+      virtual const std::vector<Tensor<3, dim>> &
+      get_reconstructed_third_derivatives(
+        const unsigned int component = 0) const override;
+
+      /**
        * Return the map from the solver's solution dof to the recovery dof
        * in this object's solution vector.
        */
@@ -706,8 +765,9 @@ namespace ErrorEstimation
       /**
        * Write all the reconstructed fields to a pvtu file for visualization.
        */
-      virtual void write_pvtu(const Mapping<dim> &mapping,
-                              const std::string  &filename) const override;
+      virtual void
+      write_pvtu(const Mapping<dim> &mapping,
+                 const std::string  &filename_without_extension) const override;
 
     protected:
       /**
@@ -743,15 +803,26 @@ namespace ErrorEstimation
                                  const unsigned int gradient_component);
 
       /**
-       * If isoparametric is false and the full PPR operator is defined, this
-       * functions assigns the values at non-vertex dofs by evaluating the
-       * polynomials from adjacent vertices and averaging these evaluations.
+       * When using a non-isoparametric representation of the PPR operator, this
+       * functions completes the operator by assigning the missing values at
+       * non-vertex dofs, by evaluating the polynomials from adjacent vertices
+       * (stored in recoveries_coefficients) and averaging these evaluations,
+       * using the pre-computed weights. If @p compute_gradient is true, then
+       * the gradient of these polynomials are evaluated and averaged instead of
+       * the polynomials themselves.
+       *
+       * Communication is involved to exchange contributions from patch dofs on
+       * remote partitions.
+       *
+       * The result of these evaluations is stored in the @p component-th vector
+       * component of local_recovery_solution, then the ghost values are updated
+       * in recovery_solution.
        */
       void evaluate_and_average_recovery_solution(
         const RecoveryType type,
         const unsigned int derivative_order,
         const unsigned int component,
-        const bool         gradient = true);
+        const bool         compute_gradient = true);
 
       /**
        * Update the recovery solution with the last polynomials computed.
@@ -771,6 +842,8 @@ namespace ErrorEstimation
       std::vector<value_type>    recovered_solution_at_vertices;
       std::vector<gradient_type> recovered_gradient_at_vertices;
       std::vector<hessian_type>  recovered_hessian_at_vertices;
+      std::vector<third_derivative_type>
+        recovered_third_derivatives_at_vertices;
 
       /**
        * Maps to go from data stored at (owned) mesh vertices to their
@@ -784,6 +857,9 @@ namespace ErrorEstimation
       std::vector<std::array<types::global_dof_index,
                              hessian_type::n_independent_components>>
         vertices_to_hessian_dofs;
+      std::vector<std::array<types::global_dof_index,
+                             third_derivative_type::n_independent_components>>
+        vertices_to_third_derivatives_dofs;
 
       /**
        * Maps from FE solution dofs (in local_solution) to the dofs of their
@@ -799,6 +875,10 @@ namespace ErrorEstimation
                std::array<types::global_dof_index,
                           hessian_type::n_independent_components>>
         solution_dofs_to_hessian_dofs;
+      std::map<types::global_dof_index,
+               std::array<types::global_dof_index,
+                          third_derivative_type::n_independent_components>>
+        solution_dofs_to_third_derivatives_dofs;
     };
 
     /**
@@ -893,7 +973,7 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    FEValues<dim>
+    inline FEValues<dim>
     Base<dim>::get_fe_values(const Mapping<dim>    &mapping,
                              const Quadrature<dim> &quadrature) const
     {
@@ -904,19 +984,19 @@ namespace ErrorEstimation
     }
 
     template <int dim>
-    ComponentMask Base<dim>::get_solution_mask() const
+    inline ComponentMask Base<dim>::get_solution_mask() const
     {
       return solution_mask;
     }
 
     template <int dim>
-    ComponentMask Base<dim>::get_gradient_mask() const
+    inline ComponentMask Base<dim>::get_gradient_mask() const
     {
       return gradient_mask;
     }
 
     template <int dim>
-    ComponentMask Base<dim>::get_hessian_mask() const
+    inline ComponentMask Base<dim>::get_hessian_mask() const
     {
       return hessian_mask;
     }
@@ -997,6 +1077,13 @@ namespace ErrorEstimation
     Scalar<dim>::get_reconstructed_hessian(const unsigned int) const
     {
       return recovered_hessian_at_vertices;
+    }
+
+    template <int dim>
+    const std::vector<Tensor<3, dim>> &
+    Scalar<dim>::get_reconstructed_third_derivatives(const unsigned int) const
+    {
+      return recovered_third_derivatives_at_vertices;
     }
 
     template <int dim>

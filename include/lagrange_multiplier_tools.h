@@ -102,7 +102,7 @@ void LagrangeMultiplierTools::check_no_slip_on_boundary(
 
             // If the boundary moves, the constraint is
             // u_fluid = u_mesh -> u_fluid - u_mesh = 0
-            if (scratch_data.enable_pseudo_solid)
+            if constexpr (scratch_data.enable_pseudo_solid)
             {
               constraint -=
                 scratch_data.present_face_mesh_velocity_values[i_face][q];

@@ -4,6 +4,7 @@
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <assembly/mesh_concentration_tools.h>
 #include <parameters.h>
 
 #include <algorithm>
@@ -154,14 +155,29 @@ namespace Assembly::Pseudosolid
                                 const double h_target,
                                 const double h_min)
     {
-      const double eps_h     = 1e-14;
-      const double h_safe     = std::max(h_target, h_min + eps_h);
-      const double h_bg_safe  = std::max(h_background, eps_h);
-      const double h_cur_safe = std::max(h_current, eps_h);
+      return MeshConcentrationTools::size_pressure(coefficient,
+                                                   current_size_weight,
+                                                   h_background,
+                                                   h_current,
+                                                   h_target,
+                                                   h_min);
+    }
 
-      return coefficient *
-             (std::log(h_bg_safe / h_safe) +
-              current_size_weight * std::log(h_cur_safe / h_safe));
+    inline double size_pressure_derivative_factor(
+      const double coefficient,
+      const double current_size_weight,
+      const double h_background,
+      const double h_current,
+      const double h_target,
+      const double h_min)
+    {
+      return MeshConcentrationTools::size_pressure_derivative_factor(
+        coefficient,
+        current_size_weight,
+        h_background,
+        h_current,
+        h_target,
+        h_min);
     }
 
     template <int dim>
@@ -178,6 +194,7 @@ namespace Assembly::Pseudosolid
     piola_derivative_wrt_position(
       const double          coefficient,
       const double          current_size_weight,
+      const double          pressure_derivative_factor,
       const double          p_size,
       const Tensor<2, dim> &F_inv_T,
       const double          J,
@@ -185,7 +202,8 @@ namespace Assembly::Pseudosolid
     {
       const double div_dx = trace(grad_variation_current);
       const double delta_p =
-        coefficient * current_size_weight / dim * div_dx;
+        pressure_derivative_factor * coefficient * current_size_weight / dim *
+        div_dx;
 
       return J * ((p_size * div_dx + delta_p) * F_inv_T -
                   p_size * transpose(grad_variation_current) * F_inv_T);
@@ -195,6 +213,7 @@ namespace Assembly::Pseudosolid
     inline Tensor<2, dim>
     piola_derivative_wrt_h(const double          coefficient,
                            const double          current_size_weight,
+                           const double          pressure_derivative_factor,
                            const double          h_target,
                            const double          h_min,
                            const double          dh_deta,
@@ -206,7 +225,8 @@ namespace Assembly::Pseudosolid
       const double h_safe  = std::max(h_target, h_min + eps_h);
       const double delta_h = dh_deta * phi_eta;
       const double delta_p =
-        -coefficient * (1.0 + current_size_weight) * delta_h / h_safe;
+        -pressure_derivative_factor * coefficient *
+        (1.0 + current_size_weight) * delta_h / h_safe;
 
       return J * delta_p * F_inv_T;
     }

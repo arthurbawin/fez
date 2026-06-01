@@ -17,7 +17,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
-#include <h_target_tools.h>
+#include <assembly/mesh_concentration_tools.h>
 #include <lagrange_multiplier_tools.h>
 #include <linear_solver.h>
 #include <mesh.h>
@@ -1687,13 +1687,13 @@ void FSISolver<dim>::assemble_local_matrix(
     this->param.h_target.helmholtz_filter_length *
     this->param.h_target.helmholtz_filter_length;
   const double reference_cell_size =
-    HTargetTools::reference_size_from_cell_measure<dim>(cell->measure());
+    MeshConcentrationTools::reference_size_from_cell_measure<dim>(cell->measure());
   const double h_background =
     std::max(reference_cell_size,
              this->param.h_target.h_min * (1. + 1e-8));
   const double h_current_reference = reference_cell_size;
   const double mesh_concentration_ramp =
-    HTargetTools::smooth_time_ramp(
+    MeshConcentrationTools::smooth_time_ramp(
       this->time_handler.current_time,
       this->param.h_target.mesh_concentration_ramp_time);
 
@@ -1738,6 +1738,7 @@ void FSISolver<dim>::assemble_local_matrix(
 
     double         h_raw = 0.;
     Tensor<1, dim> dh_raw_d_grad_abs_u;
+    Tensor<3, dim> dh_raw_d_hessian_u;
     double         h_value = 0.;
     double         dh_deta = 0.;
     Tensor<1, dim> grad_h;
@@ -1748,43 +1749,65 @@ void FSISolver<dim>::assemble_local_matrix(
         scratch_data.present_h_target_values[q];
 
       dh_deta =
-        HTargetTools::target_size_derivative_from_unbounded_variable(eta);
+        MeshConcentrationTools::target_size_derivative_from_unbounded_variable(eta);
 
       h_value =
-        HTargetTools::target_size_from_unbounded_variable(
+        MeshConcentrationTools::target_size_from_unbounded_variable(
           eta,
           this->param.h_target.h_min);
 
       grad_h =
         dh_deta * scratch_data.present_h_target_gradients[q];
 
-      const Tensor<1, dim> grad_abs_u =
-        HTargetTools::gradient_abs_velocity_from_recovered_gradient(
-          present_velocity_values,
-          present_velocity_gradients,
-          this->param.h_target.eps);
+      if (this->param.h_target.h_target_indicator ==
+          MeshConcentrationTools::HTargetIndicator::velocity_hessian)
+      {
+        const auto &hessian_u =
+          scratch_data.present_velocity_hessians[q];
 
-      h_raw =
-        HTargetTools::target_size_from_gradient_abs_velocity(
-          grad_abs_u,
-          h_background,
-          this->param.h_target.h_min,
-          this->param.h_target.gradient_min,
-          this->param.h_target.gradient_ref,
-          this->param.h_target.gradient_max,
-          this->param.h_target.gradient_exponent,
-          this->param.h_target.eps);
+        h_raw =
+          MeshConcentrationTools::target_size_from_velocity_hessian(
+            hessian_u,
+            h_background,
+            this->param.h_target.h_min,
+            this->param.h_target.indicator_min,
+            this->param.h_target.indicator_max,
+            this->param.h_target.indicator_transition_steepness);
 
-      dh_raw_d_grad_abs_u =
-        HTargetTools::target_size_from_gradient_abs_velocity_derivative(
-          grad_abs_u,
-          h_background,
-          this->param.h_target.h_min,
-          this->param.h_target.gradient_min,
-          this->param.h_target.gradient_ref,
-          this->param.h_target.gradient_max,
-          this->param.h_target.gradient_exponent,
-          this->param.h_target.eps);
+        dh_raw_d_hessian_u =
+          MeshConcentrationTools::target_size_from_velocity_hessian_derivative(
+            hessian_u,
+            h_background,
+            this->param.h_target.h_min,
+            this->param.h_target.indicator_min,
+            this->param.h_target.indicator_max,
+            this->param.h_target.indicator_transition_steepness);
+      }
+      else
+      {
+        const Tensor<1, dim> grad_abs_u =
+          MeshConcentrationTools::gradient_abs_velocity_from_recovered_gradient(
+            present_velocity_values,
+            present_velocity_gradients);
+
+        h_raw =
+          MeshConcentrationTools::target_size_from_gradient_abs_velocity(
+            grad_abs_u,
+            h_background,
+            this->param.h_target.h_min,
+            this->param.h_target.indicator_min,
+            this->param.h_target.indicator_max,
+            this->param.h_target.indicator_transition_steepness);
+
+        dh_raw_d_grad_abs_u =
+          MeshConcentrationTools::target_size_from_gradient_abs_velocity_derivative(
+            grad_abs_u,
+            h_background,
+            this->param.h_target.h_min,
+            this->param.h_target.indicator_min,
+            this->param.h_target.indicator_max,
+            this->param.h_target.indicator_transition_steepness);
+      }
     }
 
     // BDF: current dudt
@@ -1804,9 +1827,12 @@ void FSISolver<dim>::assemble_local_matrix(
     double         J = 1.0;
     double         h_current = h_current_reference;
     double         p_size = 0.;
+    double         p_size_derivative_factor = 0.;
     
     const bool enable_size_stress =
-      has_h_target && this->param.h_target.enable_mesh_concentration_stress;
+      has_h_target && this->param.h_target.enable_mesh_concentration_stress &&
+      this->param.h_target.mesh_concentration_method ==
+        MeshConcentrationTools::Method::h_target;
     
     if (enable_size_stress)
     {
@@ -1846,6 +1872,14 @@ void FSISolver<dim>::assemble_local_matrix(
           h_current,
           h_value,
           this->param.h_target.h_min);
+      p_size_derivative_factor =
+        Assembly::Pseudosolid::MeshConcentration::
+          size_pressure_derivative_factor(c,
+                                          beta,
+                                          h_background,
+                                          h_current,
+                                          h_value,
+                                          this->param.h_target.h_min);
     }
 
     // Precompute quantities depending only on j
@@ -2028,7 +2062,7 @@ void FSISolver<dim>::assemble_local_matrix(
             const Tensor<2, dim> dP_x =
               Assembly::Pseudosolid::MeshConcentration::
                 piola_derivative_wrt_position(
-                  c, beta, p_size, F_inv_T, J, A_j);
+                  c, beta, p_size_derivative_factor, p_size, F_inv_T, J, A_j);
             
             local_ps_matrix_ij += scalar_product(dP_x, grad_phi_x_i);
           }
@@ -2052,6 +2086,7 @@ void FSISolver<dim>::assemble_local_matrix(
             Assembly::Pseudosolid::MeshConcentration::
               piola_derivative_wrt_h(c,
                                      beta,
+                                     p_size_derivative_factor,
                                      h_value,
                                      this->param.h_target.h_min,
                                      dh_deta,
@@ -2069,7 +2104,7 @@ void FSISolver<dim>::assemble_local_matrix(
           if (j_is_h)
           {
             const double d2h_deta2 =
-              HTargetTools::target_size_second_derivative_from_unbounded_variable(
+              MeshConcentrationTools::target_size_second_derivative_from_unbounded_variable(
                 scratch_data.present_h_target_values[q]);
 
             const Tensor<1, dim> d_grad_h =
@@ -2084,14 +2119,23 @@ void FSISolver<dim>::assemble_local_matrix(
 
           if (j_is_u)
           {
-            const Tensor<1, dim> d_grad_abs_u =
-              HTargetTools::gradient_abs_velocity_variation(
-                present_velocity_values,
-                present_velocity_gradients,
-                phi_u[j],
-                grad_phi_u[j],
-                this->param.h_target.eps);
-            const double dh_raw_du = dh_raw_d_grad_abs_u * d_grad_abs_u;
+            double dh_raw_du = 0.;
+            if (this->param.h_target.h_target_indicator ==
+                MeshConcentrationTools::HTargetIndicator::velocity_hessian)
+              dh_raw_du =
+                MeshConcentrationTools::tensor3_inner_product(
+                  dh_raw_d_hessian_u,
+                  scratch_data.hessian_phi_u[q][j]);
+            else
+            {
+              const Tensor<1, dim> d_grad_abs_u =
+                MeshConcentrationTools::gradient_abs_velocity_variation(
+                  present_velocity_values,
+                  present_velocity_gradients,
+                  phi_u[j],
+                  grad_phi_u[j]);
+              dh_raw_du = dh_raw_d_grad_abs_u * d_grad_abs_u;
+            }
             local_h_matrix_ij += -(*phi_h)[i] * dh_raw_du;
           }
 
@@ -2112,15 +2156,31 @@ void FSISolver<dim>::assemble_local_matrix(
             const Tensor<1, dim> d_grad_h =
               -transpose(A_j) * grad_h;
 
-            const Tensor<1, dim> d_grad_abs_u =
-              HTargetTools::gradient_abs_velocity_variation_wrt_position(
-                present_velocity_values,
-                present_velocity_gradients,
-                A_j,
-                this->param.h_target.eps);
+            double dh_raw_dx = 0.;
+            if (this->param.h_target.h_target_indicator ==
+                MeshConcentrationTools::HTargetIndicator::velocity_hessian)
+            {
+              const Tensor<3, dim> d_hessian_u =
+                MeshConcentrationTools::velocity_hessian_variation_wrt_position(
+                  present_velocity_gradients,
+                  scratch_data.present_velocity_hessians[q],
+                  A_j,
+                  scratch_data.hessian_phi_x_moving[q][j]);
+              dh_raw_dx =
+                MeshConcentrationTools::tensor3_inner_product(dh_raw_d_hessian_u,
+                                                    d_hessian_u);
+            }
+            else
+            {
+              const Tensor<1, dim> d_grad_abs_u =
+                MeshConcentrationTools::gradient_abs_velocity_variation_wrt_position(
+                  present_velocity_values,
+                  present_velocity_gradients,
+                  A_j);
 
-            const double dh_raw_dx =
-              dh_raw_d_grad_abs_u * d_grad_abs_u;
+              dh_raw_dx =
+                dh_raw_d_grad_abs_u * d_grad_abs_u;
+            }
 
             local_h_matrix_ij +=
               (*phi_h)[i] * (h_value - h_raw) * div_dx_j
@@ -2266,13 +2326,13 @@ void FSISolver<dim>::assemble_local_rhs(
     this->param.h_target.helmholtz_filter_length *
     this->param.h_target.helmholtz_filter_length;
   const double reference_cell_size =
-    HTargetTools::reference_size_from_cell_measure<dim>(cell->measure());
+    MeshConcentrationTools::reference_size_from_cell_measure<dim>(cell->measure());
   const double h_background =
     std::max(reference_cell_size,
              this->param.h_target.h_min * (1. + 1e-8));
   const double h_current_reference = reference_cell_size;
   const double mesh_concentration_ramp =
-    HTargetTools::smooth_time_ramp(
+    MeshConcentrationTools::smooth_time_ramp(
       this->time_handler.current_time,
       this->param.h_target.mesh_concentration_ramp_time);
 
@@ -2352,7 +2412,9 @@ void FSISolver<dim>::assemble_local_rhs(
     double         p_size = 0.;
     
     const bool enable_size_stress =
-      has_h_target && this->param.h_target.enable_mesh_concentration_stress;
+      has_h_target && this->param.h_target.enable_mesh_concentration_stress &&
+      this->param.h_target.mesh_concentration_method ==
+        MeshConcentrationTools::Method::h_target;
 
     if (has_h_target)
     {
@@ -2360,32 +2422,42 @@ void FSISolver<dim>::assemble_local_rhs(
         scratch_data.present_h_target_values[q];
 
       const double dh_deta =
-        HTargetTools::target_size_derivative_from_unbounded_variable(eta);
+        MeshConcentrationTools::target_size_derivative_from_unbounded_variable(eta);
 
       h_value =
-        HTargetTools::target_size_from_unbounded_variable(
+        MeshConcentrationTools::target_size_from_unbounded_variable(
           eta,
           this->param.h_target.h_min);
 
       grad_h =
         dh_deta * scratch_data.present_h_target_gradients[q];
 
-      const Tensor<1, dim> grad_abs_u =
-        HTargetTools::gradient_abs_velocity_from_recovered_gradient(
-          present_velocity_values,
-          present_velocity_gradients,
-          this->param.h_target.eps);
+      if (this->param.h_target.h_target_indicator ==
+          MeshConcentrationTools::HTargetIndicator::velocity_hessian)
+        h_raw =
+          MeshConcentrationTools::target_size_from_velocity_hessian(
+            scratch_data.present_velocity_hessians[q],
+            h_background,
+            this->param.h_target.h_min,
+            this->param.h_target.indicator_min,
+            this->param.h_target.indicator_max,
+            this->param.h_target.indicator_transition_steepness);
+      else
+      {
+        const Tensor<1, dim> grad_abs_u =
+          MeshConcentrationTools::gradient_abs_velocity_from_recovered_gradient(
+            present_velocity_values,
+            present_velocity_gradients);
 
-      h_raw =
-        HTargetTools::target_size_from_gradient_abs_velocity(
-          grad_abs_u,
-          h_background,
-          this->param.h_target.h_min,
-          this->param.h_target.gradient_min,
-          this->param.h_target.gradient_ref,
-          this->param.h_target.gradient_max,
-          this->param.h_target.gradient_exponent,
-          this->param.h_target.eps);
+        h_raw =
+          MeshConcentrationTools::target_size_from_gradient_abs_velocity(
+            grad_abs_u,
+            h_background,
+            this->param.h_target.h_min,
+            this->param.h_target.indicator_min,
+            this->param.h_target.indicator_max,
+            this->param.h_target.indicator_transition_steepness);
+      }
       
       // Compute ALE data for mesh-concentration stress
       if (enable_size_stress)

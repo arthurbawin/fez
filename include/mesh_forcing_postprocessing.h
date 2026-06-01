@@ -1,7 +1,7 @@
 #ifndef MESH_FORCING_POSTPROCESSING_H
 #define MESH_FORCING_POSTPROCESSING_H
 
-#include <assembly/moving_mesh_forcing_forms.h>
+#include <assembly/mesh_concentration_tools.h>
 #include <deal.II/fe/fe_values.h>
 #include <post_processing_handler.h>
 #include <time_handler.h>
@@ -104,14 +104,14 @@ namespace MeshForcingPostProcessing
       const Tensor<1, dim> u_conv = velocity_values[q] - mesh_velocity;
       double enlarged_factor          = 0.;
       double enlarged_factor_jacobian = 0.;
-      Assembly::MovingMeshForcing::enlarged_mesh_forcing_factor_and_jacobian(
+      MeshConcentrationTools::enlarged_mesh_forcing_factor_and_jacobian(
         cahn_hilliard_param,
         enlarged_values[q],
         enlarged_factor,
         enlarged_factor_jacobian);
       double tracer_factor          = 0.;
       double tracer_factor_jacobian = 0.;
-      Assembly::MovingMeshForcing::mesh_forcing_factor_and_jacobian(
+      MeshConcentrationTools::mesh_forcing_factor_and_jacobian(
         cahn_hilliard_param,
         tracer_values[q],
         tracer_factor,

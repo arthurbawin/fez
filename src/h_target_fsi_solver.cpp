@@ -6,7 +6,7 @@
 
 #include <assembly/pseudosolid_forms.h>
 #include <h_target_fsi_solver.h>
-#include <h_target_tools.h>
+#include <assembly/mesh_concentration_tools.h>
 
 namespace
 {
@@ -34,7 +34,7 @@ namespace
     const double average_measure =
       global_cells > 0 ? global_measure / global_cells : 0.;
 
-    return std::max(HTargetTools::reference_size_from_cell_measure<dim>(
+    return std::max(MeshConcentrationTools::reference_size_from_cell_measure<dim>(
                       average_measure),
                     h_min * (1. + 1e-8));
   }
@@ -154,7 +154,7 @@ void FSISolverHTarget<dim>::set_solver_specific_initial_conditions()
 
   ConstantHTarget h_initial(
     *this->ordering,
-    HTargetTools::unbounded_variable_from_target_size(
+    MeshConcentrationTools::unbounded_variable_from_target_size(
       h_background,
       this->param.h_target.h_min));
 
@@ -175,7 +175,7 @@ void FSISolverHTarget<dim>::set_solver_specific_exact_solution()
 
   ConstantHTarget h_initial(
     *this->ordering,
-    HTargetTools::unbounded_variable_from_target_size(
+    MeshConcentrationTools::unbounded_variable_from_target_size(
       h_background,
       this->param.h_target.h_min));
 
@@ -221,7 +221,7 @@ void FSISolverHTarget<dim>::add_solver_specific_postprocessing_data()
                                                             eta_h_values);
 
     const double reference_cell_size =
-      HTargetTools::reference_size_from_cell_measure<dim>(cell->measure());
+      MeshConcentrationTools::reference_size_from_cell_measure<dim>(cell->measure());
     const double h_background =
       std::max(reference_cell_size, this->param.h_target.h_min * (1. + 1e-8));
     const double h_current_reference = reference_cell_size;
@@ -234,7 +234,7 @@ void FSISolverHTarget<dim>::add_solver_specific_postprocessing_data()
     for (unsigned int q = 0; q < this->quadrature->size(); ++q)
     {
       const double h_q =
-        HTargetTools::target_size_from_unbounded_variable(
+        MeshConcentrationTools::target_size_from_unbounded_variable(
           eta_h_values[q],
           this->param.h_target.h_min);
 
@@ -242,7 +242,9 @@ void FSISolverHTarget<dim>::add_solver_specific_postprocessing_data()
 
       h_integral += h_q * JxW;
 
-      if (this->param.h_target.enable_mesh_concentration_stress)
+      if (this->param.h_target.enable_mesh_concentration_stress &&
+          this->param.h_target.mesh_concentration_method ==
+            MeshConcentrationTools::Method::h_target)
       {
         const double J =
           std::max(fe_values_moving.JxW(q) /
@@ -259,7 +261,7 @@ void FSISolverHTarget<dim>::add_solver_specific_postprocessing_data()
             cell->center());
         const double c =
           Assembly::Pseudosolid::MeshConcentration::pressure_coefficient(
-            HTargetTools::smooth_time_ramp(
+            MeshConcentrationTools::smooth_time_ramp(
               this->time_handler.current_time,
               this->param.h_target.mesh_concentration_ramp_time),
             this->param.h_target.size_pressure_coefficient,
@@ -290,7 +292,9 @@ void FSISolverHTarget<dim>::add_solver_specific_postprocessing_data()
       h_target_cell[cell->active_cell_index()] =
         static_cast<float>(h_integral / volume);
 
-      if (this->param.h_target.enable_mesh_concentration_stress)
+      if (this->param.h_target.enable_mesh_concentration_stress &&
+          this->param.h_target.mesh_concentration_method ==
+            MeshConcentrationTools::Method::h_target)
       {
         h_current_cell[cell->active_cell_index()] =
           static_cast<float>(h_current_integral / volume);
@@ -302,7 +306,9 @@ void FSISolverHTarget<dim>::add_solver_specific_postprocessing_data()
 
   this->postproc_handler->add_cell_data_vector(h_target_cell,
                                                "h_target");
-  if (this->param.h_target.enable_mesh_concentration_stress)
+  if (this->param.h_target.enable_mesh_concentration_stress &&
+      this->param.h_target.mesh_concentration_method ==
+        MeshConcentrationTools::Method::h_target)
   {
     this->postproc_handler->add_cell_data_vector(h_current_cell,
                                                  "h_current");

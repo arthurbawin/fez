@@ -1,5 +1,5 @@
 #include <assembly/ale_geometry.h>
-#include <assembly/moving_mesh_forcing_forms.h>
+#include <assembly/mesh_concentration_tools.h>
 #include <assembly/pseudosolid_forms.h>
 #include <assembly/stabilization_forms.h>
 #include <compare_matrix.h>
@@ -950,7 +950,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                                                      pseudosolid,
                                                      scratch_data,
                                                      local_matrix);
-    Assembly::MovingMeshForcing::assemble_chns_matrix<dim, with_enlarged>(
+    MeshConcentrationTools::assemble_chns_matrix<dim, with_enlarged>(
       *this->ordering,
       this->coupling_table,
       this->param.cahn_hilliard,
@@ -1179,7 +1179,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
                                                   pseudosolid,
                                                   scratch_data,
                                                   local_rhs);
-    Assembly::MovingMeshForcing::assemble_chns_rhs<dim, with_enlarged>(
+    MeshConcentrationTools::assemble_chns_rhs<dim, with_enlarged>(
       *this->ordering, this->param.cahn_hilliard, scratch_data, local_rhs);
   }
 

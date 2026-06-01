@@ -1129,6 +1129,16 @@ namespace Parameters
                         Patterns::Bool(),
                         "Enable limiter for the tracer (phase field marker)");
       // Mesh forcing parameters
+      prm.declare_entry("mesh concentration method",
+                        "force",
+                        Patterns::Selection("none|force"),
+                        "Mesh-concentration method for CHNS-ALE moving meshes");
+      prm.declare_entry("mesh concentration force variable",
+                        "automatic",
+                        Patterns::Selection(
+                          "automatic|tracer|phase|enlarged tracer|"
+                          "enlarged_tracer|psi|phase enlarged"),
+                        "Phase variable used by the mesh-concentration force");
       prm.declare_entry(
         "mff_enlarged_compression_factor",
         "0.0",
@@ -1287,6 +1297,12 @@ namespace Parameters
             epsilon_interface, psi_interface_width_factor);
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // mesh forcing parameters
+      mesh_concentration_method =
+        MeshConcentrationTools::parse_method(
+          prm.get("mesh concentration method"));
+      mesh_concentration_force_variable =
+        MeshConcentrationTools::parse_force_variable(
+          prm.get("mesh concentration force variable"));
       mff_enlarged_compression_factor =
         prm.get_double("mff_enlarged_compression_factor");
       mff_physics_compression_factor =
@@ -1738,34 +1754,36 @@ namespace Parameters
                         "0.01",
                         Patterns::Double(0.),
                         "Smallest desired mesh size");
-      prm.declare_entry("gradient min",
+      prm.declare_entry("indicator min",
                         "0.",
                         Patterns::Double(),
-                        "Lower gradient threshold for the h_target law");
-      prm.declare_entry("gradient ref",
+                        "Lower indicator threshold for the h_target law");
+      prm.declare_entry("indicator max",
                         "1.",
                         Patterns::Double(),
-                        "Reference gradient for compatibility with previous "
-                        "target-size laws");
-      prm.declare_entry("gradient max",
-                        "1.",
-                        Patterns::Double(),
-                        "Upper gradient threshold for the h_target law");
-      prm.declare_entry("gradient exponent",
-                        "1.",
-                        Patterns::Double(),
-                        "Exponent for compatibility with previous target-size "
-                        "laws");
-      prm.declare_entry("eps",
-                        "1e-12",
+                        "Upper indicator threshold for the h_target law");
+      prm.declare_entry("indicator transition steepness",
+                        "6.",
                         Patterns::Double(0.),
-                        "Regularization parameter for velocity and gradient "
-                        "norms");
+                        "Steepness of the smooth tanh transition between "
+                        "indicator min and indicator max");
       prm.declare_entry("helmholtz filter length",
                         "0.",
                         Patterns::Double(0.),
                         "Length scale of the optional Helmholtz filter");
+      prm.declare_entry("h target indicator",
+                        "velocity gradient",
+                        Patterns::Selection(
+                          "velocity gradient|grad u|velocity_gradient|"
+                          "velocity hessian|hessian u|velocity_hessian"),
+                        "Velocity-derived indicator used to build the target "
+                        "mesh size");
       // Mesh-concentration stress parameters
+      prm.declare_entry("mesh concentration method",
+                        "h target",
+                        Patterns::Selection("none|h target|h_target"),
+                        "Mesh-concentration method used by the pseudo-solid "
+                        "equation");
       prm.declare_entry("enable mesh concentration stress",
                         "false",
                         Patterns::Bool(),
@@ -1796,15 +1814,20 @@ namespace Parameters
     {
       enable_h_target_equation = prm.get_bool("enable h target equation");
       h_min                    = prm.get_double("h min");
-      gradient_min             = prm.get_double("gradient min");
-      gradient_ref             = prm.get_double("gradient ref");
-      gradient_max             = prm.get_double("gradient max");
-      gradient_exponent        = prm.get_double("gradient exponent");
-      eps                      = prm.get_double("eps");
+      indicator_min             = prm.get_double("indicator min");
+      indicator_max             = prm.get_double("indicator max");
+      indicator_transition_steepness =
+        prm.get_double("indicator transition steepness");
       helmholtz_filter_length =
         prm.get_double("helmholtz filter length");
+      h_target_indicator =
+        MeshConcentrationTools::parse_h_target_indicator(
+          prm.get("h target indicator"));
 
       // Mesh-concentration stress parameters
+      mesh_concentration_method =
+        MeshConcentrationTools::parse_method(
+          prm.get("mesh concentration method"));
       enable_mesh_concentration_stress =
         prm.get_bool("enable mesh concentration stress");
       size_pressure_coefficient =
@@ -1815,8 +1838,17 @@ namespace Parameters
         prm.get_double("mesh concentration ramp time");
 
       AssertThrow(h_min > 0., ExcMessage("h min must be positive"));
-      AssertThrow(gradient_max >= gradient_min,
-                  ExcMessage("gradient max must be >= gradient min"));
+      AssertThrow(indicator_max > indicator_min,
+                  ExcMessage("indicator max must be > indicator min"));
+      AssertThrow(indicator_transition_steepness > 0.,
+                  ExcMessage(
+                    "indicator transition steepness must be positive"));
+      AssertThrow(mesh_concentration_method ==
+                    MeshConcentrationTools::Method::none ||
+                    mesh_concentration_method ==
+                      MeshConcentrationTools::Method::h_target,
+                  ExcMessage("HTarget only supports mesh concentration "
+                             "methods 'none' and 'h target'."));
       AssertThrow(size_pressure_coefficient >= 0.,
                   ExcMessage("size pressure coefficient must be non-negative"));
     }

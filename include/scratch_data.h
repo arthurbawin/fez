@@ -178,15 +178,28 @@ private:
     fe_values[pressure].get_function_gradients(current_solution,
                                                present_pressure_gradients);
 
+    const bool need_velocity_hessians =
+      enable_stabilization ||
+      (enable_h_target &&
+       param.h_target.h_target_indicator ==
+         MeshConcentrationTools::HTargetIndicator::velocity_hessian);
+
     if (enable_stabilization)
     {
       // Δu and Hessian per quadrature point
       fe_values[velocity].get_function_laplacians(current_solution,
                                                   present_velocity_laplacians);
+    }
 
+    if (need_velocity_hessians)
+    {
       // ∇(∇·u) from the full hessian
       fe_values[velocity].get_function_hessians(current_solution,
                                                 present_velocity_hessians);
+    }
+
+    if (enable_stabilization)
+    {
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
         present_velocity_grad_divergences[q] = Tensor<1, dim>();
@@ -219,6 +232,8 @@ private:
       {
         phi_u[q][k]          = fe_values[velocity].value(k, q);
         grad_phi_u[q][k]     = fe_values[velocity].gradient(k, q);
+        if (need_velocity_hessians)
+          hessian_phi_u[q][k] = fe_values[velocity].hessian(k, q);
         sym_grad_phi_u[q][k] = symmetrize(grad_phi_u[q][k]);
         div_phi_u[q][k]      = fe_values[velocity].divergence(k, q);
         phi_p[q][k]          = fe_values[pressure].value(k, q);
@@ -570,7 +585,10 @@ private:
         trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
         div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
         grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
-        if (enable_stabilization)
+        if (enable_stabilization ||
+            (enable_h_target &&
+             param.h_target.h_target_indicator ==
+               MeshConcentrationTools::HTargetIndicator::velocity_hessian))
           hessian_phi_x_moving[q][k] =
             fe_values_moving[position].hessian(k, q);
       }
@@ -1371,6 +1389,7 @@ public:
   // Shape functions in volume (each quad node and each dof)
   std::vector<std::vector<Tensor<1, dim>>>          phi_u;
   std::vector<std::vector<Tensor<2, dim>>>          grad_phi_u;
+  std::vector<std::vector<Tensor<3, dim>>>          hessian_phi_u;
   std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_u;
   std::vector<std::vector<double>>                  div_phi_u;
   std::vector<std::vector<double>>                  phi_p;

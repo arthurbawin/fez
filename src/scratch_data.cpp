@@ -8,12 +8,13 @@ get_cell_update_flags(const bool enable_pseudo_solid,
                       const bool /*enable_lagrange_multiplier*/,
                       const bool /*enable_cahn_hilliard*/,
                       const bool /*enable_compressible*/,
-                      const bool enable_stabilization)
+                      const bool enable_stabilization,
+                      const bool enable_velocity_hessians)
 {
   UpdateFlags flags = update_values | update_gradients |
                       update_quadrature_points | update_JxW_values;
 
-  if (enable_stabilization)
+  if (enable_stabilization || enable_velocity_hessians)
     flags |= update_hessians | update_inverse_jacobians;
 
   if (enable_pseudo_solid)
@@ -30,19 +31,31 @@ get_face_update_flags(const bool enable_pseudo_solid,
                       const bool /*enable_lagrange_multiplier*/,
                       const bool /*enable_cahn_hilliard*/,
                       const bool /*enable_compressible*/,
-                      const bool enable_stabilization)
+                      const bool enable_stabilization,
+                      const bool enable_velocity_hessians)
 {
   UpdateFlags flags = update_values | update_gradients |
                       update_quadrature_points | update_JxW_values |
                       update_normal_vectors;
 
-  if (enable_stabilization)
+  if (enable_stabilization || enable_velocity_hessians)
     flags |= update_hessians;
 
   if (enable_pseudo_solid)
     flags |= update_jacobians;
 
   return flags;
+}
+
+template <int dim>
+static bool
+needs_velocity_hessians(const bool                  enable_h_target,
+                        const ParameterReader<dim> &param)
+{
+  return param.finite_elements.stabilization ||
+         (enable_h_target &&
+          param.h_target.h_target_indicator ==
+            MeshConcentrationTools::HTargetIndicator::velocity_hessian);
 }
 
 template <int dim, bool has_hp_capabilities>
@@ -80,7 +93,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
                             enable_compressible,
-                            enable_stabilization)))
+                            enable_stabilization,
+                            needs_velocity_hessians(enable_h_target, param))))
   , fe_values_fixed(std::make_unique<FEValues<dim>>(
       fixed_mapping,
       fe,
@@ -89,7 +103,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
                             enable_compressible,
-                            enable_stabilization)))
+                            enable_stabilization,
+                            needs_velocity_hessians(enable_h_target, param))))
   , fe_face_values(std::make_unique<FEFaceValues<dim>>(
       moving_mapping,
       fe,
@@ -98,7 +113,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
                             enable_compressible,
-                            enable_stabilization)))
+                            enable_stabilization,
+                            needs_velocity_hessians(enable_h_target, param))))
   , fe_face_values_fixed(std::make_unique<FEFaceValues<dim>>(
       fixed_mapping,
       fe,
@@ -107,7 +123,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
                             enable_compressible,
-                            enable_stabilization)))
+                            enable_stabilization,
+                            needs_velocity_hessians(enable_h_target, param))))
   , n_q_points(cell_quadrature.size())
   , n_faces(fe.reference_cell().n_faces())
   , n_faces_q_points(face_quadrature.size())
@@ -176,7 +193,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
                             enable_compressible,
-                            enable_stabilization)))
+                            enable_stabilization,
+                            needs_velocity_hessians(enable_h_target, param))))
   , hp_fe_values_fixed(std::make_unique<hp::FEValues<dim>>(
       fixed_mapping_collection,
       fe_collection,
@@ -185,7 +203,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
                             enable_compressible,
-                            enable_stabilization)))
+                            enable_stabilization,
+                            needs_velocity_hessians(enable_h_target, param))))
   , hp_fe_face_values(std::make_unique<hp::FEFaceValues<dim>>(
       moving_mapping_collection,
       fe_collection,
@@ -194,7 +213,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
                             enable_compressible,
-                            enable_stabilization)))
+                            enable_stabilization,
+                            needs_velocity_hessians(enable_h_target, param))))
   , hp_fe_face_values_fixed(std::make_unique<hp::FEFaceValues<dim>>(
       fixed_mapping_collection,
       fe_collection,
@@ -203,7 +223,8 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
                             enable_lagrange_multiplier,
                             enable_cahn_hilliard,
                             enable_compressible,
-                            enable_stabilization)))
+                            enable_stabilization,
+                            needs_velocity_hessians(enable_h_target, param))))
   , time_handler(time_handler)
 {
   if constexpr (!has_hp_capabilities)
@@ -542,6 +563,8 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
 
   phi_u.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
   grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
+  hessian_phi_u.resize(n_q_points,
+                       std::vector<Tensor<3, dim>>(dofs_per_cell));
   sym_grad_phi_u.resize(n_q_points,
                         std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
   div_phi_u.resize(n_q_points, std::vector<double>(dofs_per_cell));
@@ -632,7 +655,7 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
                           std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
     grad_phi_x_moving.resize(n_q_points,
                              std::vector<Tensor<2, dim>>(dofs_per_cell));
-    if (enable_stabilization)
+    if (needs_velocity_hessians(enable_h_target, param))
       hessian_phi_x_moving.resize(
         n_q_points, std::vector<Tensor<3, dim>>(dofs_per_cell));
     div_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));

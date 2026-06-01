@@ -5,6 +5,7 @@
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/parsed_function.h>
 #include <deal.II/numerics/vector_tools_common.h>
+#include <assembly/mesh_concentration_tools.h>
 #include <parsed_function_symengine.h>
 #include <solver_info.h>
 
@@ -545,6 +546,10 @@ namespace Parameters
     bool   with_tracer_limiter;
 
     // Moving-mesh forcing terms in the CHNS-ALE pseudosolid equation.
+    MeshConcentrationTools::Method mesh_concentration_method =
+      MeshConcentrationTools::Method::force;
+    MeshConcentrationTools::ForceVariable mesh_concentration_force_variable =
+      MeshConcentrationTools::ForceVariable::automatic;
     double mff_enlarged_compression_factor = 0.;
     double mff_physics_compression_factor  = 0.;
     double mff_transport_factor            = 0.;
@@ -744,14 +749,16 @@ namespace Parameters
     bool enable_h_target_equation;
 
     double h_min;
-    double gradient_min;
-    double gradient_ref;
-    double gradient_max;
-    double gradient_exponent;
-    double eps;
+    double indicator_min;
+    double indicator_max;
+    double indicator_transition_steepness;
     double helmholtz_filter_length;
+    MeshConcentrationTools::HTargetIndicator h_target_indicator =
+      MeshConcentrationTools::HTargetIndicator::velocity_gradient;
 
     // Mesh-concentration stress parameters
+    MeshConcentrationTools::Method mesh_concentration_method =
+      MeshConcentrationTools::Method::h_target;
     bool   enable_mesh_concentration_stress;
     double size_pressure_coefficient;
     double current_size_weight;

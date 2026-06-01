@@ -246,6 +246,21 @@ namespace BoundaryConditions
     std::map<types::boundary_id, BCType> &boundary_conditions);
 
   /**
+   * Return true if @p boundary_conditions contains at least one boundary condition
+   * matching the provided @p type.
+   */
+  template <typename BCType>
+  bool has_boundary_condition(
+    const std::map<types::boundary_id, BCType> &boundary_conditions,
+    const Type                                  type)
+  {
+    for (const auto &[id, bc] : boundary_conditions)
+      if (bc.type == type)
+        return true;
+    return false;
+  }
+
+  /**
    *
    *
    */

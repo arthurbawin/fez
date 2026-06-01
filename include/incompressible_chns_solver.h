@@ -15,7 +15,8 @@ using namespace dealii;
 template <int dim, bool with_moving_mesh = false>
 class CHNSSolver : public NavierStokesSolver<dim, with_moving_mesh>
 {
-  using ScratchData = ScratchDataCHNS<dim, with_moving_mesh>;
+  using ScratchData =
+    NavierStokesScratch::ScratchDataCHNS<dim, with_moving_mesh>;
   using CopyData    = CopyDataBase<1>;
 
 public:

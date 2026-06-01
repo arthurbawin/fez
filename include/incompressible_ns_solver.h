@@ -43,7 +43,7 @@ using namespace dealii;
 template <int dim>
 class NSSolver : public NavierStokesSolver<dim>
 {
-  using ScratchData = ScratchDataIncompressibleNS<dim>;
+  using ScratchData = NavierStokesScratch::ScratchDataIncompressibleNS<dim>;
   using CopyData    = CopyDataBase<1>;
 
 public:

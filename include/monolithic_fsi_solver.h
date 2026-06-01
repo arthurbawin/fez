@@ -14,18 +14,16 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <fsi_exact_solution.h>
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <navier_stokes_solver.h>
 #include <parameter_reader.h>
+#include <scratch_data.h>
 #include <time_handler.h>
 #include <types.h>
 
 using namespace dealii;
-
-// Forward declaration
-template <int dim>
-class ScratchDataFSI;
 
 /**
  * Derived class for the monolithic fluid-structure interaction solver.
@@ -34,7 +32,7 @@ class ScratchDataFSI;
 template <int dim>
 class FSISolver : public NavierStokesSolver<dim, true>
 {
-  using ScratchData = ScratchDataFSI<dim>;
+  using ScratchData = NavierStokesScratch::ScratchDataFSI<dim>;
   using CopyData    = CopyDataBase<1>;
   using Coupling    = typename Parameters::FSI<dim>::CouplingStrategy;
 
@@ -260,110 +258,6 @@ public:
   protected:
     const ComponentOrdering     &ordering;
     Parameters::SourceTerms<dim> source_terms;
-  };
-
-  /**
-   * Exact solution when performing a convergence study with a manufactured
-   * solution.
-   */
-  class MMSSolution : public Function<dim>
-  {
-  public:
-    MMSSolution(const double             time,
-                const ComponentOrdering &ordering,
-                const ManufacturedSolutions::ManufacturedSolution<dim> &mms)
-      : Function<dim>(ordering.n_components, time)
-      , ordering(ordering)
-      , mms(mms)
-    {}
-
-    virtual void set_time(const double new_time) override
-    {
-      FunctionTime<double>::set_time(new_time);
-      mms.set_time(new_time);
-    }
-
-    virtual double value(const Point<dim>  &p,
-                         const unsigned int component = 0) const override
-    {
-      if (ordering.is_velocity(component))
-        return mms.exact_velocity->value(p, component - ordering.u_lower);
-      else if (ordering.is_pressure(component))
-        return mms.exact_pressure->value(p);
-      else if (ordering.is_position(component))
-        return mms.exact_mesh_position->value(p, component - ordering.x_lower);
-      else if (ordering.is_lambda(component))
-        // This exact solution should only be called when source terms are
-        // applied to the Lagrange multiplier equation, that is, if
-        // LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM is defined.
-        // Otherwise, the function lagrange_multiplier() below should be called.
-        // instead. It can only be called at quadrature nodes on faces, where
-        // the normal is well-defined.
-        return mms.exact_lagrange_multiplier->value(p,
-                                                    component -
-                                                      ordering.l_lower);
-      else
-        DEAL_II_ASSERT_UNREACHABLE();
-    }
-
-    double time_derivative(const Point<dim>  &p,
-                           const unsigned int component = 0) const
-    {
-      if (ordering.is_velocity(component))
-        return mms.exact_velocity->time_derivative(p,
-                                                   component -
-                                                     ordering.u_lower);
-      else if (ordering.is_pressure(component))
-        return mms.exact_pressure->time_derivative(p);
-      else if (ordering.is_position(component))
-        return mms.exact_mesh_position->time_derivative(p,
-                                                        component -
-                                                          ordering.x_lower);
-      else if (ordering.is_lambda(component))
-        return mms.exact_lagrange_multiplier->time_derivative(
-          p, component - ordering.l_lower);
-      else
-        DEAL_II_ASSERT_UNREACHABLE();
-    }
-
-    /**
-     * Exact Lagrange multiplier requires local unit normal vector
-     */
-    void lagrange_multiplier(const Point<dim>     &p,
-                             const double          mu_viscosity,
-                             const Tensor<1, dim> &normal_to_solid,
-                             Tensor<1, dim>       &lambda) const
-    {
-      Tensor<2, dim> sigma;
-      sigma                 = 0;
-      const double pressure = mms.exact_pressure->value(p);
-      for (unsigned int d = 0; d < dim; ++d)
-        sigma[d][d] = -pressure;
-      Tensor<2, dim> grad_u = mms.exact_velocity->gradient_vj_xi(p);
-      sigma += mu_viscosity * (grad_u + transpose(grad_u));
-      lambda = -sigma * normal_to_solid;
-    }
-
-    virtual Tensor<1, dim>
-    gradient(const Point<dim>  &p,
-             const unsigned int component = 0) const override
-    {
-      if (ordering.is_velocity(component))
-        return mms.exact_velocity->gradient(p, component - ordering.u_lower);
-      else if (ordering.is_pressure(component))
-        return mms.exact_pressure->gradient(p);
-      else if (ordering.is_position(component))
-        return mms.exact_mesh_position->gradient(p,
-                                                 component - ordering.x_lower);
-      else if (ordering.is_lambda(component))
-        return Tensor<1, dim>();
-      else
-        DEAL_II_ASSERT_UNREACHABLE();
-    }
-
-  public:
-    const ComponentOrdering                         &ordering;
-    ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
 
   /**

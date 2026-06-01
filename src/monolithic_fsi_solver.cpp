@@ -1594,7 +1594,7 @@ void FSISolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  CopyData copy_data(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -1636,7 +1636,7 @@ void FSISolver<dim>::assemble_local_matrix(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix;
+  auto &local_matrix = copy_data.local_matrix();
   local_matrix       = 0;
 
   const double nu =
@@ -1891,7 +1891,7 @@ void FSISolver<dim>::assemble_local_matrix(
       }
     }
   }
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim>
@@ -1900,15 +1900,15 @@ void FSISolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix(),
+                                                    copy_data.dof_indices(),
                                                     this->system_matrix);
 }
 
 template <int dim>
 void FSISolver<dim>::compare_analytical_matrix_with_fd()
 {
-  CopyData copy_data(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     *this->dof_handler,
@@ -1943,7 +1943,7 @@ void FSISolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  CopyData copy_data(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler->begin_active(),
@@ -1977,7 +1977,7 @@ void FSISolver<dim>::assemble_local_rhs(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs;
+  auto &local_rhs = copy_data.local_rhs();
   local_rhs       = 0;
 
   const double nu =
@@ -2130,7 +2130,7 @@ void FSISolver<dim>::assemble_local_rhs(
         }
       }
     }
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim>
@@ -2139,8 +2139,8 @@ void FSISolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
+                                                    copy_data.dof_indices(),
                                                     this->system_rhs);
 }
 

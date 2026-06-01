@@ -44,6 +44,7 @@ template <int dim>
 class NSSolver : public NavierStokesSolver<dim>
 {
   using ScratchData = ScratchDataIncompressibleNS<dim>;
+  using CopyData    = CopyDataBase<1>;
 
 public:
   /**

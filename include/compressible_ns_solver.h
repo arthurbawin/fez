@@ -34,6 +34,7 @@ template <int dim>
 class CompressibleNSSolver : public NavierStokesSolver<dim>
 {
   using ScratchData = ScratchDataCompressibleNS<dim>;
+  using CopyData    = CopyDataBase<1>;
 
 public:
   /**

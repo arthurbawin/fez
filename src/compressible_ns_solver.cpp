@@ -321,7 +321,7 @@ void CompressibleNSSolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -343,7 +343,7 @@ void CompressibleNSSolver<dim>::assemble_matrix()
                   assembly_ptr,
                   &CompressibleNSSolver::copy_local_to_global_matrix,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_matrix.compress(VectorOperation::add);
 }
@@ -381,8 +381,9 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix;
-  local_matrix       = 0;
+  auto &local_matrix      = copy_data.local_matrix();
+  auto &local_dof_indices = copy_data.dof_indices();
+  local_matrix            = 0;
 
   const double mu = this->param.physical_properties.fluids[0].dynamic_viscosity;
   const double k =
@@ -702,7 +703,7 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
       }
     }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(local_dof_indices);
 }
 
 template <int dim>
@@ -712,15 +713,15 @@ void CompressibleNSSolver<dim>::copy_local_to_global_matrix(
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix(),
+                                                    copy_data.dof_indices(),
                                                     this->system_matrix);
 }
 
 template <int dim>
 void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     *this->dof_handler,
@@ -729,7 +730,7 @@ void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
     &CompressibleNSSolver::assemble_local_matrix,
     &CompressibleNSSolver::assemble_local_rhs,
     *scratch_data,
-    copyData,
+    copy_data,
     *this->present_solution,
     this->evaluation_point,
     this->local_evaluation_point,
@@ -755,7 +756,7 @@ void CompressibleNSSolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler->begin_active(),
@@ -764,7 +765,7 @@ void CompressibleNSSolver<dim>::assemble_rhs()
                   &CompressibleNSSolver::assemble_local_rhs,
                   &CompressibleNSSolver::copy_local_to_global_rhs,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_rhs.compress(VectorOperation::add);
 }
@@ -786,8 +787,9 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs;
-  local_rhs       = 0;
+  auto &local_rhs         = copy_data.local_rhs();
+  auto &local_dof_indices = copy_data.dof_indices();
+  local_rhs               = 0;
 
   const double mu = this->param.physical_properties.fluids[0].dynamic_viscosity;
   const double k =
@@ -1012,7 +1014,7 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
       }
     }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(local_dof_indices);
 }
 
 template <int dim>
@@ -1022,8 +1024,8 @@ void CompressibleNSSolver<dim>::copy_local_to_global_rhs(
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
+                                                    copy_data.dof_indices(),
                                                     this->system_rhs);
 }
 

@@ -850,8 +850,8 @@ void NSSolverLambda<dim>::assemble_local_matrix(
 
   const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
-  auto &local_matrix             = copy_data.matrices[fe_index];
-  auto &local_dof_indices        = copy_data.local_dof_indices[fe_index];
+  auto &local_matrix             = copy_data.local_matrix(fe_index);
+  auto &local_dof_indices        = copy_data.dof_indices(fe_index);
 
   local_matrix = 0;
 
@@ -960,8 +960,9 @@ void NSSolverLambda<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
     return;
 
   const auto i = copy_data.last_active_fe_index;
-  this->zero_constraints.distribute_local_to_global(
-    copy_data.matrices[i], copy_data.local_dof_indices[i], this->system_matrix);
+  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix(i),
+                                                    copy_data.dof_indices(i),
+                                                    this->system_matrix);
 }
 
 template <int dim>
@@ -1043,8 +1044,8 @@ void NSSolverLambda<dim>::assemble_local_rhs(
 
   const unsigned int fe_index    = cell->active_fe_index();
   copy_data.last_active_fe_index = fe_index;
-  auto &local_rhs                = copy_data.vectors[fe_index];
-  auto &local_dof_indices        = copy_data.local_dof_indices[fe_index];
+  auto &local_rhs                = copy_data.local_rhs(fe_index);
+  auto &local_dof_indices        = copy_data.dof_indices(fe_index);
 
   local_rhs = 0;
 
@@ -1156,8 +1157,9 @@ void NSSolverLambda<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
     return;
 
   const auto i = copy_data.last_active_fe_index;
-  this->zero_constraints.distribute_local_to_global(
-    copy_data.vectors[i], copy_data.local_dof_indices[i], this->system_rhs);
+  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(i),
+                                                    copy_data.dof_indices(i),
+                                                    this->system_rhs);
 }
 
 template <int dim>

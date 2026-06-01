@@ -363,7 +363,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -383,7 +383,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_matrix()
                   assembly_ptr,
                   &CHNSSolver::copy_local_to_global_matrix,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_matrix.compress(VectorOperation::add);
 }
@@ -422,7 +422,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix;
+  auto &local_matrix = copy_data.local_matrix();
   local_matrix       = 0;
 
   /**
@@ -852,7 +852,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
       }
     }
   }
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim, bool with_moving_mesh>
@@ -862,15 +862,15 @@ void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_matrix(
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix(),
+                                                    copy_data.dof_indices(),
                                                     this->system_matrix);
 }
 
 template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
 {
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     *this->dof_handler,
@@ -879,7 +879,7 @@ void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
     *scratch_data,
-    copyData,
+    copy_data,
     *this->present_solution,
     this->evaluation_point,
     this->local_evaluation_point,
@@ -905,7 +905,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(this->dof_handler->begin_active(),
@@ -914,7 +914,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_rhs()
                   &CHNSSolver::assemble_local_rhs,
                   &CHNSSolver::copy_local_to_global_rhs,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_rhs.compress(VectorOperation::add);
 }
@@ -936,7 +936,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs;
+  auto &local_rhs = copy_data.local_rhs();
   local_rhs       = 0;
 
   const double mobility = scratch_data.mobility;
@@ -1122,7 +1122,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
       }
     }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim, bool with_moving_mesh>
@@ -1132,8 +1132,8 @@ void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_rhs(
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
+                                                    copy_data.dof_indices(),
                                                     this->system_rhs);
 }
 

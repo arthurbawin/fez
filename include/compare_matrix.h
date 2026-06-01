@@ -14,28 +14,6 @@ using namespace dealii;
 namespace Verification
 {
   /**
-   * Compile-time tools to check if a passed CopyData is a hp or non-hp
-   * CopyData class from copy_data.h.
-   *
-   * FIXME: all CopyData should eventually be hp.
-   */
-  namespace CopyDataComparator
-  {
-    // Return false by default
-    template <typename CopyData>
-    struct is_hp_copy_data : std::false_type
-    {};
-
-    // Specialization for MyCopyData, return true
-    template <int dim, unsigned int n_hp_partitions>
-    struct is_hp_copy_data<MyCopyData<dim, n_hp_partitions>> : std::true_type
-    {};
-
-    template <typename CopyData>
-    inline constexpr bool is_hp_copy_data_v = is_hp_copy_data<CopyData>::value;
-  } // namespace CopyDataComparator
-
-  /**
    * Compute the local matrix on the given cell using first-order forward finite
    * differences. This function does not currently work in parallel, possibly
    * due to the exchanges of ghosts inside the dof loop.
@@ -133,20 +111,9 @@ void Verification::compute_local_matrix_finite_differences(
   FullMatrix<double>                   *local_matrix;
   std::vector<types::global_dof_index> *local_dof_indices;
 
-  constexpr bool is_hp_copy_data =
-    CopyDataComparator::is_hp_copy_data_v<CopyData>;
-
-  if constexpr (is_hp_copy_data)
-  {
-    const auto fe_index = cell->active_fe_index();
-    local_matrix        = &copy_data.matrices[fe_index];
-    local_dof_indices   = &copy_data.local_dof_indices[fe_index];
-  }
-  else
-  {
-    local_matrix      = &copy_data.local_matrix;
-    local_dof_indices = &copy_data.local_dof_indices;
-  }
+  const auto fe_index = cell->active_fe_index();
+  local_matrix        = &copy_data.local_matrix(fe_index);
+  local_dof_indices   = &copy_data.dof_indices(fe_index);
 
   *local_matrix = 0;
 
@@ -159,10 +126,7 @@ void Verification::compute_local_matrix_finite_differences(
   // Compute non-perturbed RHS
   (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
 
-  if constexpr (is_hp_copy_data)
-    ref_local_rhs = copy_data.vectors[copy_data.last_active_fe_index];
-  else
-    ref_local_rhs = copy_data.local_rhs;
+  ref_local_rhs = copy_data.local_rhs(fe_index);
 
   for (unsigned int j = 0; j < n; ++j)
   {
@@ -176,10 +140,7 @@ void Verification::compute_local_matrix_finite_differences(
     // Compute perturbed RHS
     (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
 
-    if constexpr (is_hp_copy_data)
-      perturbed_local_rhs = copy_data.vectors[copy_data.last_active_fe_index];
-    else
-      perturbed_local_rhs = copy_data.local_rhs;
+    perturbed_local_rhs = copy_data.local_rhs(fe_index);
 
     // Finite differences (with sign change as residual is -NL(u))
     for (unsigned int i = 0; i < n; ++i)
@@ -279,7 +240,7 @@ std::pair<double, double> Verification::compare_analytical_matrix_with_fd(
       //
       // std::cout << "Assembling matrix" << std::endl;
       (main_object.*assemble_local_matrix)(cell, scratch_data, copy_data);
-      local_matrix = copy_data.local_matrix;
+      local_matrix = copy_data.local_matrix();
       // std::cout << "Done matrix" << std::endl;
     }
 
@@ -293,7 +254,7 @@ std::pair<double, double> Verification::compare_analytical_matrix_with_fd(
 
       // Compute non-perturbed RHS
       (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
-      ref_local_rhs = copy_data.local_rhs;
+      ref_local_rhs = copy_data.local_rhs();
 
       // std::cout << "Non-perturbed residual is " << std::endl;
       // ref_local_rhs.print(std::cout, 12, 3);
@@ -310,7 +271,7 @@ std::pair<double, double> Verification::compare_analytical_matrix_with_fd(
 
         // Compute perturbed RHS
         (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
-        perturbed_local_rhs = copy_data.local_rhs;
+        perturbed_local_rhs = copy_data.local_rhs();
 
         // std::cout << "Perturbed residual is " << std::endl;
         // perturbed_local_rhs.print(std::cout, 12, 3);

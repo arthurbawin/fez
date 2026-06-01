@@ -144,18 +144,6 @@ private:
    */
   void restart_from_incompressible_checkpoint();
 
-  /**
-   * Evaluate the sponge relaxation profile sigma(x) for a single band at a
-   * quadrature point. Uses a quintic Hermite (smootherstep) ramp on
-   * [x_start, x_end], scaled by sigma_max. The is_inflow flag mirrors the
-   * profile so that sigma is sigma_max at x_start and 0 at x_end (inflow band)
-   * instead of the default 0 at x_start and sigma_max at x_end (outflow band).
-   * Returns 0 when the band is disabled.
-   */
-  double sponge_profile(const Point<dim>                    &x,
-                        const Parameters::SpongeLayer::Band &band,
-                        const bool                           is_inflow) const;
-
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override

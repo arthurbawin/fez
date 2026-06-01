@@ -42,7 +42,9 @@ namespace BoundaryConditions
 
     // Flow
     outflow,            // Do nothing
-    no_tangential_flow, // Enfore no tangential flow on the boundary
+    no_tangential_flow, // Enforce no tangential flow on the boundary; the
+                        // traction is left free (zero) since no face term is
+                        // assembled
     no_slip,            // Enforce given functions
     weak_no_slip,       // Check that lagrange mult is defined, couple
     slip,               // Enforce no_flux
@@ -54,9 +56,6 @@ namespace BoundaryConditions
     // Combined
     no_tangential_flow_with_weak_pressure, // Enforce no tangential flow +
                                            // impose -p*n weakly
-
-    outflow_with_no_tangential_flow, // Enforce no tangential flow + traction
-                                     // equal to zero
 
     // These boundary conditions are for flow verification purposes:
     // Set velocity to prescribed manufactured solution

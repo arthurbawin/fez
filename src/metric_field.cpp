@@ -191,6 +191,29 @@ void MetricField<dim>::clear()
 }
 
 template <int dim>
+void MetricField<dim>::copy_metrics_from(const MetricField<dim> &other)
+{
+  AssertDimension(n_vertices, other.n_vertices);
+  AssertDimension(metrics.size(), other.metrics.size());
+  AssertDimension(metrics_fe.size(), other.metrics_fe.size());
+  for (unsigned int i = 0; i < n_vertices; ++i)
+    this->metrics[i] = other.metrics[i];
+  const auto local_range = local_metrics_fe.local_range();
+
+  if constexpr (running_in_debug_mode())
+  {
+    const auto other_local_range = other.local_metrics_fe.local_range();
+    AssertDimension(local_range.first, other_local_range.first);
+    AssertDimension(local_range.second, other_local_range.second);
+  }
+
+  for (unsigned int i = local_range.first; i < local_range.second; ++i)
+    this->local_metrics_fe[i] = other.local_metrics_fe[i];
+  local_metrics_fe.compress(VectorOperation::insert);
+  metrics_fe = local_metrics_fe;
+}
+
+template <int dim>
 void MetricField<dim>::create_edges_for_gradation()
 {
   if (deterministic_gradation)
@@ -537,6 +560,9 @@ void MetricField<dim>::intersect_with(const MetricField<dim> &other)
     MetricTensor<dim> &metric = metrics[i];
     metric                    = metric.intersection(other.metrics[i]);
   }
+
+  // Update FE representation and ghosts
+  metrics_to_tensor_solution();
 }
 
 template <int dim>

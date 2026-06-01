@@ -116,6 +116,14 @@ void ParameterReader<dim>::check_parameters() const
       "be run. This is not compatible, as the source term for the linear "
       "elasticity equation and based on the manufactured solution is expected "
       "to be evaluated on the reference mesh."));
+
+  // Mesh adaptation
+  if (mesh.adaptation.with_metric_based_adaptation())
+    if (time_integration.is_steady())
+      AssertThrow(time_integration.n_time_intervals == 1,
+                  ExcMessage(
+                    "When solving for steady-state solution, a single time "
+                    "subinterval is expected."));
 }
 
 template class ParameterReader<2>;

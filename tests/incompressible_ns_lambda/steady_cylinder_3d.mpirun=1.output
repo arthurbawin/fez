@@ -11,6 +11,23 @@ ID 5 -> Inlet
 ID 6 -> Outlet
 ID 7 -> Cylinder
 ID 8 -> Domain
+
+Forces on boundary with id 7 computed with method : lagrange_multiplier
+Fx = 0.000000e+00
+Fy = 0.000000e+00
+Fz = 0.000000e+00
+
+Forces per slice on boundary with id 7:
+Slice 0: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 1: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 2: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 3: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 4: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 5: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 6: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 7: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 8: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 9: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00
 Newton iter.  0:          nonlinear residual = 1.19030409e+00
 Newton iter.  1:          nonlinear residual = 1.90478687e+00	(M)
 Newton iter.  2:          nonlinear residual = 1.01474411e-02	(M)

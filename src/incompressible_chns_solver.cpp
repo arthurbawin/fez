@@ -225,14 +225,14 @@ void CHNSSolver<dim,
     if (bc.type == BoundaryConditions::Type::dirichlet_mms)
     {
       VectorTools::interpolate_boundary_values(*this->moving_mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                Functions::ZeroFunction<dim>(
                                                  this->ordering->n_components),
                                                this->zero_constraints,
                                                tracer_mask);
       VectorTools::interpolate_boundary_values(*this->moving_mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                Functions::ZeroFunction<dim>(
                                                  this->ordering->n_components),
@@ -254,13 +254,13 @@ void CHNSSolver<dim,
     if (bc.type == BoundaryConditions::Type::dirichlet_mms)
     {
       VectorTools::interpolate_boundary_values(*this->moving_mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                *this->exact_solution,
                                                this->nonzero_constraints,
                                                tracer_mask);
       VectorTools::interpolate_boundary_values(*this->moving_mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                *this->exact_solution,
                                                this->nonzero_constraints,
@@ -279,7 +279,7 @@ void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_initial_conditions()
 
   // Set tracer only
   VectorTools::interpolate(*this->moving_mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *tracer_fun,
                            this->newton_update,
                            tracer_mask);
@@ -290,12 +290,12 @@ void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_exact_solution()
 {
   // Set tracer and potential
   VectorTools::interpolate(*this->moving_mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *this->exact_solution,
                            this->local_evaluation_point,
                            tracer_mask);
   VectorTools::interpolate(*this->moving_mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *this->exact_solution,
                            this->local_evaluation_point,
                            potential_mask);
@@ -341,7 +341,7 @@ void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
           coupling_table[i][j] = DoFTools::always;
     }
 
-  DoFTools::make_sparsity_pattern(this->dof_handler,
+  DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   coupling_table,
                                   dsp,
                                   this->nonzero_constraints,
@@ -377,8 +377,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_matrix()
                       &CHNSSolver::assemble_local_matrix_finite_differences;
 
   // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   assembly_ptr,
                   &CHNSSolver::copy_local_to_global_matrix,
@@ -418,7 +418,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
@@ -873,14 +873,14 @@ void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
   CopyData copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
-    this->dof_handler,
+    *this->dof_handler,
     fe->n_dofs_per_cell(),
     *this,
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
     *scratch_data,
     copyData,
-    this->present_solution,
+    *this->present_solution,
     this->evaluation_point,
     this->local_evaluation_point,
     this->mpi_communicator,
@@ -908,8 +908,8 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_rhs()
   CopyData copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   &CHNSSolver::assemble_local_rhs,
                   &CHNSSolver::copy_local_to_global_rhs,
@@ -932,7 +932,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
@@ -1140,7 +1140,7 @@ void CHNSSolver<dim, with_moving_mesh>::copy_local_to_global_rhs(
 template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim, with_moving_mesh>::compute_solver_specific_errors()
 {
-  const unsigned int n_active_cells = this->triangulation.n_active_cells();
+  const unsigned int n_active_cells = this->triangulation->n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);
 
   const ComponentSelectFunction<dim> tracer_comp_select(

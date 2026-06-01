@@ -80,6 +80,16 @@ public:
   /**
    *
    */
+  void initialize_interval();
+
+  /**
+   *
+   */
+  void finalize_interval();
+
+  /**
+   *
+   */
   void set_time();
 
   /**
@@ -204,7 +214,7 @@ public:
   /**
    *
    */
-  void compute_recovery();
+  void compute_reconstructions();
 
   /**
    *
@@ -223,6 +233,13 @@ public:
   {
     return *present_solution;
   }
+
+  /**
+   * Return the metric field used for adapting the mesh associated with the
+   * @p interval_index-th time subinterval.
+   */
+  const MetricField<dim> &
+  get_metric_field(const unsigned int interval_index = 0) const;
 
 private:
   /**
@@ -282,8 +299,12 @@ protected:
 
   std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
 
-  std::unique_ptr<ErrorEstimation::PatchHandler<dim>>             patch_handler;
-  std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>> recovery;
+  std::vector<std::unique_ptr<MetricField<dim>>> metrics;
+  std::vector<std::unique_ptr<ErrorEstimation::PatchHandler<dim>>>
+    patch_handlers;
+  std::vector<std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>>>
+    recoveries;
+
   MetricField<dim> *metric_for_adaptation;
 
 protected:
@@ -322,5 +343,17 @@ protected:
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
 };
+
+/* ---------------- template and inline functions ----------------- */
+
+template <int dim>
+
+const MetricField<dim> &
+HeatSolver<dim>::get_metric_field(const unsigned int interval_index) const
+{
+  AssertIndexRange(interval_index,
+                   transient_fixed_point_data.get_n_time_intervals());
+  return *transient_fixed_point_data.get_metric_field(interval_index);
+}
 
 #endif

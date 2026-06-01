@@ -43,6 +43,11 @@ public:
                           const MPI_Comm              mpi_communicator);
 
   /**
+   * Return the number of time intervals stored in this object.
+   */
+  unsigned int get_n_time_intervals() const;
+
+  /**
    * Get the raw pointer to the @p interval_index-th triangulation.
    */
   parallel::fullydistributed::Triangulation<dim> *
@@ -69,6 +74,12 @@ public:
    * Get the raw pointer to the @p interval_index-th Riemannian metric.
    */
   MetricField<dim> *get_metric_field(const unsigned int interval_index);
+
+  /**
+   * Const version of the above
+   */
+  const MetricField<dim> *
+  get_metric_field(const unsigned int interval_index) const;
 
   /**
    * Return the name of the mesh file to be used for this time interval.
@@ -126,10 +137,29 @@ public:
    * FIXME: For now it is simply re-interpolated, for prototyping.
    * This is a hard operation to do in parallel.
    */
-  void transfer_solution(const unsigned int   interval_index,
-                         const Mapping<dim>  &mapping,
-                         const Function<dim> &exact_solution);
+  void transfer_solution(const unsigned int  interval_index,
+                         const Mapping<dim> &mapping,
+                         Function<dim>      &exact_solution,
+                         const TimeHandler  &time_handler,
+                         const IndexSet     &locally_relevant_dofs,
+                         const std::vector<unsigned char> &dofs_to_component);
 
+private:
+  /**
+   * Function that actually performs the solution transfer in parallel.
+   * It uses VectorTools::point_values() which is templated on the number of
+   * components in the FESystem, so this function is templated similarly.
+   */
+  template <int n_components>
+  void
+  do_solution_transfer(const unsigned int                interval_index,
+                       const Mapping<dim>               &mapping,
+                       Function<dim>                    &exact_solution,
+                       const TimeHandler                &time_handler,
+                       const IndexSet                   &locally_relevant_dofs,
+                       const std::vector<unsigned char> &dofs_to_component);
+
+public:
   /**
    * Apply a local and global scaling to all metric fields.
    */

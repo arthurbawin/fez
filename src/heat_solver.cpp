@@ -8,6 +8,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <error_estimation/patches.h>
+#include <error_estimation/recovery_tools.h>
 #include <error_estimation/solution_recovery.h>
 #include <errors.h>
 #include <heat_solver.h>
@@ -43,12 +44,14 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
                                computing_timer,
                                param.time_integration.n_time_intervals,
                                mpi_communicator)
-  , triangulation(transient_fixed_point_data.get_triangulation(0))
-  , dof_handler(transient_fixed_point_data.get_dof_handler(0))
-  , present_solution(transient_fixed_point_data.get_present_solution(0))
-  , previous_solutions(transient_fixed_point_data.get_previous_solutions(0))
-  , metric_for_adaptation(transient_fixed_point_data.get_metric_field(0))
 {
+  transient_fixed_point_data.set_interval_data(/* interval_index = */ 0,
+                                               triangulation,
+                                               dof_handler,
+                                               present_solution,
+                                               previous_solutions,
+                                               metric_for_adaptation);
+
   temperature_extractor = FEValuesExtractors::Scalar(0);
   temperature_mask      = fe.component_mask(temperature_extractor);
 
@@ -118,39 +121,46 @@ void HeatSolver<dim>::set_time()
 template <int dim>
 void HeatSolver<dim>::initialize()
 {
-  // FIXME: This function actually initializes the data that need a valid
-  // triangulation and/or dof handler.
-
   time_handler.validate_parameters(*ordering);
+}
+
+template <int dim>
+void HeatSolver<dim>::initialize_interval()
+{
+  if (param.bc_data.n_metric_fields > 0)
+    metric_for_adaptation->reinit(param.metrics.metric_for_adaptation,
+                                  param,
+                                  *triangulation);
+
+  /**
+   * Create the relevant patch handler and reconstruction data for each metric
+   */
+  ErrorEstimation::initialize_reconstruction_data(param,
+                                                  *triangulation,
+                                                  *mapping,
+                                                  *dof_handler,
+                                                  *present_solution,
+                                                  *ordering,
+                                                  metrics,
+                                                  patch_handlers,
+                                                  recoveries);
+}
+
+template <int dim>
+void HeatSolver<dim>::finalize_interval()
+{
+  // Copy the metrics from the metric field chosen for adaptation into the
+  // one in the transient fixed point data.
+  // FIXME: ideally one of these is simply a non-owning pointer to the other,
+  // probably the local metric here is a raw pointer to the metric for
+  // adaptation
 
   if (param.bc_data.n_metric_fields > 0)
-  {
-    // FIXME: index of the metric actually used for adaptation?
-    metric_for_adaptation->reinit(0, param, *triangulation);
-
-    // Create patch handler for this time subinterval
-    patch_handler = std::make_unique<ErrorEstimation::PatchHandler<dim>>(
-      *triangulation,
-      *mapping,
-      *dof_handler,
-      *present_solution,
-      param.finite_elements.temperature_degree + 1);
-
-    // Create the patches
-    computing_timer.enter_subsection("Build patches");
-    patch_handler->build_patches();
-    computing_timer.leave_subsection();
-
-    // Create recovery operator for this time subinterval
-    recovery = std::make_unique<ErrorEstimation::SolutionRecovery::Scalar<dim>>(
-      param.finite_elements.temperature_degree + 1,
-      param,
-      *patch_handler,
-      *dof_handler,
-      *present_solution,
-      fe,
-      *mapping);
-  }
+    for (unsigned int id = 0; id < param.metric_fields.size(); ++id)
+      if (param.metric_fields[id].use_for_adaptation)
+      {
+        metric_for_adaptation->copy_metrics_from(*metrics[id]);
+      }
 }
 
 template <int dim>
@@ -206,7 +216,7 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
   set_interval_data(interval_index);
   MeshTools::read_mesh(*triangulation, param);
   setup_dofs();
-  initialize();
+  initialize_interval();
   create_scratch_data();
   create_zero_constraints();
   create_nonzero_constraints();
@@ -217,7 +227,10 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
   else
     transient_fixed_point_data.transfer_solution(interval_index,
                                                  *mapping,
-                                                 *exact_solution);
+                                                 *exact_solution,
+                                                 time_handler,
+                                                 locally_relevant_dofs,
+                                                 dofs_to_component);
 
   // For unsteady simulations, postprocess either the initial condition, or the
   // initial solution on this time interval. For unsteady simulations with mesh
@@ -261,12 +274,15 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
     postprocess_solution();
     time_handler.rotate_solutions(*present_solution, *previous_solutions);
   }
+
+  finalize_interval();
 }
 
 template <int dim>
 void HeatSolver<dim>::run()
 {
   reset();
+  initialize();
 
   for (unsigned int i = 0; i < param.time_integration.n_time_intervals; ++i)
     run_time_subinterval(i);
@@ -705,14 +721,17 @@ void HeatSolver<dim>::compute_errors()
 }
 
 template <int dim>
-void HeatSolver<dim>::compute_recovery()
+void HeatSolver<dim>::compute_reconstructions()
 {
   TimerOutput::Scope t(computing_timer, "Compute recovery");
 
-  Assert(recovery, ExcInternalError());
-
   // Compute the reconstructions for this time step
-  recovery->reconstruct_fields(*present_solution);
+  for (unsigned int i = 0; i < recoveries.size(); ++i)
+  {
+    Assert(recoveries[i], ExcInternalError());
+    recoveries[i]->reconstruct_fields(*present_solution);
+    recoveries[i]->write_pvtu(*mapping, "recovery_heat");
+  }
 }
 
 template <int dim>
@@ -720,10 +739,21 @@ void HeatSolver<dim>::compute_riemannian_metric()
 {
   TimerOutput::Scope t(computing_timer, "Compute Riemannian metric");
 
-  Assert(recovery, ExcInternalError());
   Assert(param.bc_data.n_metric_fields > 0, ExcInternalError());
 
-  metric_for_adaptation->increment_anisotropic_measure(*recovery, time_handler);
+  // Update metric with its matching reconstruction operator
+  for (unsigned int i = 0; i < metrics.size(); ++i)
+  {
+    Assert(metrics[i], ExcInternalError());
+    Assert(recoveries[i], ExcInternalError());
+    metrics[i]->increment_anisotropic_measure(*recoveries[i], time_handler);
+  }
+
+  // Intersect one at a time (order dependent!)
+  for (unsigned int id = 0; id < param.metric_fields.size(); ++id)
+    for (const unsigned int other_id :
+         param.metric_fields[id].intersection.intersect_with)
+      metrics[id]->intersect_with(*metrics[other_id]);
 }
 
 template <int dim>
@@ -735,19 +765,23 @@ void HeatSolver<dim>::postprocess_solution()
     compute_errors();
 
   if (should_compute_reconstructions(param, time_handler))
-    compute_recovery();
+    compute_reconstructions();
 
-  if (should_compute_riemannian_metric(time_handler))
+  if (should_compute_riemannian_metric(param, time_handler))
     compute_riemannian_metric();
 }
 
 template <int dim>
 void HeatSolver<dim>::adapt_mesh()
 {
-  if (param.mesh.adaptation.enable && param.bc_data.n_metric_fields > 0)
+  if (param.bc_data.n_metric_fields > 0)
   {
-    transient_fixed_point_data.scale_metrics(0, time_handler);
+    transient_fixed_point_data.scale_metrics(
+      param.metrics.metric_for_adaptation, time_handler);
     transient_fixed_point_data.apply_gradation_to_metrics();
+  }
+  if (param.mesh.adaptation.enable)
+  {
     transient_fixed_point_data.adapt_meshes();
   }
 }

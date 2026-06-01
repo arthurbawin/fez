@@ -20,6 +20,7 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , current_time(time_parameters.t_initial)
   , current_time_iteration(0)
   , current_time_iteration_in_interval(0)
+  , time_iteration_at_last_restart(0)
   , initial_time(time_parameters.t_initial)
   , final_time(time_parameters.t_end)
   , initial_times(n_time_intervals)
@@ -668,6 +669,8 @@ void TimeHandler::update_parameters_after_restart(
       "stepping is used. The parameters used for this restarted simulation do "
       "not agree with the those from the checkpointed one (one was using "
       "adaptive time stepping and this one does not, or vice versa)."));
+
+  time_iteration_at_last_restart = current_time_iteration;
 
   // Update time step and final time, then update BDF coefficients
   final_time = new_parameters.t_end;

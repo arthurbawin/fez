@@ -250,10 +250,10 @@ void NSSolverLambda<dim>::set_active_fe_indices()
      * this removes the inconsistent parallel constraints.
      */
     std::set<Point<dim>, PointComparator<dim>> vertices_on_bdr =
-      get_mesh_vertices_on_boundary(this->dof_handler,
+      get_mesh_vertices_on_boundary(*this->dof_handler,
                                     weak_no_slip_boundary_id);
 
-    for (const auto &cell : this->dof_handler.active_cell_iterators())
+    for (const auto &cell : this->dof_handler->active_cell_iterators())
     {
       cell->set_material_id(without_lambda_domain_id);
       if (cell->is_locally_owned())
@@ -296,23 +296,23 @@ void NSSolverLambda<dim>::setup_dofs()
   set_active_fe_indices();
 
   // Initialize dof handler
-  this->dof_handler.distribute_dofs(*fe);
+  this->dof_handler->distribute_dofs(*fe);
 
   // The number of dofs in 3d changes if the hp line identities are correctly
   // applied. Do not print the number of dofs in 3d, as they will differ between
   // the docker and the fixed version and the tests will fail.
   if (dim == 2)
     this->pcout << "Number of degrees of freedom: "
-                << this->dof_handler.n_dofs() << std::endl;
+                << this->dof_handler->n_dofs() << std::endl;
 
-  this->locally_owned_dofs = this->dof_handler.locally_owned_dofs();
+  this->locally_owned_dofs = this->dof_handler->locally_owned_dofs();
   this->locally_relevant_dofs =
-    DoFTools::extract_locally_relevant_dofs(this->dof_handler);
+    DoFTools::extract_locally_relevant_dofs(*this->dof_handler);
 
   // Initialize parallel vectors
-  this->present_solution.reinit(this->locally_owned_dofs,
-                                this->locally_relevant_dofs,
-                                comm);
+  this->present_solution->reinit(this->locally_owned_dofs,
+                                 this->locally_relevant_dofs,
+                                 comm);
   this->evaluation_point.reinit(this->locally_owned_dofs,
                                 this->locally_relevant_dofs,
                                 comm);
@@ -322,9 +322,9 @@ void NSSolverLambda<dim>::setup_dofs()
   this->system_rhs.reinit(this->locally_owned_dofs, comm);
 
   // Allocate for previous BDF solutions
-  this->previous_solutions.clear();
-  this->previous_solutions.resize(this->time_handler.n_previous_solutions);
-  for (auto &previous_sol : this->previous_solutions)
+  this->previous_solutions->clear();
+  this->previous_solutions->resize(this->time_handler.n_previous_solutions);
+  for (auto &previous_sol : *this->previous_solutions)
     previous_sol.reinit(this->locally_owned_dofs,
                         this->locally_relevant_dofs,
                         comm);
@@ -342,21 +342,6 @@ void NSSolverLambda<dim>::setup_mappings()
   else
     this->moving_mapping =
       std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
-
-  // For unsteady simulation, add the number of elements, dofs and/or the time
-  // step to the error handler, once per convergence run.
-  if (!this->time_handler.is_steady() && this->param.mms_param.enable)
-    for (auto &[norm, handler] : this->error_handlers)
-    {
-      handler.add_reference_data("n_elm",
-                                 this->triangulation.n_global_active_cells());
-      // FIXME: Remove the dofs from the convergence table in 3d as long as the
-      // hp bug is in deal.II, to allow tests with the docker
-      handler.add_reference_data("n_dof",
-                                 dim == 3 ? 0 : this->dof_handler.n_dofs());
-
-      handler.add_time_step(this->time_handler.initial_dt);
-    }
 }
 
 template <int dim>
@@ -375,7 +360,7 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
   if (weak_no_slip_boundary_id != numbers::invalid_unsigned_int)
   {
     relevant_boundary_dofs =
-      DoFTools::extract_boundary_dofs(this->dof_handler,
+      DoFTools::extract_boundary_dofs(*this->dof_handler,
                                       lambda_mask,
                                       {weak_no_slip_boundary_id});
   }
@@ -385,7 +370,7 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
   // returns owned dofs).
   std::vector<types::global_dof_index> local_dofs(
     fe_with_lambda->n_dofs_per_cell());
-  for (const auto &cell : this->dof_handler.active_cell_iterators())
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
   {
     if (!(cell->is_locally_owned() || cell->is_ghost()))
       continue;
@@ -409,7 +394,7 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
   {
     // Print number of owned and constrained lambda dofs
     IndexSet lambda_dofs =
-      DoFTools::extract_dofs(this->dof_handler, lambda_mask);
+      DoFTools::extract_dofs(*this->dof_handler, lambda_mask);
     unsigned int constrained_owned_dofs   = 0;
     unsigned int unconstrained_owned_dofs = 0;
     for (const auto &dof : lambda_dofs)
@@ -433,10 +418,10 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
       // Print constrainted lambda dofs
       std::map<types::global_dof_index, Point<dim>> support_points =
         DoFTools::map_dofs_to_support_points(mapping_collection,
-                                             this->dof_handler);
+                                             *this->dof_handler);
 
       if (this->dofs_to_component.empty())
-        fill_dofs_to_component(this->dof_handler,
+        fill_dofs_to_component(*this->dof_handler,
                                this->locally_relevant_dofs,
                                this->dofs_to_component);
 
@@ -484,7 +469,8 @@ void NSSolverLambda<dim>::create_hp_line_dof_identities()
   std::set<types::global_dof_index>              pressure_dofs_to_match;
 
   std::map<types::global_dof_index, Point<dim>> support_points =
-    DoFTools::map_dofs_to_support_points(mapping_collection, this->dof_handler);
+    DoFTools::map_dofs_to_support_points(mapping_collection,
+                                         *this->dof_handler);
 
   /**
    * If cell has lambda FESystem, accumulate its dofs,
@@ -494,7 +480,7 @@ void NSSolverLambda<dim>::create_hp_line_dof_identities()
     const auto &fe_lambda = (*fe)[index_fe_with_lambda];
     std::vector<types::global_dof_index> dof_indices(
       fe_lambda.n_dofs_per_cell());
-    for (const auto &cell : this->dof_handler.active_cell_iterators())
+    for (const auto &cell : this->dof_handler->active_cell_iterators())
     {
       if (!cell_has_lambda(cell))
         continue;
@@ -547,7 +533,7 @@ void NSSolverLambda<dim>::create_hp_line_dof_identities()
     const auto &fe_without_lambda = (*fe)[index_fe_without_lambda];
     std::vector<types::global_dof_index> dof_indices(
       fe_without_lambda.n_dofs_per_cell());
-    for (const auto &cell : this->dof_handler.active_cell_iterators())
+    for (const auto &cell : this->dof_handler->active_cell_iterators())
     {
       if (cell_has_lambda(cell))
         continue;
@@ -606,7 +592,7 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
     return;
 
   IndexSet relevant_boundary_velocity_dofs =
-    DoFTools::extract_boundary_dofs(this->dof_handler,
+    DoFTools::extract_boundary_dofs(*this->dof_handler,
                                     this->velocity_mask,
                                     {weak_no_slip_boundary_id});
   /**
@@ -638,7 +624,7 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
       const bool consistent = constraints.is_consistent_in_parallel(
         Utilities::MPI::all_gather(this->mpi_communicator,
                                    this->locally_owned_dofs),
-        DoFTools::extract_locally_active_dofs(this->dof_handler),
+        DoFTools::extract_locally_active_dofs(*this->dof_handler),
         this->mpi_communicator,
         true);
       AssertThrow(consistent,
@@ -682,7 +668,7 @@ void NSSolverLambda<dim>::remove_cylinder_velocity_constraints(
         Utilities::MPI::all_gather(this->mpi_communicator,
                                    this->locally_owned_dofs),
         // this->locally_relevant_dofs,
-        DoFTools::extract_locally_active_dofs(this->dof_handler),
+        DoFTools::extract_locally_active_dofs(*this->dof_handler),
         this->mpi_communicator,
         true);
       AssertThrow(consistent,
@@ -810,7 +796,7 @@ void NSSolverLambda<dim>::create_sparsity_pattern()
         if (this->ordering->is_velocity(d))
           coupling[c][d] = DoFTools::always;
     }
-  DoFTools::make_sparsity_pattern(this->dof_handler,
+  DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   coupling,
                                   dsp,
                                   this->nonzero_constraints,
@@ -834,8 +820,8 @@ void NSSolverLambda<dim>::assemble_matrix()
 
   CopyData copy_data(*fe);
 
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   &NSSolverLambda::assemble_local_matrix,
                   &NSSolverLambda::copy_local_to_global_matrix,
@@ -858,7 +844,7 @@ void NSSolverLambda<dim>::assemble_local_matrix(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
@@ -992,7 +978,7 @@ void NSSolverLambda<dim>::compare_analytical_matrix_with_fd()
   // CopyData            copy_data(fe->n_dofs_per_cell());
 
   // auto errors = Verification::compare_analytical_matrix_with_fd(
-  //   this->dof_handler,
+  //   *this->dof_handler,
   //   fe->n_dofs_per_cell(),
   //   *this,
   //   &NSSolverLambda::assemble_local_matrix,
@@ -1027,8 +1013,8 @@ void NSSolverLambda<dim>::assemble_rhs()
 
   CopyData copy_data(*fe);
 
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   &NSSolverLambda::assemble_local_rhs,
                   &NSSolverLambda::copy_local_to_global_rhs,
@@ -1051,7 +1037,7 @@ void NSSolverLambda<dim>::assemble_local_rhs(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
@@ -1180,9 +1166,9 @@ void NSSolverLambda<dim>::check_velocity_boundary() const
   LagrangeMultiplierTools::check_no_slip_on_boundary<dim>(
     this->param,
     *scratch_data,
-    this->dof_handler,
+    *this->dof_handler,
     this->evaluation_point,
-    this->previous_solutions,
+    *this->previous_solutions,
     *this->source_terms,
     *this->exact_solution,
     weak_no_slip_boundary_id);
@@ -1213,7 +1199,7 @@ void NSSolverLambda<dim>::compute_lambda_error_on_boundary(
                                        update_normal_vectors);
 
   Tensor<1, dim> diff, exact;
-  for (auto cell : this->dof_handler.active_cell_iterators())
+  for (auto cell : this->dof_handler->active_cell_iterators())
   {
     if (!cell->is_locally_owned())
       continue;
@@ -1237,7 +1223,7 @@ void NSSolverLambda<dim>::compute_lambda_error_on_boundary(
 
         // Get FE solution values on the face
         fe_face_values[lambda_extractor].get_function_values(
-          this->present_solution, lambda_values);
+          *this->present_solution, lambda_values);
 
         // Evaluate exact solution at quadrature points
         for (unsigned int q = 0; q < n_faces_q_points; ++q)
@@ -1341,25 +1327,9 @@ void NSSolverLambda<dim>::compute_solver_specific_errors()
 template <int dim>
 void NSSolverLambda<dim>::solver_specific_post_processing()
 {
-  /**
-   * Check that no-slip condition is satisfied.
-   *
-   * When applying the exact solution, the fluid velocity will be exact,
-   * but the mesh velocity is only precise up to time integration order.
-   * So these velocities differ by some power of the time step, rather
-   * than the machine epsilon as checked in this function, thus the
-   * no-slip is not checked in this case.
-   *
-   * Also, not checking when using BDF2 and starting with the initial
-   * condition, as it will generally not respect the no-slip condition.
-   */
-  if (!this->param.debug.apply_exact_solution)
-  {
-    if (!(this->time_handler.is_starting_step() &&
-          this->param.time_integration.bdfstart ==
-            Parameters::TimeIntegration::BDFStart::initial_condition))
-      check_velocity_boundary();
-  }
+  // Check that no-slip condition is satisfied
+  if (this->should_check_weakly_enforced_velocity(this->time_handler))
+    check_velocity_boundary();
 }
 
 // Explicit instantiation

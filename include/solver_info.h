@@ -67,6 +67,31 @@ struct SolverInfo
     lagrange_mult   = 6
   };
 
+  template <int dim>
+  static int n_components(const VariableType type)
+  {
+    switch (type)
+    {
+      case VariableType::velocity:
+        return dim;
+      case VariableType::pressure:
+        return 1;
+      case VariableType::mesh_position:
+        return dim;
+      case VariableType::temperature:
+        return 1;
+      case VariableType::phase_tracer:
+        return 1;
+      case VariableType::phase_potential:
+        return 1;
+      case VariableType::lagrange_mult:
+        return dim;
+    }
+    // Cannot reach here
+    AssertThrow(false, dealii::StandardExceptions::ExcInternalError());
+    return 0;
+  }
+
   /**
    * An array of the available variables, allowing to iterate over them.
    */
@@ -87,6 +112,11 @@ struct SolverInfo
      "phase_tracer",
      "phase_potential",
      "lagrange_mult"}};
+
+  // Array with separators and including "none", to use in the parameter file
+  static constexpr std::string_view variable_names_for_param = {
+    {"none|velocity|pressure|mesh_position|temperature|phase_tracer|phase_"
+     "potential|lagrange_mult"}};
 
   /**
    * Convert a VariableType to a string.
@@ -123,12 +153,12 @@ struct SolverInfo
     if (variable_name == "velocity")
       return VariableType::velocity;
     else if (variable_name == "pressure")
-      return VariableType::mesh_position;
+      return VariableType::pressure;
     else if (variable_name == "mesh_position" ||
              variable_name == "mesh position")
-      return VariableType::temperature;
+      return VariableType::mesh_position;
     else if (variable_name == "temperature")
-      return VariableType::phase_tracer;
+      return VariableType::temperature;
     else if (variable_name == "phase_tracer" || variable_name == "phase tracer")
       return VariableType::phase_tracer;
     else if (variable_name == "phase_potential" ||

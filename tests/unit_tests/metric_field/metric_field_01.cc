@@ -28,6 +28,8 @@ void test()
   // Assign scalar field for the metric
   prm.enter_subsection("Metric tensor fields");
   prm.enter_subsection("Metric field 0");
+  prm.set("type", "interpolation error");
+  prm.set("variable", "temperature");
   prm.set("min mesh size", "1e-4");
   prm.set("max mesh size", "10");
   prm.enter_subsection("Analytical scalar field");

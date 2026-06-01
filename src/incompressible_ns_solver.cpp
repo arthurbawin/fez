@@ -141,7 +141,7 @@ void NSSolver<dim>::create_sparsity_pattern()
   //
 #if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
-  DoFTools::make_sparsity_pattern(this->dof_handler,
+  DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   dsp,
                                   this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
@@ -158,7 +158,7 @@ void NSSolver<dim>::create_sparsity_pattern()
                                         this->locally_owned_dofs,
                                         this->locally_relevant_dofs,
                                         this->mpi_communicator);
-  DoFTools::make_sparsity_pattern(this->dof_handler,
+  DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   dsp,
                                   this->nonzero_constraints);
   dsp.compress();
@@ -188,8 +188,8 @@ void NSSolver<dim>::assemble_matrix()
                       &NSSolver::assemble_local_matrix_finite_differences;
 
   // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   assembly_ptr,
                   &NSSolver::copy_local_to_global_matrix,
@@ -228,7 +228,7 @@ void NSSolver<dim>::assemble_local_matrix(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
@@ -329,14 +329,14 @@ void NSSolver<dim>::compare_analytical_matrix_with_fd()
   CopyData copyData(fe->n_dofs_per_cell());
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
-    this->dof_handler,
+    *this->dof_handler,
     fe->n_dofs_per_cell(),
     *this,
     &NSSolver::assemble_local_matrix,
     &NSSolver::assemble_local_rhs,
     *scratch_data,
     copyData,
-    this->present_solution,
+    *this->present_solution,
     this->evaluation_point,
     this->local_evaluation_point,
     this->mpi_communicator);
@@ -360,8 +360,8 @@ void NSSolver<dim>::assemble_rhs()
   CopyData copyData(fe->n_dofs_per_cell());
 
   // Assemble RHS (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   &NSSolver::assemble_local_rhs,
                   &NSSolver::copy_local_to_global_rhs,
@@ -384,7 +384,7 @@ void NSSolver<dim>::assemble_local_rhs(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 

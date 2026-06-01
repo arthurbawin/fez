@@ -10,6 +10,10 @@ ID 4 -> InnerBoundary
 ID 5 -> Domain
 Number of degrees of freedom: 6118
 
+Forces on boundary with id 4 computed with method : stress_vector
+Fx = +9.675474485002e-01
+Fy = +5.975090730497e-04
+
 Time step 1 - Advancing to t = 0.1.
 Newton iter.  0:          nonlinear residual = 3.38511359e-01
 	Line search with alpha = 1.000 : res = 1.39527628e-01

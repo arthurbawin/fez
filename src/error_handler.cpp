@@ -65,14 +65,15 @@ void ErrorHandler::add_reference_data(
   const TimeHandler                  &time_handler,
   const TransientFixedPointData<dim> &transient_fixed_point_data,
   const Triangulation<dim>           &triangulation,
-  const DoFHandler<dim>              &dof_handler)
+  const DoFHandler<dim>              &dof_handler,
+  const bool                          set_zero_dofs)
 {
   const auto n_global_active_cells = triangulation.n_global_active_cells();
-  const auto n_dofs                = dof_handler.n_dofs();
+  const auto n_dofs                = set_zero_dofs ? 0 : dof_handler.n_dofs();
 
   Assert(n_global_active_cells > 0,
          ExcMessage("The provided triangulation is empty"));
-  Assert(n_dofs > 0,
+  Assert(dof_handler.n_dofs() > 0,
          ExcMessage(
            "The provided dof handler does not store any degree of freedom"));
 
@@ -137,12 +138,14 @@ template void
 ErrorHandler::add_reference_data(const TimeHandler &,
                                  const TransientFixedPointData<2> &,
                                  const Triangulation<2> &,
-                                 const DoFHandler<2> &);
+                                 const DoFHandler<2> &,
+                                 const bool);
 template void
 ErrorHandler::add_reference_data(const TimeHandler &,
                                  const TransientFixedPointData<3> &,
                                  const Triangulation<3> &,
-                                 const DoFHandler<3> &);
+                                 const DoFHandler<3> &,
+                                 const bool);
 
 void ErrorHandler::add_reference_data(const std::string &name,
                                       const unsigned int value)

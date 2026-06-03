@@ -1368,6 +1368,16 @@ namespace Parameters
           "For a convergence study with metric-based anisotropic mesh "
           "adaptation enabled, the initial target number of vertices in the "
           "adapted mesh. This value is then doubled at each convergence step.");
+        prm.declare_entry("target vertices multiplier between steps",
+                          "2",
+                          Patterns::Integer(1),
+                          "Between two convergence steps, the target number of "
+                          "mesh vertices is multiplied by this value.");
+        prm.declare_entry("time intervals multiplier between steps",
+                          "2",
+                          Patterns::Integer(1),
+                          "Between two convergence steps, the number of time "
+                          "intervals is multiplied by this value.");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1438,6 +1448,10 @@ namespace Parameters
             Patterns::Tools::Convert<VectorTools::NormType>::to_value(s));
         n_target_vertices =
           prm.get_integer("initial target number of vertices");
+        n_target_vertices_multiplier =
+          prm.get_integer("target vertices multiplier between steps");
+        n_time_intervals_multiplier =
+          prm.get_integer("time intervals multiplier between steps");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1544,6 +1558,18 @@ namespace Parameters
 
   template struct FSI<2>;
   template struct FSI<3>;
+
+  void SolutionRecovery::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Solution recovery");
+    {DECLARE_VERBOSITY_PARAM(prm, "verbose")} prm.leave_subsection();
+  }
+
+  void SolutionRecovery::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Solution recovery");
+    {READ_VERBOSITY_PARAM(prm, verbosity)} prm.leave_subsection();
+  }
 
   void Debug::declare_parameters(ParameterHandler &prm)
   {

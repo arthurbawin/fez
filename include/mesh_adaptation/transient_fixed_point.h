@@ -71,6 +71,11 @@ public:
                     MetricField<dim>               *&metric_for_adaptation);
 
   /**
+   * Reinitialize this object to hold data for @p n_time_intervals intervals.
+   */
+  void reinit(const unsigned int n_time_intervals);
+
+  /**
    * Return the number of time intervals stored in this object.
    */
   unsigned int get_n_time_intervals() const;

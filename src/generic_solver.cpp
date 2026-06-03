@@ -96,7 +96,10 @@ void GenericSolver<VectorType>::run_convergence_loop()
           // FIXME: when GenericSolver is templatized over dim and stores the
           // full parameter structure, double the target number of vertices in
           // each metric field instead.
-          mms_param.n_target_vertices *= 2;
+          mms_param.n_target_vertices *= mms_param.n_target_vertices_multiplier;
+          mesh_param.adaptation.metric.n_time_intervals *=
+            mms_param.n_time_intervals_multiplier;
+          time_param.n_time_intervals *= mms_param.n_time_intervals_multiplier;
         }
 
         // Restart from the initial mesh. Alternatively we could also restart

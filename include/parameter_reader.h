@@ -38,6 +38,7 @@ public:
   Parameters::CahnHilliard<dim>                              cahn_hilliard;
   Parameters::LinearElasticity                               linear_elasticity;
   Parameters::MMS                                            mms_param;
+  Parameters::SolutionRecovery                               recovery;
   Parameters::Debug                                          debug;
 
   /**
@@ -138,6 +139,7 @@ public:
     source_terms.declare_parameters(prm);
     mms_param.declare_parameters(prm);
     mms.declare_parameters(prm);
+    recovery.declare_parameters(prm);
     debug.declare_parameters(prm);
     metric_fields.resize(bc_data.n_metric_fields);
     Parameters::declare_metric_fields<dim>(prm,
@@ -191,6 +193,7 @@ public:
     source_terms.read_parameters(prm);
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);
+    recovery.read_parameters(prm);
     debug.read_parameters(prm);
     Parameters::read_metric_fields(prm,
                                    bc_data.n_metric_fields,

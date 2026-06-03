@@ -25,12 +25,26 @@ TransientFixedPointData<dim>::TransientFixedPointData(
   , timer(timer)
   , mpi_communicator(mpi_communicator)
   , n_time_intervals(n_time_intervals)
-  , triangulations(n_time_intervals)
-  , dof_handlers(n_time_intervals)
-  , present_solutions(n_time_intervals)
-  , previous_solutions(n_time_intervals)
-  , metrics_for_adaptation(n_time_intervals)
 {
+  reinit(n_time_intervals);
+}
+
+template <int dim>
+void TransientFixedPointData<dim>::reinit(
+  const unsigned int new_n_time_intervals)
+{
+  // Clear and reallocate for the new number of intervals
+  if (triangulations.size() > 0)
+    clear();
+
+  n_time_intervals = new_n_time_intervals;
+
+  triangulations.resize(n_time_intervals);
+  dof_handlers.resize(n_time_intervals);
+  present_solutions.resize(n_time_intervals);
+  previous_solutions.resize(n_time_intervals);
+  metrics_for_adaptation.resize(n_time_intervals);
+
   for (unsigned int i = 0; i < n_time_intervals; ++i)
   {
     triangulations[i] =
@@ -517,13 +531,16 @@ void TransientFixedPointData<dim>::scale_metrics(
   {
     // Scaling for the transient method.
 
-    // Space-time complexity N_st.
+    // Target average spatial complexity on each time interval.
     // If this is a convergence study with anisotropic adaptation, get this
     // value from the MMS parameters.
-    const double N =
+    const double Navg =
       param.mms_param.enable ?
         (double)param.mms_param.n_target_vertices :
         (double)param.metric_fields[metric_index].multiscale.n_target_vertices;
+
+    // Space-time complexity N_st.
+    const double Nst = Navg * n_time_intervals;
 
     // FIXME: use general exponents for higher order solutions
     const double p   = (double)param.metric_fields[metric_index].multiscale.p;
@@ -564,7 +581,7 @@ void TransientFixedPointData<dim>::scale_metrics(
     // Apply global scaling (operator *= includes update of FE solution and
     // ghosts)
     for (const auto &m_ptr : metrics_for_adaptation)
-      (*m_ptr) *= std::pow(N / global_scaling, 2. / d);
+      (*m_ptr) *= std::pow(Nst / global_scaling, 2. / d);
   }
 }
 

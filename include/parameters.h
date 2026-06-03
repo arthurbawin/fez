@@ -674,6 +674,9 @@ namespace Parameters
     // FIXME: the GenericSolver should use the full parameters and modify the
     // metric field parameters instead of duplicating this information
     unsigned int n_target_vertices;
+    unsigned int n_target_vertices_multiplier;
+
+    unsigned int n_time_intervals_multiplier;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {
@@ -719,6 +722,17 @@ namespace Parameters
       global_position_master_to_global_accumulator = 4,
 
     } coupling;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  /**
+   * Solution and derivatives recovery
+   */
+  struct SolutionRecovery
+  {
+    Verbosity verbosity;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

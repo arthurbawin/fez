@@ -92,7 +92,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
     postproc_handler->clear();
 
   // Clear mesh(es) and dof handler(s)
-  transient_fixed_point_data.clear();
+  if (mms_param.current_step > 0)
+    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals);
 
   dofs_to_component.clear();
 

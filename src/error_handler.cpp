@@ -35,6 +35,7 @@ ErrorHandler::ErrorHandler(const Parameters::Mesh            &mesh_param,
   {
     if (with_metric_based_adaptation)
     {
+      error_table.declare_column("n_intervals");
       error_table.declare_column("target_nvrt");
       error_table.declare_column("n_st");
       error_table.declare_column("n_tot_vrt");
@@ -113,6 +114,8 @@ void ErrorHandler::add_reference_data(
       // the beginning of the simulation, since all meshes are available.
       // With adaptive time step, the total space-time complexity must be
       // computed once the simulation is finished.
+      add_reference_data("n_intervals",
+                         transient_fixed_point_data.get_n_time_intervals());
       add_reference_data("target_nvrt", mms_param.n_target_vertices);
       add_reference_data("n_st",
                          transient_fixed_point_data

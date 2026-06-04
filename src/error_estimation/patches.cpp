@@ -110,6 +110,30 @@ namespace ErrorEstimation
   }
 
   template <int dim>
+  void PatchHandler<dim>::set_unique_neighbours_from_map(
+    Patch<dim> &patch) const
+  {
+    patch.neighbours.clear();
+    patch.neighbours.reserve(patch.neighbours_map.size());
+    for (const auto &[dof, data] : patch.neighbours_map)
+      patch.neighbours.emplace_back(data);
+
+    std::sort(patch.neighbours.begin(),
+              patch.neighbours.end(),
+              [](const auto &a, const auto &b) {
+                PointComparator<dim> comp;
+                return comp(a.pt, b.pt);
+              });
+    auto last = std::unique(patch.neighbours.begin(),
+                            patch.neighbours.end(),
+                            [](const auto &a, const auto &b) {
+                              PointEquality<dim> comp;
+                              return comp(a.pt, b.pt);
+                            });
+    patch.neighbours.erase(last, patch.neighbours.end());
+  }
+
+  template <int dim>
   void PatchHandler<dim>::build_patches(
     const bool         enforce_full_rank_least_squares_matrices,
     const unsigned int n_layers)
@@ -161,26 +185,7 @@ namespace ErrorEstimation
      * re-written)
      */
     for (auto &patch : patches)
-    {
-      patch.neighbours.clear();
-      patch.neighbours.reserve(patch.neighbours_map.size());
-      for (const auto &[dof, data] : patch.neighbours_map)
-        patch.neighbours.emplace_back(data);
-
-      std::sort(patch.neighbours.begin(),
-                patch.neighbours.end(),
-                [](const auto &a, const auto &b) {
-                  PointComparator<dim> comp;
-                  return comp(a.pt, b.pt);
-                });
-      auto last = std::unique(patch.neighbours.begin(),
-                              patch.neighbours.end(),
-                              [](const auto &a, const auto &b) {
-                                PointEquality<dim> comp;
-                                return comp(a.pt, b.pt);
-                              });
-      patch.neighbours.erase(last, patch.neighbours.end());
-    }
+      set_unique_neighbours_from_map(patch);
 
     compute_scalings_and_local_coordinates();
 
@@ -439,9 +444,10 @@ namespace ErrorEstimation
      * Adding an additional layer of dofs is done in three steps:
      * - first add the locally available dofs (owned or ghosts) on the cells
      *   containing any of the already stored dofs in the patch.
-     *   Add the ghost dofs of the previous layer to a list of dofs whose
-     *   neighbours are not known on this partition and must be requested to
-     *   neighbouring partitions, or even neighbours of neighbours, etc.
+     *   Add the dofs on ghost cells of the previous layer to a list of dofs
+     *   whose complete neighbours are not known on this partition and must be
+     *   requested to neighbouring partitions, or even neighbours of neighbours,
+     *   etc.
      * - send and receive the neighbours requests to other partitions.
      * - complete the additional layer of dofs with the dofs received from
      *   other partitions.
@@ -457,8 +463,9 @@ namespace ErrorEstimation
         {
           // Expand patch if it does not have enough nodes to compute a
           // least-squares matrix
+          set_unique_neighbours_from_map(patch);
           const bool has_enough_neighbours =
-            patch.neighbours_map.size() >= n_required_vertices;
+            patch.neighbours.size() >= n_required_vertices;
 
           if (!has_enough_neighbours)
           {
@@ -468,29 +475,6 @@ namespace ErrorEstimation
           {
             // If patch has enough neighbours, compute least-squares matrix
             // and check if it is full rank.
-
-            // Convert neighbours map to vector to compute least-squares matrix
-            patch.neighbours.clear();
-            patch.neighbours.reserve(patch.neighbours_map.size());
-            for (const auto &[dof, data] : patch.neighbours_map)
-              patch.neighbours.emplace_back(data);
-
-            std::sort(patch.neighbours.begin(),
-                      patch.neighbours.end(),
-                      [](const DofData &a, const DofData &b) {
-                        PointComparator<dim> comp;
-                        return comp(a.pt, b.pt);
-                      });
-            auto last = std::unique(patch.neighbours.begin(),
-                                    patch.neighbours.end(),
-                                    [](const DofData &a, const DofData &b) {
-                                      PointEquality<dim> comp;
-                                      return comp(a.pt, b.pt);
-                                    });
-            patch.neighbours.erase(last, patch.neighbours.end());
-
-            AssertDimension(patch.neighbours.size(),
-                            patch.neighbours_map.size());
 
             // Compute scaling and local neighbours coordinates
             compute_scaling_and_local_coordinates(patch);
@@ -603,9 +587,9 @@ namespace ErrorEstimation
 
             /**
              * Prepare the request for the non-local cells touching any of the
-             * stored neighbour. List the patch dofs already added and lying in
-             * the ghost layer. These dofs might not have an adjacent cell in
-             * this partition, and a request will be done to other partitions.
+             * stored neighbours. List the patch dofs already added through
+             * ghost cells. Even locally owned dofs may have adjacent cells that
+             * only the ghost-cell owner can see.
              */
             for (const auto &cell : patch.elements)
               if (cell->is_ghost())
@@ -613,12 +597,11 @@ namespace ErrorEstimation
                 cell->get_dof_indices(local_dofs);
                 for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
                   if (mask[fe.system_to_component_index(i).first])
-                    if (ghost_dofs.is_element(local_dofs[i]))
-                    {
-                      dofs_to_request[cell->subdomain_id()].insert(
-                        local_dofs[i]);
-                      to_add_after_request[local_dofs[i]].insert(v);
-                    }
+                  {
+                    dofs_to_request[cell->subdomain_id()].insert(
+                      local_dofs[i]);
+                    to_add_after_request[local_dofs[i]].insert(v);
+                  }
               }
           }
 
@@ -649,8 +632,8 @@ namespace ErrorEstimation
     }
 
     /**
-     * Request the neighbouring dof to ghost dofs, and add these non-owned,
-     * non-ghosted support points to the patch.
+     * Request the neighbouring dofs connected through ghost cells, and add
+     * these non-owned, non-ghosted support points to the patch.
      */
     if (layer > 0)
     {

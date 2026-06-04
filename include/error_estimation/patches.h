@@ -275,6 +275,12 @@ namespace ErrorEstimation
         &connected_dofs_to_requested_dofs);
 
     /**
+     * Convert the patch neighbour map to a sorted vector of unique support
+     * points.
+     */
+    void set_unique_neighbours_from_map(Patch<dim> &patch) const;
+
+    /**
      * Compute the scaling s of each patch, defined as s_i = max_i |x_i - x|,
      * with x the vertex (center of the patch) and x_i a support points of the
      * patch.

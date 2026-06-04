@@ -50,7 +50,7 @@ protected:
 
   using ScratchData =
     NavierStokesScratch::ScratchDataIncompressibleNSLambda<dim>;
-  using CopyData    = CopyDataBase<n_hp_partitions>;
+  using CopyData = CopyDataBase<n_hp_partitions>;
 
 public:
   /**

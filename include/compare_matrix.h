@@ -7,8 +7,6 @@
 #include <types.h>
 #include <utilities.h>
 
-#include <type_traits>
-
 using namespace dealii;
 
 namespace Verification
@@ -189,6 +187,8 @@ std::pair<double, double> Verification::compare_analytical_matrix_with_fd(
   Vector<double>     ref_local_rhs(n_dofs_per_cell);
   Vector<double>     perturbed_local_rhs(n_dofs_per_cell);
 
+  const unsigned int fe_index = copy_data.last_active_fe_index;
+
   ////////////////////////////////////////////////////////////////////
   // const FEValuesExtractors::Vector position(dim + 1);
   // std::shared_ptr<Mapping<dim>>    mapping =
@@ -240,7 +240,7 @@ std::pair<double, double> Verification::compare_analytical_matrix_with_fd(
       //
       // std::cout << "Assembling matrix" << std::endl;
       (main_object.*assemble_local_matrix)(cell, scratch_data, copy_data);
-      local_matrix = copy_data.local_matrix();
+      local_matrix = copy_data.local_matrix(fe_index);
       // std::cout << "Done matrix" << std::endl;
     }
 
@@ -254,7 +254,7 @@ std::pair<double, double> Verification::compare_analytical_matrix_with_fd(
 
       // Compute non-perturbed RHS
       (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
-      ref_local_rhs = copy_data.local_rhs();
+      ref_local_rhs = copy_data.local_rhs(fe_index);
 
       // std::cout << "Non-perturbed residual is " << std::endl;
       // ref_local_rhs.print(std::cout, 12, 3);
@@ -271,7 +271,7 @@ std::pair<double, double> Verification::compare_analytical_matrix_with_fd(
 
         // Compute perturbed RHS
         (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
-        perturbed_local_rhs = copy_data.local_rhs();
+        perturbed_local_rhs = copy_data.local_rhs(fe_index);
 
         // std::cout << "Perturbed residual is " << std::endl;
         // perturbed_local_rhs.print(std::cout, 12, 3);

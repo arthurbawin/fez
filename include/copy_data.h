@@ -53,6 +53,8 @@ public:
   template <int dim>
   CopyDataBase(const hp::FECollection<dim> &fe_collection)
     : MeshWorker::CopyData<n_hp_partitions>()
+    , cell_has_lagrange_multiplier(false)
+    , last_active_fe_index(numbers::invalid_unsigned_int)
   {
     AssertDimension(n_hp_partitions, fe_collection.size());
     for (unsigned int i = 0; i < n_hp_partitions; ++i)
@@ -94,7 +96,7 @@ public:
 public:
   bool         cell_is_locally_owned;
   bool         cell_is_at_boundary;
-  bool         cell_has_lagrange_multiplier = false;
+  bool         cell_has_lagrange_multiplier;
   unsigned int last_active_fe_index;
 };
 

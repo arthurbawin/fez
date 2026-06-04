@@ -2113,8 +2113,9 @@ void FSISolverLessLambda<dim>::copy_local_to_global_matrix(
     return;
 
   const auto i = copy_data.last_active_fe_index;
-  this->zero_constraints.distribute_local_to_global(
-    copy_data.local_matrix(i), copy_data.dof_indices(i), this->system_matrix);
+  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix(i),
+                                                    copy_data.dof_indices(i),
+                                                    this->system_matrix);
 }
 
 template <int dim>
@@ -2366,8 +2367,9 @@ void FSISolverLessLambda<dim>::copy_local_to_global_rhs(
     return;
 
   const auto i = copy_data.last_active_fe_index;
-  this->zero_constraints.distribute_local_to_global(
-    copy_data.local_rhs(i), copy_data.dof_indices(i), this->system_rhs);
+  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(i),
+                                                    copy_data.dof_indices(i),
+                                                    this->system_rhs);
 }
 
 template <int dim>

@@ -461,7 +461,7 @@ void HeatSolver<dim>::assemble_matrix()
 
   system_matrix = 0;
 
-  CopyData copyData(fe.n_dofs_per_cell());
+  CopyData copy_data(fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -478,7 +478,7 @@ void HeatSolver<dim>::assemble_matrix()
                   &HeatSolver::assemble_local_matrix,
                   &HeatSolver::copy_local_to_global_matrix,
                   *scratch_data,
-                  copyData);
+                  copy_data);
   system_matrix.compress(VectorOperation::add);
 }
 
@@ -496,7 +496,7 @@ void HeatSolver<dim>::assemble_local_matrix(
   scratch_data.reinit(
     cell, evaluation_point, *previous_solutions, source_terms, exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix;
+  auto &local_matrix = copy_data.local_matrix();
   local_matrix       = 0;
 
   const double bdf_c0 = time_handler.bdf_coefficients[0];
@@ -516,7 +516,7 @@ void HeatSolver<dim>::assemble_local_matrix(
       }
     }
   }
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim>
@@ -524,15 +524,15 @@ void HeatSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
-  zero_constraints.distribute_local_to_global(copy_data.local_matrix,
-                                              copy_data.local_dof_indices,
+  zero_constraints.distribute_local_to_global(copy_data.local_matrix(),
+                                              copy_data.dof_indices(),
                                               system_matrix);
 }
 
 template <int dim>
 void HeatSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  CopyData copyData(fe.n_dofs_per_cell());
+  CopyData copy_data(fe);
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     *dof_handler,
@@ -541,7 +541,7 @@ void HeatSolver<dim>::compare_analytical_matrix_with_fd()
     &HeatSolver::assemble_local_matrix,
     &HeatSolver::assemble_local_rhs,
     *scratch_data,
-    copyData,
+    copy_data,
     *present_solution,
     evaluation_point,
     local_evaluation_point,
@@ -563,7 +563,7 @@ void HeatSolver<dim>::assemble_rhs()
 
   system_rhs = 0;
 
-  CopyData copyData(fe.n_dofs_per_cell());
+  CopyData copy_data(fe);
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(dof_handler->begin_active(),
@@ -572,7 +572,7 @@ void HeatSolver<dim>::assemble_rhs()
                   &HeatSolver::assemble_local_rhs,
                   &HeatSolver::copy_local_to_global_rhs,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   system_rhs.compress(VectorOperation::add);
 }
@@ -591,7 +591,7 @@ void HeatSolver<dim>::assemble_local_rhs(
   scratch_data.reinit(
     cell, evaluation_point, *previous_solutions, source_terms, exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs;
+  auto &local_rhs = copy_data.local_rhs();
   local_rhs       = 0;
 
   //
@@ -620,7 +620,7 @@ void HeatSolver<dim>::assemble_local_rhs(
     }
   }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim>
@@ -628,8 +628,8 @@ void HeatSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 {
   if (!copy_data.cell_is_locally_owned)
     return;
-  zero_constraints.distribute_local_to_global(copy_data.local_rhs,
-                                              copy_data.local_dof_indices,
+  zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
+                                              copy_data.dof_indices(),
                                               system_rhs);
 }
 

@@ -38,6 +38,7 @@ template <int dim>
 class HeatSolver : public GenericSolver<LA::ParVectorType>
 {
   using ScratchData = ScratchDataHeat<dim>;
+  using CopyData    = CopyDataBase<1>;
 
 public:
   HeatSolver(const ParameterReader<dim> &param);

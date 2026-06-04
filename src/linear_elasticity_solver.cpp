@@ -299,7 +299,7 @@ void LinearElasticitySolver<dim>::assemble_matrix()
 
   system_matrix = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -321,7 +321,7 @@ void LinearElasticitySolver<dim>::assemble_matrix()
                   assembly_ptr,
                   &LinearElasticitySolver::copy_local_to_global_matrix,
                   *scratch_data,
-                  copyData);
+                  copy_data);
   system_matrix.compress(VectorOperation::add);
 }
 
@@ -353,7 +353,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
 
   scratch_data.reinit(cell, evaluation_point, source_terms, exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix;
+  auto &local_matrix = copy_data.local_matrix();
   local_matrix       = 0;
 
   const double alpha = source_term_moving_mesh_multiplier;
@@ -393,7 +393,7 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
       }
     }
   }
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim>
@@ -402,15 +402,15 @@ void LinearElasticitySolver<dim>::copy_local_to_global_matrix(
 {
   if (!copy_data.cell_is_locally_owned)
     return;
-  zero_constraints.distribute_local_to_global(copy_data.local_matrix,
-                                              copy_data.local_dof_indices,
+  zero_constraints.distribute_local_to_global(copy_data.local_matrix(),
+                                              copy_data.dof_indices(),
                                               system_matrix);
 }
 
 template <int dim>
 void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
 {
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
     dof_handler,
@@ -419,7 +419,7 @@ void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
     &LinearElasticitySolver::assemble_local_matrix,
     &LinearElasticitySolver::assemble_local_rhs,
     *scratch_data,
-    copyData,
+    copy_data,
     present_solution,
     evaluation_point,
     local_evaluation_point,
@@ -445,7 +445,7 @@ void LinearElasticitySolver<dim>::assemble_rhs()
 
   system_rhs = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(dof_handler.begin_active(),
@@ -454,7 +454,7 @@ void LinearElasticitySolver<dim>::assemble_rhs()
                   &LinearElasticitySolver::assemble_local_rhs,
                   &LinearElasticitySolver::copy_local_to_global_rhs,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   system_rhs.compress(VectorOperation::add);
 }
@@ -472,7 +472,7 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
 
   scratch_data.reinit(cell, evaluation_point, source_terms, exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs;
+  auto &local_rhs = copy_data.local_rhs();
   local_rhs       = 0;
 
   const double alpha = source_term_moving_mesh_multiplier;
@@ -520,7 +520,7 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
     }
   }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim>
@@ -529,8 +529,8 @@ void LinearElasticitySolver<dim>::copy_local_to_global_rhs(
 {
   if (!copy_data.cell_is_locally_owned)
     return;
-  zero_constraints.distribute_local_to_global(copy_data.local_rhs,
-                                              copy_data.local_dof_indices,
+  zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
+                                              copy_data.dof_indices(),
                                               system_rhs);
 }
 

@@ -298,6 +298,14 @@ void ParameterReader<dim>::check_parameters() const
     !(cache_enabled &&
       linear_elasticity.presolved_mesh_position_cache.filename.empty()),
     ExcMessage("The presolved mesh position cache filename cannot be empty."));
+
+  // Mesh adaptation
+  if (mesh.adaptation.with_metric_based_adaptation())
+    if (time_integration.is_steady())
+      AssertThrow(time_integration.n_time_intervals == 1,
+                  ExcMessage(
+                    "When solving for steady-state solution, a single time "
+                    "subinterval is expected."));
 }
 
 template class ParameterReader<2>;

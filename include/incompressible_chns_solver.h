@@ -18,6 +18,7 @@ template <int dim, bool with_moving_mesh = false, bool with_enlarged = false>
 class CHNSSolver : public NavierStokesSolver<dim, with_moving_mesh>
 {
   using ScratchData = ScratchDataCHNS<dim, with_moving_mesh, with_enlarged>;
+  using CopyData    = CopyDataBase<1>;
 
 public:
   static_assert(with_moving_mesh || !with_enlarged,

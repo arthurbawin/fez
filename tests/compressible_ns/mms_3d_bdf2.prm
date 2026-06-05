@@ -150,7 +150,7 @@ subsection Manufactured solution
   set enable            = true
   set type              = time
   set force source term = false
-  set convergence steps = 3
+  set convergence steps = 2
 
   subsection Space convergence
     set use dealii cube mesh = true

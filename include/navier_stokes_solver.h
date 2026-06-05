@@ -15,9 +15,12 @@
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
 #include <generic_solver.h>
 #include <linear_elasticity_solver.h>
 #include <mesh_and_dof_tools.h>
+#include <metric_field.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <post_processing_handler.h>
@@ -74,6 +77,23 @@ public:
   void update_constraints_for_evaluation_point();
 
   /**
+   * Update the mesh file for the current interval, and assigns the pointers to
+   * the triangulation, dof_handler, solutions and metric field for this time
+   * interval from the transient fixed-point data (responsible of ownership) to
+   * this object's non-owning pointers.
+   */
+  void set_interval_data(const unsigned int interval_index);
+
+  /**
+   * This is the main "solve" function, which solves the Navier-Stokes related
+   * problem on the current time subinterval [t_i, t_i+1], taking the previous
+   * interval as initial conditions. For unsteady simulations that do not use
+   * metric-based mesh adaptation, this simply runs the simulation for the full
+   * simulation interval [0,T].
+   */
+  void run_time_subinterval(const unsigned int interval_index);
+
+  /**
    * Reset the solver between two runs. This is typically useful when running
    * convergence studies, to properly reset the mesh, time integration data,
    * etc.
@@ -85,6 +105,47 @@ public:
    * nothing and must be overriden if needed.
    */
   virtual void reset_solver_specific_data() {}
+
+  /**
+   * Initialize data requiring information from the derived solver, such as the
+   * names of the model variables in addition to velocity, pressure and mesh
+   * position. These data cannot be initialized in the base class constructor,
+   * so they are initialized in this function instead.
+   */
+  void initialize();
+
+  /**
+   * Perform actions after the end of the simulation loop, such as writing
+   * .pvd output.
+   */
+  void finalize();
+
+  /**
+   * Initialize data on the current time interval. This function initializes
+   * data which require a well-formed triangulation and dof handler, and must
+   * be called after read_mesh(), setup_dofs() and setup_mappings() have been
+   * called, as opposed to set_interval_data() which dispatches pointers to
+   * empty triangulation and dof handler.
+   */
+  void initialize_interval(const unsigned interval_index);
+
+  /**
+   * Initialize data on current time interval specific to each derived solver.
+   */
+  virtual void
+  initialize_interval_solver_specific(const unsigned /* interval_index */){};
+
+  /**
+   * Perform end-of-interval actions, such as copying the metrics from the
+   * metric field used for mesh adaptation into the dedicated metric field.
+   */
+  void finalize_interval(const unsigned interval_index);
+
+  /**
+   * Perform end-of-interval actions specific to each derived solver.
+   */
+  virtual void
+  finalize_interval_solver_specific(const unsigned /* interval_index */){};
 
   /**
    * Update time in all relevant structures:
@@ -382,18 +443,21 @@ public:
   void write_structure_mean_position(std::ostream &out = std::cout) const;
 
   /**
-   * This function initializes data requiring information from the derived
-   * solver, such as the names of the model variables in addition to velocity,
-   * pressure and mesh position. These data cannot be initialized in the base
-   * class constructor, so they are initialized in this function instead.
+   * Compute the solution or derivatives reconstructions of the required fields.
+   * Currently, this is only for the fields from which a metric field is
+   * computed.
    */
-  void initialize();
+  virtual void compute_reconstructions();
 
   /**
-   * Perform actions after the end of the simulation loop, such as writing
-   * .pvd output.
+   * Compute the required metric fields.
    */
-  void finalize();
+  virtual void compute_riemannian_metric();
+
+  /**
+   * Adapt the mesh (metric-based remeshing only for now).
+   */
+  virtual void adapt_mesh() override;
 
   /**
    * Write the current state of the simulation to compressed save files. This
@@ -510,11 +574,15 @@ protected:
   std::unique_ptr<Quadrature<dim - 1>> face_quadrature;
   std::unique_ptr<Quadrature<dim - 1>> error_face_quadrature;
 
-  parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::unique_ptr<Mapping<dim>>                  fixed_mapping;
-  std::unique_ptr<Mapping<dim>>                  moving_mapping;
-  DoFHandler<dim>                                dof_handler;
-  TimeHandler                                    time_handler;
+  TimeHandler time_handler;
+
+  TransientFixedPointData<dim> transient_fixed_point_data;
+
+  parallel::fullydistributed::Triangulation<dim> *triangulation;
+  DoFHandler<dim>                                *dof_handler;
+
+  std::unique_ptr<Mapping<dim>> fixed_mapping;
+  std::unique_ptr<Mapping<dim>> moving_mapping;
 
   std::vector<unsigned char> dofs_to_component;
 
@@ -546,8 +614,8 @@ protected:
 
   LA::ParMatrixType system_matrix;
 
-  LA::ParVectorType              present_solution;
-  std::vector<LA::ParVectorType> previous_solutions;
+  LA::ParVectorType              *present_solution;
+  std::vector<LA::ParVectorType> *previous_solutions;
 
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;
@@ -556,6 +624,14 @@ protected:
   std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
   std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
+
+  MetricField<dim> *metric_for_adaptation;
+
+  std::vector<std::unique_ptr<MetricField<dim>>> metrics;
+  std::vector<std::unique_ptr<ErrorEstimation::PatchHandler<dim>>>
+    patch_handlers;
+  std::vector<std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>>>
+    recoveries;
 };
 
 /* ---------------- template and inline functions ----------------- */
@@ -591,7 +667,7 @@ template <int dim, bool with_moving_mesh>
 LA::ParVectorType &
 NavierStokesSolver<dim, with_moving_mesh>::get_present_solution()
 {
-  return present_solution;
+  return *present_solution;
 }
 
 template <int dim, bool with_moving_mesh>

@@ -202,7 +202,7 @@ void CompressibleNSSolver<dim>::create_solver_specific_zero_constraints()
         bc.type == BoundaryConditions::Type::input_function)
     {
       VectorTools::interpolate_boundary_values(*mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                Functions::ZeroFunction<dim>(
                                                  this->ordering->n_components),
@@ -223,7 +223,7 @@ void CompressibleNSSolver<dim>::create_solver_specific_nonzero_constraints()
     if (bc.type == BoundaryConditions::Type::dirichlet_mms)
     {
       VectorTools::interpolate_boundary_values(*mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                *this->exact_solution,
                                                this->nonzero_constraints,
@@ -235,7 +235,7 @@ void CompressibleNSSolver<dim>::create_solver_specific_nonzero_constraints()
       // Dirichlet temperature given by user
       VectorTools::interpolate_boundary_values(
         *mapping,
-        this->dof_handler,
+        *this->dof_handler,
         id,
         ScalarFunctionFromComponents<dim>(this->ordering->t_lower,
                                           this->ordering->n_components,
@@ -256,7 +256,7 @@ void CompressibleNSSolver<dim>::set_solver_specific_initial_conditions()
 
   // Set temperature
   VectorTools::interpolate(*mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *temperature_fun,
                            this->newton_update,
                            temperature_mask);
@@ -268,7 +268,7 @@ void CompressibleNSSolver<dim>::set_solver_specific_initial_conditions()
       this->param.initial_conditions.initial_pressure.get();
 
   VectorTools::interpolate(*mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *pressure_fun,
                            this->newton_update,
                            this->pressure_mask);
@@ -279,14 +279,14 @@ void CompressibleNSSolver<dim>::set_solver_specific_exact_solution()
 {
   // Set temperature
   VectorTools::interpolate(*mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *this->exact_solution,
                            this->local_evaluation_point,
                            temperature_mask);
 
   // Set pressure
   VectorTools::interpolate(*mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *this->exact_solution,
                            this->local_evaluation_point,
                            this->pressure_mask);
@@ -300,7 +300,7 @@ void CompressibleNSSolver<dim>::create_sparsity_pattern()
   // defined
   //
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
-  DoFTools::make_sparsity_pattern(this->dof_handler,
+  DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   dsp,
                                   this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
@@ -321,7 +321,7 @@ void CompressibleNSSolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -337,13 +337,13 @@ void CompressibleNSSolver<dim>::assemble_matrix()
       &CompressibleNSSolver::assemble_local_matrix_finite_differences;
 
   // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   assembly_ptr,
                   &CompressibleNSSolver::copy_local_to_global_matrix,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_matrix.compress(VectorOperation::add);
 }
@@ -377,12 +377,13 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix;
-  local_matrix       = 0;
+  auto &local_matrix      = copy_data.local_matrix();
+  auto &local_dof_indices = copy_data.dof_indices();
+  local_matrix            = 0;
 
   const double mu = this->param.physical_properties.fluids[0].dynamic_viscosity;
   const double k =
@@ -702,7 +703,7 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
       }
     }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(local_dof_indices);
 }
 
 template <int dim>
@@ -712,25 +713,25 @@ void CompressibleNSSolver<dim>::copy_local_to_global_matrix(
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix(),
+                                                    copy_data.dof_indices(),
                                                     this->system_matrix);
 }
 
 template <int dim>
 void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
-    this->dof_handler,
+    *this->dof_handler,
     fe->n_dofs_per_cell(),
     *this,
     &CompressibleNSSolver::assemble_local_matrix,
     &CompressibleNSSolver::assemble_local_rhs,
     *scratch_data,
-    copyData,
-    this->present_solution,
+    copy_data,
+    *this->present_solution,
     this->evaluation_point,
     this->local_evaluation_point,
     this->mpi_communicator,
@@ -755,16 +756,16 @@ void CompressibleNSSolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   // Assemble RHS (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   &CompressibleNSSolver::assemble_local_rhs,
                   &CompressibleNSSolver::copy_local_to_global_rhs,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_rhs.compress(VectorOperation::add);
 }
@@ -782,12 +783,13 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs;
-  local_rhs       = 0;
+  auto &local_rhs         = copy_data.local_rhs();
+  auto &local_dof_indices = copy_data.dof_indices();
+  local_rhs               = 0;
 
   const double mu = this->param.physical_properties.fluids[0].dynamic_viscosity;
   const double k =
@@ -1012,7 +1014,7 @@ void CompressibleNSSolver<dim>::assemble_local_rhs(
       }
     }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(local_dof_indices);
 }
 
 template <int dim>
@@ -1022,15 +1024,15 @@ void CompressibleNSSolver<dim>::copy_local_to_global_rhs(
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
+                                                    copy_data.dof_indices(),
                                                     this->system_rhs);
 }
 
 template <int dim>
 void CompressibleNSSolver<dim>::compute_solver_specific_errors()
 {
-  const unsigned int n_active_cells = this->triangulation.n_active_cells();
+  const unsigned int n_active_cells = this->triangulation->n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);
 
   const ComponentSelectFunction<dim> temperature_comp_select(

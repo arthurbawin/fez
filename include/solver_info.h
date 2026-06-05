@@ -68,6 +68,31 @@ struct SolverInfo
     phase_enlarged  = 7
   };
 
+  template <int dim>
+  static int n_components(const VariableType type)
+  {
+    switch (type)
+    {
+      case VariableType::velocity:
+        return dim;
+      case VariableType::pressure:
+        return 1;
+      case VariableType::mesh_position:
+        return dim;
+      case VariableType::temperature:
+        return 1;
+      case VariableType::phase_tracer:
+        return 1;
+      case VariableType::phase_potential:
+        return 1;
+      case VariableType::lagrange_mult:
+        return dim;
+    }
+    // Cannot reach here
+    AssertThrow(false, dealii::StandardExceptions::ExcInternalError());
+    return 0;
+  }
+
   /**
    * An array of the available variables, allowing to iterate over them.
    */
@@ -90,6 +115,11 @@ struct SolverInfo
      "phase_potential",
      "lagrange_mult",
      "phase_enlarged"}};
+
+  // Array with separators and including "none", to use in the parameter file
+  static constexpr std::string_view variable_names_for_param = {
+    {"none|velocity|pressure|mesh_position|temperature|phase_tracer|phase_"
+     "potential|lagrange_mult"}};
 
   /**
    * Convert a VariableType to a string.

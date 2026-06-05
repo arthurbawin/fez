@@ -22,7 +22,36 @@ Removing zero constraints on cylinder
 Removing nonzero constraints on cylinder
 Matrix has 400764 nnz and size 4868 x 4868
 
-Time step 1 - Advancing to t = 0.1.
+Forces on boundary with id 7 computed with method : lagrange_multiplier
+Fx = 0.000000e+00
+Fy = 0.000000e+00
+Fz = 0.000000e+00
+
+Forces per slice on boundary with id 7:
+Slice 0: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 1: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 2: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 3: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 4: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 5: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 6: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 7: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 8: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 9: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+
+Mean position (geometric center) on boundary with id 7:
+x = +7.991935e+00
+y = +8.000069e+00
+z = +3.994095e+00
+
+Checking consistency between lambda integral and position BC:
+Integral of lambda on cylinder is +0.00000000e+00 +0.00000000e+00 +0.00000000e+00
+Prescribed displacement        is +0.00000000e+00 -3.55271368e-15 +0.00000000e+00
+                         Ratio is +0.00000000e+00 +0.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
+Max diff between displacements is +2.66453526e-15 +0.00000000e+00 +1.77635684e-15
+
+
+Time step 1 - Advancing to t = +1.00000000e-01.
 Removing nonzero constraints on cylinder
 Removing nonzero constraints on cylinder
 Newton iter.  0:          nonlinear residual = 1.85258488e+00

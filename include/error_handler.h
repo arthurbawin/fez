@@ -33,13 +33,22 @@ public:
   /**
    * Add all required reference data (number of mesh elements, vertices, etc.)
    * for this convergence study.
+   *
+   * Due to (likely) a bug in deal.II, the number of dofs in hp-enabled solvers
+   * is higher with a default deal.II installation, as dof identification is not
+   * done on some geometric entities in 3D. Thus we cannot compare the error
+   * logs as they will have a different number of dofs for these solvers, and
+   * instead we simply set the number of dofs to zero for these tests, which is
+   * done with
+   * @p set_zero_dofs.
    */
   template <int dim>
   void add_reference_data(
     const TimeHandler                  &time_handler,
     const TransientFixedPointData<dim> &transient_fixed_point_data,
     const Triangulation<dim>           &triangulation,
-    const DoFHandler<dim>              &dof_handler);
+    const DoFHandler<dim>              &dof_handler,
+    const bool                          set_zero_dofs = false);
 
   /**
    * Add an integer reference value (number of mesh elements or dof).

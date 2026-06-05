@@ -334,6 +334,7 @@ namespace ErrorEstimation
      * The least squares matrix for each (owned) mesh vertex.
      */
     std::vector<FullMatrix<double>> least_squares_matrices;
+    std::vector<FullMatrix<double>> vandermonde_matrices;
 
     /**
      * Rank of each least squares matrix.

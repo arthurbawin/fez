@@ -187,8 +187,6 @@ std::pair<double, double> Verification::compare_analytical_matrix_with_fd(
   Vector<double>     ref_local_rhs(n_dofs_per_cell);
   Vector<double>     perturbed_local_rhs(n_dofs_per_cell);
 
-  const unsigned int fe_index = copy_data.last_active_fe_index;
-
   ////////////////////////////////////////////////////////////////////
   // const FEValuesExtractors::Vector position(dim + 1);
   // std::shared_ptr<Mapping<dim>>    mapping =
@@ -212,6 +210,7 @@ std::pair<double, double> Verification::compare_analytical_matrix_with_fd(
   // Loop over mesh elements
   for (const auto &cell : dof_handler.active_cell_iterators())
   {
+    const unsigned int fe_index = cell->active_fe_index();
     // std::cout << std::endl;
     // std::cout << "On element " << cell->index() << std::endl;
     // std::cout << std::endl;

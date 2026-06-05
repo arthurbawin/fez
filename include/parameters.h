@@ -77,6 +77,7 @@ namespace Parameters
 
     bool fix_pressure_constant;
     bool enforce_zero_mean_pressure;
+    std::vector<double> pressure_reference_point;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -571,8 +572,7 @@ namespace Parameters
     double mff_physics_compression_factor  = 0.;
     double mff_transport_factor            = 0.;
     double mff_regularization_gamma        = 0.;
-    double mff_enlarged_factor_equalization_exponent = 1.;
-    double psi_mu_correction_factor                     = 0.;
+    double psi_mu_correction_factor        = 0.;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

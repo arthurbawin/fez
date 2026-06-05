@@ -447,6 +447,16 @@ public:
   BOOST_SERIALIZATION_SPLIT_MEMBER()
 
   /**
+   * Return the set of simulation parameters.
+   */
+  const ParameterReader<dim> &get_parameters() const;
+
+  /**
+   * Return the dof_handler used by this solver.
+   */
+  const DoFHandler<dim> &get_dof_handler() const;
+
+  /**
    * Return the (ghosted) solution vector.
    */
   virtual LA::ParVectorType &get_present_solution() override;
@@ -610,6 +620,20 @@ void NavierStokesSolver<dim, with_moving_mesh>::write_structure_mean_position(
   std::ostream &out) const
 {
   postproc_handler->write_structure_mean_position(out);
+}
+
+template <int dim, bool with_moving_mesh>
+const ParameterReader<dim> &
+NavierStokesSolver<dim, with_moving_mesh>::get_parameters() const
+{
+  return param;
+}
+
+template <int dim, bool with_moving_mesh>
+const DoFHandler<dim> &
+NavierStokesSolver<dim, with_moving_mesh>::get_dof_handler() const
+{
+  return *dof_handler;
 }
 
 template <int dim, bool with_moving_mesh>

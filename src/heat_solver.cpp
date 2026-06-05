@@ -533,27 +533,12 @@ template <int dim>
 void HeatSolver<dim>::compare_analytical_matrix_with_fd()
 {
   CopyData copy_data(fe);
-
-  auto errors = Verification::compare_analytical_matrix_with_fd(
-    *dof_handler,
-    fe.n_dofs_per_cell(),
+  Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
     &HeatSolver::assemble_local_matrix,
     &HeatSolver::assemble_local_rhs,
     *scratch_data,
-    copy_data,
-    *present_solution,
-    evaluation_point,
-    local_evaluation_point,
-    mpi_communicator);
-
-  pcout << "Max absolute error analytical vs fd matrix is " << errors.first
-        << std::endl;
-
-  // Only print relative error if absolute is too large
-  if (errors.first > param.debug.analytical_jacobian_absolute_tolerance)
-    pcout << "Max relative error analytical vs fd matrix is " << errors.second
-          << std::endl;
+    copy_data);
 }
 
 template <int dim>

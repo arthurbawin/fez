@@ -360,9 +360,7 @@ void CompressibleNSSolver<dim>::assemble_local_matrix_finite_differences(
     *this,
     &CompressibleNSSolver::assemble_local_rhs,
     scratch_data,
-    copy_data,
-    this->evaluation_point,
-    this->local_evaluation_point);
+    copy_data);
 }
 
 template <int dim>
@@ -723,31 +721,12 @@ template <int dim>
 void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
 {
   CopyData copy_data(*fe);
-
-  auto errors = Verification::compare_analytical_matrix_with_fd(
-    *this->dof_handler,
-    fe->n_dofs_per_cell(),
+  Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
     &CompressibleNSSolver::assemble_local_matrix,
     &CompressibleNSSolver::assemble_local_rhs,
     *scratch_data,
-    copy_data,
-    *this->present_solution,
-    this->evaluation_point,
-    this->local_evaluation_point,
-    this->mpi_communicator,
-    ".",
-    true,
-    this->param.debug.analytical_jacobian_absolute_tolerance,
-    this->param.debug.analytical_jacobian_relative_tolerance);
-
-  this->pcout << "Max absolute error analytical vs fd matrix is "
-              << errors.first << std::endl;
-
-  // Only print relative error if absolute is too large
-  if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
-    this->pcout << "Max relative error analytical vs fd matrix is "
-                << errors.second << std::endl;
+    copy_data);
 }
 
 template <int dim>

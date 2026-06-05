@@ -969,41 +969,13 @@ void NSSolverLambda<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 template <int dim>
 void NSSolverLambda<dim>::compare_analytical_matrix_with_fd()
 {
-  // ScratchData scratch_data(*this->ordering,
-  //                                  *fe,
-  //                                  *this->fixed_mapping,
-  //                                  *this->moving_mapping,
-  //                                  *this->quadrature,
-  //                                  *this->face_quadrature,
-  //                                  this->time_handler.bdf_coefficients,
-  //                                  this->param);
-  // CopyData            copy_data(fe->n_dofs_per_cell());
-
-  // auto errors = Verification::compare_analytical_matrix_with_fd(
-  //   *this->dof_handler,
-  //   fe->n_dofs_per_cell(),
-  //   *this,
-  //   &NSSolverLambda::assemble_local_matrix,
-  //   &NSSolverLambda::assemble_local_rhs,
-  //   scratch_data,
-  //   copy_data,
-  //   this->present_solution,
-  //   this->evaluation_point,
-  //   this->local_evaluation_point,
-  //   this->mpi_communicator,
-  //   this->param.output.output_dir,
-  //   true,
-  //   this->param.debug.analytical_jacobian_absolute_tolerance,
-  //   this->param.debug.analytical_jacobian_relative_tolerance);
-
-  // this->pcout << "Max absolute error analytical vs fd matrix is "
-  //             << errors.first << std::endl;
-
-  // // Only print relative error if absolute is too large
-  // if (errors.first >
-  // this->param.debug.analytical_jacobian_absolute_tolerance)
-  //   this->pcout << "Max relative error analytical vs fd matrix is "
-  //               << errors.second << std::endl;
+  CopyData copy_data(*fe);
+  Verification::compare_analytical_matrix_with_fd<dim>(
+    *this,
+    &NSSolverLambda::assemble_local_matrix,
+    &NSSolverLambda::assemble_local_rhs,
+    *scratch_data,
+    copy_data);
 }
 
 template <int dim>

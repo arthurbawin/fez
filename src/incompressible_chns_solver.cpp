@@ -396,13 +396,7 @@ void CHNSSolver<dim, with_moving_mesh>::
     CopyData                                             &copy_data)
 {
   Verification::compute_local_matrix_finite_differences<dim>(
-    cell,
-    *this,
-    &CHNSSolver::assemble_local_rhs,
-    scratch_data,
-    copy_data,
-    this->evaluation_point,
-    this->local_evaluation_point);
+    cell, *this, &CHNSSolver::assemble_local_rhs, scratch_data, copy_data);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -871,31 +865,12 @@ template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
 {
   CopyData copy_data(*fe);
-
-  auto errors = Verification::compare_analytical_matrix_with_fd(
-    *this->dof_handler,
-    fe->n_dofs_per_cell(),
+  Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
     *scratch_data,
-    copy_data,
-    *this->present_solution,
-    this->evaluation_point,
-    this->local_evaluation_point,
-    this->mpi_communicator,
-    this->param.output.output_prefix,
-    false,
-    this->param.debug.analytical_jacobian_absolute_tolerance,
-    this->param.debug.analytical_jacobian_relative_tolerance);
-
-  this->pcout << "Max absolute error analytical vs fd matrix is "
-              << errors.first << std::endl;
-
-  // Only print relative error if absolute is too large
-  if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
-    this->pcout << "Max relative error analytical vs fd matrix is "
-                << errors.second << std::endl;
+    copy_data);
 }
 
 template <int dim, bool with_moving_mesh>

@@ -2121,41 +2121,13 @@ void FSISolverLessLambda<dim>::copy_local_to_global_matrix(
 template <int dim>
 void FSISolverLessLambda<dim>::compare_analytical_matrix_with_fd()
 {
-  // ScratchData scratch_data(*this->ordering,
-  //                          *fe,
-  //                          fixed_mapping_collection,
-  //                          moving_mapping_collection,
-  //                          quadrature_collection,
-  //                          face_quadrature_collection,
-  //                          this->time_handler.bdf_coefficients,
-  //                          this->param);
-  // CopyData    copy_data(*fe);
-
-  // auto errors = Verification::compare_analytical_matrix_with_fd(
-  //   this->dof_handler,
-  //   fe->n_dofs_per_cell(),
-  //   *this,
-  //   &FSISolverLessLambda::assemble_local_matrix,
-  //   &FSISolverLessLambda::assemble_local_rhs,
-  //   scratch_data,
-  //   copy_data,
-  //   this->present_solution,
-  //   this->evaluation_point,
-  //   this->local_evaluation_point,
-  //   this->mpi_communicator,
-  //   this->param.output.output_dir,
-  //   true,
-  //   this->param.debug.analytical_jacobian_absolute_tolerance,
-  //   this->param.debug.analytical_jacobian_relative_tolerance);
-
-  // this->pcout << "Max absolute error analytical vs fd matrix is "
-  //             << errors.first << std::endl;
-
-  // // Only print relative error if absolute is too large
-  // if (errors.first >
-  // this->param.debug.analytical_jacobian_absolute_tolerance)
-  //   this->pcout << "Max relative error analytical vs fd matrix is "
-  //               << errors.second << std::endl;
+  CopyData copy_data(*fe);
+  Verification::compare_analytical_matrix_with_fd<dim>(
+    *this,
+    &FSISolverLessLambda::assemble_local_matrix,
+    &FSISolverLessLambda::assemble_local_rhs,
+    *scratch_data,
+    copy_data);
 }
 
 template <int dim>

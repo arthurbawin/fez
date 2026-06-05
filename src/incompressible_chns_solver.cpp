@@ -204,8 +204,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     CahnHilliard::sigma_tilde_from_surface_tension(cahn_hilliard_param);
-  const double sigma_tilde_over_eps  = sigma_tilde / epsilon;
-  const double sigma_tilde_times_eps = sigma_tilde * epsilon;
+  const double potential_double_well_coefficient =
+    CahnHilliard::potential_double_well_coefficient(cahn_hilliard_param,
+                                                    sigma_tilde);
+  const double potential_gradient_coefficient =
+    CahnHilliard::potential_gradient_coefficient(cahn_hilliard_param,
+                                                 sigma_tilde);
   const auto  &body_force            = physical_properties.body_force;
 
   Tensor<1, dim> u, dudt_eulerian;
@@ -234,8 +238,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   const Tensor<1, dim> momentum_capillary_force =
     CahnHilliard::use_abels_capillary_phi_grad_mu(cahn_hilliard_param) ?
       phi * grad_mu :
-      -CahnHilliard::ding_horriche_capillary_coefficient(cahn_hilliard_param,
-                                                         sigma_tilde) *
+      -CahnHilliard::ding_horriche_capillary_coefficient(
+        cahn_hilliard_param) *
         mu * grad_phi;
 
   // Navier-Stokes momentum (velocity) source term
@@ -271,8 +275,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
 
   // Potential source term
   const double lap_phi = mms.exact_tracer->laplacian(p);
-  values[mu_lower]     = -(mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) +
-                       sigma_tilde_times_eps * lap_phi);
+  values[mu_lower] =
+    -(mu - potential_double_well_coefficient * phi * (phi * phi - 1.) +
+      potential_gradient_coefficient * lap_phi);
   if constexpr (with_enlarged)
   {
     const double lap_psi = mms.exact_psi->laplacian(p);
@@ -569,10 +574,6 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   /**
    * Material parameters
    */
-  const double sigma_tilde_over_eps =
-    scratch_data.sigma_tilde / scratch_data.epsilon;
-  const double sigma_tilde_times_eps =
-    scratch_data.sigma_tilde * scratch_data.epsilon;
   const auto &body_force = scratch_data.body_force;
   const auto &cahn_hilliard = this->param.cahn_hilliard;
   const bool  use_abels_diffusive_inertia =
@@ -580,8 +581,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   const bool use_abels_capillary_phi_grad_mu =
     CahnHilliard::use_abels_capillary_phi_grad_mu(cahn_hilliard);
   const double ding_horriche_capillary_coefficient =
-    CahnHilliard::ding_horriche_capillary_coefficient(
+    CahnHilliard::ding_horriche_capillary_coefficient(cahn_hilliard);
+  const double potential_double_well_coefficient =
+    CahnHilliard::potential_double_well_coefficient(
       cahn_hilliard, scratch_data.sigma_tilde);
+  const double potential_gradient_coefficient =
+    CahnHilliard::potential_gradient_coefficient(cahn_hilliard,
+                                                 scratch_data.sigma_tilde);
 
   const double enlarged_length =
     this->param.cahn_hilliard.epsilon_interface_enlarged -
@@ -792,8 +798,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                 }
               else
                 {
-                  // Ding/Horriche with FEZ scaled mu:
-                  // residual capillarity = -C_DH * mu * grad(phi).
+                  // Ding/Horriche final CADYF model:
+                  // residual capillarity = -(gamma/eps) * mu_hat * grad(phi).
                   local_flow_ij +=
                     -phi_u_i * ding_horriche_capillary_coefficient *
                     potential_value *
@@ -935,11 +941,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
           if (comp_j == const_ordering.phi_lower)
           {
             // Double well
-            local_flow_ij += -sigma_tilde_over_eps * phi_mu_i * phi_phi_j *
+            local_flow_ij += -potential_double_well_coefficient * phi_mu_i *
+                             phi_phi_j *
                              (3. * tracer_value * tracer_value - 1.);
             // Diffusion
             local_flow_ij +=
-              -sigma_tilde_times_eps * grad_phi_mu_i * grad_phi_phi_j;
+              -potential_gradient_coefficient * grad_phi_mu_i *
+              grad_phi_phi_j;
           }
           if constexpr (with_moving_mesh)
           {
@@ -952,11 +960,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
               local_flow_ij += phi_mu_i * source_term_potential * trG;
               local_flow_ij +=
                 phi_mu_i *
-                (potential_value - sigma_tilde_over_eps * tracer_value *
+                (potential_value - potential_double_well_coefficient *
+                                     tracer_value *
                                      (tracer_value * tracer_value - 1.)) *
                 trG;
               local_flow_ij +=
-                -sigma_tilde_times_eps *
+                -potential_gradient_coefficient *
                 Assembly::ALE::gradient_inner_product_jacobian_variation(
                   grad_phi_mu_i, tracer_gradient, G);
             }
@@ -980,6 +989,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   Assembly::assemble_chns_matrix_stabilization<dim, with_moving_mesh>(
     *this->ordering,
     this->coupling_table,
+    this->param.cahn_hilliard,
     scratch_data,
     bdf_c0,
     this->param.finite_elements.velocity_degree,
@@ -1094,10 +1104,6 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   auto &local_rhs = copy_data.local_rhs();
   local_rhs       = 0;
 
-  const double sigma_tilde_over_eps =
-    scratch_data.sigma_tilde / scratch_data.epsilon;
-  const double sigma_tilde_times_eps =
-    scratch_data.sigma_tilde * scratch_data.epsilon;
   const auto  &body_force = scratch_data.body_force;
   const auto  &cahn_hilliard = this->param.cahn_hilliard;
   const bool   use_abels_diffusive_inertia =
@@ -1105,8 +1111,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   const bool use_abels_capillary_phi_grad_mu =
     CahnHilliard::use_abels_capillary_phi_grad_mu(cahn_hilliard);
   const double ding_horriche_capillary_coefficient =
-    CahnHilliard::ding_horriche_capillary_coefficient(
+    CahnHilliard::ding_horriche_capillary_coefficient(cahn_hilliard);
+  const double potential_double_well_coefficient =
+    CahnHilliard::potential_double_well_coefficient(
       cahn_hilliard, scratch_data.sigma_tilde);
+  const double potential_gradient_coefficient =
+    CahnHilliard::potential_gradient_coefficient(cahn_hilliard,
+                                                 scratch_data.sigma_tilde);
   const double enlarged_length =
     this->param.cahn_hilliard.epsilon_interface_enlarged -
     this->param.cahn_hilliard.epsilon_interface;
@@ -1173,7 +1184,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
     const auto to_multiply_by_phi_phi_i =
       dphidt + velocity_dot_tracer_gradient + source_term_tracer;
     const auto to_multiply_by_phi_mu_i =
-      potential_value - sigma_tilde_over_eps * phi_cube_minus_phi +
+      potential_value -
+      potential_double_well_coefficient * phi_cube_minus_phi +
       source_term_potential;
 
     const auto &phi_p          = scratch_data.phi_p[q];
@@ -1213,7 +1225,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
       // Potential equation
       local_rhs_flow_i +=
         phi_mu_i * to_multiply_by_phi_mu_i -
-        grad_phi_mu_i * sigma_tilde_times_eps * tracer_gradient;
+        grad_phi_mu_i * potential_gradient_coefficient * tracer_gradient;
 
       local_rhs_flow_i *= JxW_moving;
       local_rhs(i) -= local_rhs_flow_i;

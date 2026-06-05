@@ -2,6 +2,7 @@
 #define ASSEMBLY_CHNS_ENLARGED_FORMS_H
 
 #include <assembly/ale_geometry.h>
+#include <cahn_hilliard.h>
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -61,6 +62,9 @@ namespace Assembly
     // Keep the correction opt-in and pay nothing when it is disabled.
     if (std::abs(cahn_hilliard.psi_mu_correction_factor) < 1e-14)
       return 0.;
+    if (CahnHilliard::is_ding_horriche_model(cahn_hilliard))
+      return cahn_hilliard.psi_mu_correction_factor * length_scale_sq /
+             (epsilon * epsilon);
     return cahn_hilliard.psi_mu_correction_factor * length_scale_sq /
            (epsilon * sigma_tilde);
   }

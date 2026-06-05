@@ -2,6 +2,7 @@
 #define ASSEMBLY_STABILIZATION_FORMS_H
 
 #include <assembly/ale_geometry.h>
+#include <cahn_hilliard.h>
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -189,6 +190,8 @@ namespace Assembly
   inline void
   assemble_chns_matrix_stabilization(const ComponentOrdering &ordering,
                                      const CouplingTableType &coupling_table,
+                                     const Parameters::CahnHilliard<dim>
+                                       &cahn_hilliard,
                                      const ScratchData       &scratch,
                                      const double             bdf_c0,
                                      const unsigned int       velocity_degree,
@@ -212,6 +215,12 @@ namespace Assembly
           scratch.diffusive_flux_factor_values[q];
         const double d_diffusive_flux_factor_dphi =
           dM_dphi * 0.5 * (scratch.density1 - scratch.density0);
+        const bool use_abels_diffusive_inertia =
+          CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard);
+        const bool use_abels_capillary_phi_grad_mu =
+          CahnHilliard::use_abels_capillary_phi_grad_mu(cahn_hilliard);
+        const double ding_horriche_capillary_coefficient =
+          CahnHilliard::ding_horriche_capillary_coefficient(cahn_hilliard);
         if (tau_mom <= 0. && tau_tracer <= 0.)
           continue;
 
@@ -364,14 +373,17 @@ namespace Assembly
                               tau_mom * supg_test_momentum * dR_du_j;
                           }
 
-                        const Tensor<1, dim> extra_dR =
-                          scratch.stabilization_inv_rho[q] *
-                            diffusive_flux_factor *
-                            (grad_phi_u_j * scratch.potential_gradients[q]) -
-                          2. * scratch.stabilization_inv_rho[q] *
-                            scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
-                            Tensor<2, dim>(symmetrize(grad_phi_u_j)) *
-                            scratch.tracer_gradients[q];
+                        Tensor<1, dim> extra_dR =
+                          -2. * scratch.stabilization_inv_rho[q] *
+                          scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
+                          Tensor<2, dim>(symmetrize(grad_phi_u_j)) *
+                          scratch.tracer_gradients[q];
+
+                        if (use_abels_diffusive_inertia)
+                          extra_dR += scratch.stabilization_inv_rho[q] *
+                                      diffusive_flux_factor *
+                                      (grad_phi_u_j *
+                                       scratch.potential_gradients[q]);
 
                         if (i_is_p)
                           local_matrix_ij -= tau_mom * extra_dR * grad_phi_p_i;
@@ -409,27 +421,51 @@ namespace Assembly
                         const Tensor<2, dim> eps_u =
                           Tensor<2, dim>(scratch.present_velocity_sym_gradients[q]);
 
+                        const Tensor<1, dim> momentum_diffusive_inertia =
+                          use_abels_diffusive_inertia ?
+                            diffusive_flux_factor *
+                              (scratch.present_velocity_gradients[q] *
+                               scratch.potential_gradients[q]) :
+                            Tensor<1, dim>();
+                        const Tensor<1, dim> momentum_capillary_force =
+                          use_abels_capillary_phi_grad_mu ?
+                            scratch.tracer_values[q] *
+                              scratch.potential_gradients[q] :
+                            -ding_horriche_capillary_coefficient *
+                              scratch.potential_values[q] *
+                              scratch.tracer_gradients[q];
+
+                        Tensor<1, dim> d_force_dphi_j;
+                        if (use_abels_capillary_phi_grad_mu)
+                          d_force_dphi_j =
+                            scratch.shape_phi[q][j] *
+                            scratch.potential_gradients[q];
+                        else
+                          d_force_dphi_j =
+                            -ding_horriche_capillary_coefficient *
+                            scratch.potential_values[q] *
+                            scratch.grad_shape_phi[q][j];
+
+                        if (use_abels_diffusive_inertia)
+                          d_force_dphi_j +=
+                            scratch.shape_phi[q][j] *
+                            d_diffusive_flux_factor_dphi *
+                            (scratch.present_velocity_gradients[q] *
+                             scratch.potential_gradients[q]);
+
                         const Tensor<1, dim> dR_dphi_j =
                           scratch.shape_phi[q][j] *
                             (dinvrho_dphi *
-                               (diffusive_flux_factor *
-                                  (scratch.present_velocity_gradients[q] *
-                                   scratch.potential_gradients[q]) +
-                                scratch.tracer_values[q] *
-                                  scratch.potential_gradients[q] +
+                               (momentum_diffusive_inertia +
+                                momentum_capillary_force +
                                 scratch.present_pressure_gradients[q] +
-                                scratch.source_term_velocity[q]) +
-                             scratch.stabilization_inv_rho[q] *
-                               scratch.potential_gradients[q] +
-                             scratch.stabilization_inv_rho[q] *
-                               d_diffusive_flux_factor_dphi *
-                               (scratch.present_velocity_gradients[q] *
-                                scratch.potential_gradients[q]) -
+                                scratch.source_term_velocity[q]) -
                              dnueff_dphi *
                                scratch.present_velocity_lap_plus_graddiv[q] -
                              2. * dinvrho_dphi *
                                scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
-                               eps_u * scratch.tracer_gradients[q]) -
+                               eps_u * scratch.tracer_gradients[q]) +
+                          scratch.stabilization_inv_rho[q] * d_force_dphi_j -
                           2. * scratch.stabilization_inv_rho[q] *
                             scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
                             eps_u * scratch.grad_shape_phi[q][j];
@@ -455,10 +491,17 @@ namespace Assembly
                       {
                         const Tensor<1, dim> dR_dmu_j =
                           scratch.stabilization_inv_rho[q] *
-                          (diffusive_flux_factor *
-                             (scratch.present_velocity_gradients[q] *
-                              scratch.grad_shape_mu[q][j]) +
-                           scratch.tracer_values[q] * scratch.grad_shape_mu[q][j]);
+                          (use_abels_capillary_phi_grad_mu ?
+                             ((use_abels_diffusive_inertia ?
+                                 diffusive_flux_factor *
+                                   (scratch.present_velocity_gradients[q] *
+                                    scratch.grad_shape_mu[q][j]) :
+                                 Tensor<1, dim>()) +
+                              scratch.tracer_values[q] *
+                                scratch.grad_shape_mu[q][j]) :
+                             (-ding_horriche_capillary_coefficient *
+                              scratch.shape_mu[q][j] *
+                              scratch.tracer_gradients[q]));
 
                         if (i_is_p)
                           local_matrix_ij -= tau_mom * dR_dmu_j * grad_phi_p_i;
@@ -493,10 +536,19 @@ namespace Assembly
                               scratch.tracer_gradients[q], G);
 
                           const Tensor<1, dim> ddiffusive_flux_dx_j =
-                            diffusive_flux_factor *
-                            (dgrad_u_dx_j * scratch.potential_gradients[q] +
-                             scratch.present_velocity_gradients[q] *
-                               dgrad_mu_dx_j);
+                            use_abels_diffusive_inertia ?
+                              diffusive_flux_factor *
+                                (dgrad_u_dx_j *
+                                   scratch.potential_gradients[q] +
+                                 scratch.present_velocity_gradients[q] *
+                                   dgrad_mu_dx_j) :
+                              Tensor<1, dim>();
+                          const Tensor<1, dim> dcapillary_dx_j =
+                            use_abels_capillary_phi_grad_mu ?
+                              scratch.tracer_values[q] * dgrad_mu_dx_j :
+                              -ding_horriche_capillary_coefficient *
+                                scratch.potential_values[q] *
+                                dgrad_tracer_dx_j;
 
                           const Tensor<1, dim> d_lap_plus_graddiv_u_dx_j =
                             Assembly::ALE::vector_lap_plus_graddiv_variation(
@@ -521,8 +573,7 @@ namespace Assembly
                             scratch.present_velocity_gradients[q] * du_conv_dx_j +
                             scratch.stabilization_inv_rho[q] * dgrad_p_dx_j +
                             scratch.stabilization_inv_rho[q] *
-                              (ddiffusive_flux_dx_j +
-                               scratch.tracer_values[q] * dgrad_mu_dx_j) -
+                              (ddiffusive_flux_dx_j + dcapillary_dx_j) -
                             d_div_viscous_scaled_dx_j;
 
                           if (i_is_p)

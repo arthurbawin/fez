@@ -65,36 +65,41 @@ namespace CahnHilliard
 
   template <int dim>
   inline double
-  ding_horriche_capillary_coefficient(
+  potential_double_well_coefficient(
     const Parameters::CahnHilliard<dim> &param,
     const double                         sigma_tilde)
   {
-    /*
-     * FEZ currently solves the scaled potential equation
-     *
-     *   mu = sigma_tilde / eps * (phi^3 - phi - eps^2 Delta phi).
-     *
-     * Horriche's final CADYF system uses
-     *
-     *   mu_hat = phi^3 - phi - eps^2 Delta phi,
-     *   (gamma / eps) mu_hat grad(phi)
-     *
-     * in physical force units. Thus mu_hat = eps / sigma_tilde * mu and the
-     * same force written with FEZ's internal mu is
-     *
-     *   (gamma / sigma_tilde) mu grad(phi).
-     *
-     * In FEZ, gamma is the user parameter 'surface tension' and
-     * sigma_tilde = 3/(2 sqrt(2)) * gamma, so they are not the same quantity.
-     */
-    if (std::abs(param.surface_tension) < 1e-14)
-      return 0.;
+    if (is_ding_horriche_model(param))
+      return 1.;
+    return sigma_tilde / param.epsilon_interface;
+  }
 
-    AssertThrow(std::abs(sigma_tilde) > 1e-14,
-                dealii::ExcMessage(
-                  "Ding/Horriche capillary coefficient requires nonzero "
-                  "sigma_tilde when surface tension is nonzero."));
-    return param.surface_tension / sigma_tilde;
+  template <int dim>
+  inline double
+  potential_gradient_coefficient(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         sigma_tilde)
+  {
+    if (is_ding_horriche_model(param))
+      return param.epsilon_interface * param.epsilon_interface;
+    return sigma_tilde * param.epsilon_interface;
+  }
+
+  template <int dim>
+  inline double
+  ding_horriche_capillary_coefficient(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    /*
+     * Horriche's final CADYF system (3.19)-(3.22) uses the unscaled potential
+     *
+     *   mu_hat = phi^3 - phi - eps^2 Delta phi
+     *
+     * and the physical momentum force (gamma / eps) mu_hat grad(phi). For
+     * CHNSModel::DingHorriche, FEZ's potential unknown is this unscaled
+     * mu_hat, so the coefficient is gamma / eps directly.
+     */
+    return param.surface_tension / param.epsilon_interface;
   }
 
   /**

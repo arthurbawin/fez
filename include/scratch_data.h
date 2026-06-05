@@ -1080,10 +1080,22 @@ private:
           2. * inv_rho * derivative_dynamic_viscosity_wrt_tracer[q] *
             tracer_gradients[q] * present_velocity_sym_gradients[q];
 
+        const Tensor<1, dim> momentum_diffusive_inertia =
+          CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard_param) ?
+            diffusive_flux[q] :
+            Tensor<1, dim>();
+        const Tensor<1, dim> momentum_capillary_force =
+          CahnHilliard::use_abels_capillary_phi_grad_mu(
+            cahn_hilliard_param) ?
+            tracer_values[q] * potential_gradients[q] :
+            -CahnHilliard::ding_horriche_capillary_coefficient(
+              cahn_hilliard_param) *
+              potential_values[q] * tracer_gradients[q];
+
         strong_residual_momentum_no_ale[q] =
           (dudt + convective_term - body_force) +
           inv_rho *
-            (diffusive_flux[q] + tracer_values[q] * potential_gradients[q] +
+            (momentum_diffusive_inertia + momentum_capillary_force +
              present_pressure_gradients[q] + source_term_velocity[q]) -
           div_viscous_scaled;
         strong_residual_momentum_ale[q] = Tensor<1, dim>();

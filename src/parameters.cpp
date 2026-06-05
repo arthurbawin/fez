@@ -1094,8 +1094,9 @@ namespace Parameters
                         "abels",
                         Patterns::Selection("abels|ding_horriche"),
                         "CHNS model: current Abels-type model or the "
-                        "Ding/Horriche simplified model. FEZ keeps the "
-                        "internal scaled chemical potential mu by default.");
+                        "Ding/Horriche final CADYF model. Abels uses FEZ's "
+                        "scaled chemical potential; Ding/Horriche uses the "
+                        "unscaled mu_hat from Horriche (3.22).");
       prm.declare_entry("mobility model",
                         "constant",
                         Patterns::Selection("constant|degenerate"),

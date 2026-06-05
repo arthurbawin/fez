@@ -88,6 +88,7 @@ namespace NavierStokesScratch
     , n_faces(fe.reference_cell().n_faces())
     , n_faces_q_points(face_quadrature.size())
     , dofs_per_cell(fe.dofs_per_cell)
+    , max_dofs_per_cell(fe.dofs_per_cell)
     , time_handler(time_handler)
   {
     if constexpr (has_hp_capabilities)
@@ -150,6 +151,11 @@ namespace NavierStokesScratch
         fe_collection,
         face_quadrature_collection,
         get_face_update_flags<update_flags>()))
+    , n_q_points(cell_quadrature_collection[0].size())
+    , n_faces(fe_collection[0].reference_cell().n_faces())
+    , n_faces_q_points(face_quadrature_collection[0].size())
+    , dofs_per_cell(fe_collection.max_dofs_per_cell())
+    , max_dofs_per_cell(fe_collection.max_dofs_per_cell())
     , time_handler(time_handler)
   {
     if constexpr (!has_hp_capabilities)
@@ -160,15 +166,10 @@ namespace NavierStokesScratch
           "but this object was not created with hp support."));
 
     /**
-     * Set the number of faces and quadrature points.
      * This ScratchData is for now limited to applications with a Lagrange
      * multiplier in mind, where the mapping and quadratures are the same on all
      * cells.
      */
-    n_faces          = fe_collection[0].reference_cell().n_faces();
-    dofs_per_cell    = fe_collection.max_dofs_per_cell();
-    n_q_points       = cell_quadrature_collection[0].size();
-    n_faces_q_points = face_quadrature_collection[0].size();
     for (const auto &fe : fe_collection)
     {
       AssertThrow(n_faces == fe.reference_cell().n_faces(),
@@ -182,12 +183,14 @@ namespace NavierStokesScratch
     for (const auto &q : cell_quadrature_collection)
     {
       AssertThrow(n_q_points == q.size(),
-                  ExcMessage("Data mismatch among cell quadratures"));
+                  ExcMessage("This ScratchData expects the same number of "
+                             "quadrature nodes in all partitions."));
     }
     for (const auto &q : face_quadrature_collection)
     {
       AssertThrow(n_faces_q_points == q.size(),
-                  ExcMessage("Data mismatch among face quadratures"));
+                  ExcMessage("This ScratchData expects the same number of face "
+                             "quadrature nodes in all partitions."));
     }
 
     initialize_navier_stokes();
@@ -219,6 +222,7 @@ namespace NavierStokesScratch
     , n_faces(other.n_faces)
     , n_faces_q_points(other.n_faces_q_points)
     , dofs_per_cell(other.dofs_per_cell)
+    , max_dofs_per_cell(other.max_dofs_per_cell)
     , time_handler(other.time_handler)
   {
     if constexpr (has_hp_capabilities)
@@ -417,7 +421,7 @@ namespace NavierStokesScratch
   template <int dim, unsigned int update_flags>
   void ScratchData<dim, update_flags>::allocate()
   {
-    components.resize(dofs_per_cell);
+    components.resize(max_dofs_per_cell);
     JxW_moving.resize(n_q_points);
     JxW_fixed.resize(n_q_points);
     face_at_boundary.resize(n_faces);
@@ -455,33 +459,36 @@ namespace NavierStokesScratch
       n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
 #endif
 
-    phi_u.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
-    grad_phi_u.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
-    sym_grad_phi_u.resize(n_q_points,
-                          std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
-    div_phi_u.resize(n_q_points, std::vector<double>(dofs_per_cell));
-    phi_p.resize(n_q_points, std::vector<double>(dofs_per_cell));
+    phi_u.resize(n_q_points, std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+    grad_phi_u.resize(n_q_points,
+                      std::vector<Tensor<2, dim>>(max_dofs_per_cell));
+    sym_grad_phi_u.resize(
+      n_q_points, std::vector<SymmetricTensor<2, dim>>(max_dofs_per_cell));
+    div_phi_u.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
+    phi_p.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
 
     phi_u_face.resize(n_faces,
                       std::vector<std::vector<Tensor<1, dim>>>(
                         n_faces_q_points,
-                        std::vector<Tensor<1, dim>>(dofs_per_cell)));
+                        std::vector<Tensor<1, dim>>(max_dofs_per_cell)));
     phi_p_face.resize(n_faces,
-                      std::vector<std::vector<double>>(
-                        n_faces_q_points, std::vector<double>(dofs_per_cell)));
+                      std::vector<std::vector<double>>(n_faces_q_points,
+                                                       std::vector<double>(
+                                                         max_dofs_per_cell)));
     grad_phi_u_face.resize(n_faces,
                            std::vector<std::vector<Tensor<2, dim>>>(
                              n_faces_q_points,
-                             std::vector<Tensor<2, dim>>(dofs_per_cell)));
+                             std::vector<Tensor<2, dim>>(max_dofs_per_cell)));
     sym_grad_phi_u_face.resize(
       n_faces,
       std::vector<std::vector<SymmetricTensor<2, dim>>>(
-        n_faces_q_points, std::vector<SymmetricTensor<2, dim>>(dofs_per_cell)));
+        n_faces_q_points,
+        std::vector<SymmetricTensor<2, dim>>(max_dofs_per_cell)));
 
-    div_phi_u_face.resize(n_faces,
-                          std::vector<std::vector<double>>(n_faces_q_points,
-                                                           std::vector<double>(
-                                                             dofs_per_cell)));
+    div_phi_u_face.resize(
+      n_faces,
+      std::vector<std::vector<double>>(n_faces_q_points,
+                                       std::vector<double>(max_dofs_per_cell)));
 
     source_term_full_moving.resize(n_q_points, Vector<double>(n_components));
     source_term_velocity.resize(n_q_points);
@@ -534,22 +541,24 @@ namespace NavierStokesScratch
           time_handler.n_previous_solutions,
           std::vector<Tensor<1, dim>>(n_faces_q_points)));
 
-      phi_x.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
-      grad_phi_x.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
+      phi_x.resize(n_q_points, std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+      grad_phi_x.resize(n_q_points,
+                        std::vector<Tensor<2, dim>>(max_dofs_per_cell));
       sym_grad_phi_x.resize(
-        n_q_points, std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
+        n_q_points, std::vector<SymmetricTensor<2, dim>>(max_dofs_per_cell));
       grad_phi_x_moving.resize(n_q_points,
-                               std::vector<Tensor<2, dim>>(dofs_per_cell));
-      div_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
-      trace_grad_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
+                               std::vector<Tensor<2, dim>>(max_dofs_per_cell));
+      div_phi_x.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
+      trace_grad_phi_x.resize(n_q_points,
+                              std::vector<double>(max_dofs_per_cell));
       phi_x_face.resize(n_faces,
                         std::vector<std::vector<Tensor<1, dim>>>(
                           n_faces_q_points,
-                          std::vector<Tensor<1, dim>>(dofs_per_cell)));
+                          std::vector<Tensor<1, dim>>(max_dofs_per_cell)));
       grad_phi_x_face.resize(n_faces,
                              std::vector<std::vector<Tensor<2, dim>>>(
                                n_faces_q_points,
-                               std::vector<Tensor<2, dim>>(dofs_per_cell)));
+                               std::vector<Tensor<2, dim>>(max_dofs_per_cell)));
 
       source_term_full_fixed.resize(n_q_points, Vector<double>(n_components));
       source_term_position.resize(n_q_points);
@@ -560,8 +569,9 @@ namespace NavierStokesScratch
       grad_source_pressure.resize(n_q_points);
 
       delta_dx.resize(n_faces,
-                      std::vector<std::vector<double>>(
-                        n_faces_q_points, std::vector<double>(dofs_per_cell)));
+                      std::vector<std::vector<double>>(n_faces_q_points,
+                                                       std::vector<double>(
+                                                         max_dofs_per_cell)));
     }
 
     if constexpr (enable_lagrange_multiplier)
@@ -571,7 +581,7 @@ namespace NavierStokesScratch
       phi_l_face.resize(n_faces,
                         std::vector<std::vector<Tensor<1, dim>>>(
                           n_faces_q_points,
-                          std::vector<Tensor<1, dim>>(dofs_per_cell)));
+                          std::vector<Tensor<1, dim>>(max_dofs_per_cell)));
 
       input_face_rigid_body_rotation_velocity.resize(
         n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
@@ -595,15 +605,16 @@ namespace NavierStokesScratch
 
       diffusive_flux.resize(n_q_points);
       velocity_dot_tracer_gradient.resize(n_q_points);
-      shape_phi.resize(n_q_points, std::vector<double>(dofs_per_cell));
+      shape_phi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_phi.resize(n_q_points,
-                            std::vector<Tensor<1, dim>>(dofs_per_cell));
-      shape_phi_fixed.resize(n_q_points, std::vector<double>(dofs_per_cell));
-      grad_shape_phi_fixed.resize(n_q_points,
-                                  std::vector<Tensor<1, dim>>(dofs_per_cell));
-      shape_mu.resize(n_q_points, std::vector<double>(dofs_per_cell));
+                            std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+      shape_phi_fixed.resize(n_q_points,
+                             std::vector<double>(max_dofs_per_cell));
+      grad_shape_phi_fixed.resize(
+        n_q_points, std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+      shape_mu.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_mu.resize(n_q_points,
-                           std::vector<Tensor<1, dim>>(dofs_per_cell));
+                           std::vector<Tensor<1, dim>>(max_dofs_per_cell));
 
       source_term_tracer.resize(n_q_points);
       source_term_potential.resize(n_q_points);
@@ -622,10 +633,12 @@ namespace NavierStokesScratch
       previous_temperature_values.resize(time_handler.n_previous_solutions,
                                          std::vector<double>(n_q_points));
 
-      grad_phi_p.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
+      grad_phi_p.resize(n_q_points,
+                        std::vector<Tensor<1, dim>>(max_dofs_per_cell));
 
-      phi_T.resize(n_q_points, std::vector<double>(dofs_per_cell));
-      grad_phi_T.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
+      phi_T.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
+      grad_phi_T.resize(n_q_points,
+                        std::vector<Tensor<1, dim>>(max_dofs_per_cell));
 
       source_term_temperature.resize(n_q_points);
 
@@ -647,12 +660,12 @@ namespace NavierStokesScratch
       phi_T_face.resize(n_faces,
                         std::vector<std::vector<double>>(n_faces_q_points,
                                                          std::vector<double>(
-                                                           dofs_per_cell)));
+                                                           max_dofs_per_cell)));
 
       grad_phi_T_face.resize(n_faces,
                              std::vector<std::vector<Tensor<1, dim>>>(
                                n_faces_q_points,
-                               std::vector<Tensor<1, dim>>(dofs_per_cell)));
+                               std::vector<Tensor<1, dim>>(max_dofs_per_cell)));
 
       density.resize(n_q_points);
 

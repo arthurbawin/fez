@@ -1122,10 +1122,11 @@ namespace NavierStokesScratch
     std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values_fixed;
 
   public:
-    unsigned int n_q_points;
-    unsigned int n_faces;
-    unsigned int n_faces_q_points;
-    unsigned int dofs_per_cell;
+    const unsigned int n_q_points;
+    const unsigned int n_faces;
+    const unsigned int n_faces_q_points;
+    unsigned int       dofs_per_cell;
+    const unsigned int max_dofs_per_cell;
 
     const TimeHandler &time_handler;
 

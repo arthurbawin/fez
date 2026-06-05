@@ -68,6 +68,12 @@ namespace Parameters
         "false",
         Patterns::Bool(),
         "Fix pressure nullspace by enforcing zero-mean pressure");
+      prm.declare_entry(
+        "pressure reference point",
+        "0,0",
+        Patterns::List(Patterns::Double()),
+        "Reference point used to select the pressure DoF pinned when "
+        "\"fix pressure constant\" is enabled");
     }
     prm.leave_subsection();
   }
@@ -79,6 +85,8 @@ namespace Parameters
       READ_VERBOSITY_PARAM(prm, fluid_verbosity)
       fix_pressure_constant      = prm.get_bool("fix pressure constant");
       enforce_zero_mean_pressure = prm.get_bool("enforce zero mean pressure");
+      pressure_reference_point = Utilities::string_to_double(
+        Utilities::split_string_list(prm.get("pressure reference point"), ","));
     }
     prm.leave_subsection();
   }
@@ -1150,13 +1158,6 @@ namespace Parameters
                         "Gamma in the moving-mesh forcing law "
                         "f(marker)=marker/(1-gamma^2 center(marker)^2).");
       prm.declare_entry(
-        "mff_enlarged_factor_equalization_exponent",
-        "1.0",
-        Patterns::Double(0.0),
-        "Exponent q applied only to the enlarged forcing marker before the "
-        "mesh forcing law. q=1 is neutral; values below 1 boost "
-        "under-saturated |psi| values smoothly.");
-      prm.declare_entry(
         "psi mu correction factor",
         "0.0",
         Patterns::Double(),
@@ -1288,13 +1289,6 @@ namespace Parameters
         prm.get_double("mff_physics_compression_factor");
       mff_transport_factor = prm.get_double("mff_transport_factor");
       mff_regularization_gamma = prm.get_double("mff_regularization_gamma");
-      mff_enlarged_factor_equalization_exponent =
-        prm.get_double("mff_enlarged_factor_equalization_exponent");
-      AssertThrow(
-        mff_enlarged_factor_equalization_exponent > 0.0,
-        ExcMessage(
-          "'mff_enlarged_factor_equalization_exponent' must be strictly "
-          "positive."));
       psi_mu_correction_factor = prm.get_double("psi mu correction factor");
       AssertThrow(std::abs(psi_mu_correction_factor) < 1e-14 ||
                     std::abs(surface_tension) > 1e-14,

@@ -286,6 +286,9 @@ public:
   // Current time step counter for the current time interval
   unsigned int current_time_iteration_in_interval;
 
+  // Time step counter at which the last restart happened
+  unsigned int time_iteration_at_last_restart;
+
   // Initial time (for this subinterval)
   double initial_time;
 

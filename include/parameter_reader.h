@@ -38,7 +38,16 @@ public:
   Parameters::LinearElasticity                               linear_elasticity;
   Parameters::MMS                                            mms_param;
   Parameters::Debug                                          debug;
-  std::vector<Parameters::MetricField<dim>>                  metric_fields;
+
+  /**
+   * Generic parameters for all metric fields
+   */
+  Parameters::MetricFields metrics;
+
+  /**
+   * Parameters for each metric field.
+   */
+  std::vector<Parameters::MetricField<dim>> metric_fields;
 
   //
   // Initial and boundary conditions
@@ -137,7 +146,9 @@ public:
     mms.declare_parameters(prm);
     debug.declare_parameters(prm);
     metric_fields.resize(bc_data.n_metric_fields);
-    Parameters::declare_metric_fields<dim>(prm, bc_data.n_metric_fields);
+    Parameters::declare_metric_fields<dim>(prm,
+                                           bc_data.n_metric_fields,
+                                           metrics);
   }
 
   /**
@@ -186,7 +197,10 @@ public:
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);
     debug.read_parameters(prm);
-    Parameters::read_metric_fields(prm, bc_data.n_metric_fields, metric_fields);
+    Parameters::read_metric_fields(prm,
+                                   bc_data.n_metric_fields,
+                                   metrics,
+                                   metric_fields);
 
     linear_elasticity.presolved_mesh_position_fingerprint =
       make_presolved_mesh_position_fingerprint(prm);

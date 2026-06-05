@@ -31,6 +31,7 @@ namespace ErrorEstimation
     , n_vertices(triangulation.n_vertices())
     , patches(n_vertices)
     , least_squares_matrices(n_vertices)
+    , vandermonde_matrices(n_vertices)
     , least_squares_matrices_rank(n_vertices)
     , least_squares_matrices_were_computed(false)
   {
@@ -286,7 +287,8 @@ namespace ErrorEstimation
                                        *monomials_recovery,
                                        AtA,
                                        eigenAtA,
-                                       least_squares_matrices[v]);
+                                       least_squares_matrices[v],
+                                       vandermonde_matrices[v]);
         least_squares_matrices_rank[v] = rank;
 
         AssertThrow(
@@ -349,13 +351,19 @@ namespace ErrorEstimation
                                const PolynomialSpace<dim> &basis,
                                FullMatrix<double>         &workspace_AtA,
                                Eigen::MatrixXd            &workspace_eigenAtA,
-                               FullMatrix<double>         &least_squares_mat)
+                               FullMatrix<double>         &least_squares_mat,
+                               FullMatrix<double>         &A_matrix)
   {
     const unsigned int n_adjacent = patch.neighbours.size();
 
+    // std::cout << "LSM at " << patch.center << ":" << std::endl;
     FullMatrix<double> A(n_adjacent, dim_recovery_basis);
     fill_vandermonde_matrix(patch, dim_recovery_basis, basis, A);
+    // std::cout << "A: " << std::endl;
+    // A.print_formatted(std::cout, 16, true, 0, 0, 1., -1., " ");
     A.Tmmult(workspace_AtA, A);
+    // std::cout << "AtA: " << std::endl;
+    // workspace_AtA.print_formatted(std::cout, 16, true, 0, 0, 1., -1., " ");
 
     const unsigned int rank = get_rank<dim>(workspace_AtA, workspace_eigenAtA);
 
@@ -366,6 +374,12 @@ namespace ErrorEstimation
     {
       least_squares_mat.reinit(dim_recovery_basis, n_adjacent);
       least_squares_mat.left_invert(A);
+      // std::cout << "AtA^-1: " << std::endl;
+      // A.print_formatted(std::cout, 16, true, 0, 0, 1., -1., " ");
+      // std::cout << "AtA^-1: " << std::endl;
+      // least_squares_mat.print_formatted(std::cout, 16, true, 0, 0, 1., -1., "
+      // ");
+      A_matrix = A;
     }
     return rank;
   }
@@ -400,7 +414,11 @@ namespace ErrorEstimation
   void PatchHandler<dim>::compute_scalings_and_local_coordinates()
   {
     for (auto &patch : patches)
+    {
       compute_scaling_and_local_coordinates(patch);
+      // std::cout << "Scaling at " << patch.center << " is " << patch.scaling
+      // << std::endl;
+    }
   }
 
   template <int dim>
@@ -504,7 +522,8 @@ namespace ErrorEstimation
                                            *monomials_recovery,
                                            AtA,
                                            eigenAtA,
-                                           least_squares_matrices[v]);
+                                           least_squares_matrices[v],
+                                           vandermonde_matrices[v]);
             least_squares_matrices_rank[v] = rank;
 
             if (rank < dim_recovery_basis)

@@ -339,12 +339,51 @@ bool GenericSolver<VectorType>::should_add_error_reference_data(
 }
 
 template <typename VectorType>
+bool GenericSolver<VectorType>::should_check_weakly_enforced_velocity(
+  const TimeHandler &time_handler) const
+{
+  // Do not check during the postprocessing step on the initial solution, which
+  // typically does not respect the constraint (e.g., no-slip condition).
+  if (time_handler.current_time_iteration == 0)
+    return false;
+
+  /*
+   * When applying the exact solution, the fluid velocity will be exact,
+   * but the mesh velocity is only precise up to time integration order.
+   * So these velocities differ by some power of the time step, rather
+   * than the machine epsilon as checked in this function, thus the
+   * no-slip is not checked in this case.
+   */
+  // if (param.debug.apply_exact_solution)
+  // return false;
+
+  // Do not check if using BDF2 and starting with the initial condition, as it
+  // will generally not respect the no-slip condition.
+  if (time_handler.is_starting_step() &&
+      time_param.bdfstart ==
+        Parameters::TimeIntegration::BDFStart::initial_condition)
+    return false;
+
+  // If the simulation was restarted, the first of the previous solutions is
+  // actually the present solution itself, since the checkpoint happened after
+  // rotating the solutions. In that case, the initial postprocessing will be
+  // computed on that "initial" condition, for which, e.g., mesh velocity is
+  // not correct until the next time step. Do not check constraint in that case
+  // (it was checked before writing the checkpoint anyway).
+  if (time_handler.current_time_iteration ==
+      time_handler.time_iteration_at_last_restart)
+    return false;
+
+  return true;
+}
+
+template <typename VectorType>
 template <int dim>
 bool GenericSolver<VectorType>::should_compute_reconstructions(
   const ParameterReader<dim> &param,
   const TimeHandler          &time_handler) const
 {
-  if (should_compute_riemannian_metric(time_handler))
+  if (should_compute_riemannian_metric(param, time_handler))
   {
     Assert(param.bc_data.n_metric_fields > 0, ExcInternalError());
     if (!param.metric_fields[0].multiscale.use_analytical_derivatives)
@@ -356,9 +395,14 @@ bool GenericSolver<VectorType>::should_compute_reconstructions(
 }
 
 template <typename VectorType>
+template <int dim>
 bool GenericSolver<VectorType>::should_compute_riemannian_metric(
-  const TimeHandler &time_handler) const
+  const ParameterReader<dim> &param,
+  const TimeHandler          &time_handler) const
 {
+  if (param.metrics.always_compute)
+    return true;
+
   if (mesh_param.adaptation.with_metric_based_adaptation())
   {
     // For unsteady simulations, compute recovery and metric even for the
@@ -409,5 +453,13 @@ template bool GenericSolver<LA::ParVectorType>::should_compute_reconstructions(
   const ParameterReader<2> &,
   const TimeHandler &) const;
 template bool GenericSolver<LA::ParVectorType>::should_compute_reconstructions(
+  const ParameterReader<3> &,
+  const TimeHandler &) const;
+template bool
+GenericSolver<LA::ParVectorType>::should_compute_riemannian_metric(
+  const ParameterReader<2> &,
+  const TimeHandler &) const;
+template bool
+GenericSolver<LA::ParVectorType>::should_compute_riemannian_metric(
   const ParameterReader<3> &,
   const TimeHandler &) const;

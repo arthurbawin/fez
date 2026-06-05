@@ -76,30 +76,6 @@ namespace Assembly::MovingMeshForcing
     return factor;
   }
 
-  inline void
-  smooth_power_equalized_phase_and_jacobian(const double phase_value,
-                                            const double exponent,
-                                            double       &equalized_phase,
-                                            double       &equalized_jacobian)
-  {
-    if (std::abs(exponent - 1.) < 1e-14)
-    {
-      equalized_phase    = phase_value;
-      equalized_jacobian = 1.;
-      return;
-    }
-
-    // Smooth odd approximation of sign(psi) * |psi|^q. q=1 is neutral.
-    // The small delta keeps the map differentiable at psi=0 for Newton.
-    constexpr double delta = 2e-2;
-    const double     a     = phase_value * phase_value + delta * delta;
-
-    equalized_phase = phase_value * std::pow(a, 0.5 * (exponent - 1.));
-    equalized_jacobian =
-      std::pow(a, 0.5 * (exponent - 3.)) *
-      (delta * delta + exponent * phase_value * phase_value);
-  }
-
   template <int dim>
   inline void mesh_forcing_factor_and_jacobian(
     const Parameters::CahnHilliard<dim> &cahn_hilliard,
@@ -131,17 +107,8 @@ namespace Assembly::MovingMeshForcing
     double                              &factor,
     double                              &factor_jacobian)
   {
-    double equalized_phase    = 0.;
-    double equalized_jacobian = 0.;
-    smooth_power_equalized_phase_and_jacobian(
-      phase_value,
-      cahn_hilliard.mff_enlarged_factor_equalization_exponent,
-      equalized_phase,
-      equalized_jacobian);
-
     mesh_forcing_factor_and_jacobian(
-      cahn_hilliard, equalized_phase, factor, factor_jacobian);
-    factor_jacobian *= equalized_jacobian;
+      cahn_hilliard, phase_value, factor, factor_jacobian);
   }
 
   template <int dim>

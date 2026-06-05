@@ -141,7 +141,7 @@ void NSSolver<dim>::create_sparsity_pattern()
   //
 #if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
-  DoFTools::make_sparsity_pattern(this->dof_handler,
+  DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   dsp,
                                   this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);
@@ -158,7 +158,7 @@ void NSSolver<dim>::create_sparsity_pattern()
                                         this->locally_owned_dofs,
                                         this->locally_relevant_dofs,
                                         this->mpi_communicator);
-  DoFTools::make_sparsity_pattern(this->dof_handler,
+  DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   dsp,
                                   this->nonzero_constraints);
   dsp.compress();
@@ -173,7 +173,7 @@ void NSSolver<dim>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -188,13 +188,13 @@ void NSSolver<dim>::assemble_matrix()
                       &NSSolver::assemble_local_matrix_finite_differences;
 
   // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   assembly_ptr,
                   &NSSolver::copy_local_to_global_matrix,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_matrix.compress(VectorOperation::add);
 }
@@ -228,11 +228,11 @@ void NSSolver<dim>::assemble_local_matrix(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix;
+  auto &local_matrix = copy_data.local_matrix();
   local_matrix       = 0;
 
   const double nu =
@@ -314,7 +314,7 @@ void NSSolver<dim>::assemble_local_matrix(
                                                     .stabilization,
                                                   local_matrix);
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim>
@@ -323,25 +323,25 @@ void NSSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix(),
+                                                    copy_data.dof_indices(),
                                                     this->system_matrix);
 }
 
 template <int dim>
 void NSSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
-    this->dof_handler,
+    *this->dof_handler,
     fe->n_dofs_per_cell(),
     *this,
     &NSSolver::assemble_local_matrix,
     &NSSolver::assemble_local_rhs,
     *scratch_data,
-    copyData,
-    this->present_solution,
+    copy_data,
+    *this->present_solution,
     this->evaluation_point,
     this->local_evaluation_point,
     this->mpi_communicator);
@@ -362,16 +362,16 @@ void NSSolver<dim>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   // Assemble RHS (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   &NSSolver::assemble_local_rhs,
                   &NSSolver::copy_local_to_global_rhs,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_rhs.compress(VectorOperation::add);
 }
@@ -389,11 +389,11 @@ void NSSolver<dim>::assemble_local_rhs(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs;
+  auto &local_rhs = copy_data.local_rhs();
   local_rhs       = 0;
 
   const double nu =
@@ -477,7 +477,7 @@ void NSSolver<dim>::assemble_local_rhs(
       }
     }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim>
@@ -486,8 +486,8 @@ void NSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
+                                                    copy_data.dof_indices(),
                                                     this->system_rhs);
 }
 

@@ -13,6 +13,7 @@
 #include <utilities.h>
 
 #include <Eigen/Dense>
+#include <Eigen/IterativeLinearSolvers>
 
 namespace ErrorEstimation
 {
@@ -184,6 +185,17 @@ namespace ErrorEstimation
               "2 to reconstruct the Hessian of the solution."));
           component_select = hessian_comp_select.get();
           break;
+        case RecoveryType::third_derivatives:
+          AssertThrow(
+            highest_recovered_derivative > 2,
+            ExcMessage(
+              "You are trying to compute the nodal error over reconstructed "
+              "third derivatives, but this quantity was not reconstructed by "
+              "this "
+              "SolutionRecovery. Set highest_recovered_derivative to at least "
+              "3 to reconstruct the third derivatives of the solution."));
+          component_select = third_derivatives_comp_select.get();
+          break;
         default:
           DEAL_II_NOT_IMPLEMENTED();
       }
@@ -239,6 +251,17 @@ namespace ErrorEstimation
               "SolutionRecovery. Set highest_recovered_derivative to at least "
               "2 to reconstruct the Hessian of the solution."));
           mask = &hessian_mask;
+          break;
+        case RecoveryType::third_derivatives:
+          AssertThrow(
+            highest_recovered_derivative > 2,
+            ExcMessage(
+              "You are trying to compute the nodal error over reconstructed "
+              "third derivatives, but this quantity was not reconstructed by "
+              "this "
+              "SolutionRecovery. Set highest_recovered_derivative to at least "
+              "3 to reconstruct the third derivatives of the solution."));
+          mask = &third_derivatives_mask;
           break;
         default:
           DEAL_II_NOT_IMPLEMENTED();
@@ -395,19 +418,433 @@ namespace ErrorEstimation
     }
 
     template <int dim>
+    double Base<dim>::evaluate_polynomial(
+      const Point<dim>             &p,
+      const PolynomialSpace<dim>   &polynomial_space,
+      const dealii::Vector<double> &polynomial_coeffs,
+      std::vector<double>          &basis)
+    {
+      AssertDimension(polynomial_coeffs.size(), basis.size());
+
+      // Evaluate the polynomial space at p.
+      // Since the empty_* vectors are empty, only the basis is computed.
+      polynomial_space.evaluate(p,
+                                basis,
+                                empty_polynomial_space_grads,
+                                empty_polynomial_space_grad_grads,
+                                empty_polynomial_space_third_derivatives,
+                                empty_polynomial_space_fourth_derivatives);
+      double             res = 0;
+      const unsigned int n   = basis.size();
+      for (unsigned int i = 0; i < n; ++i)
+        res += polynomial_coeffs[i] * basis[i];
+      return res;
+    }
+
+    template <int dim>
+    Tensor<1, dim> Base<dim>::evaluate_polynomial_gradient(
+      const Point<dim>             &p,
+      const PolynomialSpace<dim>   &polynomial_space,
+      const dealii::Vector<double> &scaled_polynomial_coeffs,
+      std::vector<Tensor<1, dim>>  &basis_gradients,
+      const Point<dim>             &scaling)
+    {
+      AssertDimension(scaled_polynomial_coeffs.size(), basis_gradients.size());
+
+      // Evaluate the gradient of the polynomial space at p.
+      // Since the empty_* vectors are empty, only the gradient is computed.
+      polynomial_space.evaluate(p,
+                                empty_polynomial_space_values,
+                                basis_gradients,
+                                empty_polynomial_space_grad_grads,
+                                empty_polynomial_space_third_derivatives,
+                                empty_polynomial_space_fourth_derivatives);
+      Tensor<1, dim>     grad;
+      const unsigned int n = basis_gradients.size();
+      for (unsigned int i = 0; i < n; ++i)
+        grad += scaled_polynomial_coeffs[i] * basis_gradients[i];
+      for (unsigned int d = 0; d < dim; ++d)
+        grad[d] /= scaling[d];
+      return grad;
+    }
+
+    // Get the solution field u_h at the vertices of a patch
+    template <int dim>
+    void get_solution_values_on_patch(
+      const LA::ParVectorType &solution_with_additional_ghosts,
+      const Patch<dim>        &patch,
+      dealii::Vector<double>  &values_out)
+    {
+      unsigned int i = 0;
+      for (const auto &data : patch.neighbours)
+      {
+        values_out[i] = solution_with_additional_ghosts[data.dof];
+        ++i;
+      }
+    }
+
+    template <int dim>
+    void Base<dim>::solve_least_squares_problem(
+      const unsigned int      vertex_index,
+      dealii::Vector<double> &scaled_coeffs)
+    {
+      const Patch<dim> &patch  = this->patches[vertex_index];
+      const auto       &ls_mat = this->least_squares_matrices[vertex_index];
+      dealii::Vector<double> rhs(ls_mat.n());
+
+      // Extract local solution values for each component
+      get_solution_values_on_patch(this->solution_with_additional_ghosts,
+                                   patch,
+                                   rhs);
+
+      // Solve the least-squares system
+      ls_mat.vmult(scaled_coeffs, rhs);
+
+      /**
+       * FIXME:
+       * The least-squares matrix is full-rank but may be badly conditionned,
+       * typically near the boundaries where information is missing from one
+       * side. This yields solution coefficients which vary by orders of
+       * magnitude, in turn yielding noisy derivatives.
+       *
+       * To try and circumvent this, we can increase the size of the
+       * stencil by adding an extra layer of elements (not done yet, TODO),
+       * or solve only approximately the least-squares problem A*x = b, with
+       * A rectangular.
+       * This can be done here using Eigen's LeastSquaresConjugateGradient
+       * solver with a very lenient tolerance (e.g., 1e-4). It would be nice
+       * to find a criterion (e.g., a condition number threshold) to decide
+       * whether this solve is needed instead of the exact solve.
+       *
+       */
+      const bool solution_is_inaccurate = false;
+
+      if (solution_is_inaccurate)
+      {
+        const auto        &A = patch_handler.vandermonde_matrices[vertex_index];
+        const unsigned int m = A.m();
+        const unsigned int n = A.n();
+        Eigen::MatrixXd    emat = Eigen::MatrixXd::Zero(m, n);
+        Eigen::VectorXd    esol(n), erhs(m);
+        for (unsigned int i = 0; i < m; ++i)
+        {
+          erhs(i) = rhs(i);
+          for (unsigned int j = 0; j < n; ++j)
+            emat(i, j) = A(i, j);
+        }
+
+        /**
+         * Solve the least-squares system A*x = b directly, without using
+         * the least-squares matrix (A^T*A)^{-1} * A^T.
+         *
+         * The number of iterations and error can be retrieved with
+         * lscg.iterations() and lscg.error() respectively.
+         */
+        Eigen::LeastSquaresConjugateGradient<Eigen::MatrixXd> lscg;
+        lscg.compute(emat);
+        lscg.setTolerance(1e-5);
+        esol = lscg.solve(erhs);
+
+        for (unsigned int j = 0; j < n; ++j)
+          scaled_coeffs(j) = esol(j);
+      }
+    }
+
+    // Compute gradient at origin = sum_i coeffs_i * grad(P_i)(0)
+    template <int dim>
+    Tensor<1, dim> Base<dim>::gradient_at_origin(
+      const dealii::Vector<double> &scaled_polynomial_coeffs,
+      const Point<dim>             &scaling) const
+    {
+      Tensor<1, dim> grad;
+      // Compute scaled gradient
+      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
+        grad += scaled_polynomial_coeffs[i] *
+                this->gradients_of_recovery_monomials[i];
+      // Scale back
+      for (unsigned int d = 0; d < dim; ++d)
+        grad[d] /= scaling[d];
+      return grad;
+    }
+
+    // Compute hessian at origin = sum_i coeffs_i * hess(P_i)(0)
+    template <int dim>
+    Tensor<2, dim> Base<dim>::hessian_at_origin(
+      const dealii::Vector<double> &scaled_polynomial_coeffs,
+      const Point<dim>             &scaling) const
+    {
+      Tensor<2, dim> hess;
+      // Compute scaled hessian
+      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
+        hess +=
+          scaled_polynomial_coeffs[i] * this->hessians_of_recovery_monomials[i];
+      // Scale back
+      for (unsigned int di = 0; di < dim; ++di)
+        for (unsigned int dj = 0; dj < dim; ++dj)
+          hess[di][dj] /= (scaling[di] * scaling[dj]);
+      return hess;
+    }
+
+    template <int dim>
+    Tensor<3, dim> Base<dim>::third_derivatives_at_origin(
+      const dealii::Vector<double> &scaled_polynomial_coeffs,
+      const Point<dim>             &scaling) const
+    {
+      Tensor<3, dim> third;
+      // Compute scaled third derivatives
+      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
+        third += scaled_polynomial_coeffs[i] *
+                 this->third_derivatives_of_recovery_monomials[i];
+      // Scale back
+      for (unsigned int di = 0; di < dim; ++di)
+        for (unsigned int dj = 0; dj < dim; ++dj)
+          for (unsigned int dk = 0; dk < dim; ++dk)
+            third[di][dj][dk] /= (scaling[di] * scaling[dj] * scaling[dk]);
+      return third;
+    }
+
+    template <int dim>
+    Scalar<dim>::Scalar(const unsigned int highest_recovered_derivative,
+                        const ParameterReader<dim> &param,
+                        PatchHandler<dim>          &patch_handler,
+                        const DoFHandler<dim>      &dof_handler,
+                        const LA::ParVectorType    &solution,
+                        const FiniteElement<dim>   &fe,
+                        const Mapping<dim>         &mapping,
+                        const ComponentMask        &mask,
+                        const bool                  isoparametric,
+                        const bool                  single_reconstruction)
+      : Base<dim>(highest_recovered_derivative,
+                  param,
+                  patch_handler,
+                  dof_handler,
+                  solution,
+                  fe,
+                  mapping,
+                  mask,
+                  isoparametric,
+                  single_reconstruction)
+      , recovered_solution_at_vertices(this->n_vertices)
+    {
+      AssertThrow(
+        mask.n_selected_components(fe.n_components()) == 1,
+        ExcMessage(
+          "You are trying to create a SolutionRecovery::Scalar, but the "
+          "provided ComponentMask selects more than a single solution "
+          "component. Use a mask for a single scalar component, or "
+          "alternatively create a SolutionRecovery::Vector to reconstruct the "
+          "derivatives of a vector-valued field."));
+
+      if (highest_recovered_derivative > 0)
+        recovered_gradient_at_vertices.resize(this->n_vertices);
+      if (highest_recovered_derivative > 1)
+        recovered_hessian_at_vertices.resize(this->n_vertices);
+      if (highest_recovered_derivative > 2)
+        recovered_third_derivatives_at_vertices.resize(this->n_vertices);
+
+      constexpr unsigned int mapping_degree = 1;
+
+      // The degree of the finite element spaces used to represent the
+      // reconstructed solution and derivatives. If isoparametric, this is the
+      // degree of the mapping, otherwise it is the degree of the finite element
+      // solution. This degree is *not* the degree of the least-squares
+      // polynomials used to smooth the solution.
+      const unsigned int recovery_degree =
+        isoparametric ? mapping_degree : this->degree;
+
+      // Finite element space used to represent to smoothed data.
+      // This FESystem holds a scalar FE space for the smoothed solution, a
+      // vector-valued FE space for the smoothed gradient, for the smoothed
+      // hessian, etc.
+      if (param.finite_elements.use_quads)
+      {
+        this->isoparam_fe =
+          std::make_unique<FESystem<dim>>(FE_Q<dim>(mapping_degree));
+        switch (highest_recovered_derivative)
+        {
+          case 0:
+            this->fe =
+              std::make_unique<FESystem<dim>>(FE_Q<dim>(recovery_degree));
+            break;
+          case 1:
+            this->fe = std::make_unique<FESystem<dim>>(
+              FE_Q<dim>(recovery_degree),
+              FE_Q<dim>(recovery_degree) ^
+                gradient_type::n_independent_components);
+            break;
+          case 2:
+            this->fe = std::make_unique<FESystem<dim>>(
+              FE_Q<dim>(recovery_degree),
+              FE_Q<dim>(recovery_degree) ^
+                gradient_type::n_independent_components,
+              FE_Q<dim>(recovery_degree) ^
+                hessian_type::n_independent_components);
+            break;
+          case 3:
+            this->fe = std::make_unique<FESystem<dim>>(
+              FE_Q<dim>(recovery_degree),
+              FE_Q<dim>(recovery_degree) ^
+                gradient_type::n_independent_components,
+              FE_Q<dim>(recovery_degree) ^
+                hessian_type::n_independent_components,
+              FE_Q<dim>(recovery_degree) ^
+                third_derivative_type::n_independent_components);
+            break;
+          default:
+            DEAL_II_NOT_IMPLEMENTED();
+        }
+      }
+      else
+      {
+        this->isoparam_fe =
+          std::make_unique<FESystem<dim>>(FE_SimplexP<dim>(mapping_degree));
+        switch (highest_recovered_derivative)
+        {
+          case 0:
+            this->fe = std::make_unique<FESystem<dim>>(
+              FE_SimplexP<dim>(recovery_degree));
+            break;
+          case 1:
+            this->fe = std::make_unique<FESystem<dim>>(
+              FE_SimplexP<dim>(recovery_degree),
+              FE_SimplexP<dim>(recovery_degree) ^
+                gradient_type::n_independent_components);
+            break;
+          case 2:
+            this->fe = std::make_unique<FESystem<dim>>(
+              FE_SimplexP<dim>(recovery_degree),
+              FE_SimplexP<dim>(recovery_degree) ^
+                gradient_type::n_independent_components,
+              FE_SimplexP<dim>(recovery_degree) ^
+                hessian_type::n_independent_components);
+            break;
+          case 3:
+            this->fe = std::make_unique<FESystem<dim>>(
+              FE_SimplexP<dim>(recovery_degree),
+              FE_SimplexP<dim>(recovery_degree) ^
+                gradient_type::n_independent_components,
+              FE_SimplexP<dim>(recovery_degree) ^
+                hessian_type::n_independent_components,
+              FE_SimplexP<dim>(recovery_degree) ^
+                third_derivative_type::n_independent_components);
+            break;
+          default:
+            DEAL_II_NOT_IMPLEMENTED();
+        }
+      }
+
+      this->dh.distribute_dofs(*this->fe);
+
+      // Total number of vector components in this object's FESystem
+      // = 1 + dim + dim^2 + ... = (dim^(N+1) - 1) / (dim - 1)
+      this->n_components =
+        (std::pow(dim, highest_recovered_derivative + 1) - 1) / (dim - 1);
+
+      const auto comm     = this->mpi_communicator;
+      auto      &owned    = this->locally_owned_recovery_dofs;
+      auto      &relevant = this->locally_relevant_recovery_dofs;
+
+      // Initialize vectors using the isoparametric dof handler
+      owned    = this->dh.locally_owned_dofs();
+      relevant = DoFTools::extract_locally_relevant_dofs(this->dh);
+
+      // Parallel vectors for the FE representation of the smoothed data.
+      this->recovery_solution.reinit(owned, relevant, comm);
+      this->local_recovery_solution.reinit(owned, comm);
+
+      // Get the owners of the ghost recovery dofs, as they are unrelated to the
+      // owners of the solution ghost dofs.
+      std::vector<std::pair<types::global_dof_index, types::global_dof_index>>
+        all_local_ranges =
+          Utilities::MPI::all_gather(this->mpi_communicator,
+                                     this->recovery_solution.local_range());
+
+      const unsigned int mpi_size =
+        Utilities::MPI::n_mpi_processes(this->mpi_communicator);
+      IndexSet ghost_dofs = relevant;
+      ghost_dofs.subtract_set(owned);
+      for (const auto dof : ghost_dofs)
+        for (unsigned int rank = 0; rank < mpi_size; ++rank)
+        {
+          const auto &[start, end] = all_local_ranges[rank];
+          if (dof >= start && dof < end)
+          {
+            this->ghost_owners[dof] = rank;
+            break;
+          }
+        }
+
+      // Masks for each derivative
+      {
+        const FEValuesExtractors::Scalar solution_extractor(0);
+        this->solution_mask = this->fe->component_mask(solution_extractor);
+        this->solution_comp_select =
+          std::make_unique<ComponentSelectFunction<dim>>(0, this->n_components);
+      }
+      if (highest_recovered_derivative > 0)
+      {
+        const FEValuesExtractors::Vector gradient_extractor(1);
+        this->gradient_mask = this->fe->component_mask(gradient_extractor);
+        this->gradient_comp_select =
+          std::make_unique<ComponentSelectFunction<dim>>(
+            std::make_pair(gradient_offset,
+                           gradient_offset +
+                             gradient_type::n_independent_components),
+            this->n_components);
+      }
+      if (highest_recovered_derivative > 1)
+      {
+        std::vector<bool> hessian_component_mask(this->n_components, false);
+        for (unsigned int i = 0; i < hessian_type::n_independent_components;
+             ++i)
+          hessian_component_mask[hessian_offset + i] = true;
+        this->hessian_mask = ComponentMask(hessian_component_mask);
+        this->hessian_comp_select =
+          std::make_unique<ComponentSelectFunction<dim>>(
+            std::make_pair(hessian_offset,
+                           hessian_offset +
+                             hessian_type::n_independent_components),
+            this->n_components);
+      }
+      if (highest_recovered_derivative > 2)
+      {
+        std::vector<bool> third_component_mask(this->n_components, false);
+        for (unsigned int i = 0;
+             i < third_derivative_type::n_independent_components;
+             ++i)
+          third_component_mask[third_derivative_offset + i] = true;
+        this->third_derivatives_mask = ComponentMask(third_component_mask);
+        this->third_derivatives_comp_select =
+          std::make_unique<ComponentSelectFunction<dim>>(
+            std::make_pair(third_derivative_offset,
+                           third_derivative_offset +
+                             third_derivative_type::n_independent_components),
+            this->n_components);
+      }
+
+      create_solution_dofs_to_recovery_dofs_map();
+
+      // Compute the weights associated with the closest dofs on each patch
+      compute_patches_averaging_weights();
+    }
+
+    template <int dim>
     void Scalar<dim>::create_solution_dofs_to_recovery_dofs_map()
     {
       vertices_to_solution_dofs.clear();
       vertices_to_gradient_dofs.clear();
       vertices_to_hessian_dofs.clear();
+      vertices_to_third_derivatives_dofs.clear();
 
       vertices_to_solution_dofs.resize(this->n_vertices);
       vertices_to_gradient_dofs.resize(this->n_vertices);
       vertices_to_hessian_dofs.resize(this->n_vertices);
+      vertices_to_third_derivatives_dofs.resize(this->n_vertices);
 
       solution_dofs_to_recovery_dofs.clear();
       solution_dofs_to_gradient_dofs.clear();
       solution_dofs_to_hessian_dofs.clear();
+      solution_dofs_to_third_derivatives_dofs.clear();
 
       const unsigned int n_isoparam_dofs_per_cell =
         this->isoparam_fe->n_dofs_per_cell();
@@ -514,240 +951,29 @@ namespace ErrorEstimation
               }
             }
           }
-        }
-      }
-    }
 
-    template <int dim>
-    Scalar<dim>::Scalar(const unsigned int highest_recovered_derivative,
-                        const ParameterReader<dim> &param,
-                        PatchHandler<dim>          &patch_handler,
-                        const DoFHandler<dim>      &dof_handler,
-                        const LA::ParVectorType    &solution,
-                        const FiniteElement<dim>   &fe,
-                        const Mapping<dim>         &mapping,
-                        const ComponentMask        &mask,
-                        const bool                  isoparametric,
-                        const bool                  single_reconstruction)
-      : Base<dim>(highest_recovered_derivative,
-                  param,
-                  patch_handler,
-                  dof_handler,
-                  solution,
-                  fe,
-                  mapping,
-                  mask,
-                  isoparametric,
-                  single_reconstruction)
-      , recovered_solution_at_vertices(this->n_vertices)
-      , recovered_gradient_at_vertices(this->n_vertices)
-      , recovered_hessian_at_vertices(this->n_vertices)
-    {
-      AssertThrow(
-        mask.n_selected_components(fe.n_components()) == 1,
-        ExcMessage(
-          "You are trying to create a SolutionRecovery::Scalar, but the "
-          "provided ComponentMask selects more than a single solution "
-          "component. Use a mask for a single scalar component, or "
-          "alternatively create a SolutionRecovery::Vector to reconstruct the "
-          "derivatives of a vector-valued field."));
-
-      constexpr unsigned int mapping_degree = 1;
-
-      // The degree of the finite element spaces used to represent the
-      // reconstructed solution and derivatives. If isoparametric, this is the
-      // degree of the mapping, otherwise it is the degree of the finite element
-      // solution. This degree is *not* the degree of the least-squares
-      // polynomials used to smooth the solution.
-      const unsigned int recovery_degree =
-        isoparametric ? mapping_degree : this->degree;
-
-      // Finite element space used to represent to smoothed data.
-      // This FESystem holds a scalar FE space for the smoothed solution, a
-      // vector-valued FE space for the smoothed gradient, for the smoothed
-      // hessian, etc.
-      if (param.finite_elements.use_quads)
-      {
-        this->isoparam_fe =
-          std::make_unique<FESystem<dim>>(FE_Q<dim>(mapping_degree));
-        switch (highest_recovered_derivative)
-        {
-          case 0:
-            this->fe =
-              std::make_unique<FESystem<dim>>(FE_Q<dim>(recovery_degree));
-            break;
-          case 1:
-            this->fe = std::make_unique<FESystem<dim>>(
-              FE_Q<dim>(recovery_degree),
-              FE_Q<dim>(recovery_degree) ^
-                gradient_type::n_independent_components);
-            break;
-          case 2:
-            this->fe = std::make_unique<FESystem<dim>>(
-              FE_Q<dim>(recovery_degree),
-              FE_Q<dim>(recovery_degree) ^
-                gradient_type::n_independent_components,
-              FE_Q<dim>(recovery_degree) ^
-                hessian_type::n_independent_components);
-            break;
-          default:
-            DEAL_II_NOT_IMPLEMENTED();
-        }
-      }
-      else
-      {
-        this->isoparam_fe =
-          std::make_unique<FESystem<dim>>(FE_SimplexP<dim>(mapping_degree));
-        switch (highest_recovered_derivative)
-        {
-          case 0:
-            this->fe = std::make_unique<FESystem<dim>>(
-              FE_SimplexP<dim>(recovery_degree));
-            break;
-          case 1:
-            this->fe = std::make_unique<FESystem<dim>>(
-              FE_SimplexP<dim>(recovery_degree),
-              FE_SimplexP<dim>(recovery_degree) ^
-                gradient_type::n_independent_components);
-            break;
-          case 2:
-            this->fe = std::make_unique<FESystem<dim>>(
-              FE_SimplexP<dim>(recovery_degree),
-              FE_SimplexP<dim>(recovery_degree) ^
-                gradient_type::n_independent_components,
-              FE_SimplexP<dim>(recovery_degree) ^
-                hessian_type::n_independent_components);
-            break;
-          default:
-            DEAL_II_NOT_IMPLEMENTED();
-        }
-      }
-      this->dh.distribute_dofs(*this->fe);
-
-      // Total number of vector components in this object's FESystem
-      // = 1 + dim + dim^2 + ... = (dim^(N+1) - 1) / (dim - 1)
-      this->n_components =
-        (std::pow(dim, highest_recovered_derivative + 1) - 1) / (dim - 1);
-
-      const auto comm     = this->mpi_communicator;
-      auto      &owned    = this->locally_owned_recovery_dofs;
-      auto      &relevant = this->locally_relevant_recovery_dofs;
-
-      // Initialize vectors using the isoparametric dof handler
-      owned    = this->dh.locally_owned_dofs();
-      relevant = DoFTools::extract_locally_relevant_dofs(this->dh);
-
-      // Parallel vectors for the FE representation of the smoothed data.
-      this->recovery_solution.reinit(owned, relevant, comm);
-      this->local_recovery_solution.reinit(owned, comm);
-
-      // Get the owners of the ghost recovery dofs, as they are unrelated to the
-      // owners of the solution ghost dofs.
-      std::vector<std::pair<types::global_dof_index, types::global_dof_index>>
-        all_local_ranges =
-          Utilities::MPI::all_gather(this->mpi_communicator,
-                                     this->recovery_solution.local_range());
-
-      const unsigned int mpi_size =
-        Utilities::MPI::n_mpi_processes(this->mpi_communicator);
-      IndexSet ghost_dofs = relevant;
-      ghost_dofs.subtract_set(owned);
-      for (const auto dof : ghost_dofs)
-        for (unsigned int rank = 0; rank < mpi_size; ++rank)
-        {
-          const auto &[start, end] = all_local_ranges[rank];
-          if (dof >= start && dof < end)
+          // Map the smoothed third derivatives dofs
+          if (this->highest_recovered_derivative >= 2)
           {
-            this->ghost_owners[dof] = rank;
-            break;
+            const int c_third = comp - third_derivative_offset;
+            if (0 <= c_third &&
+                c_third < (int)third_derivative_type::n_independent_components)
+            {
+              solution_dofs_to_third_derivatives_dofs[solution_dofs[shape]]
+                                                     [c_third] =
+                                                       local_rec_dof_indices[i];
+
+              // Map the vertex data to isoparametric recovery dofs
+              if (shape < n_isoparam_dofs_per_cell)
+              {
+                const auto vertex_index = cell->vertex_index(shape);
+                vertices_to_third_derivatives_dofs[vertex_index][c_third] =
+                  local_rec_dof_indices[i];
+              }
+            }
           }
         }
-
-      // Masks for each derivative
-      {
-        const FEValuesExtractors::Scalar solution_extractor(0);
-        this->solution_mask = this->fe->component_mask(solution_extractor);
-        this->solution_comp_select =
-          std::make_unique<ComponentSelectFunction<dim>>(0, this->n_components);
       }
-      if (highest_recovered_derivative > 0)
-      {
-        const FEValuesExtractors::Vector gradient_extractor(1);
-        this->gradient_mask = this->fe->component_mask(gradient_extractor);
-        this->gradient_comp_select =
-          std::make_unique<ComponentSelectFunction<dim>>(
-            std::make_pair(gradient_offset,
-                           gradient_offset +
-                             gradient_type::n_independent_components),
-            this->n_components);
-      }
-      if (highest_recovered_derivative > 1)
-      {
-        std::vector<bool> hessian_component_mask(this->n_components, false);
-        for (unsigned int i = 0; i < hessian_type::n_independent_components;
-             ++i)
-          hessian_component_mask[hessian_offset + i] = true;
-        this->hessian_mask = ComponentMask(hessian_component_mask);
-        this->hessian_comp_select =
-          std::make_unique<ComponentSelectFunction<dim>>(
-            std::make_pair(hessian_offset,
-                           hessian_offset +
-                             hessian_type::n_independent_components),
-            this->n_components);
-      }
-
-      create_solution_dofs_to_recovery_dofs_map();
-
-      // Compute the weights associated with the closest dofs on each patch
-      compute_patches_averaging_weights();
-    }
-
-    template <int dim>
-    double Base<dim>::evaluate_polynomial(
-      const Point<dim>             &p,
-      const PolynomialSpace<dim>   &polynomial_space,
-      const dealii::Vector<double> &polynomial_coeffs,
-      std::vector<double>          &basis)
-    {
-      AssertDimension(polynomial_coeffs.size(), basis.size());
-
-      // Evaluate the polynomial space at p.
-      // Since the empty_* vectors are empty, only the basis is computed.
-      polynomial_space.evaluate(p,
-                                basis,
-                                empty_polynomial_space_grads,
-                                empty_polynomial_space_grad_grads,
-                                empty_polynomial_space_third_derivatives,
-                                empty_polynomial_space_fourth_derivatives);
-      double             res = 0;
-      const unsigned int n   = basis.size();
-      for (unsigned int i = 0; i < n; ++i)
-        res += polynomial_coeffs[i] * basis[i];
-      return res;
-    }
-
-    template <int dim>
-    Tensor<1, dim> Base<dim>::evaluate_polynomial_gradient(
-      const Point<dim>             &p,
-      const PolynomialSpace<dim>   &polynomial_space,
-      const dealii::Vector<double> &polynomial_coeffs,
-      std::vector<Tensor<1, dim>>  &basis_gradients)
-    {
-      AssertDimension(polynomial_coeffs.size(), basis_gradients.size());
-
-      // Evaluate the gradient of the polynomial space at p.
-      // Since the empty_* vectors are empty, only the gradient is computed.
-      polynomial_space.evaluate(p,
-                                empty_polynomial_space_values,
-                                basis_gradients,
-                                empty_polynomial_space_grad_grads,
-                                empty_polynomial_space_third_derivatives,
-                                empty_polynomial_space_fourth_derivatives);
-      Tensor<1, dim>     res;
-      const unsigned int n = basis_gradients.size();
-      for (unsigned int i = 0; i < n; ++i)
-        res += polynomial_coeffs[i] * basis_gradients[i];
-      return res;
     }
 
     template <int dim>
@@ -971,19 +1197,14 @@ namespace ErrorEstimation
           for (const auto &data : patch.neighbours)
             if (std::abs(data.averaging_weight) > 1e-14)
             {
-              Point<dim> pt = data.local_pt;
-
-              // Scale back?
-              // FIXME: it's probably more robust to keep the coefficients
-              // scaled in reconstruct_field(), and to keep the local coord
-              // here as well, instead of scaling back both...
-              for (unsigned int d = 0; d < dim; ++d)
-                pt[d] *= patch.scaling[d];
-
               // Evaluate the gradient of the polynomial reconstruction at
               // this dof's support point
-              const Tensor<1, dim> grad = this->evaluate_polynomial_gradient(
-                pt, *this->monomials_recovery, coeffs, basis_gradients);
+              const Tensor<1, dim> grad =
+                this->evaluate_polynomial_gradient(data.local_pt,
+                                                   *this->monomials_recovery,
+                                                   coeffs,
+                                                   basis_gradients,
+                                                   patch.scaling);
 
               // Add weighted average
               if (this->locally_owned_dofs.is_element(data.dof))
@@ -1007,28 +1228,12 @@ namespace ErrorEstimation
         contributions_to_ghosts);
     }
 
-    /**
-     * Update the solution storing the smoothed data.
-     *
-     * Given the coefficients of the polynomials stored in
-     * this->recoveries_coefficients, evaluate the polynomials at the
-     * non-vertices dofs and average them using the
-     * pre-computed weights. Store the result in the @p component-th vector
-     * component of @p local_dof_data, and update the ghosts
-     * in @p dof_data.
-     *
-     * This function only fills the non-vertices dofs in local_dof_data, that
-     * is, the dofs whose support point is not also a mesh vertex.
-     *
-     * If @p gradient is true, then we actually evaluate and average the
-     * gradient of the polynomials stored in this->recoveries_coefficients.
-     */
     template <int dim>
     void Scalar<dim>::evaluate_and_average_recovery_solution(
       const RecoveryType type,
       const unsigned int derivative_order,
       const unsigned int reconstruction_component,
-      const bool         gradient)
+      const bool         compute_gradient)
     {
       const auto &coefficients =
         this
@@ -1043,14 +1248,15 @@ namespace ErrorEstimation
 
       // Reset this component in local_recovery_solution
       std::vector<bool> component_mask(this->n_components, false);
-      if (gradient)
+      if (compute_gradient)
       {
-        unsigned int offset = 1; // components of solution
+        unsigned int offset = gradient_offset;
         if (type == RecoveryType::gradient)
-          offset += gradient_type::n_independent_components +
-                    reconstruction_component * dim;
-        else if (type == RecoveryType::hessian)
-          DEAL_II_NOT_IMPLEMENTED();
+          offset = hessian_offset;
+        if (type == RecoveryType::hessian)
+          offset = third_derivative_offset;
+
+        offset += reconstruction_component * dim;
 
         for (unsigned int d = 0; d < dim; ++d)
           component_mask[offset + d] = true;
@@ -1063,6 +1269,9 @@ namespace ErrorEstimation
           component_mask[gradient_offset + reconstruction_component] = true;
         else if (type == RecoveryType::hessian)
           component_mask[hessian_offset + reconstruction_component] = true;
+        else if (type == RecoveryType::third_derivatives)
+          component_mask[third_derivative_offset + reconstruction_component] =
+            true;
         else
           DEAL_II_NOT_IMPLEMENTED();
       }
@@ -1082,29 +1291,26 @@ namespace ErrorEstimation
           for (const auto &data : patch.neighbours)
             if (std::abs(data.averaging_weight) > 1e-14)
             {
-              Point<dim> pt = data.local_pt;
-
-              // Scale back?
-              // FIXME: it's probably more robust to keep the coefficients
-              // scaled in reconstruct_field(), and to keep the local coord
-              // here as well, instead of scaling back both...
-              for (unsigned int d = 0; d < dim; ++d)
-                pt[d] *= patch.scaling[d];
-
-              if (gradient)
+              if (compute_gradient)
               {
                 // Evaluate the gradient of the polynomial reconstruction at
                 // this dof's support point.
-                const Tensor<1, dim> grad = this->evaluate_polynomial_gradient(
-                  pt, *this->monomials_recovery, coeffs, basis_gradients);
+                const Tensor<1, dim> grad =
+                  this->evaluate_polynomial_gradient(data.local_pt,
+                                                     *this->monomials_recovery,
+                                                     coeffs,
+                                                     basis_gradients,
+                                                     patch.scaling);
 
                 for (unsigned int d = 0; d < dim; ++d)
                 {
                   const double val = data.averaging_weight * grad[d];
 
-                  // Get the dof to increment in the recovery solution
-                  // Since this is the gradient, take the dof from the
-                  // appropriate derviative
+                  /* Get the dof index to increment in the recovery solution.
+                   * Since we are averaging the gradient of the last obtained
+                   * polynomials, get the dof index from the appropriate
+                   * derivative dof map.
+                   */
                   unsigned int dof = numbers::invalid_unsigned_int;
                   if (type == RecoveryType::solution)
                   {
@@ -1117,11 +1323,17 @@ namespace ErrorEstimation
                     Assert(solution_dofs_to_hessian_dofs.count(data.dof) > 0,
                            ExcInternalError());
                     dof = solution_dofs_to_hessian_dofs.at(
-                      data.dof)[reconstruction_component *
-                                  gradient_type::n_independent_components +
-                                d];
+                      data.dof)[reconstruction_component * dim + d];
                   }
                   else if (type == RecoveryType::hessian)
+                  {
+                    Assert(solution_dofs_to_third_derivatives_dofs.count(
+                             data.dof) > 0,
+                           ExcInternalError());
+                    dof = solution_dofs_to_third_derivatives_dofs.at(
+                      data.dof)[reconstruction_component * dim + d];
+                  }
+                  else
                   {
                     DEAL_II_NOT_IMPLEMENTED();
                   }
@@ -1142,7 +1354,7 @@ namespace ErrorEstimation
                 // Evaluate the polynomial reconstruction
                 const double val =
                   data.averaging_weight *
-                  this->evaluate_polynomial(pt,
+                  this->evaluate_polynomial(data.local_pt,
                                             *this->monomials_recovery,
                                             coeffs,
                                             basis);
@@ -1169,6 +1381,10 @@ namespace ErrorEstimation
                          ExcInternalError());
                   dof = solution_dofs_to_hessian_dofs.at(
                     data.dof)[reconstruction_component];
+                }
+                else
+                {
+                  DEAL_II_NOT_IMPLEMENTED();
                 }
 
                 Assert(dof != numbers::invalid_unsigned_int,
@@ -1256,12 +1472,24 @@ namespace ErrorEstimation
               this->recovery_solution,
               vertices_to_hessian_dofs);
         }
+        else if (type == RecoveryType::hessian)
+        {
+          if (this->highest_recovered_derivative >= derivative_order + 1)
+            // Store vertex-based third derivatives in FE solution
+            this->template vertex_to_isoparametric<
+              3,
+              third_derivative_type::n_independent_components>(
+              recovered_third_derivatives_at_vertices,
+              this->local_recovery_solution,
+              this->recovery_solution,
+              vertices_to_third_derivatives_dofs);
+        }
         else
           DEAL_II_NOT_IMPLEMENTED();
 
         if (this->single_reconstruction)
         {
-          if (this->degree >= 1)
+          if (this->highest_recovered_derivative > 1)
             this->template vertex_to_isoparametric<
               2,
               hessian_type::n_independent_components>(
@@ -1269,6 +1497,14 @@ namespace ErrorEstimation
               this->local_recovery_solution,
               this->recovery_solution,
               vertices_to_hessian_dofs);
+          if (this->highest_recovered_derivative > 2)
+            this->template vertex_to_isoparametric<
+              3,
+              third_derivative_type::n_independent_components>(
+              recovered_third_derivatives_at_vertices,
+              this->local_recovery_solution,
+              this->recovery_solution,
+              vertices_to_third_derivatives_dofs);
         }
       }
       else
@@ -1287,7 +1523,7 @@ namespace ErrorEstimation
           evaluate_and_average_recovery_solution(type,
                                                  derivative_order,
                                                  reconstruction_component,
-                                                 false);
+                                                 /* compute_gradient =*/false);
 
         if (this->highest_recovered_derivative >= derivative_order + 1)
         {
@@ -1295,79 +1531,9 @@ namespace ErrorEstimation
           evaluate_and_average_recovery_solution(type,
                                                  derivative_order,
                                                  reconstruction_component,
-                                                 true);
+                                                 /* compute_gradient =*/true);
         }
       }
-    }
-
-    // Get the solution field u_h at the vertices of a patch
-    template <int dim>
-    void get_solution_values_on_patch(
-      const LA::ParVectorType &solution_with_additional_ghosts,
-      const Patch<dim>        &patch,
-      dealii::Vector<double>  &values_out)
-    {
-      unsigned int i = 0;
-      for (const auto &data : patch.neighbours)
-      {
-        values_out[i] = solution_with_additional_ghosts[data.dof];
-        ++i;
-      }
-    }
-
-    template <int dim>
-    void Base<dim>::solve_least_squares_problem(const unsigned int vertex_index,
-                                                dealii::Vector<double> &coeffs)
-    {
-      const Patch<dim> &patch  = this->patches[vertex_index];
-      const auto       &ls_mat = this->least_squares_matrices[vertex_index];
-      dealii::Vector<double> rhs(ls_mat.n());
-
-      // Extract local solution values for each component
-      get_solution_values_on_patch(this->solution_with_additional_ghosts,
-                                   patch,
-                                   rhs);
-
-      // Solve the least-squares system
-      ls_mat.vmult(coeffs, rhs);
-
-      // Scale back
-      // FIXME: see other comment on scaling.
-      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
-        coeffs[i] /= this->monomials_recovery->compute_value(i, patch.scaling);
-    }
-
-    // Compute gradient at origin = sum_i coeffs_i * grad(P_i)(0)
-    template <int dim>
-    Tensor<1, dim> Base<dim>::gradient_at_origin(
-      const dealii::Vector<double> &polynomial_coeffs) const
-    {
-      Tensor<1, dim> grad;
-      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
-        grad += polynomial_coeffs[i] * this->gradients_of_recovery_monomials[i];
-      return grad;
-    }
-
-    // Compute hessian at origin = sum_i coeffs_i * hess(P_i)(0)
-    template <int dim>
-    Tensor<2, dim> Base<dim>::hessian_at_origin(
-      const dealii::Vector<double> &polynomial_coeffs) const
-    {
-      Tensor<2, dim> hess;
-      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
-        hess += polynomial_coeffs[i] * this->hessians_of_recovery_monomials[i];
-      return hess;
-    }
-
-    template <int dim>
-    Tensor<3, dim> Base<dim>::third_derivatives_at_origin(
-      const dealii::Vector<double> &polynomial_coeffs) const
-    {
-      Tensor<3, dim> res;
-      for (unsigned int i = 0; i < this->dim_recovery_basis; ++i)
-        res += polynomial_coeffs[i] *
-               this->third_derivatives_of_recovery_monomials[i];
-      return res;
     }
 
     template <int dim>
@@ -1382,22 +1548,24 @@ namespace ErrorEstimation
        * each previously reconstructed component is reconstructed.
        */
       RecoveryType type;
-      unsigned int n_components_to_reconstruct, n_components_to_obtain;
+      unsigned int n_components_to_reconstruct, n_components_to_store;
       if (derivative_order == 0)
       {
         // Reconstruct the scalar field, yielding a scalar field.
         // Store 1 polynomial at each mesh vertex.
         type                        = RecoveryType::solution;
         n_components_to_reconstruct = n_solution_components;
-        n_components_to_obtain      = n_solution_components;
+        n_components_to_store       = n_solution_components;
       }
       else if (derivative_order == 1)
       {
-        // Reconstruct the gradient of a scalar field.
-        // Store *dim* polynomials at each mesh vertex.
+        // Reconstruct the gradient of a scalar field, that is, take the
+        // gradient of n_solution_components (= 1) component, and reconstruct
+        // each compoennt of this gradient. Store these *dim* polynomials at
+        // each mesh vertex.
         type                        = RecoveryType::gradient;
         n_components_to_reconstruct = n_solution_components;
-        n_components_to_obtain      = gradient_type::n_independent_components;
+        n_components_to_store       = gradient_type::n_independent_components;
       }
       else if (derivative_order == 2)
       {
@@ -1405,14 +1573,23 @@ namespace ErrorEstimation
         // Store *dim*dim* polynomials at each mesh vertex.
         type                        = RecoveryType::hessian;
         n_components_to_reconstruct = gradient_type::n_independent_components;
-        n_components_to_obtain      = hessian_type::n_independent_components;
+        n_components_to_store       = hessian_type::n_independent_components;
+      }
+      else if (derivative_order == 3)
+      {
+        type                        = RecoveryType::third_derivatives;
+        n_components_to_reconstruct = hessian_type::n_independent_components;
+        n_components_to_store = third_derivative_type::n_independent_components;
       }
       else
         DEAL_II_NOT_IMPLEMENTED();
 
       this->recoveries_coefficients[derivative_order].resize(
-        n_components_to_obtain);
+        n_components_to_store);
 
+      /**
+       * Loop over each tensor component to reconstruct.
+       */
       for (unsigned int i_comp = 0; i_comp < n_components_to_reconstruct;
            ++i_comp)
       {
@@ -1426,11 +1603,16 @@ namespace ErrorEstimation
 
         for (unsigned int d = 0; d < dim_to_reconstruct; ++d)
         {
-          const unsigned int comp_to_reconstruct =
-            i_comp * dim_to_reconstruct + d;
+          // Local component within the solution, gradient, hessian, etc. array
+          // This is in the following half-open intervals:
+          //  derivative_order = 0 : [0, 1)
+          //  derivative_order = 1 : [0, dim)
+          //  derivative_order = 2 : [0, dim * dim)
+          // etc.
+          const unsigned int local_component = i_comp * dim_to_reconstruct + d;
+
           auto &coefficients =
-            this
-              ->recoveries_coefficients[derivative_order][comp_to_reconstruct];
+            this->recoveries_coefficients[derivative_order][local_component];
           coefficients.resize(this->n_vertices);
 
           if (derivative_order > 0)
@@ -1450,6 +1632,9 @@ namespace ErrorEstimation
             if (!this->owned_vertices[v])
               continue;
 
+            /**
+             * Solve the least-squares problem
+             */
             auto &coeffs = coefficients[v];
             coeffs.reinit(this->dim_recovery_basis);
             this->solve_least_squares_problem(v, coeffs);
@@ -1459,36 +1644,54 @@ namespace ErrorEstimation
             {
               recovered_solution_at_vertices[v] = coeffs[0];
               recovered_gradient_at_vertices[v] =
-                this->gradient_at_origin(coeffs);
+                this->gradient_at_origin(coeffs, this->patches[v].scaling);
 
+              /**
+               * If a single reconstruction is required (to reduce the noise
+               * from successive reconstructions), then we evaluate directly
+               * all the derivatives up to the required order.
+               */
               if (this->single_reconstruction)
               {
-                /**
-                 * Evaluate directly the derivatives of order p + 1
-                 */
-                if (this->degree >= 1)
+                if (this->highest_recovered_derivative > 1)
                   recovered_hessian_at_vertices[v] =
-                    this->hessian_at_origin(coeffs);
-                if (this->degree >= 2)
+                    this->hessian_at_origin(coeffs, this->patches[v].scaling);
+                if (this->highest_recovered_derivative > 2)
+                  recovered_third_derivatives_at_vertices[v] =
+                    this->third_derivatives_at_origin(coeffs,
+                                                      this->patches[v].scaling);
+                if (this->highest_recovered_derivative > 3)
                 {
-                  // FIXME: uncomment when third derivatives are added
-                  // recovered_third_derivatives_at_vertices[v] =
-                  // this->third_derivatives_at_origin(coeffs);
+                  DEAL_II_NOT_IMPLEMENTED();
                 }
               }
             }
             else if (derivative_order == 1)
             {
-              // The gradient was already stored, by it has been reconstructed
+              // The gradient was already stored, but it has been reconstructed
               // with a polynomial of degree p + 1. Update its values with the
-              // more accurate values
-              recovered_gradient_at_vertices[v][d] = coeffs[0];
+              // "more accurate" values.
+              //
+              // NOTE: Updating the gradient is optional, as these values may
+              // not be more accurate as it was obtained from a second
+              // least-squares fitting. In the tests in ppr_0*.cc, the error is
+              // slightly less important *without* updating the gradient.
+              // recovered_gradient_at_vertices[v][d] = coeffs[0];
+
               recovered_hessian_at_vertices[v][d] =
-                this->gradient_at_origin(coeffs);
+                this->gradient_at_origin(coeffs, this->patches[v].scaling);
             }
             else if (derivative_order == 2)
             {
-              DEAL_II_NOT_IMPLEMENTED();
+              const unsigned int di = i_comp;
+              const unsigned int dj = d;
+
+              // Same comment here: update (or not) the hessians with the data
+              //  from the latest polynomial fitting.
+              // recovered_hessian_at_vertices[v][di][dj] = coeffs[0];
+
+              recovered_third_derivatives_at_vertices[v][di][dj] =
+                this->gradient_at_origin(coeffs, this->patches[v].scaling);
             }
             else
               DEAL_II_NOT_IMPLEMENTED();
@@ -1499,14 +1702,15 @@ namespace ErrorEstimation
            * This function assigns the values at dofs and defines the PPR
            * operator per se.
            */
-          update_recovery_solution(type, derivative_order, d);
+          update_recovery_solution(type, derivative_order, local_component);
         }
       }
     }
 
     template <int dim>
-    void Scalar<dim>::write_pvtu(const Mapping<dim> &mapping,
-                                 const std::string  &filename) const
+    void
+    Scalar<dim>::write_pvtu(const Mapping<dim> &mapping,
+                            const std::string &filename_without_extension) const
     {
       std::vector<std::string> data_names(this->n_components);
       std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -1532,6 +1736,24 @@ namespace ErrorEstimation
           data_interpretation[hessian_offset + i] =
             DataComponentInterpretation::component_is_part_of_tensor;
         }
+      if (this->highest_recovered_derivative > 2)
+      {
+        // Rank 3 tensors cannot be exported as is, instead they are exported
+        // by writing the hessian of each gradient component.
+        for (unsigned int d = 0; d < dim; ++d)
+          for (unsigned int i = 0; i < hessian_type::n_independent_components;
+               ++i)
+          {
+            data_names[third_derivative_offset +
+                       d * hessian_type::n_independent_components + i] =
+              "third_derivatives_(hessian_of_grad_comp_" + std::to_string(d) +
+              ")";
+            data_interpretation[third_derivative_offset +
+                                d * hessian_type::n_independent_components +
+                                i] =
+              DataComponentInterpretation::component_is_part_of_tensor;
+          }
+      }
 
       DataOut<dim> data_out;
       data_out.attach_dof_handler(this->dh);
@@ -1540,8 +1762,11 @@ namespace ErrorEstimation
                                DataOut<dim>::type_dof_data,
                                data_interpretation);
       data_out.build_patches(mapping, 2);
-      data_out.write_vtu_with_pvtu_record(
-        "./", filename, 0, this->mpi_communicator, 2);
+      data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
+                                          filename_without_extension,
+                                          0,
+                                          this->mpi_communicator,
+                                          2);
     }
 
     template class Base<2>;

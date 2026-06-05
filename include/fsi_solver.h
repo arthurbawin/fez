@@ -37,7 +37,7 @@ protected:
   static constexpr unsigned int index_fe_with_lambda    = 1;
 
   using ScratchData = ScratchDataFSI_hp<dim>;
-  using CopyData    = MyCopyData<dim, n_hp_partitions>;
+  using CopyData    = CopyDataBase<n_hp_partitions>;
 
 public:
   /**

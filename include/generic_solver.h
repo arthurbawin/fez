@@ -137,6 +137,13 @@ public:
   should_add_error_reference_data(const TimeHandler &time_handler) const;
 
   /**
+   * Return true if velocity constraints enforced with a Lagrange multiplier
+   * should be checked for accuracy.
+   */
+  virtual bool
+  should_check_weakly_enforced_velocity(const TimeHandler &time_handler) const;
+
+  /**
    * Return true if the solver should reconstruct the solution (and optionally
    * its derivatives) with the polynomial-preserving operator.
    */
@@ -148,8 +155,9 @@ public:
    * Return true if the solver should compute or update its Riemannian
    * metric(s).
    */
-  virtual bool
-  should_compute_riemannian_metric(const TimeHandler &time_handler) const;
+  template <int dim>
+  bool should_compute_riemannian_metric(const ParameterReader<dim> &param,
+                                        const TimeHandler &time_handler) const;
 
   /**
    * Return the (ghosted) solution vector.

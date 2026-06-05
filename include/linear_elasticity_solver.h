@@ -55,6 +55,7 @@ template <int dim>
 class LinearElasticitySolver : public GenericSolver<LA::ParVectorType>
 {
   using ScratchData = ScratchDataLinearElasticity<dim>;
+  using CopyData    = CopyDataBase<1>;
 
 public:
   /**

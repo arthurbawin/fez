@@ -1,16 +1,37 @@
 #ifndef METRIC_FIELD_PARAMETERS_H
 #define METRIC_FIELD_PARAMETERS_H
 
-using namespace dealii;
-
 #include <metric_tensor.h>
 #include <parameters.h>
 #include <parsed_function_symengine.h>
+#include <solver_info.h>
 
 namespace Parameters
 {
+  using namespace dealii;
+
   /**
-   * A single metric tensor field for anisotropic mesh adaptation
+   * Generic parameters related to metric fields.
+   */
+  struct MetricFields
+  {
+    /**
+     * Id of the metric field used to adapt the mesh(es)
+     */
+    unsigned int metric_for_adaptation;
+
+    /**
+     * This flags specifies if the metric fields should be computed even if mesh
+     * adaptation is disabled (for debug mostly).
+     */
+    bool always_compute;
+
+    void declare_parameters(ParameterHandler &prm) const;
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  /**
+   * Parameters for a single metric field.
    */
   template <int dim>
   class MetricField
@@ -19,6 +40,46 @@ namespace Parameters
     Verbosity verbosity;
     unsigned int mesh_quality_output_frequency;
     std::string  mesh_quality_output_name;
+
+    // The unique index of this field, in [0, n_metric_fields)
+    unsigned int id;
+
+    // A flag specifying if these parameters are the ones used to adapt the mesh
+    // Several metric fields can be defined, then the intersection of these can
+    // be chosen as the metric for adaptation, for instance.
+    bool use_for_adaptation;
+
+    /**
+     * The "type" of metric that should be computed. For now only two choices:
+     *
+     * - "interpolation_error" refers to the optimal multiscale metric that
+     *   minimizes in W^{s,p} norm an interpolation error estimate based on
+     *   Taylor remainders. This metric is currently used for most mesh
+     * adaptation applications.
+     *
+     * - "graph" refers to the the metric induced by the graph of a function
+     *   (x, f(x)) with x in R^dim. This metric is simply given by
+     *
+     *   [M] = I + grad(f) \otimes grad(f), with I the identity tensor.
+     *
+     *   This metric does not hold any information regarding an error estimate,
+     *   and thus cannot be used as-is for mesh adaptation. It is currently used
+     *   to measure the quality of a deformed mesh with respect to a scalar
+     * field.
+     */
+    enum class MetricType
+    {
+      interpolation_error,
+      graph
+    } type;
+
+    // The variable from which the underlying metric field is computed
+    SolverInfo::VariableType variable;
+
+    // Metric fields are only defined from a scalar field.
+    // If variable is vector-valued, the chosen vector component of the variable
+    // above.
+    unsigned int component;
 
     // Min and max allowed mesh size along any principal direction
     double min_meshsize;
@@ -57,6 +118,8 @@ namespace Parameters
      * for s = 0, H^1 seminorm for s = 1, p = 2). This metric is the one
      * described by F. Alauzet & A. Loseille [ref], as well as J.-M. Mirebeau
      * [ref].
+     *
+     * These parameters are relevant only if type is "interpolation_error".
      */
     struct MultiscaleMetric
     {
@@ -107,6 +170,10 @@ namespace Parameters
       bool use_analytical_derivatives;
     } multiscale;
 
+    /**
+     * Parameters controlling the gradation (size limitation or smoothing)
+     * of the metric field.
+     */
     struct Gradation
     {
       Verbosity verbosity;
@@ -125,6 +192,18 @@ namespace Parameters
       // Space in which a single metric spans a full metric field
       typename MetricTensor<dim>::SpanningSpace spanning_space;
     } gradation;
+
+    /**
+     * Parameters specifying whether this field is the intersection of one or
+     * more other fields.
+     */
+    struct Intersection
+    {
+      Verbosity verbosity;
+
+      // List of metric field ids with which this metric will be intersected
+      std::vector<unsigned int> intersect_with;
+    } intersection;
 
   public:
     /**
@@ -165,41 +244,68 @@ namespace Parameters
   void
   read_metric_fields(ParameterHandler              &prm,
                      const unsigned int             n_metric_fields,
-                     std::vector<MetricField<dim>> &metric_fields_parameters);
+                     std::vector<MetricField<dim>> &metric_fields_parameters,
+                     unsigned int                  &metric_for_adaptation);
 } // namespace Parameters
 
 /* ---------------- template and inline functions ----------------- */
 
-template <int dim>
-void Parameters::declare_metric_fields(ParameterHandler  &prm,
-                                       const unsigned int n_metric_fields)
+namespace Parameters
 {
-  const MetricField<dim> dummy_metric_field;
-  prm.enter_subsection("Metric tensor fields");
+  template <int dim>
+  void declare_metric_fields(ParameterHandler   &prm,
+                             const unsigned int  n_metric_fields,
+                             const MetricFields &metrics_parameters)
   {
-    prm.declare_entry("number",
-                      "0",
-                      Patterns::Integer(),
-                      "Number of metric tensor fields");
-    for (unsigned int i = 0; i < n_metric_fields; ++i)
-      dummy_metric_field.declare_parameters(prm, i);
+    const MetricField<dim> dummy_metric_field;
+    prm.enter_subsection("Metric tensor fields");
+    {
+      metrics_parameters.declare_parameters(prm);
+      for (unsigned int i = 0; i < n_metric_fields; ++i)
+        dummy_metric_field.declare_parameters(prm, i);
+    }
+    prm.leave_subsection();
   }
-  prm.leave_subsection();
-}
 
-template <int dim>
-void Parameters::read_metric_fields(
-  ParameterHandler                          &prm,
-  const unsigned int                         n_metric_fields,
-  std::vector<Parameters::MetricField<dim>> &metric_fields_parameters)
-{
-  prm.enter_subsection("Metric tensor fields");
+  template <int dim>
+  void
+  read_metric_fields(ParameterHandler              &prm,
+                     const unsigned int             n_metric_fields,
+                     MetricFields                  &metrics_parameters,
+                     std::vector<MetricField<dim>> &metric_fields_parameters)
   {
-    // Number of fields was already parsed
-    for (unsigned int i = 0; i < n_metric_fields; ++i)
-      metric_fields_parameters[i].read_parameters(prm, i);
+    prm.enter_subsection("Metric tensor fields");
+    {
+      metrics_parameters.read_parameters(prm);
+
+      if (n_metric_fields > 0)
+        AssertThrow(metrics_parameters.metric_for_adaptation < n_metric_fields,
+                    ExcMessage(
+                      "You specified that the mesh(es) should be "
+                      "adapted with the metric field with index " +
+                      std::to_string(metrics_parameters.metric_for_adaptation) +
+                      ", but this index is not in the half-open "
+                      "interval [0, n_metric_fields)."));
+
+      for (unsigned int i = 0; i < n_metric_fields; ++i)
+      {
+        metric_fields_parameters[i].id = i;
+        metric_fields_parameters[i].use_for_adaptation =
+          (i == metrics_parameters.metric_for_adaptation);
+        metric_fields_parameters[i].read_parameters(prm, i);
+
+        for (auto other_id :
+             metric_fields_parameters[i].intersection.intersect_with)
+          AssertThrow(other_id < n_metric_fields,
+                      ExcMessage("Metric field " + std::to_string(i) +
+                                 " should be intersected with metric field " +
+                                 std::to_string(other_id) +
+                                 ", but this index is not in the half-open "
+                                 "interval [0, n_metric_fields)."));
+      }
+    }
+    prm.leave_subsection();
   }
-  prm.leave_subsection();
-}
+} // namespace Parameters
 
 #endif

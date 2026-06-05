@@ -35,6 +35,7 @@ template <int dim>
 class FSISolver : public NavierStokesSolver<dim, true>
 {
   using ScratchData = ScratchDataFSI<dim>;
+  using CopyData    = CopyDataBase<1>;
   using Coupling    = typename Parameters::FSI<dim>::CouplingStrategy;
 
 public:

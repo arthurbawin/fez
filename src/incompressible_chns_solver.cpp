@@ -312,14 +312,14 @@ void CHNSSolver<dim,
     if (bc.type == BoundaryConditions::Type::dirichlet_mms)
     {
       VectorTools::interpolate_boundary_values(*this->moving_mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                Functions::ZeroFunction<dim>(
                                                  this->ordering->n_components),
                                                this->zero_constraints,
                                                tracer_mask);
       VectorTools::interpolate_boundary_values(*this->moving_mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                Functions::ZeroFunction<dim>(
                                                  this->ordering->n_components),
@@ -328,7 +328,7 @@ void CHNSSolver<dim,
       if constexpr (with_enlarged)
         VectorTools::interpolate_boundary_values(
           *this->moving_mapping,
-          this->dof_handler,
+          *this->dof_handler,
           id,
           Functions::ZeroFunction<dim>(this->ordering->n_components),
           this->zero_constraints,
@@ -338,7 +338,7 @@ void CHNSSolver<dim,
     if (bc.type == BoundaryConditions::Type::input_function)
       VectorTools::interpolate_boundary_values(
         *this->moving_mapping,
-        this->dof_handler,
+        *this->dof_handler,
         id,
         Functions::ZeroFunction<dim>(this->ordering->n_components),
         this->zero_constraints,
@@ -358,20 +358,20 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
     if (bc.type == BoundaryConditions::Type::dirichlet_mms)
     {
       VectorTools::interpolate_boundary_values(*this->moving_mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                *this->exact_solution,
                                                this->nonzero_constraints,
                                                tracer_mask);
       VectorTools::interpolate_boundary_values(*this->moving_mapping,
-                                               this->dof_handler,
+                                               *this->dof_handler,
                                                id,
                                                *this->exact_solution,
                                                this->nonzero_constraints,
                                                potential_mask);
       if constexpr (with_enlarged)
         VectorTools::interpolate_boundary_values(*this->moving_mapping,
-                                                 this->dof_handler,
+                                                 *this->dof_handler,
                                                  id,
                                                  *this->exact_solution,
                                                  this->nonzero_constraints,
@@ -381,7 +381,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
     if (bc.type == BoundaryConditions::Type::input_function)
       VectorTools::interpolate_boundary_values(
         *this->moving_mapping,
-        this->dof_handler,
+        *this->dof_handler,
         id,
         ScalarFunctionFromComponents<dim>(this->ordering->phi_lower,
                                           this->ordering->n_components,
@@ -402,7 +402,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
 
   // Set tracer only
   VectorTools::interpolate(*this->moving_mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *tracer_fun,
                            this->newton_update,
                            tracer_mask);
@@ -416,7 +416,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
              this->param.initial_conditions.initial_chns_enlarged_psi.get()) :
            tracer_fun);
     VectorTools::interpolate(*this->moving_mapping,
-                             this->dof_handler,
+                             *this->dof_handler,
                              *psi_fun,
                              this->newton_update,
                              psi_mask);
@@ -429,18 +429,18 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
 {
   // Set tracer and potential
   VectorTools::interpolate(*this->moving_mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *this->exact_solution,
                            this->local_evaluation_point,
                            tracer_mask);
   VectorTools::interpolate(*this->moving_mapping,
-                           this->dof_handler,
+                           *this->dof_handler,
                            *this->exact_solution,
                            this->local_evaluation_point,
                            potential_mask);
   if constexpr (with_enlarged)
     VectorTools::interpolate(*this->moving_mapping,
-                             this->dof_handler,
+                             *this->dof_handler,
                              *this->exact_solution,
                              this->local_evaluation_point,
                              psi_mask);
@@ -496,7 +496,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::create_sparsity_pattern()
   CHNSEnlargedOps<dim, with_moving_mesh, with_enlarged>::extend_coupling_table(
     *this->ordering, this->param.finite_elements.stabilization, coupling_table);
 
-  DoFTools::make_sparsity_pattern(this->dof_handler,
+  DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   coupling_table,
                                   dsp,
                                   this->nonzero_constraints,
@@ -520,7 +520,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_matrix()
 
   this->system_matrix = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -534,13 +534,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_matrix()
                       &CHNSSolver::assemble_local_matrix_finite_differences;
 
   // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   assembly_ptr,
                   &CHNSSolver::copy_local_to_global_matrix,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_matrix.compress(VectorOperation::add);
 }
@@ -575,11 +575,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix;
+  auto &local_matrix = copy_data.local_matrix();
   local_matrix       = 0;
 
   /**
@@ -976,7 +976,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
       local_matrix);
   }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
@@ -986,8 +986,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_matrix(),
+                                                    copy_data.dof_indices(),
                                                     this->system_matrix);
 }
 
@@ -995,17 +995,17 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   compare_analytical_matrix_with_fd()
 {
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   auto errors = Verification::compare_analytical_matrix_with_fd(
-    this->dof_handler,
+    *this->dof_handler,
     fe->n_dofs_per_cell(),
     *this,
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
     *scratch_data,
-    copyData,
-    this->present_solution,
+    copy_data,
+    *this->present_solution,
     this->evaluation_point,
     this->local_evaluation_point,
     this->mpi_communicator,
@@ -1032,16 +1032,16 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_rhs()
 
   this->system_rhs = 0;
 
-  CopyData copyData(fe->n_dofs_per_cell());
+  CopyData copy_data(*fe);
 
   // Assemble RHS (multithreaded if supported)
-  WorkStream::run(this->dof_handler.begin_active(),
-                  this->dof_handler.end(),
+  WorkStream::run(this->dof_handler->begin_active(),
+                  this->dof_handler->end(),
                   *this,
                   &CHNSSolver::assemble_local_rhs,
                   &CHNSSolver::copy_local_to_global_rhs,
                   *scratch_data,
-                  copyData);
+                  copy_data);
 
   this->system_rhs.compress(VectorOperation::add);
 }
@@ -1059,11 +1059,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
 
   scratch_data.reinit(cell,
                       this->evaluation_point,
-                      this->previous_solutions,
+                      *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs;
+  auto &local_rhs = copy_data.local_rhs();
   local_rhs       = 0;
 
   const double sigma_tilde_over_eps =
@@ -1218,7 +1218,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
       }
     }
 
-  cell->get_dof_indices(copy_data.local_dof_indices);
+  cell->get_dof_indices(copy_data.dof_indices());
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
@@ -1228,8 +1228,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::copy_local_to_global_rhs(
   if (!copy_data.cell_is_locally_owned)
     return;
 
-  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs,
-                                                    copy_data.local_dof_indices,
+  this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
+                                                    copy_data.dof_indices(),
                                                     this->system_rhs);
 }
 
@@ -1249,7 +1249,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
 
   auto density_field =
     std::make_unique<PostProcessingTools::DG0DataField<dim>>(
-      this->triangulation,
+      *this->triangulation,
       fe->reference_cell().is_hyper_cube(),
       std::vector<std::string>{"density"},
       std::vector<DataComponentInterpretation::DataComponentInterpretation>{
@@ -1261,11 +1261,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
                           update_values | update_JxW_values);
   std::vector<double> tracer_values(this->quadrature->size());
 
-  for (const auto &cell : this->dof_handler.active_cell_iterators())
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
     if (cell->is_locally_owned())
     {
       fe_values.reinit(cell);
-      fe_values[tracer_extractor].get_function_values(this->present_solution,
+      fe_values[tracer_extractor].get_function_values(*this->present_solution,
                                                        tracer_values);
 
       double density_average = 0.0;
@@ -1292,13 +1292,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
       *this->fixed_mapping,
       this->get_fe_system(),
       *this->quadrature,
-      this->dof_handler,
+      *this->dof_handler,
       this->velocity_extractor,
       this->position_extractor,
       tracer_extractor,
       psi_extractor,
-      this->present_solution,
-      this->previous_solutions,
+      *this->present_solution,
+      *this->previous_solutions,
       this->time_handler,
       this->param.cahn_hilliard,
       *this->postproc_handler);
@@ -1344,14 +1344,15 @@ std::vector<Tensor<2, dim>>
 CHNSSolver<dim, with_moving_mesh, with_enlarged>::compute_vertexwise_F_inv_T()
   const
 {
-  std::vector<Tensor<2, dim>> vertex_F_inv_T(this->triangulation.n_vertices());
-  std::vector<double>         vertex_weights(this->triangulation.n_vertices(),
+  std::vector<Tensor<2, dim>> vertex_F_inv_T(
+    this->triangulation->n_vertices());
+  std::vector<double>         vertex_weights(this->triangulation->n_vertices(),
                                      0.0);
   std::vector<bool>           owned_vertices;
 
-  get_owned_mesh_vertices(this->triangulation,
+  get_owned_mesh_vertices(*this->triangulation,
                           Utilities::MPI::this_mpi_process(
-                            this->triangulation.get_mpi_communicator()),
+                            this->triangulation->get_mpi_communicator()),
                           owned_vertices);
 
   QGaussSimplex<dim> cell_quadrature(2);
@@ -1361,14 +1362,14 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::compute_vertexwise_F_inv_T()
                           update_gradients | update_JxW_values);
   std::vector<Tensor<2, dim>> position_gradients(cell_quadrature.size());
 
-  for (const auto &cell : this->dof_handler.active_cell_iterators())
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
   {
     if (cell->is_artificial())
       continue;
 
     fe_values.reinit(cell);
     fe_values[this->position_extractor].get_function_gradients(
-      this->present_solution, position_gradients);
+      *this->present_solution, position_gradients);
 
     Tensor<2, dim> averaged_F_inv_T;
     double         cell_weight = 0.0;
@@ -1394,7 +1395,7 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::compute_vertexwise_F_inv_T()
     }
   }
 
-  for (types::global_vertex_index v = 0; v < this->triangulation.n_vertices();
+  for (types::global_vertex_index v = 0; v < this->triangulation->n_vertices();
        ++v)
     if (owned_vertices[v] && vertex_weights[v] > 0.0)
       vertex_F_inv_T[v] /= vertex_weights[v];
@@ -1416,14 +1417,14 @@ void CHNSSolver<dim,
   const auto                  vertex_F_inv_T = compute_vertexwise_F_inv_T();
   std::vector<bool>           owned_vertices;
 
-  get_owned_mesh_vertices(this->triangulation,
+  get_owned_mesh_vertices(*this->triangulation,
                           Utilities::MPI::this_mpi_process(
-                            this->triangulation.get_mpi_communicator()),
+                            this->triangulation->get_mpi_communicator()),
                           owned_vertices);
 
   // Recover phi on the reference mesh and push its nodal gradient forward to
   // the studied ALE configuration through a vertex-averaged F^{-T}.
-  for (types::global_vertex_index v = 0; v < this->triangulation.n_vertices();
+  for (types::global_vertex_index v = 0; v < this->triangulation->n_vertices();
        ++v)
     if (owned_vertices[v])
       transported_gradient[v] = vertex_F_inv_T[v] * transported_gradient[v];
@@ -1446,10 +1447,10 @@ void CHNSSolver<dim,
               ExcMessage("Metric quality output is currently implemented "
                          "only for simplex meshes."));
 
-  ErrorEstimation::PatchHandler<dim> patch_handler(this->triangulation,
+  ErrorEstimation::PatchHandler<dim> patch_handler(*this->triangulation,
                                                    *this->fixed_mapping,
-                                                   this->dof_handler,
-                                                   this->present_solution,
+                                                   *this->dof_handler,
+                                                   *this->present_solution,
                                                    this->param
                                                        .finite_elements
                                                        .tracer_degree +
@@ -1463,14 +1464,14 @@ void CHNSSolver<dim,
   ErrorEstimation::SolutionRecovery::Scalar<dim> recovery(1,
                                                           this->param,
                                                           patch_handler,
-                                                          this->dof_handler,
-                                                          this->present_solution,
+                                                          *this->dof_handler,
+                                                          *this->present_solution,
                                                           *fe,
                                                           *this->fixed_mapping,
                                                           tracer_mask);
 
   this->computing_timer.enter_subsection("Reconstruct fields and derivatives");
-  recovery.reconstruct_fields(this->present_solution);
+  recovery.reconstruct_fields(*this->present_solution);
   this->computing_timer.leave_subsection();
 
   const Mapping<dim> &study_mapping =
@@ -1479,7 +1480,7 @@ void CHNSSolver<dim,
   if constexpr (with_moving_mesh)
     transport_reconstructed_phi_gradient(recovery);
 
-  MetricField<dim> field(0, this->param, this->triangulation);
+  MetricField<dim> field(0, this->param, *this->triangulation);
   field.set_induced_metric_from_graph(recovery);
   field.apply_gradation();
 
@@ -1492,7 +1493,7 @@ void CHNSSolver<dim,
                                      edge_quadrature);
 
   DataOut<dim> data_out;
-  data_out.attach_triangulation(this->triangulation);
+  data_out.attach_triangulation(*this->triangulation);
   data_out.add_data_vector(cell_quality,
                            "cell_quality",
                            DataOut<dim>::type_cell_data);
@@ -1503,7 +1504,7 @@ void CHNSSolver<dim,
   data_out.write_vtu_with_pvtu_record(this->param.output.output_dir,
                                       metric_param.mesh_quality_output_name,
                                       this->time_handler.current_time_iteration,
-                                      this->dof_handler.get_mpi_communicator(),
+                                      this->dof_handler->get_mpi_communicator(),
                                       5);
 
   this->pcout << "Wrote mesh-quality field '"
@@ -1517,7 +1518,7 @@ void CHNSSolver<dim,
                 with_moving_mesh,
                 with_enlarged>::compute_solver_specific_errors()
 {
-  const unsigned int n_active_cells = this->triangulation.n_active_cells();
+  const unsigned int n_active_cells = this->triangulation->n_active_cells();
   Vector<double>     cellwise_errors(n_active_cells);
 
   const ComponentSelectFunction<dim> tracer_comp_select(

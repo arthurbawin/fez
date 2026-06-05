@@ -3,9 +3,35 @@
 #include <metric_field_parameters.h>
 #include <metric_tensor.h>
 #include <parameters.h>
+#include <solver_info.h>
 
 namespace Parameters
 {
+  void MetricFields::declare_parameters(ParameterHandler &prm) const
+  {
+    prm.declare_entry("number",
+                      "0",
+                      Patterns::Integer(),
+                      "Number of metric tensor fields");
+    prm.declare_entry(
+      "metric for adaptation",
+      "0",
+      Patterns::Integer(),
+      "Index of the metric field that will be used to adapt the mesh(es)");
+    prm.declare_entry("always compute",
+                      "false",
+                      Patterns::Bool(),
+                      "Specifies whether the metrics should be computed even "
+                      "when mesh adaptation is disabled");
+  }
+
+  void MetricFields::read_parameters(ParameterHandler &prm)
+  {
+    // Number of fields was already parsed
+    metric_for_adaptation = prm.get_integer("metric for adaptation");
+    always_compute        = prm.get_bool("always compute");
+  }
+
   template <int dim>
   MetricField<dim>::MetricField()
     : verbosity(Verbosity::verbose)
@@ -43,6 +69,21 @@ namespace Parameters
                         Patterns::Anything(),
                         "Base name used for the mesh-quality output files "
                         "written by the CHNS solver for this metric.");
+      prm.declare_entry("type",
+                        "interpolation error",
+                        Patterns::Selection("interpolation error|graph"),
+                        "Type of the underlying metric field");
+      prm.declare_entry("variable",
+                        "none",
+                        Patterns::Selection(
+                          std::string(SolverInfo::variable_names_for_param)),
+                        "Variable used to compute the underlying metric field");
+      prm.declare_entry("component",
+                        "0",
+                        Patterns::Integer(0,
+                                          dim - 1), // upper_bound is inclusive
+                        "If variable is vector-valued, the component of the "
+                        "variable used to compute the metric");
       prm.declare_entry(
         "min mesh size",
         "1e-8",
@@ -104,6 +145,16 @@ namespace Parameters
           "Space in which a single metric spans a full metric field");
       }
       prm.leave_subsection();
+      prm.enter_subsection("Intersection");
+      {
+        DECLARE_VERBOSITY_PARAM(prm, "verbose")
+        prm.declare_entry(
+          "intersect with",
+          "",
+          Patterns::List(Patterns::Integer(0)),
+          "List of metric fields with which this field will be intersected");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -118,6 +169,18 @@ namespace Parameters
       mesh_quality_output_frequency = prm.get_integer(
         "mesh quality output frequency");
       mesh_quality_output_name = prm.get("mesh quality output name");
+
+      const std::string parsed_type = prm.get("type");
+      if (parsed_type == "interpolation error")
+        type = MetricType::interpolation_error;
+      else if (parsed_type == "graph")
+        type = MetricType::graph;
+      else
+        throw std::runtime_error("Unknown metric type: " + parsed_type);
+
+      variable  = SolverInfo::to_variable_type(prm.get("variable"));
+      component = prm.get_integer("component");
+
       min_meshsize   = prm.get_double("min mesh size");
       max_meshsize   = prm.get_double("max mesh size");
       min_eigenvalue = 1. / (max_meshsize * max_meshsize);
@@ -201,6 +264,25 @@ namespace Parameters
         else
           throw std::runtime_error("Unknown gradation spanning space : " +
                                    parsed_space);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("Intersection");
+      {
+        READ_VERBOSITY_PARAM(prm, intersection.verbosity)
+        const auto parsed_list = Utilities::string_to_int(
+          Utilities::split_string_list(prm.get("intersect with"), ","));
+        intersection.intersect_with =
+          std::vector<unsigned int>(parsed_list.begin(), parsed_list.end());
+
+        for (auto other_id : intersection.intersect_with)
+          // Metric can be intersected with itself, but it's useless (it's the
+          // identity operator), and is thus disallowed
+          AssertThrow(
+            id != other_id,
+            ExcMessage("Intersecting a metric field with itself has no effect, "
+                       "and is thus disallowed to avoid unneeded computations. "
+                       "Please specify only the list of *other* metric fields "
+                       "with which this field will be intersected."));
       }
       prm.leave_subsection();
     }

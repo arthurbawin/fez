@@ -2,6 +2,7 @@
 #include <assembly/moving_mesh_forcing_forms.h>
 #include <assembly/pseudosolid_forms.h>
 #include <assembly/stabilization_forms.h>
+#include <cahn_hilliard.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -36,6 +37,9 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
   const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
 {
+  this->pcout << "CHNS model: "
+              << CahnHilliard::model_name(param.cahn_hilliard) << std::endl;
+
   if constexpr (with_moving_mesh && !with_enlarged)
     AssertThrow(
       std::abs(param.cahn_hilliard.mff_enlarged_compression_factor) < 1e-14,
@@ -199,7 +203,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
     CahnHilliard::linear_mixing_derivative(filtered_phi, eta0, eta1);
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
-    3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
+    CahnHilliard::sigma_tilde_from_surface_tension(cahn_hilliard_param);
   const double sigma_tilde_over_eps  = sigma_tilde / epsilon;
   const double sigma_tilde_times_eps = sigma_tilde * epsilon;
   const auto  &body_force            = physical_properties.body_force;
@@ -217,15 +221,27 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   Tensor<1, dim> grad_div_u  = mms.exact_velocity->grad_div(p);
   Tensor<1, dim> grad_p      = mms.exact_pressure->gradient(p);
   Tensor<1, dim> uDotGradu   = u * grad_u;
+  const double   mu          = mms.exact_potential->value(p);
   Tensor<1, dim> grad_mu     = mms.exact_potential->gradient(p);
   Tensor<1, dim> grad_phi    = mms.exact_tracer->gradient(p);
   Tensor<1, dim> J_flux      = diff_flux_factor * grad_mu;
   Tensor<1, dim> div_viscous = (eta * (lap_u + grad_div_u) +
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
+  const Tensor<1, dim> momentum_diffusive_inertia =
+    CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard_param) ?
+      J_flux * grad_u :
+      Tensor<1, dim>();
+  const Tensor<1, dim> momentum_capillary_force =
+    CahnHilliard::use_abels_capillary_phi_grad_mu(cahn_hilliard_param) ?
+      phi * grad_mu :
+      -CahnHilliard::ding_horriche_capillary_coefficient(cahn_hilliard_param,
+                                                         sigma_tilde) *
+        mu * grad_phi;
 
   // Navier-Stokes momentum (velocity) source term
   Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu - body_force) +
-                       J_flux * grad_u + grad_p - div_viscous + phi * grad_mu);
+                       momentum_diffusive_inertia + grad_p - div_viscous +
+                       momentum_capillary_force);
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
 
@@ -254,7 +270,6 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
     -(dphidt + u * grad_phi - (M * lap_mu + dM_dphi * (grad_phi * grad_mu)));
 
   // Potential source term
-  const double mu      = mms.exact_potential->value(p);
   const double lap_phi = mms.exact_tracer->laplacian(p);
   values[mu_lower]     = -(mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) +
                        sigma_tilde_times_eps * lap_phi);
@@ -559,6 +574,14 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   const double sigma_tilde_times_eps =
     scratch_data.sigma_tilde * scratch_data.epsilon;
   const auto &body_force = scratch_data.body_force;
+  const auto &cahn_hilliard = this->param.cahn_hilliard;
+  const bool  use_abels_diffusive_inertia =
+    CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard);
+  const bool use_abels_capillary_phi_grad_mu =
+    CahnHilliard::use_abels_capillary_phi_grad_mu(cahn_hilliard);
+  const double ding_horriche_capillary_coefficient =
+    CahnHilliard::ding_horriche_capillary_coefficient(
+      cahn_hilliard, scratch_data.sigma_tilde);
 
   const double enlarged_length =
     this->param.cahn_hilliard.epsilon_interface_enlarged -
@@ -639,8 +662,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
         q, tracer_value, scratch_data.previous_tracer_values);
 
     // Precomputations of shape functions-independent terms
-    const auto to_multiply_by_phi_u_i_phi_phi_j =
-      (drhodphi * (dudt + u_dot_grad_u - body_force) + potential_gradient);
+    const auto density_derivative_momentum =
+      drhodphi * (dudt + u_dot_grad_u - body_force);
 
     if constexpr (with_moving_mesh)
     {
@@ -701,8 +724,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             local_flow_ij +=
               phi_u_i *
               (rho * (bdf_c0 * phi_u_j + grad_phi_u_j * u_conv +
-                      present_velocity_gradients * phi_u_j) +
-               diffusive_flux_factor * grad_phi_u_j * potential_gradient);
+                      present_velocity_gradients * phi_u_j));
+
+            if (use_abels_diffusive_inertia)
+              local_flow_ij +=
+                phi_u_i * diffusive_flux_factor * grad_phi_u_j *
+                potential_gradient;
 
             local_flow_ij +=
               2. * eta * scalar_product(sym_grad_phi_u_i, sym_grad_phi_u_j);
@@ -743,39 +770,71 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                 trace(grad_phi_u_i * G) * present_pressure_values -
                 div_phi_u_i * present_pressure_values * trG;
 
-              // Diffusive flux term
-              local_flow_ij +=
-                phi_u_i * diffusive_flux_factor *
-                (-(present_velocity_gradients * G) * potential_gradient +
-                 present_velocity_gradients *
-                   Assembly::ALE::gradient_variation(potential_gradient, G) +
-                 (present_velocity_gradients * potential_gradient) * trG);
+              if (use_abels_diffusive_inertia)
+                {
+                  // Diffusive flux term
+                  local_flow_ij +=
+                    phi_u_i * diffusive_flux_factor *
+                    (-(present_velocity_gradients * G) * potential_gradient +
+                     present_velocity_gradients *
+                       Assembly::ALE::gradient_variation(potential_gradient, G) +
+                     (present_velocity_gradients * potential_gradient) * trG);
+                }
 
-              // Korteweg term
-              local_flow_ij +=
-                phi_u_i * (tracer_value *
-                             Assembly::ALE::gradient_variation(
-                               potential_gradient, G) +
-                           tracer_value * potential_gradient * trG);
+              if (use_abels_capillary_phi_grad_mu)
+                {
+                  // Abels Korteweg term: phi * grad(mu).
+                  local_flow_ij +=
+                    phi_u_i * (tracer_value *
+                                 Assembly::ALE::gradient_variation(
+                                   potential_gradient, G) +
+                               tracer_value * potential_gradient * trG);
+                }
+              else
+                {
+                  // Ding/Horriche with FEZ scaled mu:
+                  // residual capillarity = -C_DH * mu * grad(phi).
+                  local_flow_ij +=
+                    -phi_u_i * ding_horriche_capillary_coefficient *
+                    potential_value *
+                    (Assembly::ALE::gradient_variation(tracer_gradient, G) +
+                     tracer_gradient * trG);
+                }
             }
           }
           if (comp_j == const_ordering.phi_lower)
           {
             local_flow_ij +=
-              phi_u_i * phi_phi_j * to_multiply_by_phi_u_i_phi_phi_j;
+              phi_u_i * phi_phi_j * density_derivative_momentum;
             local_flow_ij +=
               2. * detadphi * phi_phi_j *
               scalar_product(sym_grad_phi_u_i, present_velocity_sym_gradients);
-            local_flow_ij += phi_u_i * phi_phi_j *
-                             d_diffusive_flux_factor_dphi *
-                             (present_velocity_gradients * potential_gradient);
+            if (use_abels_capillary_phi_grad_mu)
+              local_flow_ij +=
+                phi_u_i * phi_phi_j * potential_gradient;
+            else
+              local_flow_ij +=
+                -phi_u_i * ding_horriche_capillary_coefficient *
+                potential_value * grad_phi_phi_j;
+            if (use_abels_diffusive_inertia)
+              local_flow_ij +=
+                phi_u_i * phi_phi_j * d_diffusive_flux_factor_dphi *
+                (present_velocity_gradients * potential_gradient);
           }
           if (comp_j == const_ordering.mu_lower)
           {
-            local_flow_ij +=
-              phi_u_i * (diffusive_flux_factor * present_velocity_gradients *
-                           grad_phi_mu_j +
-                         tracer_value * grad_phi_mu_j);
+            if (use_abels_capillary_phi_grad_mu)
+              local_flow_ij +=
+                phi_u_i *
+                ((use_abels_diffusive_inertia ?
+                    diffusive_flux_factor * present_velocity_gradients *
+                      grad_phi_mu_j :
+                    Tensor<1, dim>()) +
+                 tracer_value * grad_phi_mu_j);
+            else
+              local_flow_ij +=
+                -phi_u_i * ding_horriche_capillary_coefficient * phi_mu_j *
+                tracer_gradient;
           }
         }
 
@@ -1040,6 +1099,14 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   const double sigma_tilde_times_eps =
     scratch_data.sigma_tilde * scratch_data.epsilon;
   const auto  &body_force = scratch_data.body_force;
+  const auto  &cahn_hilliard = this->param.cahn_hilliard;
+  const bool   use_abels_diffusive_inertia =
+    CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard);
+  const bool use_abels_capillary_phi_grad_mu =
+    CahnHilliard::use_abels_capillary_phi_grad_mu(cahn_hilliard);
+  const double ding_horriche_capillary_coefficient =
+    CahnHilliard::ding_horriche_capillary_coefficient(
+      cahn_hilliard, scratch_data.sigma_tilde);
   const double enlarged_length =
     this->param.cahn_hilliard.epsilon_interface_enlarged -
     this->param.cahn_hilliard.epsilon_interface;
@@ -1083,6 +1150,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
       scratch_data.velocity_dot_tracer_gradient[q];
     const double phi_cube_minus_phi =
       tracer_value * (tracer_value * tracer_value - 1.);
+    const Tensor<1, dim> momentum_diffusive_inertia =
+      use_abels_diffusive_inertia ? diffusive_flux : Tensor<1, dim>();
+    const Tensor<1, dim> momentum_capillary_force =
+      use_abels_capillary_phi_grad_mu ?
+        tracer_value * potential_gradient :
+        -ding_horriche_capillary_coefficient * potential_value *
+          tracer_gradient;
 
     const Tensor<1, dim> dudt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
@@ -1093,8 +1167,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
 
     // Precomputations of shape functions-independent terms
     const auto to_multiply_by_phi_u_i =
-      rho * (dudt + u_dot_grad_u - body_force) + diffusive_flux +
-      tracer_value * potential_gradient + source_term_velocity;
+      rho * (dudt + u_dot_grad_u - body_force) +
+      momentum_diffusive_inertia + momentum_capillary_force +
+      source_term_velocity;
     const auto to_multiply_by_phi_phi_i =
       dphidt + velocity_dot_tracer_gradient + source_term_tracer;
     const auto to_multiply_by_phi_mu_i =

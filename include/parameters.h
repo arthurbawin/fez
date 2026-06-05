@@ -551,6 +551,12 @@ namespace Parameters
   class CahnHilliard
   {
   public:
+    enum class CHNSModel
+    {
+      Abels,
+      DingHorriche
+    } chns_model = CHNSModel::Abels;
+
     enum class MobilityModel
     {
       constant,

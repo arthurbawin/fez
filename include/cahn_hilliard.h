@@ -3,8 +3,100 @@
 
 #include <parameters.h>
 
+#include <cmath>
+
 namespace CahnHilliard
 {
+  template <int dim>
+  inline bool
+  is_abels_model(const Parameters::CahnHilliard<dim> &param)
+  {
+    return param.chns_model == Parameters::CahnHilliard<dim>::CHNSModel::Abels;
+  }
+
+  template <int dim>
+  inline bool
+  is_ding_horriche_model(const Parameters::CahnHilliard<dim> &param)
+  {
+    return param.chns_model ==
+           Parameters::CahnHilliard<dim>::CHNSModel::DingHorriche;
+  }
+
+  template <int dim>
+  inline bool
+  use_abels_diffusive_inertia(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    return is_abels_model(param);
+  }
+
+  template <int dim>
+  inline bool
+  use_abels_capillary_phi_grad_mu(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    return is_abels_model(param);
+  }
+
+  template <int dim>
+  inline bool
+  use_ding_horriche_capillary_mu_grad_phi(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    return is_ding_horriche_model(param);
+  }
+
+  template <int dim>
+  inline const char *
+  model_name(const Parameters::CahnHilliard<dim> &param)
+  {
+    if (is_ding_horriche_model(param))
+      return "Ding-Horriche";
+    return "Abels";
+  }
+
+  template <int dim>
+  inline double
+  sigma_tilde_from_surface_tension(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    return 3. / (2. * std::sqrt(2.)) * param.surface_tension;
+  }
+
+  template <int dim>
+  inline double
+  ding_horriche_capillary_coefficient(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         sigma_tilde)
+  {
+    /*
+     * FEZ currently solves the scaled potential equation
+     *
+     *   mu = sigma_tilde / eps * (phi^3 - phi - eps^2 Delta phi).
+     *
+     * Horriche's final CADYF system uses
+     *
+     *   mu_hat = phi^3 - phi - eps^2 Delta phi,
+     *   (gamma / eps) mu_hat grad(phi)
+     *
+     * in physical force units. Thus mu_hat = eps / sigma_tilde * mu and the
+     * same force written with FEZ's internal mu is
+     *
+     *   (gamma / sigma_tilde) mu grad(phi).
+     *
+     * In FEZ, gamma is the user parameter 'surface tension' and
+     * sigma_tilde = 3/(2 sqrt(2)) * gamma, so they are not the same quantity.
+     */
+    if (std::abs(param.surface_tension) < 1e-14)
+      return 0.;
+
+    AssertThrow(std::abs(sigma_tilde) > 1e-14,
+                dealii::ExcMessage(
+                  "Ding/Horriche capillary coefficient requires nonzero "
+                  "sigma_tilde when surface tension is nonzero."));
+    return param.surface_tension / sigma_tilde;
+  }
+
   /**
    * Simply return the passed phase marker
    */

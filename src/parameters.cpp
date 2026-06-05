@@ -1090,6 +1090,12 @@ namespace Parameters
       std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
     prm.enter_subsection("Cahn Hilliard");
     {
+      prm.declare_entry("CHNS model",
+                        "abels",
+                        Patterns::Selection("abels|ding_horriche"),
+                        "CHNS model: current Abels-type model or the "
+                        "Ding/Horriche simplified model. FEZ keeps the "
+                        "internal scaled chemical potential mu by default.");
       prm.declare_entry("mobility model",
                         "constant",
                         Patterns::Selection("constant|degenerate"),
@@ -1173,6 +1179,17 @@ namespace Parameters
   {
     prm.enter_subsection("Cahn Hilliard");
     {
+      const std::string parsed_chns_model = prm.get("CHNS model");
+      if (parsed_chns_model == "abels")
+        chns_model = CHNSModel::Abels;
+      else if (parsed_chns_model == "ding_horriche")
+        chns_model = CHNSModel::DingHorriche;
+      else
+        AssertThrow(false,
+                    ExcMessage("Unknown CHNS model '" + parsed_chns_model +
+                               "'. Accepted values are 'abels' and "
+                               "'ding_horriche'."));
+
       const std::string parsed_mobility_model = prm.get("mobility model");
       if (parsed_mobility_model == "constant")
         mobility_model = MobilityModel::constant;

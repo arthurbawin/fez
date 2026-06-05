@@ -10,7 +10,7 @@ end
 subsection Output
   set write vtu results    = false
   set output directory = ../data/mms/
-  set output prefix    = solution
+  set output prefix    = solution_ding_horriche
 end
 
 subsection Mesh
@@ -66,7 +66,7 @@ subsection Physical properties
 end
 
 subsection Cahn Hilliard
-  set CHNS model = abels
+  set CHNS model = ding_horriche
   set mobility model      = constant
   set mobility            = 1
   set surface tension     = 1

@@ -1,0 +1,84 @@
+
+namespace Assembly
+{
+  namespace IncompressibleNavierStokes
+  {
+    // FIXME: the template flags are the same for all INS assemblers, but
+    // not all assemblers use all flags. For instance, WeakNoSlipAssembler
+    // does not depend on the divergence_form flag, but if we want to call
+    // setup_assemblers with a unique set of flags per solver, then all of the
+    // assemblers must have been instantiated for these flags...
+
+    /**
+     * Main volume assembler
+     */
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchData<2>,
+                                   CopyDataBase<>>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchData<3>,
+                                   CopyDataBase<>>;
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataIncompressibleNSLambda<2>,
+      CopyDataBase<2>,
+      divergence_form>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataIncompressibleNSLambda<3>,
+      CopyDataBase<2>,
+      divergence_form>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI<2>,
+                                   CopyDataBase<>,
+                                   divergence_form | pseudo_solid>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI<3>,
+                                   CopyDataBase<>,
+                                   divergence_form | pseudo_solid>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI_hp<2>,
+                                   CopyDataBase<2>,
+                                   divergence_form | pseudo_solid>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI_hp<3>,
+                                   CopyDataBase<2>,
+                                   divergence_form | pseudo_solid>;
+
+    /**
+     * MMS traction boundary condition
+     */
+    template class MMSTractionAssembler<2,
+                                        NavierStokesScratch::ScratchData<2>,
+                                        CopyDataBase<>>;
+    template class MMSTractionAssembler<3,
+                                        NavierStokesScratch::ScratchData<3>,
+                                        CopyDataBase<>>;
+    template class MMSTractionAssembler<
+      2,
+      NavierStokesScratch::ScratchDataIncompressibleNSLambda<2>,
+      CopyDataBase<2>,
+      divergence_form>;
+    template class MMSTractionAssembler<
+      3,
+      NavierStokesScratch::ScratchDataIncompressibleNSLambda<3>,
+      CopyDataBase<2>,
+      divergence_form>;
+    template class MMSTractionAssembler<2,
+                                        NavierStokesScratch::ScratchDataFSI<2>,
+                                        CopyDataBase<>,
+                                        divergence_form | pseudo_solid>;
+    template class MMSTractionAssembler<3,
+                                        NavierStokesScratch::ScratchDataFSI<3>,
+                                        CopyDataBase<>,
+                                        divergence_form | pseudo_solid>;
+    template class MMSTractionAssembler<2,
+                                        NavierStokesScratch::ScratchDataFSI_hp<2>,
+                                        CopyDataBase<2>,
+                                        divergence_form | pseudo_solid>;
+    template class MMSTractionAssembler<3,
+                                        NavierStokesScratch::ScratchDataFSI_hp<3>,
+                                        CopyDataBase<2>,
+                                        divergence_form | pseudo_solid>;
+  } // namespace IncompressibleNavierStokes
+} // namespace Assembly

@@ -1,0 +1,36 @@
+
+namespace Assembly
+{
+  namespace LagrangeMultiplier
+  {
+    /**
+     * Weak no slip boundary condition
+     */
+    template class WeakNoSlipAssembler<
+      2,
+      NavierStokesScratch::ScratchDataIncompressibleNSLambda<2>,
+      CopyDataBase<2>,
+      /* with_moving_mesh = */ false>;
+    template class WeakNoSlipAssembler<
+      3,
+      NavierStokesScratch::ScratchDataIncompressibleNSLambda<3>,
+      CopyDataBase<2>,
+      /* with_moving_mesh = */ false>;
+    template class WeakNoSlipAssembler<2,
+                                       NavierStokesScratch::ScratchDataFSI<2>,
+                                       CopyDataBase<>,
+                                       /* with_moving_mesh = */ true>;
+    template class WeakNoSlipAssembler<3,
+                                       NavierStokesScratch::ScratchDataFSI<3>,
+                                       CopyDataBase<>,
+                                       /* with_moving_mesh = */ true>;
+    template class WeakNoSlipAssembler<2,
+                                       NavierStokesScratch::ScratchDataFSI_hp<2>,
+                                       CopyDataBase<2>,
+                                       /* with_moving_mesh = */ true>;
+    template class WeakNoSlipAssembler<3,
+                                       NavierStokesScratch::ScratchDataFSI_hp<3>,
+                                       CopyDataBase<2>,
+                                       /* with_moving_mesh = */ true>;
+  } // namespace IncompressibleNavierStokes
+} // namespace Assembly

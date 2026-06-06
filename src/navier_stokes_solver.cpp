@@ -138,6 +138,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize()
   const auto description = get_variables_description();
   postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
     param, *triangulation, *dof_handler, description);
+
+  // Create the assemblers
+  setup_assemblers();
 }
 
 template <int dim, bool with_moving_mesh>

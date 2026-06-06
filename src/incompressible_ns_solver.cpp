@@ -152,6 +152,15 @@ void NSSolver<dim>::setup_assemblers()
 }
 
 template <int dim>
+void NSSolver<dim>::setup_assemblers()
+{
+  Assembly::IncompressibleNavierStokes::setup_assemblers(this->param,
+                                                         *this->ordering,
+                                                         this->coupling_table,
+                                                         assemblers);
+}
+
+template <int dim>
 void NSSolver<dim>::create_sparsity_pattern()
 {
   //

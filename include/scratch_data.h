@@ -787,26 +787,28 @@ namespace NavierStokesScratch
           exact_face_lambda_values[i_face][q] - stress_vector;
       }
 
-      // If using an FSI solver, get the exact mesh velocity
-      // FIXME: The exact_solution should be an MMSFunction, which
-      // has a time_derivative function.
-      const typename FSISolver<dim>::MMSSolution *sol = nullptr;
-      if (dynamic_cast<const typename FSISolver<dim>::MMSSolution *>(
-            &exact_solution) != nullptr)
-        sol = dynamic_cast<const typename FSISolver<dim>::MMSSolution *>(
-          &exact_solution);
-      if (sol != nullptr)
+      if constexpr (enable_pseudo_solid)
       {
-        const auto &fixed_quadrature_points =
-          fe_face_values_fixed.get_quadrature_points();
-
-        // Compute time derivative of mesh position
-        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        // If using an FSI solver, get the exact mesh velocity
+        // FIXME: The exact_solution should be an MMSFunction, which
+        // has a time_derivative function.
+        const FSIExactSolution<dim> *sol = nullptr;
+        if (dynamic_cast<const FSIExactSolution<dim> *>(&exact_solution) !=
+            nullptr)
+          sol = dynamic_cast<const FSIExactSolution<dim> *>(&exact_solution);
+        if (sol != nullptr)
         {
-          const auto &qpoint = fixed_quadrature_points[q];
-          for (int d = 0; d < dim; ++d)
-            exact_face_mesh_velocity_values[i_face][q][d] =
-              sol->time_derivative(qpoint, x_lower + d);
+          const auto &fixed_quadrature_points =
+            fe_face_values_fixed.get_quadrature_points();
+
+          // Compute time derivative of mesh position
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            const auto &qpoint = fixed_quadrature_points[q];
+            for (int d = 0; d < dim; ++d)
+              exact_face_mesh_velocity_values[i_face][q][d] =
+                sol->time_derivative(qpoint, x_lower + d);
+          }
         }
       }
 #else

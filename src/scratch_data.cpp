@@ -1,6 +1,5 @@
 
 #include <deal.II/fe/fe_update_flags.h>
-#include <monolithic_fsi_solver.h>
 #include <scratch_data.h>
 
 namespace NavierStokesScratch

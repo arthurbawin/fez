@@ -18,12 +18,12 @@ class InspectableNSSolver : public NSSolver<dim>
 public:
   using NSSolver<dim>::NSSolver;
 
-  const DoFHandler<dim> &get_dof_handler() const { return this->dof_handler; }
+  const DoFHandler<dim> &get_dof_handler() const { return *this->dof_handler; }
   const Mapping<dim>    &get_mapping() const { return *this->fixed_mapping; }
-  LA::ParVectorType     &solution() { return this->present_solution; }
+  LA::ParVectorType     &solution() { return *this->present_solution; }
   LA::ParVectorType     &previous_solution(const unsigned int i)
   {
-    return this->previous_solutions[i];
+    return (*this->previous_solutions)[i];
   }
 };
 
@@ -33,13 +33,13 @@ class InspectableCompressibleNSSolver : public CompressibleNSSolver<dim>
 public:
   using CompressibleNSSolver<dim>::CompressibleNSSolver;
 
-  const DoFHandler<dim> &get_dof_handler() const { return this->dof_handler; }
+  const DoFHandler<dim> &get_dof_handler() const { return *this->dof_handler; }
   const Mapping<dim>    &get_mapping() const { return *this->fixed_mapping; }
   const IndexSet    &get_owned_dofs() const { return this->locally_owned_dofs; }
-  LA::ParVectorType &solution() { return this->present_solution; }
+  LA::ParVectorType &solution() { return *this->present_solution; }
   LA::ParVectorType &previous_solution(const unsigned int i)
   {
-    return this->previous_solutions[i];
+    return (*this->previous_solutions)[i];
   }
   const TimeHandler &time() const { return this->time_handler; }
 };

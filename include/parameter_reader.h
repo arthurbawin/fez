@@ -40,7 +40,20 @@ public:
   Parameters::MMS                                            mms_param;
   Parameters::Debug                                          debug;
   Parameters::SpongeLayer                                    sponge_layer;
+<<<<<<< HEAD
   std::vector<Parameters::MetricField<dim>>                  metric_fields;
+=======
+
+  /**
+   * Generic parameters for all metric fields
+   */
+  Parameters::MetricFields metrics;
+
+  /**
+   * Parameters for each metric field.
+   */
+  std::vector<Parameters::MetricField<dim>> metric_fields;
+>>>>>>> 8367b11 (Fixing of compilation errors and of restart_from_incompressible test)
 
   //
   // Initial and boundary conditions
@@ -186,7 +199,10 @@ public:
     mms.read_parameters(prm);
     debug.read_parameters(prm);
     sponge_layer.read_parameters(prm);
-    Parameters::read_metric_fields(prm, bc_data.n_metric_fields, metric_fields);
+    Parameters::read_metric_fields(prm,
+                                   bc_data.n_metric_fields,
+                                   metrics,
+                                   metric_fields);
 
     // Copy info coming from mesh adaptation that affects time integration
     time_integration.n_time_intervals = mesh.adaptation.metric.n_time_intervals;

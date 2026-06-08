@@ -1241,7 +1241,7 @@ void CompressibleNSSolver<dim>::restart()
   const std::string prefix =
     this->param.output.output_dir + this->param.checkpoint_restart.filename;
 
-  this->triangulation.load(prefix);
+  this->triangulation->load(prefix);
 
   // Build the FE for an incompressible solver. This is used both to
   // detect the checkpoint type (by comparing the global DOF count of the
@@ -1263,11 +1263,11 @@ void CompressibleNSSolver<dim>::restart()
   types::global_dof_index n_incomp_dofs = 0;
   types::global_dof_index n_comp_dofs   = 0;
   {
-    DoFHandler<dim> probe_incomp(this->triangulation);
+    DoFHandler<dim> probe_incomp(*this->triangulation);
     probe_incomp.distribute_dofs(*fe_incomp);
     n_incomp_dofs = probe_incomp.n_dofs();
 
-    DoFHandler<dim> probe_comp(this->triangulation);
+    DoFHandler<dim> probe_comp(*this->triangulation);
     probe_comp.distribute_dofs(*this->fe);
     n_comp_dofs = probe_comp.n_dofs();
   }
@@ -1362,7 +1362,7 @@ void CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
                                         dim,
                                       FE_SimplexP<dim>(fp.pressure_degree));
 
-  DoFHandler<dim> dof_handler_incomp(this->triangulation);
+  DoFHandler<dim> dof_handler_incomp(*this->triangulation);
   dof_handler_incomp.distribute_dofs(*fe_incomp);
 
   const IndexSet owned_incomp = dof_handler_incomp.locally_owned_dofs();
@@ -1421,7 +1421,7 @@ void CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
                                                 p_ref,
                                                 T_ref);
       VectorTools::interpolate(*mapping,
-                               this->dof_handler,
+                               *this->dof_handler,
                                adapter,
                                compressible_solution);
       compressible_solution.compress(VectorOperation::insert);
@@ -1429,10 +1429,10 @@ void CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
 
   map_incompressible_solution(solution_incomp, this->newton_update);
 
-  this->present_solution       = this->newton_update;
+  *this->present_solution      = this->newton_update;
   this->local_evaluation_point = this->newton_update;
-  this->evaluation_point       = this->present_solution;
-  this->present_solution.update_ghost_values();
+  this->evaluation_point       = *this->present_solution;
+  this->present_solution->update_ghost_values();
   this->evaluation_point.update_ghost_values();
 
   const bool target_simulation_is_steady =
@@ -1440,16 +1440,16 @@ void CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
     Parameters::TimeIntegration::Scheme::stationary;
   if (previous_solutions_incomp.empty() && !target_simulation_is_steady)
   {
-    for (auto &prev : this->previous_solutions)
+    for (auto &prev : *this->previous_solutions)
     {
-      prev = this->present_solution;
+      prev = *this->present_solution;
       prev.update_ghost_values();
     }
   }
   else
   {
     AssertThrow(previous_solutions_incomp.size() ==
-                  this->previous_solutions.size(),
+                  this->previous_solutions->size(),
                 ExcMessage(
                   "The number of previous solutions in the incompressible "
                   "checkpoint does not match the number of previous solutions "
@@ -1457,15 +1457,15 @@ void CompressibleNSSolver<dim>::restart_from_incompressible_checkpoint()
                   "different unsteady time integration scheme is not "
                   "supported."));
 
-    for (unsigned int i = 0; i < this->previous_solutions.size(); ++i)
+    for (unsigned int i = 0; i < this->previous_solutions->size(); ++i)
     {
       LA::ParVectorType mapped_previous(this->locally_owned_dofs,
                                         this->mpi_communicator);
       map_incompressible_solution(previous_solutions_incomp[i],
                                   mapped_previous);
 
-      this->previous_solutions[i] = mapped_previous;
-      this->previous_solutions[i].update_ghost_values();
+      (*this->previous_solutions)[i] = mapped_previous;
+      (*this->previous_solutions)[i].update_ghost_values();
     }
   }
 

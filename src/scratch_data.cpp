@@ -454,6 +454,17 @@ namespace NavierStokesScratch
     tau_supg_velocity.resize(n_q_points);
     grad_phi_u_first_component.resize(max_dofs_per_cell);
 
+    if (enable_stabilization)
+    {
+      present_velocity_laplacians.resize(n_q_points);
+      present_velocity_hessians.resize(n_q_points);
+      present_velocity_grad_div.resize(n_q_points);
+      present_pressure_gradients.resize(n_q_points);
+      strong_residual_momentum.resize(n_q_points);
+      tau_supg_velocity.resize(n_q_points);
+      grad_phi_u_first_component.resize(max_dofs_per_cell);
+    }
+
     present_face_velocity_values.resize(
       n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
     present_face_velocity_gradients.resize(

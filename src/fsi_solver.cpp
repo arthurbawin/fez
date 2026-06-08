@@ -1918,12 +1918,8 @@ void FSISolverLessLambda<dim>::compare_analytical_matrix_with_fd()
     &FSISolverLessLambda::assemble_local_matrix,
     &FSISolverLessLambda::assemble_local_rhs,
     *scratch_data,
-<<<<<<< HEAD
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);
-=======
-    copy_data);
->>>>>>> 37c8bd1 (Cleaner functions to compute matrices with finite differences)
 }
 
 template <int dim>

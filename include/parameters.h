@@ -540,6 +540,15 @@ namespace Parameters
     bool is_steady() const { return scheme == Scheme::stationary; }
   };
 
+  struct Stabilization
+  {
+    // Enable SUPG/PSPG stabilization of the Navier-Stokes equations
+    bool enable_supg;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
   template <int dim>
   class CahnHilliard
   {

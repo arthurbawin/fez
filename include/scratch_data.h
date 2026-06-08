@@ -15,6 +15,7 @@
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <fsi_exact_solution.h>
 #include <parameter_reader.h>
+#include <stabilization_tools.h>
 #include <time_handler.h>
 #include <types.h>
 
@@ -47,6 +48,12 @@ namespace NavierStokesScratch
    * Stokes system, which are always computed. This combinations of flags is
    * used for the incompressible CHNS solver with mesh movement, for instance.
    *
+   * Enabling SUPG/PSPG stabilization is for now not a template flag, but a run
+   * time option passed to the constructor of the ScratchData. This allows
+   * enabling/disabling stabilization without refactoring either the scratch
+   * base class, or the solvers (although such a refactor will probably happen
+   * to reduce the number of assemblers instantiations needed).
+   *
    * To add another value, one simply needs to add a bitshift to the list. The
    * limit is the number of bits in the representation of an unsigned int (32
    * or 64), which should be plenty (-:
@@ -64,32 +71,31 @@ namespace NavierStokesScratch
     ns_only = 0,
 
     /**
+     * Add the contribution of the full divergence form to the SUPG residual.
+     */
+    divergence_form = 1 << 0,
+
+    /**
      * Reinit data to assemble the mesh movement elasticity equation.
      */
-    pseudo_solid = 1 << 0,
+    pseudo_solid = 1 << 1,
 
     /**
      * Reinit data to assemble constraints using a Lagrange multiplier.
      */
-    lagrange_multiplier = 1 << 1,
+    lagrange_multiplier = 1 << 2,
 
     /**
      * Reinit data to assemble the Cahn-Hilliard system, used to form the CHNS
      * system.
      */
-    cahn_hilliard = 1 << 2,
+    cahn_hilliard = 1 << 3,
 
     /**
      * Reinit data to assemble the compressible Navier-Stokes system (including
      * the energy equation).
      */
-    compressible = 1 << 3,
-
-    /**
-     * Reinit data to assemble the SUPG and PSPG stabilization terms of the
-     * Navier-Stokes system.
-     */
-    stabilization = 1 << 4,
+    compressible = 1 << 4,
 
     /**
      * Specifies if this ScratchData is for a solver using the hp tools.
@@ -177,7 +183,8 @@ namespace NavierStokesScratch
                 const Quadrature<dim>      &cell_quadrature,
                 const Quadrature<dim - 1>  &face_quadrature,
                 const TimeHandler          &time_handler,
-                const ParameterReader<dim> &param);
+                const ParameterReader<dim> &param,
+                const bool                  enable_stabilization = false);
 
     /**
      * Constructor with hp capabilities
@@ -189,7 +196,8 @@ namespace NavierStokesScratch
                 const hp::QCollection<dim>       &cell_quadrature_collection,
                 const hp::QCollection<dim - 1>   &face_quadrature_collection,
                 const TimeHandler                &time_handler,
-                const ParameterReader<dim>       &param);
+                const ParameterReader<dim>       &param,
+                const bool                        enable_stabilization = false);
 
     /**
      * Copy constructor
@@ -259,6 +267,25 @@ namespace NavierStokesScratch
                                                    present_velocity_divergence);
       fe_values[pressure].get_function_values(current_solution,
                                               present_pressure_values);
+      if (enable_stabilization)
+      {
+        fe_values[velocity].get_function_laplacians(
+          current_solution, present_velocity_laplacians);
+        fe_values[velocity].get_function_hessians(current_solution,
+                                                  present_velocity_hessians);
+        fe_values[pressure].get_function_gradients(current_solution,
+                                                   present_pressure_gradients);
+
+        // Compute grad(div)
+        for (unsigned int q = 0; q < n_q_points; ++q)
+        {
+          present_velocity_grad_div[q] = Tensor<1, dim>();
+          for (unsigned int c = 0; c < dim; ++c)
+            for (unsigned int d = 0; d < dim; ++d)
+              present_velocity_grad_div[q][d] +=
+                present_velocity_hessians[q][c][c][d];
+        }
+      }
 
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
@@ -290,6 +317,91 @@ namespace NavierStokesScratch
           sym_grad_phi_u[q][k] = symmetrize(grad_phi_u[q][k]);
           div_phi_u[q][k]      = fe_values[velocity].divergence(k, q);
           phi_p[q][k]          = fe_values[pressure].value(k, q);
+
+          if (enable_stabilization)
+          {
+            grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
+
+            auto &lap      = laplacian_phi_u[q][k];
+            auto &grad_div = grad_div_phi_u[q][k];
+
+            // (Δφ_u)_c     = Σ_d Hk[c][d][d]   (trace on last two indices)
+            // (∇div φ_u)_d = Σ_c Hk[c][c][d]   (trace on first two indices)
+            const Tensor<3, dim> hessian_phi_u =
+              fe_values[velocity].hessian(k, q);
+            lap      = 0;
+            grad_div = 0;
+            for (unsigned int c = 0; c < dim; ++c)
+              for (unsigned int d = 0; d < dim; ++d)
+              {
+                lap[c] += hessian_phi_u[c][d][d];
+                grad_div[d] += hessian_phi_u[c][c][d];
+              }
+
+            // Get the gradient of the shape functions for the x-component of
+            // the velocity to compute the cell length for stabilization. If
+            // using Lagrange shape functions, we can take any component since
+            // the space is juste d copies of the scalar shape functions.
+            if constexpr (running_in_debug_mode())
+            {
+              // FIXME: this assumes velocity is always the first base element!
+              const auto &velocity_fe = fe_values.get_fe().base_element(0);
+              Assert(
+                velocity_fe.is_primitive(),
+                ExcMessage(
+                  "The computation of the cell length for SUPG stabilization "
+                  "of the Navier-Stokes equation uses the gradient of the "
+                  "velocity shape functions. Since scalar-valued shape "
+                  "functions are required, this is done by taking the gradient "
+                  "of the scalar-valued shape functions of the first velocity "
+                  "component, and this thus assumes that the velocity finite "
+                  "element space can be split into meaningful scalar "
+                  "components (i.e., that it is \"primitive\" in deal.II "
+                  "terms. Actually, by choosing an *arbitrary* velocity "
+                  "component (here, the first one), we even assume that the FE "
+                  "space is Lagrange and consists of identical copies of the "
+                  "scalar Lagrange space for each velocity component). "
+                  "However, the velocity space used is *not* primitive, and "
+                  "thus this operation does not make sense."));
+            }
+            grad_phi_u_first_component[k] = grad_phi_u[q][k][0];
+          }
+        }
+
+        if (enable_stabilization)
+        {
+          // Compute strong residual of the NS momentum equation.
+          // Mesh velocity has already been computed, so ALE velocity is well
+          // defined.
+          auto u_conv = present_velocity_values[q];
+          // std::cout << u_conv << std::endl;
+          if constexpr (enable_pseudo_solid)
+          {
+            AssertThrow(false, ExcMessage("here"));
+            u_conv -= present_mesh_velocity_values[q];
+          }
+          const auto &dudt       = present_velocity_time_derivatives[q];
+          const auto &grad_u     = present_velocity_gradients[q];
+          const auto &grad_p     = present_pressure_gradients[q];
+          const auto &lap_u      = present_velocity_laplacians[q];
+          const auto &grad_div_u = present_velocity_grad_div[q];
+          const auto &f          = source_term_velocity[q];
+
+          strong_residual_momentum[q] =
+            dudt + grad_u * u_conv + grad_p - kinematic_viscosity * lap_u + f;
+
+          if constexpr (with_divergence_form)
+            strong_residual_momentum[q] -= kinematic_viscosity * grad_div_u;
+
+          // Compute stabilization parameter tau
+          tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
+            time_handler,
+            dofs_per_cell,
+            cell_diameter,
+            param.finite_elements.velocity_degree,
+            kinematic_viscosity,
+            u_conv,
+            grad_phi_u_first_component);
         }
       }
     }
@@ -492,24 +604,16 @@ namespace NavierStokesScratch
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
       {
-        // fe_values[velocity].get_function_values(previous_solutions[i],
-        //                                            previous_velocity_values[i]);
         fe_values_fixed[position].get_function_values(
           previous_solutions[i], previous_position_values[i]);
       }
 
-      // Current mesh velocity from displacement
-      const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
-
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
+        // Compute mesh velocity from mesh position
         present_mesh_velocity_values[q] =
-          bdf_coefficients[0] * present_position_values[q];
-        for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
-        {
-          present_mesh_velocity_values[q] +=
-            bdf_coefficients[iBDF] * previous_position_values[iBDF - 1][q];
-        }
+          time_handler.compute_time_derivative_at_quadrature_node(
+            q, present_position_values[q], previous_position_values);
       }
 
       const auto &fixed_quadrature_points =
@@ -1018,9 +1122,24 @@ namespace NavierStokesScratch
 
       bdf_c0 = time_handler.bdf_coefficients[0];
 
+      if (enable_stabilization)
+        cell_diameter = cell->diameter();
+
       /**
-       * Volume contributions
+       * Volume contributions.
+       *
+       * Compute pseudo-solid data *before* Navier-Stokes data, since the mesh
+       * velocity is required to compute the ALE velocity in the strong residual
+       * of the NS equation.
        */
+      if constexpr (enable_pseudo_solid)
+        reinit_pseudo_solid_cell(*active_fe_values_fixed,
+                                 *active_fe_values,
+                                 current_solution,
+                                 previous_solutions,
+                                 source_terms,
+                                 exact_solution);
+
       reinit_navier_stokes_cell(*active_fe_values,
                                 current_solution,
                                 previous_solutions,
@@ -1029,14 +1148,6 @@ namespace NavierStokesScratch
 
       if constexpr (enable_compressible)
         reinit_compressible_cell(*active_fe_values,
-                                 current_solution,
-                                 previous_solutions,
-                                 source_terms,
-                                 exact_solution);
-
-      if constexpr (enable_pseudo_solid)
-        reinit_pseudo_solid_cell(*active_fe_values_fixed,
-                                 *active_fe_values,
                                  current_solution,
                                  previous_solutions,
                                  source_terms,
@@ -1117,6 +1228,8 @@ namespace NavierStokesScratch
     unsigned int t_lower;
 
   public:
+    static constexpr bool with_divergence_form =
+      (update_flags & divergence_form) != 0;
     static constexpr bool enable_pseudo_solid =
       (update_flags & pseudo_solid) != 0;
     static constexpr bool enable_lagrange_multiplier =
@@ -1125,10 +1238,10 @@ namespace NavierStokesScratch
       (update_flags & cahn_hilliard) != 0;
     static constexpr bool enable_compressible =
       (update_flags & compressible) != 0;
-    static constexpr bool enable_stabilization =
-      (update_flags & stabilization) != 0;
     static constexpr bool has_hp_capabilities =
       (update_flags & with_hp_capabilities) != 0;
+
+    bool enable_stabilization;
 
   private:
     Parameters::PhysicalProperties<dim> physical_properties;
@@ -1188,6 +1301,9 @@ namespace NavierStokesScratch
     std::vector<Tensor<2, dim>>              present_velocity_gradients;
     std::vector<SymmetricTensor<2, dim>>     present_velocity_sym_gradients;
     std::vector<double>                      present_velocity_divergence;
+    std::vector<Tensor<1, dim>>              present_velocity_laplacians;
+    std::vector<Tensor<3, dim>>              present_velocity_hessians;
+    std::vector<Tensor<1, dim>>              present_velocity_grad_div;
     std::vector<Tensor<1, dim>>              present_velocity_time_derivatives;
     std::vector<double>                      present_pressure_values;
     std::vector<std::vector<Tensor<1, dim>>> previous_velocity_values;
@@ -1206,7 +1322,10 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<2, dim>>>          grad_phi_u;
     std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_u;
     std::vector<std::vector<double>>                  div_phi_u;
+    std::vector<std::vector<Tensor<1, dim>>>          laplacian_phi_u;
+    std::vector<std::vector<Tensor<1, dim>>>          grad_div_phi_u;
     std::vector<std::vector<double>>                  phi_p;
+    std::vector<std::vector<Tensor<1, dim>>>          grad_phi_p;
 
     // Shape functions on faces (each face, quad node and dof)
     std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
@@ -1239,6 +1358,12 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<1, dim>>> exact_face_mesh_velocity_values;
 #endif
 
+    // Stabilization data
+    std::vector<Tensor<1, dim>> strong_residual_momentum;
+    std::vector<Tensor<1, dim>> grad_phi_u_first_component;
+    std::vector<double>         tau_supg_velocity;
+    double                      cell_diameter;
+
     /**
      * Compressible NS
      */
@@ -1267,7 +1392,6 @@ namespace NavierStokesScratch
     std::vector<double> present_pressure_absolute_values;
     std::vector<double> present_temperature_absolute_values;
 
-    std::vector<std::vector<Tensor<1, dim>>> grad_phi_p;
     std::vector<std::vector<double>>         phi_T;
     std::vector<std::vector<Tensor<1, dim>>> grad_phi_T;
 

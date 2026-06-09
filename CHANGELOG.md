@@ -9,6 +9,8 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 ### Changed
 Merged both CopyData structures into a single one. [#61](https://github.com/arthurbawin/fez/pull/61)
 
+Refactored ScratchData to use an integer template argument containing all the desired updates during call to the reinit function. [#62](https://github.com/arthurbawin/fez/pull/62)
+
 ## [0.0.0] 2026-05-29
  
 ### Added

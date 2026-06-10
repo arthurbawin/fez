@@ -490,25 +490,23 @@ void NavierStokesSolver<dim, with_moving_mesh>::
 {
   if constexpr (with_moving_mesh)
   {
-    if (!param.bc_data.enforce_zero_mean_pressure)
-      return;
+    create_nonzero_constraints();
+    nonzero_constraints.distribute(local_evaluation_point);
+    evaluation_point = local_evaluation_point;
 
-    BoundaryConditions::update_zero_mean_pressure_constraint_weights(
-      *triangulation,
-      *dof_handler,
-      locally_relevant_dofs,
-      *moving_mapping,
-      *quadrature,
-      ordering->p_lower,
-      constrained_pressure_dof,
-      zero_mean_pressure_weights);
+    if (param.bc_data.enforce_zero_mean_pressure)
+      BoundaryConditions::update_zero_mean_pressure_constraint_weights(
+        *triangulation,
+        *dof_handler,
+        locally_relevant_dofs,
+        *moving_mapping,
+        *quadrature,
+        ordering->p_lower,
+        constrained_pressure_dof,
+        zero_mean_pressure_weights);
 
     create_zero_constraints();
     create_nonzero_constraints();
-
-    local_evaluation_point = evaluation_point;
-    nonzero_constraints.distribute(local_evaluation_point);
-    evaluation_point = local_evaluation_point;
   }
 }
 
@@ -711,6 +709,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
 
   // Set other solver-specific fields on moving mesh (e.g., CHNS tracer)
   set_solver_specific_initial_conditions();
+
+  // Recompute boundary values after the ALE mapping has been initialized.
+  // The constraints created during setup used the undeformed mesh position.
+  if constexpr (with_moving_mesh)
+    create_nonzero_constraints();
 
   // Apply non-homogeneous Dirichlet BC and set as current solution
   nonzero_constraints.distribute(newton_update);

@@ -117,6 +117,12 @@ public:
   void distribute_nonzero_constraints();
 
   /**
+   * Update constraints that depend on the current evaluation point before they
+   * are applied. Solvers with a solution-dependent mapping override this hook.
+   */
+  virtual void update_constraints_for_evaluation_point() {}
+
+  /**
    *
    */
   virtual void adapt_mesh();

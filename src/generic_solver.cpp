@@ -280,6 +280,7 @@ void GenericSolver<VectorType>::solve_nonlinear_problem(
 template <typename VectorType>
 void GenericSolver<VectorType>::distribute_nonzero_constraints()
 {
+  update_constraints_for_evaluation_point();
   const auto &nonzero_constraints = this->get_nonzero_constraints();
   nonzero_constraints.distribute(local_evaluation_point);
 }

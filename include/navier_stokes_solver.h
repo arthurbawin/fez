@@ -74,7 +74,7 @@ public:
    */
   virtual void run() override;
 
-  void update_constraints_for_evaluation_point();
+  virtual void update_constraints_for_evaluation_point() override;
 
   /**
    * Update the mesh file for the current interval, and assigns the pointers to

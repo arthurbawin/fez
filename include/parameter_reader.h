@@ -40,9 +40,6 @@ public:
   Parameters::MMS                                            mms_param;
   Parameters::Debug                                          debug;
   Parameters::SpongeLayer                                    sponge_layer;
-<<<<<<< HEAD
-  std::vector<Parameters::MetricField<dim>>                  metric_fields;
-=======
 
   /**
    * Generic parameters for all metric fields
@@ -53,7 +50,6 @@ public:
    * Parameters for each metric field.
    */
   std::vector<Parameters::MetricField<dim>> metric_fields;
->>>>>>> 8367b11 (Fixing of compilation errors and of restart_from_incompressible test)
 
   //
   // Initial and boundary conditions

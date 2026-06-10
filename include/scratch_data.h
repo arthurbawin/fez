@@ -252,8 +252,16 @@ namespace NavierStokesScratch
                               const Function<dim>           &source_terms,
                               const Function<dim> & /*exact_solution*/)
     {
-      JxW_moving[q]        = fe_values.JxW(q);
-      quadrature_points[q] = fe_values.quadrature_point(q);
+      fe_values[velocity].get_function_values(current_solution,
+                                              present_velocity_values);
+      fe_values[velocity].get_function_gradients(current_solution,
+                                                 present_velocity_gradients);
+      fe_values[velocity].get_function_symmetric_gradients(
+        current_solution, present_velocity_sym_gradients);
+      fe_values[velocity].get_function_divergences(current_solution,
+                                                   present_velocity_divergence);
+      fe_values[pressure].get_function_values(current_solution,
+                                              present_pressure_values);
 
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
@@ -267,7 +275,8 @@ namespace NavierStokesScratch
       // Get jacobian, shape functions and set source terms
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
-        JxW_moving[q] = fe_values.JxW(q);
+        JxW_moving[q]        = fe_values.JxW(q);
+        quadrature_points[q] = fe_values.quadrature_point(q);
 
         // Time derivatives
         present_velocity_time_derivatives[q] =
@@ -1223,18 +1232,12 @@ namespace NavierStokesScratch
     unsigned int       dofs_per_cell;
     const unsigned int max_dofs_per_cell;
 
-  std::vector<unsigned int>                components;
-  std::vector<double>                      JxW_moving;
-  std::vector<double>                      JxW_fixed;
-  std::vector<Point<dim>>                  quadrature_points;
-  std::vector<unsigned int>                face_boundary_id;
-  std::vector<std::vector<double>>         face_JxW_moving;
-  std::vector<std::vector<double>>         face_JxW_fixed;
-  std::vector<std::vector<Tensor<1, dim>>> face_normals_moving;
+    const TimeHandler &time_handler;
 
     std::vector<unsigned int>                components;
     std::vector<double>                      JxW_moving;
     std::vector<double>                      JxW_fixed;
+    std::vector<Point<dim>>                  quadrature_points;
     std::vector<bool>                        face_at_boundary;
     std::vector<unsigned int>                face_boundary_id;
     std::vector<std::vector<double>>         face_JxW_moving;

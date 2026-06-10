@@ -327,7 +327,8 @@ void NSSolver<dim>::compare_analytical_matrix_with_fd()
     &NSSolver::assemble_local_matrix,
     &NSSolver::assemble_local_rhs,
     *scratch_data,
-    copy_data);
+    copy_data,
+    this->param.nonlinear_solver.write_problematic_elements);
 }
 
 template <int dim>

@@ -870,7 +870,8 @@ void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
     *scratch_data,
-    copy_data);
+    copy_data,
+    this->param.nonlinear_solver.write_problematic_elements);
 }
 
 template <int dim, bool with_moving_mesh>

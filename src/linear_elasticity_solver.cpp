@@ -156,7 +156,7 @@ void LinearElasticitySolver<dim>::run()
             << source_term_moving_mesh_multiplier << std::endl;
       pcout << std::endl;
 
-      if (param.debug.compare_analytical_jacobian_with_fd)
+      if (param.nonlinear_solver.compare_jacobian_with_finite_differences)
         compare_analytical_matrix_with_fd();
       solve_nonlinear_problem(time_handler);
 
@@ -171,7 +171,7 @@ void LinearElasticitySolver<dim>::run()
     source_term_moving_mesh_multiplier = 0.;
     source_term_fixed_mesh_multiplier  = 1.;
 
-    if (param.debug.compare_analytical_jacobian_with_fd)
+    if (param.nonlinear_solver.compare_jacobian_with_finite_differences)
       compare_analytical_matrix_with_fd();
     solve_nonlinear_problem(time_handler);
   }
@@ -414,7 +414,8 @@ void LinearElasticitySolver<dim>::compare_analytical_matrix_with_fd()
     &LinearElasticitySolver::assemble_local_matrix,
     &LinearElasticitySolver::assemble_local_rhs,
     *scratch_data,
-    copy_data);
+    copy_data,
+    this->param.nonlinear_solver.write_problematic_elements);
 }
 
 template <int dim>

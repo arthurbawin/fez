@@ -726,7 +726,8 @@ void CompressibleNSSolver<dim>::compare_analytical_matrix_with_fd()
     &CompressibleNSSolver::assemble_local_matrix,
     &CompressibleNSSolver::assemble_local_rhs,
     *scratch_data,
-    copy_data);
+    copy_data,
+    this->param.nonlinear_solver.write_problematic_elements);
 }
 
 template <int dim>

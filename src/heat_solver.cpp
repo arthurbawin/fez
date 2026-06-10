@@ -259,7 +259,7 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
       }
       else
       {
-        if (param.debug.compare_analytical_jacobian_with_fd)
+        if (param.nonlinear_solver.compare_jacobian_with_finite_differences)
           compare_analytical_matrix_with_fd();
 
         if (param.debug.apply_exact_solution)
@@ -538,7 +538,8 @@ void HeatSolver<dim>::compare_analytical_matrix_with_fd()
     &HeatSolver::assemble_local_matrix,
     &HeatSolver::assemble_local_rhs,
     *scratch_data,
-    copy_data);
+    copy_data,
+    this->param.nonlinear_solver.write_problematic_elements);
 }
 
 template <int dim>

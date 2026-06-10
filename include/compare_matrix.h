@@ -8,6 +8,9 @@
 #include <types.h>
 #include <utilities.h>
 
+#include <fstream>
+#include <memory>
+
 using namespace dealii;
 
 namespace Verification
@@ -180,8 +183,10 @@ namespace Verification
       main_object.get_present_solution();
     main_object.get_evaluation_point() = main_object.get_present_solution();
 
-    const double abs_tol = param.debug.analytical_jacobian_absolute_tolerance;
-    const double rel_tol = param.debug.analytical_jacobian_relative_tolerance;
+    const double abs_tol =
+      param.nonlinear_solver.analytical_jacobian_absolute_tolerance;
+    const double rel_tol =
+      param.nonlinear_solver.analytical_jacobian_relative_tolerance;
 
     double max_absolute_error_over_all_elements = 0.;
     double max_relative_error_over_all_elements = 0.;

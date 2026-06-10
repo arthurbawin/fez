@@ -15,6 +15,7 @@
 #include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
+#include <deal.II/numerics/vector_tools_evaluate.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
 #include <incompressible_chns_solver.h>
@@ -31,6 +32,9 @@
 #include <metric_field.h>
 
 #include <cmath>
+#include <fstream>
+#include <iomanip>
+#include <limits>
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
 CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
@@ -1366,6 +1370,163 @@ void CHNSSolver<dim,
                 with_moving_mesh,
                 with_enlarged>::solver_specific_post_processing()
 {
+  const auto &line_probe = this->param.postprocessing.line_probe;
+  if (line_probe.enable && line_probe.write_results &&
+      (this->time_handler.current_time_iteration %
+           line_probe.output_frequency ==
+         0 ||
+       this->time_handler.is_finished()))
+  {
+    AssertThrow(line_probe.start.size() >= dim,
+                ExcMessage("Line probe start point has too few coordinates."));
+    AssertThrow(line_probe.end.size() >= dim,
+                ExcMessage("Line probe end point has too few coordinates."));
+    AssertThrow(line_probe.n_points >= 2,
+                ExcMessage("Line probe needs at least two points."));
+
+    std::vector<Point<dim>> probe_points(line_probe.n_points);
+    for (unsigned int i = 0; i < line_probe.n_points; ++i)
+    {
+      const double s =
+        static_cast<double>(i) / static_cast<double>(line_probe.n_points - 1);
+      for (unsigned int d = 0; d < dim; ++d)
+        probe_points[i][d] =
+          (1.0 - s) * line_probe.start[d] + s * line_probe.end[d];
+    }
+
+    Utilities::MPI::RemotePointEvaluation<dim, dim> cache;
+    const auto pressure_values = VectorTools::point_values<1>(
+      *this->moving_mapping,
+      *this->dof_handler,
+      *this->present_solution,
+      probe_points,
+      cache,
+      VectorTools::EvaluationFlags::avg,
+      this->ordering->p_lower);
+    AssertThrow(cache.all_points_found(),
+                ExcMessage("At least one line probe point was not found."));
+
+    const auto tracer_values = VectorTools::point_values<1>(
+      cache,
+      *this->dof_handler,
+      *this->present_solution,
+      VectorTools::EvaluationFlags::avg,
+      this->ordering->phi_lower);
+    const auto potential_values = VectorTools::point_values<1>(
+      cache,
+      *this->dof_handler,
+      *this->present_solution,
+      VectorTools::EvaluationFlags::avg,
+      this->ordering->mu_lower);
+
+    std::vector<double> psi_values;
+    if constexpr (with_enlarged)
+      psi_values = VectorTools::point_values<1>(
+        cache,
+        *this->dof_handler,
+        *this->present_solution,
+        VectorTools::EvaluationFlags::avg,
+        this->ordering->psi_lower);
+
+    if (this->mpi_rank == 0)
+    {
+      const std::string filename =
+        this->param.output.output_dir + line_probe.output_prefix + ".csv";
+
+      // Start a fresh file (overwriting any pre-existing CSV from a previous
+      // run) at the very first iteration, then append for the rest of the run.
+      const bool is_first_iteration =
+        this->time_handler.current_time_iteration == 0;
+      const bool write_header =
+        is_first_iteration || !std::ifstream(filename).good();
+      std::ofstream out(filename,
+                         is_first_iteration ? std::ios::trunc : std::ios::app);
+      out << std::setprecision(line_probe.precision);
+
+      const auto &cahn_hilliard = this->param.cahn_hilliard;
+      const bool  use_abels_capillary_phi_grad_mu =
+        CahnHilliard::use_abels_capillary_phi_grad_mu(cahn_hilliard);
+
+      if (write_header)
+      {
+        out << "time,iteration,point_index";
+        for (unsigned int d = 0; d < dim; ++d)
+          out << ",x" << d;
+
+        // 'pressure' is the field to use for pressure-jump post-processing
+        // (e.g. Young-Laplace), regardless of which CHNS model is used:
+        //  - Abels-type model: 'pressure' is the physical pressure p, the
+        //    solved unknown.
+        //  - Ding-Horriche model: 'pressure' is the modified pressure phat,
+        //    the solved unknown. phat = p + coeff * (W(phi) + (eps^2/2)
+        //    |grad(phi)|^2), and the correction term takes the same value
+        //    on both sides of an interface separating two bulk phases
+        //    (phi = +-1), so plateau-to-plateau jumps of phat and p are
+        //    identical: Delta(phat) = Delta(p). 'pressure' is therefore
+        //    directly comparable to Young-Laplace's sigma/R without any
+        //    reconstruction, and (unlike a reconstructed p) it stays smooth
+        //    across the diffuse interface.
+        // 'pressure_hat' and 'potential_hat' additionally expose the raw
+        // modified unknowns (phat, muhat) solved by the Ding-Horriche model;
+        // they are NaN for the Abels-type model, where the solved unknowns
+        // already are p and mu.
+        out << ",pressure"
+            << ",pressure_hat"
+            << ",tracer"
+            << ",potential"
+            << ",potential_hat";
+
+        if constexpr (with_enlarged)
+          out << ",psi";
+        out << '\n';
+      }
+
+      const double nan = std::numeric_limits<double>::quiet_NaN();
+
+      for (unsigned int i = 0; i < line_probe.n_points; ++i)
+      {
+        const double pressure_raw  = pressure_values[i];
+        const double tracer        = tracer_values[i];
+        const double potential_raw = potential_values[i];
+
+        double pressure_physical;
+        double potential_physical;
+        double pressure_hat  = nan;
+        double potential_hat = nan;
+
+        if (use_abels_capillary_phi_grad_mu)
+        {
+          // Solved unknowns are already the physical pressure and potential.
+          pressure_physical  = pressure_raw;
+          potential_physical = potential_raw;
+        }
+        else
+        {
+          // Solved unknowns are the Ding-Horriche modified pressure phat and
+          // unscaled potential muhat. 'pressure' is reported as phat itself:
+          // bulk-to-bulk pressure jumps of phat equal those of the physical
+          // pressure p (see header comment), which is all that is needed for
+          // Young-Laplace-type post-processing, and phat is smooth across
+          // the diffuse interface.
+          pressure_hat       = pressure_raw;
+          potential_hat      = potential_raw;
+          pressure_physical  = pressure_hat;
+          potential_physical = potential_hat;
+        }
+
+        out << this->time_handler.current_time << ','
+            << this->time_handler.current_time_iteration << ',' << i;
+        for (unsigned int d = 0; d < dim; ++d)
+          out << ',' << probe_points[i][d];
+        out << ',' << pressure_physical << ',' << pressure_hat << ',' << tracer << ','
+            << potential_physical << ',' << potential_hat;
+        if constexpr (with_enlarged)
+          out << ',' << psi_values[i];
+        out << '\n';
+      }
+    }
+  }
+
   if (!should_output_mesh_quality())
     return;
 

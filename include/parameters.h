@@ -242,6 +242,13 @@ namespace Parameters
       bool         compute_forces_on_slices;
     } slices;
 
+    struct LineProbe : public PostProcessingBase
+    {
+      std::vector<double> start;
+      std::vector<double> end;
+      unsigned int        n_points;
+    } line_probe;
+
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
   };

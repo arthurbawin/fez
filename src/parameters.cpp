@@ -345,6 +345,23 @@ namespace Parameters
           "Compute and write the hydrodynamic forces on each slice");
       }
       prm.leave_subsection();
+      prm.enter_subsection("line probe");
+      {
+        declare_postprocessing_base(prm);
+        prm.declare_entry("start point",
+                          "0, 0, 0",
+                          Patterns::Anything(),
+                          "Line probe start point.");
+        prm.declare_entry("end point",
+                          "1, 0, 0",
+                          Patterns::Anything(),
+                          "Line probe end point.");
+        prm.declare_entry("number of points",
+                          "101",
+                          Patterns::Integer(2),
+                          "Number of points sampled on the line.");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -393,6 +410,16 @@ namespace Parameters
         slices.along_which_axis         = prm.get("along which axis");
         slices.n_slices                 = prm.get_integer("number of slices");
         slices.compute_forces_on_slices = prm.get_bool("compute forces");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("line probe");
+      {
+        read_postprocessing_base(prm, line_probe);
+        line_probe.start = Utilities::string_to_double(
+          Utilities::split_string_list(prm.get("start point"), ","));
+        line_probe.end = Utilities::string_to_double(
+          Utilities::split_string_list(prm.get("end point"), ","));
+        line_probe.n_points = prm.get_integer("number of points");
       }
       prm.leave_subsection();
     }

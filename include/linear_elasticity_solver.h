@@ -133,6 +133,16 @@ public:
   /**
    *
    */
+  const ParameterReader<dim> &get_parameters() const;
+
+  /**
+   *
+   */
+  const DoFHandler<dim> &get_dof_handler() const;
+
+  /**
+   *
+   */
   virtual LA::ParVectorType &get_present_solution() override
   {
     return present_solution;
@@ -220,4 +230,17 @@ protected:
   };
 };
 
+/* ---------------- template and inline functions ----------------- */
+
+template <int dim>
+const ParameterReader<dim> &LinearElasticitySolver<dim>::get_parameters() const
+{
+  return param;
+}
+
+template <int dim>
+const DoFHandler<dim> &LinearElasticitySolver<dim>::get_dof_handler() const
+{
+  return dof_handler;
+}
 #endif

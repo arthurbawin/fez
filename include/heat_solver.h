@@ -230,6 +230,16 @@ public:
   /**
    *
    */
+  const ParameterReader<dim> &get_parameters() const;
+
+  /**
+   *
+   */
+  const DoFHandler<dim> &get_dof_handler() const;
+
+  /**
+   *
+   */
   virtual LA::ParVectorType &get_present_solution() override
   {
     return *present_solution;
@@ -348,7 +358,18 @@ protected:
 /* ---------------- template and inline functions ----------------- */
 
 template <int dim>
+const ParameterReader<dim> &HeatSolver<dim>::get_parameters() const
+{
+  return param;
+}
 
+template <int dim>
+const DoFHandler<dim> &HeatSolver<dim>::get_dof_handler() const
+{
+  return *dof_handler;
+}
+
+template <int dim>
 const MetricField<dim> &
 HeatSolver<dim>::get_metric_field(const unsigned int interval_index) const
 {

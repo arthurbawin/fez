@@ -167,9 +167,6 @@ end
 
 subsection Debug
   set apply exact solution                   = false
-  set compare jacobian matrix with fd        = false
-  set analytical_jacobian_absolute_tolerance = 1e-6
-  set analytical_jacobian_relative_tolerance = 1e-4
   set fsi_apply_erroneous_coupling           = false
   set fsi_check_mms_on_boundary              = false
 end

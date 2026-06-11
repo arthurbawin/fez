@@ -539,8 +539,20 @@ void TransientFixedPointData<dim>::scale_metrics(
         (double)param.mms_param.n_target_vertices :
         (double)param.metric_fields[metric_index].multiscale.n_target_vertices;
 
+    const auto &n_steps_on_each_interval =
+      time_handler.n_steps_on_each_interval;
+
     // Space-time complexity N_st.
-    const double Nst = Navg * n_time_intervals;
+    // If we want Navg vertices for each mesh on which "n_steps" time steps
+    // were performed, the total space-time complexity should be the sum
+    // of Navg * n_steps over each interval.
+
+    // FIXME: quadruple-check this during the convergence study
+    // const double Nst = Navg * n_time_intervals;
+
+    double Nst = 0;
+    for (auto n_steps : n_steps_on_each_interval)
+      Nst += Navg * n_steps;
 
     // FIXME: use general exponents for higher order solutions
     const double p   = (double)param.metric_fields[metric_index].multiscale.p;
@@ -550,12 +562,6 @@ void TransientFixedPointData<dim>::scale_metrics(
     const double exponent_int_steps        = 2. * p / den;
     const double exponent_local_scaling    = -1. / den;
     const double exponent_local_scaling_dt = -2. / den;
-
-    // Integral of det(Q)^exponent
-    // std::vector<double> integral_determinants(n_time_intervals);
-
-    const auto &n_steps_on_each_interval =
-      time_handler.n_steps_on_each_interval;
 
     AssertDimension(n_steps_on_each_interval.size(), n_time_intervals);
 

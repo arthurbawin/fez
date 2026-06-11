@@ -166,7 +166,11 @@ public:
   virtual bool preserves_vertex_locations() const override;
 
   virtual bool
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+  is_compatible_with(const ReferenceCell<dim> &reference_cell) const override;
+#else
   is_compatible_with(const ReferenceCell &reference_cell) const override;
+#endif
 
   /**
    * Return the mapped vertices of a cell.

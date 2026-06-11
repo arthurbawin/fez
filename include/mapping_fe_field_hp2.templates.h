@@ -685,7 +685,12 @@ bool MappingFEFieldHp2<dim, spacedim, VectorType>::preserves_vertex_locations()
 
 template <int dim, int spacedim, typename VectorType>
 bool MappingFEFieldHp2<dim, spacedim, VectorType>::is_compatible_with(
-  const ReferenceCell &reference_cell) const
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+  const ReferenceCell<dim> &reference_cell
+#else
+  const ReferenceCell &reference_cell
+#endif
+) const
 {
   Assert(dim == reference_cell.get_dimension(),
          ExcMessage("The dimension of your mapping (" +

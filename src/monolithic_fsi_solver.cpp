@@ -16,6 +16,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
+#include <fsi_exact_solution.h>
 #include <lagrange_multiplier_tools.h>
 #include <linear_solver.h>
 #include <mesh.h>
@@ -125,8 +126,10 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
   if (param.mms_param.enable)
   {
     // Assign the manufactured solution
-    this->exact_solution = std::make_shared<FSISolver<dim>::MMSSolution>(
-      this->time_handler.current_time, *this->ordering, param.mms);
+    this->exact_solution =
+      std::make_shared<FSIExactSolution<dim>>(this->time_handler.current_time,
+                                              *this->ordering,
+                                              param.mms);
 
     // Create the source term function for the given MMS and override source
     // terms
@@ -2702,8 +2705,7 @@ void FSISolver<dim>::check_manufactured_solution_boundary()
           const double p_MMS =
             this->exact_solution->value(qpoint, this->ordering->p_lower);
 
-          std::static_pointer_cast<FSISolver<dim>::MMSSolution>(
-            this->exact_solution)
+          std::static_pointer_cast<FSIExactSolution<dim>>(this->exact_solution)
             ->lagrange_multiplier(qpoint, mu, normal_to_solid, lambda_MMS);
 
           // Increment the integrals of lambda:
@@ -2741,7 +2743,7 @@ void FSISolver<dim>::check_manufactured_solution_boundary()
   const Tensor<1, dim> ref_pns;
   // const Tensor<1, dim> ref_pns =
   //   -param.fsi.spring_constant * translation *
-  //   std::static_pointer_cast<FSISolver<dim>::MMSSolution>(
+  //   std::static_pointer_cast<FSIExactSolution<dim>>(
   //     exact_solution)->mms.exact_mesh_position->time_function->value(this->time_handler.current_time);
   // const double err_pns = (ref_pns - pns_integral).norm();
   const double err_pns = -1.;
@@ -2918,8 +2920,7 @@ void FSISolver<dim>::compute_lambda_error_on_boundary(
 
           // lambda_MMS is not prescribed, the exact lambda is expected to be
           // the traction
-          std::static_pointer_cast<FSISolver<dim>::MMSSolution>(
-            this->exact_solution)
+          std::static_pointer_cast<FSIExactSolution<dim>>(this->exact_solution)
             ->lagrange_multiplier(qpoint, mu, normal_to_solid, exact);
 #endif
 

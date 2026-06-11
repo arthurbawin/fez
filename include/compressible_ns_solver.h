@@ -33,7 +33,7 @@ using namespace dealii;
 template <int dim>
 class CompressibleNSSolver : public NavierStokesSolver<dim>
 {
-  using ScratchData = ScratchDataCompressibleNS<dim>;
+  using ScratchData = NavierStokesScratch::ScratchDataCompressibleNS<dim>;
   using CopyData    = CopyDataBase<1>;
 
 public:

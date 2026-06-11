@@ -181,6 +181,7 @@ void NSSolverLambda<dim>::create_scratch_data()
   scratch_data = std::make_unique<ScratchData>(*this->ordering,
                                                *fe,
                                                mapping_collection,
+                                               mapping_collection,
                                                quadrature_collection,
                                                face_quadrature_collection,
                                                this->time_handler,

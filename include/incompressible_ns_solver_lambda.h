@@ -19,15 +19,11 @@
 #include <mumps_solver.h>
 #include <navier_stokes_solver.h>
 #include <parameter_reader.h>
-// #include <scratch_data.h>
+#include <scratch_data.h>
 #include <time_handler.h>
 #include <types.h>
 
 using namespace dealii;
-
-// Forward declaration
-template <int dim>
-class ScratchDataIncompressibleNSLambda;
 
 /**
  * Variant of the incompressible NS solver allowing to prescribe weak
@@ -52,8 +48,9 @@ protected:
   static constexpr unsigned int index_fe_without_lambda = 0;
   static constexpr unsigned int index_fe_with_lambda    = 1;
 
-  using ScratchData = ScratchDataIncompressibleNSLambda<dim>;
-  using CopyData    = CopyDataBase<n_hp_partitions>;
+  using ScratchData =
+    NavierStokesScratch::ScratchDataIncompressibleNSLambda<dim>;
+  using CopyData = CopyDataBase<n_hp_partitions>;
 
 public:
   /**

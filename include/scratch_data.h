@@ -13,1815 +13,1746 @@
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/generic_linear_algebra.h>
-#include <incompressible_ns_solver_lambda.h>
-#include <monolithic_fsi_solver.h>
+#include <fsi_exact_solution.h>
 #include <parameter_reader.h>
 #include <stabilization_utils.h>
+#include <time_handler.h>
 #include <types.h>
 
 #include <algorithm>
 #include <cmath>
 #include <sstream>
 
-using namespace dealii;
 
 /**
+ * A namespace for the ScratchData used in the Navier-Stokes derived solvers.
+ *
  * ScratchDatas are helper temporary structures containing all sorts of
- * quantities that must be computed on each elements and faces during assembly,
- * e.g., the current solution and its gradients interpolated at the quadrature
- * nodes, the shape functions and their derivatives, among many others. See also
- * the deal.II doc of meshworker/scratch_data.h and the run() functions in
- * work_stream.h. A ScratchData is thus essentially a collection of FEValues and
- * FEFaceValues, together with vectors of data used for assembly.
- *
- * This base class is a ScratchData common to all solvers, which can enable or
- * disable the pre-computation of specific fields (see derived scratches below).
- * By default, the Navier-Stokes related quantities are computed for all
- * solvers. They are computed at the quadrature nodes located inside the mesh
- * elements, and at those located on their faces if the element touches a
- * boundary.
- *
- * This scratch has FEValues/FEFaceValues defined on both the fixed and moving
- * mesh: only quantities used to assemble the pseudo-solid equation are
- * evaluated on the fixed mesh, whereas *all* other fields are evaluated on the
- * moving mesh. Of course, when the passed mapping representing the moving mesh
- * is also the fixed mapping, then everything is evaluated on a unique fixed
- * mesh.
- *
- * This class is templated to have hp capabilities. In that case,
- * hp::FEValues/FEFaceValues are stored and the appropriate
- * FEValues/FEFaceValues are selected on the current cell when the scratch is
- * reinit'ed.
+ * quantities that must be computed on each elements and faces during
+ * assembly, e.g., the current solution and its gradients interpolated at the
+ * quadrature nodes, the shape functions and their derivatives, among many
+ * others. See also the deal.II doc of meshworker/scratch_data.h and the run()
+ * functions in work_stream.h. A ScratchData is thus essentially a collection
+ * of FEValues and FEFaceValues, together with vectors of data used for
+ * assembly.
  */
-template <int dim, bool has_hp_capabilities = false>
-class ScratchData
+namespace NavierStokesScratch
 {
-public:
-  /**
-   * Constructor
-   */
-  ScratchData(const ComponentOrdering    &ordering,
-              const bool                  enable_pseudo_solid,
-              const bool                  enable_lagrange_multiplier,
-              const bool                  enable_cahn_hilliard,
-              const bool                  enable_compressible,
-              const FESystem<dim>        &fe,
-              const Mapping<dim>         &fixed_mapping,
-              const Mapping<dim>         &moving_mapping,
-              const Quadrature<dim>      &cell_quadrature,
-              const Quadrature<dim - 1>  &face_quadrature,
-              const TimeHandler          &time_handler,
-              const ParameterReader<dim> &param);
+  using namespace dealii;
 
   /**
-   * Constructor with hp capabilities
+   * These flags are used to specify which updates are needed when calling the
+   * reinit function of the ScratchData template below. These are similar to
+   * deal.II's UpdateFlags, which are used to reinit FEValues and such, and they
+   * are used in the same way.
+   *
+   * For instance, ScratchData<dim, pseudo_solid | cahn_hilliard> specifies that
+   * both the pseudo-solid and Cahn-Hilliard related data (physical properties,
+   * shape functions, current values and gradients, etc.) should be computed for
+   * this scratch, in addition to the data related to the incompressible Navier-
+   * Stokes system, which are always computed. This combinations of flags is
+   * used for the incompressible CHNS solver with mesh movement, for instance.
+   *
+   * To add another value, one simply needs to add a bitshift to the list. The
+   * limit is the number of bits in the representation of an unsigned int (32
+   * or 64), which should be plenty (-:
    */
-  ScratchData(const ComponentOrdering          &ordering,
-              const bool                        enable_pseudo_solid,
-              const bool                        enable_lagrange_multiplier,
-              const bool                        enable_cahn_hilliard,
-              const bool                        enable_compressible,
-              const hp::FECollection<dim>      &fe_collection,
-              const hp::MappingCollection<dim> &fixed_mapping_collection,
-              const hp::MappingCollection<dim> &moving_mapping_collection,
-              const hp::QCollection<dim>       &cell_quadrature_collection,
-              const hp::QCollection<dim - 1>   &face_quadrature_collection,
-              const TimeHandler                &time_handler,
-              const ParameterReader<dim>       &param);
-
-  /**
-   * Copy constructor
-   */
-  ScratchData(const ScratchData &other);
-
-private:
-  void allocate();
-
-  template <typename ValueType>
-  ValueType compute_bdf_time_derivative(
-    const ValueType              &current_value,
-    const std::vector<ValueType> &previous_values) const
+  enum ScratchFlags : unsigned int
   {
-    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
-    ValueType time_derivative = bdf_coefficients[0] * current_value;
-    for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
-      time_derivative += bdf_coefficients[i] * previous_values[i - 1];
-    return time_derivative;
-  }
+    /**
+     * Reinit data required to assemble the incompressible Navier-Stokes
+     * system. The gradients needed for both the laplacian form and the
+     * divergence form are computed (velocity gradients and symmetric
+     * gradients).
+     *
+     * This is always active and does not need to be specified.
+     */
+    ns_only = 0,
 
-  template <typename ValueType>
-  ValueType compute_bdf_time_derivative(
-    const ValueType                           &current_value,
-    const std::vector<std::vector<ValueType>> &previous_values,
-    const unsigned int                         q) const
-  {
-    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
-    ValueType time_derivative = bdf_coefficients[0] * current_value;
-    for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
-      time_derivative += bdf_coefficients[i] * previous_values[i - 1][q];
-    return time_derivative;
-  }
+    /**
+     * Reinit data to assemble the mesh movement elasticity equation.
+     */
+    pseudo_solid = 1 << 0,
 
-  void initialize_navier_stokes();
-  void initialize_pseudo_solid();
-  void initialize_lagrange_multiplier();
-  void initialize_cahn_hilliard();
-  void initialize_compressible();
+    /**
+     * Reinit data to assemble constraints using a Lagrange multiplier.
+     */
+    lagrange_multiplier = 1 << 1,
+
+    /**
+     * Reinit data to assemble the Cahn-Hilliard system, used to form the CHNS
+     * system.
+     */
+    cahn_hilliard = 1 << 2,
+
+    /**
+     * Reinit data to assemble the compressible Navier-Stokes system (including
+     * the energy equation).
+     */
+    compressible = 1 << 3,
+
+    /**
+     * Reinit data to assemble the SUPG and PSPG stabilization terms of the
+     * Navier-Stokes system.
+     */
+    stabilization = 1 << 4,
+
+    /**
+     * Specifies if this ScratchData is for a solver using the hp tools.
+     * In that case, hp::FEValues/FEFaceValues are stored and the appropriate
+     * FEValues/FEFaceValues are selected on the current cell when the scratch
+     * is reinit'ed.
+     *
+     * Not an update flag per se, but avoids defining an extra template
+     * parameter.
+     */
+    with_hp_capabilities = 1 << 5,
+
+    /**
+     * Reinit data for the additional "psi" field used by the enlarged CHNS
+     * scaffold (Ding-Horriche model).
+     */
+    enlarged = 1 << 6
+  };
+
+  // Forward declaration of base class below
+  template <int dim, unsigned int update_flags = ns_only>
+  class ScratchData;
 
   /**
-   * Reinit FEValues or FEFaceValues and return a reference to it.
-   * Adapted from the reinit routines in deal.II's meshworker/scratch_data.cc,
-   * for the hp case and with spacedim = dim.
+   * Scratch data for the incompressible NS solver on fixed mesh.
    */
-  const FEValues<dim> *
-  reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
-         const bool                                            fixed_mapping);
+  template <int dim>
+  using ScratchDataIncompressibleNS = ScratchData<dim>;
 
-  const FEFaceValues<dim> *
-  reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
-         const unsigned int                                    face_no,
-         const bool                                            fixed_mapping);
+  /**
+   * Scratch data for the compressible NS solver.
+   */
+  template <int dim>
+  using ScratchDataCompressibleNS = ScratchData<dim, compressible>;
 
-  // ── Reinit layer 1 (always first) ───────────────────────────────────────
-  // Fills NS fields on the moving mesh: velocities, pressure, shape functions,
-  // and — when enable_stabilization — the base strong residual
-  // (strong_residual_momentum_no_ale) and τ for the single-fluid case.
-  //
-  // Subsequent layers (CHNS, pseudo-solid) may override these quantities:
-  //   reinit_cahn_hilliard_cell overrides strong_residual_momentum_no_ale
-  //     with the variable-density/viscosity version and recalculates τ.
-  //   reinit_pseudo_solid_cell adds strong_residual_momentum_ale and
-  //     recalculates τ with u_conv = u − w_mesh.
-  //
-  // Invariant: must be called before any other reinit_*_cell.
-  template <typename VectorType>
-  void
-  reinit_navier_stokes_cell(const FEValues<dim>           &fe_values,
-                            const VectorType              &current_solution,
-                            const std::vector<VectorType> &previous_solutions,
-                            const Function<dim>           &source_terms,
-                            const Function<dim> & /*exact_solution*/)
+  /**
+   * hp Scratch data for the incompressible NS solver with Lagrange multiplier.
+   */
+  template <int dim>
+  using ScratchDataIncompressibleNSLambda =
+    ScratchData<dim, lagrange_multiplier | with_hp_capabilities>;
+
+  /**
+   * Scratch data for the FSI solver on moving mesh.
+   */
+  template <int dim>
+  using ScratchDataFSI = ScratchData<dim, pseudo_solid | lagrange_multiplier>;
+
+  /**
+   * hp Scratch data for the FSI solver.
+   */
+  template <int dim>
+  using ScratchDataFSI_hp =
+    ScratchData<dim, pseudo_solid | lagrange_multiplier | with_hp_capabilities>;
+
+  /**
+   * Scratch data for the quasi-incompressible Cahn_hilliard Navier-Stokes
+   * solver on fixed mesh.
+   */
+  // TODO(merge): `enable_stabilization` was previously a runtime flag
+  // (param.finite_elements.stabilization) shared by all ScratchData
+  // instances. With the new compile-time `update_flags` design, it must be
+  // selected at compile time. We unconditionally enable the `stabilization`
+  // flag bit for the CHNS scratch data (the only consumer of the SUPG/PSPG
+  // stabilization terms on this branch) so that the ported stabilization
+  // members/computations are available. The runtime
+  // `param.finite_elements.stabilization` switch should still be checked in
+  // the assembly routines to decide whether the precomputed stabilization
+  // terms are actually added to the residual.
+  template <int dim,
+            bool with_moving_mesh = false,
+            bool with_enlarged    = false>
+  using ScratchDataCHNS =
+    ScratchData<dim,
+                (with_moving_mesh ? pseudo_solid : ns_only) | cahn_hilliard |
+                  (with_enlarged ? enlarged : ns_only) | stabilization>;
+
+  /**
+   * This base class is a ScratchData common to all solvers. The pre-computation
+   * of specific fields is enabled or disabled using the update flags defined
+   * above. By default, the Navier-Stokes related quantities are computed for
+   * all solvers. They are computed at the quadrature nodes located inside the
+   * mesh elements, and at those located on their faces if the element touches a
+   * boundary.
+   *
+   * This scratch has FEValues/FEFaceValues defined on both the fixed and moving
+   * mesh: only quantities used to assemble the pseudo-solid equation are
+   * evaluated on the fixed mesh, whereas *all* other fields are evaluated on
+   * the moving mesh. Of course, when the passed mapping representing the moving
+   * mesh is also the fixed mapping, then everything is evaluated on a unique
+   * fixed mesh.
+   */
+  template <int dim, unsigned int update_flags>
+  class ScratchData
   {
-    fe_values[velocity].get_function_values(current_solution,
-                                            present_velocity_values);
-    fe_values[velocity].get_function_gradients(current_solution,
-                                               present_velocity_gradients);
-    fe_values[velocity].get_function_symmetric_gradients(
-      current_solution, present_velocity_sym_gradients);
-    fe_values[velocity].get_function_divergences(current_solution,
-                                                 present_velocity_divergence);
-    fe_values[pressure].get_function_values(current_solution,
-                                            present_pressure_values);
-    fe_values[pressure].get_function_gradients(current_solution,
-                                               present_pressure_gradients);
+  public:
+    /**
+     * Constructor
+     */
+    ScratchData(const ComponentOrdering    &ordering,
+                const FESystem<dim>        &fe,
+                const Mapping<dim>         &fixed_mapping,
+                const Mapping<dim>         &moving_mapping,
+                const Quadrature<dim>      &cell_quadrature,
+                const Quadrature<dim - 1>  &face_quadrature,
+                const TimeHandler          &time_handler,
+                const ParameterReader<dim> &param);
 
-    if (enable_stabilization)
+    /**
+     * Constructor with hp capabilities
+     */
+    ScratchData(const ComponentOrdering          &ordering,
+                const hp::FECollection<dim>      &fe_collection,
+                const hp::MappingCollection<dim> &fixed_mapping_collection,
+                const hp::MappingCollection<dim> &moving_mapping_collection,
+                const hp::QCollection<dim>       &cell_quadrature_collection,
+                const hp::QCollection<dim - 1>   &face_quadrature_collection,
+                const TimeHandler                &time_handler,
+                const ParameterReader<dim>       &param);
+
+    /**
+     * Copy constructor
+     */
+    ScratchData(const ScratchData &other);
+
+  private:
+    /**
+     * Allocate the class vectors.
+     */
+    void allocate();
+
+    template <typename ValueType>
+    ValueType compute_bdf_time_derivative(
+      const ValueType              &current_value,
+      const std::vector<ValueType> &previous_values) const
     {
-      // Δu and Hessian per quadrature point
-      fe_values[velocity].get_function_laplacians(current_solution,
-                                                  present_velocity_laplacians);
-
-      // ∇(∇·u) from the full hessian
-      fe_values[velocity].get_function_hessians(current_solution,
-                                                present_velocity_hessians);
-      for (unsigned int q = 0; q < n_q_points; ++q)
-      {
-        present_velocity_grad_divergences[q] = Tensor<1, dim>();
-        for (unsigned int c = 0; c < dim; ++c)
-          for (unsigned int d = 0; d < dim; ++d)
-            present_velocity_grad_divergences[q][d] +=
-              present_velocity_hessians[q][c][c][d];
-      }
+      const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
+      ValueType time_derivative = bdf_coefficients[0] * current_value;
+      for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
+        time_derivative += bdf_coefficients[i] * previous_values[i - 1];
+      return time_derivative;
     }
 
-    // Previous solutions
-    for (unsigned int i = 0; i < previous_solutions.size(); ++i)
-      fe_values[velocity].get_function_values(previous_solutions[i],
-                                              previous_velocity_values[i]);
-
-    // Source terms with layout u-v-(w)-p
-    source_terms.vector_value_list(fe_values.get_quadrature_points(),
-                                   source_term_full_moving);
-
-    // Get jacobian, shape functions and set source terms
-    for (unsigned int q = 0; q < n_q_points; ++q)
+    template <typename ValueType>
+    ValueType compute_bdf_time_derivative(
+      const ValueType                           &current_value,
+      const std::vector<std::vector<ValueType>> &previous_values,
+      const unsigned int                         q) const
     {
-      JxW_moving[q] = fe_values.JxW(q);
+      const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
+      ValueType time_derivative = bdf_coefficients[0] * current_value;
+      for (unsigned int i = 1; i < bdf_coefficients.size(); ++i)
+        time_derivative += bdf_coefficients[i] * previous_values[i - 1][q];
+      return time_derivative;
+    }
 
-      for (int d = 0; d < dim; ++d)
-        source_term_velocity[q][d] = source_term_full_moving[q](u_lower + d);
-      source_term_pressure[q] = source_term_full_moving[q](p_lower);
+    /**
+     * Set up data related to the incompressible Navier-Stokes system.
+     */
+    void initialize_navier_stokes();
 
-      for (unsigned int k = 0; k < dofs_per_cell; ++k)
+    /**
+     * Set up data related to the mesh movement elasticity equations.
+     */
+    void initialize_pseudo_solid();
+
+    /**
+     * Set up data related to the Lagrange multiplier fields.
+     */
+    void initialize_lagrange_multiplier();
+
+    /**
+     * Set up data related to the Cahn-Hilliard system.
+     */
+    void initialize_cahn_hilliard();
+
+    /**
+     * Set up data related to the compressible Navier-Stokes system.
+     */
+    void initialize_compressible();
+
+    /**
+     * Reinit FEValues or FEFaceValues and return a reference to it.
+     * Adapted from the reinit routines in deal.II's meshworker/scratch_data.cc,
+     * for the hp case and with spacedim = dim.
+     */
+    const FEValues<dim> *
+    reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
+           const bool                                            fixed_mapping);
+
+    const FEFaceValues<dim> *
+    reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
+           const unsigned int                                    face_no,
+           const bool                                            fixed_mapping);
+
+    template <typename VectorType>
+    void
+    reinit_navier_stokes_cell(const FEValues<dim>           &fe_values,
+                              const VectorType              &current_solution,
+                              const std::vector<VectorType> &previous_solutions,
+                              const Function<dim>           &source_terms,
+                              const Function<dim> & /*exact_solution*/)
+    {
+      fe_values[velocity].get_function_values(current_solution,
+                                              present_velocity_values);
+      fe_values[velocity].get_function_gradients(current_solution,
+                                                 present_velocity_gradients);
+      fe_values[velocity].get_function_symmetric_gradients(
+        current_solution, present_velocity_sym_gradients);
+      fe_values[velocity].get_function_divergences(current_solution,
+                                                   present_velocity_divergence);
+      fe_values[pressure].get_function_values(current_solution,
+                                              present_pressure_values);
+      fe_values[pressure].get_function_gradients(current_solution,
+                                                 present_pressure_gradients);
+
+      if constexpr (update_flags & stabilization)
       {
-        phi_u[q][k]          = fe_values[velocity].value(k, q);
-        grad_phi_u[q][k]     = fe_values[velocity].gradient(k, q);
-        sym_grad_phi_u[q][k] = symmetrize(grad_phi_u[q][k]);
-        div_phi_u[q][k]      = fe_values[velocity].divergence(k, q);
-        phi_p[q][k]          = fe_values[pressure].value(k, q);
+        // Δu and Hessian per quadrature point
+        fe_values[velocity].get_function_laplacians(
+          current_solution, present_velocity_laplacians);
 
-        if (enable_stabilization)
+        // ∇(∇·u) from the full hessian
+        fe_values[velocity].get_function_hessians(current_solution,
+                                                  present_velocity_hessians);
+        for (unsigned int q = 0; q < n_q_points; ++q)
         {
-          grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
-          // (Δφ_u)_c     = Σ_d Hk[c][d][d]   (trace on last two indices)
-          // (∇div φ_u)_d = Σ_c Hk[c][c][d]   (trace on first two indices)
-          const Tensor<3, dim> Hk = fe_values[velocity].hessian(k, q);
-          Tensor<1, dim>       lap_k, grad_div_k;
+          present_velocity_grad_divergences[q] = Tensor<1, dim>();
           for (unsigned int c = 0; c < dim; ++c)
             for (unsigned int d = 0; d < dim; ++d)
-            {
-              lap_k[c] += Hk[c][d][d];
-              grad_div_k[d] += Hk[c][c][d];
-            }
-
-          // Divergence form is used when enable_lagrange_multiplier is true,
-          // consistent with the Galerkin viscous operator of the lambda solver.
-          diffusion_phi_u[q][k] =
-            (enable_lagrange_multiplier || enable_cahn_hilliard) ?
-              lap_k + grad_div_k :
-              lap_k;
+              present_velocity_grad_divergences[q][d] +=
+                present_velocity_hessians[q][c][c][d];
         }
       }
 
-      if (enable_stabilization)
+      // Previous solutions
+      for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+        fe_values[velocity].get_function_values(previous_solutions[i],
+                                                previous_velocity_values[i]);
+
+      // Source terms with layout u-v-(w)-p
+      source_terms.vector_value_list(fe_values.get_quadrature_points(),
+                                     source_term_full_moving);
+
+      // Get jacobian, shape functions and set source terms
+      for (unsigned int q = 0; q < n_q_points; ++q)
       {
-        const Tensor<1, dim> u_conv = present_velocity_values[q];
-        const double         nu =
-          param.physical_properties.fluids[0].kinematic_viscosity;
+        JxW_moving[q] = fe_values.JxW(q);
 
-        // Δu + ∇(∇·u) — pure differential quantity, physic-independent.
-        // Stored for reuse in CHNS Jacobian (supg_pspg_matrix_chns_phi).
-        present_velocity_lap_plus_graddiv[q] =
-          present_velocity_laplacians[q] + present_velocity_grad_divergences[q];
+        // Time derivatives
+        present_velocity_time_derivatives[q] =
+          time_handler.compute_time_derivative_at_quadrature_node(
+            q, present_velocity_values[q], previous_velocity_values);
 
-        // Viscous operator: ν Δu (Laplacian form) or ν(Δu + ∇div u)
-        // (divergence form, used by lambda-solver and CHNS).
-        const Tensor<1, dim> viscous_operator =
-          (enable_lagrange_multiplier || enable_cahn_hilliard) ?
-            present_velocity_lap_plus_graddiv[q] :
-            present_velocity_laplacians[q];
+        for (int d = 0; d < dim; ++d)
+          source_term_velocity[q][d] = source_term_full_moving[q](u_lower + d);
+        source_term_pressure[q] = source_term_full_moving[q](p_lower);
 
-        strong_residual_momentum_no_ale[q] =
-          compute_bdf_time_derivative(present_velocity_values[q],
-                                      previous_velocity_values,
-                                      q) +
-          present_velocity_gradients[q] * u_conv - nu * viscous_operator +
-          present_pressure_gradients[q] + source_term_velocity[q];
-        strong_residual_momentum_ale[q] = Tensor<1, dim>();
-        strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          phi_u[q][k]          = fe_values[velocity].value(k, q);
+          grad_phi_u[q][k]     = fe_values[velocity].gradient(k, q);
+          sym_grad_phi_u[q][k] = symmetrize(grad_phi_u[q][k]);
+          div_phi_u[q][k]      = fe_values[velocity].divergence(k, q);
+          phi_p[q][k]          = fe_values[pressure].value(k, q);
 
-        Stabilization::compute_geometry_shape_gradients<dim>(
-          fe_values.inverse_jacobian(q),
-          fe_values.get_quadrature().point(q),
-          use_quads,
-          stabilization_geometry_shape_gradients[q]);
-        const double h_tau =
-          Stabilization::compute_streamline_length_from_geometry_gradients(
-            u_conv,
-            stabilization_geometry_shape_gradients[q],
-            cell_diameter);
-        stabilization_h_tau[q] = h_tau;
-        stabilization_tau_momentum[q] =
-          Stabilization::compute_tau(time_handler.get_current_timestep(),
-                                     param.time_integration.is_steady(),
-                                     u_conv.norm(),
-                                     nu,
-                                     h_tau,
-                                     param.finite_elements.velocity_degree);
+          if constexpr (update_flags & stabilization)
+          {
+            grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
+            // (Δφ_u)_c     = Σ_d Hk[c][d][d]   (trace on last two indices)
+            // (∇div φ_u)_d = Σ_c Hk[c][c][d]   (trace on first two indices)
+            const Tensor<3, dim> Hk = fe_values[velocity].hessian(k, q);
+            Tensor<1, dim>       lap_k, grad_div_k;
+            for (unsigned int c = 0; c < dim; ++c)
+              for (unsigned int d = 0; d < dim; ++d)
+              {
+                lap_k[c] += Hk[c][d][d];
+                grad_div_k[d] += Hk[c][c][d];
+              }
+
+            // Divergence form is used when enable_lagrange_multiplier is
+            // true, consistent with the Galerkin viscous operator of the
+            // lambda solver.
+            diffusion_phi_u[q][k] =
+              (enable_lagrange_multiplier || enable_cahn_hilliard) ?
+                lap_k + grad_div_k :
+                lap_k;
+          }
+        }
+
+        if constexpr (update_flags & stabilization)
+        {
+          const Tensor<1, dim> u_conv = present_velocity_values[q];
+          const double         nu =
+            param.physical_properties.fluids[0].kinematic_viscosity;
+
+          // Δu + ∇(∇·u) — pure differential quantity, physic-independent.
+          // Stored for reuse in CHNS Jacobian (supg_pspg_matrix_chns_phi).
+          present_velocity_lap_plus_graddiv[q] =
+            present_velocity_laplacians[q] +
+            present_velocity_grad_divergences[q];
+
+          // Viscous operator: ν Δu (Laplacian form) or ν(Δu + ∇div u)
+          // (divergence form, used by lambda-solver and CHNS).
+          const Tensor<1, dim> viscous_operator =
+            (enable_lagrange_multiplier || enable_cahn_hilliard) ?
+              present_velocity_lap_plus_graddiv[q] :
+              present_velocity_laplacians[q];
+
+          strong_residual_momentum_no_ale[q] =
+            compute_bdf_time_derivative(present_velocity_values[q],
+                                        previous_velocity_values,
+                                        q) +
+            present_velocity_gradients[q] * u_conv - nu * viscous_operator +
+            present_pressure_gradients[q] + source_term_velocity[q];
+          strong_residual_momentum_ale[q] = Tensor<1, dim>();
+          strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
+
+          Stabilization::compute_geometry_shape_gradients<dim>(
+            fe_values.inverse_jacobian(q),
+            fe_values.get_quadrature().point(q),
+            use_quads,
+            stabilization_geometry_shape_gradients[q]);
+          const double h_tau =
+            Stabilization::compute_streamline_length_from_geometry_gradients(
+              u_conv,
+              stabilization_geometry_shape_gradients[q],
+              cell_diameter);
+          stabilization_h_tau[q] = h_tau;
+          stabilization_tau_momentum[q] =
+            Stabilization::compute_tau(time_handler.get_current_timestep(),
+                                       param.time_integration.is_steady(),
+                                       u_conv.norm(),
+                                       nu,
+                                       h_tau,
+                                       param.finite_elements.velocity_degree);
+        }
       }
     }
-  }
 
-  template <typename VectorType>
-  void reinit_navier_stokes_face(
-    const unsigned int       i_face,
-    const FEFaceValues<dim> &fe_face_values,
-    const VectorType        &current_solution,
-    const std::vector<VectorType> & /*previous_solutions*/,
-    const Function<dim> & /*source_terms*/,
-    const Function<dim> &exact_solution)
-  {
-    fe_face_values[velocity].get_function_values(
-      current_solution, present_face_velocity_values[i_face]);
-
-    fe_face_values[velocity].get_function_gradients(
-      current_solution, present_face_velocity_gradients[i_face]);
-
-    // Exact solution with layout u-v-(w-)p and its gradient
-    exact_solution.vector_value_list(fe_face_values.get_quadrature_points(),
-                                     exact_solution_full);
-    exact_solution.vector_gradient_list(fe_face_values.get_quadrature_points(),
-                                        grad_exact_solution_full);
-
-    for (unsigned int q = 0; q < n_faces_q_points; ++q)
+    template <typename VectorType>
+    void reinit_navier_stokes_face(
+      const unsigned int       i_face,
+      const FEFaceValues<dim> &fe_face_values,
+      const VectorType        &current_solution,
+      const std::vector<VectorType> & /*previous_solutions*/,
+      const Function<dim> & /*source_terms*/,
+      const Function<dim> &exact_solution)
     {
-      face_JxW_moving[i_face][q]     = fe_face_values.JxW(q);
-      face_normals_moving[i_face][q] = fe_face_values.normal_vector(q);
+      fe_face_values[velocity].get_function_values(
+        current_solution, present_face_velocity_values[i_face]);
 
-      present_face_velocity_sym_gradients[i_face][q] =
-        symmetrize(present_face_velocity_gradients[i_face][q]);
+      fe_face_values[velocity].get_function_gradients(
+        current_solution, present_face_velocity_gradients[i_face]);
 
-      for (int di = 0; di < dim; ++di)
-        for (int dj = 0; dj < dim; ++dj)
-          exact_face_velocity_gradients[i_face][q][di][dj] =
-            grad_exact_solution_full[q][u_lower + di][dj];
-      exact_face_velocity_divergences[i_face][q] =
-        trace(exact_face_velocity_gradients[i_face][q]);
-      exact_face_pressure_values[i_face][q] = exact_solution_full[q](p_lower);
+      // Exact solution with layout u-v-(w-)p and its gradient
+      exact_solution.vector_value_list(fe_face_values.get_quadrature_points(),
+                                       exact_solution_full);
+      exact_solution.vector_gradient_list(
+        fe_face_values.get_quadrature_points(), grad_exact_solution_full);
 
-      for (unsigned int k = 0; k < dofs_per_cell; ++k)
-      {
-        phi_u_face[i_face][q][k]      = fe_face_values[velocity].value(k, q);
-        phi_p_face[i_face][q][k]      = fe_face_values[pressure].value(k, q);
-        grad_phi_u_face[i_face][q][k] = fe_face_values[velocity].gradient(k, q);
-        sym_grad_phi_u_face[i_face][q][k] =
-          symmetrize(grad_phi_u_face[i_face][q][k]);
-        div_phi_u_face[i_face][q][k] =
-          fe_face_values[velocity].divergence(k, q);
-      }
-    }
-  }
-
-  // ── Reinit layer 2a (pseudo-solid / ALE) ────────────────────────────────
-  // Requires: reinit_navier_stokes_cell already called (reads
-  //   present_velocity_gradients, strong_residual_momentum_no_ale).
-  // Fills: mesh position and velocity fields; adds the ALE convective
-  //   correction to strong_residual_momentum_ale and updates
-  //   strong_residual_momentum = no_ale + ale; recalculates τ with u_conv.
-  //
-  // If reinit_cahn_hilliard_cell is also needed (ALE-CHNS), call order is:
-  //   1. reinit_navier_stokes_cell
-  //   2. reinit_pseudo_solid_cell       ← fills present_mesh_velocity_values
-  //   3. reinit_cahn_hilliard_cell      ← uses present_mesh_velocity_values
-  template <typename VectorType>
-  void
-  reinit_compressible_cell(const FEValues<dim>           &fe_values,
-                           const VectorType              &current_solution,
-                           const std::vector<VectorType> &previous_solutions,
-                           const Function<dim> & /*source_terms*/,
-                           const Function<dim> &exact_solution)
-  {
-    fe_values[temperature].get_function_values(current_solution,
-                                               present_temperature_values);
-    fe_values[temperature].get_function_gradients(
-      current_solution, present_temperature_gradients);
-    fe_values[pressure].get_function_values(current_solution,
-                                            present_pressure_values);
-    fe_values[pressure].get_function_gradients(current_solution,
-                                               present_pressure_gradients);
-
-    for (unsigned int i = 0; i < previous_solutions.size(); ++i)
-    {
-      fe_values[pressure].get_function_values(previous_solutions[i],
-                                              previous_pressure_values[i]);
-      fe_values[temperature].get_function_values(
-        previous_solutions[i], previous_temperature_values[i]);
-    }
-
-    // Exact solution at cell quadrature points (layout u-v-(w-)p-T)
-    exact_solution.vector_value_list(fe_values.get_quadrature_points(),
-                                     exact_solution_full_cell);
-
-    for (unsigned int q = 0; q < n_q_points; ++q)
-    {
-      for (unsigned int d = 0; d < dim; ++d)
-        exact_velocity_values_cell[q][d] =
-          exact_solution_full_cell[q](u_lower + d);
-      exact_pressure_values_cell[q]    = exact_solution_full_cell[q](p_lower);
-      exact_temperature_values_cell[q] = exact_solution_full_cell[q](t_lower);
-    }
-
-    // Get jacobian, shape functions and set source terms
-    for (unsigned int q = 0; q < n_q_points; ++q)
-    {
-      source_term_temperature[q] = source_term_full_moving[q](t_lower);
-
-      const double p_star = present_pressure_values[q];
-      const double T_star = present_temperature_values[q];
-
-      // Total pressure p = p_ref + p_star, and similarly for temperature
-      present_pressure_absolute_values[q]    = pressure_ref + p_star;
-      present_temperature_absolute_values[q] = temperature_ref + T_star;
-
-      a_p[q] = alpha_r / (alpha_r * p_star + 1.0);
-      b_T[q] = beta_r / (beta_r * T_star + 1.0);
-
-      density[q] =
-        density_ref * ((alpha_r * p_star + 1.0) / (beta_r * T_star + 1.0));
-
-      for (unsigned int k = 0; k < dofs_per_cell; ++k)
-      {
-        grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
-        phi_T[q][k]      = fe_values[temperature].value(k, q);
-        grad_phi_T[q][k] = fe_values[temperature].gradient(k, q);
-      }
-    }
-  }
-
-  template <typename VectorType>
-  void reinit_compressible_face(
-    const unsigned int       i_face,
-    const FEFaceValues<dim> &fe_face_values,
-    const VectorType        &current_solution,
-    const std::vector<VectorType> & /*previous_solutions*/,
-    const Function<dim> & /*source_terms*/,
-    const Function<dim> &exact_solution)
-  {
-    fe_face_values[pressure].get_function_values(
-      current_solution, present_face_pressure_values[i_face]);
-
-    fe_face_values[temperature].get_function_values(
-      current_solution, present_face_temperature_values[i_face]);
-
-    fe_face_values[temperature].get_function_gradients(
-      current_solution, present_face_temperature_gradients[i_face]);
-
-    exact_solution.vector_gradient_list(fe_face_values.get_quadrature_points(),
-                                        grad_exact_solution_full);
-
-    const auto &quad_points = fe_face_values.get_quadrature_points();
-
-    // Fluid and heat boundary condition on this face
-    // In the compressible solver, both fluid and heat boundary conditions are
-    // expected to be defined on all boundaries.
-    Assert(param.fluid_bc.count(face_boundary_id[i_face]) > 0,
-           ExcInternalError());
-    Assert(param.heat_bc.count(face_boundary_id[i_face]) > 0,
-           ExcInternalError());
-    const auto &fluid_bc = param.fluid_bc.at(face_boundary_id[i_face]);
-    const auto &bc_heat  = param.heat_bc.at(face_boundary_id[i_face]);
-
-    // Imposed pressure if pressure is weakly enforced
-    if (fluid_bc.type == BoundaryConditions::Type::weak_pressure)
       for (unsigned int q = 0; q < n_faces_q_points; ++q)
-        face_input_pressure_values[i_face][q] =
-          fluid_bc.p->value(quad_points[q]);
-
-    // Imposed heat flux
-    if (bc_heat.type == BoundaryConditions::Type::heat_flux)
-      for (unsigned int q = 0; q < n_faces_q_points; ++q)
-        face_input_heat_flux_values[i_face][q] =
-          bc_heat.temperature->value(quad_points[q]);
-
-    for (unsigned int q = 0; q < n_faces_q_points; ++q)
-    {
-      present_face_velocity_divergence[i_face][q] =
-        trace(present_face_velocity_gradients[i_face][q]);
-
-      present_face_temperature_absolute_values[i_face][q] =
-        temperature_ref + present_face_temperature_values[i_face][q];
-
-      exact_face_temperature_gradients[i_face][q] =
-        grad_exact_solution_full[q][t_lower];
-
-      for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_T_face[i_face][q][k] = fe_face_values[temperature].value(k, q);
-        grad_phi_T_face[i_face][q][k] =
-          fe_face_values[temperature].gradient(k, q);
+        face_JxW_moving[i_face][q]     = fe_face_values.JxW(q);
+        face_normals_moving[i_face][q] = fe_face_values.normal_vector(q);
+
+        present_face_velocity_sym_gradients[i_face][q] =
+          symmetrize(present_face_velocity_gradients[i_face][q]);
+
+        for (int di = 0; di < dim; ++di)
+          for (int dj = 0; dj < dim; ++dj)
+            exact_face_velocity_gradients[i_face][q][di][dj] =
+              grad_exact_solution_full[q][u_lower + di][dj];
+        exact_face_velocity_divergences[i_face][q] =
+          trace(exact_face_velocity_gradients[i_face][q]);
+        exact_face_pressure_values[i_face][q] = exact_solution_full[q](p_lower);
+
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          phi_u_face[i_face][q][k] = fe_face_values[velocity].value(k, q);
+          phi_p_face[i_face][q][k] = fe_face_values[pressure].value(k, q);
+          grad_phi_u_face[i_face][q][k] =
+            fe_face_values[velocity].gradient(k, q);
+          sym_grad_phi_u_face[i_face][q][k] =
+            symmetrize(grad_phi_u_face[i_face][q][k]);
+          div_phi_u_face[i_face][q][k] =
+            fe_face_values[velocity].divergence(k, q);
+        }
       }
     }
-  }
 
-  template <typename VectorType>
-  void
-  reinit_pseudo_solid_cell(const FEValues<dim>           &fe_values_fixed,
-                           const FEValues<dim>           &fe_values_moving,
-                           const VectorType              &current_solution,
-                           const std::vector<VectorType> &previous_solutions,
-                           const Function<dim>           &source_terms,
-                           const Function<dim> & /*exact_solution*/)
-  {
-    fe_values_fixed[position].get_function_values(current_solution,
-                                                  present_position_values);
-    fe_values_fixed[position].get_function_gradients(
-      current_solution, present_position_gradients);
-
-    // Previous solutions
-    for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+    template <typename VectorType>
+    void
+    reinit_compressible_cell(const FEValues<dim>           &fe_values,
+                             const VectorType              &current_solution,
+                             const std::vector<VectorType> &previous_solutions,
+                             const Function<dim> & /*source_terms*/,
+                             const Function<dim> &exact_solution)
     {
-      // fe_values[velocity].get_function_values(previous_solutions[i],
-      //                                            previous_velocity_values[i]);
-      fe_values_fixed[position].get_function_values(
-        previous_solutions[i], previous_position_values[i]);
+      fe_values[temperature].get_function_values(current_solution,
+                                                 present_temperature_values);
+      fe_values[temperature].get_function_gradients(
+        current_solution, present_temperature_gradients);
+      fe_values[pressure].get_function_values(current_solution,
+                                              present_pressure_values);
+      fe_values[pressure].get_function_gradients(current_solution,
+                                                 present_pressure_gradients);
+
+      for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+      {
+        fe_values[pressure].get_function_values(previous_solutions[i],
+                                                previous_pressure_values[i]);
+        fe_values[temperature].get_function_values(
+          previous_solutions[i], previous_temperature_values[i]);
+      }
+
+      // Exact solution at cell quadrature points (layout u-v-(w-)p-T)
+      exact_solution.vector_value_list(fe_values.get_quadrature_points(),
+                                       exact_solution_full_cell);
+
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        for (unsigned int d = 0; d < dim; ++d)
+          exact_velocity_values_cell[q][d] =
+            exact_solution_full_cell[q](u_lower + d);
+        exact_pressure_values_cell[q]    = exact_solution_full_cell[q](p_lower);
+        exact_temperature_values_cell[q] = exact_solution_full_cell[q](t_lower);
+      }
+
+      // Get jacobian, shape functions and set source terms
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        source_term_temperature[q] = source_term_full_moving[q](t_lower);
+
+        const double p_star = present_pressure_values[q];
+        const double T_star = present_temperature_values[q];
+
+        // Total pressure p = p_ref + p_star, and similarly for temperature
+        present_pressure_absolute_values[q]    = pressure_ref + p_star;
+        present_temperature_absolute_values[q] = temperature_ref + T_star;
+
+        a_p[q] = alpha_r / (alpha_r * p_star + 1.0);
+        b_T[q] = beta_r / (beta_r * T_star + 1.0);
+
+        density[q] =
+          density_ref * ((alpha_r * p_star + 1.0) / (beta_r * T_star + 1.0));
+
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
+          phi_T[q][k]      = fe_values[temperature].value(k, q);
+          grad_phi_T[q][k] = fe_values[temperature].gradient(k, q);
+        }
+      }
+    }
+
+    template <typename VectorType>
+    void reinit_compressible_face(
+      const unsigned int       i_face,
+      const FEFaceValues<dim> &fe_face_values,
+      const VectorType        &current_solution,
+      const std::vector<VectorType> & /*previous_solutions*/,
+      const Function<dim> & /*source_terms*/,
+      const Function<dim> &exact_solution)
+    {
+      fe_face_values[pressure].get_function_values(
+        current_solution, present_face_pressure_values[i_face]);
+
+      fe_face_values[temperature].get_function_values(
+        current_solution, present_face_temperature_values[i_face]);
+
+      fe_face_values[temperature].get_function_gradients(
+        current_solution, present_face_temperature_gradients[i_face]);
+
+      exact_solution.vector_gradient_list(
+        fe_face_values.get_quadrature_points(), grad_exact_solution_full);
+
+      const auto &quad_points = fe_face_values.get_quadrature_points();
+
+      // Fluid and heat boundary condition on this face
+      // In the compressible solver, both fluid and heat boundary conditions are
+      // expected to be defined on all boundaries.
+      Assert(param.fluid_bc.count(face_boundary_id[i_face]) > 0,
+             ExcInternalError());
+      Assert(param.heat_bc.count(face_boundary_id[i_face]) > 0,
+             ExcInternalError());
+      const auto &fluid_bc = param.fluid_bc.at(face_boundary_id[i_face]);
+      const auto &bc_heat  = param.heat_bc.at(face_boundary_id[i_face]);
+
+      // Imposed pressure if pressure is weakly enforced
+      if (fluid_bc.type == BoundaryConditions::Type::weak_pressure)
+        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          face_input_pressure_values[i_face][q] =
+            fluid_bc.p->value(quad_points[q]);
+
+      // Imposed heat flux
+      if (bc_heat.type == BoundaryConditions::Type::heat_flux)
+        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          face_input_heat_flux_values[i_face][q] =
+            bc_heat.temperature->value(quad_points[q]);
+
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+      {
+        present_face_velocity_divergence[i_face][q] =
+          trace(present_face_velocity_gradients[i_face][q]);
+
+        present_face_temperature_absolute_values[i_face][q] =
+          temperature_ref + present_face_temperature_values[i_face][q];
+
+        exact_face_temperature_gradients[i_face][q] =
+          grad_exact_solution_full[q][t_lower];
+
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          phi_T_face[i_face][q][k] = fe_face_values[temperature].value(k, q);
+          grad_phi_T_face[i_face][q][k] =
+            fe_face_values[temperature].gradient(k, q);
+        }
+      }
+    }
+
+    template <typename VectorType>
+    void
+    reinit_pseudo_solid_cell(const FEValues<dim>           &fe_values_fixed,
+                             const FEValues<dim>           &fe_values_moving,
+                             const VectorType              &current_solution,
+                             const std::vector<VectorType> &previous_solutions,
+                             const Function<dim>           &source_terms,
+                             const Function<dim> & /*exact_solution*/)
+    {
+      fe_values_fixed[position].get_function_values(current_solution,
+                                                    present_position_values);
       fe_values_fixed[position].get_function_gradients(
-        previous_solutions[i], previous_position_gradients[i]);
-    }
+        current_solution, present_position_gradients);
 
-    // Current mesh velocity from displacement
-    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
-
-    for (unsigned int q = 0; q < n_q_points; ++q)
-    {
-      present_mesh_velocity_values[q] =
-        bdf_coefficients[0] * present_position_values[q];
-      for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
+      // Previous solutions
+      for (unsigned int i = 0; i < previous_solutions.size(); ++i)
       {
-        present_mesh_velocity_values[q] +=
-          bdf_coefficients[iBDF] * previous_position_values[iBDF - 1][q];
+        // fe_values[velocity].get_function_values(previous_solutions[i],
+        //                                            previous_velocity_values[i]);
+        fe_values_fixed[position].get_function_values(
+          previous_solutions[i], previous_position_values[i]);
+      }
+
+      // Current mesh velocity from displacement
+      const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
+
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        present_mesh_velocity_values[q] =
+          bdf_coefficients[0] * present_position_values[q];
+        for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
+        {
+          present_mesh_velocity_values[q] +=
+            bdf_coefficients[iBDF] * previous_position_values[iBDF - 1][q];
+        }
+      }
+
+      const auto &fixed_quadrature_points =
+        fe_values_fixed.get_quadrature_points();
+
+      // Source terms on fixed mapping for x
+      source_terms.vector_value_list(fixed_quadrature_points,
+                                     source_term_full_fixed);
+
+      // This takes a lot of time, and the Newton solver converges without it
+      // // Gradient of source term (for u-p only)
+      // source_terms.vector_gradient_list(fe_values.get_quadrature_points(),
+      //                                    grad_source_term_full);
+
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        JxW_fixed[q] = fe_values_fixed.JxW(q);
+
+        const Point<dim> &q_point = fixed_quadrature_points[q];
+        lame_mu[q] =
+          physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
+        lame_lambda[q] =
+          physical_properties.pseudosolids[0].lame_lambda_fun->value(q_point);
+
+        AssertThrow(lame_mu[q] >= 0,
+                    ExcMessage("Lamé coefficient mu should be positive"));
+        AssertThrow(lame_lambda[q] >= 0,
+                    ExcMessage("Lamé coefficient lambda should be positive"));
+
+        // Neo-hookean
+        const Tensor<2, dim> &F = present_position_gradients[q];
+        present_position_J[q]   = determinant(F);
+
+        present_position_inv_gradients[q] = invert(F);
+        present_position_inv_gradients_T[q] =
+          transpose(present_position_inv_gradients[q]);
+
+        for (int d = 0; d < dim; ++d)
+          source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
+
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          phi_x[q][k]             = fe_values_fixed[position].value(k, q);
+          grad_phi_x[q][k]        = fe_values_fixed[position].gradient(k, q);
+          sym_grad_phi_x[q][k]    = symmetrize(grad_phi_x[q][k]);
+          trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
+          div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
+          grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
+          if constexpr (update_flags & stabilization)
+            hessian_phi_x_moving[q][k] =
+              fe_values_moving[position].hessian(k, q);
+        }
+
+        if constexpr (update_flags & stabilization)
+        {
+          strong_residual_momentum_ale[q] =
+            -(present_velocity_gradients[q] * present_mesh_velocity_values[q]);
+          strong_residual_momentum[q] = strong_residual_momentum_no_ale[q] +
+                                        strong_residual_momentum_ale[q];
+
+          const Tensor<1, dim> advection_velocity =
+            present_velocity_values[q] - present_mesh_velocity_values[q];
+          Stabilization::compute_geometry_shape_gradients<dim>(
+            fe_values_moving.inverse_jacobian(q),
+            fe_values_moving.get_quadrature().point(q),
+            use_quads,
+            stabilization_geometry_shape_gradients[q]);
+          const double h_tau =
+            Stabilization::compute_streamline_length_from_geometry_gradients(
+              advection_velocity,
+              stabilization_geometry_shape_gradients[q],
+              cell_diameter);
+          stabilization_h_tau[q] = h_tau;
+          stabilization_tau_momentum[q] = Stabilization::compute_tau(
+            time_handler.get_current_timestep(),
+            param.time_integration.is_steady(),
+            advection_velocity.norm(),
+            param.physical_properties.fluids[0].kinematic_viscosity,
+            h_tau,
+            param.finite_elements.velocity_degree);
+        }
       }
     }
 
-    const auto &fixed_quadrature_points =
-      fe_values_fixed.get_quadrature_points();
-
-    // Source terms on fixed mapping for x
-    source_terms.vector_value_list(fixed_quadrature_points,
-                                   source_term_full_fixed);
-
-    // This takes a lot of time, and the Newton solver converges without it
-    // // Gradient of source term (for u-p only)
-    // source_terms.vector_gradient_list(fe_values.get_quadrature_points(),
-    //                                    grad_source_term_full);
-
-    for (unsigned int q = 0; q < n_q_points; ++q)
-    {
-      JxW_fixed[q] = fe_values_fixed.JxW(q);
-
-      const Point<dim> &q_point = fixed_quadrature_points[q];
-      lame_mu[q] =
-        physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
-      lame_lambda[q] =
-        physical_properties.pseudosolids[0].lame_lambda_fun->value(q_point);
-
-      AssertThrow(lame_mu[q] >= 0,
-                  ExcMessage("Lamé coefficient mu should be positive"));
-
-      // Neo-hookean
-      const Tensor<2, dim> &F = present_position_gradients[q];
-      present_position_J[q]   = determinant(F);
-
-
-      present_position_inv_gradients[q] = invert(F);
-      present_position_inv_gradients_T[q] =
-        transpose(present_position_inv_gradients[q]);
-
-      for (int d = 0; d < dim; ++d)
-        source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
-
-      for (unsigned int k = 0; k < dofs_per_cell; ++k)
-      {
-        phi_x[q][k]             = fe_values_fixed[position].value(k, q);
-        grad_phi_x[q][k]        = fe_values_fixed[position].gradient(k, q);
-        sym_grad_phi_x[q][k]    = symmetrize(grad_phi_x[q][k]);
-        trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
-        div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
-        grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
-        if (enable_stabilization)
-          hessian_phi_x_moving[q][k] =
-            fe_values_moving[position].hessian(k, q);
-      }
-
-      if (enable_stabilization)
-      {
-        strong_residual_momentum_ale[q] =
-          -(present_velocity_gradients[q] * present_mesh_velocity_values[q]);
-        strong_residual_momentum[q] =
-          strong_residual_momentum_no_ale[q] + strong_residual_momentum_ale[q];
-
-        const Tensor<1, dim> advection_velocity =
-          present_velocity_values[q] - present_mesh_velocity_values[q];
-        Stabilization::compute_geometry_shape_gradients<dim>(
-          fe_values_moving.inverse_jacobian(q),
-          fe_values_moving.get_quadrature().point(q),
-          use_quads,
-          stabilization_geometry_shape_gradients[q]);
-        const double h_tau =
-          Stabilization::compute_streamline_length_from_geometry_gradients(
-            advection_velocity,
-            stabilization_geometry_shape_gradients[q],
-            cell_diameter);
-        stabilization_h_tau[q] = h_tau;
-        stabilization_tau_momentum[q] = Stabilization::compute_tau(
-          time_handler.get_current_timestep(),
-          param.time_integration.is_steady(),
-          advection_velocity.norm(),
-          param.physical_properties.fluids[0].kinematic_viscosity,
-          h_tau,
-          param.finite_elements.velocity_degree);
-      }
-    }
-  }
-
-  template <typename VectorType>
-  void
-  reinit_pseudo_solid_face(const unsigned int             i_face,
-                           const FEFaceValues<dim>       &fe_face_values_fixed,
-                           const FEFaceValues<dim>       &fe_face_values,
-                           const VectorType              &current_solution,
-                           const std::vector<VectorType> &previous_solutions,
-                           const Function<dim> & /*source_terms*/,
-                           const Function<dim> & /*exact_solution*/)
-  {
-    fe_face_values_fixed[position].get_function_values(
-      current_solution, present_face_position_values[i_face]);
-    fe_face_values_fixed[position].get_function_gradients(
-      current_solution, present_face_position_gradient[i_face]);
-
-    for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+    template <typename VectorType>
+    void
+    reinit_pseudo_solid_face(const unsigned int       i_face,
+                             const FEFaceValues<dim> &fe_face_values_fixed,
+                             const FEFaceValues<dim> &fe_face_values,
+                             const VectorType        &current_solution,
+                             const std::vector<VectorType> &previous_solutions,
+                             const Function<dim> & /*source_terms*/,
+                             const Function<dim> & /*exact_solution*/)
     {
       fe_face_values_fixed[position].get_function_values(
-        previous_solutions[i], previous_face_position_values[i_face][i]);
-    }
+        current_solution, present_face_position_values[i_face]);
+      fe_face_values_fixed[position].get_function_gradients(
+        current_solution, present_face_position_gradient[i_face]);
 
-    const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
-
-    for (unsigned int q = 0; q < n_faces_q_points; ++q)
-    {
-      face_JxW_fixed[i_face][q] = fe_face_values_fixed.JxW(q);
-
-      //
-      // Jacobian of geometric transformation is needed to compute
-      // tangent matrix for the lambda equation, on moving mapping
-      //
-      const Tensor<2, dim> J = fe_face_values.jacobian(q);
-
-      if constexpr (dim == 2)
+      for (unsigned int i = 0; i < previous_solutions.size(); ++i)
       {
-        if (use_quads)
-          switch (i_face)
-          {
-            case 0:
-              dxsids_array[0][0] = 0.;
-              dxsids_array[0][1] = 2.;
-              break;
-            case 1:
-              dxsids_array[0][0] = 0.;
-              dxsids_array[0][1] = 2.;
-              break;
-            case 2:
-              dxsids_array[0][0] = 2.;
-              dxsids_array[0][1] = 0.;
-              break;
-            case 3:
-              dxsids_array[0][0] = 2.;
-              dxsids_array[0][1] = 0.;
-              break;
-            default:
-              DEAL_II_ASSERT_UNREACHABLE();
-          }
-        else
-          switch (i_face)
-          {
-            case 0:
-              dxsids_array[0][0] = 1.;
-              dxsids_array[0][1] = 0.;
-              break;
-            case 1:
-              dxsids_array[0][0] = -1.;
-              dxsids_array[0][1] = 1.;
-              break;
-            case 2:
-              dxsids_array[0][0] = 0.;
-              dxsids_array[0][1] = -1.;
-              break;
-            default:
-              DEAL_II_ASSERT_UNREACHABLE();
-          }
-      }
-      else
-      {
-        if (use_quads)
-          // TODO!
-          DEAL_II_NOT_IMPLEMENTED();
-        else
-          switch (i_face)
-          {
-            // Using dealii's face ordering
-            case 3: // Opposite to v0
-              dxsids_array[0][0] = -1.;
-              dxsids_array[1][0] = -1.;
-              dxsids_array[0][1] = 1.;
-              dxsids_array[1][1] = 0.;
-              dxsids_array[0][2] = 0.;
-              dxsids_array[1][2] = 1.;
-              break;
-            case 2: // Opposite to v1
-              dxsids_array[0][0] = 0.;
-              dxsids_array[1][0] = 0.;
-              dxsids_array[0][1] = 1.;
-              dxsids_array[1][1] = 0.;
-              dxsids_array[0][2] = 0.;
-              dxsids_array[1][2] = 1.;
-              break;
-            case 1: // Opposite to v2
-              dxsids_array[0][0] = 1.;
-              dxsids_array[1][0] = 0.;
-              dxsids_array[0][1] = 0.;
-              dxsids_array[1][1] = 0.;
-              dxsids_array[0][2] = 0.;
-              dxsids_array[1][2] = 1.;
-              break;
-            case 0: // Opposite to v3
-              dxsids_array[0][0] = 1.;
-              dxsids_array[1][0] = 0.;
-              dxsids_array[0][1] = 0.;
-              dxsids_array[1][1] = 1.;
-              dxsids_array[0][2] = 0.;
-              dxsids_array[1][2] = 0.;
-              break;
-            default:
-              DEAL_II_ASSERT_UNREACHABLE();
-          }
+        fe_face_values_fixed[position].get_function_values(
+          previous_solutions[i], previous_face_position_values[i_face][i]);
       }
 
-      Tensor<2, dim - 1> G;
-      G = 0;
-      for (unsigned int di = 0; di < dim - 1; ++di)
-        for (unsigned int dj = 0; dj < dim - 1; ++dj)
-          for (unsigned int im = 0; im < dim; ++im)
-            for (unsigned int in = 0; in < dim; ++in)
-              for (unsigned int ip = 0; ip < dim; ++ip)
-                G[di][dj] += dxsids_array[di][im] * J[in][im] * J[in][ip] *
-                             dxsids_array[dj][ip];
-      const Tensor<2, dim - 1> G_inverse = invert(G);
+      const auto &bdf_coefficients = time_handler.get_bdf_coefficients();
 
-      // Result of G^(-1) * (J * dxsids)^T * grad_phi_x_j * dxsids
-      Tensor<2, dim - 1> res;
-
-      for (unsigned int k = 0; k < dofs_per_cell; ++k)
-      {
-        phi_x_face[i_face][q][k] = fe_face_values_fixed[position].value(k, q);
-        grad_phi_x_face[i_face][q][k] =
-          fe_face_values_fixed[position].gradient(k, q);
-
-        const auto &grad_phi_x = grad_phi_x_face[i_face][q][k];
-
-        Tensor<2, dim> A =
-          transpose(J) *
-          (transpose(present_face_position_gradient[i_face][q]) * grad_phi_x +
-           transpose(grad_phi_x) * present_face_position_gradient[i_face][q]) *
-          J;
-
-        res = 0;
-        for (unsigned int di = 0; di < dim - 1; ++di)
-          for (unsigned int dj = 0; dj < dim - 1; ++dj)
-            for (unsigned int im = 0; im < dim - 1; ++im)
-              for (unsigned int in = 0; in < dim; ++in)
-                for (unsigned int io = 0; io < dim; ++io)
-                  res[di][dj] += G_inverse[di][im] * dxsids_array[im][in] *
-                                 A[in][io] * dxsids_array[dj][io];
-
-        // Choose this delta_dx if multiplying by JxW in the matrix
-        delta_dx[i_face][q][k] = 0.5 * trace(res);
-
-        // If instead the matrix term is multiplied only by the weight,
-        // use this delta_dx (this is the actual delta_dx, but the other
-        // is used to multiply only once the whole local matrix).
-        // delta_dx[i_face][q][k] = 0.5 * sqrt_det_G * trace(res);
-      }
-
-      // Face mesh velocity
-      present_face_mesh_velocity_values[i_face][q] =
-        bdf_coefficients[0] * present_face_position_values[i_face][q];
-      for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
-      {
-        present_face_mesh_velocity_values[i_face][q] +=
-          bdf_coefficients[iBDF] *
-          previous_face_position_values[i_face][iBDF - 1][q];
-      }
-    }
-  }
-
-  template <typename VectorType>
-  void reinit_lagrange_multiplier_face(
-    const unsigned int       i_face,
-    const FEFaceValues<dim> &fe_face_values_fixed,
-    const FEFaceValues<dim> &fe_face_values,
-    const VectorType        &current_solution,
-    const std::vector<VectorType> & /*previous_solutions*/,
-    const Function<dim> & /*source_terms*/,
-    const Function<dim> &exact_solution)
-  {
-    fe_face_values[lambda].get_function_values(
-      current_solution, present_face_lambda_values[i_face]);
-
-#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
-    /**
-     * Compute the data required to add source terms for the momentum
-     * and Lagrange multiplier equation.
-     */
-    const auto &quadrature_points = fe_face_values.get_quadrature_points();
-
-    // Get exact velocity on face
-    exact_solution.vector_value_list(quadrature_points, exact_solution_full);
-    exact_solution.vector_gradient_list(quadrature_points,
-                                        grad_exact_solution_full);
-
-    for (unsigned int q = 0; q < n_faces_q_points; ++q)
-    {
-      exact_face_pressure_values[i_face][q] = exact_solution_full[q][p_lower];
-      for (int d = 0; d < dim; ++d)
-      {
-        exact_face_velocity_values[i_face][q][d] =
-          exact_solution_full[q][u_lower + d];
-        exact_face_lambda_values[i_face][q][d] =
-          exact_solution_full[q][l_lower + d];
-        for (int dj = 0; dj < dim; ++dj)
-          exact_face_velocity_gradients[i_face][q][d][dj] =
-            grad_exact_solution_full[q][u_lower + d][dj];
-      }
-
-      Tensor<2, dim> sigma;
-      for (unsigned int d = 0; d < dim; ++d)
-        sigma[d][d] = -exact_face_pressure_values[i_face][q];
-      const Tensor<2, dim> &grad_u = exact_face_velocity_gradients[i_face][q];
-      const double nu = param.physical_properties.fluids[0].kinematic_viscosity;
-      sigma += nu * (grad_u + transpose(grad_u));
-      const auto &normal_to_solid = -fe_face_values.normal_vector(q);
-      const auto  stress_vector   = -sigma * normal_to_solid;
-
-      face_velocity_source_term[i_face][q] =
-        exact_face_lambda_values[i_face][q] - stress_vector;
-    }
-
-    // If using an FSI solver, get the exact mesh velocity
-    // FIXME: The exact_solution should be an MMSFunction, which
-    // has a time_derivative function.
-    const typename FSISolver<dim>::MMSSolution *sol = nullptr;
-    if (dynamic_cast<const typename FSISolver<dim>::MMSSolution *>(
-          &exact_solution) != nullptr)
-      sol = dynamic_cast<const typename FSISolver<dim>::MMSSolution *>(
-        &exact_solution);
-    if (sol != nullptr)
-    {
-      const auto &fixed_quadrature_points =
-        fe_face_values_fixed.get_quadrature_points();
-
-      // Compute time derivative of mesh position
       for (unsigned int q = 0; q < n_faces_q_points; ++q)
       {
-        const auto &qpoint = fixed_quadrature_points[q];
-        for (int d = 0; d < dim; ++d)
-          exact_face_mesh_velocity_values[i_face][q][d] =
-            sol->time_derivative(qpoint, x_lower + d);
-      }
-    }
-#else
-    (void)exact_solution;
-#endif
+        face_JxW_fixed[i_face][q] = fe_face_values_fixed.JxW(q);
 
-    for (unsigned int q = 0; q < n_faces_q_points; ++q)
-      for (unsigned int k = 0; k < dofs_per_cell; ++k)
-        phi_l_face[i_face][q][k] = fe_face_values[lambda].value(k, q);
+        //
+        // Jacobian of geometric transformation is needed to compute
+        // tangent matrix for the lambda equation, on moving mapping
+        //
+        const Tensor<2, dim> J = fe_face_values.jacobian(q);
 
-    // Rigid-body rotation
-    const auto &fluid_bc = param.fluid_bc.at(face_boundary_id[i_face]);
-    if (fluid_bc.enable_rigid_body_rotation)
-    {
-      const Point<dim> &center = fluid_bc.center_of_rotation;
-
-      /**
-       * Rigid-body rotation can be applied on fixed or moving mesh: if
-       * enable_pseudo_solid is true, then the rotation velocity is evaluated on
-       * the fixed mesh, with constant center of rotation. If false, then
-       * rotation velocity is evaluated on "moving" mesh, but the model does not
-       * solve for the pseudosolid and thus does not move the mesh, and the
-       * center of rotation is also constant.
-       *
-       * This allows keeping a constant center of rotation for both cases.
-       *
-       * The TL;DR is that "moving" refers to the current configuration, and is
-       * a misnomer for solvers which do not solve for the mesh position, as in
-       * that case the "moving" mesh remains fixed for the whole simulation...
-       */
-      const auto &qpoints = enable_pseudo_solid ?
-                              fe_face_values_fixed.get_quadrature_points() :
-                              fe_face_values.get_quadrature_points();
-
-      Tensor<1, dim>        pos_vector;
-      angular_velocity_type omega;
-      for (unsigned int q = 0; q < n_faces_q_points; ++q)
-      {
-        pos_vector = qpoints[q] - center;
-
-        // Cartesian velocity on fixed mesh is omega \times (X - Xc)
         if constexpr (dim == 2)
         {
-          omega = fluid_bc.angular_velocity->value(qpoints[q]);
-
-          // cross_product_2d returns the product with (0, 0, 1)
-          input_face_rigid_body_rotation_velocity[i_face][q] =
-            -omega * cross_product_2d(pos_vector);
+          if (use_quads)
+            switch (i_face)
+            {
+              case 0:
+                dxsids_array[0][0] = 0.;
+                dxsids_array[0][1] = 2.;
+                break;
+              case 1:
+                dxsids_array[0][0] = 0.;
+                dxsids_array[0][1] = 2.;
+                break;
+              case 2:
+                dxsids_array[0][0] = 2.;
+                dxsids_array[0][1] = 0.;
+                break;
+              case 3:
+                dxsids_array[0][0] = 2.;
+                dxsids_array[0][1] = 0.;
+                break;
+              default:
+                DEAL_II_ASSERT_UNREACHABLE();
+            }
+          else
+            switch (i_face)
+            {
+              case 0:
+                dxsids_array[0][0] = 1.;
+                dxsids_array[0][1] = 0.;
+                break;
+              case 1:
+                dxsids_array[0][0] = -1.;
+                dxsids_array[0][1] = 1.;
+                break;
+              case 2:
+                dxsids_array[0][0] = 0.;
+                dxsids_array[0][1] = -1.;
+                break;
+              default:
+                DEAL_II_ASSERT_UNREACHABLE();
+            }
         }
         else
         {
-          for (unsigned int d = 0; d < dim; ++d)
-            omega[d] = fluid_bc.angular_velocity->value(qpoints[q], d);
-          input_face_rigid_body_rotation_velocity[i_face][q] =
-            cross_product_3d(omega, pos_vector);
+          if (use_quads)
+            // TODO!
+            DEAL_II_NOT_IMPLEMENTED();
+          else
+            switch (i_face)
+            {
+              // Using dealii's face ordering
+              case 3: // Opposite to v0
+                dxsids_array[0][0] = -1.;
+                dxsids_array[1][0] = -1.;
+                dxsids_array[0][1] = 1.;
+                dxsids_array[1][1] = 0.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 1.;
+                break;
+              case 2: // Opposite to v1
+                dxsids_array[0][0] = 0.;
+                dxsids_array[1][0] = 0.;
+                dxsids_array[0][1] = 1.;
+                dxsids_array[1][1] = 0.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 1.;
+                break;
+              case 1: // Opposite to v2
+                dxsids_array[0][0] = 1.;
+                dxsids_array[1][0] = 0.;
+                dxsids_array[0][1] = 0.;
+                dxsids_array[1][1] = 0.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 1.;
+                break;
+              case 0: // Opposite to v3
+                dxsids_array[0][0] = 1.;
+                dxsids_array[1][0] = 0.;
+                dxsids_array[0][1] = 0.;
+                dxsids_array[1][1] = 1.;
+                dxsids_array[0][2] = 0.;
+                dxsids_array[1][2] = 0.;
+                break;
+              default:
+                DEAL_II_ASSERT_UNREACHABLE();
+            }
+        }
+
+        Tensor<2, dim - 1> G;
+        G = 0;
+        for (unsigned int di = 0; di < dim - 1; ++di)
+          for (unsigned int dj = 0; dj < dim - 1; ++dj)
+            for (unsigned int im = 0; im < dim; ++im)
+              for (unsigned int in = 0; in < dim; ++in)
+                for (unsigned int ip = 0; ip < dim; ++ip)
+                  G[di][dj] += dxsids_array[di][im] * J[in][im] * J[in][ip] *
+                               dxsids_array[dj][ip];
+        const Tensor<2, dim - 1> G_inverse = invert(G);
+
+        // Result of G^(-1) * (J * dxsids)^T * grad_phi_x_j * dxsids
+        Tensor<2, dim - 1> res;
+
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          phi_x_face[i_face][q][k] = fe_face_values_fixed[position].value(k, q);
+          grad_phi_x_face[i_face][q][k] =
+            fe_face_values_fixed[position].gradient(k, q);
+
+          const auto &grad_phi_x = grad_phi_x_face[i_face][q][k];
+
+          Tensor<2, dim> A =
+            transpose(J) *
+            (transpose(present_face_position_gradient[i_face][q]) * grad_phi_x +
+             transpose(grad_phi_x) *
+               present_face_position_gradient[i_face][q]) *
+            J;
+
+          res = 0;
+          for (unsigned int di = 0; di < dim - 1; ++di)
+            for (unsigned int dj = 0; dj < dim - 1; ++dj)
+              for (unsigned int im = 0; im < dim - 1; ++im)
+                for (unsigned int in = 0; in < dim; ++in)
+                  for (unsigned int io = 0; io < dim; ++io)
+                    res[di][dj] += G_inverse[di][im] * dxsids_array[im][in] *
+                                   A[in][io] * dxsids_array[dj][io];
+
+          // Choose this delta_dx if multiplying by JxW in the matrix
+          delta_dx[i_face][q][k] = 0.5 * trace(res);
+
+          // If instead the matrix term is multiplied only by the weight,
+          // use this delta_dx (this is the actual delta_dx, but the other
+          // is used to multiply only once the whole local matrix).
+          // delta_dx[i_face][q][k] = 0.5 * sqrt_det_G * trace(res);
+        }
+
+        // Face mesh velocity
+        present_face_mesh_velocity_values[i_face][q] =
+          bdf_coefficients[0] * present_face_position_values[i_face][q];
+        for (unsigned int iBDF = 1; iBDF < bdf_coefficients.size(); ++iBDF)
+        {
+          present_face_mesh_velocity_values[i_face][q] +=
+            bdf_coefficients[iBDF] *
+            previous_face_position_values[i_face][iBDF - 1][q];
         }
       }
     }
-  }
 
-  // ── Reinit layer 2b (Cahn-Hilliard) ─────────────────────────────────────
-  // Requires: reinit_navier_stokes_cell already called (reads velocity,
-  //   pressure, present_velocity_laplacians/grad_divergences,
-  //   present_velocity_lap_plus_graddiv, source_term_velocity).
-  //   If with_moving_mesh, reinit_pseudo_solid_cell must have been called
-  //   first so that present_mesh_velocity_values is available.
-  //
-  // Fills: tracer/potential fields, variable material properties (ρ, η, dρ/dφ,
-  //   dη/dφ), CHNS strong residuals (overrides strong_residual_momentum_no_ale
-  //   with the variable-density/viscosity expression), τ_momentum (with ν_eff)
-  //   and τ_tracer.
-  //
-  // After this call, strong_residual_momentum = no_ale + ale (ale was set
-  // either by reinit_pseudo_solid_cell or left zero for Eulerian).
-  template <typename VectorType>
-  void
-  reinit_cahn_hilliard_cell(const FEValues<dim>           &fe_values_fixed,
-                            const FEValues<dim>           &fe_values_moving,
-                            const VectorType              &current_solution,
-                            const std::vector<VectorType> &previous_solutions,
-                            const Function<dim>           &source_terms,
-                            const Function<dim> & /*exact_solution*/)
-  {
-    fe_values_moving[tracer].get_function_values(current_solution,
-                                                 tracer_values);
-    fe_values_moving[tracer].get_function_gradients(current_solution,
-                                                    tracer_gradients);
+    template <typename VectorType>
+    void reinit_lagrange_multiplier_face(
+      const unsigned int       i_face,
+      const FEFaceValues<dim> &fe_face_values_fixed,
+      const FEFaceValues<dim> &fe_face_values,
+      const VectorType        &current_solution,
+      const std::vector<VectorType> & /*previous_solutions*/,
+      const Function<dim> & /*source_terms*/,
+      const Function<dim> &exact_solution)
+    {
+      fe_face_values[lambda].get_function_values(
+        current_solution, present_face_lambda_values[i_face]);
 
-    if (enable_pseudo_solid)
-    {
-      fe_values_fixed[tracer].get_function_values(current_solution,
-                                                  tracer_values_fixed);
-      fe_values_fixed[tracer].get_function_gradients(current_solution,
-                                                     tracer_gradients_fixed);
-    }
+#if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+      /**
+       * Compute the data required to add source terms for the momentum
+       * and Lagrange multiplier equation.
+       */
+      const auto &quadrature_points = fe_face_values.get_quadrature_points();
 
-    fe_values_moving[potential].get_function_values(current_solution,
-                                                    potential_values);
-    fe_values_moving[potential].get_function_gradients(current_solution,
-                                                       potential_gradients);
-    if (psi_lower != numbers::invalid_unsigned_int)
-    {
-      fe_values_moving[enlarged].get_function_values(current_solution,
-                                                     psi_values);
-      fe_values_moving[enlarged].get_function_gradients(current_solution,
-                                                        psi_gradients);
-    }
-    if (enable_stabilization)
-      fe_values_moving[potential].get_function_hessians(current_solution,
-                                                        potential_hessians);
-    // Previous solutions
-    for (unsigned int i = 0; i < previous_solutions.size(); ++i)
-    {
-      fe_values_moving[tracer].get_function_values(previous_solutions[i],
-                                                   previous_tracer_values[i]);
-      fe_values_moving[tracer].get_function_gradients(
-        previous_solutions[i], previous_tracer_gradients[i]);
-      if (enable_pseudo_solid)
+      // Get exact velocity on face
+      exact_solution.vector_value_list(quadrature_points, exact_solution_full);
+      exact_solution.vector_gradient_list(quadrature_points,
+                                          grad_exact_solution_full);
+
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
       {
-        fe_values_fixed[tracer].get_function_values(
-          previous_solutions[i], previous_tracer_values_fixed[i]);
-        fe_values_fixed[tracer].get_function_gradients(
-          previous_solutions[i], previous_tracer_gradients_fixed[i]);
+        exact_face_pressure_values[i_face][q] = exact_solution_full[q][p_lower];
+        for (int d = 0; d < dim; ++d)
+        {
+          exact_face_velocity_values[i_face][q][d] =
+            exact_solution_full[q][u_lower + d];
+          exact_face_lambda_values[i_face][q][d] =
+            exact_solution_full[q][l_lower + d];
+          for (int dj = 0; dj < dim; ++dj)
+            exact_face_velocity_gradients[i_face][q][d][dj] =
+              grad_exact_solution_full[q][u_lower + d][dj];
+        }
+
+        Tensor<2, dim> sigma;
+        for (unsigned int d = 0; d < dim; ++d)
+          sigma[d][d] = -exact_face_pressure_values[i_face][q];
+        const Tensor<2, dim> &grad_u = exact_face_velocity_gradients[i_face][q];
+        const double          nu     = kinematic_viscosity;
+        sigma += nu * (grad_u + transpose(grad_u));
+        const auto &normal_to_solid = -fe_face_values.normal_vector(q);
+        const auto  stress_vector   = -sigma * normal_to_solid;
+
+        face_velocity_source_term[i_face][q] =
+          exact_face_lambda_values[i_face][q] - stress_vector;
+      }
+
+      if constexpr (enable_pseudo_solid)
+      {
+        // If using an FSI solver, get the exact mesh velocity
+        // FIXME: The exact_solution should be an MMSFunction, which
+        // has a time_derivative function.
+        const FSIExactSolution<dim> *sol = nullptr;
+        if (dynamic_cast<const FSIExactSolution<dim> *>(&exact_solution) !=
+            nullptr)
+          sol = dynamic_cast<const FSIExactSolution<dim> *>(&exact_solution);
+        if (sol != nullptr)
+        {
+          const auto &fixed_quadrature_points =
+            fe_face_values_fixed.get_quadrature_points();
+
+          // Compute time derivative of mesh position
+          for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          {
+            const auto &qpoint = fixed_quadrature_points[q];
+            for (int d = 0; d < dim; ++d)
+              exact_face_mesh_velocity_values[i_face][q][d] =
+                sol->time_derivative(qpoint, x_lower + d);
+          }
+        }
+      }
+#else
+      (void)exact_solution;
+#endif
+
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+          phi_l_face[i_face][q][k] = fe_face_values[lambda].value(k, q);
+
+      // Rigid-body rotation
+      const auto &fluid_bc = param.fluid_bc.at(face_boundary_id[i_face]);
+      if (fluid_bc.enable_rigid_body_rotation)
+      {
+        const Point<dim> &center = fluid_bc.center_of_rotation;
+
+        /**
+         * Rigid-body rotation can be applied on fixed or moving mesh: if
+         * enable_pseudo_solid is true, then the rotation velocity is evaluated
+         * on the fixed mesh, with constant center of rotation. If false, then
+         * rotation velocity is evaluated on "moving" mesh, but the model does
+         * not solve for the pseudosolid and thus does not move the mesh, and
+         * the center of rotation is also constant.
+         *
+         * This allows keeping a constant center of rotation for both cases.
+         *
+         * The TL;DR is that "moving" refers to the current configuration, and
+         * is a misnomer for solvers which do not solve for the mesh position,
+         * as in that case the "moving" mesh remains fixed for the whole
+         * simulation...
+         */
+        const auto &qpoints = enable_pseudo_solid ?
+                                fe_face_values_fixed.get_quadrature_points() :
+                                fe_face_values.get_quadrature_points();
+
+        Tensor<1, dim>        pos_vector;
+        angular_velocity_type omega;
+        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        {
+          pos_vector = qpoints[q] - center;
+
+          // Cartesian velocity on fixed mesh is omega \times (X - Xc)
+          if constexpr (dim == 2)
+          {
+            omega = fluid_bc.angular_velocity->value(qpoints[q]);
+
+            // cross_product_2d returns the product with (0, 0, 1)
+            input_face_rigid_body_rotation_velocity[i_face][q] =
+              -omega * cross_product_2d(pos_vector);
+          }
+          else
+          {
+            for (unsigned int d = 0; d < dim; ++d)
+              omega[d] = fluid_bc.angular_velocity->value(qpoints[q], d);
+            input_face_rigid_body_rotation_velocity[i_face][q] =
+              cross_product_3d(omega, pos_vector);
+          }
+        }
       }
     }
 
-
-    source_terms.vector_value_list(fe_values_moving.get_quadrature_points(),
-                                   source_term_full_moving);
-
-    for (unsigned int q = 0; q < n_q_points; ++q)
+    // ── Reinit layer 2b (Cahn-Hilliard) ─────────────────────────────────────
+    // Requires: reinit_navier_stokes_cell already called (reads velocity,
+    //   pressure, present_velocity_laplacians/grad_divergences,
+    //   present_velocity_lap_plus_graddiv, source_term_velocity).
+    //   If with_moving_mesh, reinit_pseudo_solid_cell must have been called
+    //   first so that present_mesh_velocity_values is available.
+    //
+    // Fills: tracer/potential fields, variable material properties (ρ, η,
+    //   dρ/dφ, dη/dφ), CHNS strong residuals (overrides
+    //   strong_residual_momentum_no_ale with the variable-density/viscosity
+    //   expression), τ_momentum (with ν_eff) and τ_tracer.
+    //
+    // After this call, strong_residual_momentum = no_ale + ale (ale was set
+    // either by reinit_pseudo_solid_cell or left zero for Eulerian).
+    template <typename VectorType>
+    void
+    reinit_cahn_hilliard_cell(const FEValues<dim>           &fe_values_fixed,
+                              const FEValues<dim>           &fe_values_moving,
+                              const VectorType              &current_solution,
+                              const std::vector<VectorType> &previous_solutions,
+                              const Function<dim>           &source_terms,
+                              const Function<dim> & /*exact_solution*/)
     {
-      // Physical properties based on tracer, filter if applicable
-      const double filtered_phi = tracer_limiter(tracer_values[q]);
-      const double filtered_phi_mobility =
-        mobility_tracer_limiter(tracer_values[q]);
-      mobility_values[q] =
-        mobility_function(cahn_hilliard_param, filtered_phi_mobility);
-      derivative_mobility_wrt_tracer[q] =
-        mobility_derivative_function(cahn_hilliard_param,
-                                     filtered_phi_mobility);
-      second_derivative_mobility_wrt_tracer[q] =
-        mobility_second_derivative_function(cahn_hilliard_param,
-                                            filtered_phi_mobility);
-      diffusive_flux_factor_values[q] =
-        mobility_values[q] * 0.5 * (density1 - density0);
-      density[q] =
-        CahnHilliard::linear_mixing(filtered_phi, density0, density1);
-      dynamic_viscosity[q] = CahnHilliard::linear_mixing(filtered_phi,
-                                                         dynamic_viscosity0,
-                                                         dynamic_viscosity1);
-      derivative_density_wrt_tracer[q] =
-        CahnHilliard::linear_mixing_derivative(filtered_phi,
-                                               density0,
-                                               density1);
-      derivative_dynamic_viscosity_wrt_tracer[q] =
-        CahnHilliard::linear_mixing_derivative(filtered_phi,
-                                               dynamic_viscosity0,
-                                               dynamic_viscosity1);
+      fe_values_moving[tracer].get_function_values(current_solution,
+                                                   tracer_values);
+      fe_values_moving[tracer].get_function_gradients(current_solution,
+                                                      tracer_gradients);
 
-      source_term_tracer[q]    = source_term_full_moving[q](phi_lower);
-      source_term_potential[q] = source_term_full_moving[q](mu_lower);
-      if (psi_lower != numbers::invalid_unsigned_int)
-        source_term_psi[q] = source_term_full_moving[q](psi_lower);
-
-      diffusive_flux[q] = diffusive_flux_factor_values[q] *
-                          present_velocity_gradients[q] *
-                          potential_gradients[q];
-
-      // u_conv = u − w_mesh.  present_mesh_velocity_values[q] was filled by
-      // reinit_pseudo_solid_cell, or is zero when enable_pseudo_solid is false.
-      const Tensor<1, dim> u_conv =
-        present_velocity_values[q] - present_mesh_velocity_values[q];
-
-      velocity_dot_tracer_gradient[q] = u_conv * tracer_gradients[q];
-      present_convective_velocity[q]  = u_conv;
-
-      for (unsigned int k = 0; k < dofs_per_cell; ++k)
+      if constexpr (enable_pseudo_solid)
       {
-        // Shape functions on moving mesh
-        shape_phi[q][k]      = fe_values_moving[tracer].value(k, q);
-        grad_shape_phi[q][k] = fe_values_moving[tracer].gradient(k, q);
-        shape_mu[q][k]       = fe_values_moving[potential].value(k, q);
-        grad_shape_mu[q][k]  = fe_values_moving[potential].gradient(k, q);
+        fe_values_fixed[tracer].get_function_values(current_solution,
+                                                    tracer_values_fixed);
+        fe_values_fixed[tracer].get_function_gradients(current_solution,
+                                                       tracer_gradients_fixed);
+      }
+
+      fe_values_moving[potential].get_function_values(current_solution,
+                                                      potential_values);
+      fe_values_moving[potential].get_function_gradients(current_solution,
+                                                         potential_gradients);
+      if constexpr (update_flags & ScratchFlags::enlarged)
+      {
         if (psi_lower != numbers::invalid_unsigned_int)
         {
-          shape_psi[q][k]      = fe_values_moving[enlarged].value(k, q);
-          grad_shape_psi[q][k] = fe_values_moving[enlarged].gradient(k, q);
+          fe_values_moving[enlarged].get_function_values(current_solution,
+                                                         psi_values);
+          fe_values_moving[enlarged].get_function_gradients(current_solution,
+                                                            psi_gradients);
         }
+      }
+      if constexpr (update_flags & stabilization)
+        fe_values_moving[potential].get_function_hessians(current_solution,
+                                                          potential_hessians);
 
-        // Shape functions on fixed mesh
-        if (enable_pseudo_solid)
+      // Previous solutions
+      for (unsigned int i = 0; i < previous_solutions.size(); ++i)
+      {
+        fe_values_moving[tracer].get_function_values(previous_solutions[i],
+                                                     previous_tracer_values[i]);
+        if constexpr (update_flags & stabilization)
+          fe_values_moving[tracer].get_function_gradients(
+            previous_solutions[i], previous_tracer_gradients[i]);
+        if constexpr (enable_pseudo_solid)
         {
-          shape_phi_fixed[q][k]      = fe_values_fixed[tracer].value(k, q);
-          grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
+          fe_values_fixed[tracer].get_function_values(
+            previous_solutions[i], previous_tracer_values_fixed[i]);
+          if constexpr (update_flags & stabilization)
+            fe_values_fixed[tracer].get_function_gradients(
+              previous_solutions[i], previous_tracer_gradients_fixed[i]);
         }
-
-        // Δμ_k = trace(H_k);
-        if (enable_stabilization)
-          laplacian_shape_mu[q][k] =
-            trace(fe_values_moving[potential].hessian(k, q));
       }
 
-      if (enable_stabilization)
+      source_terms.vector_value_list(fe_values_moving.get_quadrature_points(),
+                                     source_term_full_moving);
+
+      for (unsigned int q = 0; q < n_q_points; ++q)
       {
-        potential_laplacians[q] = trace(potential_hessians[q]);
+        // Physical properties based on tracer, filter if applicable
+        const double filtered_phi = tracer_limiter(tracer_values[q]);
+        const double filtered_phi_mobility =
+          mobility_tracer_limiter(tracer_values[q]);
+        mobility_values[q] =
+          mobility_function(cahn_hilliard_param, filtered_phi_mobility);
+        derivative_mobility_wrt_tracer[q] =
+          mobility_derivative_function(cahn_hilliard_param,
+                                       filtered_phi_mobility);
+        second_derivative_mobility_wrt_tracer[q] =
+          mobility_second_derivative_function(cahn_hilliard_param,
+                                              filtered_phi_mobility);
+        diffusive_flux_factor_values[q] =
+          mobility_values[q] * 0.5 * (density1 - density0);
+        density[q] =
+          CahnHilliard::linear_mixing(filtered_phi, density0, density1);
+        dynamic_viscosity[q] = CahnHilliard::linear_mixing(filtered_phi,
+                                                           dynamic_viscosity0,
+                                                           dynamic_viscosity1);
+        derivative_density_wrt_tracer[q] =
+          CahnHilliard::linear_mixing_derivative(filtered_phi,
+                                                 density0,
+                                                 density1);
+        derivative_dynamic_viscosity_wrt_tracer[q] =
+          CahnHilliard::linear_mixing_derivative(filtered_phi,
+                                                 dynamic_viscosity0,
+                                                 dynamic_viscosity1);
 
-        const double nu_eff =
-          dynamic_viscosity[q] / std::max(density[q], 1e-14);
-        const double inv_rho     = 1. / std::max(density[q], 1e-14);
-        stabilization_nu_eff[q]  = nu_eff;
-        stabilization_inv_rho[q] = inv_rho;
+        source_term_tracer[q]    = source_term_full_moving[q](phi_lower);
+        source_term_potential[q] = source_term_full_moving[q](mu_lower);
+        if constexpr (update_flags & ScratchFlags::enlarged)
+          if (psi_lower != numbers::invalid_unsigned_int)
+            source_term_psi[q] = source_term_full_moving[q](psi_lower);
 
-        const Tensor<1, dim> dudt =
-          compute_bdf_time_derivative(present_velocity_values[q],
-                                      previous_velocity_values,
-                                      q);
-        const Tensor<1, dim> convective_term =
-          present_velocity_gradients[q] * u_conv;
+        diffusive_flux[q] = diffusive_flux_factor_values[q] *
+                            present_velocity_gradients[q] *
+                            potential_gradients[q];
 
-        const Tensor<1, dim> div_viscous_scaled =
-          nu_eff * present_velocity_lap_plus_graddiv[q] +
-          2. * inv_rho * derivative_dynamic_viscosity_wrt_tracer[q] *
-            tracer_gradients[q] * present_velocity_sym_gradients[q];
+        // u_conv = u − w_mesh.  present_mesh_velocity_values[q] was filled
+        // by reinit_pseudo_solid_cell, or is zero when enable_pseudo_solid
+        // is false.
+        Tensor<1, dim> u_conv = present_velocity_values[q];
+        if constexpr (enable_pseudo_solid)
+          u_conv -= present_mesh_velocity_values[q];
 
-        const Tensor<1, dim> momentum_diffusive_inertia =
-          CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard_param) ?
-            diffusive_flux[q] :
-            Tensor<1, dim>();
-        const Tensor<1, dim> momentum_capillary_force =
-          CahnHilliard::use_abels_capillary_phi_grad_mu(
-            cahn_hilliard_param) ?
-            tracer_values[q] * potential_gradients[q] :
-            -CahnHilliard::ding_horriche_capillary_coefficient(
-              cahn_hilliard_param) *
-              potential_values[q] * tracer_gradients[q];
+        velocity_dot_tracer_gradient[q] = u_conv * tracer_gradients[q];
+        if constexpr (update_flags & stabilization)
+          present_convective_velocity[q] = u_conv;
 
-        strong_residual_momentum_no_ale[q] =
-          (dudt + convective_term - body_force) +
-          inv_rho *
-            (momentum_diffusive_inertia + momentum_capillary_force +
-             present_pressure_gradients[q] + source_term_velocity[q]) -
-          div_viscous_scaled;
-        strong_residual_momentum_ale[q] = Tensor<1, dim>();
-        strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          // Shape functions on moving mesh
+          shape_phi[q][k]      = fe_values_moving[tracer].value(k, q);
+          grad_shape_phi[q][k] = fe_values_moving[tracer].gradient(k, q);
+          shape_mu[q][k]       = fe_values_moving[potential].value(k, q);
+          grad_shape_mu[q][k]  = fe_values_moving[potential].gradient(k, q);
+          if constexpr (update_flags & ScratchFlags::enlarged)
+            if (psi_lower != numbers::invalid_unsigned_int)
+            {
+              shape_psi[q][k]      = fe_values_moving[enlarged].value(k, q);
+              grad_shape_psi[q][k] = fe_values_moving[enlarged].gradient(k, q);
+            }
 
-        const double dphidt =
-          compute_bdf_time_derivative(tracer_values[q],
-                                      previous_tracer_values,
-                                      q);
-        strong_residual_tracer[q] =
-          dphidt + velocity_dot_tracer_gradient[q] -
-          (mobility_values[q] * potential_laplacians[q] +
-           derivative_mobility_wrt_tracer[q] *
-             (tracer_gradients[q] * potential_gradients[q])) +
-          source_term_tracer[q];
+          // Shape functions on fixed mesh
+          if constexpr (enable_pseudo_solid)
+          {
+            shape_phi_fixed[q][k]      = fe_values_fixed[tracer].value(k, q);
+            grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
+          }
 
-        // τ — recalculated with ν_eff (momentum) and mobility (tracer).
-        Stabilization::compute_geometry_shape_gradients<dim>(
-          fe_values_moving.inverse_jacobian(q),
-          fe_values_moving.get_quadrature().point(q),
-          use_quads,
-          stabilization_geometry_shape_gradients[q]);
-        const double h_tau =
-          Stabilization::compute_streamline_length_from_geometry_gradients(
-            u_conv,
-            stabilization_geometry_shape_gradients[q],
-            cell_diameter);
-        stabilization_h_tau[q] = h_tau;
-        stabilization_tau_momentum[q] =
-          Stabilization::compute_tau(time_handler.get_current_timestep(),
-                                     param.time_integration.is_steady(),
-                                     u_conv.norm(),
-                                     nu_eff,
-                                     h_tau,
-                                     param.finite_elements.velocity_degree);
-        stabilization_tau_tracer[q] =
-          Stabilization::compute_tau(time_handler.get_current_timestep(),
-                                     param.time_integration.is_steady(),
-                                     u_conv.norm(),
-                                     mobility_values[q],
-                                     h_tau,
-                                     param.finite_elements.tracer_degree);
+          // Δμ_k = trace(H_k);
+          if constexpr (update_flags & stabilization)
+            laplacian_shape_mu[q][k] =
+              trace(fe_values_moving[potential].hessian(k, q));
+        }
+
+        if constexpr (update_flags & stabilization)
+        {
+          potential_laplacians[q] = trace(potential_hessians[q]);
+
+          const double nu_eff =
+            dynamic_viscosity[q] / std::max(density[q], 1e-14);
+          const double inv_rho     = 1. / std::max(density[q], 1e-14);
+          stabilization_nu_eff[q]  = nu_eff;
+          stabilization_inv_rho[q] = inv_rho;
+
+          const Tensor<1, dim> dudt =
+            compute_bdf_time_derivative(present_velocity_values[q],
+                                        previous_velocity_values,
+                                        q);
+          const Tensor<1, dim> convective_term =
+            present_velocity_gradients[q] * u_conv;
+
+          const Tensor<1, dim> div_viscous_scaled =
+            nu_eff * present_velocity_lap_plus_graddiv[q] +
+            2. * inv_rho * derivative_dynamic_viscosity_wrt_tracer[q] *
+              tracer_gradients[q] * present_velocity_sym_gradients[q];
+
+          const Tensor<1, dim> momentum_diffusive_inertia =
+            CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard_param) ?
+              diffusive_flux[q] :
+              Tensor<1, dim>();
+          const Tensor<1, dim> momentum_capillary_force =
+            CahnHilliard::use_abels_capillary_phi_grad_mu(
+              cahn_hilliard_param) ?
+              tracer_values[q] * potential_gradients[q] :
+              -CahnHilliard::ding_horriche_capillary_coefficient(
+                cahn_hilliard_param) *
+                potential_values[q] * tracer_gradients[q];
+
+          strong_residual_momentum_no_ale[q] =
+            (dudt + convective_term - body_force) +
+            inv_rho *
+              (momentum_diffusive_inertia + momentum_capillary_force +
+               present_pressure_gradients[q] + source_term_velocity[q]) -
+            div_viscous_scaled;
+          strong_residual_momentum_ale[q] = Tensor<1, dim>();
+          strong_residual_momentum[q]     = strong_residual_momentum_no_ale[q];
+
+          const double dphidt =
+            compute_bdf_time_derivative(tracer_values[q],
+                                        previous_tracer_values,
+                                        q);
+          strong_residual_tracer[q] =
+            dphidt + velocity_dot_tracer_gradient[q] -
+            (mobility_values[q] * potential_laplacians[q] +
+             derivative_mobility_wrt_tracer[q] *
+               (tracer_gradients[q] * potential_gradients[q])) +
+            source_term_tracer[q];
+
+          // τ — recalculated with ν_eff (momentum) and mobility (tracer).
+          Stabilization::compute_geometry_shape_gradients<dim>(
+            fe_values_moving.inverse_jacobian(q),
+            fe_values_moving.get_quadrature().point(q),
+            use_quads,
+            stabilization_geometry_shape_gradients[q]);
+          const double h_tau =
+            Stabilization::compute_streamline_length_from_geometry_gradients(
+              u_conv,
+              stabilization_geometry_shape_gradients[q],
+              cell_diameter);
+          stabilization_h_tau[q] = h_tau;
+          stabilization_tau_momentum[q] =
+            Stabilization::compute_tau(time_handler.get_current_timestep(),
+                                       param.time_integration.is_steady(),
+                                       u_conv.norm(),
+                                       nu_eff,
+                                       h_tau,
+                                       param.finite_elements.velocity_degree);
+          stabilization_tau_tracer[q] =
+            Stabilization::compute_tau(time_handler.get_current_timestep(),
+                                       param.time_integration.is_steady(),
+                                       u_conv.norm(),
+                                       mobility_values[q],
+                                       h_tau,
+                                       param.finite_elements.tracer_degree);
+        }
       }
     }
-  }
 
-public:
-  /**
-   * Reinit this ScratchData on the given cell.
-   * Default function to call when using a ScratchData.
-   */
-  template <typename VectorType>
-  void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
-              const VectorType              &current_solution,
-              const std::vector<VectorType> &previous_solutions,
-              const Function<dim>           &source_terms,
-              const Function<dim>           &exact_solution)
-  {
+  public:
     /**
-     * Reinit the fe_values on moving mesh on the current cell, and possibly the
-     * fe_values on fixed mesh if enable_pseudo_solid is true.
-     *
-     * In the hp setting, these are the FEValues which are appropriate for the
-     * current cell, extracted from the hp::FEValues with
-     * get_present_fe_values().
+     * Reinit this ScratchData on the given cell.
+     * Default function to call when using a ScratchData.
      */
-    active_fe_values = this->reinit(cell, false);
-    if (enable_pseudo_solid)
-      active_fe_values_fixed = this->reinit(cell, true);
-    else
-      active_fe_values_fixed = active_fe_values;
+    template <typename VectorType>
+    void reinit(const typename DoFHandler<dim>::active_cell_iterator &cell,
+                const VectorType              &current_solution,
+                const std::vector<VectorType> &previous_solutions,
+                const Function<dim>           &source_terms,
+                const Function<dim>           &exact_solution)
+    {
+      /**
+       * Reinit the fe_values on moving mesh on the current cell, and possibly
+       * the fe_values on fixed mesh if enable_pseudo_solid is true.
+       *
+       * In the hp setting, these are the FEValues which are appropriate for the
+       * current cell, extracted from the hp::FEValues with
+       * get_present_fe_values().
+       */
+      active_fe_index  = cell->active_fe_index();
+      active_fe_values = this->reinit(cell, false);
+      if constexpr (enable_pseudo_solid)
+        active_fe_values_fixed = this->reinit(cell, true);
+      else
+        active_fe_values_fixed = active_fe_values;
 
-    cell_diameter = cell->diameter();
+      if constexpr (update_flags & stabilization)
+        cell_diameter = cell->diameter();
 
-    dofs_per_cell = active_fe_values->dofs_per_cell;
-    for (const unsigned int i : active_fe_values->dof_indices())
-      components[i] =
-        active_fe_values->get_fe().system_to_component_index(i).first;
+      dofs_per_cell = active_fe_values->dofs_per_cell;
+      for (const unsigned int i : active_fe_values->dof_indices())
+        components[i] =
+          active_fe_values->get_fe().system_to_component_index(i).first;
 
-    /**
-     * Volume contributions
-     */
-    reinit_navier_stokes_cell(*active_fe_values,
-                              current_solution,
-                              previous_solutions,
-                              source_terms,
-                              exact_solution);
+      bdf_c0 = time_handler.bdf_coefficients[0];
 
-    if (enable_compressible)
-      reinit_compressible_cell(*active_fe_values,
-                               current_solution,
-                               previous_solutions,
-                               source_terms,
-                               exact_solution);
-
-    if (enable_pseudo_solid)
-      reinit_pseudo_solid_cell(*active_fe_values_fixed,
-                               *active_fe_values,
-                               current_solution,
-                               previous_solutions,
-                               source_terms,
-                               exact_solution);
-    if (enable_cahn_hilliard)
-      reinit_cahn_hilliard_cell(*active_fe_values_fixed,
-                                *active_fe_values,
+      /**
+       * Volume contributions
+       */
+      reinit_navier_stokes_cell(*active_fe_values,
                                 current_solution,
                                 previous_solutions,
                                 source_terms,
                                 exact_solution);
-    /**
-     * Face contributions
-     */
-    if (cell->at_boundary())
-      for (const auto i_face : cell->face_indices())
-      {
-        const auto &face = cell->face(i_face);
-        if (face->at_boundary())
+
+      if constexpr (enable_compressible)
+        reinit_compressible_cell(*active_fe_values,
+                                 current_solution,
+                                 previous_solutions,
+                                 source_terms,
+                                 exact_solution);
+
+      if constexpr (enable_pseudo_solid)
+        reinit_pseudo_solid_cell(*active_fe_values_fixed,
+                                 *active_fe_values,
+                                 current_solution,
+                                 previous_solutions,
+                                 source_terms,
+                                 exact_solution);
+      if constexpr (enable_cahn_hilliard)
+        reinit_cahn_hilliard_cell(*active_fe_values_fixed,
+                                  *active_fe_values,
+                                  current_solution,
+                                  previous_solutions,
+                                  source_terms,
+                                  exact_solution);
+      /**
+       * Face contributions
+       */
+      if (cell->at_boundary())
+        for (const auto i_face : cell->face_indices())
         {
-          face_boundary_id[i_face] = face->boundary_id();
+          const auto &face         = cell->face(i_face);
+          face_at_boundary[i_face] = face->at_boundary();
 
-          /**
-           * Reinit the fe_face_values on moving (and possibly fixed) mesh,
-           * with the same remark as for cells regarding the hp setting.
-           */
-          active_fe_face_values = this->reinit(cell, i_face, false);
-          if (enable_pseudo_solid)
-            active_fe_face_values_fixed = this->reinit(cell, i_face, true);
-          else
-            active_fe_face_values_fixed = active_fe_face_values;
+          if (face_at_boundary[i_face])
+          {
+            face_boundary_id[i_face] = face->boundary_id();
 
-          reinit_navier_stokes_face(i_face,
-                                    *active_fe_face_values,
-                                    current_solution,
-                                    previous_solutions,
-                                    source_terms,
-                                    exact_solution);
-          if (enable_compressible)
-            reinit_compressible_face(i_face,
-                                     *active_fe_face_values,
-                                     current_solution,
-                                     previous_solutions,
-                                     source_terms,
-                                     exact_solution);
-          if (enable_pseudo_solid)
-            reinit_pseudo_solid_face(i_face,
-                                     *active_fe_face_values_fixed,
-                                     *active_fe_face_values,
-                                     current_solution,
-                                     previous_solutions,
-                                     source_terms,
-                                     exact_solution);
-          if (enable_lagrange_multiplier)
-            reinit_lagrange_multiplier_face(i_face,
-                                            *active_fe_face_values_fixed,
-                                            *active_fe_face_values,
-                                            current_solution,
-                                            previous_solutions,
-                                            source_terms,
-                                            exact_solution);
+            /**
+             * Reinit the fe_face_values on moving (and possibly fixed) mesh,
+             * with the same remark as for cells regarding the hp setting.
+             */
+            active_fe_face_values = this->reinit(cell, i_face, false);
+            if constexpr (enable_pseudo_solid)
+              active_fe_face_values_fixed = this->reinit(cell, i_face, true);
+
+            reinit_navier_stokes_face(i_face,
+                                      *active_fe_face_values,
+                                      current_solution,
+                                      previous_solutions,
+                                      source_terms,
+                                      exact_solution);
+            if constexpr (enable_compressible)
+              reinit_compressible_face(i_face,
+                                       *active_fe_face_values,
+                                       current_solution,
+                                       previous_solutions,
+                                       source_terms,
+                                       exact_solution);
+            if constexpr (enable_pseudo_solid)
+              reinit_pseudo_solid_face(i_face,
+                                       *active_fe_face_values_fixed,
+                                       *active_fe_face_values,
+                                       current_solution,
+                                       previous_solutions,
+                                       source_terms,
+                                       exact_solution);
+            if constexpr (enable_lagrange_multiplier)
+              reinit_lagrange_multiplier_face(i_face,
+                                              *active_fe_face_values_fixed,
+                                              *active_fe_face_values,
+                                              current_solution,
+                                              previous_solutions,
+                                              source_terms,
+                                              exact_solution);
+          }
         }
-      }
-  }
+    }
 
-private:
-  const ParameterReader<dim> &param;
-  const bool                  use_quads;
-  const bool                  enable_stabilization;
-  const ComponentOrdering     ordering;
-  double                      cell_diameter = 0.;
+  private:
+    const ParameterReader<dim> &param;
+    const bool                  use_quads;
+    const ComponentOrdering     ordering;
+    double                      cell_diameter = 0.;
 
-  unsigned int n_components;
-  unsigned int u_lower;
-  unsigned int p_lower;
-  unsigned int x_lower;
-  unsigned int l_lower;
-  unsigned int phi_lower;
-  unsigned int mu_lower;
-  unsigned int psi_lower;
-  unsigned int t_lower;
+    unsigned int n_components;
+    unsigned int u_lower;
+    unsigned int p_lower;
+    unsigned int x_lower;
+    unsigned int l_lower;
+    unsigned int phi_lower;
+    unsigned int mu_lower;
+    unsigned int psi_lower;
+    unsigned int t_lower;
 
-public:
-  const bool enable_pseudo_solid;
-  const bool enable_lagrange_multiplier;
-  const bool enable_cahn_hilliard;
-  const bool enable_compressible;
+  public:
+    static constexpr bool enable_pseudo_solid =
+      (update_flags & pseudo_solid) != 0;
+    static constexpr bool enable_lagrange_multiplier =
+      (update_flags & lagrange_multiplier) != 0;
+    static constexpr bool enable_cahn_hilliard =
+      (update_flags & cahn_hilliard) != 0;
+    static constexpr bool enable_compressible =
+      (update_flags & compressible) != 0;
+    static constexpr bool enable_stabilization =
+      (update_flags & stabilization) != 0;
+    static constexpr bool has_hp_capabilities =
+      (update_flags & with_hp_capabilities) != 0;
 
-private:
-  Parameters::PhysicalProperties<dim> physical_properties;
-  Parameters::CahnHilliard<dim>       cahn_hilliard_param;
+  private:
+    Parameters::PhysicalProperties<dim> physical_properties;
+    Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
-  // Non-owning pointers for active FEValues/FaceValues
-  const FEValues<dim>     *active_fe_values;
-  const FEValues<dim>     *active_fe_values_fixed;
-  const FEFaceValues<dim> *active_fe_face_values;
-  const FEFaceValues<dim> *active_fe_face_values_fixed;
+  public:
+    unsigned int active_fe_index;
 
-  std::unique_ptr<FEValues<dim>>     fe_values;
-  std::unique_ptr<FEValues<dim>>     fe_values_fixed;
-  std::unique_ptr<FEFaceValues<dim>> fe_face_values;
-  std::unique_ptr<FEFaceValues<dim>> fe_face_values_fixed;
+  private:
+    // Non-owning pointers for active FEValues/FaceValues
+    const FEValues<dim>     *active_fe_values;
+    const FEValues<dim>     *active_fe_values_fixed;
+    const FEFaceValues<dim> *active_fe_face_values;
+    const FEFaceValues<dim> *active_fe_face_values_fixed;
 
-  std::unique_ptr<hp::FEValues<dim>>     hp_fe_values;
-  std::unique_ptr<hp::FEValues<dim>>     hp_fe_values_fixed;
-  std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values;
-  std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values_fixed;
+    std::unique_ptr<FEValues<dim>>     fe_values;
+    std::unique_ptr<FEValues<dim>>     fe_values_fixed;
+    std::unique_ptr<FEFaceValues<dim>> fe_face_values;
+    std::unique_ptr<FEFaceValues<dim>> fe_face_values_fixed;
 
-public:
-  unsigned int n_q_points;
-  unsigned int n_faces;
-  unsigned int n_faces_q_points;
-  unsigned int dofs_per_cell;
+    std::unique_ptr<hp::FEValues<dim>>     hp_fe_values;
+    std::unique_ptr<hp::FEValues<dim>>     hp_fe_values_fixed;
+    std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values;
+    std::unique_ptr<hp::FEFaceValues<dim>> hp_fe_face_values_fixed;
 
-  const TimeHandler &time_handler;
+  public:
+    const unsigned int n_q_points;
+    const unsigned int n_faces;
+    const unsigned int n_faces_q_points;
+    unsigned int       dofs_per_cell;
+    const unsigned int max_dofs_per_cell;
 
-  std::vector<unsigned int>                components;
-  std::vector<double>                      JxW_moving;
-  std::vector<double>                      JxW_fixed;
-  std::vector<unsigned int>                face_boundary_id;
-  std::vector<std::vector<double>>         face_JxW_moving;
-  std::vector<std::vector<double>>         face_JxW_fixed;
-  std::vector<std::vector<Tensor<1, dim>>> face_normals_moving;
+    const TimeHandler &time_handler;
 
-  /**
-   * Navier-Stokes
-   */
-  FEValuesExtractors::Vector velocity;
-  FEValuesExtractors::Scalar pressure;
+    std::vector<unsigned int>                components;
+    std::vector<double>                      JxW_moving;
+    std::vector<double>                      JxW_fixed;
+    std::vector<bool>                        face_at_boundary;
+    std::vector<unsigned int>                face_boundary_id;
+    std::vector<std::vector<double>>         face_JxW_moving;
+    std::vector<std::vector<double>>         face_JxW_fixed;
+    std::vector<std::vector<Tensor<1, dim>>> face_normals_moving;
 
-  // Current and previous values and gradients for each quad node
-  std::vector<Tensor<1, dim>>              present_velocity_values;
-  std::vector<Tensor<2, dim>>              present_velocity_gradients;
-  std::vector<SymmetricTensor<2, dim>>     present_velocity_sym_gradients;
-  std::vector<double>                      present_velocity_divergence;
-  std::vector<double>                      present_pressure_values;
-  std::vector<Tensor<1, dim>>              present_pressure_gradients;
-  std::vector<std::vector<Tensor<1, dim>>> previous_velocity_values;
-  std::vector<Tensor<1, dim>>              present_velocity_laplacians;
-  std::vector<Tensor<1, dim>>              present_velocity_grad_divergences;
-  std::vector<Tensor<3, dim>>              present_velocity_hessians;
-  // Δu + ∇(∇·u) : pre-computed when enable_stabilization, used by the CHNS
-  // Jacobian (supg_pspg_matrix_chns_phi) so it need not be recomputed per
-  // quadrature point in the assembly loop.
-  std::vector<Tensor<1, dim>> present_velocity_lap_plus_graddiv;
+    // First of the BDF coefficients
+    double bdf_c0;
 
-  // Current values on faces (each face, each quad node)
-  std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
-  std::vector<std::vector<Tensor<2, dim>>> present_face_velocity_gradients;
-  std::vector<std::vector<SymmetricTensor<2, dim>>>
-                                   present_face_velocity_sym_gradients;
-  std::vector<std::vector<double>> present_face_velocity_divergence;
+    /**
+     * Navier-Stokes
+     */
+    double kinematic_viscosity;
 
-  std::vector<std::vector<double>> present_face_pressure_values;
+    FEValuesExtractors::Vector velocity;
+    FEValuesExtractors::Scalar pressure;
 
-  // Shape functions in volume (each quad node and each dof)
-  std::vector<std::vector<Tensor<1, dim>>>          phi_u;
-  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_u;
-  std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_u;
-  std::vector<std::vector<double>>                  div_phi_u;
-  std::vector<std::vector<double>>                  phi_p;
-  std::vector<std::vector<Tensor<1, dim>>>          grad_phi_p;
-  std::vector<std::vector<Tensor<1, dim>>>          diffusion_phi_u;
+    // Current and previous values and gradients for each quad node
+    std::vector<Tensor<1, dim>>              present_velocity_values;
+    std::vector<Tensor<2, dim>>              present_velocity_gradients;
+    std::vector<SymmetricTensor<2, dim>>     present_velocity_sym_gradients;
+    std::vector<double>                      present_velocity_divergence;
+    std::vector<Tensor<1, dim>>              present_velocity_time_derivatives;
+    std::vector<double>                      present_pressure_values;
+    std::vector<Tensor<1, dim>>              present_pressure_gradients;
+    std::vector<std::vector<Tensor<1, dim>>> previous_velocity_values;
+    std::vector<Tensor<1, dim>>              present_velocity_laplacians;
+    std::vector<Tensor<1, dim>>              present_velocity_grad_divergences;
+    std::vector<Tensor<3, dim>>              present_velocity_hessians;
+    // Δu + ∇(∇·u) : pre-computed when enable_stabilization, used by the CHNS
+    // Jacobian (supg_pspg_matrix_chns_phi) so it need not be recomputed per
+    // quadrature point in the assembly loop.
+    std::vector<Tensor<1, dim>> present_velocity_lap_plus_graddiv;
 
-  // Shape functions on faces (each face, quad node and dof)
-  std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
-  std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_u_face;
-  std::vector<std::vector<std::vector<SymmetricTensor<2, dim>>>>
-                                                sym_grad_phi_u_face;
-  std::vector<std::vector<std::vector<double>>> div_phi_u_face;
-  std::vector<std::vector<std::vector<double>>> phi_p_face;
+    // Shape functions in volume (each quad node and each dof)
+    std::vector<std::vector<Tensor<1, dim>>>          phi_u;
+    std::vector<std::vector<Tensor<2, dim>>>          grad_phi_u;
+    std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_u;
+    std::vector<std::vector<double>>                  div_phi_u;
+    std::vector<std::vector<double>>                  phi_p;
+    std::vector<std::vector<Tensor<1, dim>>>          grad_phi_p;
+    std::vector<std::vector<Tensor<1, dim>>>          diffusion_phi_u;
 
-  // Source term in volume
-  std::vector<Vector<double>> source_term_full_moving;
-  std::vector<Tensor<1, dim>> source_term_velocity;
-  std::vector<double>         source_term_pressure;
+    // Current values on faces (each face, each quad node)
+    std::vector<std::vector<Tensor<1, dim>>> present_face_velocity_values;
+    std::vector<std::vector<Tensor<2, dim>>> present_face_velocity_gradients;
+    std::vector<std::vector<SymmetricTensor<2, dim>>>
+                                     present_face_velocity_sym_gradients;
+    std::vector<std::vector<double>> present_face_velocity_divergence;
 
-  // Exact solution (cell/volume quadrature points)
-  std::vector<Vector<double>> exact_solution_full_cell;
-  std::vector<Tensor<1, dim>> exact_velocity_values_cell;
-  std::vector<double>         exact_pressure_values_cell;
-  std::vector<double>         exact_temperature_values_cell;
+    std::vector<std::vector<double>> present_face_pressure_values;
 
-  // Exact solution (faces)
-  std::vector<Vector<double>>              exact_solution_full;
-  std::vector<std::vector<Tensor<1, dim>>> grad_exact_solution_full;
-  std::vector<std::vector<Tensor<2, dim>>> exact_face_velocity_gradients;
-  std::vector<std::vector<double>>         exact_face_velocity_divergences;
-  std::vector<std::vector<double>>         exact_face_pressure_values;
+    // Shape functions on faces (each face, quad node and dof)
+    std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
+    std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_u_face;
+    std::vector<std::vector<std::vector<SymmetricTensor<2, dim>>>>
+                                                  sym_grad_phi_u_face;
+    std::vector<std::vector<std::vector<double>>> div_phi_u_face;
+    std::vector<std::vector<std::vector<double>>> phi_p_face;
+
+    // Source term in volume
+    std::vector<Vector<double>> source_term_full_moving;
+    std::vector<Tensor<1, dim>> source_term_velocity;
+    std::vector<double>         source_term_pressure;
+
+    // Exact solution (cell/volume quadrature points)
+    std::vector<Vector<double>> exact_solution_full_cell;
+    std::vector<Tensor<1, dim>> exact_velocity_values_cell;
+    std::vector<double>         exact_pressure_values_cell;
+    std::vector<double>         exact_temperature_values_cell;
+
+    // Exact solution (faces)
+    std::vector<Vector<double>>              exact_solution_full;
+    std::vector<std::vector<Tensor<1, dim>>> grad_exact_solution_full;
+    std::vector<std::vector<Tensor<2, dim>>> exact_face_velocity_gradients;
+    std::vector<std::vector<double>>         exact_face_velocity_divergences;
+    std::vector<std::vector<double>>         exact_face_pressure_values;
 #if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
-  std::vector<std::vector<Tensor<1, dim>>> exact_face_velocity_values;
-  std::vector<std::vector<Tensor<1, dim>>> exact_face_lambda_values;
-  std::vector<std::vector<Tensor<1, dim>>> exact_face_mesh_velocity_values;
+    std::vector<std::vector<Tensor<1, dim>>> exact_face_velocity_values;
+    std::vector<std::vector<Tensor<1, dim>>> exact_face_lambda_values;
+    std::vector<std::vector<Tensor<1, dim>>> exact_face_mesh_velocity_values;
 #endif
 
-  /**
-   * Compressible NS
-   */
-  FEValuesExtractors::Scalar temperature;
-  double                     density_ref;
-  double                     pressure_ref;
-  double                     temperature_ref;
-  double                     alpha_r;
-  double                     beta_r;
+    /**
+     * Compressible NS
+     */
+    FEValuesExtractors::Scalar temperature;
+    double                     density_ref;
+    double                     pressure_ref;
+    double                     temperature_ref;
+    double                     alpha_r;
+    double                     beta_r;
 
-  std::vector<std::vector<double>> face_input_pressure_values;
-  std::vector<std::vector<double>> face_input_heat_flux_values;
+    std::vector<std::vector<double>> face_input_pressure_values;
+    std::vector<std::vector<double>> face_input_heat_flux_values;
 
-  // Variable density, also used by CHNS models
-  std::vector<double> density;
-  std::vector<double> a_p; // alpha_r/(alpha_r p* + 1)
-  std::vector<double> b_T; // beta_r /(beta_r  T* + 1)
+    // Variable density, also used by CHNS models
+    std::vector<double> density;
+    std::vector<double> a_p; // alpha_r/(alpha_r p* + 1)
+    std::vector<double> b_T; // beta_r /(beta_r  T* + 1)
 
-  std::vector<std::vector<double>> previous_pressure_values;
-  std::vector<double>              present_temperature_values;
-  std::vector<Tensor<1, dim>>      present_temperature_gradients;
-  std::vector<std::vector<double>> previous_temperature_values;
+    std::vector<std::vector<double>> previous_pressure_values;
+    std::vector<double>              present_temperature_values;
+    std::vector<Tensor<1, dim>>      present_temperature_gradients;
+    std::vector<std::vector<double>> previous_temperature_values;
 
-  // Thermodynamic fields: p = p^* + p_ref, T = T^* + T_ref
-  std::vector<double> present_pressure_absolute_values;
-  std::vector<double> present_temperature_absolute_values;
+    // Thermodynamic fields: p = p^* + p_ref, T = T^* + T_ref
+    std::vector<double> present_pressure_absolute_values;
+    std::vector<double> present_temperature_absolute_values;
 
-  std::vector<std::vector<double>>         phi_T;
-  std::vector<std::vector<Tensor<1, dim>>> grad_phi_T;
+    std::vector<std::vector<double>>         phi_T;
+    std::vector<std::vector<Tensor<1, dim>>> grad_phi_T;
 
-  std::vector<double> source_term_temperature;
+    std::vector<double> source_term_temperature;
 
-  // Temperature fields on faces (T = T^* + T_ref for absolute values)
-  std::vector<std::vector<double>> present_face_temperature_values;
-  std::vector<std::vector<double>> present_face_temperature_absolute_values;
-  std::vector<std::vector<Tensor<1, dim>>> exact_face_temperature_gradients;
-  std::vector<std::vector<std::vector<double>>>         phi_T_face;
-  std::vector<std::vector<std::vector<Tensor<1, dim>>>> grad_phi_T_face;
-  std::vector<std::vector<Tensor<1, dim>>> present_face_temperature_gradients;
-  /**
-   * Pseudo-solid and ALE
-   */
-  FEValuesExtractors::Vector position;
+    // Temperature fields on faces (T = T^* + T_ref for absolute values)
+    std::vector<std::vector<double>> present_face_temperature_values;
+    std::vector<std::vector<double>> present_face_temperature_absolute_values;
+    std::vector<std::vector<Tensor<1, dim>>> exact_face_temperature_gradients;
+    std::vector<std::vector<std::vector<double>>>         phi_T_face;
+    std::vector<std::vector<std::vector<Tensor<1, dim>>>> grad_phi_T_face;
+    std::vector<std::vector<Tensor<1, dim>>> present_face_temperature_gradients;
+    /**
+     * Pseudo-solid and ALE
+     */
+    FEValuesExtractors::Vector position;
 
-  std::vector<double> lame_mu;
-  std::vector<double> lame_lambda;
+    std::vector<double> lame_mu;
+    std::vector<double> lame_lambda;
 
-  std::vector<Tensor<1, dim>>              present_position_values;
-  std::vector<Tensor<2, dim>>              present_position_gradients;
-  std::vector<Tensor<1, dim>>              present_mesh_velocity_values;
-  std::vector<std::vector<Tensor<1, dim>>> previous_position_values;
-  std::vector<std::vector<Tensor<2, dim>>> previous_position_gradients;
+    std::vector<Tensor<1, dim>>              present_position_values;
+    std::vector<Tensor<2, dim>>              present_position_gradients;
+    std::vector<Tensor<1, dim>>              present_mesh_velocity_values;
+    std::vector<std::vector<Tensor<1, dim>>> previous_position_values;
+    std::vector<std::vector<Tensor<2, dim>>> previous_position_gradients;
 
-  // Neo-hookean
-  std::vector<double>         present_position_J;
-  std::vector<Tensor<2, dim>> present_position_inv_gradients;
-  std::vector<Tensor<2, dim>> present_position_inv_gradients_T;
+    // Neo-hookean
+    std::vector<double>         present_position_J;
+    std::vector<Tensor<2, dim>> present_position_inv_gradients;
+    std::vector<Tensor<2, dim>> present_position_inv_gradients_T;
 
-  // Current and previous values on faces
-  std::vector<std::vector<Tensor<1, dim>>> present_face_position_values;
-  std::vector<std::vector<Tensor<2, dim>>> present_face_position_gradient;
-  std::vector<std::vector<Tensor<1, dim>>> present_face_mesh_velocity_values;
-  std::vector<std::vector<std::vector<Tensor<1, dim>>>>
-    previous_face_position_values;
+    // Current and previous values on faces
+    std::vector<std::vector<Tensor<1, dim>>> present_face_position_values;
+    std::vector<std::vector<Tensor<2, dim>>> present_face_position_gradient;
+    std::vector<std::vector<Tensor<1, dim>>> present_face_mesh_velocity_values;
+    std::vector<std::vector<std::vector<Tensor<1, dim>>>>
+      previous_face_position_values;
 
-  // Shape functions and gradients for each quad node and each dof
-  std::vector<std::vector<Tensor<1, dim>>>          phi_x;
-  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x;
-  std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
-  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x_moving;
-  std::vector<std::vector<Tensor<3, dim>>>          hessian_phi_x_moving;
-  std::vector<std::vector<double>>                  div_phi_x;
-  std::vector<std::vector<double>>                  trace_grad_phi_x;
+    // Shape functions and gradients for each quad node and each dof
+    std::vector<std::vector<Tensor<1, dim>>>          phi_x;
+    std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x;
+    std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
+    std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x_moving;
+    std::vector<std::vector<Tensor<3, dim>>>          hessian_phi_x_moving;
+    std::vector<std::vector<double>>                  div_phi_x;
+    std::vector<std::vector<double>>                  trace_grad_phi_x;
 
-  // Shape functions on faces for relevant faces, each quad node and each dof
-  std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_x_face;
-  std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_x_face;
+    // Shape functions on faces for relevant faces, each quad node and each dof
+    std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_x_face;
+    std::vector<std::vector<std::vector<Tensor<2, dim>>>> grad_phi_x_face;
 
-  std::vector<Vector<double>> source_term_full_fixed;
-  std::vector<Tensor<1, dim>> source_term_position;
+    std::vector<Vector<double>> source_term_full_fixed;
+    std::vector<Tensor<1, dim>> source_term_position;
 
-  // Gradient of source term, at each quad node, for each dof component, result
-  // is a Tensor<1, dim>. Only needed for the Jacobian matrix of NS with moving
-  // mesh.
-  std::vector<std::vector<Tensor<1, dim>>> grad_source_term_full;
-  std::vector<Tensor<2, dim>>              grad_source_velocity;
-  std::vector<Tensor<1, dim>>              grad_source_pressure;
+    // Gradient of source term, at each quad node, for each dof component,
+    // result is a Tensor<1, dim>. Only needed for the Jacobian matrix of NS
+    // with moving mesh.
+    std::vector<std::vector<Tensor<1, dim>>> grad_source_term_full;
+    std::vector<Tensor<2, dim>>              grad_source_velocity;
+    std::vector<Tensor<1, dim>>              grad_source_pressure;
 
-  // The reference jacobians partial xsi_dim/partial xsi_(dim-1)
-  std::array<Tensor<1, dim>, dim - 1> dxsids_array;
+    // The reference jacobians partial xsi_dim/partial xsi_(dim-1)
+    std::array<Tensor<1, dim>, dim - 1> dxsids_array;
 
-  // At face x quad node x phi_position_j
-  std::vector<std::vector<std::vector<double>>> delta_dx;
+    // At face x quad node x phi_position_j
+    std::vector<std::vector<std::vector<double>>> delta_dx;
 
-  /**
-   * Lagrange multiplier
-   */
-  FEValuesExtractors::Vector               lambda;
-  std::vector<std::vector<Tensor<1, dim>>> present_face_lambda_values;
-  std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_l_face;
+    /**
+     * Lagrange multiplier
+     */
+    FEValuesExtractors::Vector               lambda;
+    std::vector<std::vector<Tensor<1, dim>>> present_face_lambda_values;
+    std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_l_face;
 #if defined(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
-  std::vector<std::vector<Tensor<1, dim>>> face_velocity_source_term;
+    std::vector<std::vector<Tensor<1, dim>>> face_velocity_source_term;
 #endif
 
-  // Rigid-body rotation enforced with Lagrange multiplier
-  // The prescribed angular velocity is scalar in 2D and a vector in 3D
-  using angular_velocity_type = Tensor<dim == 2 ? 0 : 1, dim>;
-  std::vector<std::vector<Tensor<1, dim>>>
-    input_face_rigid_body_rotation_velocity;
+    // Rigid-body rotation enforced with Lagrange multiplier
+    // The prescribed angular velocity is scalar in 2D and a vector in 3D
+    using angular_velocity_type = Tensor<dim == 2 ? 0 : 1, dim>;
+    std::vector<std::vector<Tensor<1, dim>>>
+      input_face_rigid_body_rotation_velocity;
 
-  /**
-   * Cahn-Hilliard
-   */
-  FEValuesExtractors::Scalar tracer;
-  FEValuesExtractors::Scalar potential;
-  FEValuesExtractors::Scalar enlarged;
+    /**
+     * Cahn-Hilliard
+     */
+    FEValuesExtractors::Scalar tracer;
+    FEValuesExtractors::Scalar potential;
+    FEValuesExtractors::Scalar enlarged;
 
-  double                              density0;
-  double                              density1;
-  double                              dynamic_viscosity0;
-  double                              dynamic_viscosity1;
-  double                              mobility;
-  CahnHilliard::MobilityFunction<dim> mobility_function;
-  CahnHilliard::MobilityFunction<dim> mobility_derivative_function;
-  CahnHilliard::MobilityFunction<dim> mobility_second_derivative_function;
+    double                              density0;
+    double                              density1;
+    double                              dynamic_viscosity0;
+    double                              dynamic_viscosity1;
+    double                              mobility;
+    CahnHilliard::MobilityFunction<dim> mobility_function;
+    CahnHilliard::MobilityFunction<dim> mobility_derivative_function;
+    CahnHilliard::MobilityFunction<dim> mobility_second_derivative_function;
 
+    std::vector<double> mobility_values;
+    std::vector<double> derivative_mobility_wrt_tracer;
+    std::vector<double> diffusive_flux_factor_values;
+    std::vector<double> second_derivative_mobility_wrt_tracer;
+    double              epsilon;
+    double              sigma_tilde;
+    double              diffusive_flux_factor;
+    Tensor<1, dim>      body_force;
 
-  std::vector<double> mobility_values;
-  std::vector<double> derivative_mobility_wrt_tracer;
-  std::vector<double> diffusive_flux_factor_values;
-  std::vector<double> second_derivative_mobility_wrt_tracer;
-  double              epsilon;
-  double              sigma_tilde;
-  double              diffusive_flux_factor;
-  Tensor<1, dim>      body_force;
+    CahnHilliard::TracerLimiterFunction         tracer_limiter;
+    CahnHilliard::MobilityTracerLimiterFunction mobility_tracer_limiter;
 
-  CahnHilliard::TracerLimiterFunction         tracer_limiter;
-  CahnHilliard::MobilityTracerLimiterFunction mobility_tracer_limiter;
+    std::vector<double> derivative_density_wrt_tracer;
+    std::vector<double> dynamic_viscosity;
+    std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
 
-  std::vector<double> derivative_density_wrt_tracer;
-  std::vector<double> dynamic_viscosity;
-  std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
-  // Tracer on current and fixed (reference) mesh
-  std::vector<double>                      tracer_values;
-  std::vector<Tensor<1, dim>>              tracer_gradients;
-  std::vector<double>                      tracer_values_fixed;
-  std::vector<Tensor<1, dim>>              tracer_gradients_fixed;
-  std::vector<std::vector<double>>         previous_tracer_values_fixed;
-  std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients_fixed;
-  std::vector<std::vector<double>>         previous_tracer_values;
-  std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients;
-  // Potential on current mesh
-  std::vector<double>         potential_values;
-  std::vector<Tensor<1, dim>> potential_gradients;
-  std::vector<Tensor<2, dim>> potential_hessians;
-  std::vector<double>         potential_laplacians;
-  std::vector<double>         psi_values;
-  std::vector<Tensor<1, dim>> psi_gradients;
+    // Tracer on current and fixed (reference) mesh
+    std::vector<double>                      tracer_values;
+    std::vector<Tensor<1, dim>>              tracer_gradients;
+    std::vector<double>                      tracer_values_fixed;
+    std::vector<Tensor<1, dim>>              tracer_gradients_fixed;
+    std::vector<std::vector<double>>         previous_tracer_values_fixed;
+    std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients_fixed;
+    std::vector<std::vector<double>>         previous_tracer_values;
+    std::vector<std::vector<Tensor<1, dim>>> previous_tracer_gradients;
+    // Potential on current mesh
+    std::vector<double>         potential_values;
+    std::vector<Tensor<1, dim>> potential_gradients;
+    std::vector<Tensor<2, dim>> potential_hessians;
+    std::vector<double>         potential_laplacians;
+    std::vector<double>         psi_values;
+    std::vector<Tensor<1, dim>> psi_gradients;
 
-  std::vector<Tensor<1, dim>> diffusive_flux;
-  std::vector<double>         velocity_dot_tracer_gradient;
-  // u_conv = u − w_mesh (zero mesh velocity when not ALE)
-  std::vector<Tensor<1, dim>> present_convective_velocity;
+    std::vector<Tensor<1, dim>> diffusive_flux;
+    std::vector<double>         velocity_dot_tracer_gradient;
+    // u_conv = u − w_mesh (zero mesh velocity when not ALE)
+    std::vector<Tensor<1, dim>> present_convective_velocity;
 
-  std::vector<std::vector<double>>         shape_phi;
-  std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
-  std::vector<std::vector<double>>         shape_phi_fixed;
-  std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi_fixed;
-  std::vector<std::vector<double>>         shape_mu;
-  std::vector<std::vector<Tensor<1, dim>>> grad_shape_mu;
-  std::vector<std::vector<double>>         laplacian_shape_mu;
-  std::vector<std::vector<double>>         shape_psi;
-  std::vector<std::vector<Tensor<1, dim>>> grad_shape_psi;
+    std::vector<std::vector<double>>         shape_phi;
+    std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
+    std::vector<std::vector<double>>         shape_phi_fixed;
+    std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi_fixed;
+    std::vector<std::vector<double>>         shape_mu;
+    std::vector<std::vector<Tensor<1, dim>>> grad_shape_mu;
+    std::vector<std::vector<double>>         laplacian_shape_mu;
+    std::vector<std::vector<double>>         shape_psi;
+    std::vector<std::vector<Tensor<1, dim>>> grad_shape_psi;
 
-  std::vector<double> source_term_tracer;
-  std::vector<double> source_term_potential;
-  std::vector<double> source_term_psi;
+    std::vector<double> source_term_tracer;
+    std::vector<double> source_term_potential;
+    std::vector<double> source_term_psi;
 
-  std::vector<Tensor<1, dim>> strong_residual_momentum;
-  std::vector<double>         strong_residual_tracer;
-  std::vector<double>         stabilization_tau_momentum;
-  std::vector<double>         stabilization_tau_tracer;
-  std::vector<double>         stabilization_h_tau;
-  std::vector<std::vector<Tensor<1, dim>>>
-    stabilization_geometry_shape_gradients;
-  // CHNS: precomputed to avoid repeated division in assembly
-  std::vector<double> stabilization_nu_eff;
-  std::vector<double> stabilization_inv_rho;
+    std::vector<Tensor<1, dim>> strong_residual_momentum;
+    std::vector<double>         strong_residual_tracer;
+    std::vector<double>         stabilization_tau_momentum;
+    std::vector<double>         stabilization_tau_tracer;
+    std::vector<double>         stabilization_h_tau;
+    std::vector<std::vector<Tensor<1, dim>>>
+      stabilization_geometry_shape_gradients;
+    // CHNS: precomputed to avoid repeated division in assembly
+    std::vector<double> stabilization_nu_eff;
+    std::vector<double> stabilization_inv_rho;
 
-private:
-  // Inter-layer communication: NS sets no_ale, pseudo-solid adds ale.
-  std::vector<Tensor<1, dim>> strong_residual_momentum_no_ale;
-  std::vector<Tensor<1, dim>> strong_residual_momentum_ale;
-};
-
-/**
- * Scratch data for the incompressible NS solver on fixed mesh.
- */
-template <int dim>
-class ScratchDataIncompressibleNS : public ScratchData<dim>
-{
-public:
-  /**
-   * Constructor
-   */
-  ScratchDataIncompressibleNS(const ComponentOrdering    &ordering,
-                              const FESystem<dim>        &fe,
-                              const Mapping<dim>         &mapping,
-                              const Quadrature<dim>      &cell_quadrature,
-                              const Quadrature<dim - 1>  &face_quadrature,
-                              const TimeHandler          &time_handler,
-                              const ParameterReader<dim> &param)
-    : ScratchData<dim>(ordering,
-                       /*enable_pseudo_solid = */ false,
-                       /*enable_lagrange_multiplier = */ false,
-                       /*enable_cahn_hilliard = */ false,
-                       /*enable_compressible = */ false,
-                       fe,
-                       mapping,
-                       mapping,
-                       cell_quadrature,
-                       face_quadrature,
-                       time_handler,
-                       param)
-  {}
-
-  /**
-   * Copy constructor
-   */
-  ScratchDataIncompressibleNS(const ScratchDataIncompressibleNS &other)
-    : ScratchData<dim>(other)
-  {}
-};
-
-/**
- * Scratch data for the compressible NS solver.
- */
-template <int dim>
-class ScratchDataCompressibleNS : public ScratchData<dim>
-{
-public:
-  /**
-   * Constructor
-   */
-  ScratchDataCompressibleNS(const ComponentOrdering    &ordering,
-                            const FESystem<dim>        &fe,
-                            const Mapping<dim>         &mapping,
-                            const Quadrature<dim>      &cell_quadrature,
-                            const Quadrature<dim - 1>  &face_quadrature,
-                            const TimeHandler          &time_handler,
-                            const ParameterReader<dim> &param)
-    : ScratchData<dim>(ordering,
-                       /*enable_pseudo_solid = */ false,
-                       /*enable_lagrange_multiplier = */ false,
-                       /*enable_cahn_hilliard = */ false,
-                       /*enable_compressible = */ true,
-                       fe,
-                       mapping,
-                       mapping,
-                       cell_quadrature,
-                       face_quadrature,
-                       time_handler,
-                       param)
-  {}
-
-  /**
-   * Copy constructor
-   */
-  ScratchDataCompressibleNS(const ScratchDataCompressibleNS &other)
-    : ScratchData<dim>(other)
-  {}
-};
-
-/**
- * hp Scratch data for the incompressible NS solver with Lagrange multiplier.
- */
-template <int dim>
-class ScratchDataIncompressibleNSLambda : public ScratchData<dim, true>
-{
-public:
-  /**
-   * Constructor
-   */
-  ScratchDataIncompressibleNSLambda(
-    const ComponentOrdering          &ordering,
-    const hp::FECollection<dim>      &fe_collection,
-    const hp::MappingCollection<dim> &mapping_collection,
-    const hp::QCollection<dim>       &cell_quadrature_collection,
-    const hp::QCollection<dim - 1>   &face_quadrature_collection,
-    const TimeHandler                &time_handler,
-    const ParameterReader<dim>       &param)
-    : ScratchData<dim, true>(ordering,
-                             /*enable_pseudo_solid = */ false,
-                             /*enable_lagrange_multiplier = */ true,
-                             /*enable_cahn_hilliard = */ false,
-                             /*enable_compressible = */ false,
-                             fe_collection,
-                             mapping_collection,
-                             mapping_collection,
-                             cell_quadrature_collection,
-                             face_quadrature_collection,
-                             time_handler,
-                             param)
-  {}
-
-  /**
-   * Copy constructor
-   */
-  ScratchDataIncompressibleNSLambda(
-    const ScratchDataIncompressibleNSLambda &other)
-    : ScratchData<dim, true>(other)
-  {}
-};
-
-/**
- * Scratch data for the FSI solver on moving mesh.
- */
-template <int dim>
-class ScratchDataFSI : public ScratchData<dim>
-{
-public:
-  /**
-   * Constructor
-   */
-  ScratchDataFSI(const ComponentOrdering    &ordering,
-                 const FESystem<dim>        &fe,
-                 const Mapping<dim>         &fixed_mapping,
-                 const Mapping<dim>         &moving_mapping,
-                 const Quadrature<dim>      &cell_quadrature,
-                 const Quadrature<dim - 1>  &face_quadrature,
-                 const TimeHandler          &time_handler,
-                 const ParameterReader<dim> &param)
-    : ScratchData<dim>(ordering,
-                       /*enable_pseudo_solid = */ true,
-                       /*enable_lagrange_multiplier = */ true,
-                       /*enable_cahn_hilliard = */ false,
-                       /*enable_compressible = */ false,
-                       fe,
-                       fixed_mapping,
-                       moving_mapping,
-                       cell_quadrature,
-                       face_quadrature,
-                       time_handler,
-                       param)
-  {}
-
-  /**
-   * Copy constructor
-   */
-  ScratchDataFSI(const ScratchDataFSI &other)
-    : ScratchData<dim>(other)
-  {}
-};
-
-/**
- * hp Scratch data for the FSI solver.
- */
-template <int dim>
-class ScratchDataFSI_hp : public ScratchData<dim, true>
-{
-public:
-  /**
-   * Constructor
-   */
-  ScratchDataFSI_hp(const ComponentOrdering          &ordering,
-                    const hp::FECollection<dim>      &fe_collection,
-                    const hp::MappingCollection<dim> &fixed_mapping_collection,
-                    const hp::MappingCollection<dim> &moving_mapping_collection,
-                    const hp::QCollection<dim>     &cell_quadrature_collection,
-                    const hp::QCollection<dim - 1> &face_quadrature_collection,
-                    const TimeHandler              &time_handler,
-                    const ParameterReader<dim>     &param)
-    : ScratchData<dim, true>(ordering,
-                             /*enable_pseudo_solid = */ true,
-                             /*enable_lagrange_multiplier = */ true,
-                             /*enable_cahn_hilliard = */ false,
-                             /*enable_compressible = */ false,
-                             fe_collection,
-                             fixed_mapping_collection,
-                             moving_mapping_collection,
-                             cell_quadrature_collection,
-                             face_quadrature_collection,
-                             time_handler,
-                             param)
-  {}
-
-  /**
-   * Copy constructor
-   */
-  ScratchDataFSI_hp(const ScratchDataFSI_hp &other)
-    : ScratchData<dim, true>(other)
-  {}
-};
-
-/**
- * Scratch data for the quasi-incompressible Cahn_hilliard Navier-Stokes solver
- * on fixed mesh.
- */
-template <int dim, bool with_moving_mesh = false, bool with_enlarged = false>
-class ScratchDataCHNS : public ScratchData<dim>
-{
-public:
-  /**
-   * Constructor
-   */
-  ScratchDataCHNS(const ComponentOrdering    &ordering,
-                  const FESystem<dim>        &fe,
-                  const Mapping<dim>         &fixed_mapping,
-                  const Mapping<dim>         &moving_mapping,
-                  const Quadrature<dim>      &cell_quadrature,
-                  const Quadrature<dim - 1>  &face_quadrature,
-                  const TimeHandler          &time_handler,
-                  const ParameterReader<dim> &param)
-    : ScratchData<dim>(ordering,
-                       /*enable_pseudo_solid = */ with_moving_mesh,
-                       /*enable_lagrange_multiplier = */ false,
-                       /*enable_cahn_hilliard = */ true,
-                       /*enable_compressible = */ false,
-                       fe,
-                       fixed_mapping,
-                       moving_mapping,
-                       cell_quadrature,
-                       face_quadrature,
-                       time_handler,
-                       param)
-  {}
-
-  /**
-   * Copy constructor
-   */
-  ScratchDataCHNS(const ScratchDataCHNS &other)
-    : ScratchData<dim>(other)
-  {}
-};
+  private:
+    // Inter-layer communication: NS sets no_ale, pseudo-solid adds ale.
+    std::vector<Tensor<1, dim>> strong_residual_momentum_no_ale;
+    std::vector<Tensor<1, dim>> strong_residual_momentum_ale;
+  };
+} // namespace NavierStokesScratch
 
 #endif

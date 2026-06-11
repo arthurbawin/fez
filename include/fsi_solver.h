@@ -36,7 +36,7 @@ protected:
   static constexpr unsigned int index_fe_without_lambda = 0;
   static constexpr unsigned int index_fe_with_lambda    = 1;
 
-  using ScratchData = ScratchDataFSI_hp<dim>;
+  using ScratchData = NavierStokesScratch::ScratchDataFSI_hp<dim>;
   using CopyData    = CopyDataBase<n_hp_partitions>;
 
 public:

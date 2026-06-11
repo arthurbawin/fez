@@ -95,17 +95,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
   if (mms_param.current_step > 0)
     transient_fixed_point_data.reinit(param.time_integration.n_time_intervals);
 
-  dofs_to_component.clear();
-
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
   this->set_time();
-
-  // Pressure DOF
-  constrained_pressure_dof = numbers::invalid_dof_index;
-
-  // Initial mesh position
-  initial_positions.clear();
 
   reset_solver_specific_data();
 }
@@ -197,6 +189,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_interval_data(
     transient_fixed_point_data.get_meshfile_name(interval_index);
   mesh_param.filename = param.mesh.filename;
   time_handler.set_time_interval(interval_index);
+
+  // Reset dof to component map
+  dofs_to_component.clear();
+
+  // Reset initial mesh position
+  initial_positions.clear();
+
+  // Reset pressure DOF
+  constrained_pressure_dof = numbers::invalid_dof_index;
 
   if (param.time_integration.n_time_intervals > 1 &&
       param.time_integration.verbosity == Parameters::Verbosity::verbose)

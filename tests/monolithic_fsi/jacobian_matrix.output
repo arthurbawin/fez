@@ -1,0 +1,57 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 1304
+ boundary indicators: 1(10 faces) 2(10 faces) 3(40 faces) 4(40 faces) 
+ID 1 -> Outlet
+ID 2 -> Inlet
+ID 3 -> NoFlux
+ID 4 -> InnerBoundary
+ID 5 -> Domain
+Number of degrees of freedom: 12938
+
+Checking consistency between lambda integral and position BC:
+Integral of lambda on cylinder is +0.00000000e+00 +0.00000000e+00
+Prescribed displacement        is +0.00000000e+00 +8.88178420e-16
+                         Ratio is +0.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
+Max diff between displacements is +8.88178420e-16 +1.77635684e-15
+
+
+Time step 1 - Advancing to t = +1.00000000e-01.
+Max absolute error analytical vs fd matrix is +8.75402733e-07
+
+Checking consistency between lambda integral and position BC:
+Integral of lambda on cylinder is -9.97037831e-02 +9.63717677e-09
+Prescribed displacement        is +9.97037831e-02 -9.63726166e-09
+                         Ratio is -1.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
+Max diff between displacements is +1.77635684e-15 +1.77635684e-15
+
+Checking no-slip enforcement on cylinder:
+||uh - wh||_L2 = +1.80512503e-15
+||uh - wh||_Li = +4.23435998e-14
+
+Time step 2 - Advancing to t = +2.00000000e-01.
+Max absolute error analytical vs fd matrix is +9.20746850e-07
+
+Checking consistency between lambda integral and position BC:
+Integral of lambda on cylinder is -1.98953703e-01 +3.48795731e-08
+Prescribed displacement        is +1.98953703e-01 -3.48796299e-08
+                         Ratio is -1.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
+Max diff between displacements is +2.66453526e-15 +1.77635684e-15
+
+Checking no-slip enforcement on cylinder:
+||uh - wh||_L2 = +1.85687757e-15
+||uh - wh||_Li = +3.09320445e-14
+
+Time step 3 - Advancing to t = +3.00000000e-01.
+Max absolute error analytical vs fd matrix is +9.95681007e-07
+
+Checking consistency between lambda integral and position BC:
+Integral of lambda on cylinder is -2.97643785e-01 +7.85273702e-08
+Prescribed displacement        is +2.97643785e-01 -7.85274485e-08
+                         Ratio is -1.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
+Max diff between displacements is +2.66453526e-15 +2.66453526e-15
+
+Checking no-slip enforcement on cylinder:
+||uh - wh||_L2 = +1.64433325e-15
+||uh - wh||_Li = +3.32212605e-14

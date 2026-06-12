@@ -52,6 +52,11 @@ public:
    */
   virtual void create_scratch_data() override;
 
+  /**
+   * Create the volume and boundary assemblers for this solver.
+   */
+  virtual void setup_assemblers() override {}
+
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;
 

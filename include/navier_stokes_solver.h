@@ -176,6 +176,11 @@ public:
   virtual void create_scratch_data() = 0;
 
   /**
+   * Create the volume and boundary assemblers for this solver.
+   */
+  virtual void setup_assemblers() = 0;
+
+  /**
    * For solvers with hp capabilities, set the active fe index on each owned
    * mesh element.
    *

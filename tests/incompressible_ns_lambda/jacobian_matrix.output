@@ -1,0 +1,24 @@
+Number of MPI processes: 1
+Convergence test with manufactured solution:
+Mesh file was changed to ../../mms_meshes/holed0.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 80
+ boundary indicators: 2(16 faces) 3(8 faces) 
+ID 1 -> Domain
+ID 2 -> OuterBoundary
+ID 3 -> InnerBoundary
+Number of degrees of freedom: 516
+Max absolute error analytical vs fd matrix is 1.79428e-06
+
+L2_norm
+n_elm n_dof      u            p            l         F_comp0      F_comp1    
+   80   516 1.7563e-04 - 1.7815e-02 - 6.4624e-02 - 5.7940e-03 - 1.1425e-02 - 
+
+Linfty_norm
+n_elm n_dof      u            p            l         F_comp0      F_comp1    
+   80   516 4.2791e-04 - 7.1914e-02 - 1.7246e-01 - 5.7940e-03 - 1.1425e-02 - 
+
+H1_seminorm
+n_elm n_dof      u            p            l         F_comp0      F_comp1    
+   80   516 8.5068e-03 - 4.7025e-01 - 0.0000e+00 - 5.7940e-03 - 1.1425e-02 -

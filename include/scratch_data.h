@@ -519,10 +519,26 @@ namespace NavierStokesScratch
       source_terms.vector_value_list(fixed_quadrature_points,
                                      source_term_full_fixed);
 
-      // This takes a lot of time, and the Newton solver converges without it
-      // // Gradient of source term (for u-p only)
-      // source_terms.vector_gradient_list(fe_values.get_quadrature_points(),
-      //                                    grad_source_term_full);
+#if defined(WITH_GRADIENT_OF_SOURCE_TERMS)
+      /**
+       * The gradient of the source terms contributes to the Jacobian matrix
+       * when the mesh is moving. Currently, the solvers that need it implement
+       * this gradient using finite differences, which is quite slow.
+       * It is typically required for convergence studies with manufactured
+       * solutions, for which the source term is non uniform.
+       *
+       * For most other simulations, the source term is usually constant, so the
+       * computation of the gradient is disabled by default. The main
+       * consequence is that this slows down the convergence of the MMS tests.
+       *
+       * A solution would be to implement the analytic source term gradient for
+       * MMS (which requires adding a few exact derivatives functions to the
+       * MMSFunction class), and compute the symbolic gradient of the parsed
+       * source term.
+       */
+      source_terms.vector_gradient_list(
+        fe_values_moving.get_quadrature_points(), grad_source_term_full);
+#endif
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
@@ -541,6 +557,18 @@ namespace NavierStokesScratch
 
         for (int d = 0; d < dim; ++d)
           source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
+
+#if defined(WITH_GRADIENT_OF_SOURCE_TERMS)
+        // Fill the gradients of the source term (for u-p only)
+        // Layout: grad_source_velocity[q] = df_i/dx_j
+        for (int di = 0; di < dim; ++di)
+        {
+          grad_source_pressure[q][di] = grad_source_term_full[q][p_lower][di];
+          for (int dj = 0; dj < dim; ++dj)
+            grad_source_velocity[q][di][dj] =
+              grad_source_term_full[q][u_lower + di][dj];
+        }
+#endif
 
         for (unsigned int k = 0; k < dofs_per_cell; ++k)
         {
@@ -693,6 +721,9 @@ namespace NavierStokesScratch
         for (unsigned int k = 0; k < dofs_per_cell; ++k)
         {
           phi_x_face[i_face][q][k] = fe_face_values_fixed[position].value(k, q);
+
+          // FIXME: this might be the gradient obtained from
+          // fe_face_values (moving)
           grad_phi_x_face[i_face][q][k] =
             fe_face_values_fixed[position].gradient(k, q);
 

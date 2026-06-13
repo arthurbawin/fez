@@ -91,6 +91,10 @@ if(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
   add_compile_definitions(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
 endif()
 
+if(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+  add_compile_definitions(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+endif()
+
 # === Add Eigen (standard + unsupported) ===
 set(EIGEN3_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/contrib/eigen)
 include_directories(${EIGEN3_INCLUDE_DIR})

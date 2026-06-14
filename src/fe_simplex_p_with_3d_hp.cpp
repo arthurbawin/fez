@@ -221,7 +221,7 @@ FE_SimplexP_3D_hp<dim, spacedim>::hp_line_dof_identities(
 template <int dim, int spacedim>
 std::vector<std::pair<unsigned int, unsigned int>>
 FE_SimplexP_3D_hp<dim, spacedim>::hp_quad_dof_identities(
-  const FiniteElement<dim, spacedim> &/*fe_other*/,
+  const FiniteElement<dim, spacedim> & /*fe_other*/,
   const unsigned int) const
 {
   // FIXME: These identities should be implemented to use P3 elements on tets.

@@ -1,57 +1,57 @@
 Number of MPI processes: 1
 Mesh info:
  dimension: 2
- no. of cells: 1304
- boundary indicators: 1(10 faces) 2(10 faces) 3(40 faces) 4(40 faces) 
+ no. of cells: 100
+ boundary indicators: 1(3 faces) 2(3 faces) 3(10 faces) 4(10 faces) 
 ID 1 -> Outlet
 ID 2 -> Inlet
 ID 3 -> NoFlux
 ID 4 -> InnerBoundary
 ID 5 -> Domain
-Number of degrees of freedom: 8002
+Number of degrees of freedom: 761
 
 Checking consistency between lambda integral and position BC:
 Integral of lambda on cylinder is +0.00000000e+00 +0.00000000e+00
-Prescribed displacement        is +0.00000000e+00 +8.88178420e-16
+Prescribed displacement        is +0.00000000e+00 +0.00000000e+00
                          Ratio is +0.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +8.88178420e-16 +1.77635684e-15
+Max diff between displacements is +8.88178420e-16 +0.00000000e+00
 
 
 Time step 1 - Advancing to t = +1.00000000e-01.
-Max absolute error analytical vs fd matrix is +8.75402733e-07
+Max absolute error analytical vs fd matrix is +9.56924948e-07
 
 Checking consistency between lambda integral and position BC:
-Integral of lambda on cylinder is -9.97037831e-02 +9.63751509e-09
-Prescribed displacement        is +9.97037831e-02 -9.63726077e-09
-                         Ratio is -1.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +8.88178420e-16 +1.77635684e-15
+Integral of lambda on cylinder is -9.97280978e-02 +1.54434638e-06
+Prescribed displacement        is +9.97280978e-02 -1.54434639e-06
+                         Ratio is -1.00000000e+00 -9.99999995e-01 (expected: -1.00000000e+00)
+Max diff between displacements is +8.88178420e-16 +0.00000000e+00
 
 Checking no-slip enforcement on cylinder:
-||uh - wh||_L2 = +1.69946658e-15
-||uh - wh||_Li = +3.39183478e-14
+||uh - wh||_L2 = +5.84757701e-15
+||uh - wh||_Li = +2.61984276e-14
 
 Time step 2 - Advancing to t = +2.00000000e-01.
-Max absolute error analytical vs fd matrix is +9.20746850e-07
+Max absolute error analytical vs fd matrix is +8.29778075e-07
 
 Checking consistency between lambda integral and position BC:
-Integral of lambda on cylinder is -1.98953703e-01 +3.48799457e-08
-Prescribed displacement        is +1.98953703e-01 -3.48796272e-08
-                         Ratio is -1.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +8.88178420e-16 +1.77635684e-15
+Integral of lambda on cylinder is -1.99027638e-01 +6.18093806e-06
+Prescribed displacement        is +1.99027638e-01 -6.18093808e-06
+                         Ratio is -1.00000000e+00 -9.99999998e-01 (expected: -1.00000000e+00)
+Max diff between displacements is +8.88178420e-16 +0.00000000e+00
 
 Checking no-slip enforcement on cylinder:
-||uh - wh||_L2 = +1.78460412e-15
-||uh - wh||_Li = +3.16246256e-14
+||uh - wh||_L2 = +6.65274410e-15
+||uh - wh||_Li = +3.07362613e-14
 
 Time step 3 - Advancing to t = +3.00000000e-01.
-Max absolute error analytical vs fd matrix is +9.95681007e-07
+Max absolute error analytical vs fd matrix is +7.95930809e-07
 
 Checking consistency between lambda integral and position BC:
-Integral of lambda on cylinder is -2.97643785e-01 +7.85277464e-08
-Prescribed displacement        is +2.97643785e-01 -7.85274441e-08
-                         Ratio is -1.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +8.88178420e-16 +1.77635684e-15
+Integral of lambda on cylinder is -2.97792316e-01 +1.49025158e-05
+Prescribed displacement        is +2.97792316e-01 -1.49025158e-05
+                         Ratio is -1.00000000e+00 -9.99999999e-01 (expected: -1.00000000e+00)
+Max diff between displacements is +8.88178420e-16 +8.88178420e-16
 
 Checking no-slip enforcement on cylinder:
-||uh - wh||_L2 = +1.56716814e-15
-||uh - wh||_Li = +2.82267399e-14
+||uh - wh||_L2 = +4.02472781e-15
+||uh - wh||_Li = +2.43882879e-14

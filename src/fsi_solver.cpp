@@ -37,53 +37,67 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
   if (param.finite_elements.use_quads)
   {
     fe_with_lambda = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,      // Velocity
-      FE_Q<dim>(param.finite_elements.pressure_degree),            // Pressure
-      FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim, // Position
-      FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
-        dim); // Lagrange multiplier
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                               // Velocity
+      FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
+                    dim), // Position
+      FESystem<dim>(
+        FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
+        dim)); // Lagrange multiplier
     fe_without_lambda = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim),
       FE_Q<dim>(param.finite_elements.pressure_degree),
-      FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
-      FE_Nothing<dim>() ^ dim);
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
+                    dim),
+      FESystem<dim>(FE_Nothing<dim>() ^ dim));
   }
   else
   {
     if constexpr (dim == 2)
     {
       fe_with_lambda = std::make_unique<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
-          dim,                                                   // Velocity
+        FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                      dim),                                      // Velocity
         FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
-        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^
-          dim, // Position
-        FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
-          dim); // Lagrange multiplier
+        FESystem<dim>(
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^
+          dim), // Position
+        FESystem<dim>(
+          FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
+          dim)); // Lagrange multiplier
       fe_without_lambda = std::make_unique<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                      dim),
         FE_SimplexP<dim>(param.finite_elements.pressure_degree),
-        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
-        FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
+        FESystem<dim>(
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim),
+        FESystem<dim>(FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^
+                      dim));
     }
     else
     {
       fe_with_lambda = std::make_unique<FESystem<dim>>(
-        FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^
-          dim, // Velocity
+        FESystem<dim>(
+          FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^
+          dim), // Velocity
         FE_SimplexP_3D_hp<dim>(
           param.finite_elements.pressure_degree), // Pressure
-        FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
-          dim, // Position
-        FE_SimplexP_3D_hp<dim>(
-          param.finite_elements.no_slip_lagrange_mult_degree) ^
-          dim); // Lagrange multiplier
+        FESystem<dim>(
+          FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
+          dim), // Position
+        FESystem<dim>(FE_SimplexP_3D_hp<dim>(
+                        param.finite_elements.no_slip_lagrange_mult_degree) ^
+                      dim)); // Lagrange multiplier
       fe_without_lambda = std::make_unique<FESystem<dim>>(
-        FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(
+          FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim),
         FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree),
-        FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
-          dim,
-        FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
+        FESystem<dim>(
+          FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
+          dim),
+        FESystem<dim>(FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^
+                      dim));
     }
   }
 

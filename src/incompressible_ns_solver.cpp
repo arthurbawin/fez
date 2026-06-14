@@ -27,16 +27,14 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
 {
   if (param.finite_elements.use_quads)
     fe = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree), // Velocity
-      dim,
-      FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
-      1);
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                                // Velocity
+      FE_Q<dim>(param.finite_elements.pressure_degree)); // Pressure
   else
     fe = std::make_unique<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
-      dim,
-      FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
-      1);
+      FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                                       // Velocity
+      FE_SimplexP<dim>(param.finite_elements.pressure_degree)); // Pressure
 
   this->ordering = std::make_unique<ComponentOrderingNS<dim>>();
 

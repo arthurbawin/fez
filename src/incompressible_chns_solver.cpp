@@ -27,16 +27,19 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   {
     if (param.finite_elements.use_quads)
       fe = std::make_unique<FESystem<dim>>(
-        FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim),
         FE_Q<dim>(param.finite_elements.pressure_degree),
-        FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+        FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
+                      dim),
         FE_Q<dim>(param.finite_elements.tracer_degree),
         FE_Q<dim>(param.finite_elements.potential_degree));
     else
       fe = std::make_unique<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                      dim),
         FE_SimplexP<dim>(param.finite_elements.pressure_degree),
-        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+        FESystem<dim>(
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim),
         FE_SimplexP<dim>(param.finite_elements.tracer_degree),
         FE_SimplexP<dim>(param.finite_elements.potential_degree));
 
@@ -46,13 +49,14 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
   {
     if (param.finite_elements.use_quads)
       fe = std::make_unique<FESystem<dim>>(
-        FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim),
         FE_Q<dim>(param.finite_elements.pressure_degree),
         FE_Q<dim>(param.finite_elements.tracer_degree),
         FE_Q<dim>(param.finite_elements.potential_degree));
     else
       fe = std::make_unique<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                      dim),
         FE_SimplexP<dim>(param.finite_elements.pressure_degree),
         FE_SimplexP<dim>(param.finite_elements.tracer_degree),
         FE_SimplexP<dim>(param.finite_elements.potential_degree));

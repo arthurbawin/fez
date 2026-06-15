@@ -2,8 +2,6 @@
 #define STABILIZATION_TOOLS_H
 
 #include <deal.II/base/tensor.h>
-#include <parameter_reader.h>
-#include <solver_info.h>
 #include <time_handler.h>
 
 #include <vector>
@@ -119,7 +117,7 @@ namespace StabilizationTools
   {
     if constexpr (dim == 2)
     {
-      // In 2D, use Verdier's formula to compute the squared cell length.
+      // In 2D, use Tezduyar's formula to compute the squared cell length.
       return compute_squared_cell_length_along_velocity_field(
         n_dofs_per_cell,
         cell_diameter,

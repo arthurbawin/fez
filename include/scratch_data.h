@@ -71,31 +71,26 @@ namespace NavierStokesScratch
     ns_only = 0,
 
     /**
-     * Add the contribution of the full divergence form to the SUPG residual.
-     */
-    divergence_form = 1 << 0,
-
-    /**
      * Reinit data to assemble the mesh movement elasticity equation.
      */
-    pseudo_solid = 1 << 1,
+    pseudo_solid = 1 << 0,
 
     /**
      * Reinit data to assemble constraints using a Lagrange multiplier.
      */
-    lagrange_multiplier = 1 << 2,
+    lagrange_multiplier = 1 << 1,
 
     /**
      * Reinit data to assemble the Cahn-Hilliard system, used to form the CHNS
      * system.
      */
-    cahn_hilliard = 1 << 3,
+    cahn_hilliard = 1 << 2,
 
     /**
      * Reinit data to assemble the compressible Navier-Stokes system (including
      * the energy equation).
      */
-    compressible = 1 << 4,
+    compressible = 1 << 3,
 
     /**
      * Specifies if this ScratchData is for a solver using the hp tools.
@@ -106,7 +101,7 @@ namespace NavierStokesScratch
      * Not an update flag per se, but avoids defining an extra template
      * parameter.
      */
-    with_hp_capabilities = 1 << 5
+    with_hp_capabilities = 1 << 4
   };
 
   // Forward declaration of base class below
@@ -370,30 +365,13 @@ namespace NavierStokesScratch
 
         if (enable_stabilization)
         {
-          // Compute strong residual of the NS momentum equation.
+          // Compute stabilization parameter tau.
           // Mesh velocity has already been computed, so ALE velocity is well
           // defined.
           auto u_conv = present_velocity_values[q];
-          // std::cout << u_conv << std::endl;
           if constexpr (enable_pseudo_solid)
-          {
-            AssertThrow(false, ExcMessage("here"));
             u_conv -= present_mesh_velocity_values[q];
-          }
-          const auto &dudt       = present_velocity_time_derivatives[q];
-          const auto &grad_u     = present_velocity_gradients[q];
-          const auto &grad_p     = present_pressure_gradients[q];
-          const auto &lap_u      = present_velocity_laplacians[q];
-          const auto &grad_div_u = present_velocity_grad_div[q];
-          const auto &f          = source_term_velocity[q];
 
-          strong_residual_momentum[q] =
-            dudt + grad_u * u_conv + grad_p - kinematic_viscosity * lap_u + f;
-
-          if constexpr (with_divergence_form)
-            strong_residual_momentum[q] -= kinematic_viscosity * grad_div_u;
-
-          // Compute stabilization parameter tau
           tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
             time_handler,
             dofs_per_cell,
@@ -1228,8 +1206,6 @@ namespace NavierStokesScratch
     unsigned int t_lower;
 
   public:
-    static constexpr bool with_divergence_form =
-      (update_flags & divergence_form) != 0;
     static constexpr bool enable_pseudo_solid =
       (update_flags & pseudo_solid) != 0;
     static constexpr bool enable_lagrange_multiplier =

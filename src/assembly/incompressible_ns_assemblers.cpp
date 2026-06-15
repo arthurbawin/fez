@@ -19,6 +19,14 @@ namespace Assembly
       const ScratchData &scratch_data,
       CopyData          &copy_data) const
     {
+      if constexpr (this->with_stabilization)
+        Assert(
+          scratch_data.enable_stabilization,
+          ExcMessage(
+            "The assemblers for the incompressible Navier-Stokes equations are "
+            "set to assemble SUPG-PSPG stabilization terms, but computation of "
+            "the required data was not enabled in the provided ScratchData."));
+
       auto &sd        = scratch_data;
       auto &local_rhs = copy_data.local_rhs(sd.active_fe_index);
 
@@ -42,8 +50,8 @@ namespace Assembly
       //
       // SUPG data
       //
-      const Tensor<1, dim> *strong_residual_momentum;
-      double                tau_supg_velocity;
+      Tensor<1, dim> strong_residual_momentum;
+      double         tau_supg_velocity;
 
       for (unsigned int q = 0; q < sd.n_q_points; ++q)
       {
@@ -52,12 +60,14 @@ namespace Assembly
         //
         const double JxW_moving = sd.JxW_moving[q];
 
+        const auto  &dudt       = sd.present_velocity_time_derivatives[q];
         const auto  &u          = sd.present_velocity_values[q];
         const auto  &grad_u     = sd.present_velocity_gradients[q];
         const auto  &sym_grad_u = sd.present_velocity_sym_gradients[q];
         const double div_u      = sd.present_velocity_divergence[q];
+        const auto  &lap_u      = sd.present_velocity_laplacians[q];
+        const auto  &grad_div_u = sd.present_velocity_grad_div[q];
         const auto  &source_u   = sd.source_term_velocity[q];
-        const auto  &dudt       = sd.present_velocity_time_derivatives[q];
 
         auto u_conv = u;
         if constexpr (this->with_pseudo_solid)
@@ -70,6 +80,7 @@ namespace Assembly
           (dudt + u_dot_grad_u_ale + source_u);
 
         const auto &p        = sd.present_pressure_values[q];
+        const auto &grad_p   = sd.present_pressure_gradients[q];
         const auto &source_p = sd.source_term_pressure[q];
 
         const auto &phi_u          = sd.phi_u[q];
@@ -81,8 +92,14 @@ namespace Assembly
 
         if constexpr (this->with_stabilization)
         {
-          strong_residual_momentum = &sd.strong_residual_momentum[q];
-          tau_supg_velocity        = sd.tau_supg_velocity[q];
+          tau_supg_velocity = sd.tau_supg_velocity[q];
+
+          // Compute strong residual of the Navier-Stokes equations
+          strong_residual_momentum =
+            dudt + grad_u * u_conv + grad_p - nu * lap_u + source_u;
+
+          if constexpr (this->with_divergence_form)
+            strong_residual_momentum -= nu * grad_div_u;
         }
 
         //
@@ -150,8 +167,7 @@ namespace Assembly
             if constexpr (this->with_stabilization)
             {
               // SUPG stabilization
-              local_rhs_flow_i -= tau_supg_velocity *
-                                  (*strong_residual_momentum) *
+              local_rhs_flow_i -= tau_supg_velocity * strong_residual_momentum *
                                   (grad_phi_u_i * u_conv);
             }
           }
@@ -159,8 +175,8 @@ namespace Assembly
           if constexpr (this->with_stabilization)
           {
             if (i_is_p)
-              local_rhs_flow_i -= -tau_supg_velocity *
-                                  (*strong_residual_momentum) * grad_phi_p[i];
+              local_rhs_flow_i -=
+                -tau_supg_velocity * strong_residual_momentum * grad_phi_p[i];
           }
 
           local_rhs_flow_i *= JxW_moving;
@@ -236,9 +252,9 @@ namespace Assembly
       //
       // SUPG data
       //
-      const Tensor<1, dim> *strong_residual_momentum;
-      double                tau_supg_velocity;
-      Tensor<1, dim>        u_conv_dot_grad_phi_u_i, residual_dot_grad_phi_u_i;
+      Tensor<1, dim> strong_residual_momentum;
+      double         tau_supg_velocity;
+      Tensor<1, dim> u_conv_dot_grad_phi_u_i, residual_dot_grad_phi_u_i;
 
 #if defined(WITH_GRADIENT_OF_SOURCE_TERMS)
       const Tensor<2, dim> *grad_source_term_velocity;
@@ -252,11 +268,14 @@ namespace Assembly
         //
         const double JxW_moving = sd.JxW_moving[q];
 
+        const auto  &dudt       = sd.present_velocity_time_derivatives[q];
         const auto  &u          = sd.present_velocity_values[q];
         const auto  &grad_u     = sd.present_velocity_gradients[q];
         const auto  &sym_grad_u = sd.present_velocity_sym_gradients[q];
         const double div_u      = sd.present_velocity_divergence[q];
-        const auto  &dudt       = sd.present_velocity_time_derivatives[q];
+        const auto  &lap_u      = sd.present_velocity_laplacians[q];
+        const auto  &grad_div_u = sd.present_velocity_grad_div[q];
+        const auto  &source_u   = sd.source_term_velocity[q];
 
         auto u_conv = u;
         if constexpr (this->with_pseudo_solid)
@@ -266,12 +285,20 @@ namespace Assembly
         }
         const auto u_dot_grad_u_ale = grad_u * u_conv;
 
-        const double p = sd.present_pressure_values[q];
+        const double p      = sd.present_pressure_values[q];
+        const auto  &grad_p = sd.present_pressure_gradients[q];
 
         if constexpr (this->with_stabilization)
         {
-          strong_residual_momentum = &sd.strong_residual_momentum[q];
-          tau_supg_velocity        = sd.tau_supg_velocity[q];
+          // strong_residual_momentum = &sd.strong_residual_momentum[q];
+          tau_supg_velocity = sd.tau_supg_velocity[q];
+
+          // Compute strong residual of the Navier-Stokes equations
+          strong_residual_momentum =
+            dudt + grad_u * u_conv + grad_p - nu * lap_u + source_u;
+
+          if constexpr (this->with_divergence_form)
+            strong_residual_momentum -= nu * grad_div_u;
         }
 
         const auto &phi_u           = sd.phi_u[q];
@@ -371,9 +398,8 @@ namespace Assembly
 
           if constexpr (this->with_stabilization)
           {
-            u_conv_dot_grad_phi_u_i = grad_phi_u_i * u_conv;
-            residual_dot_grad_phi_u_i =
-              (*strong_residual_momentum) * grad_phi_u_i;
+            u_conv_dot_grad_phi_u_i   = grad_phi_u_i * u_conv;
+            residual_dot_grad_phi_u_i = strong_residual_momentum * grad_phi_u_i;
           }
 
           if constexpr (this->with_pseudo_solid)

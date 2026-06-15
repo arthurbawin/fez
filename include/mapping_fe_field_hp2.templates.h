@@ -295,7 +295,11 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::MappingFEFieldHp2(
                 true))
   , fe_to_real(fe_mask.size(), numbers::invalid_unsigned_int)
   , fe_values(this->euler_dof_handler->get_fe(),
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+              reference_cell.get_nodal_type_quadrature(),
+#else
               reference_cell.template get_nodal_type_quadrature<dim>(),
+#endif
               update_values)
 {
   AssertDimension(euler_dof_handler.n_dofs(), euler_vector.size());
@@ -330,7 +334,11 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::MappingFEFieldHp2(
 
   // This fe_values is unused
   , fe_values(this->euler_dof_handler->get_fe(),
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+              reference_cell.get_nodal_type_quadrature(),
+#else
               reference_cell.template get_nodal_type_quadrature<dim>(),
+#endif
               update_values)
 
   , hp_capabilities_enabled(this->euler_dof_handler->has_hp_capabilities())
@@ -349,7 +357,11 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::MappingFEFieldHp2(
   AssertDimension(size, spacedim);
 
   Quadrature<dim> nodal_q =
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+    reference_cell.get_nodal_type_quadrature();
+#else
     reference_cell.template get_nodal_type_quadrature<dim>();
+#endif
   hp::QCollection<dim> nodal_quadrature_collection;
   nodal_quadrature_collection.push_back(nodal_q);
   nodal_quadrature_collection.push_back(nodal_q);
@@ -382,7 +394,11 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::MappingFEFieldHp2(
                 true))
   , fe_to_real(fe_mask.size(), numbers::invalid_unsigned_int)
   , fe_values(this->euler_dof_handler->get_fe(),
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+              reference_cell.get_nodal_type_quadrature(),
+#else
               reference_cell.template get_nodal_type_quadrature<dim>(),
+#endif
               update_values)
 {
   unsigned int size = 0;
@@ -425,7 +441,11 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::MappingFEFieldHp2(
                 true))
   , fe_to_real(fe_mask.size(), numbers::invalid_unsigned_int)
   , fe_values(this->euler_dof_handler->get_fe(),
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+              reference_cell.get_nodal_type_quadrature(),
+#else
               reference_cell.template get_nodal_type_quadrature<dim>(),
+#endif
               update_values)
 {
   unsigned int size = 0;
@@ -464,7 +484,11 @@ MappingFEFieldHp2<dim, spacedim, VectorType>::MappingFEFieldHp2(
   , fe_mask(mapping.fe_mask)
   , fe_to_real(mapping.fe_to_real)
   , fe_values(mapping.euler_dof_handler->get_fe(),
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+              reference_cell.get_nodal_type_quadrature(),
+#else
               reference_cell.template get_nodal_type_quadrature<dim>(),
+#endif
               update_values)
   , hp_capabilities_enabled(mapping.hp_capabilities_enabled)
   , hp_fe_values(std::make_unique<hp::FEValues<dim, spacedim>>(
@@ -887,13 +911,23 @@ void MappingFEFieldHp2<dim, spacedim, VectorType>::compute_face_data(
         data.unit_tangentials[i].resize(n_original_q_points);
         std::fill(data.unit_tangentials[i].begin(),
                   data.unit_tangentials[i].end(),
-                  reference_cell.template face_tangent_vector<dim>(i, 0));
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+                  reference_cell.face_tangent_vector(i, 0)
+#else
+                  reference_cell.template face_tangent_vector<dim>(i, 0)
+#endif
+        );
         if (dim > 2)
         {
           data.unit_tangentials[n_faces + i].resize(n_original_q_points);
           std::fill(data.unit_tangentials[n_faces + i].begin(),
                     data.unit_tangentials[n_faces + i].end(),
-                    reference_cell.template face_tangent_vector<dim>(i, 1));
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+                    reference_cell.face_tangent_vector(i, 1)
+#else
+                    reference_cell.template face_tangent_vector<dim>(i, 1)
+#endif
+          );
         }
       }
     }

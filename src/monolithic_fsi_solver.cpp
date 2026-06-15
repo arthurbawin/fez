@@ -32,19 +32,25 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
 {
   if (param.finite_elements.use_quads)
     fe = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,      // Velocity
-      FE_Q<dim>(param.finite_elements.pressure_degree),            // Pressure
-      FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim, // Position
-      FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
-        dim); // Lagrange multiplier
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                               // Velocity
+      FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
+                    dim), // Position
+      FESystem<dim>(
+        FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
+        dim)); // Lagrange multiplier
   else
     fe = std::make_unique<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
-      FE_SimplexP<dim>(param.finite_elements.pressure_degree),       // Pressure
-      FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^
-        dim, // Position
-      FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
-        dim); // Lagrange multiplier
+      FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                                      // Velocity
+      FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
+      FESystem<dim>(
+        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^
+        dim), // Position
+      FESystem<dim>(
+        FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
+        dim)); // Lagrange multiplier
 
   this->ordering = std::make_unique<ComponentOrderingFSI<dim>>();
 

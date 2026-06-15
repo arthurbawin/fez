@@ -22,7 +22,7 @@ subsection Output
 end
 
 subsection Mesh
-  set mesh file = ../../cylinder_2d.msh
+  set mesh file = ../../cylinder_2d_coarse.msh
 end
 
 subsection Time integration

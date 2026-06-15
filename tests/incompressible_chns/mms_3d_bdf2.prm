@@ -50,6 +50,12 @@ subsection FiniteElements
   set Pressure degree   = 1
   set Tracer degree     = 1
   set Potential degree  = 1
+
+  subsection Quadrature rule
+    set rule for simplices                     = gauss
+    set number of 1d nodes for cell quadrature = 3
+    set number of 1d nodes for face quadrature = 3
+  end
 end
 
 subsection Physical properties

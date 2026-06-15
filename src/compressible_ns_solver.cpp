@@ -25,13 +25,15 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(
 {
   if (param.finite_elements.use_quads)
     fe = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
-      FE_Q<dim>(param.finite_elements.pressure_degree),       // Pressure
-      FE_Q<dim>(param.finite_elements.temperature_degree));   // Temperature
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                                   // Velocity
+      FE_Q<dim>(param.finite_elements.pressure_degree),     // Pressure
+      FE_Q<dim>(param.finite_elements.temperature_degree)); // Temperature
   else
     fe = std::make_unique<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim, // Velocity
-      FE_SimplexP<dim>(param.finite_elements.pressure_degree),       // Pressure
+      FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                                      // Velocity
+      FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
       FE_SimplexP<dim>(
         param.finite_elements.temperature_degree)); // Temperature
 

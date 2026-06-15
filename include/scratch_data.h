@@ -71,25 +71,20 @@ namespace NavierStokesScratch
     ns_only = 0,
 
     /**
-     * Add the contribution of the full divergence form to the SUPG residual.
-     */
-    divergence_form = 1 << 0,
-
-    /**
      * Reinit data to assemble the mesh movement elasticity equation.
      */
-    pseudo_solid = 1 << 1,
+    pseudo_solid = 1 << 0,
 
     /**
      * Reinit data to assemble constraints using a Lagrange multiplier.
      */
-    lagrange_multiplier = 1 << 2,
+    lagrange_multiplier = 1 << 1,
 
     /**
      * Reinit data to assemble the Cahn-Hilliard system, used to form the CHNS
      * system.
      */
-    cahn_hilliard = 1 << 3,
+    cahn_hilliard = 1 << 2,
 
     /**
      * Reinit data to assemble the compressible Navier-Stokes system (including
@@ -1211,8 +1206,6 @@ namespace NavierStokesScratch
     unsigned int t_lower;
 
   public:
-    static constexpr bool with_divergence_form =
-      (update_flags & divergence_form) != 0;
     static constexpr bool enable_pseudo_solid =
       (update_flags & pseudo_solid) != 0;
     static constexpr bool enable_lagrange_multiplier =

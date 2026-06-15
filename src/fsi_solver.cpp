@@ -1,4 +1,5 @@
 
+#include <assembly/elasticity_assemblers.h>
 #include <assembly/incompressible_ns_assemblers.h>
 #include <assembly/lagrange_multiplier_assemblers.h>
 #include <compare_matrix.h>
@@ -261,6 +262,9 @@ void FSISolverLessLambda<dim>::setup_assemblers()
   Assembly::LagrangeMultiplier::
     setup_assemblers<dim, ScratchData, CopyData, /* with_moving_mesh = */ true>(
       this->param, *this->ordering, assemblers);
+
+  Assembly::Elasticity::setup_assemblers<dim, ScratchData, CopyData>(
+    this->param, *this->ordering, assemblers);
 }
 
 template <int dim>

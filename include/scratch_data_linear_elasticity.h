@@ -28,7 +28,7 @@ public:
                               const Quadrature<dim>      &cell_quadrature,
                               const Quadrature<dim - 1>  &face_quadrature,
                               const ParameterReader<dim> &param)
-    : physical_properties(param.physical_properties)
+    : param(param)
     , fe_values(mapping,
                 fe,
                 cell_quadrature,
@@ -47,7 +47,7 @@ public:
    * Copy constructor
    */
   ScratchDataLinearElasticity(const ScratchDataLinearElasticity &other)
-    : physical_properties(other.physical_properties)
+    : param(other.param)
     , fe_values(other.fe_values.get_mapping(),
                 other.fe_values.get_fe(),
                 other.fe_values.get_quadrature(),
@@ -56,6 +56,9 @@ public:
     , n_faces(other.n_faces)
     , n_faces_q_points(other.n_faces_q_points)
     , dofs_per_cell(other.dofs_per_cell)
+    , source_term_fixed_mesh_multiplier(other.source_term_fixed_mesh_multiplier)
+    , source_term_moving_mesh_multiplier(
+        other.source_term_moving_mesh_multiplier)
   {
     position.first_vector_component = 0;
     allocate();
@@ -64,25 +67,35 @@ public:
 private:
   void allocate()
   {
-    JxW.resize(n_q_points);
+    JxW_fixed.resize(n_q_points);
     lame_mu.resize(n_q_points);
     lame_lambda.resize(n_q_points);
 
+    components.resize(n_q_points);
+
     position_values.resize(n_q_points);
+    present_position_gradients.resize(n_q_points);
     position_sym_gradients.resize(n_q_points);
+
+    present_position_J.resize(n_q_points);
+    present_position_inverse_gradients.resize(n_q_points);
+    present_position_inverse_gradients_T.resize(n_q_points);
 
     phi_x.resize(n_q_points, std::vector<Tensor<1, dim>>(dofs_per_cell));
     grad_phi_x.resize(n_q_points, std::vector<Tensor<2, dim>>(dofs_per_cell));
+    sym_grad_phi_x.resize(n_q_points,
+                          std::vector<SymmetricTensor<2, dim>>(dofs_per_cell));
     div_phi_x.resize(n_q_points, std::vector<double>(dofs_per_cell));
 
     source_term_full.resize(n_q_points, Vector<double>(dim));
-    source_term_position.resize(n_q_points);
+    source_term_position_fixed_mesh.resize(n_q_points);
     qpoints_current_mesh.resize(n_q_points);
     source_term_full_current_mesh.resize(n_q_points, Vector<double>(dim));
     source_term_position_current_mesh.resize(n_q_points);
     grad_source_term_full_current_mesh.resize(n_q_points,
                                               std::vector<Tensor<1, dim>>(dim));
     grad_source_term_position_current_mesh.resize(n_q_points);
+    source_term_position.resize(n_q_points);
   }
 
 public:
@@ -94,10 +107,15 @@ public:
   {
     fe_values.reinit(cell);
 
+    for (const unsigned int i : fe_values.dof_indices())
+      components[i] = fe_values.get_fe().system_to_component_index(i).first;
+
     /**
      * Volume contributions
      */
     fe_values[position].get_function_values(current_solution, position_values);
+    fe_values[position].get_function_gradients(current_solution,
+                                               present_position_gradients);
     fe_values[position].get_function_symmetric_gradients(
       current_solution, position_sym_gradients);
 
@@ -118,63 +136,105 @@ public:
 
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
-      JxW[q] = fe_values.JxW(q);
+      JxW_fixed[q] = fe_values.JxW(q);
 
       for (unsigned int d = 0; d < dim; ++d)
       {
-        source_term_position[q][d] = source_term_full[q](d);
+        source_term_position_fixed_mesh[q][d] = source_term_full[q](d);
         source_term_position_current_mesh[q][d] =
           source_term_full_current_mesh[q](d);
+
+        // Premultiply the gradient by the coefficient in front of it
         for (unsigned int dj = 0; dj < dim; ++dj)
           grad_source_term_position_current_mesh[q][d][dj] =
+            source_term_moving_mesh_multiplier *
             grad_source_term_full_current_mesh[q][d][dj];
       }
 
+      // Source term effectively used
+      // Multipliers cannot both be nonzero
+      Assert(!(std::abs(source_term_fixed_mesh_multiplier) > 1e-14 &&
+               std::abs(source_term_moving_mesh_multiplier) > 1e-14),
+             ExcInternalError());
+
+      source_term_position[q] =
+        source_term_fixed_mesh_multiplier * source_term_position_fixed_mesh[q] +
+        source_term_moving_mesh_multiplier *
+          source_term_position_current_mesh[q];
+
       const Point<dim> &pt = quadrature_points[q];
-      lame_mu[q] = physical_properties.pseudosolids[0].lame_mu_fun->value(pt);
+      lame_mu[q] =
+        param.physical_properties.pseudosolids[0].lame_mu_fun->value(pt);
       lame_lambda[q] =
-        physical_properties.pseudosolids[0].lame_lambda_fun->value(pt);
+        param.physical_properties.pseudosolids[0].lame_lambda_fun->value(pt);
 
       AssertThrow(lame_mu[q] >= 0,
                   ExcMessage("Lamé coefficient mu should be positive"));
-      AssertThrow(lame_lambda[q] >= 0,
-                  ExcMessage("Lamé coefficient lambda should be positive"));
+
+      // Data for hyperelastic models
+      const Tensor<2, dim> &F               = present_position_gradients[q];
+      present_position_J[q]                 = determinant(F);
+      present_position_inverse_gradients[q] = invert(F);
+      present_position_inverse_gradients_T[q] =
+        transpose(present_position_inverse_gradients[q]);
+
+      if constexpr (running_in_debug_mode())
+      {
+        // Throw if
+      }
+      // AssertThrow(present_position_J[q] > 0, ExcMessage("Inverted"));
 
       for (unsigned int k = 0; k < dofs_per_cell; ++k)
       {
-        phi_x[q][k]      = fe_values[position].value(k, q);
-        grad_phi_x[q][k] = fe_values[position].gradient(k, q);
-        div_phi_x[q][k]  = fe_values[position].divergence(k, q);
+        phi_x[q][k]          = fe_values[position].value(k, q);
+        grad_phi_x[q][k]     = fe_values[position].gradient(k, q);
+        sym_grad_phi_x[q][k] = fe_values[position].symmetric_gradient(k, q);
+        div_phi_x[q][k]      = fe_values[position].divergence(k, q);
       }
     }
   }
 
 private:
-  Parameters::PhysicalProperties<dim> physical_properties;
+  const ParameterReader<dim> &param;
+  // Parameters::PhysicalProperties<dim> physical_properties;
 
   FEValues<dim> fe_values;
 
 public:
+  const unsigned int active_fe_index = 0;
+
   const unsigned int n_q_points;
   const unsigned int n_faces;
   const unsigned int n_faces_q_points;
   const unsigned int dofs_per_cell;
 
-  std::vector<double> JxW;
+  std::vector<unsigned int> components;
+
+  std::vector<double> JxW_fixed;
   std::vector<double> lame_mu;
   std::vector<double> lame_lambda;
 
   FEValuesExtractors::Vector position;
 
   std::vector<Tensor<1, dim>>          position_values;
+  std::vector<Tensor<2, dim>>          present_position_gradients;
   std::vector<SymmetricTensor<2, dim>> position_sym_gradients;
 
-  std::vector<std::vector<Tensor<1, dim>>> phi_x;
-  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x;
-  std::vector<std::vector<double>>         div_phi_x;
+  // Data for hyperelastic models
+  std::vector<double>         present_position_J;                   // = det(F)
+  std::vector<Tensor<2, dim>> present_position_inverse_gradients;   // = F^{-1}
+  std::vector<Tensor<2, dim>> present_position_inverse_gradients_T; // = F^{-T}
 
+  std::vector<std::vector<Tensor<1, dim>>>          phi_x;
+  std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x;
+  std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
+  std::vector<std::vector<double>>                  div_phi_x;
+
+  /**
+   * Evaluation of the given source term on the fixed mesh, that is, of f(X).
+   */
   std::vector<Vector<double>> source_term_full;
-  std::vector<Tensor<1, dim>> source_term_position;
+  std::vector<Tensor<1, dim>> source_term_position_fixed_mesh;
 
   /**
    * Evaluation of the given source term on the current mesh, that is, of
@@ -187,6 +247,19 @@ public:
   std::vector<Tensor<1, dim>>              source_term_position_current_mesh;
   std::vector<std::vector<Tensor<1, dim>>> grad_source_term_full_current_mesh;
   std::vector<Tensor<2, dim>> grad_source_term_position_current_mesh;
+
+  /**
+   * The source term that is effectively used, defined by
+   *
+   * a * source_term_position_fixed_mesh + b *
+   * source_term_position_current_mesh,
+   *
+   * with a = source_term_fixed_mesh_multiplier and
+   *      b = source_term_moving_mesh_multiplier.
+   */
+  double                      source_term_fixed_mesh_multiplier;
+  double                      source_term_moving_mesh_multiplier;
+  std::vector<Tensor<1, dim>> source_term_position;
 };
 
 #endif

@@ -634,8 +634,13 @@ namespace NavierStokesScratch
 
         AssertThrow(lame_mu[q] >= 0,
                     ExcMessage("Lamé coefficient mu should be positive"));
-        AssertThrow(lame_lambda[q] >= 0,
-                    ExcMessage("Lamé coefficient lambda should be positive"));
+
+        // Data for hyperelastic models
+        const Tensor<2, dim> &F               = present_position_gradients[q];
+        present_position_J[q]                 = determinant(F);
+        present_position_inverse_gradients[q] = invert(F);
+        present_position_inverse_gradients_T[q] =
+          transpose(present_position_inverse_gradients[q]);
 
         for (int d = 0; d < dim; ++d)
           source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
@@ -1380,6 +1385,7 @@ namespace NavierStokesScratch
     std::vector<std::vector<std::vector<double>>>         phi_T_face;
     std::vector<std::vector<std::vector<Tensor<1, dim>>>> grad_phi_T_face;
     std::vector<std::vector<Tensor<1, dim>>> present_face_temperature_gradients;
+
     /**
      * Pseudo-solid and ALE
      */
@@ -1392,6 +1398,11 @@ namespace NavierStokesScratch
     std::vector<Tensor<2, dim>>              present_position_gradients;
     std::vector<Tensor<1, dim>>              present_mesh_velocity_values;
     std::vector<std::vector<Tensor<1, dim>>> previous_position_values;
+
+    // Data for hyperelastic models
+    std::vector<double>         present_position_J;                   // det(F)
+    std::vector<Tensor<2, dim>> present_position_inverse_gradients;   // F^{-1}
+    std::vector<Tensor<2, dim>> present_position_inverse_gradients_T; // F^{-T}
 
     // Current and previous values on faces
     std::vector<std::vector<Tensor<1, dim>>> present_face_position_values;
@@ -1421,6 +1432,10 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<1, dim>>> grad_source_term_full;
     std::vector<Tensor<2, dim>>              grad_source_velocity;
     std::vector<Tensor<1, dim>>              grad_source_pressure;
+
+    // If the elasticity source term is written w.r.t. the current mesh position
+    // x, this is its gradient w.r.t. x. Used in the Jacobian matrix.
+    std::vector<Tensor<2, dim>> grad_source_term_position_current_mesh;
 
     // The reference jacobians partial xsi_dim/partial xsi_(dim-1)
     std::array<Tensor<1, dim>, dim - 1> dxsids_array;

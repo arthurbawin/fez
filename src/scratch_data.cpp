@@ -549,6 +549,10 @@ namespace NavierStokesScratch
       previous_position_values.resize(time_handler.n_previous_solutions,
                                       std::vector<Tensor<1, dim>>(n_q_points));
 
+      present_position_J.resize(n_q_points);
+      present_position_inverse_gradients.resize(n_q_points);
+      present_position_inverse_gradients_T.resize(n_q_points);
+
       present_face_position_values.resize(
         n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
       present_face_position_gradient.resize(
@@ -587,6 +591,7 @@ namespace NavierStokesScratch
                                    std::vector<Tensor<1, dim>>(n_components));
       grad_source_velocity.resize(n_q_points);
       grad_source_pressure.resize(n_q_points);
+      grad_source_term_position_current_mesh.resize(n_q_points);
 
       delta_dx.resize(n_faces,
                       std::vector<std::vector<double>>(n_faces_q_points,

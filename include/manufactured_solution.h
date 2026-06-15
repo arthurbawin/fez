@@ -305,14 +305,44 @@ namespace ManufacturedSolutions
     }
 
     /**
-     * Attention: here we consider eps = (grad(u) + grad(u)^T)/2
-     *                                 = (grad(x) + grad(x)^T)/2 - I
+     * Divergence of the isothermal linear elastic stress tensor with variable
+     * Lamé coefficients.
+     *
+     * Attention: here we consider strain = (grad(u) + grad(u)^T)/2
+     *                                    = (grad(x) + grad(x)^T)/2 - I,
+     * and the present function object is expected to represent a position
+     * field.
      */
     virtual Tensor<1, dim>
     divergence_linear_elastic_stress_variable_coefficients(
       const Point<dim>                          &p,
       std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
       std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
+
+    /**
+     * Divergence of the isothermal elastic stress tensor using a neo-hookean
+     * hyperelastic consitutive relation.
+     *
+     * This computes div(P), with P the first Piola-Kirchhoff stress tensor:
+     * P = mu * (F - F^{-T}) + lambda * ln(det(F)) * F^{-T}.
+     */
+    virtual Tensor<1, dim> divergence_neo_hookean_stress_variable_coefficients(
+      const Point<dim>                          &p,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
+
+    /**
+     * Divergence of the isothermal elastic stress tensor using an Ogden
+     * hyperelastic consitutive relation.
+     *
+     * This computes div(P), with P the first Piola-Kirchhoff stress tensor:
+     * P = mu * (F - F^{-T}) + lambda / beta * (1 - J^{-beta}) * F^{-T}.
+     */
+    virtual Tensor<1, dim> divergence_ogden_stress_variable_coefficients(
+      const Point<dim>                          &p,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda,
+      const double                               beta) const final;
 
     /**
      * Check that the provided time and spatial derivatives match

@@ -21,7 +21,7 @@ end
 subsection Time integration
   set dt               = 0.01
   set t_initial        = 0
-  set t_end            = 0.03
+  set t_end            = 0.02
   set scheme           = BDF1
 end
 

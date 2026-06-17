@@ -95,6 +95,8 @@ namespace Assembly
               unsigned int assembly_flags = chns>
     class VolumeAssembler : public Base<ScratchData, CopyData, assembly_flags>
     {
+      using BaseType = Base<ScratchData, CopyData, assembly_flags>;
+
     public:
       VolumeAssembler(const ComponentOrdering            &ordering,
                       const Table<2, DoFTools::Coupling> &coupling_table)

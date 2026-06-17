@@ -20,7 +20,7 @@ namespace Assembly
     {
       auto &sd = scratch_data;
 
-      if constexpr (this->with_stabilization)
+      if constexpr (BaseType::with_stabilization)
         Assert(
           sd.enable_stabilization,
           ExcMessage(
@@ -28,7 +28,7 @@ namespace Assembly
             "equations are "
             "set to assemble SUPG-PSPG stabilization terms, but computation of "
             "the required data was not enabled in the provided ScratchData."));
-      if constexpr (this->with_tracer_stabilization)
+      if constexpr (BaseType::with_tracer_stabilization)
         Assert(
           sd.enable_tracer_stabilization,
           ExcMessage(
@@ -67,7 +67,7 @@ namespace Assembly
         const auto &source_u = sd.source_term_velocity[q];
 
         auto u_conv = u;
-        if constexpr (this->with_moving_mesh)
+        if constexpr (BaseType::with_moving_mesh)
         {
           // ALE contribution
           const auto &dxdt = sd.present_mesh_velocity_values[q];
@@ -106,7 +106,7 @@ namespace Assembly
         const auto &phi_mu       = sd.shape_mu[q];
         const auto &grad_phi_mu  = sd.grad_shape_mu[q];
 
-        //   if constexpr (this->with_stabilization)
+        //   if constexpr (BaseType::with_stabilization)
         //   {
         //     tau = sd.tau_supg_velocity[q];
 
@@ -114,7 +114,7 @@ namespace Assembly
         //     strong_residual_momentum =
         //       dudt + grad_u * u_conv + grad_p - nu * lap_u + source_u;
 
-        //     if constexpr (this->with_divergence_form)
+        //     if constexpr (BaseType::with_divergence_form)
         //       strong_residual_momentum -= nu * grad_div_u;
         //   }
 
@@ -137,7 +137,7 @@ namespace Assembly
               phi_u[i] * to_mult_by_phi_u_i - div_phi_u[i] * p +
               2. * eta * scalar_product(sym_grad_phi_u[i], sym_grad_u);
 
-            // if constexpr (this->with_stabilization)
+            // if constexpr (BaseType::with_stabilization)
             // {
             //   // SUPG stabilization
             //   local_rhs_i -=
@@ -146,7 +146,7 @@ namespace Assembly
           }
 
           // Continuity equation
-          // if constexpr (this->with_stabilization)
+          // if constexpr (BaseType::with_stabilization)
           // {
           //   // PSPG stabilization
           //   if (i_is_p)
@@ -199,7 +199,6 @@ namespace Assembly
       // strong_residual_momentum_variation(sd.dofs_per_cell);
 
       const auto u_lower = this->ordering.u_lower;
-      const auto x_lower = this->ordering.x_lower;
 
       const SymmetricTensor<2, dim> identity_tensor =
         unit_symmetric_tensor<dim>();
@@ -255,7 +254,7 @@ namespace Assembly
         const auto &source_u = sd.source_term_velocity[q];
 
         auto u_conv = u;
-        if constexpr (this->with_moving_mesh)
+        if constexpr (BaseType::with_moving_mesh)
         {
           const auto &dxdt = sd.present_mesh_velocity_values[q];
           u_conv -= dxdt;
@@ -275,7 +274,7 @@ namespace Assembly
         const double source_phi = sd.source_term_tracer[q];
         const double source_mu  = sd.source_term_potential[q];
 
-        // if constexpr (this->with_stabilization)
+        // if constexpr (BaseType::with_stabilization)
         // {
         //   tau = sd.tau_supg_velocity[q];
 
@@ -283,7 +282,7 @@ namespace Assembly
         //   strong_residual_momentum =
         //     dudt + grad_u * u_conv + grad_p - nu * lap_u + source_u;
 
-        //   if constexpr (this->with_divergence_form)
+        //   if constexpr (BaseType::with_divergence_form)
         //     strong_residual_momentum -= nu * grad_div_u;
         // }
 
@@ -303,7 +302,7 @@ namespace Assembly
         //
         // Moving mesh related data
         //
-        if constexpr (this->with_moving_mesh)
+        if constexpr (BaseType::with_moving_mesh)
         {
           phi_x             = &sd.phi_x[q];
           grad_phi_x_moving = &sd.grad_phi_x_moving[q];
@@ -350,7 +349,7 @@ namespace Assembly
             bdf_c0 * phi_phi[j] + u_conv * grad_phi_phi[j];
 
           // Variations w.r.t. mesh position
-          if constexpr (this->with_moving_mesh)
+          if constexpr (BaseType::with_moving_mesh)
           {
             const auto  &phi_x_j     = (*phi_x)[j];
             const auto  &G           = (*grad_phi_x_moving)[j];
@@ -422,13 +421,13 @@ namespace Assembly
 #endif
           }
 
-          // if constexpr (this->with_stabilization)
+          // if constexpr (BaseType::with_stabilization)
           // {
           //   strong_residual_momentum_variation[j] =
           //     to_mult_by_phi_u_i_momentum[j] + grad_phi_p[j] -
           //     nu * laplacian_phi_u[j];
 
-          //   if constexpr (this->with_divergence_form)
+          //   if constexpr (BaseType::with_divergence_form)
           //     strong_residual_momentum_variation[j] += -nu *
           //     grad_div_phi_u[j];
           // }
@@ -505,7 +504,7 @@ namespace Assembly
               else if (j_is_mu)
                 local_matrix_ij += phi_u_i * to_mult_by_phi_u_i_potential[j];
 
-              if constexpr (this->with_moving_mesh)
+              if constexpr (BaseType::with_moving_mesh)
               {
                 if (j_is_x)
                 {
@@ -541,7 +540,7 @@ namespace Assembly
               if (j_is_u)
                 matrix_row[j] += -phi_p_i * div_phi_u[j] * JxW_moving;
 
-              if constexpr (this->with_moving_mesh)
+              if constexpr (BaseType::with_moving_mesh)
               {
                 if (j_is_x)
                 {
@@ -580,7 +579,7 @@ namespace Assembly
                 matrix_row[j] +=
                   mobility * (grad_phi_mu_j * grad_phi_phi_i) * JxW_moving;
               }
-              if constexpr (this->with_moving_mesh)
+              if constexpr (BaseType::with_moving_mesh)
               {
                 // Tracer : variation w.r.t. x
                 if (j_is_x)
@@ -623,7 +622,7 @@ namespace Assembly
                   JxW_moving;
               }
 
-              if constexpr (this->with_moving_mesh)
+              if constexpr (BaseType::with_moving_mesh)
               {
                 // Potential : variation w.r.t. x
                 if (j_is_x)

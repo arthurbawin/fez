@@ -45,6 +45,7 @@
  * \copyright GNU Lesser General Public License.
  */
 
+// NOLINTBEGIN(modernize-*)
 #include <assert.h>
 #include <math.h>
 #include <metric_intersection_mmg.h>
@@ -59,6 +60,7 @@
 #define MG_EIGENV_EPS2e6 2.e-06
 #define MG_EIGENV_EPS5 1.e-05
 #define MAXTOU 50
+// NOLINTEND(modernize-*)
 
 #define MMG5_EPSOK 1.e-15
 

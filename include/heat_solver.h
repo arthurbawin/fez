@@ -43,7 +43,7 @@ class HeatSolver : public GenericSolver<LA::ParVectorType>
 public:
   HeatSolver(const ParameterReader<dim> &param);
 
-  virtual ~HeatSolver() {}
+  virtual ~HeatSolver() = default;
 
 public:
   virtual void run() override;

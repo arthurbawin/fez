@@ -79,7 +79,7 @@ namespace ErrorEstimation
       // Polynomial bases of degree "degree + 1"
       std::vector<Polynomials::Monomial<double>> monomials_1d_recovery;
       for (unsigned int i = 0; i <= degree + 1; ++i)
-        monomials_1d_recovery.push_back(Polynomials::Monomial<double>(i));
+        monomials_1d_recovery.emplace_back(i);
 
       monomials_recovery =
         std::make_unique<PolynomialSpace<dim>>(monomials_1d_recovery);

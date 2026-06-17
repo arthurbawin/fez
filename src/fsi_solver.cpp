@@ -229,8 +229,7 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
 }
 
 template <int dim>
-FSISolverLessLambda<dim>::~FSISolverLessLambda()
-{}
+FSISolverLessLambda<dim>::~FSISolverLessLambda() = default;
 
 template <int dim>
 void FSISolverLessLambda<dim>::create_scratch_data()
@@ -2144,7 +2143,7 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
             std::vector<std::pair<types::global_dof_index, double>>
               accumulator_coeffs;
             for (auto lambda_accumulator : all_lambda_accumulators[d])
-              accumulator_coeffs.push_back({lambda_accumulator, 1.});
+              accumulator_coeffs.emplace_back(lambda_accumulator, 1.);
             constrain_matrix_row(this->system_matrix,
                                  local_position_master_dofs[d],
                                  master_position_rows.at(

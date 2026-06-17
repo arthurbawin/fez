@@ -178,8 +178,7 @@ NSSolverLambda<dim>::NSSolverLambda(const ParameterReader<dim> &param)
 }
 
 template <int dim>
-NSSolverLambda<dim>::~NSSolverLambda()
-{}
+NSSolverLambda<dim>::~NSSolverLambda() = default;
 
 template <int dim>
 void NSSolverLambda<dim>::create_scratch_data()

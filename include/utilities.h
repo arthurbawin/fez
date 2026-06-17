@@ -463,7 +463,7 @@ constrain_matrix_row(LA::ParMatrixType                          &matrix,
                      const double coupling_coefficient)
 {
   // Set all column entries (i,j) to zero
-  for (auto it : row_indices)
+  for (const auto &it : row_indices)
     matrix.set(dof_index, it->column(), 0.0);
 
   // Set (i,i) to 1
@@ -497,7 +497,7 @@ inline void constrain_matrix_row(
     &coupling_coefficients)
 {
   // Set all column entries (i,j) to zero
-  for (auto it : row_indices)
+  for (const auto &it : row_indices)
     matrix.set(dof_index, it->column(), 0.0);
 
   // Set (i,i) to 1

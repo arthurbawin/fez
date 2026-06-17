@@ -45,7 +45,7 @@ public:
   /**
    * Destructor.
    */
-  virtual ~GenericSolver() {}
+  virtual ~GenericSolver() = default;
 
   /**
    * Solve the problem. This function is the only one that is called in the

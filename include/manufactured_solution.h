@@ -47,7 +47,7 @@ namespace ManufacturedSolutions
   class ManufacturedSolution
   {
   public:
-    ManufacturedSolution() {}
+    ManufacturedSolution() = default;
 
     void set_time(const double new_time)
     {

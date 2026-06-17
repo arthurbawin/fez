@@ -17,7 +17,7 @@
 class ComponentOrdering
 {
 public:
-  ComponentOrdering() {}
+  ComponentOrdering() = default;
 
   static constexpr unsigned int invalid = dealii::numbers::invalid_unsigned_int;
 

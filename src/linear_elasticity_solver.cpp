@@ -1,4 +1,7 @@
+#include <assembly/chns_enlarged_forms.h>
+#include <assembly/moving_mesh_forcing_forms.h>
 #include <assembly/pseudosolid_forms.h>
+#include <boundary_conditions.h>
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/serialization/string.hpp>
@@ -37,7 +40,7 @@
 
 namespace
 {
-  constexpr unsigned int presolved_mesh_position_cache_format_version = 3;
+  constexpr unsigned int presolved_mesh_position_cache_format_version = 5;
 
   bool
   has_msh_extension(const std::string &filename)
@@ -79,6 +82,7 @@ namespace
     unsigned long long n_dofs;
     std::string        mesh_filename;
     std::string        mesh_hash;
+    std::string        presolved_fields;
     std::string        presolver_fingerprint;
 
     template <class Archive>
@@ -92,6 +96,7 @@ namespace
       ar &n_dofs;
       ar &mesh_filename;
       ar &mesh_hash;
+      ar &presolved_fields;
       ar &presolver_fingerprint;
     }
   };
@@ -117,6 +122,8 @@ namespace
       return "mesh filename changed";
     if (cached.mesh_hash != expected.mesh_hash)
       return "mesh file contents changed";
+    if (cached.presolved_fields != expected.presolved_fields)
+      return "presolved field mode changed";
     if (cached.presolver_fingerprint != expected.presolver_fingerprint)
       return "presolver-defining parameters changed";
 
@@ -166,7 +173,8 @@ namespace
 
 template <int dim>
 LinearElasticitySolver<dim>::LinearElasticitySolver(
-  const ParameterReader<dim> &param)
+  const ParameterReader<dim> &param,
+  const PresolvedCHNSFields   presolved_chns_fields)
   : GenericSolver<LA::ParVectorType>(param.output,
                                      param.nonlinear_solver,
                                      param.timer,
@@ -178,6 +186,7 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
+  , presolved_chns_fields(presolved_chns_fields)
 {
   create_quadrature_rules(param.finite_elements,
                           quadrature,
@@ -188,18 +197,76 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
   if (param.finite_elements.use_quads)
   {
     mapping = std::make_unique<MappingQ<dim>>(1);
-    fe      = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim);
+    if (presolved_chns_fields == PresolvedCHNSFields::phi_psi)
+      fe = std::make_unique<FESystem<dim>>(
+        FE_Q<dim>(param.finite_elements.mesh_position_degree),
+        dim,
+        FE_Q<dim>(param.finite_elements.tracer_degree),
+        1,
+        FE_Q<dim>(param.finite_elements.tracer_degree),
+        1);
+    else if (presolved_chns_fields == PresolvedCHNSFields::phi)
+      fe = std::make_unique<FESystem<dim>>(
+        FE_Q<dim>(param.finite_elements.mesh_position_degree),
+        dim,
+        FE_Q<dim>(param.finite_elements.tracer_degree),
+        1);
+    else
+      fe = std::make_unique<FESystem<dim>>(
+        FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim);
   }
   else
   {
     mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
-    fe      = std::make_unique<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim);
+    if (presolved_chns_fields == PresolvedCHNSFields::phi_psi)
+      fe = std::make_unique<FESystem<dim>>(
+        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree),
+        dim,
+        FE_SimplexP<dim>(param.finite_elements.tracer_degree),
+        1,
+        FE_SimplexP<dim>(param.finite_elements.tracer_degree),
+        1);
+    else if (presolved_chns_fields == PresolvedCHNSFields::phi)
+      fe = std::make_unique<FESystem<dim>>(
+        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree),
+        dim,
+        FE_SimplexP<dim>(param.finite_elements.tracer_degree),
+        1);
+    else
+      fe = std::make_unique<FESystem<dim>>(
+        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim);
   }
 
   position_extractor = FEValuesExtractors::Vector(0);
   position_mask      = fe->component_mask(position_extractor);
+  presolved_field_mask = position_mask;
+  if (has_presolved_tracer())
+  {
+    tracer_extractor = FEValuesExtractors::Scalar(dim);
+    tracer_mask      = fe->component_mask(tracer_extractor);
+    for (unsigned int c = 0; c < presolved_field_mask.size(); ++c)
+      presolved_field_mask.set(c, presolved_field_mask[c] || tracer_mask[c]);
+    if (has_presolved_psi())
+    {
+      psi_extractor = FEValuesExtractors::Scalar(dim + 1);
+      psi_mask      = fe->component_mask(psi_extractor);
+      for (unsigned int c = 0; c < presolved_field_mask.size(); ++c)
+        presolved_field_mask.set(c, presolved_field_mask[c] || psi_mask[c]);
+    }
+
+    if (has_presolved_psi())
+      presolver_ordering =
+        std::make_unique<ComponentOrderingCHNSPresolver<dim, true>>();
+    else
+      presolver_ordering =
+        std::make_unique<ComponentOrderingCHNSPresolver<dim, false>>();
+
+    presolver_coupling_table.reinit(presolver_ordering->n_components,
+                                    presolver_ordering->n_components);
+    for (unsigned int i = 0; i < presolver_ordering->n_components; ++i)
+      for (unsigned int j = 0; j < presolver_ordering->n_components; ++j)
+        presolver_coupling_table[i][j] = DoFTools::always;
+  }
 
   if (param.mms_param.enable)
   {
@@ -223,8 +290,25 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
   direct_solver_reuse =
     std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 
-  scratch_data = std::make_unique<ScratchData>(
-    *fe, *mapping, *quadrature, *face_quadrature, param);
+  scratch_data = std::make_unique<ScratchData>(*fe,
+                                               *mapping,
+                                               dof_handler,
+                                               position_mask,
+                                               *quadrature,
+                                               *face_quadrature,
+                                               param,
+                                               has_presolved_tracer(),
+                                               has_presolved_psi());
+}
+
+template <int dim>
+std::string LinearElasticitySolver<dim>::get_presolved_fields_name() const
+{
+  if (presolved_chns_fields == PresolvedCHNSFields::phi_psi)
+    return "x+phi+psi";
+  if (presolved_chns_fields == PresolvedCHNSFields::phi)
+    return "x+phi";
+  return "x";
 }
 
 template <int dim>
@@ -293,21 +377,31 @@ void LinearElasticitySolver<dim>::run()
 
   update_boundary_conditions();
 
-  if (param.linear_elasticity.enable_source_term_on_current_mesh)
+  if (has_presolved_tracer() ||
+      param.linear_elasticity.enable_source_term_on_current_mesh)
   {
     /**
      * Continuation method to handle possibly steep source terms evaluated
      * on the current (deformed) mesh.
      */
+    const bool is_chns_presolver = has_presolved_tracer();
     const double c_min =
-      param.linear_elasticity.min_current_mesh_source_term_multiplier;
+      is_chns_presolver ?
+        param.linear_elasticity.chns_presolver_initial_compression_multiplier :
+        param.linear_elasticity.min_current_mesh_source_term_multiplier;
     const double c_max =
-      param.linear_elasticity.max_current_mesh_source_term_multiplier;
-    const unsigned int n_steps = param.linear_elasticity.n_continuation_steps;
+      is_chns_presolver ?
+        1.0 :
+        param.linear_elasticity.max_current_mesh_source_term_multiplier;
+    const unsigned int n_steps =
+      is_chns_presolver ?
+        param.linear_elasticity.chns_presolver_continuation_steps :
+        param.linear_elasticity.n_continuation_steps;
 
     const auto constitutive_model =
       param.physical_properties.pseudosolids[0].constitutive_model;
     const bool use_arithmetic_continuation =
+      is_chns_presolver ||
       constitutive_model ==
         Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean ||
       constitutive_model ==
@@ -330,9 +424,23 @@ void LinearElasticitySolver<dim>::run()
     for (unsigned int n = 0; n < n_steps; ++n)
     {
       pcout << std::endl;
-      pcout << "Continuation method - Step " << n + 1 << "/" << n_steps
-            << " : source term multiplier = "
-            << source_term_moving_mesh_multiplier << std::endl;
+      pcout << "Continuation method - Step " << n + 1 << "/" << n_steps;
+      if (is_chns_presolver)
+      {
+        pcout << " : CHNS compression multiplier = "
+              << source_term_moving_mesh_multiplier
+              << " (mff_enlarged = "
+              << source_term_moving_mesh_multiplier *
+                   param.cahn_hilliard.mff_enlarged_compression_factor
+              << ", mff_physics = "
+              << source_term_moving_mesh_multiplier *
+                   param.cahn_hilliard.mff_physics_compression_factor
+              << ")";
+      }
+      else
+        pcout << " : source term multiplier = "
+              << source_term_moving_mesh_multiplier;
+      pcout << std::endl;
       pcout << std::endl;
 
       if (param.debug.compare_analytical_jacobian_with_fd)
@@ -389,6 +497,7 @@ bool LinearElasticitySolver<dim>::try_load_presolved_mesh_position_cache()
     static_cast<unsigned long long>(dof_handler.n_dofs()),
     param.mesh.filename,
     hash_file_contents(param.mesh.filename),
+    get_presolved_fields_name(),
     param.linear_elasticity.presolved_mesh_position_fingerprint};
 
   bool        local_cache_is_usable = true;
@@ -441,7 +550,7 @@ bool LinearElasticitySolver<dim>::try_load_presolved_mesh_position_cache()
                              "but cannot be used: " +
                              reason));
 
-    pcout << "Presolved mesh position cache cannot be reused: " << reason
+    pcout << "Presolved fields cache cannot be reused: " << reason
           << std::endl;
     return false;
   }
@@ -455,7 +564,9 @@ bool LinearElasticitySolver<dim>::try_load_presolved_mesh_position_cache()
   fill_dofs_to_component(dof_handler, locally_relevant_dofs, dofs_to_component);
 
   const auto support_points =
-    DoFTools::map_dofs_to_support_points(*mapping, dof_handler, position_mask);
+    DoFTools::map_dofs_to_support_points(*mapping,
+                                         dof_handler,
+                                         presolved_field_mask);
 
   local_evaluation_point = 0.;
   bool        local_values_found = true;
@@ -494,7 +605,7 @@ bool LinearElasticitySolver<dim>::try_load_presolved_mesh_position_cache()
                              "but cannot be used: " +
                              reason));
 
-    pcout << "Presolved mesh position cache cannot be reused: " << reason
+    pcout << "Presolved fields cache cannot be reused: " << reason
           << std::endl;
     return false;
   }
@@ -505,7 +616,8 @@ bool LinearElasticitySolver<dim>::try_load_presolved_mesh_position_cache()
   local_evaluation_point = present_solution;
   evaluation_point       = present_solution;
 
-  pcout << "Loaded presolved mesh position cache from " << cache_prefix
+  pcout << "Loaded presolved fields cache (" << get_presolved_fields_name()
+        << ") from " << cache_prefix
         << std::endl;
   return true;
 }
@@ -535,13 +647,16 @@ void LinearElasticitySolver<dim>::write_presolved_mesh_position_cache() const
     static_cast<unsigned long long>(dof_handler.n_dofs()),
     param.mesh.filename,
     hash_file_contents(param.mesh.filename),
+    get_presolved_fields_name(),
     param.linear_elasticity.presolved_mesh_position_fingerprint};
 
   std::vector<unsigned char> dofs_to_component;
   fill_dofs_to_component(dof_handler, locally_relevant_dofs, dofs_to_component);
 
   const auto support_points =
-    DoFTools::map_dofs_to_support_points(*mapping, dof_handler, position_mask);
+    DoFTools::map_dofs_to_support_points(*mapping,
+                                         dof_handler,
+                                         presolved_field_mask);
 
   std::vector<PresolvedMeshPositionCacheEntry<dim>> local_entries;
   local_entries.reserve(locally_owned_dofs.n_elements());
@@ -582,8 +697,8 @@ void LinearElasticitySolver<dim>::write_presolved_mesh_position_cache() const
                           cache_filename,
                           mpi_communicator);
 
-  pcout << "Wrote presolved mesh position cache to "
-        << param.output.output_dir + cache_filename << std::endl;
+  pcout << "Wrote presolved fields cache (" << get_presolved_fields_name()
+        << ") to " << param.output.output_dir + cache_filename << std::endl;
 }
 
 template <int dim>
@@ -622,7 +737,7 @@ void LinearElasticitySolver<dim>::create_base_constraints(
   BoundaryConditions::apply_mesh_position_boundary_conditions(
     homogeneous,
     0,
-    dim,
+    fe->n_components(),
     dof_handler,
     *mapping,
     param.pseudosolid_bc,
@@ -666,10 +781,32 @@ void LinearElasticitySolver<dim>::create_sparsity_pattern()
 template <int dim>
 void LinearElasticitySolver<dim>::set_initial_conditions()
 {
-  FixedMeshPosition<dim> fixed_mesh(0, dim);
+  FixedMeshPosition<dim> fixed_mesh(0, fe->n_components());
   VectorTools::interpolate(
     *mapping, dof_handler, fixed_mesh, newton_update, position_mask);
-  evaluation_point = newton_update;
+
+  if (has_presolved_tracer())
+  {
+    ScalarFunctionFromComponents<dim> tracer_function(
+      dim,
+      fe->n_components(),
+      *param.initial_conditions.initial_chns_tracer_callback);
+    VectorTools::interpolate(
+      *mapping, dof_handler, tracer_function, newton_update, tracer_mask);
+  }
+
+  if (has_presolved_psi())
+  {
+    const auto &psi_callback =
+      param.initial_conditions.use_enlarged_psi ?
+        *param.initial_conditions.initial_chns_enlarged_psi_callback :
+        *param.initial_conditions.initial_chns_tracer_callback;
+    ScalarFunctionFromComponents<dim> psi_function(dim + 1,
+                                                   fe->n_components(),
+                                                   psi_callback);
+    VectorTools::interpolate(
+      *mapping, dof_handler, psi_function, newton_update, psi_mask);
+  }
 
   // Apply non-homogeneous Dirichlet BC and set as current solution
   nonzero_constraints.distribute(newton_update);
@@ -763,8 +900,19 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
   auto &local_matrix = copy_data.local_matrix();
   local_matrix       = 0;
 
-  const double alpha = source_term_moving_mesh_multiplier;
-  const auto  &ps    = param.physical_properties.pseudosolids[0];
+  const double source_alpha =
+    has_presolved_tracer() ? 0. : source_term_moving_mesh_multiplier;
+  const double forcing_alpha =
+    has_presolved_tracer() ? source_term_moving_mesh_multiplier : 0.;
+  const auto &ps = param.physical_properties.pseudosolids[0];
+  auto        cahn_hilliard = param.cahn_hilliard;
+  if (has_presolved_tracer())
+  {
+    cahn_hilliard.mff_enlarged_compression_factor *= forcing_alpha;
+    cahn_hilliard.mff_physics_compression_factor *= forcing_alpha;
+    cahn_hilliard.mff_transport_factor = 0.;
+    cahn_hilliard.psi_mu_correction_factor = 0.;
+  }
 
   //
   // Volume contributions
@@ -809,9 +957,82 @@ void LinearElasticitySolver<dim>::assemble_local_matrix(
                                                       grad_phi_x_i,
                                                       div_phi_x_j,
                                                       grad_phi_x_j) +
-           alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
+           source_alpha * phi_x_i * (grad_source_current_mesh * phi_x_j)) *
           JxW;
       }
+    }
+  }
+
+  if (has_presolved_tracer())
+  {
+    const double bdf_c0 = 0.;
+    if (!has_presolved_psi())
+      Assembly::MovingMeshForcing::assemble_chns_matrix<dim, false>(
+        *presolver_ordering,
+        presolver_coupling_table,
+        cahn_hilliard,
+        bdf_c0,
+        scratch_data,
+        local_matrix);
+
+    for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
+      for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+      {
+        if (!presolver_ordering->is_tracer(scratch_data.components[i]))
+          continue;
+
+        const double phi_i = scratch_data.shape_phi[q][i];
+        const double projection_residual =
+          scratch_data.tracer_values[q] - scratch_data.analytic_tracer_values[q];
+
+        for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
+        {
+          if (presolver_coupling_table[scratch_data.components[i]]
+                                      [scratch_data.components[j]] !=
+              DoFTools::always)
+            continue;
+
+          double local_ij = 0.;
+          if (presolver_ordering->is_tracer(scratch_data.components[j]))
+            local_ij += phi_i * scratch_data.shape_phi[q][j];
+
+          if (presolver_ordering->is_position(scratch_data.components[j]))
+          {
+            const Tensor<2, dim> &G =
+              scratch_data.grad_phi_x_moving[q][j];
+            local_ij +=
+              phi_i *
+              (projection_residual * Assembly::ALE::jacobian_trace(G) -
+               scratch_data.analytic_tracer_gradients[q] *
+                 scratch_data.phi_x[q][j]);
+          }
+
+          local_matrix(i, j) += local_ij * scratch_data.JxW_moving[q];
+        }
+      }
+
+    if (has_presolved_psi())
+    {
+      const double enlarged_length =
+        param.cahn_hilliard.epsilon_interface_enlarged -
+        param.cahn_hilliard.epsilon_interface;
+      const double enlarged_length_sq = enlarged_length * enlarged_length;
+
+      Assembly::assemble_psi_equation_matrix<dim, true>(
+        *presolver_ordering,
+        presolver_coupling_table,
+        scratch_data,
+        cahn_hilliard,
+        enlarged_length_sq,
+        local_matrix);
+
+      Assembly::MovingMeshForcing::assemble_chns_matrix<dim, true>(
+        *presolver_ordering,
+        presolver_coupling_table,
+        cahn_hilliard,
+        bdf_c0,
+        scratch_data,
+        local_matrix);
     }
   }
   cell->get_dof_indices(copy_data.dof_indices());
@@ -896,12 +1117,24 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
   auto &local_rhs = copy_data.local_rhs();
   local_rhs       = 0;
 
-  const double alpha = source_term_moving_mesh_multiplier;
-  const double gamma = source_term_fixed_mesh_multiplier;
-  const auto  &ps    = param.physical_properties.pseudosolids[0];
+  const double source_alpha =
+    has_presolved_tracer() ? 0. : source_term_moving_mesh_multiplier;
+  const double forcing_alpha =
+    has_presolved_tracer() ? source_term_moving_mesh_multiplier : 0.;
+  const double gamma =
+    has_presolved_tracer() ? 0. : source_term_fixed_mesh_multiplier;
+  const auto &ps = param.physical_properties.pseudosolids[0];
+  auto        cahn_hilliard = param.cahn_hilliard;
+  if (has_presolved_tracer())
+  {
+    cahn_hilliard.mff_enlarged_compression_factor *= forcing_alpha;
+    cahn_hilliard.mff_physics_compression_factor *= forcing_alpha;
+    cahn_hilliard.mff_transport_factor = 0.;
+    cahn_hilliard.psi_mu_correction_factor = 0.;
+  }
 
   // alpha and gamma cannot both be nonzero
-  Assert(!(std::abs(alpha) > 1e-14 && std::abs(gamma) > 1e-14),
+  Assert(!(std::abs(source_alpha) > 1e-14 && std::abs(gamma) > 1e-14),
          ExcInternalError());
 
   //
@@ -919,7 +1152,7 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
       scratch_data.source_term_position[q];
     // The source term to use : using coefficients which cannot be both nonzero
     // avois using a condition
-    const auto source_term = alpha * source_term_position_moving_mesh +
+    const auto source_term = source_alpha * source_term_position_moving_mesh +
                              gamma * source_term_position_fixed_mesh;
 
     const Tensor<2, dim> strain =
@@ -946,7 +1179,44 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
                                                  div_phi_x[i],
                                                  grad_phi_x[i]) +
          phi_x[i] * source_term) *
-        JxW;
+      JxW;
+    }
+  }
+
+  if (has_presolved_tracer())
+  {
+    if (!has_presolved_psi())
+      Assembly::MovingMeshForcing::assemble_chns_rhs<dim, false>(
+        *presolver_ordering, cahn_hilliard, scratch_data, local_rhs);
+
+    for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
+      for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+      {
+        if (!presolver_ordering->is_tracer(scratch_data.components[i]))
+          continue;
+
+        const double local_rhs_i =
+          scratch_data.shape_phi[q][i] *
+          (scratch_data.tracer_values[q] -
+           scratch_data.analytic_tracer_values[q]);
+        local_rhs(i) -= local_rhs_i * scratch_data.JxW_moving[q];
+      }
+
+    if (has_presolved_psi())
+    {
+      const double enlarged_length =
+        param.cahn_hilliard.epsilon_interface_enlarged -
+        param.cahn_hilliard.epsilon_interface;
+      const double enlarged_length_sq = enlarged_length * enlarged_length;
+
+      Assembly::assemble_psi_equation_rhs<dim>(*presolver_ordering,
+                                               scratch_data,
+                                               cahn_hilliard,
+                                               enlarged_length_sq,
+                                               local_rhs);
+
+      Assembly::MovingMeshForcing::assemble_chns_rhs<dim, true>(
+        *presolver_ordering, cahn_hilliard, scratch_data, local_rhs);
     }
   }
 
@@ -1016,8 +1286,15 @@ void LinearElasticitySolver<dim>::compute_cell_average_strain(
 {
   const QGauss<dim>     quadrature_formula(fe->degree + 1);
   const QGauss<dim - 1> face_quadrature_formula(fe->degree + 1);
-  ScratchData           scratch_data(
-    *fe, *mapping, quadrature_formula, face_quadrature_formula, param);
+  ScratchData scratch_data(*fe,
+                           *mapping,
+                           dof_handler,
+                           position_mask,
+                           quadrature_formula,
+                           face_quadrature_formula,
+                           param,
+                           has_presolved_tracer(),
+                           has_presolved_psi());
   const unsigned int n_active_cells = triangulation.n_active_cells();
 
   strain_tensors.assign(n_active_cells, SymmetricTensor<2, dim>());
@@ -1058,6 +1335,18 @@ void LinearElasticitySolver<dim>::output_results()
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
       data_component_interpretation(
         dim, DataComponentInterpretation::component_is_part_of_vector);
+    if (has_presolved_tracer())
+    {
+      solution_names.push_back("phi");
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_scalar);
+    }
+    if (has_presolved_psi())
+    {
+      solution_names.push_back("psi");
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_scalar);
+    }
     DataOut<dim> data_out;
     data_out.attach_dof_handler(dof_handler);
     data_out.add_data_vector(present_solution,

@@ -479,7 +479,6 @@ public:
   {
     if (component == field_component)
       return field_fun.value(p);
-    DEAL_II_ASSERT_UNREACHABLE();
     return 0.;
   }
 };
@@ -555,6 +554,7 @@ public:
   virtual void vector_value(const Point<dim> &p,
                             Vector<double>   &values) const override
   {
+    values = 0.;
     for (unsigned int d = 0; d < dim; ++d)
       values[x_lower + d] = p[d];
   }

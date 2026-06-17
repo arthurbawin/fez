@@ -1,4 +1,5 @@
 Number of MPI processes: 6
+CHNS model: Abels
 Convergence test with manufactured solution:
 Mesh file was changed to 0.msh
 Mesh info:

@@ -74,7 +74,7 @@ subsection Initial conditions
   end
   subsection cahn hilliard tracer
     set Function constants  = e=3.91e-6, R=1.25e-4,n=3,A=0.02
-    set Function expression = tanh(R*(1+A*cos(n*atan2(x,y))-sqrt((x)^2+(y)^2))/(sqrt(2)*e))
+    set Function expression = tanh((R*(1+A*cos(n*atan2(x,y))) - sqrt(x^2+y^2))/(sqrt(2)*e))
   end
 end
 

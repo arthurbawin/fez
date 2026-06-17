@@ -8,32 +8,63 @@ end
 
 subsection Output
   set write vtu results = true
-  set output directory = ./
-  set output prefix    = N3_bubble_ale_enlarged
+  set output directory = ../data/OscillatingBubble/
+  set output prefix    = N3_bubble_ale_enlarged_M3e-11
+end
+
+subsection Postprocessing
+  subsection line probe
+    set enable           = true
+    set write results    = true
+    set output prefix    = N3_bubble_centerline
+    set output frequency = 1
+    set precision        = 16
+    set start point      = 0, 0
+    set end point        = 5e-4, 0
+    set number of points = 4001
+  end
 end
 
 subsection Mesh
-  set dealii preset mesh     = rectangle
-  set dealii mesh parameters = 128, 128 : -5e-4, -5e-4 : 5e-4, 5e-4 : true
-  set refinement level       = 1
+  set mesh file= ../examples/incompressible_chns/oscillating_bubble/oscillating_bubble.msh
+  #set dealii preset mesh     = rectangle
+  #set dealii mesh parameters = 128, 128 : -5e-4, -5e-4 : 5e-4, 5e-4 : true
+  #set refinement level       = 1
 end
 
 subsection Linear elasticity
-  subsection current mesh source term
-    set enable             = true
-    set min multiplier     = 1
-    set max multiplier     = 20
-    set continuation steps = 10
-    set use as presolver   = true
+  subsection presolved mesh position
+    set mode = auto
+    set file = OSC_meshpresolved_x_phi_psi
+  end
+
+  subsection CHNS presolver
+    set enable                         = true
+    set initial compression multiplier = 0.1
+    set continuation steps             = 40
   end
 end
 
 subsection Time integration
   set dt               = 1.28e-7
   set t_initial        = 0
-  set t_end            = 1e-2
+  set t_end            = 5e-4
   set scheme           = BDF2
   set bdf start method = BDF1
+
+  subsection Adaptation
+    set enable = true
+    set adaptation strategy = cfl
+
+    set min timestep = 1e-12
+    set max timestep = 1e-5
+
+    set max timestep increase = 1.05
+    set target cfl number         = 0.8
+
+    set reject timestep with large cfl = true
+    set cfl ratio to reject            = 1.4
+  end
 end
 
 subsection Nonlinear solver
@@ -55,54 +86,58 @@ subsection Linear solver
   subsection main physics
     set verbosity = quiet
     set method    = direct_mumps
-    set reuse     = true
+    set reuse     = false
   end
 end
 
 subsection FiniteElements
+  set stabilization        = true
   set Velocity degree      = 2
   set Pressure degree      = 1
-  set Tracer degree        = 1
+  set Tracer degree        = 2
   set Potential degree     = 1
-  set Mesh position degree = 1
+  set Mesh position degree = 2
 end
 
 subsection Physical properties
   set number of fluids = 2
   subsection Fluid 0
-    set density             = 10
-    set kinematic viscosity = 0.1
+    set density             = 1.23
+    set kinematic viscosity = 1.52e-5
   end
   subsection Fluid 1
-    set density             = 10
-    set kinematic viscosity = 0.1
+    set density             = 1000
+    set kinematic viscosity = 1.01e-06
   end
 
   set number of pseudosolids = 1
   subsection Pseudosolid 0
+    set constitutive model = neo hookean
     subsection lame lambda
-      set Function expression = 1
+      set Function expression = 0.08
     end
     subsection lame mu
-      set Function expression = 1
+      set Function expression = 2.1
     end
   end
   set body force = 0, 0
 end
 
 subsection Cahn Hilliard
+  set CHNS model = abels
   set mobility model               = constant
-  set mobility                     = 1.568e-12
-  set surface tension              = 1
-  set interface thickness          = 3.91e-6
-  set psi interface width factor   = 15
-  set psi mu correction factor     = 0
+  set mobility                     = 3.04e-11
+  set surface tension              = 0.072
+  set interface thickness          = 5.52e-6
+  set psi interface width factor   = 5
+  set psi mu correction factor     = 0.0
 
-  set enable tracer limiter           = false
-  set mff_enlarged_compression_factor = -20
+  set enable tracer limiter           = true
+  set mff_enlarged_compression_factor = -170000
   set mff_physics_compression_factor  = 0
-  set mff_transport_factor            = 0
+  set mff_transport_factor            = 1e10
   set mff_regularization_gamma        = 0.9999
+  set mff_enlarged_factor_equalization_exponent = 0.6
 end
 
 subsection Initial conditions
@@ -112,26 +147,27 @@ subsection Initial conditions
     set Function expression = 0; 0
   end
   subsection cahn hilliard tracer
-    set Function constants  = e=3.91e-6, R=1.25e-4, n=3, A=0.02
-    set Function expression = tanh(R*(1+A*cos(n*atan2(x,y))-sqrt((x)^2+(y)^2))/(sqrt(2)*e))
+    set Function constants  = e=5.52e-6, R=1.25e-4, n=3, A=0.06
+    set Function expression = tanh((sqrt(x^2+y^2) - R*(1+A*cos(n*atan2(x,y))))/(sqrt(2)*e))
   end
   subsection enlarged psi
-    set Function constants  = epsi=5.865e-5, R=1.25e-4, n=3, A=0.02
-    set Function expression = tanh(R*(1+A*cos(n*atan2(x,y))-sqrt((x)^2+(y)^2))/(sqrt(2)*epsi))
+    set Function constants  = epsi=2.76e-5, R=1.25e-4, n=3, A=0.06
+    set Function expression = tanh((sqrt(x^2+y^2) - R*(1+A*cos(n*atan2(x,y))))/(sqrt(2)*epsi))
   end
 end
 
 subsection Fluid boundary conditions
   set number = 4
-  set fix pressure constant = false
-  set enforce zero mean pressure = true
+  set fix pressure constant = true
+  set enforce zero mean pressure = false
+  set pressure reference point = 5e-4, 5e-4
   subsection boundary 0
-    set id   = 0
+    set id   = 5
     set name = x_min
     set type = slip
   end
   subsection boundary 1
-    set id   = 1
+    set id   = 3
     set name = x_max
     set type = slip
   end
@@ -141,7 +177,7 @@ subsection Fluid boundary conditions
     set type = no_slip
   end
   subsection boundary 3
-    set id   = 3
+    set id   = 4
     set name = y_max
     set type = no_slip
   end
@@ -150,12 +186,12 @@ end
 subsection Pseudosolid boundary conditions
   set number = 4
   subsection boundary 0
-    set id   = 0
+    set id   = 5
     set name = x_min
     set type = fixed
   end
   subsection boundary 1
-    set id   = 1
+    set id   = 3
     set name = x_max
     set type = fixed
   end
@@ -165,7 +201,7 @@ subsection Pseudosolid boundary conditions
     set type = fixed
   end
   subsection boundary 3
-    set id   = 3
+    set id   = 4
     set name = y_max
     set type = fixed
   end
@@ -174,12 +210,12 @@ end
 subsection CahnHilliard boundary conditions
   set number = 4
   subsection boundary 0
-    set id   = 0
+    set id   = 5
     set name = x_min
     set type = no_flux
   end
   subsection boundary 1
-    set id   = 1
+    set id   = 3
     set name = x_max
     set type = no_flux
   end
@@ -189,7 +225,7 @@ subsection CahnHilliard boundary conditions
     set type = no_flux
   end
   subsection boundary 3
-    set id   = 3
+    set id   = 4
     set name = y_max
     set type = no_flux
   end

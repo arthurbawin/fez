@@ -252,10 +252,10 @@ public:
   virtual AffineConstraints<double> &get_nonzero_constraints() override;
 
   /**
-   * Overwrite SOlution from another solver
+   * Inject the fields computed by the presolver into the current solution.
    */
   void
-  overwrite_position_from_presolver(LinearElasticitySolver<dim> &presolver);
+  overwrite_fields_from_presolver(LinearElasticitySolver<dim> &presolver);
 
   void attach_presolver(LinearElasticitySolver<dim> *ps) { presolver = ps; }
   // ANcienne approche de copie de la triangulation. Desormais on va copier le

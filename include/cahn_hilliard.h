@@ -95,11 +95,19 @@ namespace CahnHilliard
      *
      *   mu_hat = phi^3 - phi - eps^2 Delta phi
      *
-     * and the physical momentum force (gamma / eps) mu_hat grad(phi). For
-     * CHNSModel::DingHorriche, FEZ's potential unknown is this unscaled
-     * mu_hat, so the coefficient is gamma / eps directly.
+     * and the physical momentum force (gamma / eps) mu_hat grad(phi). For the
+     * tanh profile used by FEZ, gamma must be the normalized coefficient
+     *
+     *   gamma = 3 / (2 sqrt(2)) sigma
+     *
+     * so that the diffuse-interface energy integrates to the physical surface
+     * tension sigma. Using sigma / eps directly would give an effective
+     * surface tension (2 sqrt(2) / 3) sigma and under-predict the
+     * Young-Laplace jump.
      */
-    return param.surface_tension / param.epsilon_interface;
+    const double sigma_tilde =
+      3. / (2. * std::sqrt(2.)) * param.surface_tension;
+    return sigma_tilde / param.epsilon_interface;
   }
 
   /**

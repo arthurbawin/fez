@@ -22,11 +22,11 @@ R  = 1.25e-4;
 // --------------------
 // Mesh sizes (tune)
 // --------------------
-h_far = 6.25e-5;  // coarse away from interface
+h_far = 6.25e-4;  // coarse away from interface
 h_int = 3.91e-6;  // fine within band
 
-band  = 3.0e-5;   // fully fine if dist <= band
-band2 = 2.0*band; // fully coarse if dist >= band2
+band  = 12.0e-5;   // fully fine if dist <= band
+band2 = 20*band; // fully coarse if dist >= band2
 
 // --------------------
 // Outer square

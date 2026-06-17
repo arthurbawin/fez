@@ -1418,6 +1418,14 @@ void CHNSSolver<dim,
       *this->present_solution,
       VectorTools::EvaluationFlags::avg,
       this->ordering->mu_lower);
+    // Tracer gradients are needed to reconstruct the thermodynamic pressure
+    // (free energy density contribution, see 'pressure_physical' below).
+    const auto tracer_gradients = VectorTools::point_gradients<1>(
+      cache,
+      *this->dof_handler,
+      *this->present_solution,
+      VectorTools::EvaluationFlags::avg,
+      this->ordering->phi_lower);
 
     std::vector<double> psi_values;
     if constexpr (with_enlarged)
@@ -1453,24 +1461,38 @@ void CHNSSolver<dim,
         for (unsigned int d = 0; d < dim; ++d)
           out << ",x" << d;
 
-        // 'pressure' is the field to use for pressure-jump post-processing
-        // (e.g. Young-Laplace), regardless of which CHNS model is used:
-        //  - Abels-type model: 'pressure' is the physical pressure p, the
-        //    solved unknown.
-        //  - Ding-Horriche model: 'pressure' is the modified pressure phat,
-        //    the solved unknown. phat = p + coeff * (W(phi) + (eps^2/2)
-        //    |grad(phi)|^2), and the correction term takes the same value
-        //    on both sides of an interface separating two bulk phases
-        //    (phi = +-1), so plateau-to-plateau jumps of phat and p are
-        //    identical: Delta(phat) = Delta(p). 'pressure' is therefore
-        //    directly comparable to Young-Laplace's sigma/R without any
-        //    reconstruction, and (unlike a reconstructed p) it stays smooth
-        //    across the diffuse interface.
+        // 'pressure' is the solved pressure unknown, whose meaning depends
+        // on the CHNS model:
+        //  - Abels-type model: the capillary force is -phi*grad(mu), so the
+        //    solved pressure absorbs the gradient term grad(phi*mu). When
+        //    the chemical potential has relaxed towards a spatial constant
+        //    (large mobility), the solved pressure is uniform and the
+        //    Young-Laplace jump lives entirely in phi*mu.
+        //  - Ding-Horriche model: the solved pressure is the modified
+        //    pressure phat = p + Psi, with Psi the free energy density.
+        // 'pressure_yl' is the modified/bulk pressure without the localized
+        // free-energy density well. This is the pressure to use for
+        // plateau-to-plateau Young-Laplace post-processing:
+        //  - Abels-type model:  pressure_yl = p + phi*mu
+        //  - Ding-Horriche:     pressure_yl = phat
+        // 'pressure_physical' is the full thermodynamic pressure reconstructed
+        // pointwise from the solved unknowns, with
+        //   Psi(phi, grad(phi)) = C_w F(phi) + (C_g / 2) |grad(phi)|^2,
+        //   F(phi) = (phi^2 - 1)^2 / 4:
+        //   pressure_physical = pressure_yl - Psi.
+        // In bulk phases (phi = +-1, grad(phi) = 0) Psi vanishes, so both
+        // pressures have the same plateau values. Inside the diffuse
+        // interface, Psi is O(sigma/epsilon), producing a real localized
+        // thermodynamic pressure well at phi ~= 0. Keep this column to inspect
+        // the interfacial free-energy contribution, but do not use its
+        // pointwise minimum as a Young-Laplace pressure plateau.
         // 'pressure_hat' and 'potential_hat' additionally expose the raw
         // modified unknowns (phat, muhat) solved by the Ding-Horriche model;
-        // they are NaN for the Abels-type model, where the solved unknowns
-        // already are p and mu.
+        // they are NaN for the Abels-type model.
         out << ",pressure"
+            << ",pressure_physical"
+            << ",pressure_yl"
+            << ",pressure_free_energy"
             << ",pressure_hat"
             << ",tracer"
             << ",potential"
@@ -1483,43 +1505,71 @@ void CHNSSolver<dim,
 
       const double nan = std::numeric_limits<double>::quiet_NaN();
 
+      const double sigma_tilde =
+        CahnHilliard::sigma_tilde_from_surface_tension(cahn_hilliard);
+      const double double_well_coefficient =
+        CahnHilliard::potential_double_well_coefficient(cahn_hilliard,
+                                                        sigma_tilde);
+      const double gradient_coefficient =
+        CahnHilliard::potential_gradient_coefficient(cahn_hilliard,
+                                                     sigma_tilde);
+      // For Ding-Horriche, the momentum force is (sigma/eps) * muhat *
+      // grad(phi): the free energy entering the pressure reconstruction
+      // carries the same prefactor. For Abels the coefficients already
+      // include sigma_tilde.
+      const double free_energy_prefactor =
+        use_abels_capillary_phi_grad_mu ?
+          1.0 :
+          CahnHilliard::ding_horriche_capillary_coefficient(cahn_hilliard);
+
       for (unsigned int i = 0; i < line_probe.n_points; ++i)
       {
         const double pressure_raw  = pressure_values[i];
         const double tracer        = tracer_values[i];
         const double potential_raw = potential_values[i];
 
+        const double double_well = 0.25 * (tracer * tracer - 1.0) *
+                                   (tracer * tracer - 1.0);
+        const double free_energy =
+          free_energy_prefactor *
+          (double_well_coefficient * double_well +
+           0.5 * gradient_coefficient * tracer_gradients[i].norm_square());
+
+        double pressure_solved;
         double pressure_physical;
-        double potential_physical;
+        double pressure_yl;
+        double potential_solved;
         double pressure_hat  = nan;
         double potential_hat = nan;
 
         if (use_abels_capillary_phi_grad_mu)
         {
-          // Solved unknowns are already the physical pressure and potential.
-          pressure_physical  = pressure_raw;
-          potential_physical = potential_raw;
+          // Capillary force -phi*grad(mu): the solved pressure absorbs
+          // grad(phi*mu) (see header comment).
+          pressure_solved   = pressure_raw;
+          potential_solved  = potential_raw;
+          pressure_yl       = pressure_raw + tracer * potential_raw;
+          pressure_physical = pressure_yl - free_energy;
         }
         else
         {
-          // Solved unknowns are the Ding-Horriche modified pressure phat and
-          // unscaled potential muhat. 'pressure' is reported as phat itself:
-          // bulk-to-bulk pressure jumps of phat equal those of the physical
-          // pressure p (see header comment), which is all that is needed for
-          // Young-Laplace-type post-processing, and phat is smooth across
-          // the diffuse interface.
-          pressure_hat       = pressure_raw;
-          potential_hat      = potential_raw;
-          pressure_physical  = pressure_hat;
-          potential_physical = potential_hat;
+          // Solved unknowns are the Ding-Horriche modified pressure phat
+          // and unscaled potential muhat.
+          pressure_hat      = pressure_raw;
+          potential_hat     = potential_raw;
+          pressure_solved   = pressure_hat;
+          potential_solved  = potential_hat;
+          pressure_yl       = pressure_hat;
+          pressure_physical = pressure_yl - free_energy;
         }
 
         out << this->time_handler.current_time << ','
             << this->time_handler.current_time_iteration << ',' << i;
         for (unsigned int d = 0; d < dim; ++d)
           out << ',' << probe_points[i][d];
-        out << ',' << pressure_physical << ',' << pressure_hat << ',' << tracer << ','
-            << potential_physical << ',' << potential_hat;
+        out << ',' << pressure_solved << ',' << pressure_physical << ','
+            << pressure_yl << ',' << free_energy << ',' << pressure_hat << ','
+            << tracer << ',' << potential_solved << ',' << potential_hat;
         if constexpr (with_enlarged)
           out << ',' << psi_values[i];
         out << '\n';

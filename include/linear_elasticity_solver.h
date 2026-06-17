@@ -4,15 +4,18 @@
 #include <copy_data.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
+#include <deal.II/base/table.h>
 #include <deal.II/base/table_handler.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <components_ordering.h>
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
@@ -58,10 +61,20 @@ class LinearElasticitySolver : public GenericSolver<LA::ParVectorType>
   using CopyData    = CopyDataBase<1>;
 
 public:
+  enum class PresolvedCHNSFields
+  {
+    none,
+    phi,
+    phi_psi
+  };
+
   /**
    * Constructor
    */
-  LinearElasticitySolver(const ParameterReader<dim> &param);
+  LinearElasticitySolver(
+    const ParameterReader<dim> &param,
+    const PresolvedCHNSFields   presolved_chns_fields =
+      PresolvedCHNSFields::none);
 
   virtual ~LinearElasticitySolver() {}
 
@@ -107,6 +120,17 @@ public:
   // return triangulation;
   // }
   const DoFHandler<dim> &get_dof_handler() const { return dof_handler; }
+  bool                   has_presolved_tracer() const
+  {
+    return presolved_chns_fields != PresolvedCHNSFields::none;
+  }
+  bool has_presolved_psi() const
+  {
+    return presolved_chns_fields == PresolvedCHNSFields::phi_psi;
+  }
+  std::string get_presolved_fields_name() const;
+  unsigned int get_presolved_tracer_component() const { return dim; }
+  unsigned int get_presolved_psi_component() const { return dim + 1; }
   void                   update_boundary_conditions();
 
   virtual void create_sparsity_pattern();
@@ -179,7 +203,15 @@ protected:
   std::unique_ptr<ScratchData> scratch_data;
 
   FEValuesExtractors::Vector position_extractor;
+  FEValuesExtractors::Scalar tracer_extractor;
+  FEValuesExtractors::Scalar psi_extractor;
   ComponentMask              position_mask;
+  ComponentMask              tracer_mask;
+  ComponentMask              psi_mask;
+  ComponentMask              presolved_field_mask;
+  PresolvedCHNSFields        presolved_chns_fields;
+  std::unique_ptr<ComponentOrdering> presolver_ordering;
+  Table<2, DoFTools::Coupling>       presolver_coupling_table;
 
   IndexSet locally_owned_dofs;
   IndexSet locally_relevant_dofs;

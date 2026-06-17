@@ -585,6 +585,7 @@ namespace Parameters
     double mff_physics_compression_factor  = 0.;
     double mff_transport_factor            = 0.;
     double mff_regularization_gamma        = 0.;
+    double mff_enlarged_factor_equalization_exponent = 1.;
     double psi_mu_correction_factor        = 0.;
 
     void declare_parameters(ParameterHandler &prm);
@@ -626,6 +627,12 @@ namespace Parameters
     // is used to initialize the ALE mesh of the CHNS solver, typically when
     // mesh forcing is activated.
     bool use_as_presolver;
+
+    // CHNS-ALE presolver controls. In this mode the final compression
+    // multiplier is always 1.0; only the initial ramp value is user-facing.
+    bool         chns_presolver_enable = false;
+    double       chns_presolver_initial_compression_multiplier = 1.;
+    unsigned int chns_presolver_continuation_steps             = 1;
 
     // If true, write the final deformed mesh to a Gmsh .msh file at the end
     // of the linear elasticity solve. This requires that the input mesh also

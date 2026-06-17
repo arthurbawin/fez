@@ -1,4 +1,5 @@
 Number of MPI processes: 6
+CHNS model: Abels
 Convergence test with manufactured solution:
 Mesh file was changed to 0.msh
 Mesh info:
@@ -35,4 +36,4 @@ n_elm n_dof   dt          u               p               x              phi    
 H1_seminorm
 n_elm n_dof   dt          u               p               x              phi             mu        
    64   531 0.1000 1.6623e-02    - 6.2098e-01    - 1.6262e-02    - 7.5289e-02    - 1.1899e+00    - 
-  256  1887 0.0500 4.2137e-03 1.98 3.0055e-01 1.05 8.1916e-03 0.99 3.8417e-02 0.97 6.1212e-01 0.96
+  256  1887 0.0500 4.2137e-03 1.98 3.0055e-01 1.05 8.1916e-03 0.99 3.8417e-02 0.97 6.1212e-01 0.96 

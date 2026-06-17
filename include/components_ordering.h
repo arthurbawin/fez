@@ -339,4 +339,23 @@ public:
   }
 };
 
+template <int dim, bool with_enlarged = false>
+class ComponentOrderingCHNSPresolver : public ComponentOrdering
+{
+public:
+  ComponentOrderingCHNSPresolver()
+  {
+    n_components = dim + 1 + (with_enlarged ? 1 : 0);
+    x_lower      = 0;
+    x_upper      = dim;
+    phi_lower    = dim;
+    phi_upper    = dim + 1;
+    if constexpr (with_enlarged)
+    {
+      psi_lower = dim + 1;
+      psi_upper = dim + 2;
+    }
+  }
+};
+
 #endif

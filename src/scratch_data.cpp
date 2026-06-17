@@ -759,16 +759,20 @@ namespace NavierStokesScratch
 
   // Explicit instantiations for the used combinations only
   // Incompressible NS
-  template class ScratchData<2, ns_only>;
-  template class ScratchData<3, ns_only>;
+  template class ScratchData<2, stabilization>;
+  template class ScratchData<3, stabilization>;
 
   // Compressible NS
   template class ScratchData<2, compressible>;
   template class ScratchData<3, compressible>;
 
   // Incompressible NS with Lagrange multiplier
-  template class ScratchData<2, lagrange_multiplier | with_hp_capabilities>;
-  template class ScratchData<3, lagrange_multiplier | with_hp_capabilities>;
+  template class ScratchData<2,
+                             lagrange_multiplier | with_hp_capabilities |
+                               stabilization>;
+  template class ScratchData<3,
+                             lagrange_multiplier | with_hp_capabilities |
+                               stabilization>;
 
   // FSI solver with Lagrange multiplier
   template class ScratchData<2, pseudo_solid | lagrange_multiplier>;

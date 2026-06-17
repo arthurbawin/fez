@@ -692,10 +692,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
     *present_solution = newton_update;
     if (this->presolver != nullptr)
     {
-      pcout
-        << "Injecting initial mesh position from linear elasticity presolver..."
-        << std::endl;
-      overwrite_position_from_presolver(*(this->presolver));
+      pcout << "Injecting presolved initial fields from linear elasticity "
+               "presolver..."
+            << std::endl;
+      overwrite_fields_from_presolver(*(this->presolver));
       newton_update = *present_solution;
     }
     // Update MappingFEField *BEFORE* interpolating velocity
@@ -709,6 +709,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
 
   // Set other solver-specific fields on moving mesh (e.g., CHNS tracer)
   set_solver_specific_initial_conditions();
+
+  if constexpr (with_moving_mesh)
+  {
+    if (this->presolver != nullptr)
+    {
+      overwrite_fields_from_presolver(*(this->presolver));
+      newton_update    = *present_solution;
+      evaluation_point = newton_update;
+    }
+  }
 
   // Recompute boundary values after the ALE mapping has been initialized.
   // The constraints created during setup used the undeformed mesh position.
@@ -1328,11 +1338,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::
-  overwrite_position_from_presolver(LinearElasticitySolver<dim> &presolver)
+  overwrite_fields_from_presolver(LinearElasticitySolver<dim> &presolver)
 {
   this->local_evaluation_point = *this->present_solution;
+
+  const auto first_component_in_mask = [](const ComponentMask &mask) {
+    for (unsigned int c = 0; c < mask.size(); ++c)
+      if (mask[c])
+        return c;
+    return numbers::invalid_unsigned_int;
+  };
+
   // find the starting component index for position in the NS FESystem
-  unsigned int       pos_start_comp = 0;
+  unsigned int       pos_start_comp = numbers::invalid_unsigned_int;
   const unsigned int n_comp = this->dof_handler->get_fe().n_components();
   for (unsigned int c = 0; c < n_comp; ++c)
   {
@@ -1342,12 +1360,43 @@ void NavierStokesSolver<dim, with_moving_mesh>::
       break;
     }
   }
+  AssertThrow(pos_start_comp != numbers::invalid_unsigned_int,
+              ExcMessage("Could not find the destination mesh-position "
+                         "component for presolver injection."));
 
-  // build component map: elasticity component -> NS component
+  // build component map: presolver component -> NS/CHNS component
   std::map<unsigned int, unsigned int> comp_map;
   for (unsigned int d = 0; d < dim; ++d)
   {
     comp_map[d] = pos_start_comp + d;
+  }
+
+  if (presolver.has_presolved_tracer())
+  {
+    const auto tracer_mask_it = this->field_names_and_masks.find("tracer");
+    AssertThrow(tracer_mask_it != this->field_names_and_masks.end(),
+                ExcMessage("The presolver contains phi, but the destination "
+                           "solver has no tracer field."));
+    const unsigned int tracer_component =
+      first_component_in_mask(tracer_mask_it->second);
+    AssertThrow(tracer_component != numbers::invalid_unsigned_int,
+                ExcMessage("Could not find the destination tracer component "
+                           "for presolver injection."));
+    comp_map[presolver.get_presolved_tracer_component()] = tracer_component;
+  }
+
+  if (presolver.has_presolved_psi())
+  {
+    const auto psi_mask_it = this->field_names_and_masks.find("psi");
+    AssertThrow(psi_mask_it != this->field_names_and_masks.end(),
+                ExcMessage("The presolver contains psi, but the destination "
+                           "solver has no enlarged psi field."));
+    const unsigned int psi_component =
+      first_component_in_mask(psi_mask_it->second);
+    AssertThrow(psi_component != numbers::invalid_unsigned_int,
+                ExcMessage("Could not find the destination psi component for "
+                           "presolver injection."));
+    comp_map[presolver.get_presolved_psi_component()] = psi_component;
   }
 
   // extract and inject into the ghost-free vector (local_evaluation_point)

@@ -53,6 +53,7 @@ ParameterReader<dim>::make_presolved_mesh_position_fingerprint(
 
   append_parameter(out, prm, {"FiniteElements"}, "use quads");
   append_parameter(out, prm, {"FiniteElements"}, "Mesh position degree");
+  append_parameter(out, prm, {"FiniteElements"}, "Tracer degree");
 
   append_parameter(out, prm, {"Linear elasticity", "source term"},
                    "Function expression");
@@ -66,6 +67,43 @@ ParameterReader<dim>::make_presolved_mesh_position_fingerprint(
                    "max multiplier");
   append_parameter(out, prm, {"Linear elasticity", "current mesh source term"},
                    "continuation steps");
+  append_parameter(out, prm, {"Linear elasticity", "CHNS presolver"},
+                   "enable");
+  append_parameter(out, prm, {"Linear elasticity", "CHNS presolver"},
+                   "initial compression multiplier");
+  append_parameter(out, prm, {"Linear elasticity", "CHNS presolver"},
+                   "continuation steps");
+
+  append_parameter(out, prm, {"Cahn Hilliard"}, "interface thickness");
+  append_parameter(out, prm, {"Cahn Hilliard"}, "psi interface width factor");
+  append_parameter(out, prm, {"Cahn Hilliard"},
+                   "mff_enlarged_compression_factor");
+  append_parameter(out, prm, {"Cahn Hilliard"},
+                   "mff_physics_compression_factor");
+  append_parameter(out, prm, {"Cahn Hilliard"}, "mff_regularization_gamma");
+  append_parameter(out,
+                   prm,
+                   {"Cahn Hilliard"},
+                   "mff_enlarged_factor_equalization_exponent");
+  append_parameter(out, prm, {"Cahn Hilliard"}, "psi mu correction factor");
+
+  append_parameter(out, prm, {"Initial conditions"}, "use enlarged psi");
+  append_parameter(out,
+                   prm,
+                   {"Initial conditions", "cahn hilliard tracer"},
+                   "Function expression");
+  append_parameter(out,
+                   prm,
+                   {"Initial conditions", "cahn hilliard tracer"},
+                   "Function constants");
+  append_parameter(out,
+                   prm,
+                   {"Initial conditions", "enlarged psi"},
+                   "Function expression");
+  append_parameter(out,
+                   prm,
+                   {"Initial conditions", "enlarged psi"},
+                   "Function constants");
 
   append_parameter(out, prm, {"Physical properties"}, "number of pseudosolids");
   for (unsigned int i = 0; i < physical_properties.n_pseudosolids; ++i)
@@ -289,11 +327,12 @@ void ParameterReader<dim>::check_parameters() const
     ExcMessage("The presolved mesh position cache is an initial-condition "
                "cache and cannot be combined with a full checkpoint restart."));
   AssertThrow(
-    !(cache_enabled && !linear_elasticity.use_as_presolver),
-    ExcMessage("The presolved mesh position cache is enabled, but "
-               "'use as presolver' is false. Keep 'use as presolver = true' "
-               "to request a presolved initial mesh position, and let the "
-               "cache mode decide whether it is loaded or recomputed."));
+    !(cache_enabled && !linear_elasticity.use_as_presolver &&
+      !linear_elasticity.chns_presolver_enable),
+    ExcMessage("The presolved mesh position cache is enabled, but neither "
+               "'use as presolver' nor 'CHNS presolver/enable' is true. "
+               "Enable a presolver and let the cache mode decide whether it "
+               "is loaded or recomputed."));
   AssertThrow(
     !(cache_enabled &&
       linear_elasticity.presolved_mesh_position_cache.filename.empty()),

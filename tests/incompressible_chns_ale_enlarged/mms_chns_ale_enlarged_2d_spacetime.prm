@@ -16,6 +16,14 @@ subsection Mesh
   set refinement level       = 1
 end
 
+subsection Linear elasticity
+  subsection CHNS presolver
+    set enable                         = true
+    set initial compression multiplier = 1
+    set continuation steps             = 1
+  end
+end
+
 subsection Time integration
   set verbosity        = quiet
   set dt               = 0.1

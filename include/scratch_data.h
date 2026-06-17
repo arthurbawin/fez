@@ -119,11 +119,22 @@ namespace NavierStokesScratch
   template <int dim, unsigned int update_flags = ns_only>
   class ScratchData;
 
+  // NOTE: `enable_stabilization` was previously a runtime flag
+  // (param.finite_elements.stabilization) shared by all ScratchData
+  // instances. With the new compile-time `update_flags` design, it must be
+  // selected at compile time. We unconditionally enable the `stabilization`
+  // flag bit for all the scratch data types that previously carried the
+  // SUPG/PSPG stabilization members/computations, so that they remain
+  // available exactly as before. The runtime
+  // `param.finite_elements.stabilization` switch is still checked in the
+  // assembly routines to decide whether the precomputed stabilization terms
+  // are actually added to the residual.
+
   /**
    * Scratch data for the incompressible NS solver on fixed mesh.
    */
   template <int dim>
-  using ScratchDataIncompressibleNS = ScratchData<dim>;
+  using ScratchDataIncompressibleNS = ScratchData<dim, stabilization>;
 
   /**
    * Scratch data for the compressible NS solver.
@@ -136,7 +147,7 @@ namespace NavierStokesScratch
    */
   template <int dim>
   using ScratchDataIncompressibleNSLambda =
-    ScratchData<dim, lagrange_multiplier | with_hp_capabilities>;
+    ScratchData<dim, lagrange_multiplier | with_hp_capabilities | stabilization>;
 
   /**
    * Scratch data for the FSI solver on moving mesh.
@@ -149,22 +160,13 @@ namespace NavierStokesScratch
    */
   template <int dim>
   using ScratchDataFSI_hp =
-    ScratchData<dim, pseudo_solid | lagrange_multiplier | with_hp_capabilities>;
+    ScratchData<dim,
+                pseudo_solid | lagrange_multiplier | with_hp_capabilities>;
 
   /**
    * Scratch data for the quasi-incompressible Cahn_hilliard Navier-Stokes
    * solver on fixed mesh.
    */
-  // TODO(merge): `enable_stabilization` was previously a runtime flag
-  // (param.finite_elements.stabilization) shared by all ScratchData
-  // instances. With the new compile-time `update_flags` design, it must be
-  // selected at compile time. We unconditionally enable the `stabilization`
-  // flag bit for the CHNS scratch data (the only consumer of the SUPG/PSPG
-  // stabilization terms on this branch) so that the ported stabilization
-  // members/computations are available. The runtime
-  // `param.finite_elements.stabilization` switch should still be checked in
-  // the assembly routines to decide whether the precomputed stabilization
-  // terms are actually added to the residual.
   template <int dim,
             bool with_moving_mesh = false,
             bool with_enlarged    = false>

@@ -32,22 +32,13 @@ end
 subsection Linear elasticity
   subsection presolved mesh position
     set mode = auto
-    set file = YL_meshpresolved
-  end
-  subsection source term
-  
-    set Function constants =physics_weight=0.0, eps=3e-3, eps_psi=1.5e-2, M=5, C=1.21860379, R0=0.15, xc=0, yc=0, gamma=0.9999, phimax=0.998
-
-    # x-component ; y-component
-    set Function expression = ((1.0/M) + sqrt((1.0 - 1.0/(M^2))/C))*(1/sqrt(2.))*((x-xc)/sqrt((x-xc)^2 + (y-yc)^2))*(1.0 - tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps_psi))^2)*(phimax*tanh(tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps_psi))/phimax))/(1.0 - gamma^2*(phimax*tanh(tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps_psi))/phimax))^2) + physics_weight*(1/sqrt(2.))*((x-xc)/sqrt((x-xc)^2 + (y-yc)^2))*(1.0 - tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))^2)*(phimax*tanh(tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))/phimax))/(1.0 - gamma^2*(phimax*tanh(tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))/phimax))^2) ; ((1.0/M) + sqrt((1.0 - 1.0/(M^2))/C))*(1/sqrt(2.))*((y-yc)/sqrt((x-xc)^2 + (y-yc)^2))*(1.0 - tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps_psi))^2)*(phimax*tanh(tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps_psi))/phimax))/(1.0 - gamma^2*(phimax*tanh(tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps_psi))/phimax))^2) + physics_weight*(1/sqrt(2.))*((y-yc)/sqrt((x-xc)^2 + (y-yc)^2))*(1.0 - tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))^2)*(phimax*tanh(tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))/phimax))/(1.0 - gamma^2*(phimax*tanh(tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))/phimax))^2)
+    set file = YL_meshpresolved_x_phi_psi
   end
 
-  subsection current mesh source term
-    set enable             = true
-    set min multiplier     = 30
-    set max multiplier     = 600
-    set continuation steps = 40
-    set use as presolver   = true
+  subsection CHNS presolver
+    set enable                         = true
+    set initial compression multiplier = 0.1
+    set continuation steps             = 40
   end
 end
 
@@ -147,6 +138,7 @@ subsection Cahn Hilliard
   set mff_physics_compression_factor  = 0
   set mff_transport_factor            = 800
   set mff_regularization_gamma        = 0.9999
+  set mff_enlarged_factor_equalization_exponent = 1.0
 end
 
 subsection Initial conditions

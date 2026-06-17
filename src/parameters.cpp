@@ -1192,6 +1192,13 @@ namespace Parameters
                         "Gamma in the moving-mesh forcing law "
                         "f(marker)=marker/(1-gamma^2 center(marker)^2).");
       prm.declare_entry(
+        "mff_enlarged_factor_equalization_exponent",
+        "1.0",
+        Patterns::Double(0.0),
+        "Exponent q applied only to the enlarged forcing marker before the "
+        "mesh forcing law. q=1 is neutral; values below 1 boost "
+        "under-saturated |psi| values smoothly.");
+      prm.declare_entry(
         "psi mu correction factor",
         "0.0",
         Patterns::Double(),
@@ -1334,6 +1341,13 @@ namespace Parameters
         prm.get_double("mff_physics_compression_factor");
       mff_transport_factor = prm.get_double("mff_transport_factor");
       mff_regularization_gamma = prm.get_double("mff_regularization_gamma");
+      mff_enlarged_factor_equalization_exponent =
+        prm.get_double("mff_enlarged_factor_equalization_exponent");
+      AssertThrow(
+        mff_enlarged_factor_equalization_exponent > 0.0,
+        ExcMessage(
+          "'mff_enlarged_factor_equalization_exponent' must be strictly "
+          "positive."));
       psi_mu_correction_factor = prm.get_double("psi mu correction factor");
       AssertThrow(std::abs(psi_mu_correction_factor) < 1e-14 ||
                     std::abs(surface_tension) > 1e-14,
@@ -1402,6 +1416,30 @@ namespace Parameters
           "solution to initialize the ALE mesh position of the actual solver.");
       }
       prm.leave_subsection();
+      prm.enter_subsection("CHNS presolver");
+      {
+        prm.declare_entry(
+          "enable",
+          "false",
+          Patterns::Bool(),
+          "If true, runs the CHNS-ALE presolver before the main CHNS solve. "
+          "The presolved fields are x+phi for standard CHNS-ALE and "
+          "x+phi+psi for enlarged CHNS-ALE.");
+        prm.declare_entry(
+          "initial compression multiplier",
+          "1.",
+          Patterns::Double(0.0),
+          "Initial multiplier applied to the CHNS moving-mesh compression "
+          "coefficients during presolver continuation. The final multiplier "
+          "is always 1.0.");
+        prm.declare_entry(
+          "continuation steps",
+          "1",
+          Patterns::Integer(1),
+          "Number of continuation steps used to ramp the CHNS moving-mesh "
+          "compression from the initial multiplier to 1.0.");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -1446,6 +1484,20 @@ namespace Parameters
                                "than the min multiplier"));
         n_continuation_steps = prm.get_integer("continuation steps");
         use_as_presolver     = prm.get_bool("use as presolver");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("CHNS presolver");
+      {
+        chns_presolver_enable = prm.get_bool("enable");
+        chns_presolver_initial_compression_multiplier =
+          prm.get_double("initial compression multiplier");
+        chns_presolver_continuation_steps =
+          prm.get_integer("continuation steps");
+        AssertThrow(
+          chns_presolver_initial_compression_multiplier <= 1.0,
+          ExcMessage("The CHNS presolver initial compression multiplier must "
+                     "be <= 1.0 because the final multiplier is fixed to "
+                     "1.0."));
       }
       prm.leave_subsection();
     }

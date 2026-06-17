@@ -1,6 +1,7 @@
 #ifndef INCOMPRESSIBLE_NS_SOLVER_LAMBDA_H
 #define INCOMPRESSIBLE_NS_SOLVER_LAMBDA_H
 
+#include <assembly/incompressible_ns_assemblers.h>
 #include <components_ordering.h>
 #include <copy_data.h>
 #include <deal.II/base/convergence_table.h>
@@ -50,7 +51,8 @@ protected:
 
   using ScratchData =
     NavierStokesScratch::ScratchDataIncompressibleNSLambda<dim>;
-  using CopyData = CopyDataBase<n_hp_partitions>;
+  using CopyData  = CopyDataBase<n_hp_partitions>;
+  using Assembler = Assembly::AssemblerBase<ScratchData, CopyData>;
 
 public:
   /**
@@ -67,6 +69,11 @@ public:
    * Create the scratch data structure for this solver.
    */
   virtual void create_scratch_data() override;
+
+  /**
+   * Create the volume and boundary assemblers for this solver.
+   */
+  virtual void setup_assemblers() override;
 
   /**
    * Create the AffineConstraints storing the lambda = 0
@@ -296,6 +303,8 @@ protected:
   hp::QCollection<dim - 1>   error_face_quadrature_collection;
 
   std::unique_ptr<ScratchData> scratch_data;
+
+  std::vector<std::unique_ptr<Assembler>> assemblers;
 
   FEValuesExtractors::Vector lambda_extractor;
   ComponentMask              lambda_mask;

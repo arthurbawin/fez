@@ -20,23 +20,32 @@ env:
 
 jobs:
   build:
+    name: Build with deal.II:${{ matrix.dealii_version }}
     runs-on: ubuntu-latest
 
+    strategy:
+      # Continue testing if tests on one version of deal.II fail
+      fail-fast: false
+      matrix:
+        dealii_version: ["master-noble", "v9.7.1-noble"]
+
     container:
-      # FIXME: There are debug errors occuring for the hp solvers on master-noble
-      # master-jammy, in map_dofs_to_support_points, which works on v9.7.1.
-      image: dealii/dealii:v9.7.1-noble
+      image: dealii/dealii:${{ matrix.dealii_version }}
       # options: --user root
 
     steps:
       - uses: actions/checkout@v6
 
       - name: Configure and build release
+      # On deal.II's development branch, ReferenceCell is now templatized,
+      # so add the relevant compile flag. This will be removed when the next
+      # version releases, as we'll be able to test on the version number.
         run: |
           mkdir build && cd build
           cmake -D CMAKE_BUILD_TYPE=Release \
                 -D ENABLE_TESTING=1 \
                 -D DEAL_II_WITH_HP_IDENTITIES_BUG=1 \
+                -D REFERENCE_CELL_WITH_TEMPLATE_PARAMETER=${{ matrix.dealii_version == 'master-noble' && '1' || '0' }} \
                 .. \
                 -G Ninja
           ninja -j ${{ env.N_JOBS }}

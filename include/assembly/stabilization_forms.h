@@ -6,7 +6,7 @@
 #include <components_ordering.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/dofs/dof_tools.h>
-#include <stabilization_utils.h>
+#include <stabilization_tools.h>
 
 using namespace dealii;
 
@@ -30,7 +30,7 @@ namespace Assembly
 
     for (unsigned int q = 0; q < scratch.n_q_points; ++q)
       {
-        const double tau = scratch.stabilization_tau_momentum[q];
+        const double tau = scratch.tau_supg_velocity[q];
         if (tau <= 0.)
           continue;
 
@@ -57,7 +57,9 @@ namespace Assembly
                       bdf_c0 * scratch.phi_u[q][j] +
                       scratch.grad_phi_u[q][j] * u_conv +
                       grad_u * scratch.phi_u[q][j] -
-                      nu * scratch.diffusion_phi_u[q][j];
+                      nu *
+                        (scratch.laplacian_phi_u[q][j] +
+                         scratch.grad_div_phi_u[q][j]);
 
                     if (i_is_p)
                       local_matrix_ij -=
@@ -107,7 +109,7 @@ namespace Assembly
 
     for (unsigned int q = 0; q < scratch.n_q_points; ++q)
       {
-        const double tau = scratch.stabilization_tau_momentum[q];
+        const double tau = scratch.tau_supg_velocity[q];
         if (tau <= 0.)
           continue;
 
@@ -144,8 +146,8 @@ namespace Assembly
 
     for (unsigned int q = 0; q < scratch.n_q_points; ++q)
       {
-        const double tau_mom    = scratch.stabilization_tau_momentum[q];
-        const double tau_tracer = scratch.stabilization_tau_tracer[q];
+        const double tau_mom    = scratch.tau_supg_velocity[q];
+        const double tau_tracer = scratch.tau_supg_tracer[q];
         if (tau_mom <= 0. && tau_tracer <= 0.)
           continue;
 
@@ -204,8 +206,8 @@ namespace Assembly
 
     for (unsigned int q = 0; q < scratch.n_q_points; ++q)
       {
-        const double tau_mom    = scratch.stabilization_tau_momentum[q];
-        const double tau_tracer = scratch.stabilization_tau_tracer[q];
+        const double tau_mom    = scratch.tau_supg_velocity[q];
+        const double tau_tracer = scratch.tau_supg_tracer[q];
         const double mobility   = scratch.mobility_values[q];
         const double dM_dphi = scratch.derivative_mobility_wrt_tracer[q];
         const double ddM_dphi2 =
@@ -266,7 +268,8 @@ namespace Assembly
                           bdf_c0 * phi_u_j + grad_phi_u_j * u_conv +
                           scratch.present_velocity_gradients[q] * phi_u_j -
                           scratch.stabilization_nu_eff[q] *
-                            scratch.diffusion_phi_u[q][j];
+                            (scratch.laplacian_phi_u[q][j] +
+                             scratch.grad_div_phi_u[q][j]);
 
                         if (i_is_p)
                           local_matrix_ij -= tau_mom * dR_du_j * grad_phi_p_i;
@@ -368,7 +371,8 @@ namespace Assembly
                                 scratch.present_pressure_gradients[q] +
                                 scratch.source_term_velocity[q]) -
                              dnueff_dphi *
-                               scratch.present_velocity_lap_plus_graddiv[q] -
+                               (scratch.present_velocity_laplacians[q] +
+                                scratch.present_velocity_grad_div[q]) -
                              2. * dinvrho_dphi *
                                scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
                                eps_u * scratch.tracer_gradients[q]) +

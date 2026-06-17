@@ -180,6 +180,11 @@ public:
   /**
    *
    */
+  const ParameterReader<dim> &get_parameters() const;
+
+  /**
+   *
+   */
   virtual LA::ParVectorType &get_present_solution() override
   {
     return present_solution;
@@ -278,5 +283,13 @@ protected:
     const ManufacturedSolutions::ManufacturedSolution<dim> &mms;
   };
 };
+
+/* ---------------- template and inline functions ----------------- */
+
+template <int dim>
+const ParameterReader<dim> &LinearElasticitySolver<dim>::get_parameters() const
+{
+  return param;
+}
 
 #endif

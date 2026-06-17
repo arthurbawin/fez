@@ -11,6 +11,7 @@ add_subdirectory(linear_elasticity)
 add_subdirectory(unit_tests)
 add_subdirectory(unit_tests/metric_tensor)
 add_subdirectory(unit_tests/metric_field)
+add_subdirectory(unit_tests/stabilization)
 add_subdirectory(unit_tests/transient_fixed_point)
 
 if(ENABLE_MMG)

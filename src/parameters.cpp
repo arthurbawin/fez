@@ -830,6 +830,26 @@ namespace Parameters
       }
       prm.leave_subsection();
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.declare_entry("compare jacobian matrix with finite differences",
+                        "false",
+                        Patterns::Bool(),
+                        "Compare the analytic jacobian with its finite "
+                        "difference approximation on all cells");
+      prm.declare_entry("analytical_jacobian_absolute_tolerance",
+                        "1e-3",
+                        Patterns::Double(),
+                        "If maximum absolute error exceeds this value, print "
+                        "matrices to console");
+      prm.declare_entry("analytical_jacobian_relative_tolerance",
+                        "1e-3",
+                        Patterns::Double(),
+                        "If maximum relative error exceeds this value, print "
+                        "matrices to console");
+      prm.declare_entry("write problematic elements",
+                        "false",
+                        Patterns::Bool(),
+                        "Write mesh elements for which the analytic jacobian "
+                        "differs from its approximation to a Gmsh's .pos file");
     }
     prm.leave_subsection();
   }
@@ -849,6 +869,13 @@ namespace Parameters
       }
       prm.leave_subsection();
       READ_VERBOSITY_PARAM(prm, verbosity)
+      compare_jacobian_with_finite_differences =
+        prm.get_bool("compare jacobian matrix with finite differences");
+      analytical_jacobian_absolute_tolerance =
+        prm.get_double("analytical_jacobian_absolute_tolerance");
+      analytical_jacobian_relative_tolerance =
+        prm.get_double("analytical_jacobian_relative_tolerance");
+      write_problematic_elements = prm.get_bool("write problematic elements");
     }
     prm.leave_subsection();
   }
@@ -1105,6 +1132,28 @@ namespace Parameters
         adaptation.reject_cfl_factor = prm.get_double("cfl ratio to reject");
       }
       prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
+  void Stabilization::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Stabilization");
+    {
+      prm.declare_entry("enable supg",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable SUPG/PSPG stabilization for the incompressible "
+                        "Navier-Stokes equations.");
+    }
+    prm.leave_subsection();
+  }
+
+  void Stabilization::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Stabilization");
+    {
+      enable_supg = prm.get_bool("enable supg");
     }
     prm.leave_subsection();
   }
@@ -1827,18 +1876,6 @@ namespace Parameters
                         Patterns::Bool(),
                         "Write the mesh partitions as a Gmsh .pos file.");
       prm.declare_entry("apply exact solution", "false", Patterns::Bool(), "");
-      prm.declare_entry("compare jacobian matrix with fd",
-                        "false",
-                        Patterns::Bool(),
-                        "");
-      prm.declare_entry("analytical_jacobian_absolute_tolerance",
-                        "1e-3",
-                        Patterns::Double(),
-                        "");
-      prm.declare_entry("analytical_jacobian_relative_tolerance",
-                        "1e-3",
-                        Patterns::Double(),
-                        "");
       prm.declare_entry("fsi_apply_erroneous_coupling",
                         "false",
                         Patterns::Bool(),
@@ -1860,12 +1897,6 @@ namespace Parameters
       write_dealii_mesh_as_msh = prm.get_bool("write dealii mesh as msh");
       write_partition_pos_gmsh = prm.get_bool("write partition gmsh");
       apply_exact_solution     = prm.get_bool("apply exact solution");
-      compare_analytical_jacobian_with_fd =
-        prm.get_bool("compare jacobian matrix with fd");
-      analytical_jacobian_absolute_tolerance =
-        prm.get_double("analytical_jacobian_absolute_tolerance");
-      analytical_jacobian_relative_tolerance =
-        prm.get_double("analytical_jacobian_relative_tolerance");
       fsi_apply_erroneous_coupling =
         prm.get_bool("fsi_apply_erroneous_coupling");
       fsi_check_mms_on_boundary = prm.get_bool("fsi_check_mms_on_boundary");

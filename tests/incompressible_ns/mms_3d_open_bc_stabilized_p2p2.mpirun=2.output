@@ -1,0 +1,28 @@
+Number of MPI processes: 2
+Number of degrees of freedom: 500
+Newton iter.  0:          nonlinear residual = 2.84521864e+01
+Newton iter.  1:          nonlinear residual = 3.07263018e-02	(M)
+Newton iter.  2:          nonlinear residual = 6.88813756e-08	(M)
+Newton iter.  3:          nonlinear residual = 4.47247938e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-08)
+Number of degrees of freedom: 2916
+Newton iter.  0:          nonlinear residual = 2.66148326e+01
+Newton iter.  1:          nonlinear residual = 2.66292375e-02	(M)
+Newton iter.  2:          nonlinear residual = 5.21929490e-08	(M)
+Newton iter.  3:          nonlinear residual = 5.85667075e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-08)
+
+L2_norm
+n_elm n_dof        u               p        
+   48   500 9.0055e-02    - 5.0374e+00    - 
+  384  2916 1.3425e-02 2.75 1.1534e+00 2.13 
+
+Linfty_norm
+n_elm n_dof        u               p        
+   48   500 3.6112e-01    - 3.4453e+01    - 
+  384  2916 6.5777e-02 2.46 8.0742e+00 2.09 
+
+H1_seminorm
+n_elm n_dof        u               p        
+   48   500 1.1038e+00    - 4.1481e+01    - 
+  384  2916 3.0957e-01 1.83 2.0402e+01 1.02

@@ -1,5 +1,5 @@
-#include <assembly/boundary_forms.h>
-#include <assembly/stabilization_forms.h>
+
+#include <assembly/incompressible_ns_assemblers.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -27,16 +27,14 @@ NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
 {
   if (param.finite_elements.use_quads)
     fe = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree), // Velocity
-      dim,
-      FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
-      1);
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                                // Velocity
+      FE_Q<dim>(param.finite_elements.pressure_degree)); // Pressure
   else
     fe = std::make_unique<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.velocity_degree), // Velocity
-      dim,
-      FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
-      1);
+      FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                                       // Velocity
+      FE_SimplexP<dim>(param.finite_elements.pressure_degree)); // Pressure
 
   this->ordering = std::make_unique<ComponentOrderingNS<dim>>();
 
@@ -123,14 +121,33 @@ void NSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
 template <int dim>
 void NSSolver<dim>::create_scratch_data()
 {
-  scratch_data = std::make_unique<ScratchData>(*this->ordering,
-                                               *fe,
-                                               *mapping,
-                                               *mapping,
-                                               *this->quadrature,
-                                               *this->face_quadrature,
-                                               this->time_handler,
-                                               this->param);
+  scratch_data =
+    std::make_unique<ScratchData>(*this->ordering,
+                                  *fe,
+                                  *mapping,
+                                  *mapping,
+                                  *this->quadrature,
+                                  *this->face_quadrature,
+                                  this->time_handler,
+                                  this->param,
+                                  this->param.stabilization.enable_supg);
+}
+
+template <int dim>
+void NSSolver<dim>::setup_assemblers()
+{
+  assemblers.clear();
+
+  using namespace Assembly::IncompressibleNavierStokes;
+
+  if (this->param.stabilization.enable_supg)
+    Assembly::IncompressibleNavierStokes::
+      setup_assemblers<dim, ScratchData, CopyData, stabilization>(
+        this->param, *this->ordering, this->coupling_table, assemblers);
+  else
+    Assembly::IncompressibleNavierStokes::
+      setup_assemblers<dim, ScratchData, CopyData, ns_laplace_form>(
+        this->param, *this->ordering, this->coupling_table, assemblers);
 }
 
 template <int dim>
@@ -140,6 +157,33 @@ void NSSolver<dim>::create_sparsity_pattern()
   // Sparsity pattern and allocate matrix after the constraints have been
   // defined
   //
+
+  const unsigned int n_components   = this->ordering->n_components;
+  auto              &coupling_table = this->coupling_table;
+  coupling_table.reinit(n_components, n_components);
+
+  // If stabilized, (u,p) couples to (u,p).
+  if (this->param.stabilization.enable_supg)
+    coupling_table.fill(DoFTools::always);
+  else
+  {
+    // Nonstabilized case
+    for (unsigned int c = 0; c < n_components; ++c)
+      for (unsigned int d = 0; d < n_components; ++d)
+      {
+        coupling_table[c][d] = DoFTools::none;
+
+        // u couples to (u,p)
+        if (this->ordering->is_velocity(c))
+          coupling_table[c][d] = DoFTools::always;
+
+        // p couples to u only
+        if (this->ordering->is_pressure(c))
+          if (this->ordering->is_velocity(d))
+            coupling_table[c][d] = DoFTools::always;
+      }
+  }
+
 #if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
   DoFTools::make_sparsity_pattern(*this->dof_handler,
@@ -207,13 +251,7 @@ void NSSolver<dim>::assemble_local_matrix_finite_differences(
   CopyData                                             &copy_data)
 {
   Verification::compute_local_matrix_finite_differences<dim>(
-    cell,
-    *this,
-    &NSSolver::assemble_local_rhs,
-    scratch_data,
-    copy_data,
-    this->evaluation_point,
-    this->local_evaluation_point);
+    cell, *this, &NSSolver::assemble_local_rhs, scratch_data, copy_data);
 }
 
 template <int dim>
@@ -223,6 +261,7 @@ void NSSolver<dim>::assemble_local_matrix(
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
+  copy_data.cell_is_at_boundary   = cell->at_boundary();
 
   if (!cell->is_locally_owned())
     return;
@@ -236,84 +275,8 @@ void NSSolver<dim>::assemble_local_matrix(
   auto &local_matrix = copy_data.local_matrix();
   local_matrix       = 0;
 
-  const double nu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity;
-
-  const double bdf_c0 = this->time_handler.bdf_coefficients[0];
-
-  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
-  {
-    const double JxW = scratch_data.JxW_moving[q];
-
-    const auto &phi_u      = scratch_data.phi_u[q];
-    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
-    const auto &div_phi_u  = scratch_data.div_phi_u[q];
-    const auto &phi_p      = scratch_data.phi_p[q];
-
-    const auto &present_velocity_values =
-      scratch_data.present_velocity_values[q];
-    const auto &present_velocity_gradients =
-      scratch_data.present_velocity_gradients[q];
-
-    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-    {
-      const unsigned int component_i = scratch_data.components[i];
-      const bool         i_is_u      = this->ordering->is_velocity(component_i);
-      const bool         i_is_p      = this->ordering->is_pressure(component_i);
-
-      for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
-      {
-        const unsigned int component_j = scratch_data.components[j];
-        const bool         j_is_u = this->ordering->is_velocity(component_j);
-        const bool         j_is_p = this->ordering->is_pressure(component_j);
-
-        bool   assemble        = false;
-        double local_matrix_ij = 0.;
-
-        if (i_is_u && j_is_u)
-        {
-          assemble = true;
-          // Time-dependent
-          local_matrix_ij += bdf_c0 * phi_u[i] * phi_u[j];
-          // Convection
-          local_matrix_ij += (grad_phi_u[j] * present_velocity_values +
-                              present_velocity_gradients * phi_u[j]) *
-                             phi_u[i];
-          // Diffusion
-          local_matrix_ij += nu * scalar_product(grad_phi_u[i], grad_phi_u[j]);
-        }
-
-        if (i_is_u && j_is_p)
-        {
-          assemble = true;
-          // Pressure gradient
-          local_matrix_ij += -div_phi_u[i] * phi_p[j];
-        }
-
-        if (i_is_p && j_is_u)
-        {
-          assemble = true;
-          // Continuity
-          local_matrix_ij += -phi_p[i] * div_phi_u[j];
-        }
-
-        if (assemble)
-        {
-          local_matrix_ij *= JxW;
-          local_matrix(i, j) += local_matrix_ij;
-        }
-      }
-    }
-  }
-
-  Assembly::assemble_ns_matrix_stabilization<dim>(*this->ordering,
-                                                  this->coupling_table,
-                                                  scratch_data,
-                                                  nu,
-                                                  bdf_c0,
-                                                  this->param.finite_elements
-                                                    .stabilization,
-                                                  local_matrix);
+  for (const auto &assembler : assemblers)
+    assembler->assemble_matrix(scratch_data, copy_data);
 
   cell->get_dof_indices(copy_data.dof_indices());
 }
@@ -333,27 +296,13 @@ template <int dim>
 void NSSolver<dim>::compare_analytical_matrix_with_fd()
 {
   CopyData copy_data(*fe);
-
-  auto errors = Verification::compare_analytical_matrix_with_fd(
-    *this->dof_handler,
-    fe->n_dofs_per_cell(),
+  Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
     &NSSolver::assemble_local_matrix,
     &NSSolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
-    *this->present_solution,
-    this->evaluation_point,
-    this->local_evaluation_point,
-    this->mpi_communicator);
-
-  this->pcout << "Max absolute error analytical vs fd matrix is "
-              << errors.first << std::endl;
-
-  // Only print relative error if absolute is too large
-  if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
-    this->pcout << "Max relative error analytical vs fd matrix is "
-                << errors.second << std::endl;
+    this->param.nonlinear_solver.write_problematic_elements);
 }
 
 template <int dim>
@@ -384,6 +333,7 @@ void NSSolver<dim>::assemble_local_rhs(
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
+  copy_data.cell_is_at_boundary   = cell->at_boundary();
 
   if (!cell->is_locally_owned())
     return;
@@ -397,86 +347,8 @@ void NSSolver<dim>::assemble_local_rhs(
   auto &local_rhs = copy_data.local_rhs();
   local_rhs       = 0;
 
-  const double nu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity;
-  //
-  // Volume contributions
-  //
-  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
-  {
-    const double JxW = scratch_data.JxW_moving[q];
-
-    const auto &present_velocity_values =
-      scratch_data.present_velocity_values[q];
-    const auto &present_velocity_gradients =
-      scratch_data.present_velocity_gradients[q];
-    const auto &present_pressure_values =
-      scratch_data.present_pressure_values[q];
-    const auto  &source_term_velocity = scratch_data.source_term_velocity[q];
-    const auto  &source_term_pressure = scratch_data.source_term_pressure[q];
-    const double present_velocity_divergence =
-      trace(present_velocity_gradients);
-
-    const Tensor<1, dim> dudt =
-      this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratch_data.previous_velocity_values);
-
-    const auto &phi_p      = scratch_data.phi_p[q];
-    const auto &phi_u      = scratch_data.phi_u[q];
-    const auto &grad_phi_u = scratch_data.grad_phi_u[q];
-    const auto &div_phi_u  = scratch_data.div_phi_u[q];
-
-    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-    {
-      double local_rhs_i = -(
-        // Transient
-        dudt * phi_u[i]
-        // Convection
-        + (present_velocity_gradients * present_velocity_values) * phi_u[i]
-        // Diffusion
-        + nu * scalar_product(present_velocity_gradients, grad_phi_u[i])
-        // Pressure gradient
-        - div_phi_u[i] * present_pressure_values
-        // Momentum source term
-        + source_term_velocity * phi_u[i]
-        // Continuity
-        - present_velocity_divergence * phi_p[i]
-        // Pressure source term
-        + source_term_pressure * phi_p[i]);
-
-      local_rhs(i) += local_rhs_i * JxW;
-    }
-  }
-
-  Assembly::assemble_ns_rhs_stabilization<dim>(*this->ordering,
-                                               scratch_data,
-                                               this->param.finite_elements
-                                                 .stabilization,
-                                               local_rhs);
-
-  //
-  // Face contributions
-  //
-  if (cell->at_boundary())
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-      if (face->at_boundary())
-      {
-        const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
-
-        // Open boundary condition with prescribed manufactured solution
-        if (fluid_bc.type == BoundaryConditions::Type::open_mms)
-        {
-          Assembly::traction_boundary_mms_rhs(*this->ordering,
-                                              i_face,
-                                              nu,
-                                              scratch_data,
-                                              local_rhs,
-                                              /* full_traction = */ false);
-        }
-      }
-    }
+  for (const auto &assembler : assemblers)
+    assembler->assemble_rhs(scratch_data, copy_data);
 
   cell->get_dof_indices(copy_data.dof_indices());
 }

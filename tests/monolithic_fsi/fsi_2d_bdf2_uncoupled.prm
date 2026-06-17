@@ -170,9 +170,3 @@ subsection Manufactured solution
     set time step reduction  = 0.5
   end
 end
-
-subsection Debug
-  set compare jacobian matrix with fd        = false
-  set analytical_jacobian_absolute_tolerance = 1e-6
-  set analytical_jacobian_relative_tolerance = 1e-4
-end

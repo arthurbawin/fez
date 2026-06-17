@@ -1,6 +1,6 @@
 
 subsection Dimension
-  set dimension = 2
+  set dimension = 3
 end
 
 subsection Timer
@@ -14,16 +14,15 @@ subsection Output
 end
 
 subsection Mesh
-  set verbosity = verbose
+  set verbosity = quiet
 end
 
 subsection Time integration
-  set verbosity        = quiet
-  set dt               = 0.1
-  set t_initial        = 0
-  set t_end            = 0.5
-  set scheme           = BDF2
-  set bdf start method = BDF1
+  set verbosity = quiet
+  set dt        = 0.1
+  set t_initial = 0
+  set t_end     = 0.4
+  set scheme    = BDF2
 end
 
 subsection Nonlinear solver
@@ -31,9 +30,9 @@ subsection Nonlinear solver
   set tolerance            = 1e-8
   set divergence_tolerance = 1e+4
   set max_iterations       = 50
-  set enable_line_search   = true
+  set enable_line_search   = false
   set analytic_jacobian    = true
-end
+end 
 
 subsection Linear solver
   subsection main physics
@@ -43,7 +42,6 @@ subsection Linear solver
 end
 
 subsection FiniteElements
-  set stabilization  = true
   set Velocity degree = 1
   set Pressure degree = 1
 end
@@ -52,8 +50,12 @@ subsection Physical properties
   set number of fluids = 1
   subsection Fluid 0
     set density             = 1.2345
-    set kinematic viscosity = 9.81
+    set kinematic viscosity = 9.8765
   end
+end
+
+subsection Stabilization
+  set enable supg = true
 end
 
 subsection Initial conditions
@@ -61,7 +63,7 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
-  set number = 4
+  set number = 6
   set fix pressure constant = true
   subsection boundary 0
     set id   = 1
@@ -83,21 +85,33 @@ subsection Fluid boundary conditions
     set name = y_max
     set type = velocity_mms
   end
+  subsection boundary 4
+    set id   = 5
+    set name = z_min
+    set type = velocity_mms
+  end
+  subsection boundary 5
+    set id   = 6
+    set name = z_max
+    set type = velocity_mms
+  end
 end
 
 subsection Exact solution
+    # Divergence-free velocity field
   subsection exact velocity
-    set Function expression = sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y)*t^4; cos(pi*x)*sin(pi*x)*sin(pi*y)*sin(pi*y)*t^4
+    set Function expression = cos(t) * sin(pi*x)*cos(pi*y)*cos(pi*z); 1/(1 + t^2) * cos(pi*x)*sin(pi*y)*cos(pi*z); sin(t) * (-2.)*cos(pi*x)*cos(pi*y)*sin(pi*z)
   end
+
   subsection exact pressure
-    set Function expression = sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y)*t^4
+    set Function expression = cos(t)*cos(pi*x)*sin(pi*y)*cos(pi*z)
   end
 end
 
 subsection Manufactured solution
   set enable            = true
   set type              = spacetime
-  set convergence steps = 4
+  set convergence steps = 2
 
   subsection Space convergence
     set use dealii cube mesh = true
@@ -107,16 +121,7 @@ subsection Manufactured solution
   subsection Time convergence
     set norm                = Linfty
     set use spatial mesh    = true
+    set spatial mesh index  = 0
     set time step reduction = 0.5
   end
 end
-
-subsection Debug
-  set verbosity                              = quiet
-  set apply exact solution                   = false
-  set compare jacobian matrix with fd        = false
-  set analytical_jacobian_absolute_tolerance = 1e-4
-  set analytical_jacobian_relative_tolerance = 1e-4
-end
-
-

@@ -385,10 +385,12 @@ template <int dim>
 void MetricField<dim>::apply_gradation()
 {
   if (param->metric_fields[index].gradation.enable)
+  {
     if (deterministic_gradation)
       apply_gradation_deterministic();
     else
       apply_gradation_non_deterministic();
+  }
 }
 
 template <int dim>

@@ -138,6 +138,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize()
   const auto description = get_variables_description();
   postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
     param, *triangulation, *dof_handler, description);
+
+  // Create the assemblers
+  setup_assemblers();
 }
 
 template <int dim, bool with_moving_mesh>
@@ -299,7 +302,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
       {
         // Entering the Newton solver with a solution satisfying the nonzero
         // constraints, which were applied in update_boundary_condition().
-        if (param.debug.compare_analytical_jacobian_with_fd)
+        if (param.nonlinear_solver.compare_jacobian_with_finite_differences)
           compare_analytical_matrix_with_fd();
 
         if (param.debug.apply_exact_solution)

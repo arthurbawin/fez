@@ -57,33 +57,43 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
     if (param.finite_elements.use_quads)
       if constexpr (with_enlarged)
         fe = std::make_unique<FESystem<dim>>(
-          FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim),
           FE_Q<dim>(param.finite_elements.pressure_degree),
-          FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
+                        dim),
           FE_Q<dim>(param.finite_elements.tracer_degree),
           FE_Q<dim>(param.finite_elements.potential_degree),
           FE_Q<dim>(param.finite_elements.potential_degree));
       else
         fe = std::make_unique<FESystem<dim>>(
-          FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim),
           FE_Q<dim>(param.finite_elements.pressure_degree),
-          FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
+                        dim),
           FE_Q<dim>(param.finite_elements.tracer_degree),
           FE_Q<dim>(param.finite_elements.potential_degree));
     else
       if constexpr (with_enlarged)
         fe = std::make_unique<FESystem<dim>>(
-          FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FESystem<dim>(FE_SimplexP<dim>(
+                          param.finite_elements.velocity_degree) ^
+                        dim),
           FE_SimplexP<dim>(param.finite_elements.pressure_degree),
-          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FESystem<dim>(FE_SimplexP<dim>(
+                          param.finite_elements.mesh_position_degree) ^
+                        dim),
           FE_SimplexP<dim>(param.finite_elements.tracer_degree),
           FE_SimplexP<dim>(param.finite_elements.potential_degree),
           FE_SimplexP<dim>(param.finite_elements.potential_degree));
       else
         fe = std::make_unique<FESystem<dim>>(
-          FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+          FESystem<dim>(FE_SimplexP<dim>(
+                          param.finite_elements.velocity_degree) ^
+                        dim),
           FE_SimplexP<dim>(param.finite_elements.pressure_degree),
-          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
+          FESystem<dim>(FE_SimplexP<dim>(
+                          param.finite_elements.mesh_position_degree) ^
+                        dim),
           FE_SimplexP<dim>(param.finite_elements.tracer_degree),
           FE_SimplexP<dim>(param.finite_elements.potential_degree));
 
@@ -94,13 +104,14 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
   {
     if (param.finite_elements.use_quads)
       fe = std::make_unique<FESystem<dim>>(
-        FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim),
         FE_Q<dim>(param.finite_elements.pressure_degree),
         FE_Q<dim>(param.finite_elements.tracer_degree),
         FE_Q<dim>(param.finite_elements.potential_degree));
     else
       fe = std::make_unique<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                      dim),
         FE_SimplexP<dim>(param.finite_elements.pressure_degree),
         FE_SimplexP<dim>(param.finite_elements.tracer_degree),
         FE_SimplexP<dim>(param.finite_elements.potential_degree));
@@ -309,7 +320,9 @@ void CHNSSolver<dim,
                                                *this->quadrature,
                                                *this->face_quadrature,
                                                this->time_handler,
-                                               this->param);
+                                               this->param,
+                                               this->param.finite_elements
+                                                 .stabilization);
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
@@ -546,13 +559,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
     CopyData                                             &copy_data)
 {
   Verification::compute_local_matrix_finite_differences<dim>(
-    cell,
-    *this,
-    &CHNSSolver::assemble_local_rhs,
-    scratch_data,
-    copy_data,
-    this->evaluation_point,
-    this->local_evaluation_point);
+    cell, *this, &CHNSSolver::assemble_local_rhs, scratch_data, copy_data);
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
@@ -1038,31 +1045,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   compare_analytical_matrix_with_fd()
 {
   CopyData copy_data(*fe);
-
-  auto errors = Verification::compare_analytical_matrix_with_fd(
-    *this->dof_handler,
-    fe->n_dofs_per_cell(),
+  Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
-    *this->present_solution,
-    this->evaluation_point,
-    this->local_evaluation_point,
-    this->mpi_communicator,
-    this->param.output.output_prefix,
-    false,
-    this->param.debug.analytical_jacobian_absolute_tolerance,
-    this->param.debug.analytical_jacobian_relative_tolerance);
-
-  this->pcout << "Max absolute error analytical vs fd matrix is "
-              << errors.first << std::endl;
-
-  // Only print relative error if absolute is too large
-  if (errors.first > this->param.debug.analytical_jacobian_absolute_tolerance)
-    this->pcout << "Max relative error analytical vs fd matrix is "
-                << errors.second << std::endl;
+    this->param.nonlinear_solver.write_problematic_elements);
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>

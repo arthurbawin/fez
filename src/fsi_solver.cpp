@@ -1,6 +1,6 @@
 
-#include <assembly/boundary_forms.h>
-#include <assembly/lagrange_multiplier.h>
+#include <assembly/incompressible_ns_assemblers.h>
+#include <assembly/lagrange_multiplier_assemblers.h>
 #include <compare_matrix.h>
 #include <components_ordering.h>
 #include <copy_data.h>
@@ -37,53 +37,67 @@ FSISolverLessLambda<dim>::FSISolverLessLambda(const ParameterReader<dim> &param)
   if (param.finite_elements.use_quads)
   {
     fe_with_lambda = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,      // Velocity
-      FE_Q<dim>(param.finite_elements.pressure_degree),            // Pressure
-      FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim, // Position
-      FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
-        dim); // Lagrange multiplier
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^
+                    dim),                               // Velocity
+      FE_Q<dim>(param.finite_elements.pressure_degree), // Pressure
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
+                    dim), // Position
+      FESystem<dim>(
+        FE_Q<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
+        dim)); // Lagrange multiplier
     fe_without_lambda = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim,
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.velocity_degree) ^ dim),
       FE_Q<dim>(param.finite_elements.pressure_degree),
-      FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim,
-      FE_Nothing<dim>() ^ dim);
+      FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
+                    dim),
+      FESystem<dim>(FE_Nothing<dim>() ^ dim));
   }
   else
   {
     if constexpr (dim == 2)
     {
       fe_with_lambda = std::make_unique<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
-          dim,                                                   // Velocity
+        FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                      dim),                                      // Velocity
         FE_SimplexP<dim>(param.finite_elements.pressure_degree), // Pressure
-        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^
-          dim, // Position
-        FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
-          dim); // Lagrange multiplier
+        FESystem<dim>(
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^
+          dim), // Position
+        FESystem<dim>(
+          FE_SimplexP<dim>(param.finite_elements.no_slip_lagrange_mult_degree) ^
+          dim)); // Lagrange multiplier
       fe_without_lambda = std::make_unique<FESystem<dim>>(
-        FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(FE_SimplexP<dim>(param.finite_elements.velocity_degree) ^
+                      dim),
         FE_SimplexP<dim>(param.finite_elements.pressure_degree),
-        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim,
-        FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
+        FESystem<dim>(
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim),
+        FESystem<dim>(FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^
+                      dim));
     }
     else
     {
       fe_with_lambda = std::make_unique<FESystem<dim>>(
-        FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^
-          dim, // Velocity
+        FESystem<dim>(
+          FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^
+          dim), // Velocity
         FE_SimplexP_3D_hp<dim>(
           param.finite_elements.pressure_degree), // Pressure
-        FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
-          dim, // Position
-        FE_SimplexP_3D_hp<dim>(
-          param.finite_elements.no_slip_lagrange_mult_degree) ^
-          dim); // Lagrange multiplier
+        FESystem<dim>(
+          FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
+          dim), // Position
+        FESystem<dim>(FE_SimplexP_3D_hp<dim>(
+                        param.finite_elements.no_slip_lagrange_mult_degree) ^
+                      dim)); // Lagrange multiplier
       fe_without_lambda = std::make_unique<FESystem<dim>>(
-        FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim,
+        FESystem<dim>(
+          FE_SimplexP_3D_hp<dim>(param.finite_elements.velocity_degree) ^ dim),
         FE_SimplexP_3D_hp<dim>(param.finite_elements.pressure_degree),
-        FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
-          dim,
-        FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^ dim);
+        FESystem<dim>(
+          FE_SimplexP_3D_hp<dim>(param.finite_elements.mesh_position_degree) ^
+          dim),
+        FESystem<dim>(FE_Nothing<dim>(ReferenceCells::get_simplex<dim>()) ^
+                      dim));
     }
   }
 
@@ -229,6 +243,25 @@ void FSISolverLessLambda<dim>::create_scratch_data()
                                                face_quadrature_collection,
                                                this->time_handler,
                                                this->param);
+}
+
+template <int dim>
+void FSISolverLessLambda<dim>::setup_assemblers()
+{
+  assemblers.clear();
+
+  using namespace Assembly::IncompressibleNavierStokes;
+
+  Assembly::IncompressibleNavierStokes::setup_assemblers<dim,
+                                                         ScratchData,
+                                                         CopyData,
+                                                         divergence_form |
+                                                           pseudo_solid>(
+    this->param, *this->ordering, this->coupling_table, assemblers);
+
+  Assembly::LagrangeMultiplier::
+    setup_assemblers<dim, ScratchData, CopyData, /* with_moving_mesh = */ true>(
+      this->param, *this->ordering, assemblers);
 }
 
 template <int dim>
@@ -1839,7 +1872,9 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
   ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
-  copy_data.cell_is_locally_owned = cell->is_locally_owned();
+  copy_data.cell_is_locally_owned        = cell->is_locally_owned();
+  copy_data.cell_is_at_boundary          = cell->at_boundary();
+  copy_data.cell_has_lagrange_multiplier = cell_has_lambda(cell);
 
   if (!cell->is_locally_owned())
     return;
@@ -1856,252 +1891,9 @@ void FSISolverLessLambda<dim>::assemble_local_matrix(
   auto &local_dof_indices        = copy_data.dof_indices(fe_index);
   local_matrix                   = 0;
 
-  const double nu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity;
+  for (const auto &assembler : assemblers)
+    assembler->assemble_matrix(scratch_data, copy_data);
 
-  const double bdf_c0 = this->time_handler.bdf_coefficients[0];
-
-  std::vector<Tensor<1, dim>> to_multiply_by_phi_u_i_momentum(
-    scratch_data.dofs_per_cell);
-  std::vector<Tensor<1, dim>> to_multiply_by_phi_u_i_position(
-    scratch_data.dofs_per_cell);
-  std::vector<double> trace_gradu_dot_grad_phi_x_j(scratch_data.dofs_per_cell);
-  std::vector<Tensor<2, dim>> sym_gradu_dot_grad_phi_x_j(
-    scratch_data.dofs_per_cell);
-
-  const auto u_lower = const_ordering.u_lower;
-  const auto x_lower = const_ordering.x_lower;
-
-  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
-  {
-    const double lame_mu     = scratch_data.lame_mu[q];
-    const double lame_lambda = scratch_data.lame_lambda[q];
-
-    const double JxW_moving = scratch_data.JxW_moving[q];
-    const double JxW_fixed  = scratch_data.JxW_fixed[q];
-
-    const auto &phi_u            = scratch_data.phi_u[q];
-    const auto &grad_phi_u       = scratch_data.grad_phi_u[q];
-    const auto &div_phi_u        = scratch_data.div_phi_u[q];
-    const auto &phi_p            = scratch_data.phi_p[q];
-    const auto &phi_x            = scratch_data.phi_x[q];
-    const auto &grad_phi_x       = scratch_data.grad_phi_x[q];
-    const auto &sym_grad_phi_x   = scratch_data.sym_grad_phi_x[q];
-    const auto &div_phi_x        = scratch_data.div_phi_x[q];
-    const auto &trace_grad_phi_x = scratch_data.trace_grad_phi_x[q];
-
-    const auto &present_velocity_values =
-      scratch_data.present_velocity_values[q];
-    const auto &present_velocity_gradients =
-      scratch_data.present_velocity_gradients[q];
-    const auto &present_velocity_sym_gradients =
-      scratch_data.present_velocity_sym_gradients[q];
-    const double present_velocity_divergence =
-      trace(present_velocity_gradients);
-    const double present_pressure_values =
-      scratch_data.present_pressure_values[q];
-
-    const auto &dxdt = scratch_data.present_mesh_velocity_values[q];
-
-    const auto u_ale            = present_velocity_values - dxdt;
-    const auto u_dot_grad_u_ale = present_velocity_gradients * u_ale;
-
-    // BDF: current dudt
-    const Tensor<1, dim> dudt =
-      this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratch_data.previous_velocity_values);
-
-    // Precompute quantities depending only on j
-    for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
-    {
-      const auto &phi_u_j      = phi_u[j];
-      const auto &grad_phi_u_j = grad_phi_u[j];
-
-      to_multiply_by_phi_u_i_momentum[j] = bdf_c0 * phi_u_j +
-                                           grad_phi_u_j * u_ale +
-                                           present_velocity_gradients * phi_u_j;
-
-      const auto &phi_x_j            = phi_x[j];
-      const auto &grad_phi_x_j       = grad_phi_x[j];
-      const auto  trace_grad_phi_x_j = trace_grad_phi_x[j];
-
-      const auto gradu_dot_grad_phi_x_j =
-        present_velocity_gradients * grad_phi_x_j;
-
-      trace_gradu_dot_grad_phi_x_j[j] = trace(gradu_dot_grad_phi_x_j);
-
-      sym_gradu_dot_grad_phi_x_j[j] =
-        present_velocity_sym_gradients * grad_phi_x_j;
-
-      to_multiply_by_phi_u_i_position[j] =
-        (dudt + u_dot_grad_u_ale) * trace_grad_phi_x_j -
-        gradu_dot_grad_phi_x_j * u_ale -
-        present_velocity_gradients * bdf_c0 * phi_x_j;
-    }
-
-    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-    {
-      const unsigned int comp_i = scratch_data.components[i];
-      const bool         i_is_u =
-        const_ordering.u_lower <= comp_i && comp_i < const_ordering.u_upper;
-      const bool i_is_p = comp_i == const_ordering.p_lower;
-      const bool i_is_x =
-        const_ordering.x_lower <= comp_i && comp_i < const_ordering.x_upper;
-      const bool i_is_l =
-        const_ordering.l_lower <= comp_i && comp_i < const_ordering.l_upper;
-      if (i_is_l)
-        continue;
-
-      const auto &coupling_row = this->coupling_table[comp_i];
-
-      const auto &phi_u_i      = phi_u[i];
-      const auto &grad_phi_u_i = grad_phi_u[i];
-      const auto &div_phi_u_i  = div_phi_u[i];
-      const auto &phi_p_i      = phi_p[i];
-      const auto &grad_phi_x_i = grad_phi_x[i];
-      const auto &div_phi_x_i  = div_phi_x[i];
-
-      const Tensor<2, dim> sym_grad_u_dot_grad_phi_u_i =
-        present_velocity_sym_gradients * grad_phi_u_i;
-      const double trace_sym_grad_u_dot_grad_phi_u_i =
-        trace(sym_grad_u_dot_grad_phi_u_i);
-
-      for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
-      {
-        const unsigned int comp_j = scratch_data.components[j];
-
-        // If lambda dof, continue before reading the coupling table
-        const bool j_is_l =
-          const_ordering.l_lower <= comp_j && comp_j < const_ordering.l_upper;
-        if (j_is_l)
-          continue;
-        if (coupling_row[comp_j] != DoFTools::always)
-          continue;
-        const bool j_is_u =
-          const_ordering.u_lower <= comp_j && comp_j < const_ordering.u_upper;
-        const bool j_is_p = comp_j == const_ordering.p_lower;
-        const bool j_is_x =
-          const_ordering.x_lower <= comp_j && comp_j < const_ordering.x_upper;
-
-        // Account for the pressure gradient when initializing
-        double local_flow_matrix_ij = j_is_p ? -div_phi_u_i * phi_p[j] : 0.;
-
-        /**
-         * Momentum equation
-         */
-        if (i_is_u)
-        {
-          if (j_is_u)
-          {
-            const auto &gui = grad_phi_u_i[comp_i];
-            const auto &guj = grad_phi_u[j][comp_j];
-
-            // Time derivative, convection (including ALE) and diffusion
-            local_flow_matrix_ij +=
-              phi_u_i * to_multiply_by_phi_u_i_momentum[j]
-
-              // The following is the diffusion term
-              // 2. * nu * scalar_product(sym_grad_phi_u[j], sym_grad_phi_u_i),
-              // explicited for the symmetric gradient of Lagrange shape
-              // functions
-              + nu * (gui[comp_j - u_lower] * guj[comp_i - u_lower]);
-            if (comp_i == comp_j)
-              local_flow_matrix_ij += nu * gui * guj;
-          }
-
-          if (j_is_x)
-          {
-            // Variation of all momentum terms on moving mesh w.r.t. position
-            // Does not include variation of the velocity source term : this
-            // term is only needed for manufactured solutions, and slows down
-            // the assembly. Ommitting it does not seem to affect convergence of
-            // the nonlinear solver.
-            const auto trace_grad_phi_x_j = trace_grad_phi_x[j];
-
-            local_flow_matrix_ij +=
-              phi_u_i * to_multiply_by_phi_u_i_position[j] +
-              2. * nu *
-                (-2. * scalar_product(sym_grad_phi_x[j],
-                                      sym_grad_u_dot_grad_phi_u_i) +
-                 trace_grad_phi_x_j * trace_sym_grad_u_dot_grad_phi_u_i) -
-              present_pressure_values * (trace(-grad_phi_u_i * grad_phi_x[j]) +
-                                         div_phi_u_i * trace_grad_phi_x_j);
-          }
-        }
-
-        /**
-         * Continuity equation
-         */
-        if (i_is_p)
-        {
-          if (j_is_u)
-          {
-            // Continuity : variation w.r.t. u
-            local_flow_matrix_ij += -phi_p_i * div_phi_u[j];
-          }
-
-          if (j_is_x)
-          {
-            // Continuity : variation w.r.t. x
-            // Does not include variation of the pressure source term : this
-            // term is only needed for manufactured solutions, and slows down
-            // the assembly. Ommitting it does not seem to affect convergence of
-            // the nonlinear solver.
-            local_flow_matrix_ij +=
-              phi_p_i * (trace_gradu_dot_grad_phi_x_j[j] -
-                         present_velocity_divergence * trace_grad_phi_x[j]);
-          }
-        }
-
-        /**
-         * Pseudo-solid equation
-         */
-        double local_ps_matrix_ij = 0.;
-        if (i_is_x && j_is_x)
-        {
-          const auto &gxi = grad_phi_x_i[comp_i - x_lower];
-          const auto &gxj = grad_phi_x[j][comp_j - x_lower];
-
-          // Linear elasticity
-          local_ps_matrix_ij +=
-            lame_lambda * div_phi_x[j] * div_phi_x_i
-
-            // The following is the double contraction
-            // 2. * lame_mu * scalar_product(sym_grad_phi_x_j, sym_grad_phi_x_i)
-            // explicited for the symmetric gradient of Lagrange shape functions
-            + lame_mu * gxi[comp_j - x_lower] * gxj[comp_i - x_lower];
-          if (comp_i == comp_j)
-            local_ps_matrix_ij += lame_mu * gxi * gxj;
-
-          local_ps_matrix_ij *= JxW_fixed;
-        }
-
-        local_flow_matrix_ij *= JxW_moving;
-        local_matrix(i, j) += local_flow_matrix_ij + local_ps_matrix_ij;
-      }
-    }
-  }
-
-  //
-  // Face contributions (Lagrange multiplier)
-  //
-  if (cell->at_boundary())
-  {
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary() &&
-          face->boundary_id() == weak_no_slip_boundary_id)
-      {
-        Assembly::weakly_enforced_no_slip_matrix<true, dim>(*this->ordering,
-                                                            i_face,
-                                                            scratch_data,
-                                                            this->time_handler,
-                                                            local_matrix);
-      }
-    }
-  }
   cell->get_dof_indices(local_dof_indices);
 }
 
@@ -2121,41 +1913,14 @@ void FSISolverLessLambda<dim>::copy_local_to_global_matrix(
 template <int dim>
 void FSISolverLessLambda<dim>::compare_analytical_matrix_with_fd()
 {
-  // ScratchData scratch_data(*this->ordering,
-  //                          *fe,
-  //                          fixed_mapping_collection,
-  //                          moving_mapping_collection,
-  //                          quadrature_collection,
-  //                          face_quadrature_collection,
-  //                          this->time_handler.bdf_coefficients,
-  //                          this->param);
-  // CopyData    copy_data(*fe);
-
-  // auto errors = Verification::compare_analytical_matrix_with_fd(
-  //   this->dof_handler,
-  //   fe->n_dofs_per_cell(),
-  //   *this,
-  //   &FSISolverLessLambda::assemble_local_matrix,
-  //   &FSISolverLessLambda::assemble_local_rhs,
-  //   scratch_data,
-  //   copy_data,
-  //   this->present_solution,
-  //   this->evaluation_point,
-  //   this->local_evaluation_point,
-  //   this->mpi_communicator,
-  //   this->param.output.output_dir,
-  //   true,
-  //   this->param.debug.analytical_jacobian_absolute_tolerance,
-  //   this->param.debug.analytical_jacobian_relative_tolerance);
-
-  // this->pcout << "Max absolute error analytical vs fd matrix is "
-  //             << errors.first << std::endl;
-
-  // // Only print relative error if absolute is too large
-  // if (errors.first >
-  // this->param.debug.analytical_jacobian_absolute_tolerance)
-  //   this->pcout << "Max relative error analytical vs fd matrix is "
-  //               << errors.second << std::endl;
+  CopyData copy_data(*fe);
+  Verification::compare_analytical_matrix_with_fd<dim>(
+    *this,
+    &FSISolverLessLambda::assemble_local_matrix,
+    &FSISolverLessLambda::assemble_local_rhs,
+    *scratch_data,
+    copy_data,
+    this->param.nonlinear_solver.write_problematic_elements);
 }
 
 template <int dim>
@@ -2188,7 +1953,9 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
   ScratchData                                          &scratch_data,
   CopyData                                             &copy_data)
 {
-  copy_data.cell_is_locally_owned = cell->is_locally_owned();
+  copy_data.cell_is_locally_owned        = cell->is_locally_owned();
+  copy_data.cell_is_at_boundary          = cell->at_boundary();
+  copy_data.cell_has_lagrange_multiplier = cell_has_lambda(cell);
 
   if (!cell->is_locally_owned())
     return;
@@ -2205,157 +1972,9 @@ void FSISolverLessLambda<dim>::assemble_local_rhs(
   auto &local_dof_indices        = copy_data.dof_indices(fe_index);
   local_rhs                      = 0;
 
-  const double nu =
-    this->param.physical_properties.fluids[0].kinematic_viscosity;
-  const SymmetricTensor<2, dim> identity_tensor = unit_symmetric_tensor<dim>();
+  for (const auto &assembler : assemblers)
+    assembler->assemble_rhs(scratch_data, copy_data);
 
-  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
-  {
-    //
-    // Flow related data
-    //
-    const double JxW_moving = scratch_data.JxW_moving[q];
-
-    const auto &present_velocity_values =
-      scratch_data.present_velocity_values[q];
-    const auto &present_velocity_gradients =
-      scratch_data.present_velocity_gradients[q];
-    const auto &present_velocity_sym_gradients =
-      scratch_data.present_velocity_sym_gradients[q];
-    const auto &present_pressure_values =
-      scratch_data.present_pressure_values[q];
-    const auto &present_mesh_velocity_values =
-      scratch_data.present_mesh_velocity_values[q];
-    const auto  &source_term_velocity = scratch_data.source_term_velocity[q];
-    const auto  &source_term_pressure = scratch_data.source_term_pressure[q];
-    const double present_velocity_divergence =
-      trace(present_velocity_gradients);
-
-    const Tensor<1, dim> dudt =
-      this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratch_data.previous_velocity_values);
-
-    const auto &phi_p          = scratch_data.phi_p[q];
-    const auto &phi_u          = scratch_data.phi_u[q];
-    const auto &sym_grad_phi_u = scratch_data.sym_grad_phi_u[q];
-    const auto &div_phi_u      = scratch_data.div_phi_u[q];
-
-    //
-    // Pseudo-solid related data
-    //
-    const double lame_mu     = scratch_data.lame_mu[q];
-    const double lame_lambda = scratch_data.lame_lambda[q];
-
-    const double JxW_fixed = scratch_data.JxW_fixed[q];
-
-    const auto &present_position_gradients =
-      scratch_data.present_position_gradients[q];
-    const double present_displacement_divergence =
-      trace(present_position_gradients);
-    const auto present_strain =
-      symmetrize(present_position_gradients) - identity_tensor;
-    const double present_trace_strain =
-      present_displacement_divergence - (double)dim;
-    const auto &source_term_position = scratch_data.source_term_position[q];
-
-    const auto u_dot_grad_u_ale =
-      present_velocity_gradients *
-      (present_velocity_values - present_mesh_velocity_values);
-    const auto to_multiply_by_phi_u_i =
-      (dudt + u_dot_grad_u_ale + source_term_velocity);
-
-    const auto &phi_x          = scratch_data.phi_x[q];
-    const auto &sym_grad_phi_x = scratch_data.sym_grad_phi_x[q];
-    const auto &div_phi_x      = scratch_data.div_phi_x[q];
-
-    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-    {
-      const unsigned int comp_i = scratch_data.components[i];
-      const bool         i_is_u =
-        const_ordering.u_lower <= comp_i && comp_i < const_ordering.u_upper;
-      const bool i_is_p = comp_i == const_ordering.p_lower;
-      const bool i_is_x =
-        const_ordering.x_lower <= comp_i && comp_i < const_ordering.x_upper;
-      const bool i_is_l =
-        const_ordering.l_lower <= comp_i && comp_i < const_ordering.l_upper;
-
-      if (i_is_l)
-        continue;
-
-      //
-      // Flow residual
-      //
-      double local_rhs_flow_i =
-        i_is_p ?
-          -phi_p[i] * (-present_velocity_divergence + source_term_pressure) :
-          0.;
-
-      if (i_is_u)
-      {
-        local_rhs_flow_i -= (
-          // Time derivative, convective acceleration and velocity source term
-          phi_u[i] * to_multiply_by_phi_u_i
-
-          // Pressure gradient
-          - div_phi_u[i] * present_pressure_values
-
-          // Diffusion
-          +
-          2. * nu *
-            scalar_product(present_velocity_sym_gradients, sym_grad_phi_u[i]));
-      }
-
-      local_rhs_flow_i *= JxW_moving;
-
-      //
-      // Pseudo-solid residual
-      //
-      double local_rhs_ps_i = 0.;
-
-      if (i_is_x)
-      {
-        local_rhs_ps_i -= (
-          // Linear elasticity : only compute double contraction if needed
-          lame_lambda * present_trace_strain * div_phi_x[i] +
-          2. * lame_mu * scalar_product(present_strain, sym_grad_phi_x[i])
-          // Linear elasticity source term
-          + phi_x[i] * source_term_position);
-        local_rhs_ps_i *= JxW_fixed;
-      }
-
-      local_rhs(i) += local_rhs_flow_i + local_rhs_ps_i;
-    }
-  }
-
-  //
-  // Face contributions
-  //
-  if (cell->at_boundary())
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-
-      if (face->at_boundary())
-      {
-        const auto &fluid_bc = this->param.fluid_bc.at(face->boundary_id());
-
-        // Lagrange multiplier for no-slip
-        if (face->boundary_id() == weak_no_slip_boundary_id)
-        {
-          Assembly::weakly_enforced_no_slip_rhs<true>(
-            *this->ordering, i_face, fluid_bc, scratch_data, local_rhs);
-        }
-
-        // Open boundary condition with prescribed manufactured solution.
-        // Applied on moving mesh.
-        if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
-              .type == BoundaryConditions::Type::open_mms)
-        {
-          Assembly::traction_boundary_mms_rhs(
-            *this->ordering, i_face, nu, scratch_data, local_rhs);
-        }
-      }
-    }
   cell->get_dof_indices(local_dof_indices);
 }
 

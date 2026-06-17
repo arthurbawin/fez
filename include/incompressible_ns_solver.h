@@ -1,6 +1,7 @@
 #ifndef INCOMPRESSIBLE_NS_SOLVER_H
 #define INCOMPRESSIBLE_NS_SOLVER_H
 
+#include <assembly/incompressible_ns_assemblers.h>
 #include <copy_data.h>
 #include <deal.II/fe/fe_values_extractors.h>
 #include <navier_stokes_solver.h>
@@ -45,6 +46,7 @@ class NSSolver : public NavierStokesSolver<dim>
 {
   using ScratchData = NavierStokesScratch::ScratchDataIncompressibleNS<dim>;
   using CopyData    = CopyDataBase<1>;
+  using Assembler   = Assembly::AssemblerBase<ScratchData, CopyData>;
 
 public:
   /**
@@ -61,6 +63,11 @@ public:
    * Create the scratch data structure for this solver.
    */
   virtual void create_scratch_data() override;
+
+  /**
+   * Create the volume and boundary assemblers for this solver.
+   */
+  virtual void setup_assemblers() override;
 
   /**
    * Create the matrix sparsity pattern, given the finite element spaces and
@@ -148,6 +155,8 @@ protected:
   const Mapping<dim> *mapping;
 
   std::unique_ptr<ScratchData> scratch_data;
+
+  std::vector<std::unique_ptr<Assembler>> assemblers;
 
   /**
    * Exact solution when performing a convergence study with a manufactured

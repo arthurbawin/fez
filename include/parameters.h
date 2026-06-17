@@ -431,6 +431,13 @@ namespace Parameters
 
     double reassembly_decrease_tol;
 
+    // Options to compare the Jacobian matrix with its finite differences
+    // approximation.
+    bool   compare_jacobian_with_finite_differences;
+    double analytical_jacobian_absolute_tolerance;
+    double analytical_jacobian_relative_tolerance;
+    bool   write_problematic_elements;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
@@ -552,6 +559,15 @@ namespace Parameters
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
     bool is_steady() const { return scheme == Scheme::stationary; }
+  };
+
+  struct Stabilization
+  {
+    // Enable SUPG/PSPG stabilization of the Navier-Stokes equations
+    bool enable_supg;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
   };
 
   template <int dim>
@@ -787,9 +803,6 @@ namespace Parameters
     bool         write_dealii_mesh_as_msh;
     bool         write_partition_pos_gmsh;
     bool         apply_exact_solution;
-    bool         compare_analytical_jacobian_with_fd;
-    double       analytical_jacobian_absolute_tolerance;
-    double       analytical_jacobian_relative_tolerance;
     bool         fsi_apply_erroneous_coupling;
     bool         fsi_check_mms_on_boundary;
     unsigned int fsi_coupling_option;

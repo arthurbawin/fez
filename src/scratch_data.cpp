@@ -1,3 +1,4 @@
+
 #include <deal.II/fe/fe_update_flags.h>
 #include <scratch_data.h>
 
@@ -7,7 +8,7 @@ namespace NavierStokesScratch
    * Get the update flags for the FEValues, depending on the enabled features.
    */
   template <unsigned int update_flags>
-  UpdateFlags get_cell_update_flags()
+  UpdateFlags get_cell_update_flags(const bool enable_stabilization)
   {
     // Flags for Navier-Stokes on fixed mesh only
     UpdateFlags flags = update_values | update_gradients |
@@ -17,10 +18,9 @@ namespace NavierStokesScratch
     if constexpr ((update_flags & pseudo_solid) != 0)
       flags |= update_jacobians;
 
-    // SUPG/PSPG stabilization: also update hessians and inverse Jacobians to
-    // compute strong residuals and stabilization parameters.
-    if constexpr ((update_flags & stabilization) != 0)
-      flags |= update_hessians | update_inverse_jacobians;
+    // SUPG/PSPG stabilization: also update hessians to compute strong residuals
+    if (enable_stabilization)
+      flags |= update_hessians; // | update_inverse_jacobians;
 
     return flags;
   }
@@ -29,7 +29,7 @@ namespace NavierStokesScratch
    * Get the update flags for the FEFaceValues.
    */
   template <unsigned int update_flags>
-  UpdateFlags get_face_update_flags()
+  UpdateFlags get_face_update_flags(const bool enable_stabilization)
   {
     // Flags for Navier-Stokes on fixed mesh only
     UpdateFlags flags = update_values | update_gradients |
@@ -41,7 +41,7 @@ namespace NavierStokesScratch
       flags |= update_jacobians;
 
     // SUPG/PSPG stabilization
-    if constexpr ((update_flags & stabilization) != 0)
+    if (enable_stabilization)
       flags |= update_hessians;
 
     return flags;
@@ -56,33 +56,35 @@ namespace NavierStokesScratch
     const Quadrature<dim>      &cell_quadrature,
     const Quadrature<dim - 1>  &face_quadrature,
     const TimeHandler          &time_handler,
-    const ParameterReader<dim> &param)
+    const ParameterReader<dim> &param,
+    const bool                  enable_stabilization)
     : param(param)
     , use_quads(param.finite_elements.use_quads)
     , ordering(ordering)
     , n_components(ordering.n_components)
+    , enable_stabilization(enable_stabilization)
     , physical_properties(param.physical_properties)
     , cahn_hilliard_param(param.cahn_hilliard)
-    , fe_values(
-        std::make_unique<FEValues<dim>>(moving_mapping,
-                                        fe,
-                                        cell_quadrature,
-                                        get_cell_update_flags<update_flags>()))
-    , fe_values_fixed(
-        std::make_unique<FEValues<dim>>(fixed_mapping,
-                                        fe,
-                                        cell_quadrature,
-                                        get_cell_update_flags<update_flags>()))
+    , fe_values(std::make_unique<FEValues<dim>>(
+        moving_mapping,
+        fe,
+        cell_quadrature,
+        get_cell_update_flags<update_flags>(enable_stabilization)))
+    , fe_values_fixed(std::make_unique<FEValues<dim>>(
+        fixed_mapping,
+        fe,
+        cell_quadrature,
+        get_cell_update_flags<update_flags>(enable_stabilization)))
     , fe_face_values(std::make_unique<FEFaceValues<dim>>(
         moving_mapping,
         fe,
         face_quadrature,
-        get_face_update_flags<update_flags>()))
+        get_face_update_flags<update_flags>(enable_stabilization)))
     , fe_face_values_fixed(std::make_unique<FEFaceValues<dim>>(
         fixed_mapping,
         fe,
         face_quadrature,
-        get_face_update_flags<update_flags>()))
+        get_face_update_flags<update_flags>(enable_stabilization)))
     , n_q_points(cell_quadrature.size())
     , n_faces(fe.reference_cell().n_faces())
     , n_faces_q_points(face_quadrature.size())
@@ -123,33 +125,35 @@ namespace NavierStokesScratch
     const hp::QCollection<dim>       &cell_quadrature_collection,
     const hp::QCollection<dim - 1>   &face_quadrature_collection,
     const TimeHandler                &time_handler,
-    const ParameterReader<dim>       &param)
+    const ParameterReader<dim>       &param,
+    const bool                        enable_stabilization)
     : param(param)
     , use_quads(param.finite_elements.use_quads)
     , ordering(ordering)
     , n_components(ordering.n_components)
+    , enable_stabilization(enable_stabilization)
     , physical_properties(param.physical_properties)
     , cahn_hilliard_param(param.cahn_hilliard)
     , hp_fe_values(std::make_unique<hp::FEValues<dim>>(
         moving_mapping_collection,
         fe_collection,
         cell_quadrature_collection,
-        get_cell_update_flags<update_flags>()))
+        get_cell_update_flags<update_flags>(enable_stabilization)))
     , hp_fe_values_fixed(std::make_unique<hp::FEValues<dim>>(
         fixed_mapping_collection,
         fe_collection,
         cell_quadrature_collection,
-        get_cell_update_flags<update_flags>()))
+        get_cell_update_flags<update_flags>(enable_stabilization)))
     , hp_fe_face_values(std::make_unique<hp::FEFaceValues<dim>>(
         moving_mapping_collection,
         fe_collection,
         face_quadrature_collection,
-        get_face_update_flags<update_flags>()))
+        get_face_update_flags<update_flags>(enable_stabilization)))
     , hp_fe_face_values_fixed(std::make_unique<hp::FEFaceValues<dim>>(
         fixed_mapping_collection,
         fe_collection,
         face_quadrature_collection,
-        get_face_update_flags<update_flags>()))
+        get_face_update_flags<update_flags>(enable_stabilization)))
     , n_q_points(cell_quadrature_collection[0].size())
     , n_faces(fe_collection[0].reference_cell().n_faces())
     , n_faces_q_points(face_quadrature_collection[0].size())
@@ -215,6 +219,7 @@ namespace NavierStokesScratch
     , use_quads(other.use_quads)
     , ordering(other.ordering)
     , n_components(other.n_components)
+    , enable_stabilization(other.enable_stabilization)
     , physical_properties(other.physical_properties)
     , cahn_hilliard_param(other.cahn_hilliard_param)
     , n_q_points(other.n_q_points)
@@ -384,8 +389,8 @@ namespace NavierStokesScratch
 
     tracer.component = phi_lower = ordering.phi_lower;
     potential.component = mu_lower = ordering.mu_lower;
-    if constexpr (update_flags & ScratchFlags::enlarged)
-      enlarged.component = psi_lower = ordering.psi_lower;
+    if constexpr (enable_enlarged)
+      psi.component = psi_lower = ordering.psi_lower;
     else
       psi_lower = numbers::invalid_unsigned_int;
 
@@ -401,7 +406,7 @@ namespace NavierStokesScratch
       CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param);
     mobility_second_derivative_function =
       CahnHilliard::get_mobility_second_derivative_function(cahn_hilliard_param);
-    epsilon     = cahn_hilliard_param.epsilon_interface;
+    epsilon            = cahn_hilliard_param.epsilon_interface;
     sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
     diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
     body_force            = physical_properties.body_force;
@@ -449,13 +454,18 @@ namespace NavierStokesScratch
     present_velocity_sym_gradients.resize(n_q_points);
     present_velocity_divergence.resize(n_q_points);
     present_pressure_values.resize(n_q_points);
-    present_pressure_gradients.resize(n_q_points);
     previous_velocity_values.resize(time_handler.n_previous_solutions,
                                     std::vector<Tensor<1, dim>>(n_q_points));
     present_velocity_time_derivatives.resize(n_q_points);
     present_velocity_laplacians.resize(n_q_points);
-    present_velocity_grad_divergences.resize(n_q_points);
     present_velocity_hessians.resize(n_q_points);
+    present_velocity_grad_div.resize(n_q_points);
+    present_pressure_gradients.resize(n_q_points);
+
+    tau_supg_velocity.resize(n_q_points);
+    if (enable_stabilization)
+      strong_residual_momentum.resize(n_q_points);
+    grad_phi_u_first_component.resize(max_dofs_per_cell);
 
     present_face_velocity_values.resize(
       n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
@@ -479,7 +489,13 @@ namespace NavierStokesScratch
     sym_grad_phi_u.resize(
       n_q_points, std::vector<SymmetricTensor<2, dim>>(max_dofs_per_cell));
     div_phi_u.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
+    laplacian_phi_u.resize(n_q_points,
+                           std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+    grad_div_phi_u.resize(n_q_points,
+                          std::vector<Tensor<1, dim>>(max_dofs_per_cell));
     phi_p.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
+    grad_phi_p.resize(n_q_points,
+                      std::vector<Tensor<1, dim>>(max_dofs_per_cell));
 
     phi_u_face.resize(n_faces,
                       std::vector<std::vector<Tensor<1, dim>>>(
@@ -518,8 +534,8 @@ namespace NavierStokesScratch
                                     std::vector<Tensor<1, dim>>(n_components));
     exact_face_velocity_gradients.resize(
       n_faces, std::vector<Tensor<2, dim>>(n_faces_q_points));
-    exact_face_velocity_divergences.resize(n_faces,
-                                           std::vector<double>(n_faces_q_points));
+    exact_face_velocity_divergences.resize(
+      n_faces, std::vector<double>(n_faces_q_points));
     exact_face_pressure_values.resize(n_faces,
                                       std::vector<double>(n_faces_q_points));
 
@@ -539,16 +555,12 @@ namespace NavierStokesScratch
 
       present_position_values.resize(n_q_points);
       present_position_gradients.resize(n_q_points);
+      present_position_inv_gradients.resize(n_q_points);
+      present_position_inv_gradients_T.resize(n_q_points);
+      present_position_J.resize(n_q_points);
       present_mesh_velocity_values.resize(n_q_points);
       previous_position_values.resize(time_handler.n_previous_solutions,
                                       std::vector<Tensor<1, dim>>(n_q_points));
-      previous_position_gradients.resize(time_handler.n_previous_solutions,
-                                         std::vector<Tensor<2, dim>>(n_q_points));
-
-      // Neo-hookean
-      present_position_J.resize(n_q_points);
-      present_position_inv_gradients.resize(n_q_points);
-      present_position_inv_gradients_T.resize(n_q_points);
 
       present_face_position_values.resize(
         n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
@@ -569,7 +581,7 @@ namespace NavierStokesScratch
         n_q_points, std::vector<SymmetricTensor<2, dim>>(max_dofs_per_cell));
       grad_phi_x_moving.resize(n_q_points,
                                std::vector<Tensor<2, dim>>(max_dofs_per_cell));
-      if constexpr (enable_stabilization)
+      if (enable_stabilization)
         hessian_phi_x_moving.resize(
           n_q_points, std::vector<Tensor<3, dim>>(max_dofs_per_cell));
       div_phi_x.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
@@ -597,8 +609,6 @@ namespace NavierStokesScratch
                                                        std::vector<double>(
                                                          max_dofs_per_cell)));
     }
-    else
-      present_mesh_velocity_values.assign(n_q_points, Tensor<1, dim>());
 
     if constexpr (enable_lagrange_multiplier)
     {
@@ -616,33 +626,36 @@ namespace NavierStokesScratch
     if constexpr (enable_cahn_hilliard)
     {
       density.resize(n_q_points);
+      mobility_values.resize(n_q_points);
+      derivative_mobility_wrt_tracer.resize(n_q_points);
+      second_derivative_mobility_wrt_tracer.resize(n_q_points);
+      diffusive_flux_factor_values.resize(n_q_points);
       derivative_density_wrt_tracer.resize(n_q_points);
       dynamic_viscosity.resize(n_q_points);
       derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
-
-      present_convective_velocity.resize(n_q_points);
 
       tracer_values.resize(n_q_points);
       tracer_gradients.resize(n_q_points);
       tracer_values_fixed.resize(n_q_points);
       tracer_gradients_fixed.resize(n_q_points);
-      previous_tracer_values_fixed.resize(time_handler.n_previous_solutions,
-                                          std::vector<double>(n_q_points));
-
-      previous_tracer_gradients_fixed.resize(
-        time_handler.n_previous_solutions,
-        std::vector<Tensor<1, dim>>(n_q_points));
       potential_values.resize(n_q_points);
       potential_gradients.resize(n_q_points);
-      potential_hessians.resize(n_q_points);
-      potential_laplacians.resize(n_q_points);
+      if (enable_stabilization)
+      {
+        potential_hessians.resize(n_q_points);
+        potential_laplacians.resize(n_q_points);
+      }
+      if constexpr (enable_enlarged)
+      {
+        psi_values.resize(n_q_points);
+        psi_gradients.resize(n_q_points);
+      }
       previous_tracer_values.resize(time_handler.n_previous_solutions,
                                     std::vector<double>(n_q_points));
-      previous_tracer_gradients.resize(time_handler.n_previous_solutions,
-                                       std::vector<Tensor<1, dim>>(n_q_points));
 
       diffusive_flux.resize(n_q_points);
       velocity_dot_tracer_gradient.resize(n_q_points);
+      present_convective_velocity.resize(n_q_points);
       shape_phi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_phi.resize(n_q_points,
                             std::vector<Tensor<1, dim>>(max_dofs_per_cell));
@@ -653,54 +666,27 @@ namespace NavierStokesScratch
       shape_mu.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_mu.resize(n_q_points,
                            std::vector<Tensor<1, dim>>(max_dofs_per_cell));
-      laplacian_shape_mu.resize(n_q_points,
-                                std::vector<double>(max_dofs_per_cell));
+      if (enable_stabilization)
+        laplacian_shape_mu.resize(n_q_points,
+                                  std::vector<double>(max_dofs_per_cell));
+      if constexpr (enable_enlarged)
+      {
+        shape_psi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
+        grad_shape_psi.resize(
+          n_q_points, std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+      }
 
       source_term_tracer.resize(n_q_points);
       source_term_potential.resize(n_q_points);
-
-      mobility_values.resize(n_q_points);
-      derivative_mobility_wrt_tracer.resize(n_q_points);
-      diffusive_flux_factor_values.resize(n_q_points);
-      second_derivative_mobility_wrt_tracer.resize(n_q_points);
-
-      if constexpr (update_flags & ScratchFlags::enlarged)
-      {
+      if constexpr (enable_enlarged)
         source_term_psi.resize(n_q_points);
-        psi_values.resize(n_q_points);
-        psi_gradients.resize(n_q_points);
-        shape_psi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
-        grad_shape_psi.resize(n_q_points,
-                              std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+      if (enable_stabilization)
+      {
+        strong_residual_tracer.resize(n_q_points);
+        tau_supg_tracer.resize(n_q_points);
+        stabilization_nu_eff.resize(n_q_points);
+        stabilization_inv_rho.resize(n_q_points);
       }
-    }
-
-    if constexpr (enable_stabilization)
-    {
-      // Differential quantities
-      present_velocity_lap_plus_graddiv.resize(n_q_points);
-
-      // Strong residuals (layered: NS base, ALE correction, combined)
-      strong_residual_momentum_no_ale.resize(n_q_points);
-      strong_residual_momentum_ale.resize(n_q_points);
-      strong_residual_momentum.resize(n_q_points);
-      strong_residual_tracer.resize(n_q_points);
-
-      // Stabilization parameters
-      stabilization_tau_momentum.resize(n_q_points);
-      stabilization_tau_tracer.resize(n_q_points);
-      stabilization_h_tau.resize(n_q_points);
-      stabilization_geometry_shape_gradients.resize(n_q_points);
-
-      // CHNS: nu_eff and inv_rho precomputed in reinit, reused in assembly
-      stabilization_nu_eff.resize(n_q_points);
-      stabilization_inv_rho.resize(n_q_points);
-
-      // Shape-function contributions
-      grad_phi_p.resize(n_q_points,
-                        std::vector<Tensor<1, dim>>(max_dofs_per_cell));
-      diffusion_phi_u.resize(n_q_points,
-                             std::vector<Tensor<1, dim>>(max_dofs_per_cell));
     }
 
     if constexpr (enable_compressible)
@@ -715,9 +701,6 @@ namespace NavierStokesScratch
       present_temperature_gradients.resize(n_q_points);
       previous_temperature_values.resize(time_handler.n_previous_solutions,
                                          std::vector<double>(n_q_points));
-
-      grad_phi_p.resize(n_q_points,
-                        std::vector<Tensor<1, dim>>(max_dofs_per_cell));
 
       phi_T.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_phi_T.resize(n_q_points,
@@ -759,20 +742,16 @@ namespace NavierStokesScratch
 
   // Explicit instantiations for the used combinations only
   // Incompressible NS
-  template class ScratchData<2, stabilization>;
-  template class ScratchData<3, stabilization>;
+  template class ScratchData<2, ns_only>;
+  template class ScratchData<3, ns_only>;
 
   // Compressible NS
   template class ScratchData<2, compressible>;
   template class ScratchData<3, compressible>;
 
   // Incompressible NS with Lagrange multiplier
-  template class ScratchData<2,
-                             lagrange_multiplier | with_hp_capabilities |
-                               stabilization>;
-  template class ScratchData<3,
-                             lagrange_multiplier | with_hp_capabilities |
-                               stabilization>;
+  template class ScratchData<2, lagrange_multiplier | with_hp_capabilities>;
+  template class ScratchData<3, lagrange_multiplier | with_hp_capabilities>;
 
   // FSI solver with Lagrange multiplier
   template class ScratchData<2, pseudo_solid | lagrange_multiplier>;
@@ -786,19 +765,15 @@ namespace NavierStokesScratch
                              pseudo_solid | lagrange_multiplier |
                                with_hp_capabilities>;
 
-  // Incompressible CHNS (with stabilization, see ScratchDataCHNS)
-  template class ScratchData<2, cahn_hilliard | stabilization>;
-  template class ScratchData<3, cahn_hilliard | stabilization>;
+  // Incompressible CHNS
+  template class ScratchData<2, cahn_hilliard>;
+  template class ScratchData<3, cahn_hilliard>;
 
   // Incompressible CHNS with mesh movement
-  template class ScratchData<2, cahn_hilliard | pseudo_solid | stabilization>;
-  template class ScratchData<3, cahn_hilliard | pseudo_solid | stabilization>;
+  template class ScratchData<2, cahn_hilliard | pseudo_solid>;
+  template class ScratchData<3, cahn_hilliard | pseudo_solid>;
 
-  // Incompressible CHNS with mesh movement and enlarged (Ding-Horriche) scaffold
-  template class ScratchData<2,
-                             cahn_hilliard | pseudo_solid | stabilization |
-                               enlarged>;
-  template class ScratchData<3,
-                             cahn_hilliard | pseudo_solid | stabilization |
-                               enlarged>;
+  // Incompressible CHNS with mesh movement and enlarged Ding-Horriche marker
+  template class ScratchData<2, cahn_hilliard | pseudo_solid | enlarged>;
+  template class ScratchData<3, cahn_hilliard | pseudo_solid | enlarged>;
 } // namespace NavierStokesScratch

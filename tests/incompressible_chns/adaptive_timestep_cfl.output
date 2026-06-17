@@ -11,23 +11,25 @@ ID 3 -> y_max
 Number of degrees of freedom: 1092
 
 Time step 1 - Advancing to t = 0.001 with time step 0.001.
-Newton iter.  0:          nonlinear residual = 5.83045625e-02
-	Line search with alpha = 1.000 : res = 3.76379238e-04
-Newton iter.  1:          nonlinear residual = 3.76379238e-04	(M)
-	Line search with alpha = 1.000 : res = 4.48663687e-08
-Newton iter.  2:          nonlinear residual = 4.48663687e-08	(M)
-	Line search with alpha = 1.000 : res = 4.75516768e-15
+Newton iter.  0:          nonlinear residual = 5.85227925e-02
+	Line search with alpha = 1.000 : res = 4.11014537e-04
+Newton iter.  1:          nonlinear residual = 4.11014537e-04	(M)
+	Line search with alpha = 1.000 : res = 4.39523217e-08
+Newton iter.  2:          nonlinear residual = 4.39523217e-08	(M)
+	Line search with alpha = 1.000 : res = 1.51173197e-13
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 2 - Advancing to t = 1.00e-02 with time step 9.00e-03.
-Newton iter.  0:          nonlinear residual = 1.13197738e-01
-	Line search with alpha = 1.000 : res = 4.09597454e-02
-	Line search with alpha = 0.500 : res = 5.75179609e-02
+Newton iter.  0:          nonlinear residual = 1.13978139e-01
+	Line search with alpha = 1.000 : res = 4.16731142e-02
+	Line search with alpha = 0.500 : res = 5.79337485e-02
 	Rejecting last step and backtracking
-Newton iter.  1:          nonlinear residual = 4.09597454e-02	(M)
-	Line search with alpha = 1.000 : res = 2.86321111e-04
-Newton iter.  2:          nonlinear residual = 2.86321111e-04	(M)
-	Line search with alpha = 1.000 : res = 3.28280670e-11
+Newton iter.  1:          nonlinear residual = 4.16731142e-02	(M)
+	Line search with alpha = 1.000 : res = 2.64530131e-04
+Newton iter.  2:          nonlinear residual = 2.64530131e-04	(M)
+	Line search with alpha = 1.000 : res = 2.51993451e-08
+Newton iter.  3:          nonlinear residual = 2.51993451e-08	(M)
+	Line search with alpha = 1.000 : res = 2.01281951e-12
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Warning : The CFL number at this time steps exceeds the ratio for step rejection,
@@ -37,36 +39,42 @@ number during the initial steps.
 
 
 Time step 3 - Advancing to t = 2.00e-02 with time step 1.00e-02.
-Newton iter.  0:          nonlinear residual = 8.61182808e-02
-	Line search with alpha = 1.000 : res = 3.43861045e-02
-	Line search with alpha = 0.500 : res = 4.39087454e-02
+Newton iter.  0:          nonlinear residual = 8.64511719e-02
+	Line search with alpha = 1.000 : res = 3.45955110e-02
+	Line search with alpha = 0.500 : res = 4.40823229e-02
 	Rejecting last step and backtracking
-Newton iter.  1:          nonlinear residual = 3.43861045e-02	(M)
-	Line search with alpha = 1.000 : res = 2.25038364e-04
-Newton iter.  2:          nonlinear residual = 2.25038364e-04	(M)
-	Line search with alpha = 1.000 : res = 1.36876679e-11
+Newton iter.  1:          nonlinear residual = 3.45955110e-02	(M)
+	Line search with alpha = 1.000 : res = 2.12702732e-04
+Newton iter.  2:          nonlinear residual = 2.12702732e-04	(M)
+	Line search with alpha = 1.000 : res = 2.03488075e-08
+Newton iter.  3:          nonlinear residual = 2.03488075e-08	(M)
+	Line search with alpha = 1.000 : res = 1.66260408e-12
 Stopping because residual is below prescribed tolerance (1.00e-10)
 Rejecting time step because CFL ratio is too large : 1.80e+00 > 1.00e+00
 Trying again with time step = 5.00e-03
 
 Time step 3 - Advancing to t = 1.50e-02 with time step 5.00e-03.
-Newton iter.  0:          nonlinear residual = 7.63680021e-02
-	Line search with alpha = 1.000 : res = 8.51007002e-03
-	Line search with alpha = 0.500 : res = 3.82431357e-02
+Newton iter.  0:          nonlinear residual = 7.70519107e-02
+	Line search with alpha = 1.000 : res = 8.55674057e-03
+	Line search with alpha = 0.500 : res = 3.85852511e-02
 	Rejecting last step and backtracking
-Newton iter.  1:          nonlinear residual = 8.51007002e-03	(M)
-	Line search with alpha = 1.000 : res = 2.68903314e-05
-Newton iter.  2:          nonlinear residual = 2.68903314e-05	(M)
-	Line search with alpha = 1.000 : res = 7.12827633e-14
+Newton iter.  1:          nonlinear residual = 8.55674057e-03	(M)
+	Line search with alpha = 1.000 : res = 2.39179841e-05
+Newton iter.  2:          nonlinear residual = 2.39179841e-05	(M)
+	Line search with alpha = 1.000 : res = 3.05395874e-10
+Newton iter.  3:          nonlinear residual = 3.05395874e-10	(M)
+	Line search with alpha = 1.000 : res = 1.87475248e-14
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 4 - Advancing to t = 2.00e-02 with time step 5.00e-03.
-Newton iter.  0:          nonlinear residual = 8.34206814e-02
-	Line search with alpha = 1.000 : res = 8.47361241e-03
-	Line search with alpha = 0.500 : res = 4.17639764e-02
+Newton iter.  0:          nonlinear residual = 8.40639920e-02
+	Line search with alpha = 1.000 : res = 8.43808912e-03
+	Line search with alpha = 0.500 : res = 4.20848154e-02
 	Rejecting last step and backtracking
-Newton iter.  1:          nonlinear residual = 8.47361241e-03	(M)
-	Line search with alpha = 1.000 : res = 2.13263256e-05
-Newton iter.  2:          nonlinear residual = 2.13263256e-05	(M)
-	Line search with alpha = 1.000 : res = 1.73981019e-13
+Newton iter.  1:          nonlinear residual = 8.43808912e-03	(M)
+	Line search with alpha = 1.000 : res = 1.83705118e-05
+Newton iter.  2:          nonlinear residual = 1.83705118e-05	(M)
+	Line search with alpha = 1.000 : res = 8.61919496e-10
+Newton iter.  3:          nonlinear residual = 8.61919496e-10	(M)
+	Line search with alpha = 1.000 : res = 4.30463416e-14
 Stopping because residual is below prescribed tolerance (1.00e-10)

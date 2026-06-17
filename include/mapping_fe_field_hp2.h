@@ -166,7 +166,11 @@ public:
   virtual bool preserves_vertex_locations() const override;
 
   virtual bool
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+  is_compatible_with(const ReferenceCell<dim> &reference_cell) const override;
+#else
   is_compatible_with(const ReferenceCell &reference_cell) const override;
+#endif
 
   /**
    * Return the mapped vertices of a cell.
@@ -576,7 +580,11 @@ protected:
    * Reference cell over which the mapping is defined. This class does not yet
    * support mixed meshes.
    */
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+  ReferenceCell<dim> reference_cell;
+#else
   ReferenceCell reference_cell;
+#endif
 
   /**
    * Specifies whether we access unknowns on the active dofs (with a single

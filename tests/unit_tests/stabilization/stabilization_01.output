@@ -1,0 +1,763 @@
+
+DEAL::
+DEAL::Dimension      : 2
+DEAL::Velocity degree: 1
+DEAL::
+DEAL::Square mesh [0,1] ^ 2 (isotropic)
+DEAL::Convective velocity 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::Convective velocity 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::Convective velocity 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::Convective velocity 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::Convective velocity 0.00000 5.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::Convective velocity 1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.707107
+DEAL::h_tau on cell 0 = 0.707107
+DEAL::h_tau on cell 0 = 0.707107
+DEAL::h_tau on cell 0 = 0.707107
+DEAL::h_tau on cell 1 = 0.707107
+DEAL::h_tau on cell 1 = 0.707107
+DEAL::h_tau on cell 1 = 0.707107
+DEAL::h_tau on cell 1 = 0.707107
+DEAL::Convective velocity 5.00000 5.00000
+DEAL::h_tau on cell 0 = 0.707107
+DEAL::h_tau on cell 0 = 0.707107
+DEAL::h_tau on cell 0 = 0.707107
+DEAL::h_tau on cell 0 = 0.707107
+DEAL::h_tau on cell 1 = 0.707107
+DEAL::h_tau on cell 1 = 0.707107
+DEAL::h_tau on cell 1 = 0.707107
+DEAL::h_tau on cell 1 = 0.707107
+DEAL::Convective velocity -1.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::Rectangular mesh [0,0.1] x [0,1] (anisotropic)
+DEAL::Convective velocity 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::Convective velocity 1.00000 0.00000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::Convective velocity 5.00000 0.00000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::Convective velocity 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::Convective velocity 0.00000 5.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::Convective velocity 1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::Convective velocity 5.00000 5.00000
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::Convective velocity -1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.141421
+DEAL::h_tau on cell 0 = 0.141421
+DEAL::h_tau on cell 0 = 0.141421
+DEAL::h_tau on cell 0 = 0.141421
+DEAL::h_tau on cell 1 = 0.141421
+DEAL::h_tau on cell 1 = 0.141421
+DEAL::h_tau on cell 1 = 0.141421
+DEAL::h_tau on cell 1 = 0.141421
+DEAL::Rectangular mesh [0,1] x [0,0.1] (anisotropic)
+DEAL::Convective velocity 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::Convective velocity 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::Convective velocity 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 0 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::h_tau on cell 1 = 1.00000
+DEAL::Convective velocity 0.00000 1.00000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::Convective velocity 0.00000 5.00000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 0 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::h_tau on cell 1 = 0.100000
+DEAL::Convective velocity 1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::Convective velocity 5.00000 5.00000
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 0 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::h_tau on cell 1 = 0.128565
+DEAL::Convective velocity -1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.141421
+DEAL::h_tau on cell 0 = 0.141421
+DEAL::h_tau on cell 0 = 0.141421
+DEAL::h_tau on cell 0 = 0.141421
+DEAL::h_tau on cell 1 = 0.141421
+DEAL::h_tau on cell 1 = 0.141421
+DEAL::h_tau on cell 1 = 0.141421
+DEAL::h_tau on cell 1 = 0.141421
+DEAL::
+DEAL::Dimension      : 2
+DEAL::Velocity degree: 2
+DEAL::
+DEAL::Square mesh [0,1] ^ 2 (isotropic)
+DEAL::Convective velocity 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 0 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::h_tau on cell 1 = 1.41421
+DEAL::Convective velocity 1.00000 0.00000
+DEAL::h_tau on cell 0 = 0.388874
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 0 = 0.388874
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 1 = 0.388874
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::h_tau on cell 1 = 0.388874
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::Convective velocity 5.00000 0.00000
+DEAL::h_tau on cell 0 = 0.388874
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 0 = 0.388874
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 1 = 0.388874
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::h_tau on cell 1 = 0.388874
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::Convective velocity 0.00000 1.00000
+DEAL::h_tau on cell 0 = 0.362372
+DEAL::h_tau on cell 0 = 0.531937
+DEAL::h_tau on cell 0 = 0.328369
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 1 = 0.362372
+DEAL::h_tau on cell 1 = 0.531937
+DEAL::h_tau on cell 1 = 0.328369
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::Convective velocity 0.00000 5.00000
+DEAL::h_tau on cell 0 = 0.362372
+DEAL::h_tau on cell 0 = 0.531937
+DEAL::h_tau on cell 0 = 0.328369
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 1 = 0.362372
+DEAL::h_tau on cell 1 = 0.531937
+DEAL::h_tau on cell 1 = 0.328369
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::Convective velocity 1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.353847
+DEAL::h_tau on cell 0 = 0.284004
+DEAL::h_tau on cell 0 = 0.256066
+DEAL::h_tau on cell 0 = 0.207988
+DEAL::h_tau on cell 1 = 0.353847
+DEAL::h_tau on cell 1 = 0.284004
+DEAL::h_tau on cell 1 = 0.256066
+DEAL::h_tau on cell 1 = 0.207988
+DEAL::Convective velocity 5.00000 5.00000
+DEAL::h_tau on cell 0 = 0.353847
+DEAL::h_tau on cell 0 = 0.284004
+DEAL::h_tau on cell 0 = 0.256066
+DEAL::h_tau on cell 0 = 0.207988
+DEAL::h_tau on cell 1 = 0.353847
+DEAL::h_tau on cell 1 = 0.284004
+DEAL::h_tau on cell 1 = 0.256066
+DEAL::h_tau on cell 1 = 0.207988
+DEAL::Convective velocity -1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.464384
+DEAL::h_tau on cell 0 = 0.415976
+DEAL::h_tau on cell 0 = 0.512472
+DEAL::h_tau on cell 0 = 0.752273
+DEAL::h_tau on cell 1 = 0.464384
+DEAL::h_tau on cell 1 = 0.415976
+DEAL::h_tau on cell 1 = 0.512472
+DEAL::h_tau on cell 1 = 0.752273
+DEAL::Rectangular mesh [0,0.1] x [0,1] (anisotropic)
+DEAL::Convective velocity 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::Convective velocity 1.00000 0.00000
+DEAL::h_tau on cell 0 = 0.0388874
+DEAL::h_tau on cell 0 = 0.0294139
+DEAL::h_tau on cell 0 = 0.0388874
+DEAL::h_tau on cell 0 = 0.0294139
+DEAL::h_tau on cell 1 = 0.0388874
+DEAL::h_tau on cell 1 = 0.0294139
+DEAL::h_tau on cell 1 = 0.0388874
+DEAL::h_tau on cell 1 = 0.0294139
+DEAL::Convective velocity 5.00000 0.00000
+DEAL::h_tau on cell 0 = 0.0388874
+DEAL::h_tau on cell 0 = 0.0294139
+DEAL::h_tau on cell 0 = 0.0388874
+DEAL::h_tau on cell 0 = 0.0294139
+DEAL::h_tau on cell 1 = 0.0388874
+DEAL::h_tau on cell 1 = 0.0294139
+DEAL::h_tau on cell 1 = 0.0388874
+DEAL::h_tau on cell 1 = 0.0294139
+DEAL::Convective velocity 0.00000 1.00000
+DEAL::h_tau on cell 0 = 0.362372
+DEAL::h_tau on cell 0 = 0.531937
+DEAL::h_tau on cell 0 = 0.328369
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 1 = 0.362372
+DEAL::h_tau on cell 1 = 0.531937
+DEAL::h_tau on cell 1 = 0.328369
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::Convective velocity 0.00000 5.00000
+DEAL::h_tau on cell 0 = 0.362372
+DEAL::h_tau on cell 0 = 0.531937
+DEAL::h_tau on cell 0 = 0.328369
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 1 = 0.362372
+DEAL::h_tau on cell 1 = 0.531937
+DEAL::h_tau on cell 1 = 0.328369
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::Convective velocity 1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.0549950
+DEAL::h_tau on cell 0 = 0.0397504
+DEAL::h_tau on cell 0 = 0.0493331
+DEAL::h_tau on cell 0 = 0.0378160
+DEAL::h_tau on cell 1 = 0.0549950
+DEAL::h_tau on cell 1 = 0.0397504
+DEAL::h_tau on cell 1 = 0.0493331
+DEAL::h_tau on cell 1 = 0.0378160
+DEAL::Convective velocity 5.00000 5.00000
+DEAL::h_tau on cell 0 = 0.0549950
+DEAL::h_tau on cell 0 = 0.0397504
+DEAL::h_tau on cell 0 = 0.0493331
+DEAL::h_tau on cell 0 = 0.0378160
+DEAL::h_tau on cell 1 = 0.0549950
+DEAL::h_tau on cell 1 = 0.0397504
+DEAL::h_tau on cell 1 = 0.0493331
+DEAL::h_tau on cell 1 = 0.0378160
+DEAL::Convective velocity -1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.0541946
+DEAL::h_tau on cell 0 = 0.0415976
+DEAL::h_tau on cell 0 = 0.0611056
+DEAL::h_tau on cell 0 = 0.0439503
+DEAL::h_tau on cell 1 = 0.0541946
+DEAL::h_tau on cell 1 = 0.0415976
+DEAL::h_tau on cell 1 = 0.0611056
+DEAL::h_tau on cell 1 = 0.0439503
+DEAL::Rectangular mesh [0,1] x [0,0.1] (anisotropic)
+DEAL::Convective velocity 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 0 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::h_tau on cell 1 = 1.00499
+DEAL::Convective velocity 1.00000 0.00000
+DEAL::h_tau on cell 0 = 0.388874
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 0 = 0.388874
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 1 = 0.388874
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::h_tau on cell 1 = 0.388874
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::Convective velocity 5.00000 0.00000
+DEAL::h_tau on cell 0 = 0.388874
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 0 = 0.388874
+DEAL::h_tau on cell 0 = 0.294139
+DEAL::h_tau on cell 1 = 0.388874
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::h_tau on cell 1 = 0.388874
+DEAL::h_tau on cell 1 = 0.294139
+DEAL::Convective velocity 0.00000 1.00000
+DEAL::h_tau on cell 0 = 0.0362372
+DEAL::h_tau on cell 0 = 0.0531937
+DEAL::h_tau on cell 0 = 0.0328369
+DEAL::h_tau on cell 0 = 0.0294139
+DEAL::h_tau on cell 1 = 0.0362372
+DEAL::h_tau on cell 1 = 0.0531937
+DEAL::h_tau on cell 1 = 0.0328369
+DEAL::h_tau on cell 1 = 0.0294139
+DEAL::Convective velocity 0.00000 5.00000
+DEAL::h_tau on cell 0 = 0.0362372
+DEAL::h_tau on cell 0 = 0.0531937
+DEAL::h_tau on cell 0 = 0.0328369
+DEAL::h_tau on cell 0 = 0.0294139
+DEAL::h_tau on cell 1 = 0.0362372
+DEAL::h_tau on cell 1 = 0.0531937
+DEAL::h_tau on cell 1 = 0.0328369
+DEAL::h_tau on cell 1 = 0.0294139
+DEAL::Convective velocity 1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.0512472
+DEAL::h_tau on cell 0 = 0.0661497
+DEAL::h_tau on cell 0 = 0.0436420
+DEAL::h_tau on cell 0 = 0.0378160
+DEAL::h_tau on cell 1 = 0.0512472
+DEAL::h_tau on cell 1 = 0.0661497
+DEAL::h_tau on cell 1 = 0.0436420
+DEAL::h_tau on cell 1 = 0.0378160
+DEAL::Convective velocity 5.00000 5.00000
+DEAL::h_tau on cell 0 = 0.0512472
+DEAL::h_tau on cell 0 = 0.0661497
+DEAL::h_tau on cell 0 = 0.0436420
+DEAL::h_tau on cell 0 = 0.0378160
+DEAL::h_tau on cell 1 = 0.0512472
+DEAL::h_tau on cell 1 = 0.0661497
+DEAL::h_tau on cell 1 = 0.0436420
+DEAL::h_tau on cell 1 = 0.0378160
+DEAL::Convective velocity -1.00000 1.00000
+DEAL::h_tau on cell 0 = 0.0507220
+DEAL::h_tau on cell 0 = 0.0835859
+DEAL::h_tau on cell 0 = 0.0468782
+DEAL::h_tau on cell 0 = 0.0460388
+DEAL::h_tau on cell 1 = 0.0507220
+DEAL::h_tau on cell 1 = 0.0835859
+DEAL::h_tau on cell 1 = 0.0468782
+DEAL::h_tau on cell 1 = 0.0460388
+DEAL::
+DEAL::Dimension      : 3
+DEAL::Velocity degree: 1
+DEAL::
+DEAL::Square mesh [0,1] ^ 3 (isotropic)
+DEAL::Convective velocity 0.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity 1.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity 5.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity 0.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity 0.00000 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity 1.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity 5.00000 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity -1.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity 0.00000 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity 1.00000 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Convective velocity 0.00000 1.00000 1.00000
+DEAL::h_tau on cell 0 = 1.73205
+DEAL::h_tau on cell 1 = 1.73205
+DEAL::h_tau on cell 2 = 1.73205
+DEAL::h_tau on cell 3 = 1.73205
+DEAL::h_tau on cell 4 = 1.73205
+DEAL::h_tau on cell 5 = 1.73205
+DEAL::Rectangular mesh [0,0.1] x [0,1] x [0,1] (anisotropic)
+DEAL::Convective velocity 0.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 1.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 5.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 1.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 5.00000 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity -1.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 1.00000 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 1.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Rectangular mesh [0,1] x [0,0.1] x [0,1] (anisotropic)
+DEAL::Convective velocity 0.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 1.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 5.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 1.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 5.00000 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity -1.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 1.00000 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 1.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Rectangular mesh [0,1] x [0, 1] x [0,0.1] (anisotropic)
+DEAL::Convective velocity 0.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 1.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 5.00000 0.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 1.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 5.00000 5.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity -1.00000 1.00000 0.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 1.00000 0.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774
+DEAL::Convective velocity 0.00000 1.00000 1.00000
+DEAL::h_tau on cell 0 = 1.41774
+DEAL::h_tau on cell 1 = 1.41774
+DEAL::h_tau on cell 2 = 1.41774
+DEAL::h_tau on cell 3 = 1.41774
+DEAL::h_tau on cell 4 = 1.41774
+DEAL::h_tau on cell 5 = 1.41774

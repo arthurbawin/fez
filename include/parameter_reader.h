@@ -34,6 +34,7 @@ public:
   Parameters::CheckpointRestart       checkpoint_restart;
   std::map<SolverInfo::SolverType, Parameters::LinearSolver> linear_solver;
   Parameters::NonLinearSolver                                nonlinear_solver;
+  Parameters::Stabilization                                  stabilization;
   Parameters::CahnHilliard<dim>                              cahn_hilliard;
   Parameters::LinearElasticity                               linear_elasticity;
   Parameters::MMS                                            mms_param;
@@ -139,6 +140,7 @@ public:
                                                "CahnHilliard");
     BoundaryConditions::declare_boundary_conditions<
       BoundaryConditions::HeatBC<dim>>(prm, bc_data.n_heat_bc, "Heat");
+    stabilization.declare_parameters(prm);
     cahn_hilliard.declare_parameters(prm);
     linear_elasticity.declare_parameters(prm);
     source_terms.declare_parameters(prm);
@@ -191,6 +193,7 @@ public:
                                                  bc_data.n_heat_bc,
                                                  "Heat",
                                                  heat_bc);
+    stabilization.read_parameters(prm);
     cahn_hilliard.read_parameters(prm);
     linear_elasticity.read_parameters(prm);
     source_terms.read_parameters(prm);

@@ -19,14 +19,6 @@ subsection Mesh
   set refinement level       = 1
 end
 
-subsection Linear elasticity
-  subsection CHNS presolver
-    set enable                         = true
-    set initial compression multiplier = 1
-    set continuation steps             = 1
-  end
-end
-
 subsection Time integration
   set verbosity        = quiet
   set dt               = 0.1
@@ -209,7 +201,4 @@ end
 subsection Debug
   set verbosity                              = quiet
   set apply exact solution                   = false
-  set compare jacobian matrix with fd        = false
-  set analytical_jacobian_absolute_tolerance = 1e-4
-  set analytical_jacobian_relative_tolerance = 1e-4
 end

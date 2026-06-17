@@ -50,6 +50,12 @@ subsection FiniteElements
   set Pressure degree   = 1
   set Tracer degree     = 1
   set Potential degree  = 1
+
+  subsection Quadrature rule
+    set rule for simplices                     = gauss
+    set number of 1d nodes for cell quadrature = 3
+    set number of 1d nodes for face quadrature = 3
+  end
 end
 
 subsection Physical properties
@@ -182,7 +188,4 @@ end
 subsection Debug
   set verbosity                              = verbose
   set apply exact solution                   = false
-  set compare jacobian matrix with fd        = false
-  set analytical_jacobian_absolute_tolerance = 1e-3
-  set analytical_jacobian_relative_tolerance = 1e-3
 end

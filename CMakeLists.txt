@@ -19,6 +19,11 @@ option(DEAL_II_WITH_HP_IDENTITIES_BUG "" ON)
 # solutions, however, a source term is required and this option must be enabled.
 option(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM "" OFF)
 
+# deal.II added a dimension template to ReferenceCell on the development branch,
+# and since this is in between a version release, we cannot check the deal.II
+# version to discriminate.
+option(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER "" OFF)
+
 # Find deal.II
 find_package(deal.II 9.5.0 REQUIRED HINTS ${DEAL_II_DIR} CONFIG)
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
@@ -84,6 +89,10 @@ endif()
 
 if(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
   add_compile_definitions(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM)
+endif()
+
+if(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
+  add_compile_definitions(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
 endif()
 
 # === Add Eigen (standard + unsupported) ===

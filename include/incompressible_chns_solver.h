@@ -42,6 +42,11 @@ public:
   virtual void create_scratch_data() override;
 
   /**
+   * Create the volume and boundary assemblers for this solver.
+   */
+  virtual void setup_assemblers() override {}
+
+  /**
    * Apply initial condition on the tracer (phase marker)
    */
   virtual void set_solver_specific_initial_conditions() override;

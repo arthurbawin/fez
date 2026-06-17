@@ -201,7 +201,4 @@ end
 subsection Debug
   set verbosity                              = verbose
   set apply exact solution                   = false
-  set compare jacobian matrix with fd        = false
-  set analytical_jacobian_absolute_tolerance = 1e-5
-  set analytical_jacobian_relative_tolerance = 1e-5
 end

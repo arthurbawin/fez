@@ -110,6 +110,8 @@ namespace Assembly
               unsigned int assembly_flags = ns_laplace_form>
     class VolumeAssembler : public Base<ScratchData, CopyData, assembly_flags>
     {
+      using BaseType = Base<ScratchData, CopyData, assembly_flags>;
+
     public:
       VolumeAssembler(const ComponentOrdering            &ordering,
                       const Table<2, DoFTools::Coupling> &coupling_table)
@@ -147,6 +149,8 @@ namespace Assembly
     class MMSTractionAssembler
       : public Base<ScratchData, CopyData, assembly_flags>
     {
+      using BaseType = Base<ScratchData, CopyData, assembly_flags>;
+
     public:
       MMSTractionAssembler(const ParameterReader<dim> &param,
                            const ComponentOrdering    &ordering)

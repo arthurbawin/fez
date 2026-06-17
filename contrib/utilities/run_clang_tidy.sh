@@ -51,7 +51,7 @@ fi
 
 CC=clang CXX=clang++ cmake "${ARGS[@]}" "$SRC" || (echo "cmake failed!"; false) || exit 2
 
-cmake --build .
+cmake --build . -j4
 
 # generate allheaders.h
 #(cd include; find . -name '*.h'; cd $SRC/include/; find . -name '*.h') | grep -v allheaders.h | grep -v undefine_macros.h | sed 's|^./|#include <|' | sed 's|$|>|' >include/deal.II/allheaders.h
@@ -60,7 +60,7 @@ cmake --build .
 #
 # pipe away stderr (just contains nonsensical "x warnings generated")
 # pipe output to output.txt
-run-clang-tidy -p . -quiet -header-filter "$SRC/include/*" -extra-arg='-DCLANG_TIDY' 2>error.txt >output.txt
+run-clang-tidy -p . -quiet -header-filter "$SRC/include/*" --extra-arg=-std=c++17 --extra-arg='-DCLANG_TIDY' 2>error.txt >output.txt
 
 # grep interesting errors and make sure we remove duplicates:
 grep -E '(warning|error): ' output.txt | sort | uniq >clang-tidy.log

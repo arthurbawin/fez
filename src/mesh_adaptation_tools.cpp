@@ -380,6 +380,9 @@ namespace MeshTools
                   "MMG is required to perform anisotropic mesh adaptation."));
     (void)param;
     (void)metric_field;
+    (void)adapt_directory;
+    (void)input_meshfile;
+    (void)output_meshfile;
     (void)interval_index;
 #endif
   }

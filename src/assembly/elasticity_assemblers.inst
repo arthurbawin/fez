@@ -81,5 +81,62 @@ namespace Assembly
                                    NavierStokesScratch::ScratchDataFSI_hp<3>,
                                    CopyDataBase<2>>;
 
+    // Instantiation for incompressible CHNS solver (with and without ALE)
+    template class LinearElasticityAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>>;
+    template class LinearElasticityAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>>;
+    template class NeoHookeanAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>>;
+    template class NeoHookeanAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>>;
+
+    template class LinearElasticityAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>>;
+    template class LinearElasticityAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>>;
+    template class NeoHookeanAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>>;
+    template class NeoHookeanAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>>;
+    template class SourceFromCHNSTracerAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>>;
+    template class SourceFromCHNSTracerAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>>;
+
   } // namespace Elasticity
 } // namespace Assembly

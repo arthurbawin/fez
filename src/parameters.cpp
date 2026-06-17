@@ -1101,6 +1101,12 @@ namespace Parameters
                         Patterns::Bool(),
                         "Enable SUPG/PSPG stabilization for the incompressible "
                         "Navier-Stokes equations.");
+      prm.declare_entry("enable tracer supg",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable SUPG stabilization for the tracer equation in "
+                        "the Cahn-Hilliard "
+                        "Navier-Stokes equations.");
     }
     prm.leave_subsection();
   }
@@ -1109,7 +1115,8 @@ namespace Parameters
   {
     prm.enter_subsection("Stabilization");
     {
-      enable_supg = prm.get_bool("enable supg");
+      enable_supg        = prm.get_bool("enable supg");
+      enable_tracer_supg = prm.get_bool("enable tracer supg");
     }
     prm.leave_subsection();
   }

@@ -316,6 +316,24 @@ namespace Assembly
           }
       }
     }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void
+    SourceFromCHNSTracerAssembler<dim, ScratchData, CopyData>::assemble_rhs(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      DEAL_II_NOT_IMPLEMENTED();
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void
+    SourceFromCHNSTracerAssembler<dim, ScratchData, CopyData>::assemble_matrix(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      DEAL_II_NOT_IMPLEMENTED();
+    }
   } // namespace Elasticity
 } // namespace Assembly
 

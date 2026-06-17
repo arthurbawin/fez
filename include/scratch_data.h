@@ -646,7 +646,7 @@ namespace NavierStokesScratch
           source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
 
 #if defined(WITH_GRADIENT_OF_SOURCE_TERMS)
-        // Fill the gradients of the source term (for u-p only)
+        // Fill the gradients of the source term
         // Layout: grad_source_velocity[q] = df_i/dx_j
         for (int di = 0; di < dim; ++di)
         {
@@ -654,6 +654,13 @@ namespace NavierStokesScratch
           for (int dj = 0; dj < dim; ++dj)
             grad_source_velocity[q][di][dj] =
               grad_source_term_full[q][u_lower + di][dj];
+
+          if constexpr (enable_cahn_hilliard)
+          {
+            grad_source_tracer[q][di] = grad_source_term_full[q][phi_lower][di];
+            grad_source_potential[q][di] =
+              grad_source_term_full[q][mu_lower][di];
+          }
         }
 #endif
 
@@ -1024,6 +1031,11 @@ namespace NavierStokesScratch
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
+        // Time derivatives
+        tracer_time_derivatives[q] =
+          time_handler.compute_time_derivative_at_quadrature_node(
+            q, tracer_values[q], previous_tracer_values);
+
         // Physical properties based on tracer, filter if applicable
         const double filtered_phi = tracer_limiter(tracer_values[q]);
         density[q] =
@@ -1046,14 +1058,6 @@ namespace NavierStokesScratch
         diffusive_flux[q] = diffusive_flux_factor *
                             present_velocity_gradients[q] *
                             potential_gradients[q];
-
-        if constexpr (enable_pseudo_solid)
-          velocity_dot_tracer_gradient[q] =
-            (present_velocity_values[q] - present_mesh_velocity_values[q]) *
-            tracer_gradients[q];
-        else
-          velocity_dot_tracer_gradient[q] =
-            present_velocity_values[q] * tracer_gradients[q];
 
         for (unsigned int k = 0; k < dofs_per_cell; ++k)
         {
@@ -1223,6 +1227,7 @@ namespace NavierStokesScratch
       (update_flags & with_hp_capabilities) != 0;
 
     bool enable_stabilization;
+    bool enable_tracer_stabilization;
 
   private:
     Parameters::PhysicalProperties<dim> physical_properties;
@@ -1432,6 +1437,8 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<1, dim>>> grad_source_term_full;
     std::vector<Tensor<2, dim>>              grad_source_velocity;
     std::vector<Tensor<1, dim>>              grad_source_pressure;
+    std::vector<Tensor<1, dim>>              grad_source_tracer;
+    std::vector<Tensor<1, dim>>              grad_source_potential;
 
     // If the elasticity source term is written w.r.t. the current mesh position
     // x, this is its gradient w.r.t. x. Used in the Jacobian matrix.
@@ -1483,6 +1490,7 @@ namespace NavierStokesScratch
 
     // Tracer on current and fixed (reference) mesh
     std::vector<double>              tracer_values;
+    std::vector<double>              tracer_time_derivatives;
     std::vector<Tensor<1, dim>>      tracer_gradients;
     std::vector<double>              tracer_values_fixed;
     std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
@@ -1492,7 +1500,6 @@ namespace NavierStokesScratch
     std::vector<Tensor<1, dim>> potential_gradients;
 
     std::vector<Tensor<1, dim>> diffusive_flux;
-    std::vector<double>         velocity_dot_tracer_gradient;
 
     std::vector<std::vector<double>>         shape_phi;
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;

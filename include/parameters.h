@@ -555,6 +555,10 @@ namespace Parameters
     // Enable SUPG/PSPG stabilization of the Navier-Stokes equations
     bool enable_supg;
 
+    // Enable SUPG stabilization for the tracer equation of the Cahn-Hilliard
+    // Navier-Stokes systems
+    bool enable_tracer_supg;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };

@@ -1,0 +1,40 @@
+Number of MPI processes: 1
+Number of degrees of freedom: 27
+Newton iter.  0:          nonlinear residual = 6.07851413e-01
+Newton iter.  1:          nonlinear residual = 1.79827399e-01   (M)
+Newton iter.  2:          nonlinear residual = 4.25325477e-02   (M)
+Newton iter.  3:          nonlinear residual = 7.85784678e-03   (M)
+Newton iter.  4:          nonlinear residual = 1.54524023e-03   (M)
+Newton iter.  5:          nonlinear residual = 3.00320651e-04   (M)
+Newton iter.  6:          nonlinear residual = 5.85017339e-05   (M)
+Newton iter.  7:          nonlinear residual = 1.13909174e-05   (M)
+Newton iter.  8:          nonlinear residual = 2.21812676e-06   (M)
+Newton iter.  9:          nonlinear residual = 4.31923348e-07   (M)
+Newton iter. 10:          nonlinear residual = 8.41062830e-08   (M)
+Newton iter. 11:          nonlinear residual = 1.63775800e-08   (M)
+Newton iter. 12:          nonlinear residual = 3.18910097e-09   (M)
+Stopping because residual is below prescribed tolerance (1.00e-08)
+Number of degrees of freedom: 75
+Newton iter.  0:          nonlinear residual = 2.97550224e+01
+Newton iter.  1:          nonlinear residual = 8.53411341e-02   (M)
+Newton iter.  2:          nonlinear residual = 4.33371542e-03   (M)
+Newton iter.  3:          nonlinear residual = 4.84962582e-05   (M)
+Newton iter.  4:          nonlinear residual = 3.24326486e-07   (M)
+Newton iter.  5:          nonlinear residual = 1.69047938e-08   (M)
+Newton iter.  6:          nonlinear residual = 8.79129084e-10   (M)
+Stopping because residual is below prescribed tolerance (1.00e-08)
+
+L2_norm
+n_elm n_dof        u               p         
+    8    27 3.0619e-01    - 6.3172e+00     - 
+   32    75 9.3943e-02 1.70 2.1699e+01 -1.78 
+
+Linfty_norm
+n_elm n_dof        u               p         
+    8    27 5.0110e-01    - 9.3962e+00     - 
+   32    75 1.7749e-01 1.50 3.9801e+01 -2.08 
+
+H1_seminorm
+n_elm n_dof        u               p         
+    8    27 2.2215e+00    - 2.4736e+01     - 
+   32    75 1.2781e+00 0.80 7.6525e+01 -1.63

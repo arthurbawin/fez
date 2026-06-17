@@ -1070,6 +1070,28 @@ namespace Parameters
     prm.leave_subsection();
   }
 
+  void Stabilization::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Stabilization");
+    {
+      prm.declare_entry("enable supg",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable SUPG/PSPG stabilization for the incompressible "
+                        "Navier-Stokes equations.");
+    }
+    prm.leave_subsection();
+  }
+
+  void Stabilization::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Stabilization");
+    {
+      enable_supg = prm.get_bool("enable supg");
+    }
+    prm.leave_subsection();
+  }
+
   template <int dim>
   void CahnHilliard<dim>::declare_parameters(ParameterHandler &prm)
   {

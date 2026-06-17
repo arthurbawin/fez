@@ -1,0 +1,15 @@
+Number of MPI processes: 1
+Number of degrees of freedom: 27
+Max absolute error analytical vs fd matrix is 2.73349e-07
+
+L2_norm
+n_elm n_dof      u            p       
+    8    27 3.0619e-01 - 6.3172e+00 - 
+
+Linfty_norm
+n_elm n_dof      u            p       
+    8    27 5.0110e-01 - 9.3962e+00 - 
+
+H1_seminorm
+n_elm n_dof      u            p       
+    8    27 2.2215e+00 - 2.4736e+01 - 

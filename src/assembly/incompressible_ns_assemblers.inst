@@ -18,6 +18,12 @@ namespace Assembly
     template class VolumeAssembler<3,
                                    NavierStokesScratch::ScratchData<3>,
                                    CopyDataBase<>>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchData<2>,
+                                   CopyDataBase<>, stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchData<3>,
+                                   CopyDataBase<>, stabilization>;
     template class VolumeAssembler<
       2,
       NavierStokesScratch::ScratchDataIncompressibleNSLambda<2>,
@@ -54,6 +60,12 @@ namespace Assembly
     template class MMSTractionAssembler<3,
                                         NavierStokesScratch::ScratchData<3>,
                                         CopyDataBase<>>;
+    template class MMSTractionAssembler<2,
+                                        NavierStokesScratch::ScratchData<2>,
+                                        CopyDataBase<>, stabilization>;
+    template class MMSTractionAssembler<3,
+                                        NavierStokesScratch::ScratchData<3>,
+                                        CopyDataBase<>, stabilization>;
     template class MMSTractionAssembler<
       2,
       NavierStokesScratch::ScratchDataIncompressibleNSLambda<2>,

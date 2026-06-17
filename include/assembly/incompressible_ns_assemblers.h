@@ -190,6 +190,22 @@ namespace Assembly
       std::vector<std::unique_ptr<AssemblerBase<ScratchData, CopyData>>>
         &assemblers)
     {
+      // Perform compile-time checks when possible: if this function is called
+      // with specific assembly flags, make sure that the template flags for the
+      // given ScratchData agree.
+      // This is only possible for the pseudo-solid flag, since the terms for
+      // the divergence form of the NS equations are always computed in the
+      // scratch, and computing the additional terms for SUPG stabilization is a
+      // runtime flag (the latter is checked in the assembly routine in debug).
+      //
+      // FIXME: When the dedicated elasticity assemblers are added, this check
+      // will be moved there.
+      static_assert(
+        !(assembly_flags & pseudo_solid) || ScratchData::enable_pseudo_solid,
+        "The assemblers for the incompressible Navier-Stokes equations are set "
+        "to assemble the pseudo-solid equations, but computation of the "
+        "required data was not enabled in the provided ScratchData.");
+
       using namespace BoundaryConditions;
 
       // Assign the volume assembler

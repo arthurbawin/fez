@@ -121,23 +121,34 @@ void NSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
 template <int dim>
 void NSSolver<dim>::create_scratch_data()
 {
-  scratch_data = std::make_unique<ScratchData>(*this->ordering,
-                                               *fe,
-                                               *mapping,
-                                               *mapping,
-                                               *this->quadrature,
-                                               *this->face_quadrature,
-                                               this->time_handler,
-                                               this->param);
+  scratch_data =
+    std::make_unique<ScratchData>(*this->ordering,
+                                  *fe,
+                                  *mapping,
+                                  *mapping,
+                                  *this->quadrature,
+                                  *this->face_quadrature,
+                                  this->time_handler,
+                                  this->param,
+                                  this->param.stabilization.enable_supg);
 }
 
 template <int dim>
 void NSSolver<dim>::setup_assemblers()
 {
-  Assembly::IncompressibleNavierStokes::setup_assemblers(this->param,
-                                                         *this->ordering,
-                                                         this->coupling_table,
-                                                         assemblers);
+  assemblers.clear();
+
+  using namespace Assembly::IncompressibleNavierStokes;
+
+  if (this->param.stabilization.enable_supg)
+    Assembly::IncompressibleNavierStokes::
+      setup_assemblers<dim, ScratchData, CopyData, stabilization>(
+        this->param, *this->ordering, this->coupling_table, assemblers);
+  else
+    Assembly::IncompressibleNavierStokes::setup_assemblers(this->param,
+                                                           *this->ordering,
+                                                           this->coupling_table,
+                                                           assemblers);
 }
 
 template <int dim>
@@ -151,20 +162,28 @@ void NSSolver<dim>::create_sparsity_pattern()
   const unsigned int n_components   = this->ordering->n_components;
   auto              &coupling_table = this->coupling_table;
   coupling_table.reinit(n_components, n_components);
-  for (unsigned int c = 0; c < n_components; ++c)
-    for (unsigned int d = 0; d < n_components; ++d)
-    {
-      coupling_table[c][d] = DoFTools::none;
 
-      // u couples to all variables
-      if (this->ordering->is_velocity(c))
-        coupling_table[c][d] = DoFTools::always;
+  // If stabilized, (u,p) couples to (u,p).
+  if (this->param.stabilization.enable_supg)
+    coupling_table.fill(DoFTools::always);
+  else
+  {
+    // Nonstabilized case
+    for (unsigned int c = 0; c < n_components; ++c)
+      for (unsigned int d = 0; d < n_components; ++d)
+      {
+        coupling_table[c][d] = DoFTools::none;
 
-      // p couples to u only
-      if (this->ordering->is_pressure(c))
-        if (this->ordering->is_velocity(d))
+        // u couples to (u,p)
+        if (this->ordering->is_velocity(c))
           coupling_table[c][d] = DoFTools::always;
-    }
+
+        // p couples to u only
+        if (this->ordering->is_pressure(c))
+          if (this->ordering->is_velocity(d))
+            coupling_table[c][d] = DoFTools::always;
+      }
+  }
 
 #if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);

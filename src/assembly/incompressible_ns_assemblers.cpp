@@ -19,7 +19,7 @@ namespace Assembly
       const ScratchData &scratch_data,
       CopyData          &copy_data) const
     {
-      if constexpr (this->with_stabilization)
+      if constexpr (BaseType::with_stabilization)
         Assert(
           scratch_data.enable_stabilization,
           ExcMessage(
@@ -70,7 +70,7 @@ namespace Assembly
         const auto  &source_u   = sd.source_term_velocity[q];
 
         auto u_conv = u;
-        if constexpr (this->with_pseudo_solid)
+        if constexpr (BaseType::with_pseudo_solid)
         {
           const auto &dxdt = sd.present_mesh_velocity_values[q];
           u_conv -= dxdt;
@@ -90,7 +90,7 @@ namespace Assembly
         const auto &phi_p          = sd.phi_p[q];
         const auto &grad_phi_p     = sd.grad_phi_p[q];
 
-        if constexpr (this->with_stabilization)
+        if constexpr (BaseType::with_stabilization)
         {
           tau_supg_velocity = sd.tau_supg_velocity[q];
 
@@ -98,14 +98,14 @@ namespace Assembly
           strong_residual_momentum =
             dudt + grad_u * u_conv + grad_p - nu * lap_u + source_u;
 
-          if constexpr (this->with_divergence_form)
+          if constexpr (BaseType::with_divergence_form)
             strong_residual_momentum -= nu * grad_div_u;
         }
 
         //
         // Pseudo-solid related data
         //
-        if constexpr (this->with_pseudo_solid)
+        if constexpr (BaseType::with_pseudo_solid)
         {
           JxW_fixed   = sd.JxW_fixed[q];
           lame_mu     = sd.lame_mu[q];
@@ -158,13 +158,13 @@ namespace Assembly
 
             // Diffusion
             // FIXME: more efficient double contraction
-            if constexpr (this->with_divergence_form)
+            if constexpr (BaseType::with_divergence_form)
               local_rhs_flow_i -=
                 2. * nu * scalar_product(sym_grad_u, sym_grad_phi_u[i]);
             else
               local_rhs_flow_i -= nu * scalar_product(grad_u, grad_phi_u_i);
 
-            if constexpr (this->with_stabilization)
+            if constexpr (BaseType::with_stabilization)
             {
               // SUPG stabilization
               local_rhs_flow_i -= tau_supg_velocity * strong_residual_momentum *
@@ -172,7 +172,7 @@ namespace Assembly
             }
           }
 
-          if constexpr (this->with_stabilization)
+          if constexpr (BaseType::with_stabilization)
           {
             if (i_is_p)
               local_rhs_flow_i -=
@@ -186,7 +186,7 @@ namespace Assembly
           //
           double local_rhs_ps_i = 0.;
 
-          if constexpr (this->with_pseudo_solid)
+          if constexpr (BaseType::with_pseudo_solid)
           {
             if (i_is_x)
             {
@@ -278,7 +278,7 @@ namespace Assembly
         const auto  &source_u   = sd.source_term_velocity[q];
 
         auto u_conv = u;
-        if constexpr (this->with_pseudo_solid)
+        if constexpr (BaseType::with_pseudo_solid)
         {
           const auto &dxdt = sd.present_mesh_velocity_values[q];
           u_conv -= dxdt;
@@ -288,7 +288,7 @@ namespace Assembly
         const double p      = sd.present_pressure_values[q];
         const auto  &grad_p = sd.present_pressure_gradients[q];
 
-        if constexpr (this->with_stabilization)
+        if constexpr (BaseType::with_stabilization)
         {
           // strong_residual_momentum = &sd.strong_residual_momentum[q];
           tau_supg_velocity = sd.tau_supg_velocity[q];
@@ -297,7 +297,7 @@ namespace Assembly
           strong_residual_momentum =
             dudt + grad_u * u_conv + grad_p - nu * lap_u + source_u;
 
-          if constexpr (this->with_divergence_form)
+          if constexpr (BaseType::with_divergence_form)
             strong_residual_momentum -= nu * grad_div_u;
         }
 
@@ -313,7 +313,7 @@ namespace Assembly
         //
         // Pseudo-solid related data
         //
-        if constexpr (this->with_pseudo_solid)
+        if constexpr (BaseType::with_pseudo_solid)
         {
           JxW_fixed   = sd.JxW_fixed[q];
           lame_mu     = sd.lame_mu[q];
@@ -342,17 +342,17 @@ namespace Assembly
           to_multiply_by_phi_u_i_momentum[j] =
             bdf_c0 * phi_u_j + grad_phi_u_j * u_conv + grad_u * phi_u_j;
 
-          if constexpr (this->with_stabilization)
+          if constexpr (BaseType::with_stabilization)
           {
             strong_residual_momentum_variation[j] =
               to_multiply_by_phi_u_i_momentum[j] + grad_phi_p[j] -
               nu * laplacian_phi_u[j];
 
-            if constexpr (this->with_divergence_form)
+            if constexpr (BaseType::with_divergence_form)
               strong_residual_momentum_variation[j] += -nu * grad_div_phi_u[j];
           }
 
-          if constexpr (this->with_pseudo_solid)
+          if constexpr (BaseType::with_pseudo_solid)
           {
             const auto &phi_x_j = (*phi_x)[j];
             const auto &G       = (*grad_phi_x_moving)[j];
@@ -396,13 +396,13 @@ namespace Assembly
           const auto &phi_p_i          = phi_p[i];
           const auto &grad_phi_p_i     = grad_phi_p[i];
 
-          if constexpr (this->with_stabilization)
+          if constexpr (BaseType::with_stabilization)
           {
             u_conv_dot_grad_phi_u_i   = grad_phi_u_i * u_conv;
             residual_dot_grad_phi_u_i = strong_residual_momentum * grad_phi_u_i;
           }
 
-          if constexpr (this->with_pseudo_solid)
+          if constexpr (BaseType::with_pseudo_solid)
           {
             grad_phi_x_i = &(*grad_phi_x)[i];
             div_phi_x_i  = (*div_phi_x)[i];
@@ -440,7 +440,7 @@ namespace Assembly
                   phi_u_i * to_multiply_by_phi_u_i_momentum[j];
 
                 // Diffusion
-                if constexpr (this->with_divergence_form)
+                if constexpr (BaseType::with_divergence_form)
                 {
                   // The following is the diffusion term
                   // 2. * nu * scalar_product(sym_grad_phi_u[j],
@@ -461,7 +461,7 @@ namespace Assembly
                     nu * scalar_product(grad_phi_u_i, grad_phi_u[j]);
                 }
 
-                if constexpr (this->with_stabilization)
+                if constexpr (BaseType::with_stabilization)
                 {
                   // SUPG stabilization : variation w.r.t. u
                   local_flow_matrix_ij +=
@@ -471,7 +471,7 @@ namespace Assembly
                 }
               }
 
-              if constexpr (this->with_stabilization)
+              if constexpr (BaseType::with_stabilization)
               {
                 if (j_is_p)
                   // SUPG stabilization : variation w.r.t. p
@@ -480,7 +480,7 @@ namespace Assembly
                                          u_conv_dot_grad_phi_u_i);
               }
 
-              if constexpr (this->with_pseudo_solid)
+              if constexpr (BaseType::with_pseudo_solid)
                 if (j_is_x)
                 {
                   const auto &G   = (*grad_phi_x_moving)[j];
@@ -494,7 +494,7 @@ namespace Assembly
                     p * (trace(-grad_phi_u_i * G) + div_phi_u_i * trG);
 
                   // Diffusion term
-                  if constexpr (this->with_divergence_form)
+                  if constexpr (BaseType::with_divergence_form)
                   {
                     // FIXME: it may be possible to reduce this to a single
                     // double contraction (scalar_product), or even explicit the
@@ -530,7 +530,7 @@ namespace Assembly
                 local_flow_matrix_ij += -phi_p_i * div_phi_u[j];
               }
 
-              if constexpr (this->with_stabilization)
+              if constexpr (BaseType::with_stabilization)
               {
                 if (j_is_u or j_is_p)
                   // PSPG stabilization : variation w.r.t. u and p
@@ -539,7 +539,7 @@ namespace Assembly
                     (strong_residual_momentum_variation[j] * grad_phi_p_i);
               }
 
-              if constexpr (this->with_pseudo_solid)
+              if constexpr (BaseType::with_pseudo_solid)
                 if (j_is_x)
                 {
                   const auto &G   = (*grad_phi_x_moving)[j];
@@ -561,7 +561,7 @@ namespace Assembly
              * Pseudo-solid equation
              */
             double local_ps_matrix_ij = 0.;
-            if constexpr (this->with_pseudo_solid)
+            if constexpr (BaseType::with_pseudo_solid)
               if (i_is_x && j_is_x)
               {
                 const auto &gxi = (*grad_phi_x_i)[comp_i - x_lower];
@@ -631,7 +631,7 @@ namespace Assembly
                */
               auto sigma_dot_n = -p_exact * n + nu * grad_u_exact * n;
 
-              if constexpr (this->with_divergence_form)
+              if constexpr (BaseType::with_divergence_form)
                 /*
                  * For the Navier-Stokes with full divergence of stress tensor,
                  * complete with the missing term (this is then a "real"

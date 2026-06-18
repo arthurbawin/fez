@@ -324,14 +324,13 @@ void LinearElasticitySolver<dim>::MMSSourceTerm::vector_value(
     f = mms.exact_mesh_position
           ->divergence_neo_hookean_stress_variable_coefficients(
             p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
-	  else if (pseudosolid.constitutive_model ==
-	           Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
-	    f = mms.exact_mesh_position
-	          ->divergence_ogden_stress_variable_coefficients(
-	            p,
-	            pseudosolid.lame_mu_fun,
-	            pseudosolid.lame_lambda_fun,
-	            pseudosolid.ogden_beta);
+  else if (pseudosolid.constitutive_model ==
+           Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden)
+    f = mms.exact_mesh_position->divergence_ogden_stress_variable_coefficients(
+      p,
+      pseudosolid.lame_mu_fun,
+      pseudosolid.lame_lambda_fun,
+      pseudosolid.ogden_beta);
   else
     f = mms.exact_mesh_position
           ->divergence_linear_elastic_stress_variable_coefficients(
@@ -1130,8 +1129,8 @@ void LinearElasticitySolver<dim>::assemble_local_rhs(
       scratch_data.source_term_position_current_mesh[q];
     const auto &source_term_position_fixed_mesh =
       scratch_data.source_term_position[q];
-    // The source term to use : using coefficients which cannot be both nonzero
-    // avois using a condition
+    // The source term to use: the coefficients cannot both be nonzero, which
+    // avoids branching in the quadrature loop.
     const auto source_term = source_alpha * source_term_position_moving_mesh +
                              gamma * source_term_position_fixed_mesh;
 

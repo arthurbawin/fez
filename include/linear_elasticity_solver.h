@@ -53,6 +53,12 @@ using namespace dealii;
  *
  * - \nabla \cdot \sigma(x) + max_coeff * f(x(X)) = 0.
  *
+ * In CHNS-ALE presolver mode, the same elasticity solve also carries the
+ * monolithic auxiliary fields phi, or phi and psi for the enlarged model. This
+ * lets the user define the mesh forcing from regular CHNS parameters instead
+ * of writing the fully expanded forcing expression by hand in the parameter
+ * file.
+ *
  */
 template <int dim>
 class LinearElasticitySolver : public GenericSolver<LA::ParVectorType>

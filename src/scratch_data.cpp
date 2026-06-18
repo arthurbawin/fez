@@ -18,9 +18,10 @@ namespace NavierStokesScratch
     if constexpr ((update_flags & pseudo_solid) != 0)
       flags |= update_jacobians;
 
-    // SUPG/PSPG stabilization: also update hessians to compute strong residuals
+    // SUPG/PSPG stabilization: also update hessians to compute strong
+    // residuals.
     if (enable_stabilization)
-      flags |= update_hessians; // | update_inverse_jacobians;
+      flags |= update_hessians;
 
     return flags;
   }

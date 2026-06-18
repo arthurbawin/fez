@@ -91,6 +91,11 @@ namespace Assembly::MovingMeshForcing
 
     // Smooth odd approximation of sign(psi) * |psi|^q. The small delta keeps
     // the map differentiable at psi=0 for Newton.
+    //
+    // In the enlarged CHNS-ALE solver, psi is only a mesh-forcing marker. For
+    // 0 < q < 1, under-saturated values |psi| < 1 are amplified, so the mesh
+    // reacts earlier across the enlarged interface without changing the marker
+    // sign. For q > 1 the same map damps those weak marker values.
     constexpr double delta = 2e-2;
     const double     a     = phase_value * phase_value + delta * delta;
 

@@ -168,6 +168,8 @@ namespace
       Stabilization::compute_tau(1., true, 0., 1., 2., 1);
     const double diffusive_tau_p2 =
       Stabilization::compute_tau(1., true, 0., 1., 2., 2);
+    const double transient_tau =
+      Stabilization::compute_tau(2., false, 0., 0., 2., 1);
 
     AssertThrow(std::abs(convective_tau_p2 / convective_tau_p1 - 0.5) <
                   1.e-14,
@@ -177,6 +179,8 @@ namespace
                   1.e-14,
                 ExcMessage("Diffusive tau scaling should be proportional to "
                            "1/p^2."));
+    AssertThrow(std::abs(transient_tau - 2.) < 1.e-14,
+                ExcMessage("Transient tau should use 1/dt^2."));
   }
 
   void test_streamline_lengths()

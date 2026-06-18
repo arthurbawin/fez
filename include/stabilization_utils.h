@@ -215,7 +215,7 @@ namespace Stabilization
     const double temporal =
       (is_steady || dt <= std::numeric_limits<double>::epsilon()) ?
         0. :
-        4. / (dt * dt);
+        1. / (dt * dt);
     const double convective =
       4. * p2 * advection_norm * advection_norm / (h_tau * h_tau);
     const double diffusive =

@@ -1245,8 +1245,9 @@ namespace Parameters
         "1.0",
         Patterns::Double(0.0),
         "Exponent q applied only to the enlarged forcing marker before the "
-        "mesh forcing law. q=1 is neutral; values below 1 boost "
-        "under-saturated |psi| values smoothly.");
+        "mesh forcing law, as a smooth sign(psi)*|psi|^q map. q=1 is "
+        "neutral; values below 1 boost under-saturated |psi| values smoothly "
+        "and values above 1 damp them.");
       prm.declare_entry(
         "psi mu correction factor",
         "0.0",

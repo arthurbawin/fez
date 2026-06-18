@@ -4,6 +4,7 @@
 #include <deal.II/base/tensor.h>
 #include <time_handler.h>
 
+#include <limits>
 #include <vector>
 
 /**
@@ -141,7 +142,17 @@ namespace StabilizationTools
     const double                       velocity_norm_squared,
     const std::vector<Tensor<1, dim>> &grad_scalar_shape)
   {
-    if (velocity_norm_squared < 1e-12)
+    /*
+     * Keep this threshold consistent with the legacy geometry-based streamline
+     * length, which switches to the isotropic cell diameter when ||u|| is of
+     * order sqrt(eps). A larger cutoff makes small-velocity transient MMS cases
+     * fall back to the cell diameter too early, changing h_tau even for P1
+     * velocity fields where the field and geometry definitions should agree.
+     *
+     * FIXME: The fallback policy should eventually be centralized so all
+     * stabilization and CFL length computations share one documented rule.
+     */
+    if (velocity_norm_squared < std::numeric_limits<double>::epsilon())
       // Return *square* of cell_diameter
       return cell_diameter * cell_diameter;
 

@@ -25,10 +25,19 @@ subsection Mesh
     set strategy                 = riemannian metric
 
     subsection Metric
-      set n fixed point       = 2
+      set n fixed point       = 3
       set n time intervals    = 10
       set transfer solution   = true
       set mmg verbosity level = -1
+
+      subsection Fixed point updates
+        subsection CHNS interface thickness
+          set enable           = true
+          set update frequency = 2
+          set factor           = 0.5
+          set constant name    = eps
+        end
+      end
     end
   end
 end
@@ -43,18 +52,18 @@ subsection Metric tensor fields
     set variable  = phase_tracer
     set component = 0
 
-    set min mesh size = 1e-4
+    set min mesh size = 1e-10
     set max mesh size = 10
 
     subsection Multiscale optimal metric for interpolation error
       set target norm                = L2_norm
-      set n target vertices          = 10000
+      set n target vertices          = 5000
       set use analytical derivatives = false
     end
 
     subsection Gradation
       set verbosity      = quiet
-      set enable         = false
+      set enable         = true
       set deterministic  = false
       set gradation      = 1.8
       set max iteration  = 100

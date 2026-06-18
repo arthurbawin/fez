@@ -57,7 +57,7 @@ public:
   /**
    * Destructor
    */
-  virtual ~NSSolver() {}
+  virtual ~NSSolver() = default;
 
   /**
    * Create the scratch data structure for this solver.

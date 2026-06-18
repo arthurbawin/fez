@@ -28,7 +28,7 @@ public:
   /**
    * Destructor
    */
-  virtual ~CHNSSolver() {}
+  virtual ~CHNSSolver() = default;
 
   /**
    * Create the scratch data structure for this solver.
@@ -116,8 +116,8 @@ protected:
   get_additional_variables_description() const override
   {
     std::vector<std::pair<std::string, unsigned int>> description;
-    description.push_back({"tracer", 1});
-    description.push_back({"potential", 1});
+    description.emplace_back("tracer", 1);
+    description.emplace_back("potential", 1);
     return description;
   }
 

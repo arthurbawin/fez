@@ -45,7 +45,7 @@ public:
   /**
    * Destructor
    */
-  virtual ~NonLinearSolver() {}
+  virtual ~NonLinearSolver() = default;
 
   /**
    * Solve the nonlinear problem (with e.g. Newton's method in the associated

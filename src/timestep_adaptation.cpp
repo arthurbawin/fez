@@ -161,7 +161,7 @@ void BDFErrorEstimator::compute_error_estimator(
   // Synchronize the max errors across ranks
   for (const auto var : handled_variables)
   {
-    const auto comm   = present_solution.get_mpi_communicator();
+    auto *const comm   = present_solution.get_mpi_communicator();
     max_error.at(var) = Utilities::MPI::max(max_error.at(var), comm);
     if (Utilities::MPI::this_mpi_process(comm) == 0 &&
         time_parameters.adaptation.verbosity == Parameters::Verbosity::verbose)

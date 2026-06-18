@@ -63,7 +63,7 @@ class NavierStokesSolver : public GenericSolver<LA::ParVectorType>
 public:
   NavierStokesSolver(const ParameterReader<dim> &param);
 
-  virtual ~NavierStokesSolver() {}
+  virtual ~NavierStokesSolver() = default;
 
 public:
   /**

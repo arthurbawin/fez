@@ -63,7 +63,7 @@ public:
    */
   LinearElasticitySolver(const ParameterReader<dim> &param);
 
-  virtual ~LinearElasticitySolver() {}
+  virtual ~LinearElasticitySolver() = default;
 
 public:
   /**

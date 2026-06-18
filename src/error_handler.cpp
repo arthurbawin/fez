@@ -244,7 +244,7 @@ void ErrorHandler::add_unsteady_error(const std::string &error_name,
   // error_table.add_value(error_name, error_val);
 
   auto &error_vec = unsteady_errors.at(error_name);
-  error_vec.push_back({time, error_val});
+  error_vec.emplace_back(time, error_val);
 }
 
 void ErrorHandler::compute_temporal_error()

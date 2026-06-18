@@ -67,10 +67,10 @@ std::vector<std::pair<std::string, unsigned int>>
 NavierStokesSolver<dim, with_moving_mesh>::get_variables_description() const
 {
   std::vector<std::pair<std::string, unsigned int>> description;
-  description.push_back({"velocity", dim});
-  description.push_back({"pressure", 1});
+  description.emplace_back("velocity", dim);
+  description.emplace_back("pressure", 1);
   if constexpr (with_moving_mesh)
-    description.push_back({"mesh_position", dim});
+    description.emplace_back("mesh_position", dim);
   const auto additional_description = get_additional_variables_description();
   for (const auto &additional : additional_description)
     description.push_back(additional);

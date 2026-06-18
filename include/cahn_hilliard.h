@@ -87,6 +87,59 @@ namespace CahnHilliard
 
   template <int dim>
   inline double
+  contact_angle_gradient_coefficient(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         sigma_tilde)
+  {
+    return potential_gradient_coefficient(param, sigma_tilde);
+  }
+
+  /*
+   * Surface term coefficient for contact angle boundary condition.
+   * This is the scaling applied to the contact angle surface integral in the
+   * weak form. It accounts for model-dependent non-dimensionalizations.
+   *
+   * The contact angle BC contributes to the weak form of the potential
+   * equation as an integrated boundary term with coefficient:
+   *   epsilon^2 * contact_angle_surface_coefficient
+   */
+  template <int dim>
+  inline double
+  contact_angle_surface_coefficient(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         sigma_tilde)
+  {
+    // The contact angle boundary term uses the same diffusive scaling as the
+    // bulk potential gradient term. The boundary contribution is
+    // potential_gradient_coefficient * g(phi), where g(phi) = n·grad(phi).
+    return potential_gradient_coefficient(param, sigma_tilde);
+  }
+
+  /*
+   * Static wetting condition for a tanh diffuse interface:
+   *
+   *   n . grad(phi) = -cos(theta) / (sqrt(2) eps) * (1 - phi^2)
+   *
+   * theta is measured through the phi = +1 phase. Flip the sign if using the
+   * opposite phase convention.
+   */
+  inline double contact_angle_normal_derivative(const double phi,
+                                                const double epsilon,
+                                                const double theta)
+  {
+    return -std::cos(theta) * (1. - phi * phi) /
+           (std::sqrt(2.) * epsilon);
+  }
+
+  inline double contact_angle_normal_derivative_jacobian(const double phi,
+                                                         const double epsilon,
+                                                         const double theta)
+  {
+    return 2. * std::cos(theta) * phi / (std::sqrt(2.) * epsilon);
+  }
+
+  template <int dim>
+  inline double
   ding_horriche_capillary_coefficient(
     const Parameters::CahnHilliard<dim> &param)
   {

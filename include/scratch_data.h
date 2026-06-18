@@ -339,6 +339,23 @@ private:
         div_phi_u_face[i_face][q][k] =
           fe_face_values[velocity].divergence(k, q);
       }
+
+      if (enable_cahn_hilliard)
+      {
+        fe_face_values[tracer].get_function_values(
+          current_solution, tracer_values_face[i_face]);
+        fe_face_values[potential].get_function_values(
+          current_solution, potential_values_face[i_face]);
+
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+          for (unsigned int q2 = 0; q2 < n_faces_q_points; ++q2)
+          {
+            shape_phi_face[i_face][q2][k] =
+              fe_face_values[tracer].value(k, q2);
+            shape_mu_face[i_face][q2][k] =
+              fe_face_values[potential].value(k, q2);
+          }
+      }
     }
   }
 
@@ -1365,6 +1382,11 @@ public:
                                                 sym_grad_phi_u_face;
   std::vector<std::vector<std::vector<double>>> div_phi_u_face;
   std::vector<std::vector<std::vector<double>>> phi_p_face;
+
+  std::vector<std::vector<double>>                  tracer_values_face;
+  std::vector<std::vector<double>>                  potential_values_face;
+  std::vector<std::vector<std::vector<double>>>    shape_phi_face;
+  std::vector<std::vector<std::vector<double>>>    shape_mu_face;
 
   // Source term in volume
   std::vector<Vector<double>> source_term_full_moving;

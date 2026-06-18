@@ -1014,6 +1014,68 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
       local_matrix);
   }
 
+  // ──── Cahn-Hilliard contact angle boundary condition (face assembly) ────
+  for (unsigned int f = 0; f < scratch_data.n_faces; ++f)
+  {
+    // Only process boundary faces
+    if (!cell->face(f)->at_boundary())
+      continue;
+
+    const auto face_id = scratch_data.face_boundary_id[f];
+
+    // Check if this boundary has a contact angle BC enabled
+    if (this->param.cahn_hilliard_bc.find(face_id) ==
+        this->param.cahn_hilliard_bc.end())
+      continue;
+
+    const auto &ch_bc = this->param.cahn_hilliard_bc.at(face_id);
+    if (ch_bc.contact_angle < 0.)
+      continue;
+
+    // Compute model-dependent surface coefficient
+    const double contact_angle_surface_coeff =
+      CahnHilliard::contact_angle_surface_coefficient(cahn_hilliard,
+                                                      scratch_data.sigma_tilde);
+
+    const double epsilon = this->param.cahn_hilliard.epsilon_interface;
+    const double contact_angle_theta = ch_bc.contact_angle;
+
+    for (unsigned int qf = 0; qf < scratch_data.n_faces_q_points; ++qf)
+    {
+      const double phi_val = scratch_data.tracer_values_face[f][qf];
+      const std::vector<double> &phi_phi_qf = scratch_data.shape_phi_face[f][qf];
+      const std::vector<double> &phi_mu_qf  = scratch_data.shape_mu_face[f][qf];
+
+      const double g_phi_prime =
+        CahnHilliard::contact_angle_normal_derivative_jacobian(
+          phi_val, epsilon, contact_angle_theta);
+      const double face_weight = scratch_data.face_JxW_moving[f][qf];
+
+      for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+      {
+        const unsigned int comp_i = scratch_data.components[i];
+
+        for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
+        {
+          const unsigned int comp_j = scratch_data.components[j];
+          bool assemble =
+            this->coupling_table[comp_i][comp_j] == DoFTools::always;
+          if (!assemble)
+            continue;
+
+          // (μ, φ) block: ∫ε²·g'(φ)·ψ_φ·ψ_μ dS
+          if (comp_i == const_ordering.mu_lower &&
+              comp_j == const_ordering.phi_lower)
+          {
+            local_matrix(i, j) -=
+              contact_angle_surface_coeff * g_phi_prime * phi_phi_qf[j] *
+              phi_mu_qf[i] * face_weight;
+          }
+        }
+      }
+    }
+  }
+
   cell->get_dof_indices(copy_data.dof_indices());
 }
 
@@ -1263,6 +1325,55 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
     for (const auto i_face : cell->face_indices())
     {
       const auto &face = cell->face(i_face);
+
+      // ──── Cahn-Hilliard contact angle boundary condition ────
+      {
+        const auto face_id = scratch_data.face_boundary_id[i_face];
+
+        // Check if this boundary has a contact angle BC enabled
+        if (this->param.cahn_hilliard_bc.find(face_id) !=
+            this->param.cahn_hilliard_bc.end())
+        {
+          const auto &ch_bc = this->param.cahn_hilliard_bc.at(face_id);
+          if (ch_bc.contact_angle >= 0.)
+          {
+            // Compute model-dependent surface coefficient
+            const double contact_angle_surface_coeff =
+              CahnHilliard::contact_angle_surface_coefficient(
+                this->param.cahn_hilliard, scratch_data.sigma_tilde);
+
+            const double epsilon =
+              this->param.cahn_hilliard.epsilon_interface;
+            const double contact_angle_theta = ch_bc.contact_angle;
+
+            for (unsigned int qf = 0; qf < scratch_data.n_faces_q_points;
+                 ++qf)
+            {
+              const double phi_val = scratch_data.tracer_values_face[i_face][qf];
+              const std::vector<double> &phi_mu_qf =
+                scratch_data.shape_mu_face[i_face][qf];
+              const double g_phi =
+                CahnHilliard::contact_angle_normal_derivative(
+                  phi_val, epsilon, contact_angle_theta);
+              const double face_weight = scratch_data.face_JxW_moving[i_face][qf];
+
+              for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+              {
+                const unsigned int comp_i = scratch_data.components[i];
+
+                // Contribution to potential equation: ∫ε²·g(φ)·ψ_μ dS
+                if (comp_i == const_ordering.mu_lower)
+                {
+                  local_rhs(i) -=
+                    contact_angle_surface_coeff * g_phi * phi_mu_qf[i] *
+                    face_weight;
+                }
+              }
+            }
+          }
+        }
+      }
+
       if (face->at_boundary())
       {
         // Open boundary condition with prescribed manufactured solution

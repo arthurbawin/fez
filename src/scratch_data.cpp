@@ -528,6 +528,16 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
   phi_p_face.resize(n_faces,
                     std::vector<std::vector<double>>(
                       n_faces_q_points, std::vector<double>(dofs_per_cell)));
+  tracer_values_face.resize(n_faces, std::vector<double>(n_faces_q_points));
+  potential_values_face.resize(n_faces, std::vector<double>(n_faces_q_points));
+  shape_phi_face.resize(n_faces,
+                        std::vector<std::vector<double>>(
+                          n_faces_q_points,
+                          std::vector<double>(dofs_per_cell)));
+  shape_mu_face.resize(n_faces,
+                       std::vector<std::vector<double>>(
+                         n_faces_q_points,
+                         std::vector<double>(dofs_per_cell)));
   grad_phi_u_face.resize(n_faces,
                          std::vector<std::vector<Tensor<2, dim>>>(
                            n_faces_q_points,

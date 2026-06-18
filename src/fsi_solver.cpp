@@ -425,6 +425,7 @@ void FSISolverLessLambda<dim>::setup_mappings()
       this->evaluation_point,
       this->position_mask);
 
+  moving_mapping_collection = hp::MappingCollection<dim>();
   moving_mapping_collection.push_back(*this->moving_mapping);
   moving_mapping_collection.push_back(*this->moving_mapping);
 }

@@ -157,6 +157,7 @@ void test()
   // Space convergence
   prm.enter_subsection("Space convergence");
   prm.set("norms to compute", "L2_norm");
+  prm.set("initial target number of vertices", "100");
   prm.leave_subsection();
   prm.leave_subsection();
 

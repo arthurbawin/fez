@@ -97,9 +97,14 @@ void GenericSolver<VectorType>::run_convergence_loop()
           // full parameter structure, double the target number of vertices in
           // each metric field instead.
           mms_param.n_target_vertices *= mms_param.n_target_vertices_multiplier;
-          mesh_param.adaptation.metric.n_time_intervals *=
-            mms_param.n_time_intervals_multiplier;
-          time_param.n_time_intervals *= mms_param.n_time_intervals_multiplier;
+
+          // For unsteady MMS, also increase the number of time intervals.
+          if (!time_param.is_steady())
+          {
+            mesh_param.adaptation.metric.n_time_intervals *=
+              mms_param.n_time_intervals_multiplier;
+            time_param.n_time_intervals *= mms_param.n_time_intervals_multiplier;
+          }
         }
 
         // Restart from the initial mesh. Alternatively we could also restart

@@ -85,7 +85,7 @@ public:
    * simulation as the mesh is refined.
    */
   virtual void
-  update_simulation_parameters(const unsigned int fixed_point_iteration)
+  update_simulation_parameters(const unsigned int /* fixed_point_iteration */)
   {}
 
   /**

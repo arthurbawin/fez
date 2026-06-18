@@ -203,6 +203,7 @@ namespace NavierStokesScratch
      */
     void allocate();
 
+  public:
     /**
      * Set up data related to the incompressible Navier-Stokes system.
      */
@@ -228,6 +229,7 @@ namespace NavierStokesScratch
      */
     void initialize_compressible();
 
+  private:
     /**
      * Reinit FEValues or FEFaceValues and return a reference to it.
      * Adapted from the reinit routines in deal.II's meshworker/scratch_data.cc,

@@ -205,6 +205,7 @@ namespace NavierStokesScratch
      */
     void allocate();
 
+  public:
     /**
      * Set up data related to the incompressible Navier-Stokes system.
      */
@@ -230,6 +231,7 @@ namespace NavierStokesScratch
      */
     void initialize_compressible();
 
+  private:
     /**
      * Reinit FEValues or FEFaceValues and return a reference to it.
      * Adapted from the reinit routines in deal.II's meshworker/scratch_data.cc,
@@ -628,9 +630,10 @@ namespace NavierStokesScratch
 
         const Point<dim> &q_point = fixed_quadrature_points[q];
         lame_mu[q] =
-          physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
+          param.physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
         lame_lambda[q] =
-          physical_properties.pseudosolids[0].lame_lambda_fun->value(q_point);
+          param.physical_properties.pseudosolids[0].lame_lambda_fun->value(
+            q_point);
 
         AssertThrow(lame_mu[q] >= 0,
                     ExcMessage("Lamé coefficient mu should be positive"));
@@ -1218,10 +1221,6 @@ namespace NavierStokesScratch
       (update_flags & with_hp_capabilities) != 0;
 
     bool enable_stabilization;
-
-  private:
-    Parameters::PhysicalProperties<dim> physical_properties;
-    Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
   public:
     unsigned int active_fe_index;

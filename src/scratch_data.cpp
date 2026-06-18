@@ -63,8 +63,6 @@ namespace NavierStokesScratch
     , ordering(ordering)
     , n_components(ordering.n_components)
     , enable_stabilization(enable_stabilization)
-    , physical_properties(param.physical_properties)
-    , cahn_hilliard_param(param.cahn_hilliard)
     , fe_values(std::make_unique<FEValues<dim>>(
         moving_mapping,
         fe,
@@ -132,8 +130,6 @@ namespace NavierStokesScratch
     , ordering(ordering)
     , n_components(ordering.n_components)
     , enable_stabilization(enable_stabilization)
-    , physical_properties(param.physical_properties)
-    , cahn_hilliard_param(param.cahn_hilliard)
     , hp_fe_values(std::make_unique<hp::FEValues<dim>>(
         moving_mapping_collection,
         fe_collection,
@@ -220,8 +216,6 @@ namespace NavierStokesScratch
     , ordering(other.ordering)
     , n_components(other.n_components)
     , enable_stabilization(other.enable_stabilization)
-    , physical_properties(other.physical_properties)
-    , cahn_hilliard_param(other.cahn_hilliard_param)
     , n_q_points(other.n_q_points)
     , n_faces(other.n_faces)
     , n_faces_q_points(other.n_faces_q_points)
@@ -348,7 +342,8 @@ namespace NavierStokesScratch
     velocity.first_vector_component = u_lower = ordering.u_lower;
     pressure.component = p_lower = ordering.p_lower;
 
-    kinematic_viscosity = physical_properties.fluids[0].kinematic_viscosity;
+    kinematic_viscosity =
+      param.physical_properties.fluids[0].kinematic_viscosity;
   }
 
   template <int dim, unsigned int update_flags>
@@ -390,18 +385,21 @@ namespace NavierStokesScratch
     tracer.component = phi_lower = ordering.phi_lower;
     potential.component = mu_lower = ordering.mu_lower;
 
-    density0           = physical_properties.fluids[0].density;
-    density1           = physical_properties.fluids[1].density;
-    const double nu0   = physical_properties.fluids[0].kinematic_viscosity;
-    const double nu1   = physical_properties.fluids[1].kinematic_viscosity;
-    dynamic_viscosity0 = density0 * nu0;
-    dynamic_viscosity1 = density1 * nu1;
-    mobility           = cahn_hilliard_param.mobility;
-    epsilon            = cahn_hilliard_param.epsilon_interface;
-    sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
+    const auto &pp = param.physical_properties;
+    const auto &ch = param.cahn_hilliard;
+
+    density0              = pp.fluids[0].density;
+    density1              = pp.fluids[1].density;
+    const double nu0      = pp.fluids[0].kinematic_viscosity;
+    const double nu1      = pp.fluids[1].kinematic_viscosity;
+    dynamic_viscosity0    = density0 * nu0;
+    dynamic_viscosity1    = density1 * nu1;
+    mobility              = ch.mobility;
+    epsilon               = ch.epsilon_interface;
+    sigma_tilde           = 3. / (2. * sqrt(2.)) * ch.surface_tension;
     diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
-    body_force            = physical_properties.body_force;
-    tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
+    body_force            = pp.body_force;
+    tracer_limiter        = CahnHilliard::get_limiter_function(ch);
   }
 
   template <int dim, unsigned int update_flags>
@@ -415,9 +413,9 @@ namespace NavierStokesScratch
 
     temperature.component = t_lower = ordering.t_lower;
 
-    density_ref     = physical_properties.fluids[0].density;
-    pressure_ref    = physical_properties.fluids[0].pressure_ref;
-    temperature_ref = physical_properties.fluids[0].temperature_ref;
+    density_ref     = param.physical_properties.fluids[0].density;
+    pressure_ref    = param.physical_properties.fluids[0].pressure_ref;
+    temperature_ref = param.physical_properties.fluids[0].temperature_ref;
     alpha_r         = 1.0 / pressure_ref;
     beta_r          = 1.0 / temperature_ref;
   }

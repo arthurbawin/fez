@@ -156,6 +156,44 @@ namespace Parameters
         {
           return current_fixed_point_iteration == n_fixed_point - 1;
         }
+
+        /**
+         * Metric-based mesh adaptation is typically performed within a fixed
+         * point loop, converging the mesh-solution pair together.
+         * These parameters specify how to update the prescribed simulation
+         * parameters in between fixed-point iterations. This allows, for
+         * instance, reducing the interface thickness of a CHNS simulation as
+         * the mesh is refined.
+         */
+        struct FixedPointUpdates
+        {
+          Verbosity verbosity;
+
+          /**
+           * Base struct for quantities updated during fixed point loop.
+           */
+          struct UpdateBase
+          {
+            // Enable/disable this update
+            bool enable;
+
+            // Quantity will be updated according to this frequency
+            unsigned int update_frequency;
+
+            // When updated, quantity will be multiplied by this value
+            double factor;
+
+            // If the quantity must be replaced in function objects, this is
+            // the string that will be replaced.
+            std::string constant_name;
+          };
+
+          // This struct controls the update of the interface thickness in a
+          // Cahn-Hilliard Navier-Stokes simulation.
+          struct CHNSInterfaceThickness : public UpdateBase
+          {
+          } chns_interface_thickness;
+        } fixed_point_updates;
       } metric;
 
       bool with_metric_based_adaptation() const

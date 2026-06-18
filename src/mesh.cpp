@@ -61,6 +61,7 @@ namespace MeshTools
         triangulation.set_manifold(id, serial_triangulation.get_manifold(id));
 
     // Create a fully distributed triangulation
+    triangulation.clear();
     triangulation.create_triangulation(description);
   }
 

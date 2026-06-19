@@ -622,6 +622,12 @@ MetricField<dim>::compute_integral_determinant(const double exponent) const
 }
 
 #if defined(FEZ_WITH_MMG)
+inline double round_to(double x, unsigned int n_digits)
+{
+  const double scale = std::pow(10.0, n_digits);
+  return std::round(x * scale) / scale;
+}
+
 template <int dim>
 void MetricField<dim>::set_mmg_solution(
   const std::vector<std::pair<Point<dim>, MetricTensor<dim>>> &gathered_metrics,
@@ -646,6 +652,8 @@ void MetricField<dim>::set_mmg_solution(
          ExcInternalError());
   const MMG5_int int_n_total_owned_vertices =
     static_cast<MMG5_int>(n_total_owned_vertices);
+
+  const unsigned int n_significant_digits = 10;
 
   int ier;
   if constexpr (dim == 2)
@@ -672,7 +680,12 @@ void MetricField<dim>::set_mmg_solution(
                         "gathered_metrics structure."));
       const auto &m = gathered_metrics_map.at(pt);
 
-      ier = MMG2D_Set_tensorSol(pointer_to_sol, m[0][0], m[0][1], m[1][1], i);
+      // Round the metric coefficients for reproducibility
+      const double m00 = round_to(m[0][0], n_significant_digits);
+      const double m01 = round_to(m[0][1], n_significant_digits);
+      const double m11 = round_to(m[1][1], n_significant_digits);
+
+      ier = MMG2D_Set_tensorSol(pointer_to_sol, m00, m01, m11, i);
       AssertThrow(ier == 1, ExcMessage("Error in MMG2D_Set_tensorSol"));
     }
 
@@ -703,14 +716,16 @@ void MetricField<dim>::set_mmg_solution(
                         "gathered_metrics structure."));
       const auto &m = gathered_metrics_map.at(pt);
 
-      ier = MMG3D_Set_tensorSol(pointer_to_sol,
-                                m[0][0],
-                                m[0][1],
-                                m[0][2],
-                                m[1][1],
-                                m[1][2],
-                                m[2][2],
-                                i);
+      // Round the metric coefficients for reproducibility
+      const double m00 = round_to(m[0][0], n_significant_digits);
+      const double m01 = round_to(m[0][1], n_significant_digits);
+      const double m02 = round_to(m[0][2], n_significant_digits);
+      const double m11 = round_to(m[1][1], n_significant_digits);
+      const double m12 = round_to(m[1][2], n_significant_digits);
+      const double m22 = round_to(m[2][2], n_significant_digits);
+
+      ier =
+        MMG3D_Set_tensorSol(pointer_to_sol, m00, m01, m02, m11, m12, m22, i);
       AssertThrow(ier == 1, ExcMessage("Error in MMG3D_Set_tensorSol"));
     }
 

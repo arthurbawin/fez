@@ -262,6 +262,25 @@ namespace NavierStokesScratch
                                                    present_velocity_divergence);
       fe_values[pressure].get_function_values(current_solution,
                                               present_pressure_values);
+      if (enable_stabilization)
+      {
+        fe_values[velocity].get_function_laplacians(
+          current_solution, present_velocity_laplacians);
+        fe_values[velocity].get_function_hessians(current_solution,
+                                                  present_velocity_hessians);
+        fe_values[pressure].get_function_gradients(current_solution,
+                                                   present_pressure_gradients);
+
+        // Compute grad(div u) from the velocity Hessian.
+        for (unsigned int q = 0; q < n_q_points; ++q)
+        {
+          present_velocity_grad_div[q] = Tensor<1, dim>();
+          for (unsigned int c = 0; c < dim; ++c)
+            for (unsigned int d = 0; d < dim; ++d)
+              present_velocity_grad_div[q][d] +=
+                present_velocity_hessians[q][c][c][d];
+        }
+      }
 
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)

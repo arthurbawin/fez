@@ -1168,7 +1168,7 @@ namespace Parameters
     {
       prm.declare_entry("CHNS model",
                         "abels",
-                        Patterns::Selection("abels|ding_horriche"),
+                        Patterns::Selection("abels|ding_horriche|stepien"),
                         "CHNS model: current Abels-type model or the "
                         "Ding/Horriche final CADYF model. Abels uses FEZ's "
                         "scaled chemical potential; Ding/Horriche uses the "
@@ -1269,11 +1269,13 @@ namespace Parameters
         chns_model = CHNSModel::Abels;
       else if (parsed_chns_model == "ding_horriche")
         chns_model = CHNSModel::DingHorriche;
+      else if (parsed_chns_model == "stepien")
+        chns_model = CHNSModel::Stepien;
       else
         AssertThrow(false,
                     ExcMessage("Unknown CHNS model '" + parsed_chns_model +
-                               "'. Accepted values are 'abels' and "
-                               "'ding_horriche'."));
+                               "'. Accepted values are 'abels',"
+                               "'ding_horriche' and 'stepien'."));
 
       const std::string parsed_mobility_model = prm.get("mobility model");
       if (parsed_mobility_model == "constant")

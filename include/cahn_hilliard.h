@@ -24,6 +24,14 @@ namespace CahnHilliard
 
   template <int dim>
   inline bool
+  is_stepien_model(const Parameters::CahnHilliard<dim> &param)
+  {
+    return param.chns_model ==
+           Parameters::CahnHilliard<dim>::CHNSModel::Stepien;
+  }
+
+  template <int dim>
+  inline bool
   use_abels_diffusive_inertia(
     const Parameters::CahnHilliard<dim> &param)
   {

@@ -577,7 +577,8 @@ namespace Parameters
     enum class CHNSModel
     {
       Abels,
-      DingHorriche
+      DingHorriche,
+      Stepien
     } chns_model = CHNSModel::Abels;
 
     enum class MobilityModel

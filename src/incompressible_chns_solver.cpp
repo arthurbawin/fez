@@ -182,11 +182,8 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
   {
     // Pseudosolid (mesh position) source term
     Tensor<1, dim> f_PS =
-      mms.exact_mesh_position
-        ->divergence_linear_elastic_stress_variable_coefficients(
-          p,
-          physical_properties.pseudosolids[0].lame_mu_fun,
-          physical_properties.pseudosolids[0].lame_lambda_fun);
+      mms.exact_mesh_position->divergence_elastic_stress_tensor(
+        physical_properties.pseudosolids[0], p);
 
     for (unsigned int d = 0; d < dim; ++d)
       values[x_lower + d] = f_PS[d];

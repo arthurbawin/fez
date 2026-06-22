@@ -1,6 +1,7 @@
 
 #include <deal.II/base/symmetric_tensor.h>
 #include <manufactured_solution.h>
+#include <parameters.h>
 #include <parsed_function_symengine.h>
 #include <preset_mms.h>
 #include <utilities.h>
@@ -441,6 +442,31 @@ namespace ManufacturedSolutions
   // Explicit instantiation
   template class ManufacturedSolution<2>;
   template class ManufacturedSolution<3>;
+
+  template <int dim>
+  Tensor<1, dim> MMSFunction<dim>::divergence_elastic_stress_tensor(
+    const Parameters::PseudoSolid<dim> &pseudosolid_param,
+    const Point<dim>                   &p) const
+  {
+    switch (pseudosolid_param.constitutive_model)
+    {
+      case Parameters::PseudoSolid<dim>::ConstitutiveModel::linear_elasticity:
+        return this->divergence_linear_elastic_stress_variable_coefficients(
+          p, pseudosolid_param.lame_mu_fun, pseudosolid_param.lame_lambda_fun);
+      case Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean:
+        return this->divergence_neo_hookean_stress_variable_coefficients(
+          p, pseudosolid_param.lame_mu_fun, pseudosolid_param.lame_lambda_fun);
+      case Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden:
+        return this->divergence_ogden_stress_variable_coefficients(
+          p,
+          pseudosolid_param.lame_mu_fun,
+          pseudosolid_param.lame_lambda_fun,
+          pseudosolid_param.ogden_beta);
+      default:
+        DEAL_II_ASSERT_UNREACHABLE();
+    }
+    return Tensor<1, dim>();
+  }
 
   template <int dim>
   Tensor<1, dim>

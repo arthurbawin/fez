@@ -13,6 +13,13 @@ DeclExceptionMsg(HessianIsIgnored,
                  "derivatives, but the hessian for this manufactured field was "
                  "not implemented (ignore_hessian = true).");
 
+// Forward declaration
+namespace Parameters
+{
+  template <int dim>
+  class PseudoSolid;
+}
+
 namespace ManufacturedSolutions
 {
   using namespace dealii;
@@ -29,6 +36,7 @@ namespace ManufacturedSolutions
     vector_one_minus_radial_kernel
   };
 
+  // Forward declarations
   template <int dim>
   class MMSFunction;
   template <int dim>
@@ -285,6 +293,14 @@ namespace ManufacturedSolutions
       return res;
     }
 
+
+    /**
+     * Divergence of the elasticity stress tensor for the chosen model.
+     */
+    Tensor<1, dim> divergence_elastic_stress_tensor(
+      const Parameters::PseudoSolid<dim> &pseudosolid_param,
+      const Point<dim>                   &p) const;
+
     /**
      * Divergence of the isothermal linear elastic stress tensor.
      *
@@ -295,10 +311,10 @@ namespace ManufacturedSolutions
      * Assuming constant Lamé coefficients, div(sigma) is given by:
      *         mu * lap(u) + (lambda + mu) * grad(div(u)).
      */
-    virtual Tensor<1, dim>
+    Tensor<1, dim>
     divergence_linear_elastic_stress(const Point<dim> &p,
                                      const double      lame_mu,
-                                     const double      lame_lambda) const final
+                                     const double      lame_lambda) const
     {
       return lame_mu * this->vector_laplacian(p) +
              (lame_mu + lame_lambda) * this->grad_div(p);
@@ -313,11 +329,10 @@ namespace ManufacturedSolutions
      * and the present function object is expected to represent a position
      * field.
      */
-    virtual Tensor<1, dim>
-    divergence_linear_elastic_stress_variable_coefficients(
+    Tensor<1, dim> divergence_linear_elastic_stress_variable_coefficients(
       const Point<dim>                          &p,
       std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
-      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const;
 
     /**
      * Divergence of the isothermal elastic stress tensor using a neo-hookean
@@ -326,10 +341,10 @@ namespace ManufacturedSolutions
      * This computes div(P), with P the first Piola-Kirchhoff stress tensor:
      * P = mu * (F - F^{-T}) + lambda * ln(det(F)) * F^{-T}.
      */
-    virtual Tensor<1, dim> divergence_neo_hookean_stress_variable_coefficients(
+    Tensor<1, dim> divergence_neo_hookean_stress_variable_coefficients(
       const Point<dim>                          &p,
       std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
-      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const final;
+      std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const;
 
     /**
      * Divergence of the isothermal elastic stress tensor using an Ogden
@@ -338,11 +353,11 @@ namespace ManufacturedSolutions
      * This computes div(P), with P the first Piola-Kirchhoff stress tensor:
      * P = mu * (F - F^{-T}) + lambda / beta * (1 - J^{-beta}) * F^{-T}.
      */
-    virtual Tensor<1, dim> divergence_ogden_stress_variable_coefficients(
+    Tensor<1, dim> divergence_ogden_stress_variable_coefficients(
       const Point<dim>                          &p,
       std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
       std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda,
-      const double                               beta) const final;
+      const double                               beta) const;
 
     /**
      * Check that the provided time and spatial derivatives match

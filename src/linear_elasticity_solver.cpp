@@ -88,32 +88,8 @@ void LinearElasticitySolver<dim>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
-  const auto    &pseudosolid = physical_properties.pseudosolids[0];
-  Tensor<1, dim> f;
-
-  switch (pseudosolid.constitutive_model)
-  {
-    case Parameters::PseudoSolid<dim>::ConstitutiveModel::linear_elasticity:
-      f = mms.exact_mesh_position
-            ->divergence_linear_elastic_stress_variable_coefficients(
-              p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
-      break;
-    case Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean:
-      f = mms.exact_mesh_position
-            ->divergence_neo_hookean_stress_variable_coefficients(
-              p, pseudosolid.lame_mu_fun, pseudosolid.lame_lambda_fun);
-      break;
-    case Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden:
-      f =
-        mms.exact_mesh_position->divergence_ogden_stress_variable_coefficients(
-          p,
-          pseudosolid.lame_mu_fun,
-          pseudosolid.lame_lambda_fun,
-          pseudosolid.ogden_beta);
-      break;
-    default:
-      DEAL_II_ASSERT_UNREACHABLE();
-  }
+  Tensor<1, dim> f = mms.exact_mesh_position->divergence_elastic_stress_tensor(
+    physical_properties.pseudosolids[0], p);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[d] = f[d];

@@ -496,16 +496,28 @@ void PostProcessingHandler<dim>::compute_forces(
       // FIXME: take viscosity of the mixture in CHNS
       const double mu = physical_properties.fluids[0].dynamic_viscosity;
 
-      forces = PostProcessingTools::compute_forces_on_boundary(
-        dof_handler,
-        mapping,
-        face_quadrature,
-        solution,
-        forces_param.boundary_id,
-        velocity_extractor,
-        pressure_extractor,
-        mu,
-        force_per_face);
+      if (ordering.has_variable(SolverInfo::VariableType::temperature))
+        forces = PostProcessingTools::compute_compressible_forces_on_boundary(
+          dof_handler,
+          mapping,
+          face_quadrature,
+          solution,
+          forces_param.boundary_id,
+          velocity_extractor,
+          pressure_extractor,
+          mu,
+          force_per_face);
+      else
+        forces = PostProcessingTools::compute_forces_on_boundary(
+          dof_handler,
+          mapping,
+          face_quadrature,
+          solution,
+          forces_param.boundary_id,
+          velocity_extractor,
+          pressure_extractor,
+          mu,
+          force_per_face);
       break;
     }
     case Forces::ComputationMethod::lagrange_multiplier:

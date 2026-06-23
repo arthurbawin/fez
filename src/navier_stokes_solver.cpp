@@ -1255,10 +1255,36 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
   }
 
   // Update the time handler
-  time_handler.update_parameters_after_restart(param.time_integration);
+  time_handler.update_parameters_after_restart(param.time_integration, pcout);
 }
 
 // Explicit instantiation
+template void NavierStokesSolver<2, false>::save<boost::archive::text_oarchive>(
+  boost::archive::text_oarchive &,
+  const unsigned int) const;
+template void NavierStokesSolver<3, false>::save<boost::archive::text_oarchive>(
+  boost::archive::text_oarchive &,
+  const unsigned int) const;
+template void NavierStokesSolver<2, true>::save<boost::archive::text_oarchive>(
+  boost::archive::text_oarchive &,
+  const unsigned int) const;
+template void NavierStokesSolver<3, true>::save<boost::archive::text_oarchive>(
+  boost::archive::text_oarchive &,
+  const unsigned int) const;
+
+template void NavierStokesSolver<2, false>::load<boost::archive::text_iarchive>(
+  boost::archive::text_iarchive &,
+  const unsigned int);
+template void NavierStokesSolver<3, false>::load<boost::archive::text_iarchive>(
+  boost::archive::text_iarchive &,
+  const unsigned int);
+template void NavierStokesSolver<2, true>::load<boost::archive::text_iarchive>(
+  boost::archive::text_iarchive &,
+  const unsigned int);
+template void NavierStokesSolver<3, true>::load<boost::archive::text_iarchive>(
+  boost::archive::text_iarchive &,
+  const unsigned int);
+
 template class NavierStokesSolver<2, false>;
 template class NavierStokesSolver<3, false>;
 template class NavierStokesSolver<2, true>;

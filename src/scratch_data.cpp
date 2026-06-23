@@ -434,6 +434,7 @@ namespace NavierStokesScratch
     face_JxW_fixed.resize(n_faces, std::vector<double>(n_faces_q_points));
     face_normals_moving.resize(n_faces,
                                std::vector<Tensor<1, dim>>(n_faces_q_points));
+    quadrature_points.resize(n_q_points);
 
     /**
      * Navier-Stokes

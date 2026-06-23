@@ -429,7 +429,7 @@ public:
    * Restart the simulation from saved checkpoint files, written by
    * checkpoint().
    */
-  void restart();
+  virtual void restart();
 
   /**
    * Save this object to file. See also the comments for the checkpoint()

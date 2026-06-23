@@ -231,7 +231,8 @@ public:
    * recompute the BDF coefficients if needed.
    */
   void update_parameters_after_restart(
-    const Parameters::TimeIntegration &new_parameters);
+    const Parameters::TimeIntegration &new_parameters,
+    const ConditionalOStream          &pcout);
 
 private:
   /**

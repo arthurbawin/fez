@@ -1538,6 +1538,92 @@ namespace Parameters
   template struct FSI<2>;
   template struct FSI<3>;
 
+  void SpongeLayer::Band::declare_parameters(ParameterHandler &prm)
+  {
+    prm.declare_entry("enable",
+                      "false",
+                      Patterns::Bool(),
+                      "Enable this sponge band.");
+    prm.declare_entry("x_start",
+                      "0.0",
+                      Patterns::Double(),
+                      "Streamwise coordinate at the upstream edge of the band "
+                      "(x_start < x_end).");
+    prm.declare_entry(
+      "x_end",
+      "1.0",
+      Patterns::Double(),
+      "Streamwise coordinate at the downstream edge of the band "
+      "(x_start < x_end).");
+    prm.declare_entry("sigma_max",
+                      "0.46",
+                      Patterns::Double(0.),
+                      "Peak relaxation rate of the band.");
+    prm.declare_entry("u",
+                      "1.0",
+                      Patterns::Double(),
+                      "x-component of the reference velocity u_inf.");
+    prm.declare_entry("v",
+                      "0.0",
+                      Patterns::Double(),
+                      "y-component of the reference velocity u_inf.");
+    prm.declare_entry("p_ref",
+                      "0.0",
+                      Patterns::Double(),
+                      "Reference pressure perturbation p*_inf.");
+    prm.declare_entry("T_ref",
+                      "0.0",
+                      Patterns::Double(),
+                      "Reference temperature perturbation T*_inf.");
+  }
+
+  void SpongeLayer::Band::read_parameters(ParameterHandler &prm)
+  {
+    enable    = prm.get_bool("enable");
+    x_start   = prm.get_double("x_start");
+    x_end     = prm.get_double("x_end");
+    sigma_max = prm.get_double("sigma_max");
+    u         = prm.get_double("u");
+    v         = prm.get_double("v");
+    p_ref     = prm.get_double("p_ref");
+    T_ref     = prm.get_double("T_ref");
+
+    if (enable)
+      AssertThrow(x_end > x_start,
+                  ExcMessage("Sponge layer: x_end must be strictly greater "
+                             "than x_start."));
+  }
+
+  void SpongeLayer::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Sponge Layer");
+    {
+      prm.enter_subsection("outflow");
+      outflow.declare_parameters(prm);
+      prm.leave_subsection();
+
+      prm.enter_subsection("inflow");
+      inflow.declare_parameters(prm);
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
+  void SpongeLayer::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Sponge Layer");
+    {
+      prm.enter_subsection("outflow");
+      outflow.read_parameters(prm);
+      prm.leave_subsection();
+
+      prm.enter_subsection("inflow");
+      inflow.read_parameters(prm);
+      prm.leave_subsection();
+    }
+    prm.leave_subsection();
+  }
+
   void Debug::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Debug");

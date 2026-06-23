@@ -271,7 +271,7 @@ namespace NavierStokesScratch
         fe_values[pressure].get_function_gradients(current_solution,
                                                    present_pressure_gradients);
 
-        // Compute grad(div)
+        // Compute grad(div u) from the velocity Hessian.
         for (unsigned int q = 0; q < n_q_points; ++q)
         {
           present_velocity_grad_div[q] = Tensor<1, dim>();
@@ -294,7 +294,8 @@ namespace NavierStokesScratch
       // Get jacobian, shape functions and set source terms
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
-        JxW_moving[q] = fe_values.JxW(q);
+        JxW_moving[q]        = fe_values.JxW(q);
+        quadrature_points[q] = fe_values.quadrature_point(q);
 
         // Time derivatives
         present_velocity_time_derivatives[q] =
@@ -1260,6 +1261,7 @@ namespace NavierStokesScratch
     std::vector<unsigned int>                components;
     std::vector<double>                      JxW_moving;
     std::vector<double>                      JxW_fixed;
+    std::vector<Point<dim>>                  quadrature_points;
     std::vector<bool>                        face_at_boundary;
     std::vector<unsigned int>                face_boundary_id;
     std::vector<std::vector<double>>         face_JxW_moving;

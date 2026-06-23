@@ -1444,6 +1444,10 @@ namespace NavierStokesScratch
     // x, this is its gradient w.r.t. x. Used in the Jacobian matrix.
     std::vector<Tensor<2, dim>> grad_source_term_position_current_mesh;
 
+    // If the elasticity source term is written w.r.t. the current mesh position
+    // x, this is its gradient w.r.t. x. Used in the Jacobian matrix.
+    std::vector<Tensor<2, dim>> grad_source_term_position_current_mesh;
+
     // The reference jacobians partial xsi_dim/partial xsi_(dim-1)
     std::array<Tensor<1, dim>, dim - 1> dxsids_array;
 

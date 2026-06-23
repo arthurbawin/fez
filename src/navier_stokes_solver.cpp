@@ -91,20 +91,22 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
   if (postproc_handler)
     postproc_handler->clear();
 
-  // Clear mesh(es) and dof handler(s)
-  transient_fixed_point_data.clear();
-
-  dofs_to_component.clear();
+  // Clear mesh(es) and dof handler(s), and reassign immediately the
+  // pointers for the first interval.
+  if (mms_param.current_step > 0)
+  {
+    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals);
+    transient_fixed_point_data.set_interval_data(0,
+                                                 triangulation,
+                                                 dof_handler,
+                                                 present_solution,
+                                                 previous_solutions,
+                                                 metric_for_adaptation);
+  }
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
   this->set_time();
-
-  // Pressure DOF
-  constrained_pressure_dof = numbers::invalid_dof_index;
-
-  // Initial mesh position
-  initial_positions.clear();
 
   reset_solver_specific_data();
 }
@@ -196,6 +198,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_interval_data(
     transient_fixed_point_data.get_meshfile_name(interval_index);
   mesh_param.filename = param.mesh.filename;
   time_handler.set_time_interval(interval_index);
+
+  // Reset dof to component map
+  dofs_to_component.clear();
+
+  // Reset initial mesh position
+  initial_positions.clear();
+
+  // Reset pressure DOF
+  constrained_pressure_dof = numbers::invalid_dof_index;
 
   if (param.time_integration.n_time_intervals > 1 &&
       param.time_integration.verbosity == Parameters::Verbosity::verbose)

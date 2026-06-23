@@ -117,10 +117,12 @@ namespace ErrorEstimation
     template <int dim>
     void Base<dim>::reconstruct_fields(const LA::ParVectorType &solution)
     {
-      // FIXME: add verbosity condition
-      pcout << std::endl;
-      pcout << "-- Reconstructing solution and derivatives of order up to "
-            << highest_recovered_derivative << "..." << std::endl;
+      if (param.recovery.verbosity == Parameters::Verbosity::verbose)
+      {
+        pcout << std::endl;
+        pcout << "-- Reconstructing solution and derivatives of order up to "
+              << highest_recovered_derivative << "..." << std::endl;
+      }
 
       local_solution                  = solution;
       solution_with_additional_ghosts = solution;

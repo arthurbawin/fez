@@ -130,13 +130,13 @@ namespace ManufacturedSolutions
   template <int dim>
   void ParsedFunctionSDBase<dim>::parse_parameters(ParameterHandler &prm)
   {
-    std::string vnames         = prm.get("Variable names");
-    std::string expression     = prm.get("Function expression");
+    parsed_variable_names      = prm.get("Variable names");
+    parsed_expression          = prm.get("Function expression");
     std::string constants_list = prm.get("Function constants");
 
     std::vector<std::string> const_list =
       Utilities::split_string_list(constants_list, ',');
-    std::map<std::string, double> constants;
+    constants.clear();
     for (const auto &constant : const_list)
     {
       std::vector<std::string> this_c =
@@ -153,23 +153,36 @@ namespace ManufacturedSolutions
     constants["pi"] = numbers::PI;
     constants["Pi"] = numbers::PI;
 
+    initialize_function_and_derivatives();
+  }
+
+  template <int dim>
+  void ParsedFunctionSDBase<dim>::initialize_function_and_derivatives()
+  {
     bool time_dependent = false;
 
-    const unsigned int nn = (Utilities::split_string_list(vnames)).size();
+    const unsigned int nn =
+      (Utilities::split_string_list(parsed_variable_names)).size();
     switch (nn)
     {
       case dim:
         // Time independent function
-        function_object.initialize(vnames, expression, constants);
+        function_object.initialize(parsed_variable_names,
+                                   parsed_expression,
+                                   constants);
         break;
       case dim + 1:
         // Time dependent function
         time_dependent = true;
-        function_object.initialize(vnames, expression, constants, true);
+        function_object.initialize(parsed_variable_names,
+                                   parsed_expression,
+                                   constants,
+                                   true);
         break;
       default:
         AssertThrow(false,
-                    ExcMessage("The list of variables specified is <" + vnames +
+                    ExcMessage("The list of variables specified is <" +
+                               parsed_variable_names +
                                "> which is a list of length " +
                                Utilities::int_to_string(nn) +
                                " but it has to be a list of length equal to" +
@@ -180,12 +193,13 @@ namespace ManufacturedSolutions
     /**
      * This is the change from deal.II's function.
      */
-    this->create_symbolic_derivatives(vnames, constants, time_dependent);
+    this->create_symbolic_derivatives(parsed_variable_names,
+                                      constants,
+                                      time_dependent);
   }
 
   namespace
   {
-
     // SymEngine parses exponents as "**", whereas muParser expects "^".
     // This function replaces the all **'s in a string by ^'s.
     std::string replace_all_exponents(std::string s)
@@ -201,6 +215,33 @@ namespace ManufacturedSolutions
       return s;
     }
   } // namespace
+
+  template <int dim>
+  void ParsedFunctionSDBase<dim>::update_constants(
+    const std::map<std::string, double> &constant_names_and_new_values)
+  {
+    for (const auto &[constant, new_value] : constant_names_and_new_values)
+    {
+      // Check if constant exist in function's expression
+      if (constants.count(constant) == 0)
+      {
+        std::ostringstream oss;
+        oss
+          << "You are trying to replace the constant \"" << constant
+          << "\" in a function expression, but this function does not contain "
+             "this constant. The function contains the following constants:\n";
+        for (const auto &[name, value] : constants)
+          oss << "  " << name << " = " << value << '\n';
+        AssertThrow(false, ExcMessage(oss.str()));
+      }
+
+      // Then substitute its value
+      constants.at(constant) = new_value;
+    }
+
+    // Recreate the functions and derivatives
+    initialize_function_and_derivatives();
+  }
 
   template <int dim>
   void ParsedFunctionSDBase<dim>::create_symbolic_derivatives(

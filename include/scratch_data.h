@@ -1021,6 +1021,9 @@ namespace NavierStokesScratch
                                                       potential_values);
       fe_values_moving[potential].get_function_gradients(current_solution,
                                                          potential_gradients);
+      if (enable_tracer_stabilization)
+        fe_values_moving[potential].get_function_hessians(current_solution,
+                                                          potential_hessians);
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
         fe_values_moving[tracer].get_function_values(previous_solutions[i],
@@ -1059,6 +1062,25 @@ namespace NavierStokesScratch
                             present_velocity_gradients[q] *
                             potential_gradients[q];
 
+        Tensor<1, dim> u_conv = present_velocity_values[q];
+        if constexpr (enable_pseudo_solid)
+          u_conv -= present_mesh_velocity_values[q];
+        if (enable_stabilization)
+        {
+          const double nu_eff = dynamic_viscosity[q] / density[q];
+          tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
+            time_handler,
+            dofs_per_cell,
+            cell_diameter,
+            param.finite_elements.velocity_degree,
+            nu_eff,
+            u_conv,
+            grad_phi_u_first_component);
+        }
+
+        if (enable_tracer_stabilization)
+          potential_laplacians[q] = trace(potential_hessians[q]);
+
         for (unsigned int k = 0; k < dofs_per_cell; ++k)
         {
           // Shape functions on moving mesh
@@ -1066,6 +1088,9 @@ namespace NavierStokesScratch
           grad_shape_phi[q][k] = fe_values_moving[tracer].gradient(k, q);
           shape_mu[q][k]       = fe_values_moving[potential].value(k, q);
           grad_shape_mu[q][k]  = fe_values_moving[potential].gradient(k, q);
+          if (enable_tracer_stabilization)
+            laplacian_shape_mu[q][k] =
+              trace(fe_values_moving[potential].hessian(k, q));
 
           // Shape functions on fixed mesh
           if constexpr (enable_pseudo_solid)
@@ -1074,6 +1099,16 @@ namespace NavierStokesScratch
             grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
           }
         }
+
+        if (enable_tracer_stabilization)
+          tau_supg_tracer[q] = StabilizationTools::compute_tau_supg(
+            time_handler,
+            dofs_per_cell,
+            cell_diameter,
+            param.finite_elements.tracer_degree,
+            mobility,
+            u_conv,
+            grad_shape_phi[q]);
       }
     }
 
@@ -1109,7 +1144,7 @@ namespace NavierStokesScratch
 
       bdf_c0 = time_handler.bdf_coefficients[0];
 
-      if (enable_stabilization)
+      if (enable_stabilization || enable_tracer_stabilization)
         cell_diameter = cell->diameter();
 
       /**
@@ -1498,8 +1533,11 @@ namespace NavierStokesScratch
     // Potential on current mesh
     std::vector<double>         potential_values;
     std::vector<Tensor<1, dim>> potential_gradients;
+    std::vector<Tensor<2, dim>> potential_hessians;
+    std::vector<double>         potential_laplacians;
 
     std::vector<Tensor<1, dim>> diffusive_flux;
+    std::vector<double>         tau_supg_tracer;
 
     std::vector<std::vector<double>>         shape_phi;
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
@@ -1507,6 +1545,7 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi_fixed;
     std::vector<std::vector<double>>         shape_mu;
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_mu;
+    std::vector<std::vector<double>>         laplacian_shape_mu;
 
     std::vector<double> source_term_tracer;
     std::vector<double> source_term_potential;

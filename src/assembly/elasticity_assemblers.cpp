@@ -1,0 +1,323 @@
+
+#include <assembly/elasticity_assemblers.h>
+#include <components_ordering.h>
+#include <copy_data.h>
+#include <deal.II/base/symmetric_tensor.h>
+#include <parameter_reader.h>
+#include <scratch_data.h>
+#include <scratch_data_linear_elasticity.h>
+
+namespace Assembly
+{
+  namespace Elasticity
+  {
+    template <int dim, typename ScratchData, typename CopyData>
+    void LinearElasticityAssembler<dim, ScratchData, CopyData>::assemble_rhs(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      auto &sd        = scratch_data;
+      auto &local_rhs = copy_data.local_rhs(sd.active_fe_index);
+
+      const SymmetricTensor<2, dim> identity_tensor =
+        unit_symmetric_tensor<dim>();
+
+      for (unsigned int q = 0; q < sd.n_q_points; ++q)
+      {
+        const double JxW_fixed = sd.JxW_fixed[q];
+        const double mu        = sd.lame_mu[q];
+        const double lambda    = sd.lame_lambda[q];
+
+        const auto  &grad_x       = sd.present_position_gradients[q];
+        const double div_x        = trace(grad_x);
+        const auto   strain       = symmetrize(grad_x) - identity_tensor;
+        const double trace_strain = div_x - (double)dim;
+
+        const auto &source_term_position = sd.source_term_position[q];
+
+        const auto &phi_x          = sd.phi_x[q];
+        const auto &sym_grad_phi_x = sd.sym_grad_phi_x[q];
+        const auto &div_phi_x      = sd.div_phi_x[q];
+
+        for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+        {
+          if (!ordering.is_position(sd.components[i]))
+            continue;
+
+          // Linear elasticity and source term
+          // FIXME: more efficient double contraction
+          local_rhs(i) -= (lambda * trace_strain * div_phi_x[i] +
+                           2. * mu * scalar_product(strain, sym_grad_phi_x[i]) +
+                           phi_x[i] * source_term_position) *
+                          JxW_fixed;
+        }
+      }
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void LinearElasticityAssembler<dim, ScratchData, CopyData>::assemble_matrix(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      auto &sd           = scratch_data;
+      auto &local_matrix = copy_data.local_matrix(sd.active_fe_index);
+
+      const auto x_lower = ordering.x_lower;
+
+      for (unsigned int q = 0; q < sd.n_q_points; ++q)
+      {
+        const double JxW_fixed = sd.JxW_fixed[q];
+        const double mu        = sd.lame_mu[q];
+        const double lambda    = sd.lame_lambda[q];
+
+        const auto &grad_phi_x = sd.grad_phi_x[q];
+        const auto &div_phi_x  = sd.div_phi_x[q];
+
+        for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+        {
+          const unsigned int comp_i = sd.components[i];
+          if (!ordering.is_position(comp_i))
+            continue;
+
+          const auto  &grad_phi_x_i = grad_phi_x[i];
+          const double div_phi_x_i  = div_phi_x[i];
+
+          for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+          {
+            const unsigned int comp_j = sd.components[j];
+            if (!ordering.is_position(comp_j))
+              continue;
+
+            const auto &gxi = grad_phi_x_i[comp_i - x_lower];
+            const auto &gxj = grad_phi_x[j][comp_j - x_lower];
+
+            double local_matrix_ij =
+              lambda * div_phi_x[j] * div_phi_x_i
+
+              // The following is the double contraction
+              // 2. * mu * scalar_product(sym_grad_phi_x_j,
+              // sym_grad_phi_x_i) explicited for the symmetric gradient of
+              // Lagrange shape functions:
+              + mu * gxi[comp_j - x_lower] * gxj[comp_i - x_lower];
+            if (comp_i == comp_j)
+              local_matrix_ij += mu * gxi * gxj;
+
+            local_matrix(i, j) += local_matrix_ij * JxW_fixed;
+          }
+        }
+      }
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void NeoHookeanAssembler<dim, ScratchData, CopyData>::assemble_rhs(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      auto &sd        = scratch_data;
+      auto &local_rhs = copy_data.local_rhs(sd.active_fe_index);
+
+      for (unsigned int q = 0; q < sd.n_q_points; ++q)
+      {
+        const double JxW_fixed = sd.JxW_fixed[q];
+        const double mu        = sd.lame_mu[q];
+        const double lambda    = sd.lame_lambda[q];
+
+        const double lnJ     = std::log(sd.present_position_J[q]);
+        const auto  &F       = sd.present_position_gradients[q];
+        const auto  &F_inv_T = sd.present_position_inverse_gradients_T[q];
+
+        const auto &source_term_position = sd.source_term_position[q];
+
+        const auto &phi_x      = sd.phi_x[q];
+        const auto &grad_phi_x = sd.grad_phi_x[q];
+
+        // First Piola-Kirchhoff stress tensor
+        const auto P = mu * (F - F_inv_T) + lambda * lnJ * F_inv_T;
+
+        for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+          if (ordering.is_position(sd.components[i]))
+            // FIXME: more efficient double contraction
+            local_rhs(i) -= (scalar_product(grad_phi_x[i], P) +
+                             phi_x[i] * source_term_position) *
+                            JxW_fixed;
+      }
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void NeoHookeanAssembler<dim, ScratchData, CopyData>::assemble_matrix(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      auto &sd           = scratch_data;
+      auto &local_matrix = copy_data.local_matrix(sd.active_fe_index);
+
+      std::vector<Tensor<2, dim>> variation_piola(sd.dofs_per_cell);
+
+      for (unsigned int q = 0; q < sd.n_q_points; ++q)
+      {
+        const double JxW_fixed = sd.JxW_fixed[q];
+        const double mu        = sd.lame_mu[q];
+        const double lambda    = sd.lame_lambda[q];
+
+        const double lnJ     = std::log(sd.present_position_J[q]);
+        const auto  &F_inv   = sd.present_position_inverse_gradients[q];
+        const auto  &F_inv_T = sd.present_position_inverse_gradients_T[q];
+
+        const auto &grad_phi_x = sd.grad_phi_x[q];
+
+        // Precompute the variations of the Piola tensor
+        for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+        {
+          const auto &grad_phi_x_j = grad_phi_x[j];
+
+          variation_piola[j] = mu * grad_phi_x_j +
+                               (mu - lambda * lnJ) *
+                                 (F_inv_T * transpose(grad_phi_x_j) * F_inv_T) +
+                               lambda * trace(F_inv * grad_phi_x_j) * F_inv_T;
+        }
+
+        for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+          if (ordering.is_position(sd.components[i]))
+          {
+            const auto &grad_phi_x_i = grad_phi_x[i];
+            for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+              if (ordering.is_position(sd.components[j]))
+                local_matrix(i, j) +=
+                  scalar_product(variation_piola[j], grad_phi_x_i) * JxW_fixed;
+          }
+      }
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void
+    OgdenHyperelasticityAssembler<dim, ScratchData, CopyData>::assemble_rhs(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      auto &sd        = scratch_data;
+      auto &local_rhs = copy_data.local_rhs(sd.active_fe_index);
+
+      const double beta = param.physical_properties.pseudosolids[0].ogden_beta;
+      Assert(std::abs(beta) > 1e-14, ExcInternalError());
+
+      for (unsigned int q = 0; q < sd.n_q_points; ++q)
+      {
+        const double JxW_fixed = sd.JxW_fixed[q];
+        const double mu        = sd.lame_mu[q];
+        const double lambda    = sd.lame_lambda[q];
+
+        const double Jm_beta = std::pow(sd.present_position_J[q], -beta);
+        const auto  &F       = sd.present_position_gradients[q];
+        const auto  &F_inv_T = sd.present_position_inverse_gradients_T[q];
+
+        const double volumetric_stress = (1. - Jm_beta) / beta;
+
+        const auto &source_term_position = sd.source_term_position[q];
+
+        const auto &phi_x      = sd.phi_x[q];
+        const auto &grad_phi_x = sd.grad_phi_x[q];
+
+        // First Piola-Kirchhoff stress tensor
+        const auto P =
+          mu * (F - F_inv_T) + lambda * volumetric_stress * F_inv_T;
+
+        for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+          if (ordering.is_position(sd.components[i]))
+            // FIXME: more efficient double contraction
+            local_rhs(i) -= (scalar_product(grad_phi_x[i], P) +
+                             phi_x[i] * source_term_position) *
+                            JxW_fixed;
+      }
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void
+    OgdenHyperelasticityAssembler<dim, ScratchData, CopyData>::assemble_matrix(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      auto &sd           = scratch_data;
+      auto &local_matrix = copy_data.local_matrix(sd.active_fe_index);
+
+      const double beta = param.physical_properties.pseudosolids[0].ogden_beta;
+
+      std::vector<Tensor<2, dim>> variation_piola(sd.dofs_per_cell);
+
+      for (unsigned int q = 0; q < sd.n_q_points; ++q)
+      {
+        const double JxW_fixed = sd.JxW_fixed[q];
+        const double mu        = sd.lame_mu[q];
+        const double lambda    = sd.lame_lambda[q];
+
+        const double Jm_beta = std::pow(sd.present_position_J[q], -beta);
+        const auto  &F_inv   = sd.present_position_inverse_gradients[q];
+        const auto  &F_inv_T = sd.present_position_inverse_gradients_T[q];
+
+        const double volumetric_stress = (1. - Jm_beta) / beta;
+
+        const auto &grad_phi_x = sd.grad_phi_x[q];
+
+        // Precompute the variations of the Piola tensor
+        for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+        {
+          const auto          &grad_phi_x_j = grad_phi_x[j];
+          const Tensor<2, dim> dF_inv_T =
+            -F_inv_T * transpose(grad_phi_x_j) * F_inv_T;
+
+          variation_piola[j] =
+            mu * (grad_phi_x_j - dF_inv_T) +
+            lambda * (Jm_beta * trace(F_inv * grad_phi_x_j) * F_inv_T +
+                      volumetric_stress * dF_inv_T);
+        }
+
+        for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+          if (ordering.is_position(sd.components[i]))
+          {
+            const auto &grad_phi_x_i = grad_phi_x[i];
+            for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+              if (ordering.is_position(sd.components[j]))
+                local_matrix(i, j) +=
+                  scalar_product(variation_piola[j], grad_phi_x_i) * JxW_fixed;
+          }
+      }
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void
+    CurrentMeshSourceAssembler<dim, ScratchData, CopyData>::assemble_matrix(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      auto &sd           = scratch_data;
+      auto &local_matrix = copy_data.local_matrix(sd.active_fe_index);
+
+      std::vector<Tensor<1, dim>> grad_source_dot_phi_x_j(sd.dofs_per_cell);
+
+      for (unsigned int q = 0; q < sd.n_q_points; ++q)
+      {
+        const double          JxW_fixed = sd.JxW_fixed[q];
+        const auto           &phi_x     = sd.phi_x[q];
+        const Tensor<2, dim> &grad_source_current_mesh =
+          sd.grad_source_term_position_current_mesh[q];
+
+        // Precompute the product grad_source_current_mesh * phi_x_j
+        for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+          if (ordering.is_position(sd.components[j]))
+            grad_source_dot_phi_x_j[j] = grad_source_current_mesh * phi_x[j];
+
+        for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+          if (ordering.is_position(sd.components[i]))
+          {
+            const auto &phi_x_i = phi_x[i];
+            for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+              if (ordering.is_position(sd.components[j]))
+                local_matrix(i, j) +=
+                  phi_x_i * grad_source_dot_phi_x_j[j] * JxW_fixed;
+          }
+      }
+    }
+  } // namespace Elasticity
+} // namespace Assembly
+
+// Explicit instantiations
+#include "elasticity_assemblers.inst"

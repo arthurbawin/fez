@@ -1,7 +1,7 @@
 #ifndef INCOMPRESSIBLE_NS_SOLVER_H
 #define INCOMPRESSIBLE_NS_SOLVER_H
 
-#include <assembly/incompressible_ns_assemblers.h>
+#include <assembly/assembler.h>
 #include <copy_data.h>
 #include <deal.II/fe/fe_values_extractors.h>
 #include <navier_stokes_solver.h>

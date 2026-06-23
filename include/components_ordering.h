@@ -316,4 +316,20 @@ public:
   }
 };
 
+/**
+ * Components ordering for the elasticity solver.
+ */
+template <int dim>
+class ComponentOrderingElasticity : public ComponentOrdering
+{
+public:
+  ComponentOrderingElasticity()
+    : ComponentOrdering()
+  {
+    n_components = dim;
+    x_lower      = 0;
+    x_upper      = dim;
+  }
+};
+
 #endif

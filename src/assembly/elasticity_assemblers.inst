@@ -1,0 +1,85 @@
+
+namespace Assembly
+{
+  namespace Elasticity
+  {
+    // Instantiation for elasticity solver
+    template class LinearElasticityAssembler<2,
+                                   ScratchDataLinearElasticity<2>,
+                                   CopyDataBase<>>;
+    template class LinearElasticityAssembler<3,
+                                   ScratchDataLinearElasticity<3>,
+                                   CopyDataBase<>>;
+    template class NeoHookeanAssembler<2,
+                                   ScratchDataLinearElasticity<2>,
+                                   CopyDataBase<>>;
+    template class NeoHookeanAssembler<3,
+                                   ScratchDataLinearElasticity<3>,
+                                   CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<2,
+                                   ScratchDataLinearElasticity<2>,
+                                   CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<3,
+                                   ScratchDataLinearElasticity<3>,
+                                   CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<2,
+                                   ScratchDataLinearElasticity<2>,
+                                   CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<3,
+                                   ScratchDataLinearElasticity<3>,
+                                   CopyDataBase<>>;
+
+    // Instantiation for FSI solver
+    template class LinearElasticityAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI<2>,
+                                   CopyDataBase<>>;
+    template class LinearElasticityAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI<3>,
+                                   CopyDataBase<>>;
+    template class NeoHookeanAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI<2>,
+                                   CopyDataBase<>>;
+    template class NeoHookeanAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI<3>,
+                                   CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI<2>,
+                                   CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI<3>,
+                                   CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI<2>,
+                                   CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI<3>,
+                                   CopyDataBase<>>;
+
+    // Instantiation for hp-FSI solver
+    template class LinearElasticityAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI_hp<2>,
+                                   CopyDataBase<2>>;
+    template class LinearElasticityAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI_hp<3>,
+                                   CopyDataBase<2>>;
+    template class NeoHookeanAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI_hp<2>,
+                                   CopyDataBase<2>>;
+    template class NeoHookeanAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI_hp<3>,
+                                   CopyDataBase<2>>;
+    template class OgdenHyperelasticityAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI_hp<2>,
+                                   CopyDataBase<2>>;
+    template class OgdenHyperelasticityAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI_hp<3>,
+                                   CopyDataBase<2>>;
+    template class CurrentMeshSourceAssembler<2,
+                                   NavierStokesScratch::ScratchDataFSI_hp<2>,
+                                   CopyDataBase<2>>;
+    template class CurrentMeshSourceAssembler<3,
+                                   NavierStokesScratch::ScratchDataFSI_hp<3>,
+                                   CopyDataBase<2>>;
+
+  } // namespace Elasticity
+} // namespace Assembly

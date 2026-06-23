@@ -634,12 +634,21 @@ namespace Parameters
 
     prm.enter_subsection("Pseudosolid " + std::to_string(index));
     {
+      prm.declare_entry("constitutive model",
+                        "linear elasticity",
+                        Patterns::Selection(
+                          "linear elasticity|neo hookean|ogden"),
+                        "Constitutive model for the pseudosolid");
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->declare_parameters(prm);
       prm.leave_subsection();
       prm.enter_subsection("lame mu");
       lame_mu_fun->declare_parameters(prm);
       prm.leave_subsection();
+      prm.declare_entry("ogden beta",
+                        "1.",
+                        Patterns::Double(),
+                        "Volumetric exponent for the Ogden constitutive model");
     }
     prm.leave_subsection();
   }
@@ -650,12 +659,25 @@ namespace Parameters
   {
     prm.enter_subsection("Pseudosolid " + std::to_string(index));
     {
+      const std::string parsed_model = prm.get("constitutive model");
+      if (parsed_model == "linear elasticity")
+        constitutive_model = ConstitutiveModel::linear_elasticity;
+      else if (parsed_model == "neo hookean")
+        constitutive_model = ConstitutiveModel::neo_hookean;
+      else if (parsed_model == "ogden")
+        constitutive_model = ConstitutiveModel::ogden;
+      else
+        AssertThrow(false,
+                    ExcMessage("Unknown pseudosolid constitutive model"));
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->parse_parameters(prm);
       prm.leave_subsection();
       prm.enter_subsection("lame mu");
       lame_mu_fun->parse_parameters(prm);
       prm.leave_subsection();
+      ogden_beta = prm.get_double("ogden beta");
+      AssertThrow(std::abs(ogden_beta) > 1e-14,
+                  ExcMessage("Ogden model requires a nonzero beta parameter."));
     }
     prm.leave_subsection();
   }

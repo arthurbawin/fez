@@ -1,4 +1,5 @@
 
+#include <assembly/elasticity_assemblers.h>
 #include <assembly/incompressible_ns_assemblers.h>
 #include <assembly/lagrange_multiplier_assemblers.h>
 #include <compare_matrix.h>
@@ -261,6 +262,9 @@ void FSISolverLessLambda<dim>::setup_assemblers()
   Assembly::LagrangeMultiplier::
     setup_assemblers<dim, ScratchData, CopyData, /* with_moving_mesh = */ true>(
       this->param, *this->ordering, assemblers);
+
+  Assembly::Elasticity::setup_assemblers<dim, ScratchData, CopyData>(
+    this->param, *this->ordering, assemblers);
 }
 
 template <int dim>
@@ -296,11 +300,8 @@ void FSISolverLessLambda<dim>::MMSSourceTerm::vector_value(
   // Pseudosolid (mesh position) source term
   // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
   Tensor<1, dim> f_PS =
-    mms.exact_mesh_position
-      ->divergence_linear_elastic_stress_variable_coefficients(
-        p,
-        physical_properties.pseudosolids[0].lame_mu_fun,
-        physical_properties.pseudosolids[0].lame_lambda_fun);
+    mms.exact_mesh_position->divergence_elastic_stress_tensor(
+      physical_properties.pseudosolids[0], p);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[ordering.x_lower + d] = f_PS[d];

@@ -353,10 +353,20 @@ namespace Parameters
   class PseudoSolid
   {
   public:
+    enum class ConstitutiveModel
+    {
+      linear_elasticity,
+      neo_hookean,
+      ogden
+    } constitutive_model;
+
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_lambda_fun;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_mu_fun;
+
+    // For an Ogden hyperleastic solid, the value of the parameter beta.
+    double ogden_beta;
 
   public:
     void set_time(const double newtime)

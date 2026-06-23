@@ -27,9 +27,7 @@
  * with the index-th time subinterval.
  *
  * A more fitting name for this class would maybe be "SolverDataCollection".
- *
- * FIXME: This will probably also need to store MappingFEFields.
- *  */
+ */
 template <int dim>
 class TransientFixedPointData
 {
@@ -41,6 +39,11 @@ public:
                           TimerOutput                &timer,
                           const unsigned int          n_time_intervals,
                           const MPI_Comm              mpi_communicator);
+
+  /**
+   * Reinitialize this object to hold data for @p n_time_intervals intervals.
+   */
+  void reinit(const unsigned int n_time_intervals);
 
   /**
    * Return the number of time intervals stored in this object.
@@ -189,7 +192,7 @@ public:
   void write_summary(const TimeHandler &time_handler,
                      std::ostream      &out = std::cout) const;
 
-public:
+private:
   /**
    *
    */
@@ -208,7 +211,7 @@ public:
   /**
    *
    */
-  const unsigned int n_time_intervals;
+  unsigned int n_time_intervals;
 
   /**
    *

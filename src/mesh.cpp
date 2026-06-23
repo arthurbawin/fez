@@ -50,6 +50,7 @@ namespace MeshTools
         create_description_from_triangulation(serial_triangulation, comm);
 
     // Create a fully distributed triangulation
+    triangulation.clear();
     triangulation.create_triangulation(description);
   }
 

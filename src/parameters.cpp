@@ -79,6 +79,42 @@ namespace Parameters
     prm.leave_subsection();
   }
 
+  void declare_fixed_point_update_base(ParameterHandler &prm)
+  {
+    prm.declare_entry("enable",
+                      "false",
+                      Patterns::Bool(),
+                      "Enable/disable the update of this quantity");
+    prm.declare_entry("update frequency",
+                      "1",
+                      Patterns::Integer(1),
+                      "Update this quantity every n fixed-point iterations");
+    prm.declare_entry("factor",
+                      "1.",
+                      Patterns::Double(0),
+                      "When updated, multiply this quantity by this value");
+    prm.declare_entry("constant name",
+                      "must_provide_constant_name",
+                      Patterns::Anything(),
+                      "Name of this constant in the function handles");
+  }
+
+  void read_fixed_point_update_base(
+    ParameterHandler                                        &prm,
+    Mesh::Adaptation::Metric::FixedPointUpdates::UpdateBase &update_base)
+  {
+    update_base.enable           = prm.get_bool("enable");
+    update_base.update_frequency = prm.get_integer("update frequency");
+    update_base.factor           = prm.get_double("factor");
+    update_base.constant_name    = prm.get("constant name");
+    if (update_base.enable)
+      AssertThrow(update_base.constant_name != "must_provide_constant_name",
+                  ExcMessage(
+                    "A constant name matching the ones in the various function "
+                    "handles must be provided for a quantity that is to be "
+                    "updated in the fixed-point mesh adaptation loop."));
+  }
+
   void Mesh::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Mesh");
@@ -145,6 +181,14 @@ namespace Parameters
                             Patterns::Integer(1),
                             "Number of time sub-intervals for the transient "
                             "fixed point method");
+          prm.enter_subsection("Fixed point updates");
+          {
+            DECLARE_VERBOSITY_PARAM(prm, "verbose");
+            prm.enter_subsection("CHNS interface thickness");
+            declare_fixed_point_update_base(prm);
+            prm.leave_subsection();
+          }
+          prm.leave_subsection();
         }
         prm.leave_subsection();
       }
@@ -185,6 +229,15 @@ namespace Parameters
             prm.get_integer("mmg verbosity level");
           adaptation.metric.n_time_intervals =
             prm.get_integer("n time intervals");
+          prm.enter_subsection("Fixed point updates");
+          {
+            auto &fpu = adaptation.metric.fixed_point_updates;
+            READ_VERBOSITY_PARAM(prm, fpu.verbosity)
+            prm.enter_subsection("CHNS interface thickness");
+            read_fixed_point_update_base(prm, fpu.chns_interface_thickness);
+            prm.leave_subsection();
+          }
+          prm.leave_subsection();
         }
         prm.leave_subsection();
       }
@@ -1368,6 +1421,16 @@ namespace Parameters
           "For a convergence study with metric-based anisotropic mesh "
           "adaptation enabled, the initial target number of vertices in the "
           "adapted mesh. This value is then doubled at each convergence step.");
+        prm.declare_entry("target vertices multiplier between steps",
+                          "2",
+                          Patterns::Integer(1),
+                          "Between two convergence steps, the target number of "
+                          "mesh vertices is multiplied by this value.");
+        prm.declare_entry("time intervals multiplier between steps",
+                          "2",
+                          Patterns::Integer(1),
+                          "Between two convergence steps, the number of time "
+                          "intervals is multiplied by this value.");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1438,6 +1501,10 @@ namespace Parameters
             Patterns::Tools::Convert<VectorTools::NormType>::to_value(s));
         n_target_vertices =
           prm.get_integer("initial target number of vertices");
+        n_target_vertices_multiplier =
+          prm.get_integer("target vertices multiplier between steps");
+        n_time_intervals_multiplier =
+          prm.get_integer("time intervals multiplier between steps");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1544,6 +1611,18 @@ namespace Parameters
 
   template struct FSI<2>;
   template struct FSI<3>;
+
+  void SolutionRecovery::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Solution recovery");
+    {DECLARE_VERBOSITY_PARAM(prm, "verbose")} prm.leave_subsection();
+  }
+
+  void SolutionRecovery::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Solution recovery");
+    {READ_VERBOSITY_PARAM(prm, verbosity)} prm.leave_subsection();
+  }
 
   void Debug::declare_parameters(ParameterHandler &prm)
   {

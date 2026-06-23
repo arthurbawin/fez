@@ -591,6 +591,8 @@ namespace NavierStokesScratch
                                    std::vector<Tensor<1, dim>>(n_components));
       grad_source_velocity.resize(n_q_points);
       grad_source_pressure.resize(n_q_points);
+      grad_source_tracer.resize(n_q_points);
+      grad_source_potential.resize(n_q_points);
       grad_source_term_position_current_mesh.resize(n_q_points);
 
       delta_dx.resize(n_faces,
@@ -620,6 +622,7 @@ namespace NavierStokesScratch
       derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
 
       tracer_values.resize(n_q_points);
+      tracer_time_derivatives.resize(n_q_points);
       tracer_gradients.resize(n_q_points);
       tracer_values_fixed.resize(n_q_points);
       tracer_gradients_fixed.resize(n_q_points);
@@ -629,7 +632,6 @@ namespace NavierStokesScratch
                                     std::vector<double>(n_q_points));
 
       diffusive_flux.resize(n_q_points);
-      velocity_dot_tracer_gradient.resize(n_q_points);
       shape_phi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_phi.resize(n_q_points,
                             std::vector<Tensor<1, dim>>(max_dofs_per_cell));

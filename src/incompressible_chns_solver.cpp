@@ -1,4 +1,6 @@
 
+#include <assembly/elasticity_assemblers.h>
+#include <assembly/incompressible_chns_assemblers.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -215,6 +217,22 @@ void CHNSSolver<dim, with_moving_mesh>::create_scratch_data()
 }
 
 template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::setup_assemblers()
+{
+  assemblers.clear();
+
+  // CHNS assemblers
+  Assembly::IncompressibleCHNS::
+    setup_assemblers<dim, ScratchData, CopyData, with_moving_mesh>(
+      this->param, *this->ordering, this->coupling_table, assemblers);
+
+  // Elasticity
+  if constexpr (with_moving_mesh)
+    Assembly::Elasticity::setup_assemblers<dim, ScratchData, CopyData>(
+      this->param, *this->ordering, assemblers);
+}
+
+template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim,
                 with_moving_mesh>::create_solver_specific_zero_constraints()
 {
@@ -407,6 +425,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
+  copy_data.cell_is_at_boundary   = cell->at_boundary();
 
   if (!cell->is_locally_owned())
     return;
@@ -417,437 +436,14 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix();
-  local_matrix       = 0;
+  auto &local_matrix      = copy_data.local_matrix();
+  auto &local_dof_indices = copy_data.dof_indices();
+  local_matrix            = 0;
 
-  /**
-   * Material parameters
-   */
-  const double mobility = scratch_data.mobility;
-  const double sigma_tilde_over_eps =
-    scratch_data.sigma_tilde / scratch_data.epsilon;
-  const double sigma_tilde_times_eps =
-    scratch_data.sigma_tilde * scratch_data.epsilon;
-  const double diffusive_flux_factor = scratch_data.diffusive_flux_factor;
-  const auto  &body_force            = scratch_data.body_force;
+  for (const auto &assembler : assemblers)
+    assembler->assemble_matrix(scratch_data, copy_data);
 
-  double                             JxW_fixed, lame_mu = 0., lame_lambda = 0.;
-  const double                       alpha = this->param.cahn_hilliard.alpha;
-  const double                       beta  = this->param.cahn_hilliard.beta;
-  const std::vector<Tensor<1, dim>> *phi_x;
-  const std::vector<Tensor<2, dim>> *grad_phi_x;
-  const std::vector<Tensor<2, dim>> *grad_phi_x_moving;
-  const std::vector<double>         *div_phi_x;
-  const std::vector<double>         *shape_phi_fixed;
-  const std::vector<Tensor<1, dim>> *grad_shape_phi_fixed;
-  const Tensor<1, dim>              *source_term_velocity;
-  double source_term_pressure, source_term_tracer, source_term_potential;
-  const Tensor<1, dim> *phi_x_i, *phi_x_j;
-  const Tensor<2, dim> *grad_phi_x_i, *grad_phi_x_j;
-  double                div_phi_x_i, div_phi_x_j;
-  double                shape_phi_fixed_j;
-  const Tensor<1, dim> *grad_shape_phi_fixed_j;
-  Tensor<1, dim>        to_multiply_by_phi_u_i_tr_G;
-  double                to_multipliy_by_phi_phi_i_tr_G;
-
-  const double bdf_c0 = this->time_handler.bdf_coefficients[0];
-
-  const unsigned int n_dofs_per_cell = scratch_data.dofs_per_cell;
-
-  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
-  {
-    const double JxW_moving = scratch_data.JxW_moving[q];
-    if constexpr (with_moving_mesh)
-      JxW_fixed = scratch_data.JxW_fixed[q];
-
-    const double rho      = scratch_data.density[q];
-    const double eta      = scratch_data.dynamic_viscosity[q];
-    const double drhodphi = scratch_data.derivative_density_wrt_tracer[q];
-    const double detadphi =
-      scratch_data.derivative_dynamic_viscosity_wrt_tracer[q];
-
-    const auto &phi_u          = scratch_data.phi_u[q];
-    const auto &grad_phi_u     = scratch_data.grad_phi_u[q];
-    const auto &sym_grad_phi_u = scratch_data.sym_grad_phi_u[q];
-    const auto &div_phi_u      = scratch_data.div_phi_u[q];
-    const auto &phi_p          = scratch_data.phi_p[q];
-    const auto &phi_phi        = scratch_data.shape_phi[q];
-    const auto &grad_phi_phi   = scratch_data.grad_shape_phi[q];
-    const auto &phi_mu         = scratch_data.shape_mu[q];
-    const auto &grad_phi_mu    = scratch_data.grad_shape_mu[q];
-
-    if constexpr (with_moving_mesh)
-    {
-      lame_mu               = scratch_data.lame_mu[q];
-      lame_lambda           = scratch_data.lame_lambda[q];
-      phi_x                 = &scratch_data.phi_x[q];
-      grad_phi_x            = &scratch_data.grad_phi_x[q];
-      grad_phi_x_moving     = &scratch_data.grad_phi_x_moving[q];
-      div_phi_x             = &scratch_data.div_phi_x[q];
-      shape_phi_fixed       = &scratch_data.shape_phi_fixed[q];
-      grad_shape_phi_fixed  = &scratch_data.grad_shape_phi_fixed[q];
-      source_term_velocity  = &scratch_data.source_term_velocity[q];
-      source_term_pressure  = scratch_data.source_term_pressure[q];
-      source_term_tracer    = scratch_data.source_term_tracer[q];
-      source_term_potential = scratch_data.source_term_potential[q];
-    }
-
-    const auto &present_velocity_values =
-      scratch_data.present_velocity_values[q];
-    const auto &present_velocity_gradients =
-      scratch_data.present_velocity_gradients[q];
-    const auto &present_velocity_sym_gradients =
-      scratch_data.present_velocity_sym_gradients[q];
-    const auto &present_velocity_divergence =
-      scratch_data.present_velocity_divergence[q];
-    const auto &present_pressure_values =
-      scratch_data.present_pressure_values[q];
-
-    // Convective velocity (pure eulerian: u, ALE: u - w)
-    Tensor<1, dim> u_conv = present_velocity_values;
-    if constexpr (with_moving_mesh)
-      u_conv -= scratch_data.present_mesh_velocity_values[q];
-
-    const auto u_dot_grad_u = present_velocity_gradients * u_conv;
-
-    const Tensor<1, dim> dudt =
-      this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratch_data.previous_velocity_values);
-
-    const auto &tracer_value       = scratch_data.tracer_values[q];
-    const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
-    const auto &potential_value    = scratch_data.potential_values[q];
-    const auto &potential_gradient = scratch_data.potential_gradients[q];
-    const auto &u_dot_grad_phi = scratch_data.velocity_dot_tracer_gradient[q];
-
-    const double dphidt =
-      this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, tracer_value, scratch_data.previous_tracer_values);
-
-    // Precomputations of shape functions-independent terms
-    const auto to_multiply_by_phi_u_i_phi_phi_j =
-      (drhodphi * (dudt + u_dot_grad_u - body_force) + potential_gradient);
-
-    if constexpr (with_moving_mesh)
-    {
-      to_multiply_by_phi_u_i_tr_G =
-        rho * (dudt - body_force + present_velocity_gradients * u_conv) +
-        *source_term_velocity;
-      to_multipliy_by_phi_phi_i_tr_G =
-        dphidt + u_conv * tracer_gradient + source_term_tracer;
-    }
-
-    for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
-    {
-      const unsigned int &comp_i = scratch_data.components[i];
-
-      const auto &phi_u_i          = phi_u[i];
-      const auto &grad_phi_u_i     = grad_phi_u[i];
-      const auto &sym_grad_phi_u_i = sym_grad_phi_u[i];
-      const auto &div_phi_u_i      = div_phi_u[i];
-      const auto &phi_p_i          = phi_p[i];
-      const auto &phi_phi_i        = phi_phi[i];
-      const auto &grad_phi_phi_i   = grad_phi_phi[i];
-      const auto &phi_mu_i         = phi_mu[i];
-      const auto &grad_phi_mu_i    = grad_phi_mu[i];
-
-      if constexpr (with_moving_mesh)
-      {
-        phi_x_i      = &(*phi_x)[i];
-        grad_phi_x_i = &(*grad_phi_x)[i];
-        div_phi_x_i  = (*div_phi_x)[i];
-      }
-
-      for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
-      {
-        const unsigned int &comp_j = scratch_data.components[j];
-        bool                assemble =
-          this->coupling_table[comp_i][comp_j] == DoFTools::always;
-        if (!assemble)
-          continue;
-
-        const auto &phi_u_j          = phi_u[j];
-        const auto &grad_phi_u_j     = grad_phi_u[j];
-        const auto &sym_grad_phi_u_j = sym_grad_phi_u[j];
-        const auto &div_phi_u_j      = div_phi_u[j];
-        const auto &phi_p_j          = phi_p[j];
-        const auto &phi_phi_j        = phi_phi[j];
-        const auto &grad_phi_phi_j   = grad_phi_phi[j];
-        const auto &phi_mu_j         = phi_mu[j];
-        const auto &grad_phi_mu_j    = grad_phi_mu[j];
-
-        if constexpr (with_moving_mesh)
-        {
-          phi_x_j                = &(*phi_x)[j];
-          grad_phi_x_j           = &(*grad_phi_x)[j];
-          div_phi_x_j            = (*div_phi_x)[j];
-          shape_phi_fixed_j      = (*shape_phi_fixed)[j];
-          grad_shape_phi_fixed_j = &(*grad_shape_phi_fixed)[j];
-        }
-
-        double local_flow_ij = 0.;
-        double local_ps_ij   = 0.;
-
-        /**
-         * Momentum equation
-         */
-        if (const_ordering.u_lower <= comp_i && comp_i < const_ordering.u_upper)
-        {
-          if (const_ordering.u_lower <= comp_j &&
-              comp_j < const_ordering.u_upper)
-          {
-            local_flow_ij +=
-              phi_u_i *
-              (rho * (bdf_c0 * phi_u_j + grad_phi_u_j * u_conv +
-                      present_velocity_gradients * phi_u_j) +
-               diffusive_flux_factor * grad_phi_u_j * potential_gradient);
-
-            local_flow_ij +=
-              2. * eta * scalar_product(sym_grad_phi_u_i, sym_grad_phi_u_j);
-          }
-          if (comp_j == const_ordering.p_lower)
-          {
-            local_flow_ij += -div_phi_u_i * phi_p_j;
-          }
-          if constexpr (with_moving_mesh)
-          {
-            if (const_ordering.x_lower <= comp_j &&
-                comp_j < const_ordering.x_upper)
-            {
-              // Variation of momentum equation w.r.t. moving mesh position
-              const auto  &G   = (*grad_phi_x_moving)[j];
-              const double trG = trace(G);
-
-              local_flow_ij += phi_u_i * to_multiply_by_phi_u_i_tr_G * trG;
-
-              // ALE term
-              local_flow_ij += phi_u_i * rho * present_velocity_gradients *
-                               (-bdf_c0 * (*phi_x_j) - G * u_conv);
-
-              // Viscous term
-              local_flow_ij +=
-                2. * eta *
-                (scalar_product(-symmetrize(grad_phi_u_i * G),
-                                present_velocity_sym_gradients) +
-                 scalar_product(sym_grad_phi_u_i,
-                                -symmetrize(present_velocity_gradients * G)) +
-                 scalar_product(sym_grad_phi_u_i,
-                                present_velocity_sym_gradients) *
-                   trG);
-
-              // Pressure term
-              local_flow_ij +=
-                trace(grad_phi_u_i * G) * present_pressure_values -
-                div_phi_u_i * present_pressure_values * trG;
-
-              // Diffusive flux term
-              local_flow_ij +=
-                phi_u_i * diffusive_flux_factor *
-                (-(present_velocity_gradients * G) * potential_gradient +
-                 present_velocity_gradients *
-                   (-transpose(G) * potential_gradient) +
-                 (present_velocity_gradients * potential_gradient) * trG);
-
-              // Korteweg term
-              local_flow_ij +=
-                phi_u_i * (-tracer_value * transpose(G) * potential_gradient +
-                           tracer_value * potential_gradient * trG);
-            }
-          }
-          if (comp_j == const_ordering.phi_lower)
-          {
-            local_flow_ij +=
-              phi_u_i * phi_phi_j * to_multiply_by_phi_u_i_phi_phi_j;
-            local_flow_ij +=
-              2. * detadphi * phi_phi_j *
-              scalar_product(sym_grad_phi_u_i, present_velocity_sym_gradients);
-          }
-          if (comp_j == const_ordering.mu_lower)
-          {
-            local_flow_ij +=
-              phi_u_i * (diffusive_flux_factor * present_velocity_gradients *
-                           grad_phi_mu_j +
-                         tracer_value * grad_phi_mu_j);
-          }
-        }
-
-        /**
-         * Continuity equation
-         */
-        if (comp_i == const_ordering.p_lower)
-        {
-          if (const_ordering.u_lower <= comp_j &&
-              comp_j < const_ordering.u_upper)
-          {
-            // Continuity : variation w.r.t. u
-            local_flow_ij += -phi_p_i * div_phi_u_j;
-          }
-
-          if constexpr (with_moving_mesh)
-          {
-            if (const_ordering.x_lower <= comp_j &&
-                comp_j < const_ordering.x_upper)
-            {
-              // Continuity : variation w.r.t. x
-              const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = trace(G);
-
-              local_flow_ij +=
-                phi_p_i * (source_term_pressure * trG +
-                           (trace(present_velocity_gradients * G) -
-                            present_velocity_divergence * trG));
-            }
-          }
-        }
-
-        /**
-         * Tracer equation
-         */
-        if (comp_i == const_ordering.phi_lower)
-        {
-          if (const_ordering.u_lower <= comp_j &&
-              comp_j < const_ordering.u_upper)
-          {
-            // Advection
-            local_flow_ij += phi_phi_i * phi_u_j * tracer_gradient;
-          }
-          if constexpr (with_moving_mesh)
-          {
-            // Variation of tracer equation w.r.t. x
-            if (const_ordering.x_lower <= comp_j &&
-                comp_j < const_ordering.x_upper)
-            {
-              const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = trace(G);
-
-              local_flow_ij += phi_phi_i * to_multipliy_by_phi_phi_i_tr_G * trG;
-
-              // ALE (advection) term
-              local_flow_ij +=
-                phi_phi_i * ((-bdf_c0) * (*phi_x_j) * tracer_gradient +
-                             u_conv * (-(transpose(G)) * tracer_gradient));
-              // Laplacian term
-              local_flow_ij +=
-                mobility *
-                ((-(transpose(G)) * grad_phi_phi_i) * potential_gradient +
-                 grad_phi_phi_i * (-(transpose(G)) * potential_gradient) +
-                 (grad_phi_phi_i * potential_gradient) * trG);
-            }
-          }
-          if (comp_j == const_ordering.phi_lower)
-          {
-            // Transient
-            local_flow_ij += phi_phi_i * bdf_c0 * phi_phi_j;
-            // Advection
-            local_flow_ij += phi_phi_i * u_conv * grad_phi_phi_j;
-          }
-          if (comp_j == const_ordering.mu_lower)
-          {
-            // Diffusion
-            local_flow_ij += mobility * grad_phi_mu_j * grad_phi_phi_i;
-          }
-        }
-
-        /**
-         * Potential equation
-         */
-        if (comp_i == const_ordering.mu_lower)
-        {
-          if (comp_j == const_ordering.mu_lower)
-          {
-            // Mass
-            local_flow_ij += phi_mu_i * phi_mu_j;
-          }
-          if (comp_j == const_ordering.phi_lower)
-          {
-            // Double well
-            local_flow_ij += -sigma_tilde_over_eps * phi_mu_i * phi_phi_j *
-                             (3. * tracer_value * tracer_value - 1.);
-            // Diffusion
-            local_flow_ij +=
-              -sigma_tilde_times_eps * grad_phi_mu_i * grad_phi_phi_j;
-          }
-          if constexpr (with_moving_mesh)
-          {
-            if (const_ordering.x_lower <= comp_j &&
-                comp_j < const_ordering.x_upper)
-            {
-              // Variation of potential equation w.r.t. x
-              const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = trace(G);
-              local_flow_ij += phi_mu_i * source_term_potential * trG;
-              local_flow_ij +=
-                phi_mu_i *
-                (potential_value - sigma_tilde_over_eps * tracer_value *
-                                     (tracer_value * tracer_value - 1.)) *
-                trG;
-              local_flow_ij +=
-                -sigma_tilde_times_eps *
-                (scalar_product(grad_phi_mu_i,
-                                -transpose(G) * tracer_gradient) +
-                 scalar_product(-transpose(G) * grad_phi_mu_i,
-                                tracer_gradient) +
-                 scalar_product(grad_phi_mu_i, tracer_gradient) * trG);
-            }
-          }
-        }
-
-        /**
-         * Pseudo-solid equation
-         */
-        if constexpr (with_moving_mesh)
-        {
-          if (const_ordering.x_lower <= comp_i &&
-              comp_i < const_ordering.x_upper)
-          {
-            if (const_ordering.u_lower <= comp_j &&
-                comp_j < const_ordering.u_upper)
-            {
-              // Source term - Velocity part
-              local_ps_ij -= (*phi_x_i) * (beta * (phi_u_j * tracer_gradient) *
-                                           tracer_gradient);
-            }
-            if (const_ordering.x_lower <= comp_j &&
-                comp_j < const_ordering.x_upper)
-            {
-              const Tensor<2, dim> &G = (*grad_phi_x_moving)[j];
-
-              // Linear elasticity
-              local_ps_ij +=
-                lame_lambda * div_phi_x_j * div_phi_x_i +
-                lame_mu *
-                  scalar_product(*grad_phi_x_j + transpose(*grad_phi_x_j),
-                                 *grad_phi_x_i);
-
-              // Variation of source term on current mesh
-              local_ps_ij -=
-                (*phi_x_i) *
-                (beta *
-                 ((-bdf_c0) * (*phi_x_j) * tracer_gradient * tracer_gradient +
-                  u_conv * ((-transpose(G)) * tracer_gradient) *
-                    tracer_gradient +
-                  u_dot_grad_phi * ((-transpose(G)) * tracer_gradient)));
-            }
-            if (comp_j == const_ordering.phi_lower)
-            {
-              local_ps_ij -=
-                (*phi_x_i) *
-                (alpha * (shape_phi_fixed_j * (*grad_shape_phi_fixed_j) +
-                          shape_phi_fixed_j * (*grad_shape_phi_fixed_j))
-
-                 + beta * ((u_conv * grad_phi_phi_j) * tracer_gradient +
-                           u_dot_grad_phi * grad_phi_phi_j));
-            }
-          }
-
-          local_ps_ij *= JxW_fixed;
-        }
-        local_flow_ij *= JxW_moving;
-        local_matrix(i, j) += local_flow_ij + local_ps_ij;
-      }
-    }
-  }
-  cell->get_dof_indices(copy_data.dof_indices());
+  cell->get_dof_indices(local_dof_indices);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -903,6 +499,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
+  copy_data.cell_is_at_boundary   = cell->at_boundary();
 
   if (!cell->is_locally_owned())
     return;
@@ -913,193 +510,14 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs();
-  local_rhs       = 0;
+  auto &local_rhs         = copy_data.local_rhs();
+  auto &local_dof_indices = copy_data.dof_indices();
+  local_rhs               = 0;
 
-  const double mobility = scratch_data.mobility;
-  const double sigma_tilde_over_eps =
-    scratch_data.sigma_tilde / scratch_data.epsilon;
-  const double sigma_tilde_times_eps =
-    scratch_data.sigma_tilde * scratch_data.epsilon;
-  const auto &body_force = scratch_data.body_force;
+  for (const auto &assembler : assemblers)
+    assembler->assemble_rhs(scratch_data, copy_data);
 
-  //
-  // Volume contributions
-  //
-  for (unsigned int q = 0; q < scratch_data.n_q_points; ++q)
-  {
-    const double JxW_moving = scratch_data.JxW_moving[q];
-    const double rho        = scratch_data.density[q];
-    const double eta        = scratch_data.dynamic_viscosity[q];
-
-    const auto &present_velocity_values =
-      scratch_data.present_velocity_values[q];
-    const auto &present_velocity_gradients =
-      scratch_data.present_velocity_gradients[q];
-    const auto &present_velocity_sym_gradients =
-      scratch_data.present_velocity_sym_gradients[q];
-
-    // Convective velocity (pure eulerian: u, ALE: u - w)
-    Tensor<1, dim> u_conv = present_velocity_values;
-    if constexpr (with_moving_mesh)
-      u_conv -= scratch_data.present_mesh_velocity_values[q];
-
-    const auto u_dot_grad_u = present_velocity_gradients * u_conv;
-
-    const auto &present_pressure_values =
-      scratch_data.present_pressure_values[q];
-    const auto &source_term_velocity  = scratch_data.source_term_velocity[q];
-    const auto &source_term_pressure  = scratch_data.source_term_pressure[q];
-    const auto &source_term_tracer    = scratch_data.source_term_tracer[q];
-    const auto &source_term_potential = scratch_data.source_term_potential[q];
-    const auto &present_velocity_divergence =
-      scratch_data.present_velocity_divergence[q];
-
-    const auto &diffusive_flux     = scratch_data.diffusive_flux[q];
-    const auto &tracer_value       = scratch_data.tracer_values[q];
-    const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
-    const auto &potential_value    = scratch_data.potential_values[q];
-    const auto &potential_gradient = scratch_data.potential_gradients[q];
-    const auto &velocity_dot_tracer_gradient =
-      scratch_data.velocity_dot_tracer_gradient[q];
-    const double phi_cube_minus_phi =
-      tracer_value * (tracer_value * tracer_value - 1.);
-
-    const Tensor<1, dim> dudt =
-      this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, present_velocity_values, scratch_data.previous_velocity_values);
-    const double dphidt =
-      this->time_handler.compute_time_derivative_at_quadrature_node(
-        q, tracer_value, scratch_data.previous_tracer_values);
-
-    // Precomputations of shape functions-independent terms
-    const auto to_multiply_by_phi_u_i =
-      rho * (dudt + u_dot_grad_u - body_force) + diffusive_flux +
-      tracer_value * potential_gradient + source_term_velocity;
-    const auto to_multiply_by_phi_phi_i =
-      dphidt + velocity_dot_tracer_gradient + source_term_tracer;
-    const auto to_multiply_by_phi_mu_i =
-      potential_value - sigma_tilde_over_eps * phi_cube_minus_phi +
-      source_term_potential;
-
-    const auto &phi_p          = scratch_data.phi_p[q];
-    const auto &phi_u          = scratch_data.phi_u[q];
-    const auto &sym_grad_phi_u = scratch_data.sym_grad_phi_u[q];
-    const auto &div_phi_u      = scratch_data.div_phi_u[q];
-    const auto &phi_phi        = scratch_data.shape_phi[q];
-    const auto &grad_phi_phi   = scratch_data.grad_shape_phi[q];
-    const auto &phi_mu         = scratch_data.shape_mu[q];
-    const auto &grad_phi_mu    = scratch_data.grad_shape_mu[q];
-
-    //
-    // Pseudo-solid related data
-    //
-    double                             lame_mu = 0., lame_lambda = 0.;
-    const double                       alpha = this->param.cahn_hilliard.alpha;
-    const double                       beta  = this->param.cahn_hilliard.beta;
-    double                             present_displacement_divergence;
-    double                             present_trace_strain;
-    Tensor<2, dim>                     present_strain;
-    const Tensor<2, dim>              *present_position_gradients;
-    const Tensor<1, dim>              *source_term_position;
-    const std::vector<Tensor<1, dim>> *phi_x;
-    const std::vector<Tensor<2, dim>> *grad_phi_x;
-    const std::vector<double>         *div_phi_x;
-    Tensor<1, dim>                     mesh_forcing;
-    double                             tracer_values_fixed;
-    const Tensor<1, dim>              *tracer_gradient_fixed;
-
-    if constexpr (with_moving_mesh)
-    {
-      lame_mu                    = scratch_data.lame_mu[q];
-      lame_lambda                = scratch_data.lame_lambda[q];
-      phi_x                      = &scratch_data.phi_x[q];
-      grad_phi_x                 = &scratch_data.grad_phi_x[q];
-      div_phi_x                  = &scratch_data.div_phi_x[q];
-      present_position_gradients = &scratch_data.present_position_gradients[q];
-      present_displacement_divergence = trace(*present_position_gradients);
-      present_strain =
-        symmetrize(*present_position_gradients) - unit_symmetric_tensor<dim>();
-      present_trace_strain  = present_displacement_divergence - (double)dim;
-      source_term_position  = &scratch_data.source_term_position[q];
-      tracer_values_fixed   = scratch_data.tracer_values_fixed[q];
-      tracer_gradient_fixed = &scratch_data.tracer_gradients_fixed[q];
-    }
-
-    for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
-    {
-      const auto &phi_u_i          = phi_u[i];
-      const auto &sym_grad_phi_u_i = sym_grad_phi_u[i];
-      const auto &div_phi_u_i      = div_phi_u[i];
-      const auto &phi_p_i          = phi_p[i];
-      const auto &phi_phi_i        = phi_phi[i];
-      const auto &grad_phi_phi_i   = grad_phi_phi[i];
-      const auto &phi_mu_i         = phi_mu[i];
-      const auto &grad_phi_mu_i    = grad_phi_mu[i];
-
-      // Momentum equation
-      double local_rhs_flow_i =
-        phi_u_i * to_multiply_by_phi_u_i -
-        div_phi_u_i * present_pressure_values +
-        2. * eta *
-          scalar_product(sym_grad_phi_u_i, present_velocity_sym_gradients);
-
-      // Continuity equation
-      local_rhs_flow_i +=
-        phi_p_i * (-present_velocity_divergence + source_term_pressure);
-
-      // Tracer equation
-      local_rhs_flow_i += phi_phi_i * to_multiply_by_phi_phi_i +
-                          grad_phi_phi_i * mobility * potential_gradient;
-
-      // Potential equation
-      local_rhs_flow_i +=
-        phi_mu_i * to_multiply_by_phi_mu_i -
-        grad_phi_mu_i * sigma_tilde_times_eps * tracer_gradient;
-
-      // Pseudo-solid
-      double local_rhs_ps_i = 0.;
-      if constexpr (with_moving_mesh)
-      {
-        // Body force to attract the mesh towards the tracer interface
-        // Still testing for a good model of body force
-        mesh_forcing =
-          alpha * (tracer_values_fixed * (*tracer_gradient_fixed)) +
-          beta * ((u_conv * tracer_gradient) * tracer_gradient);
-
-        // Linear elasticity
-        local_rhs_ps_i +=
-          lame_lambda * present_trace_strain * (*div_phi_x)[i] +
-          2 * lame_mu * scalar_product(present_strain, (*grad_phi_x)[i]) +
-          (*phi_x)[i] * (*source_term_position - mesh_forcing);
-
-        local_rhs_ps_i *= scratch_data.JxW_fixed[q];
-      }
-
-      local_rhs_flow_i *= JxW_moving;
-      local_rhs(i) -= local_rhs_flow_i + local_rhs_ps_i;
-    }
-  }
-
-  //
-  // Face contributions
-  //
-  if (cell->at_boundary())
-    for (const auto i_face : cell->face_indices())
-    {
-      const auto &face = cell->face(i_face);
-      if (face->at_boundary())
-      {
-        // Open boundary condition with prescribed manufactured solution
-        if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
-              .type == BoundaryConditions::Type::open_mms)
-        {
-          DEAL_II_NOT_IMPLEMENTED();
-        }
-      }
-    }
-
-  cell->get_dof_indices(copy_data.dof_indices());
+  cell->get_dof_indices(local_dof_indices);
 }
 
 template <int dim, bool with_moving_mesh>

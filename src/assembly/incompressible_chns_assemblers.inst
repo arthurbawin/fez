@@ -1,0 +1,138 @@
+
+namespace Assembly
+{
+  namespace IncompressibleCHNS
+  {
+    /**
+     * Main volume assembler
+     */
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   stabilization>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   stabilization>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization>;
+
+    // With moving mesh
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>, moving_mesh>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>, moving_mesh>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>, moving_mesh>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>, moving_mesh>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   stabilization | moving_mesh>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   stabilization | moving_mesh>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   stabilization | moving_mesh>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   stabilization | moving_mesh>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization | moving_mesh>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization | moving_mesh>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization | moving_mesh>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization | moving_mesh>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization | moving_mesh>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization | moving_mesh>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization | moving_mesh>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization | moving_mesh>;
+  } // namespace IncompressibleCHNS
+} // namespace Assembly

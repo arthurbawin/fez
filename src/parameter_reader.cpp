@@ -74,7 +74,9 @@ ParameterReader<dim>::make_presolved_mesh_position_fingerprint(
   append_parameter(out, prm, {"Linear elasticity", "CHNS presolver"},
                    "continuation steps");
 
+  append_parameter(out, prm, {"Cahn Hilliard"}, "CHNS model");
   append_parameter(out, prm, {"Cahn Hilliard"}, "interface thickness");
+  append_parameter(out, prm, {"Cahn Hilliard"}, "tanh mixing steepness");
   append_parameter(out, prm, {"Cahn Hilliard"}, "psi interface width factor");
   append_parameter(out, prm, {"Cahn Hilliard"},
                    "mff_enlarged_compression_factor");
@@ -170,6 +172,28 @@ ParameterReader<dim>::make_presolved_mesh_position_fingerprint(
                         component},
                        "Function constants");
     }
+  }
+
+  append_parameter(out, prm, {"CahnHilliard boundary conditions"}, "number");
+  for (unsigned int i = 0; i < bc_data.n_cahn_hilliard_bc; ++i)
+  {
+    const std::string subsection = "boundary " + std::to_string(i);
+    append_parameter(out,
+                     prm,
+                     {"CahnHilliard boundary conditions", subsection},
+                     "id");
+    append_parameter(out,
+                     prm,
+                     {"CahnHilliard boundary conditions", subsection},
+                     "name");
+    append_parameter(out,
+                     prm,
+                     {"CahnHilliard boundary conditions", subsection},
+                     "type");
+    append_parameter(out,
+                     prm,
+                     {"CahnHilliard boundary conditions", subsection},
+                     "contact angle");
   }
 
   append_parameter(out, prm, {"Nonlinear solver"}, "tolerance");

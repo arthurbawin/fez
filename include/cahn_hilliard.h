@@ -11,7 +11,8 @@ namespace CahnHilliard
   inline bool
   is_abels_model(const Parameters::CahnHilliard<dim> &param)
   {
-    return param.chns_model == Parameters::CahnHilliard<dim>::CHNSModel::Abels;
+    return param.chns_model == Parameters::CahnHilliard<dim>::CHNSModel::Abels ||
+           param.chns_model == Parameters::CahnHilliard<dim>::CHNSModel::Sharp;
   }
 
   template <int dim>
@@ -20,6 +21,14 @@ namespace CahnHilliard
   {
     return param.chns_model ==
            Parameters::CahnHilliard<dim>::CHNSModel::DingHorriche;
+  }
+
+  template <int dim>
+  inline bool
+  is_sharp_material_diffuse_capillary_model(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    return param.chns_model == Parameters::CahnHilliard<dim>::CHNSModel::Sharp;
   }
 
   template <int dim>
@@ -50,6 +59,8 @@ namespace CahnHilliard
   inline const char *
   model_name(const Parameters::CahnHilliard<dim> &param)
   {
+    if (is_sharp_material_diffuse_capillary_model(param))
+      return "Sharp";
     if (is_ding_horriche_model(param))
       return "Ding-Horriche";
     return "Abels";
@@ -83,6 +94,42 @@ namespace CahnHilliard
     if (is_ding_horriche_model(param))
       return param.epsilon_interface * param.epsilon_interface;
     return sigma_tilde * param.epsilon_interface;
+  }
+
+  /*
+   * Surface term coefficient for the static contact angle condition in the
+   * potential equation. This follows the same model-dependent scaling as the
+   * bulk gradient term.
+   */
+  template <int dim>
+  inline double
+  contact_angle_surface_coefficient(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         sigma_tilde)
+  {
+    return potential_gradient_coefficient(param, sigma_tilde);
+  }
+
+  /*
+   * Static wetting condition for a tanh diffuse interface:
+   *
+   *   n . grad(phi) = -cos(theta) / (sqrt(2) eps) * (1 - phi^2)
+   *
+   * theta is measured through the phi = +1 phase.
+   */
+  inline double contact_angle_normal_derivative(const double phi,
+                                                const double epsilon,
+                                                const double theta)
+  {
+    return -std::cos(theta) * (1. - phi * phi) /
+           (std::sqrt(2.) * epsilon);
+  }
+
+  inline double contact_angle_normal_derivative_jacobian(const double phi,
+                                                         const double epsilon,
+                                                         const double theta)
+  {
+    return 2. * std::cos(theta) * phi / (std::sqrt(2.) * epsilon);
   }
 
   template <int dim>
@@ -176,6 +223,146 @@ namespace CahnHilliard
                                          const double val_b)
   {
     return 0.5 * (val_a - val_b);
+  }
+
+  /**
+   * Apply a tanh mixing from value A (when phase marker = 1) to value B (phase
+   * marker = -1). This sharpens the material transition in the tails while
+   * preserving the endpoint values.
+   */
+  inline double tanh_mixing(const double phase_marker,
+                            const double val_a,
+                            const double val_b,
+                            const double k)
+  {
+    const double tanh_k   = std::tanh(k);
+    const double tanh_phi = std::tanh(k * phase_marker);
+
+    return ((tanh_k + tanh_phi) * val_a + (tanh_k - tanh_phi) * val_b) /
+           (2. * tanh_k);
+  }
+
+  /**
+   * Derivative w.r.t. the tracer of the tanh mixing function.
+   */
+  inline double tanh_mixing_derivative(const double phase_marker,
+                                       const double val_a,
+                                       const double val_b,
+                                       const double k)
+  {
+    const double tanh_k    = std::tanh(k);
+    const double cosh_phi  = std::cosh(k * phase_marker);
+    const double sech2_phi = 1. / (cosh_phi * cosh_phi);
+
+    return 0.5 * (val_a - val_b) * k / tanh_k * sech2_phi;
+  }
+
+  /**
+   * Second derivative w.r.t. the tracer of the tanh mixing function.
+   */
+  inline double tanh_mixing_second_derivative(const double phase_marker,
+                                              const double val_a,
+                                              const double val_b,
+                                              const double k)
+  {
+    const double tanh_k    = std::tanh(k);
+    const double tanh_phi  = std::tanh(k * phase_marker);
+    const double cosh_phi  = std::cosh(k * phase_marker);
+    const double sech2_phi = 1. / (cosh_phi * cosh_phi);
+
+    return -(val_a - val_b) * k * k / tanh_k * sech2_phi * tanh_phi;
+  }
+
+  template <int dim>
+  inline double material_phase_marker(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         phase_marker)
+  {
+    if (is_sharp_material_diffuse_capillary_model(param))
+      return tanh_mixing(
+        phase_marker, 1., -1., param.tanh_mixing_steepness);
+
+    return phase_marker;
+  }
+
+  template <int dim>
+  inline double material_phase_derivative_wrt_tracer(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         phase_marker)
+  {
+    if (is_sharp_material_diffuse_capillary_model(param))
+      return tanh_mixing_derivative(
+        phase_marker, 1., -1., param.tanh_mixing_steepness);
+
+    return 1.;
+  }
+
+  template <int dim>
+  inline double material_phase_second_derivative_wrt_tracer(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         phase_marker)
+  {
+    if (is_sharp_material_diffuse_capillary_model(param))
+      return tanh_mixing_second_derivative(
+        phase_marker, 1., -1., param.tanh_mixing_steepness);
+
+    return 0.;
+  }
+
+  template <int dim>
+  inline double material_property_mixing(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         phase_marker,
+    const double                         val_a,
+    const double                         val_b)
+  {
+    if (is_sharp_material_diffuse_capillary_model(param))
+      return linear_mixing(material_phase_marker(param, phase_marker),
+                           val_a,
+                           val_b);
+
+    return linear_mixing(phase_marker, val_a, val_b);
+  }
+
+  template <int dim>
+  inline double material_property_derivative_wrt_tracer(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         phase_marker,
+    const double                         val_a,
+    const double                         val_b)
+  {
+    if (is_sharp_material_diffuse_capillary_model(param))
+      return linear_mixing_derivative(0., val_a, val_b) *
+             material_phase_derivative_wrt_tracer(param, phase_marker);
+
+    return linear_mixing_derivative(phase_marker, val_a, val_b);
+  }
+
+  template <int dim>
+  inline double material_property_second_derivative_wrt_tracer(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         phase_marker,
+    const double                         val_a,
+    const double                         val_b)
+  {
+    if (is_sharp_material_diffuse_capillary_model(param))
+      return linear_mixing_derivative(0., val_a, val_b) *
+             material_phase_second_derivative_wrt_tracer(param, phase_marker);
+
+    return 0.;
+  }
+
+  template <int dim>
+  inline double material_property_derivative_wrt_material_phase(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         phase_marker,
+    const double                         val_a,
+    const double                         val_b)
+  {
+    if (is_sharp_material_diffuse_capillary_model(param))
+      return linear_mixing_derivative(0., val_a, val_b);
+
+    return linear_mixing_derivative(phase_marker, val_a, val_b);
   }
 
   /**

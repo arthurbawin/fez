@@ -463,7 +463,9 @@ namespace Parameters
       prm.declare_entry("stabilization",
                         "false",
                         Patterns::Bool(),
-                        "Enable residual-based stabilization terms");
+                        "Enable residual-based SUPG/PSPG stabilization. For "
+                        "the sharp CHNS model, only momentum SUPG and PSPG "
+                        "are currently enabled; tracer SUPG remains disabled.");
       prm.declare_entry("Velocity degree",
                         "2",
                         Patterns::Integer(),
@@ -1168,15 +1170,19 @@ namespace Parameters
     {
       prm.declare_entry("CHNS model",
                         "abels",
-                        Patterns::Selection("abels|ding_horriche"),
-                        "CHNS model: current Abels-type model or the "
-                        "Ding/Horriche final CADYF model. Abels uses FEZ's "
-                        "scaled chemical potential; Ding/Horriche uses the "
-                        "unscaled mu_hat from Horriche (3.22).");
+                        Patterns::Selection("abels|ding_horriche|sharp"),
+                        "CHNS model. 'abels' uses the diffuse material marker "
+                        "phi, 'ding_horriche' selects the Ding/Horriche model, and "
+                        "'sharp' uses the Abels capillary model with "
+                        "q=tanh(k phi)/tanh(k) as material marker.");
       prm.declare_entry("mobility model",
                         "constant",
                         Patterns::Selection("constant|degenerate"),
                         "Model for the mobility tensor");
+      prm.declare_entry("tanh mixing steepness",
+                        "5.",
+                        Patterns::Double(0.),
+                        "Positive steepness k used in tanh(k phi)/tanh(k).");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
@@ -1269,11 +1275,13 @@ namespace Parameters
         chns_model = CHNSModel::Abels;
       else if (parsed_chns_model == "ding_horriche")
         chns_model = CHNSModel::DingHorriche;
+      else if (parsed_chns_model == "sharp")
+        chns_model = CHNSModel::Sharp;
       else
         AssertThrow(false,
                     ExcMessage("Unknown CHNS model '" + parsed_chns_model +
-                               "'. Accepted values are 'abels' and "
-                               "'ding_horriche'."));
+                               "'. Accepted values are 'abels', "
+                               "'ding_horriche' and 'sharp'."));
 
       const std::string parsed_mobility_model = prm.get("mobility model");
       if (parsed_mobility_model == "constant")
@@ -1282,6 +1290,11 @@ namespace Parameters
         mobility_model = MobilityModel::degenerate;
       else
         AssertThrow(false, ExcMessage("Unknown mobility model"));
+
+      tanh_mixing_steepness = prm.get_double("tanh mixing steepness");
+      AssertThrow(tanh_mixing_steepness > 0.,
+                  ExcMessage("tanh mixing steepness must be strictly positive."));
+
       mobility                = prm.get_double("mobility");
       mobility_tracer_limiter = prm.get_bool("enable mobility tracer limiter");
       prm.enter_subsection("degenerate mobility");

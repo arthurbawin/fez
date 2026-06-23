@@ -506,6 +506,16 @@ namespace NavierStokesScratch
                       std::vector<std::vector<double>>(n_faces_q_points,
                                                        std::vector<double>(
                                                          max_dofs_per_cell)));
+    tracer_values_face.resize(n_faces, std::vector<double>(n_faces_q_points));
+    potential_values_face.resize(n_faces, std::vector<double>(n_faces_q_points));
+    shape_phi_face.resize(n_faces,
+                          std::vector<std::vector<double>>(
+                            n_faces_q_points,
+                            std::vector<double>(max_dofs_per_cell)));
+    shape_mu_face.resize(n_faces,
+                         std::vector<std::vector<double>>(
+                           n_faces_q_points,
+                           std::vector<double>(max_dofs_per_cell)));
     grad_phi_u_face.resize(n_faces,
                            std::vector<std::vector<Tensor<2, dim>>>(
                              n_faces_q_points,
@@ -632,11 +642,17 @@ namespace NavierStokesScratch
       second_derivative_mobility_wrt_tracer.resize(n_q_points);
       diffusive_flux_factor_values.resize(n_q_points);
       derivative_density_wrt_tracer.resize(n_q_points);
+      second_derivative_density_wrt_tracer.resize(n_q_points);
       dynamic_viscosity.resize(n_q_points);
       derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
+      second_derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
 
       tracer_values.resize(n_q_points);
       tracer_gradients.resize(n_q_points);
+      material_phase_values.resize(n_q_points);
+      material_phase_gradients.resize(n_q_points);
+      derivative_material_phase_wrt_tracer.resize(n_q_points);
+      second_derivative_material_phase_wrt_tracer.resize(n_q_points);
       tracer_values_fixed.resize(n_q_points);
       tracer_gradients_fixed.resize(n_q_points);
       potential_values.resize(n_q_points);
@@ -653,9 +669,12 @@ namespace NavierStokesScratch
       }
       previous_tracer_values.resize(time_handler.n_previous_solutions,
                                     std::vector<double>(n_q_points));
+      previous_material_phase_values.resize(
+        time_handler.n_previous_solutions, std::vector<double>(n_q_points));
 
       diffusive_flux.resize(n_q_points);
       velocity_dot_tracer_gradient.resize(n_q_points);
+      velocity_dot_material_phase_gradient.resize(n_q_points);
       present_convective_velocity.resize(n_q_points);
       shape_phi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_phi.resize(n_q_points,

@@ -259,7 +259,8 @@ namespace Parameters
     // If true, use hypercubes, otherwise use simplices (default).
     bool use_quads;
 
-    // If true, enable residual-based stabilization terms.
+    // Enable residual-based stabilization. In sharp CHNS, this currently
+    // covers momentum SUPG/PSPG only, not tracer SUPG.
     bool stabilization;
 
     // Degree of the velocity interpolation
@@ -577,7 +578,8 @@ namespace Parameters
     enum class CHNSModel
     {
       Abels,
-      DingHorriche
+      DingHorriche,
+      Sharp
     } chns_model = CHNSModel::Abels;
 
     enum class MobilityModel
@@ -585,6 +587,8 @@ namespace Parameters
       constant,
       degenerate
     } mobility_model;
+
+    double tanh_mixing_steepness = 5.;
 
     double mobility;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>

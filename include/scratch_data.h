@@ -445,6 +445,23 @@ namespace NavierStokesScratch
             fe_face_values[velocity].divergence(k, q);
         }
       }
+
+      if constexpr (enable_cahn_hilliard)
+      {
+        fe_face_values[tracer].get_function_values(
+          current_solution, tracer_values_face[i_face]);
+        fe_face_values[potential].get_function_values(
+          current_solution, potential_values_face[i_face]);
+
+        for (unsigned int q = 0; q < n_faces_q_points; ++q)
+          for (unsigned int k = 0; k < dofs_per_cell; ++k)
+          {
+            shape_phi_face[i_face][q][k] =
+              fe_face_values[tracer].value(k, q);
+            shape_mu_face[i_face][q][k] =
+              fe_face_values[potential].value(k, q);
+          }
+      }
     }
 
     template <typename VectorType>
@@ -1052,8 +1069,11 @@ namespace NavierStokesScratch
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
-        // Physical properties based on tracer, filter if applicable
-        const double filtered_phi = tracer_limiter(tracer_values[q]);
+        // The optional tracer limiter protects material properties only.  The
+        // CH transport variable q(phi) must still be built from the raw tracer:
+        // limiting it here would clip the conserved quantity and introduce a
+        // flat branch in the nonlinear CH residual.
+        const double property_phi = tracer_limiter(tracer_values[q]);
         const double filtered_phi_mobility =
           mobility_tracer_limiter(tracer_values[q]);
         mobility_values[q] =
@@ -1064,21 +1084,53 @@ namespace NavierStokesScratch
         second_derivative_mobility_wrt_tracer[q] =
           mobility_second_derivative_function(cahn_hilliard_param,
                                               filtered_phi_mobility);
-        diffusive_flux_factor_values[q] =
-          mobility_values[q] * 0.5 * (density1 - density0);
         density[q] =
-          CahnHilliard::linear_mixing(filtered_phi, density0, density1);
-        dynamic_viscosity[q] = CahnHilliard::linear_mixing(filtered_phi,
-                                                           dynamic_viscosity0,
-                                                           dynamic_viscosity1);
-        derivative_density_wrt_tracer[q] =
-          CahnHilliard::linear_mixing_derivative(filtered_phi,
+          CahnHilliard::material_property_mixing(cahn_hilliard_param,
+                                                 property_phi,
                                                  density0,
                                                  density1);
-        derivative_dynamic_viscosity_wrt_tracer[q] =
-          CahnHilliard::linear_mixing_derivative(filtered_phi,
+        dynamic_viscosity[q] =
+          CahnHilliard::material_property_mixing(cahn_hilliard_param,
+                                                 property_phi,
                                                  dynamic_viscosity0,
                                                  dynamic_viscosity1);
+        derivative_density_wrt_tracer[q] =
+          CahnHilliard::material_property_derivative_wrt_tracer(
+            cahn_hilliard_param, property_phi, density0, density1);
+        second_derivative_density_wrt_tracer[q] =
+          CahnHilliard::material_property_second_derivative_wrt_tracer(
+            cahn_hilliard_param, property_phi, density0, density1);
+        diffusive_flux_factor_values[q] =
+          mobility_values[q] * 0.5 * (density1 - density0);
+        derivative_dynamic_viscosity_wrt_tracer[q] =
+          CahnHilliard::material_property_derivative_wrt_tracer(
+            cahn_hilliard_param,
+            property_phi,
+            dynamic_viscosity0,
+            dynamic_viscosity1);
+        second_derivative_dynamic_viscosity_wrt_tracer[q] =
+          CahnHilliard::material_property_second_derivative_wrt_tracer(
+            cahn_hilliard_param,
+            property_phi,
+            dynamic_viscosity0,
+            dynamic_viscosity1);
+
+        material_phase_values[q] =
+          CahnHilliard::material_phase_marker(cahn_hilliard_param,
+                                              tracer_values[q]);
+        derivative_material_phase_wrt_tracer[q] =
+          CahnHilliard::material_phase_derivative_wrt_tracer(
+            cahn_hilliard_param, tracer_values[q]);
+        second_derivative_material_phase_wrt_tracer[q] =
+          CahnHilliard::material_phase_second_derivative_wrt_tracer(
+            cahn_hilliard_param, tracer_values[q]);
+        material_phase_gradients[q] =
+          derivative_material_phase_wrt_tracer[q] * tracer_gradients[q];
+        for (unsigned int i = 0; i < previous_tracer_values.size(); ++i)
+          previous_material_phase_values[i][q] =
+            CahnHilliard::material_phase_marker(
+              cahn_hilliard_param,
+              previous_tracer_values[i][q]);
 
         source_term_tracer[q]    = source_term_full_moving[q](phi_lower);
         source_term_potential[q] = source_term_full_moving[q](mu_lower);
@@ -1096,6 +1148,8 @@ namespace NavierStokesScratch
         present_convective_velocity[q] = u_conv;
 
         velocity_dot_tracer_gradient[q] = u_conv * tracer_gradients[q];
+        velocity_dot_material_phase_gradient[q] =
+          u_conv * material_phase_gradients[q];
 
         if (enable_stabilization)
         {
@@ -1123,7 +1177,7 @@ namespace NavierStokesScratch
           const Tensor<1, dim> momentum_capillary_force =
             CahnHilliard::use_abels_capillary_phi_grad_mu(
               cahn_hilliard_param) ?
-              tracer_values[q] * potential_gradients[q] :
+              material_phase_values[q] * potential_gradients[q] :
               -CahnHilliard::ding_horriche_capillary_coefficient(
                 cahn_hilliard_param) *
                 potential_values[q] * tracer_gradients[q];
@@ -1183,14 +1237,21 @@ namespace NavierStokesScratch
             u_conv,
             grad_phi_u_first_component);
 
-          tau_supg_tracer[q] = StabilizationTools::compute_tau_supg(
-            time_handler,
-            dofs_per_cell,
-            cell_diameter,
-            param.finite_elements.tracer_degree,
-            mobility_values[q],
-            u_conv,
-            grad_shape_phi[q]);
+          // The sharp q(phi) formulation currently enables only momentum
+          // SUPG/PSPG. Its tracer SUPG residual and analytic linearization
+          // require dedicated q' and q'' terms and remain disabled for now.
+          tau_supg_tracer[q] =
+            CahnHilliard::is_sharp_material_diffuse_capillary_model(
+              cahn_hilliard_param) ?
+              0. :
+              StabilizationTools::compute_tau_supg(
+                time_handler,
+                dofs_per_cell,
+                cell_diameter,
+                param.finite_elements.tracer_degree,
+                mobility_values[q],
+                u_conv,
+                grad_shape_phi[q]);
         }
       }
     }
@@ -1441,6 +1502,10 @@ namespace NavierStokesScratch
                                                   sym_grad_phi_u_face;
     std::vector<std::vector<std::vector<double>>> div_phi_u_face;
     std::vector<std::vector<std::vector<double>>> phi_p_face;
+    std::vector<std::vector<double>>              tracer_values_face;
+    std::vector<std::vector<double>>              potential_values_face;
+    std::vector<std::vector<std::vector<double>>> shape_phi_face;
+    std::vector<std::vector<std::vector<double>>> shape_mu_face;
 
     // Source term in volume
     std::vector<Vector<double>> source_term_full_moving;
@@ -1608,15 +1673,22 @@ namespace NavierStokesScratch
     CahnHilliard::MobilityTracerLimiterFunction mobility_tracer_limiter;
 
     std::vector<double> derivative_density_wrt_tracer;
+    std::vector<double> second_derivative_density_wrt_tracer;
     std::vector<double> dynamic_viscosity;
     std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
+    std::vector<double> second_derivative_dynamic_viscosity_wrt_tracer;
 
     // Tracer on current and fixed (reference) mesh
     std::vector<double>              tracer_values;
     std::vector<Tensor<1, dim>>      tracer_gradients;
+    std::vector<double>              material_phase_values;
+    std::vector<Tensor<1, dim>>      material_phase_gradients;
+    std::vector<double>              derivative_material_phase_wrt_tracer;
+    std::vector<double> second_derivative_material_phase_wrt_tracer;
     std::vector<double>              tracer_values_fixed;
     std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
     std::vector<std::vector<double>> previous_tracer_values;
+    std::vector<std::vector<double>> previous_material_phase_values;
     // Potential on current mesh
     std::vector<double>         potential_values;
     std::vector<Tensor<1, dim>> potential_gradients;
@@ -1628,6 +1700,7 @@ namespace NavierStokesScratch
 
     std::vector<Tensor<1, dim>> diffusive_flux;
     std::vector<double>         velocity_dot_tracer_gradient;
+    std::vector<double>         velocity_dot_material_phase_gradient;
     std::vector<Tensor<1, dim>> present_convective_velocity;
 
     std::vector<std::vector<double>>         shape_phi;

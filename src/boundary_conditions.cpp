@@ -296,6 +296,12 @@ namespace BoundaryConditions
                       "none",
                       Patterns::Selection("none|no_flux|dirichlet_mms"),
                       "Type of Cahn-Hilliard boundary condition");
+    prm.declare_entry("contact angle",
+                      "-1",
+                      Patterns::Double(-1., 180.),
+                      "Equilibrium contact angle in degrees. "
+                      "Set to -1 to disable the contact angle condition; "
+                      "use 0-180 to activate it.");
   }
 
   template <int dim>
@@ -309,11 +315,18 @@ namespace BoundaryConditions
       type = Type::no_flux;
     if (parsed_type == "dirichlet_mms")
       type = Type::dirichlet_mms;
-    if (parsed_type == "none")
+
+    contact_angle = prm.get_double("contact angle");
+    if (contact_angle >= 0.)
+      contact_angle *= numbers::PI / 180.;
+    else
+      contact_angle = -1.;
+
+    if (parsed_type == "none" && contact_angle < 0.)
       throw std::runtime_error(
         "Cahn-Hilliard boundary condition for boundary " +
         std::to_string(this->id) +
-        " is set to \"none\".\n"
+        " is set to \"none\" without a contact angle.\n"
         "Either you specified this type by mistake, or the number of \n"
         "prescribed Cahn-Hilliard boundary conditions is smaller than "
         "the specified \"number\" field.");

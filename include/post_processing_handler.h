@@ -80,6 +80,9 @@ public:
   void add_cell_dg0_data_field(
     std::unique_ptr<PostProcessingTools::DG0DataField<dim>> field);
 
+  void add_continuous_data_field(
+    std::unique_ptr<PostProcessingTools::ContinuousDataField<dim>> field);
+
   /**
    * Output the fields stored in solution, both in the volume and on the
    * prescribed boundary (skin), if any. Also output the fields that were added
@@ -350,6 +353,8 @@ private:
 
   std::vector<std::unique_ptr<PostProcessingTools::DG0DataField<dim>>>
     auxiliary_cell_dg0_fields;
+  std::vector<std::unique_ptr<PostProcessingTools::ContinuousDataField<dim>>>
+    auxiliary_continuous_fields;
 };
 
 /* ---------------- Template functions ----------------- */
@@ -384,6 +389,19 @@ void PostProcessingHandler<dim>::add_cell_dg0_data_field(
 
   PostProcessingTools::add_dg0_data_field(*data_out, *field);
   auxiliary_cell_dg0_fields.push_back(std::move(field));
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::add_continuous_data_field(
+  std::unique_ptr<PostProcessingTools::ContinuousDataField<dim>> field)
+{
+  AssertThrow(data_out != nullptr,
+              ExcMessage("Volume output must be enabled to add continuous "
+                         "VTU data."));
+  AssertThrow(field != nullptr, ExcInternalError());
+
+  PostProcessingTools::add_continuous_data_field(*data_out, *field);
+  auxiliary_continuous_fields.push_back(std::move(field));
 }
 
 template <int dim>
@@ -452,6 +470,7 @@ void PostProcessingHandler<dim>::output_volume_fields(
                                              pvtu_file);
   data_out->clear_data_vectors();
   auxiliary_cell_dg0_fields.clear();
+  auxiliary_continuous_fields.clear();
 }
 
 template <int dim>

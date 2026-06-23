@@ -8,31 +8,21 @@ end
 
 subsection Output
   set write vtu results = true
-  set output directory = ../data/YoungLaplace/
-  set output prefix    = R_015_sig1_sharp_material_rho1000_05
-end
-
-subsection Postprocessing
-  subsection line probe
-    set enable           = true
-    set write results    = true
-    set output prefix    = R_015_sig1_centerline_sharp_material_rho1000_05
-    set output frequency = 1
-    set precision        = 16
-    set start point      = 0, 0
-    set end point        = 0.5, 0
-    set number of points = 4001
-  end
+  set output directory = ../../data/WetAngle/
+  set output prefix    = wet_angle_60_D100
+  set vtu output frequency = 2
 end
 
 subsection Mesh
-  set mesh file=../examples/incompressible_chns/static_bubble/young_laplace_test.msh
+  set mesh file=../examples/incompressible_chns/wet_angle/wet_angle_body_force.msh
 end
 
 subsection Linear elasticity
+  set write final msh = true
+
   subsection presolved mesh position
     set mode = auto
-    set file = YL_meshpresolved_x_phi_psi
+    set file = wet_angle_sharp_material_falling_x_phi_psi
   end
 
   subsection CHNS presolver
@@ -43,78 +33,84 @@ subsection Linear elasticity
 end
 
 subsection Time integration
-  set dt               = 0.01
+  set dt               = 1e-3
   set t_initial        = 0
-  set t_end            = 1.5
+  set t_end            = 15
   set scheme           = BDF2
   set bdf start method = BDF1
-
-   subsection Adaptation
+  
+  subsection Adaptation
     set enable = true
     set adaptation strategy = cfl
+    set target cfl number = 1.0
     
-    set min timestep = 1e-9
-    set max timestep = 5e-2
+    set min timestep = 1e-5
+    set max timestep = 0.5
     
     set max timestep increase = 1.2
-    set target cfl number         = 0.8
     
-    set reject timestep with large cfl = true
+    set reject timestep with large error = false
     set cfl ratio to reject            = 1.4
 
+    set target error on pressure         = 5e-1
   end
 end
 
 subsection Nonlinear solver
-  set tolerance            = 1e-10
+  set verbosity      = verbose
+  set tolerance            = 1e-8
   set divergence_tolerance = 1e+4
-  set max_iterations       = 30
+  set max_iterations       = 40
   set enable_line_search   = true
   set analytic_jacobian    = true
-
   set compare jacobian matrix with finite differences = false
-  set analytical_jacobian_absolute_tolerance =1e-3
-  set analytical_jacobian_relative_tolerance =1e-3
+  set analytical_jacobian_absolute_tolerance = 1e-3
+  set analytical_jacobian_relative_tolerance = 1e-3
+  #subsection reassembly heuristic
+    #set decrease tolerance=0.1
+  #end
 end
+
 
 subsection Linear solver
   subsection linear elasticity
-    set verbosity      = quiet
+    set verbosity      = verbose
     set method         = direct_mumps
-    set tolerance      = 1e-10
-    set max iterations = 50
+    set tolerance      = 1e-8
+    set max iterations = 40
   end
-
   subsection main physics
-    set verbosity = quiet
-    set method    = direct_mumps
-    set reuse     = true
+    set verbosity      = verbose
+    set method         = direct_mumps
+    set reuse          = false
   end
 end
 
 subsection FiniteElements
-  set stabilization        = false
-  set Velocity degree      = 3
-  set Pressure degree      = 2
-  set Tracer degree        = 2
-  set Potential degree     = 2
-  set Mesh position degree = 2
+  set stabilization     = true
+  set Velocity degree   = 2
+  set Pressure degree   = 1
+  set Tracer degree     = 1
+  set Potential degree  = 1
+  set Mesh position degree = 1
 end
 
 subsection Physical properties
+  set body force          = 0,-0.981
   set number of fluids = 2
-  subsection Fluid 0
-    set density             = 1000
-    set kinematic viscosity = 0.001
-  end
   subsection Fluid 1
-    set density             = 0.5
-    set kinematic viscosity = 2.0
+    set density             = 50
+    set kinematic viscosity = 1.108e-3
   end
-
+  subsection Fluid 0
+    set density             = 1.09
+    set kinematic viscosity = 1.797e-5
+  end
   set number of pseudosolids = 1
   subsection Pseudosolid 0
     set constitutive model = neo hookean
+    set ogden beta = 1.0
+    
     subsection lame lambda
       set Function expression = 0.08
     end
@@ -122,28 +118,26 @@ subsection Physical properties
       set Function expression = 1.6
     end
   end
-  set body force = 0, 0
 end
 
 subsection Cahn Hilliard
-  set CHNS model                    = sharp
-  set tanh mixing steepness         = 5
-  set mobility model               = constant
-  #subsection degenerate mobility
-    #set Function expression =(1-x^2)^2
-  #end
-  set mobility                     = 1e-7
-  set surface tension              = 1
-  set interface thickness          = 3e-3
-  set psi interface width factor   = 5
-  set psi mu correction factor     = 1.0
+  set CHNS model = sharp
+  set tanh mixing steepness = 3
+  set mobility model      = constant
+  set mobility            = 1e-7
+  set surface tension     = 0.072
+  set interface thickness = 1e-2
+  
+  set psi interface width factor = 2
+  set psi mu correction factor   = 0.0
 
-  set enable tracer limiter           = false
-  set mff_enlarged_compression_factor = -600
+  
+  set enable tracer limiter = false
+  set mff_enlarged_compression_factor = -150
   set mff_physics_compression_factor  = 0
-  set mff_transport_factor            = 800
+  set mff_transport_factor            = 200
   set mff_regularization_gamma        = 0.9999
-  set mff_enlarged_factor_equalization_exponent = 1.0
+  set mff_enlarged_factor_equalization_exponent = 0.2
 end
 
 subsection Initial conditions
@@ -151,83 +145,91 @@ subsection Initial conditions
   subsection velocity
     set Function expression = 0; 0
   end
+
   subsection cahn hilliard tracer
-    set Function constants  = eps=3e-3, R0=0.15, xc=0, yc=0
+    set Function constants  = eps=1e-2, R0=0.05, xc=0.5, yc=0.07
     set Function expression =tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))
   end
+  
   subsection enlarged psi
-    set Function constants  = eps=1.5e-2, R0=0.15, xc=0, yc=0
+    set Function constants  = eps=2e-2, R0=0.05, xc=0.5, yc=0.07
     set Function expression =tanh((sqrt((x-xc)^2 + (y-yc)^2) - R0)/(sqrt(2.)*eps))
   end
 end
+
+#x_min=1;x_max=2;y_min=3;y_max=4;batteur=5;ramp=6
 
 subsection Fluid boundary conditions
   set number = 4
   set fix pressure constant = true
   set enforce zero mean pressure = false
-  set pressure reference point =1,0
+
   subsection boundary 0
-    set id   = 5
+    set id   = 1
     set name = x_min
     set type = slip
   end
   subsection boundary 1
-    set id   = 3
+    set id   = 2
     set name = x_max
-    set type = no_slip
+    set type = slip
   end
   subsection boundary 2
-    set id   = 2
+    set id   = 3
     set name = y_min
     set type = slip
   end
   subsection boundary 3
     set id   = 4
     set name = y_max
-    set type = no_slip
+    set type = slip
   end
 end
 
+
 subsection Pseudosolid boundary conditions
   set number = 4
+
   subsection boundary 0
-    set id   = 5
+    set id   = 1
     set name = x_min
     set type = no_flux
   end
   subsection boundary 1
-    set id   = 3
+    set id   = 2
     set name = x_max
-    set type = fixed
+    set type = no_flux
   end
   subsection boundary 2
-    set id   = 2
+    set id   = 3
     set name = y_min
     set type = no_flux
   end
   subsection boundary 3
     set id   = 4
     set name = y_max
-    set type = fixed
+    set type = no_flux
   end
 end
 
 subsection CahnHilliard boundary conditions
   set number = 4
+
   subsection boundary 0
-    set id   = 5
+    set id   = 1
     set name = x_min
     set type = no_flux
   end
   subsection boundary 1
-    set id   = 3
+    set id   = 2
     set name = x_max
     set type = no_flux
   end
   subsection boundary 2
-    set id   = 2
+    set id   = 3
     set name = y_min
     set type = no_flux
+    set contact angle = 60
   end
   subsection boundary 3
     set id   = 4
@@ -235,6 +237,7 @@ subsection CahnHilliard boundary conditions
     set type = no_flux
   end
 end
+
 
 subsection Debug
   set verbosity                              = verbose

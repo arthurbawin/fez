@@ -31,6 +31,7 @@
 #include <error_estimation/solution_recovery.h>
 #include <metric_field.h>
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -197,12 +198,26 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   const double phi          = mms.exact_tracer->value(p);
   const double psi          = mms.exact_psi->value(p);
   const double filtered_phi = phi;
+  const bool   use_sharp_material_diffuse_capillary =
+    CahnHilliard::is_sharp_material_diffuse_capillary_model(
+      cahn_hilliard_param);
+  const double q_material =
+    CahnHilliard::material_phase_marker(cahn_hilliard_param, phi);
+  const double dq_dphi =
+    CahnHilliard::material_phase_derivative_wrt_tracer(cahn_hilliard_param,
+                                                       phi);
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
-  const double rho  = CahnHilliard::linear_mixing(filtered_phi, rho0, rho1);
+  const double rho  = CahnHilliard::material_property_mixing(cahn_hilliard_param,
+                                                            filtered_phi,
+                                                            rho0,
+                                                            rho1);
   const double eta0 = rho0 * physical_properties.fluids[0].kinematic_viscosity;
   const double eta1 = rho1 * physical_properties.fluids[1].kinematic_viscosity;
-  const double eta  = CahnHilliard::linear_mixing(filtered_phi, eta0, eta1);
+  const double eta  = CahnHilliard::material_property_mixing(cahn_hilliard_param,
+                                                            filtered_phi,
+                                                            eta0,
+                                                            eta1);
   const auto   mobility_function =
     CahnHilliard::get_mobility_function(cahn_hilliard_param);
   const auto mobility_derivative_function =
@@ -212,10 +227,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
     mobility_derivative_function(cahn_hilliard_param, filtered_phi);
 
   const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
-  // const double drhodphi =
-  //   CahnHilliard::linear_mixing_derivative(filtered_phi, rho0, rho1);
   const double detadphi =
-    CahnHilliard::linear_mixing_derivative(filtered_phi, eta0, eta1);
+    CahnHilliard::material_property_derivative_wrt_tracer(cahn_hilliard_param,
+                                                          filtered_phi,
+                                                          eta0,
+                                                          eta1);
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     CahnHilliard::sigma_tilde_from_surface_tension(cahn_hilliard_param);
@@ -243,6 +259,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   const double   mu          = mms.exact_potential->value(p);
   Tensor<1, dim> grad_mu     = mms.exact_potential->gradient(p);
   Tensor<1, dim> grad_phi    = mms.exact_tracer->gradient(p);
+  Tensor<1, dim> grad_q      = dq_dphi * grad_phi;
   Tensor<1, dim> J_flux      = diff_flux_factor * grad_mu;
   Tensor<1, dim> div_viscous = (eta * (lap_u + grad_div_u) +
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
@@ -252,7 +269,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
       Tensor<1, dim>();
   const Tensor<1, dim> momentum_capillary_force =
     CahnHilliard::use_abels_capillary_phi_grad_mu(cahn_hilliard_param) ?
-      phi * grad_mu :
+      q_material * grad_mu :
       -CahnHilliard::ding_horriche_capillary_coefficient(
         cahn_hilliard_param) *
         mu * grad_phi;
@@ -284,14 +301,23 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
 
   // Tracer source term
   const double dphidt = mms.exact_tracer->time_derivative(p);
+  const double dqdt   = dq_dphi * dphidt;
   const double lap_mu = mms.exact_potential->laplacian(p);
+  const double transport_time_derivative =
+    use_sharp_material_diffuse_capillary ? dqdt : dphidt;
+  const Tensor<1, dim> transport_gradient =
+    use_sharp_material_diffuse_capillary ? grad_q : grad_phi;
   values[phi_lower] =
-    -(dphidt + u * grad_phi - (M * lap_mu + dM_dphi * (grad_phi * grad_mu)));
+    -(transport_time_derivative + u * transport_gradient -
+      (M * lap_mu + dM_dphi * (grad_phi * grad_mu)));
 
   // Potential source term
   const double lap_phi = mms.exact_tracer->laplacian(p);
+  const double potential_mass_factor =
+    use_sharp_material_diffuse_capillary ? dq_dphi : 1.;
   values[mu_lower] =
-    -(mu - potential_double_well_coefficient * phi * (phi * phi - 1.) +
+    -(potential_mass_factor * mu -
+      potential_double_well_coefficient * phi * (phi * phi - 1.) +
       potential_gradient_coefficient * lap_phi);
   if constexpr (with_enlarged)
   {
@@ -599,6 +625,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   const double potential_gradient_coefficient =
     CahnHilliard::potential_gradient_coefficient(cahn_hilliard,
                                                  scratch_data.sigma_tilde);
+  const bool use_sharp_material_diffuse_capillary =
+    CahnHilliard::is_sharp_material_diffuse_capillary_model(cahn_hilliard);
 
   const double enlarged_length =
     this->param.cahn_hilliard.epsilon_interface_enlarged -
@@ -671,12 +699,32 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
 
     const auto &tracer_value       = scratch_data.tracer_values[q];
     const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
+    const auto &material_phase_value =
+      scratch_data.material_phase_values[q];
+    const auto &material_phase_gradient =
+      scratch_data.material_phase_gradients[q];
+    const double dq_dphi =
+      scratch_data.derivative_material_phase_wrt_tracer[q];
+    const double d2q_dphi2 =
+      scratch_data.second_derivative_material_phase_wrt_tracer[q];
     const auto &potential_value    = scratch_data.potential_values[q];
     const auto &potential_gradient = scratch_data.potential_gradients[q];
 
     const double dphidt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, tracer_value, scratch_data.previous_tracer_values);
+    const double dqdt =
+      this->time_handler.compute_time_derivative_at_quadrature_node(
+        q, material_phase_value, scratch_data.previous_material_phase_values);
+    const double transport_time_derivative =
+      use_sharp_material_diffuse_capillary ? dqdt : dphidt;
+    const Tensor<1, dim> &transport_gradient =
+      use_sharp_material_diffuse_capillary ? material_phase_gradient :
+                                             tracer_gradient;
+    const double potential_mass_factor =
+      use_sharp_material_diffuse_capillary ? dq_dphi : 1.;
+    const double potential_mass_factor_derivative =
+      use_sharp_material_diffuse_capillary ? d2q_dphi2 : 0.;
 
     // Precomputations of shape functions-independent terms
     const auto density_derivative_momentum =
@@ -688,7 +736,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
         rho * (dudt - body_force + present_velocity_gradients * u_conv) +
         *source_term_velocity;
       to_multipliy_by_phi_phi_i_tr_G =
-        dphidt + u_conv * tracer_gradient + source_term_tracer;
+        transport_time_derivative + u_conv * transport_gradient +
+        source_term_tracer;
     }
 
     for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
@@ -800,12 +849,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
 
               if (use_abels_capillary_phi_grad_mu)
                 {
-                  // Abels Korteweg term: phi * grad(mu).
+                  // Abels Korteweg term: material marker * grad(mu).
                   local_flow_ij +=
-                    phi_u_i * (tracer_value *
+                    phi_u_i * (material_phase_value *
                                  Assembly::ALE::gradient_variation(
                                    potential_gradient, G) +
-                               tracer_value * potential_gradient * trG);
+                               material_phase_value * potential_gradient *
+                                 trG);
                 }
               else
                 {
@@ -828,7 +878,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
               scalar_product(sym_grad_phi_u_i, present_velocity_sym_gradients);
             if (use_abels_capillary_phi_grad_mu)
               local_flow_ij +=
-                phi_u_i * phi_phi_j * potential_gradient;
+                phi_u_i * dq_dphi * phi_phi_j * potential_gradient;
             else
               local_flow_ij +=
                 -phi_u_i * ding_horriche_capillary_coefficient *
@@ -847,7 +897,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                     diffusive_flux_factor * present_velocity_gradients *
                       grad_phi_mu_j :
                     Tensor<1, dim>()) +
-                 tracer_value * grad_phi_mu_j);
+                 material_phase_value * grad_phi_mu_j);
             else
               local_flow_ij +=
                 -phi_u_i * ding_horriche_capillary_coefficient * phi_mu_j *
@@ -893,7 +943,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
               comp_j < const_ordering.u_upper)
           {
             // Advection
-            local_flow_ij += phi_phi_i * phi_u_j * tracer_gradient;
+            local_flow_ij += phi_phi_i * phi_u_j * transport_gradient;
           }
           if constexpr (with_moving_mesh)
           {
@@ -907,12 +957,16 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
               local_flow_ij += phi_phi_i * to_multipliy_by_phi_phi_i_tr_G * trG;
 
               // ALE (advection) term
+              const Tensor<1, dim> transport_gradient_variation =
+                use_sharp_material_diffuse_capillary ?
+                  dq_dphi *
+                    Assembly::ALE::gradient_variation(tracer_gradient, G) :
+                  Assembly::ALE::gradient_variation(tracer_gradient, G);
               local_flow_ij +=
                 phi_phi_i *
                 (Assembly::ALE::mesh_velocity_variation(bdf_c0, *phi_x_j) *
-                   tracer_gradient +
-                 u_conv *
-                   Assembly::ALE::gradient_variation(tracer_gradient, G));
+                   transport_gradient +
+                 u_conv * transport_gradient_variation);
               // Laplacian term
               local_flow_ij +=
                 mobility *
@@ -925,10 +979,18 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
           }
           if (comp_j == const_ordering.phi_lower)
           {
+            const Tensor<1, dim> transport_gradient_derivative_j =
+              use_sharp_material_diffuse_capillary ?
+                dq_dphi * grad_phi_phi_j +
+                  d2q_dphi2 * phi_phi_j * tracer_gradient :
+                grad_phi_phi_j;
+
             // Transient
-            local_flow_ij += phi_phi_i * bdf_c0 * phi_phi_j;
+            local_flow_ij += phi_phi_i * bdf_c0 *
+                             potential_mass_factor * phi_phi_j;
             // Advection
-            local_flow_ij += phi_phi_i * u_conv * grad_phi_phi_j;
+            local_flow_ij +=
+              phi_phi_i * u_conv * transport_gradient_derivative_j;
             local_flow_ij +=
               dM_dphi * phi_phi_j * (grad_phi_phi_i * potential_gradient);
           }
@@ -947,10 +1009,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
           if (comp_j == const_ordering.mu_lower)
           {
             // Mass
-            local_flow_ij += phi_mu_i * phi_mu_j;
+            local_flow_ij +=
+              potential_mass_factor * phi_mu_i * phi_mu_j;
           }
           if (comp_j == const_ordering.phi_lower)
           {
+            local_flow_ij += potential_mass_factor_derivative * phi_mu_i *
+                             phi_phi_j * potential_value;
             // Double well
             local_flow_ij += -potential_double_well_coefficient * phi_mu_i *
                              phi_phi_j *
@@ -971,9 +1036,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
               local_flow_ij += phi_mu_i * source_term_potential * trG;
               local_flow_ij +=
                 phi_mu_i *
-                (potential_value - potential_double_well_coefficient *
-                                     tracer_value *
-                                     (tracer_value * tracer_value - 1.)) *
+                (potential_mass_factor * potential_value -
+                 potential_double_well_coefficient * tracer_value *
+                   (tracer_value * tracer_value - 1.)) *
                 trG;
               local_flow_ij +=
                 -potential_gradient_coefficient *
@@ -1023,6 +1088,51 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
       bdf_c0,
       scratch_data,
       local_matrix);
+  }
+
+  for (unsigned int f = 0; f < scratch_data.n_faces; ++f)
+  {
+    if (!cell->face(f)->at_boundary())
+      continue;
+
+    const auto face_id = scratch_data.face_boundary_id[f];
+    const auto bc_it   = this->param.cahn_hilliard_bc.find(face_id);
+    if (bc_it == this->param.cahn_hilliard_bc.end() ||
+        bc_it->second.contact_angle < 0.)
+      continue;
+
+    const double contact_angle_surface_coeff =
+      CahnHilliard::contact_angle_surface_coefficient(
+        this->param.cahn_hilliard, scratch_data.sigma_tilde);
+    const double epsilon = this->param.cahn_hilliard.epsilon_interface;
+    const double theta   = bc_it->second.contact_angle;
+
+    for (unsigned int qf = 0; qf < scratch_data.n_faces_q_points; ++qf)
+    {
+      const double phi_val = scratch_data.tracer_values_face[f][qf];
+      const double g_phi_prime =
+        CahnHilliard::contact_angle_normal_derivative_jacobian(phi_val,
+                                                               epsilon,
+                                                               theta);
+      const double face_weight = scratch_data.face_JxW_moving[f][qf];
+
+      for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+      {
+        if (scratch_data.components[i] != const_ordering.mu_lower)
+          continue;
+
+        for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
+        {
+          if (scratch_data.components[j] != const_ordering.phi_lower)
+            continue;
+
+          local_matrix(i, j) +=
+            contact_angle_surface_coeff * g_phi_prime *
+            scratch_data.shape_phi_face[f][qf][j] *
+            scratch_data.shape_mu_face[f][qf][i] * face_weight;
+        }
+      }
+    }
   }
 
   cell->get_dof_indices(copy_data.dof_indices());
@@ -1111,6 +1221,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   const double potential_gradient_coefficient =
     CahnHilliard::potential_gradient_coefficient(cahn_hilliard,
                                                  scratch_data.sigma_tilde);
+  const bool use_sharp_material_diffuse_capillary =
+    CahnHilliard::is_sharp_material_diffuse_capillary_model(cahn_hilliard);
   const double enlarged_length =
     this->param.cahn_hilliard.epsilon_interface_enlarged -
     this->param.cahn_hilliard.epsilon_interface;
@@ -1148,17 +1260,23 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
     const auto &diffusive_flux     = scratch_data.diffusive_flux[q];
     const auto &tracer_value       = scratch_data.tracer_values[q];
     const auto &tracer_gradient    = scratch_data.tracer_gradients[q];
+    const auto &material_phase_value =
+      scratch_data.material_phase_values[q];
     const auto &potential_value    = scratch_data.potential_values[q];
     const auto &potential_gradient = scratch_data.potential_gradients[q];
     const auto &velocity_dot_tracer_gradient =
       scratch_data.velocity_dot_tracer_gradient[q];
+    const auto &velocity_dot_material_phase_gradient =
+      scratch_data.velocity_dot_material_phase_gradient[q];
+    const double dq_dphi =
+      scratch_data.derivative_material_phase_wrt_tracer[q];
     const double phi_cube_minus_phi =
       tracer_value * (tracer_value * tracer_value - 1.);
     const Tensor<1, dim> momentum_diffusive_inertia =
       use_abels_diffusive_inertia ? diffusive_flux : Tensor<1, dim>();
     const Tensor<1, dim> momentum_capillary_force =
       use_abels_capillary_phi_grad_mu ?
-        tracer_value * potential_gradient :
+        material_phase_value * potential_gradient :
         -ding_horriche_capillary_coefficient * potential_value *
           tracer_gradient;
 
@@ -1168,6 +1286,17 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
     const double dphidt =
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, tracer_value, scratch_data.previous_tracer_values);
+    const double dqdt =
+      this->time_handler.compute_time_derivative_at_quadrature_node(
+        q, material_phase_value, scratch_data.previous_material_phase_values);
+    const double transport_time_derivative =
+      use_sharp_material_diffuse_capillary ? dqdt : dphidt;
+    const double transport_advection =
+      use_sharp_material_diffuse_capillary ?
+        velocity_dot_material_phase_gradient :
+        velocity_dot_tracer_gradient;
+    const double potential_mass_factor =
+      use_sharp_material_diffuse_capillary ? dq_dphi : 1.;
 
     // Precomputations of shape functions-independent terms
     const auto to_multiply_by_phi_u_i =
@@ -1175,9 +1304,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
       momentum_diffusive_inertia + momentum_capillary_force +
       source_term_velocity;
     const auto to_multiply_by_phi_phi_i =
-      dphidt + velocity_dot_tracer_gradient + source_term_tracer;
+      transport_time_derivative + transport_advection + source_term_tracer;
     const auto to_multiply_by_phi_mu_i =
-      potential_value -
+      potential_mass_factor * potential_value -
       potential_double_well_coefficient * phi_cube_minus_phi +
       source_term_potential;
 
@@ -1258,9 +1387,40 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
       const auto &face = cell->face(i_face);
       if (face->at_boundary())
       {
+        const auto face_id = scratch_data.face_boundary_id[i_face];
+        const auto ch_bc_it = this->param.cahn_hilliard_bc.find(face_id);
+        if (ch_bc_it != this->param.cahn_hilliard_bc.end() &&
+            ch_bc_it->second.contact_angle >= 0.)
+        {
+          const double contact_angle_surface_coeff =
+            CahnHilliard::contact_angle_surface_coefficient(
+              this->param.cahn_hilliard, scratch_data.sigma_tilde);
+          const double epsilon =
+            this->param.cahn_hilliard.epsilon_interface;
+          const double theta = ch_bc_it->second.contact_angle;
+
+          for (unsigned int qf = 0; qf < scratch_data.n_faces_q_points; ++qf)
+          {
+            const double phi_val =
+              scratch_data.tracer_values_face[i_face][qf];
+            const double g_phi =
+              CahnHilliard::contact_angle_normal_derivative(phi_val,
+                                                            epsilon,
+                                                            theta);
+            const double face_weight =
+              scratch_data.face_JxW_moving[i_face][qf];
+
+            for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
+              if (scratch_data.components[i] == const_ordering.mu_lower)
+                local_rhs(i) -= contact_angle_surface_coeff * g_phi *
+                                scratch_data.shape_mu_face[i_face][qf][i] *
+                                face_weight;
+          }
+        }
+
         // Open boundary condition with prescribed manufactured solution
-        if (this->param.fluid_bc.at(scratch_data.face_boundary_id[i_face])
-              .type == BoundaryConditions::Type::open_mms)
+        if (this->param.fluid_bc.at(face_id).type ==
+            BoundaryConditions::Type::open_mms)
         {
           DEAL_II_NOT_IMPLEMENTED();
         }
@@ -1296,19 +1456,50 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   const double density1 =
     this->param.physical_properties.fluids[1].density;
 
-  auto density_field =
-    std::make_unique<PostProcessingTools::DG0DataField<dim>>(
+  const bool output_pressure_abels =
+    CahnHilliard::is_abels_model(this->param.cahn_hilliard);
+  const bool output_material_debug =
+    CahnHilliard::is_sharp_material_diffuse_capillary_model(
+      this->param.cahn_hilliard);
+
+  std::vector<std::string> component_names{"density"};
+  if (output_pressure_abels)
+    component_names.push_back("pressure_abels");
+  if (output_material_debug)
+  {
+    component_names.push_back("q_material");
+    component_names.push_back("dq_dphi");
+    component_names.push_back("chemical_potential_phi");
+  }
+  const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    component_interpretation(
+      component_names.size(),
+      DataComponentInterpretation::component_is_scalar);
+
+  // Sample the derived quantities at the support points of a continuous
+  // element. This preserves the pointwise CHNS definitions while avoiding the
+  // cell-average (DG0) staircase that was previously written to VTU.
+  const unsigned int output_degree =
+    std::max({1u,
+              this->param.finite_elements.pressure_degree,
+              this->param.finite_elements.tracer_degree,
+              this->param.finite_elements.potential_degree});
+  auto output_field =
+    std::make_unique<PostProcessingTools::ContinuousDataField<dim>>(
       *this->triangulation,
       fe->reference_cell().is_hyper_cube(),
-      std::vector<std::string>{"density"},
-      std::vector<DataComponentInterpretation::DataComponentInterpretation>{
-        DataComponentInterpretation::component_is_scalar});
+      output_degree,
+      component_names,
+      component_interpretation);
 
+  const Quadrature<dim> output_points(output_field->get_unit_support_points());
   FEValues<dim> fe_values(*this->moving_mapping,
                           *fe,
-                          *this->quadrature,
-                          update_values | update_JxW_values);
-  std::vector<double> tracer_values(this->quadrature->size());
+                          output_points,
+                          update_values);
+  std::vector<double> tracer_values(output_points.size());
+  std::vector<double> pressure_values(output_points.size());
+  std::vector<double> potential_values(output_points.size());
 
   for (const auto &cell : this->dof_handler->active_cell_iterators())
     if (cell->is_locally_owned())
@@ -1316,23 +1507,44 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
       fe_values.reinit(cell);
       fe_values[tracer_extractor].get_function_values(*this->present_solution,
                                                        tracer_values);
+      if (output_pressure_abels)
+        fe_values[this->pressure_extractor].get_function_values(
+          *this->present_solution, pressure_values);
+      if (output_pressure_abels || output_material_debug)
+        fe_values[potential_extractor].get_function_values(
+          *this->present_solution, potential_values);
 
-      double density_average = 0.0;
-      double cell_measure    = 0.0;
-      for (unsigned int q = 0; q < this->quadrature->size(); ++q)
+      std::vector<std::vector<double>> values(
+        output_points.size(), std::vector<double>(component_names.size()));
+      for (unsigned int q = 0; q < output_points.size(); ++q)
       {
-        const double JxW = fe_values.JxW(q);
-        const double phi = tracer_limiter(tracer_values[q]);
-        density_average +=
-          CahnHilliard::linear_mixing(phi, density0, density1) * JxW;
-        cell_measure += JxW;
+        const double phi          = tracer_values[q];
+        const double property_phi = tracer_limiter(phi);
+        const double q_material =
+          CahnHilliard::material_phase_marker(this->param.cahn_hilliard, phi);
+        const double dq_dphi =
+          CahnHilliard::material_phase_derivative_wrt_tracer(
+            this->param.cahn_hilliard, phi);
+        unsigned int component = 0;
+        values[q][component++] =
+          CahnHilliard::material_property_mixing(this->param.cahn_hilliard,
+                                                 property_phi,
+                                                 density0,
+                                                 density1);
+        if (output_pressure_abels)
+          values[q][component++] =
+            pressure_values[q] + q_material * potential_values[q];
+        if (output_material_debug)
+        {
+          values[q][component++] = q_material;
+          values[q][component++] = dq_dphi;
+          values[q][component++] = dq_dphi * potential_values[q];
+        }
       }
-
-      density_field->set_cell_values(
-        cell, std::vector<double>{density_average / cell_measure});
+      output_field->set_cell_values(cell, values);
     }
 
-  this->postproc_handler->add_cell_dg0_data_field(std::move(density_field));
+  this->postproc_handler->add_continuous_data_field(std::move(output_field));
 
   if constexpr (with_moving_mesh)
   {
@@ -1452,8 +1664,9 @@ void CHNSSolver<dim,
 
         // 'pressure' is the solved pressure unknown, whose meaning depends
         // on the CHNS model:
-        //  - Abels-type model: the capillary force is -phi*grad(mu), so the
-        //    solved pressure absorbs the gradient term grad(phi*mu). When
+        //  - Abels-type model: the capillary force is -q*grad(mu), with
+        //    q=phi in the legacy model, so the solved pressure absorbs
+        //    the gradient term grad(q*mu). When
         //    the chemical potential has relaxed towards a spatial constant
         //    (large mobility), the solved pressure is uniform and the
         //    Young-Laplace jump lives entirely in phi*mu.
@@ -1462,7 +1675,7 @@ void CHNSSolver<dim,
         // 'pressure_yl' is the modified/bulk pressure without the localized
         // free-energy density well. This is the pressure to use for
         // plateau-to-plateau Young-Laplace post-processing:
-        //  - Abels-type model:  pressure_yl = p + phi*mu
+        //  - Abels-type model:  pressure_yl = p + q*mu
         //  - Ding-Horriche:     pressure_yl = phat
         // 'pressure_physical' is the full thermodynamic pressure reconstructed
         // pointwise from the solved unknowns, with
@@ -1515,6 +1728,8 @@ void CHNSSolver<dim,
       {
         const double pressure_raw  = pressure_values[i];
         const double tracer        = tracer_values[i];
+        const double q_material =
+          CahnHilliard::material_phase_marker(cahn_hilliard, tracer);
         const double potential_raw = potential_values[i];
 
         const double double_well = 0.25 * (tracer * tracer - 1.0) *
@@ -1533,11 +1748,11 @@ void CHNSSolver<dim,
 
         if (use_abels_capillary_phi_grad_mu)
         {
-          // Capillary force -phi*grad(mu): the solved pressure absorbs
-          // grad(phi*mu) (see header comment).
+          // Capillary force -q*grad(mu): the solved pressure absorbs
+          // grad(q*mu) (see header comment).
           pressure_solved   = pressure_raw;
           potential_solved  = potential_raw;
-          pressure_yl       = pressure_raw + tracer * potential_raw;
+          pressure_yl       = pressure_raw + q_material * potential_raw;
           pressure_physical = pressure_yl - free_energy;
         }
         else

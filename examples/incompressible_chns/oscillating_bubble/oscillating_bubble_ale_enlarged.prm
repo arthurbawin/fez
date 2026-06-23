@@ -9,7 +9,7 @@ end
 subsection Output
   set write vtu results = true
   set output directory = ../data/OscillatingBubble/
-  set output prefix    = N3_bubble_ale_enlarged_M3e-11
+  set output prefix    = N3_bubble_ale_enlarged_M3e-11_Tanh
 end
 
 subsection Postprocessing
@@ -68,7 +68,7 @@ subsection Time integration
 end
 
 subsection Nonlinear solver
-  set tolerance            = 1e-10
+  set tolerance            = 1e-9
   set divergence_tolerance = 1e+4
   set max_iterations       = 30
   set enable_line_search   = true
@@ -124,7 +124,7 @@ subsection Physical properties
 end
 
 subsection Cahn Hilliard
-  set CHNS model = abels
+  set CHNS model                    = sharp
   set mobility model               = constant
   set mobility                     = 3.04e-11
   set surface tension              = 0.072
@@ -132,10 +132,10 @@ subsection Cahn Hilliard
   set psi interface width factor   = 5
   set psi mu correction factor     = 0.0
 
-  set enable tracer limiter           = true
+  set enable tracer limiter           = false
   set mff_enlarged_compression_factor = -170000
   set mff_physics_compression_factor  = 0
-  set mff_transport_factor            = 1e10
+  set mff_transport_factor            = 1e9
   set mff_regularization_gamma        = 0.9999
   set mff_enlarged_factor_equalization_exponent = 0.6
 end

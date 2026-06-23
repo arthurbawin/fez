@@ -78,6 +78,7 @@ namespace BoundaryConditions
     position_flux_mms, // Enforce x \cdot n = x_mms \cdot n
 
     // Cahn-Hilliard
+    contact_angle,
     // no_flux
 
   };
@@ -213,6 +214,10 @@ namespace BoundaryConditions
   class CahnHilliardBC : public BoundaryCondition
   {
   public:
+    // Equilibrium contact angle, stored in radians and measured through the
+    // phi = +1 phase. A negative value means no contact angle is active.
+    double contact_angle = -1.;
+
     virtual void declare_parameters(ParameterHandler &prm) override;
     virtual void read_parameters(ParameterHandler &prm) override;
     virtual void set_time(const double) override {}

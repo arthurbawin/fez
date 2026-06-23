@@ -1,3 +1,4 @@
+
 subsection Dimension
   set dimension = 2
 end
@@ -8,6 +9,8 @@ end
 
 subsection Output
   set write vtu results = false
+  set output directory  = ../data/mms/
+  set output prefix     = solution
 end
 
 subsection Mesh
@@ -29,21 +32,22 @@ subsection Nonlinear solver
   set verbosity            = quiet
   set tolerance            = 1e-10
   set divergence_tolerance = 1e+4
-  set max_iterations       = 25
-  set enable_line_search   = false
+  set max_iterations       = 50
+  set enable_line_search   = true
   set analytic_jacobian    = true
 end
 
 subsection Linear solver
   subsection main physics
-    set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set verbosity = quiet
+    set method    = direct_mumps
+    set reuse     = true
   end
 end
 
 subsection FiniteElements
-  set Velocity degree      = 2
+  set stabilization        = true
+  set Velocity degree      = 1
   set Pressure degree      = 1
   set Mesh position degree = 1
   set Tracer degree        = 1
@@ -51,6 +55,7 @@ subsection FiniteElements
 end
 
 subsection Physical properties
+  set body force          = 0, 0
   set number of fluids = 2
   subsection Fluid 0
     set density             = 1.1
@@ -69,16 +74,15 @@ subsection Physical properties
       set Function expression = 1
     end
   end
-  set body force                   = 0, -9.81
+  set body force          = 0, 0
 end
 
 subsection Cahn Hilliard
-  set CHNS model                   = ding_horriche
-  set mobility model               = constant
-  set mobility                     = 1
-  set surface tension              = 1
-  set interface thickness          = 1
-  set enlarged interface thickness = 1.5
+  set CHNS model = sharp
+  set mobility model      = constant
+  set mobility            = 0.5
+  set surface tension     = 1
+  set interface thickness = 1
 end
 
 subsection Initial conditions
@@ -86,9 +90,8 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
-  set number = 4
-  set fix pressure constant      = true
-  set enforce zero mean pressure = false
+  set number                = 4
+  set fix pressure constant = true
   subsection boundary 0
     set id   = 0
     set name = x_min
@@ -161,23 +164,20 @@ end
 
 subsection Exact solution
   subsection exact velocity
-    set Function expression = t^4*(sin(pi*x)*cos(pi*y)); t^4*(sin(pi*y)*cos(pi*x))
+    set Function expression = sin(pi*x)*cos(pi*y)*t^4; sin(pi*y)*cos(pi*x)*t^4
   end
   subsection exact pressure
-    set Function expression = sin(pi*x)*cos(pi*y)
+    set Function expression = sin(pi*x)*cos(pi*y)*t^4
   end
-  subsection exact mesh displacement
+  subsection exact mesh displacement 
     set Function constants = xb=1, yb=2, A=0.08
-    set Function expression =(xb/2) + (x - xb/2) * (1 + A*t^4*sin(2*pi*y/yb));((yb/2) + (y - yb/2) * (1 + A*t^4*sin(2*pi*x/xb)))
+    set Function expression = x + (x - xb/2) * A * t^4 * sin(2*pi*y/yb); y + (y - yb/2) * A * t^4 * sin(2*pi*x/xb) 
   end
   subsection exact cahn hilliard tracer
-    set Function expression = t^4*(sin(pi*y)*cos(pi*x))
+    set Function expression = sin(pi*y)*cos(pi*x)*t^4
   end
   subsection exact cahn hilliard potential
-    set Function expression = sin(pi*y)*cos(pi*x)
-  end
-  subsection exact enlarged psi
-    set Function expression = t^4*(sin(pi*x)*cos(pi*y))
+    set Function expression = sin(pi*y)*cos(pi*x)*t^4
   end
 end
 
@@ -192,14 +192,14 @@ subsection Manufactured solution
   end
 
   subsection Time convergence
-    set norm                 = Linfty
-    set use spatial mesh     = true
-    set spatial mesh index   = 1
-    set time step reduction  = 0.5
+    set norm                = Linfty
+    set use spatial mesh    = true
+    set spatial mesh index  = 1
+    set time step reduction = 0.5
   end
 end
 
 subsection Debug
-  set verbosity                              = verbose
+  set verbosity                              = quiet
   set apply exact solution                   = false
 end

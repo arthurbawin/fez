@@ -1,3 +1,4 @@
+
 subsection Dimension
   set dimension = 2
 end
@@ -43,11 +44,11 @@ subsection Linear solver
 end
 
 subsection FiniteElements
-  set Velocity degree      = 2
-  set Pressure degree      = 1
+  set Velocity degree   = 2
+  set Pressure degree   = 1
   set Mesh position degree = 1
-  set Tracer degree        = 1
-  set Potential degree     = 1
+  set Tracer degree     = 1
+  set Potential degree  = 1
 end
 
 subsection Physical properties
@@ -69,21 +70,22 @@ subsection Physical properties
       set Function expression = 1
     end
   end
-  set body force                   = 0, -9.81
+  set body force = 0, -9.81
 end
 
 subsection Cahn Hilliard
-  set CHNS model                   = ding_horriche
-  set mobility model               = constant
-  set mobility                     = 1
-  set surface tension              = 1
-  set interface thickness          = 1
-  set enlarged interface thickness = 1.5
+  set CHNS model = sharp
+  set mobility model      = constant
+  set mobility            = 1
+  set surface tension     = 1
+  set interface thickness = 1
 end
 
 subsection Initial conditions
   set to mms = true
 end
+
+
 
 subsection Fluid boundary conditions
   set number = 4
@@ -161,29 +163,26 @@ end
 
 subsection Exact solution
   subsection exact velocity
-    set Function expression = t^4*(sin(pi*x)*cos(pi*y)); t^4*(sin(pi*y)*cos(pi*x))
+    set Function expression = sin(pi*x)*cos(pi*y); sin(pi*y)*cos(pi*x)
   end
   subsection exact pressure
     set Function expression = sin(pi*x)*cos(pi*y)
   end
-  subsection exact mesh displacement
+  subsection exact mesh displacement 
     set Function constants = xb=1, yb=2, A=0.08
-    set Function expression =(xb/2) + (x - xb/2) * (1 + A*t^4*sin(2*pi*y/yb));((yb/2) + (y - yb/2) * (1 + A*t^4*sin(2*pi*x/xb)))
+    set Function expression =(xb/2) + (x - xb/2) * (1 + A*sin(2*pi*y/yb));((yb/2) + (y - yb/2) * (1 + A*sin(2*pi*x/xb))) 
   end
   subsection exact cahn hilliard tracer
-    set Function expression = t^4*(sin(pi*y)*cos(pi*x))
+    set Function expression = sin(pi*y)*cos(pi*x)
   end
   subsection exact cahn hilliard potential
     set Function expression = sin(pi*y)*cos(pi*x)
-  end
-  subsection exact enlarged psi
-    set Function expression = t^4*(sin(pi*x)*cos(pi*y))
   end
 end
 
 subsection Manufactured solution
   set enable                 = true
-  set type                   = spacetime
+  set type                   = space
   set convergence steps      = 1
   set subtract mean pressure = false
 

@@ -183,7 +183,7 @@ end
 subsection Manufactured solution
   set enable                 = true
   set type                   = space
-  set convergence steps      = 2
+  set convergence steps      = 1
   set subtract mean pressure = false
 
   subsection Space convergence

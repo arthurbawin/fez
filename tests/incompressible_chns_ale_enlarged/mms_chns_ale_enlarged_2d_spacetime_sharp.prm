@@ -73,7 +73,7 @@ subsection Physical properties
 end
 
 subsection Cahn Hilliard
-  set CHNS model                   = ding_horriche
+  set CHNS model = sharp
   set mobility model               = constant
   set mobility                     = 1
   set surface tension              = 1
@@ -166,9 +166,9 @@ subsection Exact solution
   subsection exact pressure
     set Function expression = sin(pi*x)*cos(pi*y)
   end
-  subsection exact mesh displacement
+  subsection exact mesh displacement 
     set Function constants = xb=1, yb=2, A=0.08
-    set Function expression =(xb/2) + (x - xb/2) * (1 + A*t^4*sin(2*pi*y/yb));((yb/2) + (y - yb/2) * (1 + A*t^4*sin(2*pi*x/xb)))
+    set Function expression =(xb/2) + (x - xb/2) * (1 + A*t^4*sin(2*pi*y/yb));((yb/2) + (y - yb/2) * (1 + A*t^4*sin(2*pi*x/xb))) 
   end
   subsection exact cahn hilliard tracer
     set Function expression = t^4*(sin(pi*y)*cos(pi*x))

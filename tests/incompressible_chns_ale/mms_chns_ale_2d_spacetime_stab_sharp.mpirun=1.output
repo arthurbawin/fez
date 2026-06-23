@@ -1,0 +1,25 @@
+Number of MPI processes: 1
+CHNS model: Sharp
+Convergence test with manufactured solution:
+Mesh file was changed to 0.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 64
+ boundary indicators: 0(8 faces) 1(8 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 315
+
+L2_norm
+n_elm n_dof   dt        u            p            x           phi           mu      
+   64   315 0.1000 1.0033e-02 - 4.7101e-01 - 7.1506e-04 - 5.8886e-03 - 5.6750e-03 - 
+
+Linfty_norm
+n_elm n_dof   dt        u            p            x           phi           mu      
+   64   315 0.1000 1.3050e-02 - 6.5290e-01 - 1.2457e-03 - 1.0097e-02 - 1.2616e-02 - 
+
+H1_seminorm
+n_elm n_dof   dt        u            p            x           phi           mu      
+   64   315 0.1000 1.0720e-01 - 9.3052e-01 - 9.2449e-03 - 7.4368e-02 - 9.5642e-02 - 

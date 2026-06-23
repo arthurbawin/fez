@@ -1,0 +1,25 @@
+Number of MPI processes: 1
+CHNS model: Ding-Horriche
+Convergence test with manufactured solution:
+Mesh file was changed to 0.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 64
+ boundary indicators: 0(8 faces) 1(8 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 315
+
+L2_norm
+n_elm n_dof   dt        u            p            x           phi           mu      
+   64   315 0.1000 1.0037e-02 - 4.6143e-01 - 7.1506e-04 - 6.4235e-03 - 4.7786e-03 - 
+
+Linfty_norm
+n_elm n_dof   dt        u            p            x           phi           mu      
+   64   315 0.1000 1.3045e-02 - 6.3740e-01 - 1.2457e-03 - 1.1820e-02 - 9.6206e-03 - 
+
+H1_seminorm
+n_elm n_dof   dt        u            p            x           phi           mu      
+   64   315 0.1000 1.0721e-01 - 9.3140e-01 - 9.2449e-03 - 7.4254e-02 - 7.5915e-02 - 

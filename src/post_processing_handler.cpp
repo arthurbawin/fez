@@ -84,18 +84,29 @@ void PostProcessingHandler<dim>::write_pvd() const
       "_convergence_step_" + std::to_string(mms_param.current_step) + ".pvd" :
       ".pvd";
 
-  if (mpi_rank == 0 && output_param.write_results)
+  if (mpi_rank == 0)
   {
-    std::ofstream pvd_output(output_param.output_dir +
-                             output_param.output_prefix + suffix);
-    DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
-  }
-  if (mpi_rank == 0 && output_param.skin.write_results)
-  {
-    std::ofstream pvd_output(output_param.output_dir +
-                             output_param.skin.output_prefix + suffix);
-    DataOutBase::write_pvd_record(pvd_output,
-                                  visualization_times_and_names_skin);
+    if (output_param.write_results)
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
+    }
+    if (output_param.skin.write_results)
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.skin.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    visualization_times_and_names_skin);
+    }
+    if (!prerefinements_pseudotimes_and_names.empty())
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.output_prefix +
+                               "_prerefinement_steps.pvd");
+      DataOutBase::write_pvd_record(pvd_output,
+                                    prerefinements_pseudotimes_and_names);
+    }
   }
 }
 

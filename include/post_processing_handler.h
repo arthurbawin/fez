@@ -94,7 +94,9 @@ public:
   template <typename VectorType>
   void output_fields(const Mapping<dim> &mapping,
                      const VectorType   &solution,
-                     const TimeHandler  &time_handler);
+                     const TimeHandler  &time_handler,
+                     const bool          is_prerefinement_step = false,
+                     const unsigned int  prerefinement_step    = 0);
 
   /**
    * Write the .pvd files (volume and skin, if applicable).
@@ -248,7 +250,9 @@ private:
   template <typename VectorType>
   void output_volume_fields(const Mapping<dim> &mapping,
                             const VectorType   &solution,
-                            const TimeHandler  &time_handler);
+                            const TimeHandler  &time_handler,
+                            const bool          is_prerefinement_step,
+                            const unsigned int  prerefinement_step);
 
   /**
    * Output the fields defined on the skin for visualization. This includes
@@ -317,6 +321,8 @@ private:
   std::vector<std::pair<double, std::string>> visualization_times_and_names;
   std::vector<std::pair<double, std::string>>
     visualization_times_and_names_skin;
+  std::vector<std::pair<double, std::string>>
+    prerefinements_pseudotimes_and_names;
 
   // Subdomain (partition) IDs
   Vector<float> subdomains;
@@ -355,9 +361,12 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
 
 template <int dim>
 template <typename VectorType>
-void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
-                                               const VectorType   &solution,
-                                               const TimeHandler  &time_handler)
+void PostProcessingHandler<dim>::output_fields(
+  const Mapping<dim> &mapping,
+  const VectorType   &solution,
+  const TimeHandler  &time_handler,
+  const bool          is_prerefinement_step,
+  const unsigned int  prerefinement_step)
 {
   // Get the partitions only once
   if (subdomains.size() == 0)
@@ -377,7 +386,11 @@ void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
 
   // Export fields in volume
   if (should_output_volume_fields(time_handler))
-    output_volume_fields(mapping, solution, time_handler);
+    output_volume_fields(mapping,
+                         solution,
+                         time_handler,
+                         is_prerefinement_step,
+                         prerefinement_step);
 
   // Export fields on prescribed boundary (skin)
   if (should_output_skin_fields(time_handler))
@@ -393,7 +406,9 @@ template <typename VectorType>
 void PostProcessingHandler<dim>::output_volume_fields(
   const Mapping<dim> &mapping,
   const VectorType   &solution,
-  const TimeHandler  &time_handler)
+  const TimeHandler  &time_handler,
+  const bool          is_prerefinement_step,
+  const unsigned int  prerefinement_step)
 {
   data_out->add_data_vector(solution,
                             solution_names,
@@ -405,6 +420,8 @@ void PostProcessingHandler<dim>::output_volume_fields(
   std::string prefix = output_param.output_prefix;
   if (mms_param.enable)
     prefix += "_convergence_step_" + std::to_string(mms_param.current_step);
+  if (is_prerefinement_step)
+    prefix += "_prerefinement_step_" + std::to_string(prerefinement_step);
 
   const std::string pvtu_file =
     data_out->write_vtu_with_pvtu_record(output_param.output_dir,
@@ -412,8 +429,13 @@ void PostProcessingHandler<dim>::output_volume_fields(
                                          time_handler.current_time_iteration,
                                          mpi_communicator,
                                          2);
-  visualization_times_and_names.emplace_back(time_handler.current_time,
-                                             pvtu_file);
+  if (is_prerefinement_step)
+    prerefinements_pseudotimes_and_names.emplace_back(
+      static_cast<double>(prerefinement_step), pvtu_file);
+  else
+    visualization_times_and_names.emplace_back(time_handler.current_time,
+                                               pvtu_file);
+
   data_out->clear_data_vectors();
 }
 

@@ -3,6 +3,8 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria.h>
+#include <deal.II/distributed/tria_base.h>
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_out.h>
@@ -551,7 +553,18 @@ namespace MeshTools
     parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
     ParameterReader<spacedim>                             &param)
   {
-    Triangulation<dim> serial_triangulation;
+    Triangulation<dim>  serial_triangulation;
+    Triangulation<dim> *tria = &serial_triangulation;
+
+    /**
+     * If using a p4est triangulation, do not use a temporary triangulation,
+     * simply create the mesh with the input triangulation.
+     */
+    if (dynamic_cast<const parallel::distributed::Triangulation<dim, spacedim>
+                       *>(&triangulation))
+    {
+      tria = &triangulation;
+    }
 
     bool use_deal_ii_mesh =
       param.mesh.deal_ii_preset_mesh != "none" ||
@@ -570,9 +583,11 @@ namespace MeshTools
         const double       min_corner = (dim == 2) ? 0. : 0.;
         const double       max_corner = 1.;
         const unsigned int refinement_level =
-          param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix + 1) :
-                                   param.mesh.refinement_level;
-        create_cube(serial_triangulation,
+          param.with_tree_based_adaptation() ?
+            param.mesh.refinement_level :
+            (param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix + 1) :
+                                      param.mesh.refinement_level);
+        create_cube(*tria,
                     param.mesh,
                     min_corner,
                     max_corner,
@@ -582,9 +597,11 @@ namespace MeshTools
       else if (param.mesh.deal_ii_preset_mesh == "rectangle")
       {
         const unsigned int refinement_level =
-          param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix) :
-                                   param.mesh.refinement_level;
-        create_rectangle(serial_triangulation,
+          param.with_tree_based_adaptation() ?
+            param.mesh.refinement_level :
+            (param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix) :
+                                      param.mesh.refinement_level);
+        create_rectangle(*tria,
                          param.mesh,
                          param.mesh.deal_ii_mesh_param,
                          refinement_level,
@@ -596,7 +613,7 @@ namespace MeshTools
         const unsigned int refinement_level = param.mms_param.enable ?
                                                 param.mms_param.mesh_suffix :
                                                 param.mesh.refinement_level;
-        create_holed_plate(serial_triangulation,
+        create_holed_plate(*tria,
                            param.mesh,
                            refinement_level,
                            convert_to_simplices);
@@ -612,14 +629,14 @@ namespace MeshTools
       if (param.debug.write_dealii_mesh_as_msh)
       {
         GridOut grid_out;
-        grid_out.write_msh(serial_triangulation,
+        grid_out.write_msh(*tria,
                            param.output.output_dir + "mesh_from_dealii.msh");
       }
     }
     else
     {
       // Read Gmsh .msh4 mesh file
-      read_gmsh_mesh(serial_triangulation, param.mesh.filename);
+      read_gmsh_mesh(*tria, param.mesh.filename);
 
       // Manually read the Gmsh entity names and store them
       read_gmsh_physical_names(param.mesh.filename,
@@ -627,11 +644,17 @@ namespace MeshTools
                                param.mesh.name2id);
     }
 
-    partition_and_create_parallel_mesh(serial_triangulation, triangulation);
+    if (dynamic_cast<
+          const parallel::fullydistributed::Triangulation<dim, spacedim> *>(
+          &triangulation))
+    {
+      partition_and_create_parallel_mesh(*tria, triangulation);
+    }
+
     if (param.debug.write_partition_pos_gmsh)
       write_partition_gmsh(triangulation, param);
-    print_mesh_info(serial_triangulation, triangulation, param);
-    check_boundary_ids(serial_triangulation, param);
+    print_mesh_info(*tria, triangulation, param);
+    check_boundary_ids(*tria, param);
     check_boundary_conditions_compatibility(param);
   }
 

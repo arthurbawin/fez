@@ -26,16 +26,17 @@ subsection Nonlinear solver
   set verbosity            = quiet
   set tolerance            = 1e-10
   set divergence_tolerance = 1e+4
-  set max_iterations       = 25
-  set enable_line_search   = true
+  set max_iterations       = 20
+  set enable_line_search   = false
   set analytic_jacobian    = true
 end
 
 subsection Linear solver
-  subsection linear elasticity
-    set verbosity = quiet
-    set method    = direct_mumps
-    set reuse     = false
+  subsection elasticity
+    set verbosity      = verbose
+    set method         = cg
+    set tolerance      = 1e-12
+    set max iterations = 1000
   end
 end
 
@@ -46,13 +47,11 @@ end
 subsection Physical properties
   set number of pseudosolids = 1
   subsection Pseudosolid 0
-    set constitutive model = neo hookean
-
     subsection lame lambda
-      set Function expression = 1 + 0.2 * sin(pi*x) * cos(pi*y)
+      set Function expression = 1
     end
     subsection lame mu
-      set Function expression = 1 + 0.2 * sin(pi*x) * sin(pi*y)
+      set Function expression = 1
     end
   end
 end
@@ -81,7 +80,7 @@ subsection Pseudosolid boundary conditions
   end
 end
 
-subsection Linear elasticity
+subsection Elasticity
   subsection current mesh source term
     set enable = false
   end
@@ -89,15 +88,14 @@ end
 
 subsection Exact solution
   subsection exact mesh displacement
-    set Function constants  = amplitude=0.2
-    set Function expression = x + amplitude * sin(pi*x) * cos(pi*y); y + amplitude * cos(pi*x) * sin(pi*y)
+    set Function expression = x + sin(pi*x)*cos(pi*y); y + cos(pi*x)*sin(pi*y)
   end
 end
 
 subsection Manufactured solution
   set enable            = true
   set type              = space
-  set convergence steps = 2
+  set convergence steps = 4
 
   subsection Space convergence
     set norms to compute = L2_norm, Linfty_norm, H1_seminorm

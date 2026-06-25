@@ -36,7 +36,7 @@ public:
   Parameters::NonLinearSolver                                nonlinear_solver;
   Parameters::Stabilization                                  stabilization;
   Parameters::CahnHilliard<dim>                              cahn_hilliard;
-  Parameters::LinearElasticity                               linear_elasticity;
+  Parameters::Elasticity                               elasticity;
   Parameters::MMS                                            mms_param;
   Parameters::Debug                                          debug;
 
@@ -113,7 +113,7 @@ public:
     time_integration.declare_parameters(prm);
     checkpoint_restart.declare_parameters(prm);
 
-    std::vector<std::string> solvers = {"main physics", "linear elasticity"};
+    std::vector<std::string> solvers = {"main physics", "elasticity"};
     for (const auto &s : solvers)
       linear_solver[SolverInfo::to_solver_type(s)].declare_parameters(prm, s);
 
@@ -134,7 +134,7 @@ public:
       BoundaryConditions::HeatBC<dim>>(prm, bc_data.n_heat_bc, "Heat");
     stabilization.declare_parameters(prm);
     cahn_hilliard.declare_parameters(prm);
-    linear_elasticity.declare_parameters(prm);
+    elasticity.declare_parameters(prm);
     source_terms.declare_parameters(prm);
     mms_param.declare_parameters(prm);
     mms.declare_parameters(prm);
@@ -161,7 +161,7 @@ public:
     time_integration.read_parameters(prm);
     checkpoint_restart.read_parameters(prm);
 
-    std::vector<std::string> solvers = {"main physics", "linear elasticity"};
+    std::vector<std::string> solvers = {"main physics", "elasticity"};
     for (const auto &s : solvers)
       linear_solver.at(SolverInfo::to_solver_type(s)).read_parameters(prm, s);
 
@@ -187,7 +187,7 @@ public:
                                                  heat_bc);
     stabilization.read_parameters(prm);
     cahn_hilliard.read_parameters(prm);
-    linear_elasticity.read_parameters(prm);
+    elasticity.read_parameters(prm);
     source_terms.read_parameters(prm);
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);

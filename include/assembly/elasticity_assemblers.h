@@ -221,7 +221,7 @@ namespace Assembly
           DEAL_II_ASSERT_UNREACHABLE();
       }
 
-      if (param.linear_elasticity.enable_source_term_on_current_mesh)
+      if (param.elasticity.enable_source_term_on_current_mesh)
         assemblers.emplace_back(
           std::make_unique<
             CurrentMeshSourceAssembler<dim, ScratchData, CopyData>>(param,

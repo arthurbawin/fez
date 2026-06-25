@@ -587,7 +587,7 @@ namespace Parameters
     void read_parameters(ParameterHandler &prm);
   };
 
-  struct LinearElasticity
+  struct Elasticity
   {
     // If true, then the provided position source term is to be evaluated on
     // the current mesh, and not on the reference mesh where the elasticity

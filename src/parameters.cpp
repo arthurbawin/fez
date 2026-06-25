@@ -1183,9 +1183,9 @@ namespace Parameters
   template class CahnHilliard<2>;
   template class CahnHilliard<3>;
 
-  void LinearElasticity::declare_parameters(ParameterHandler &prm)
+  void Elasticity::declare_parameters(ParameterHandler &prm)
   {
-    prm.enter_subsection("Linear elasticity");
+    prm.enter_subsection("Elasticity");
     {
       prm.enter_subsection("current mesh source term");
       {
@@ -1215,9 +1215,9 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void LinearElasticity::read_parameters(ParameterHandler &prm)
+  void Elasticity::read_parameters(ParameterHandler &prm)
   {
-    prm.enter_subsection("Linear elasticity");
+    prm.enter_subsection("Elasticity");
     {
       prm.enter_subsection("current mesh source term");
       {

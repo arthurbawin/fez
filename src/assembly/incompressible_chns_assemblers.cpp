@@ -153,6 +153,15 @@ namespace Assembly
                 tau * (strong_residual_momentum * (grad_phi_u[i] * u_conv));
           }
 
+          // Continuity equation
+          else if (i_is_p)
+          {
+            if constexpr (BaseType::with_stabilization)
+              // PSPG stabilization
+              local_rhs_i +=
+                tau * inv_rho * (strong_residual_momentum * grad_phi_p[i]);
+          }
+
           // Tracer equation
           else if (i_is_phi)
           {
@@ -171,13 +180,6 @@ namespace Assembly
             local_rhs_i -= phi_mu[i] * to_mult_by_phi_mu_i -
                            sigma_tilde_times_eps * (grad_phi_mu[i] * grad_phi);
           }
-
-          // Continuity equation
-          if constexpr (BaseType::with_stabilization)
-            if (i_is_p)
-              // PSPG stabilization
-              local_rhs_i +=
-                tau * inv_rho * (strong_residual_momentum * grad_phi_p[i]);
 
           local_rhs(i) += local_rhs_i * JxW_moving;
         }
@@ -211,6 +213,7 @@ namespace Assembly
         sd.dofs_per_cell);
       std::vector<double> strong_residual_tracer_variation(sd.dofs_per_cell);
       Tensor<1, dim>      strong_residual_momentum;
+      Tensor<1, dim>      strong_residual_momentum_variation_phi_phi;
       double              strong_residual_tracer;
       Tensor<1, dim>      u_conv_dot_grad_phi_u_i, residual_dot_grad_phi_u_i;
       double              u_conv_dot_grad_phi_phi_i;
@@ -342,6 +345,9 @@ namespace Assembly
             rho * (dudt + grad_u * u_conv - body_force) + diffusive_flux +
             phi * grad_mu + grad_p + source_u - eta * (lap_u + grad_div_u) -
             2. * detadphi * (sym_grad_u * grad_phi);
+
+          strong_residual_momentum_variation_phi_phi =
+            to_mult_by_phi_u_i_phi_phi_j - detadphi * (lap_u + grad_div_u);
         }
 
         if constexpr (BaseType::with_tracer_stabilization)
@@ -389,9 +395,7 @@ namespace Assembly
 
             // Variation w.r.t. tracer
             strong_residual_momentum_variation[j] +=
-              drhodphi * phi_phi[j] * (dudt + u_dot_grad_u_ale - body_force) +
-              phi_phi[j] * grad_mu -
-              detadphi * phi_phi[j] * (lap_u + grad_div_u) -
+              phi_phi[j] * strong_residual_momentum_variation_phi_phi -
               2. * detadphi * (sym_grad_u * grad_phi_phi[j]);
 
             // Variation w.r.t. potential

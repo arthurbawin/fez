@@ -123,8 +123,19 @@ namespace Parameters
        */
       enum class Strategy
       {
-        RiemannianMetric
+        RiemannianMetric,
+        LocalRefinement
       } strategy;
+
+      bool with_metric_based_adaptation() const
+      {
+        return enable && strategy == Strategy::RiemannianMetric;
+      }
+
+      bool with_tree_based_adaptation() const
+      {
+        return enable && strategy == Strategy::LocalRefinement;
+      }
 
       /**
        * Parameters for mesh adaptation with a Riemannian metric
@@ -196,14 +207,39 @@ namespace Parameters
         } fixed_point_updates;
       } metric;
 
-      bool with_metric_based_adaptation() const
+      /**
+       * Parameters for mesh adaptation using deal.II's facilities, using p4est
+       * tree-based meshes.
+       */
+      struct TreeAMR
       {
-        return enable && strategy == Strategy::RiemannianMetric;
-      }
+        enum class RefinementStrategy
+        {
+          FixedNumber,
+          FixedFraction
+        } refinement_strategy;
 
+        // The target fractions of cells or cellwise errors to refine and
+        // coarsen, depending on the refinement strategy.
+        double fraction_to_refine;
+        double fraction_to_coarsen;
+
+        // Maximum number of cells allowed
+        unsigned int max_n_cells;
+
+        // Minimum and maximum grid levels allowed
+        unsigned int min_level;
+        unsigned int max_level;
+
+        unsigned int n_prerefinement_steps;
+
+        // Frequency (in time steps) at which the mesh is adapted
+        unsigned int adapt_frequency;
+
+      } tree_amr;
     } adaptation;
 
-    void declare_parameters(ParameterHandler &prm);
+    void declare_parameters(ParameterHandler &prm, const int dim);
     void read_parameters(ParameterHandler &prm);
   };
 

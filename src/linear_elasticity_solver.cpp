@@ -475,11 +475,11 @@ void LinearElasticitySolver<dim>::solve_linear_system()
   }
   else if (linear_solver_param.method == Parameters::LinearSolver::Method::cg)
   {
-    solve_linear_system_unpreconditioned_cg(this,
-                                            linear_solver_param,
-                                            system_matrix,
-                                            locally_owned_dofs,
-                                            zero_constraints);
+    solve_linear_system_cg(this,
+                           linear_solver_param,
+                           system_matrix,
+                           locally_owned_dofs,
+                           zero_constraints);
   }
   else if (linear_solver_param.method ==
            Parameters::LinearSolver::Method::gmres)

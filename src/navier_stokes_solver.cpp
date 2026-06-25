@@ -271,12 +271,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
     if (interval_index == 0)
       set_initial_conditions();
     else
-      transient_fixed_point_data.transfer_solution(interval_index,
-                                                   *moving_mapping,
-                                                   *exact_solution,
-                                                   time_handler,
-                                                   locally_relevant_dofs,
-                                                   dofs_to_component);
+      transient_fixed_point_data.transfer_solution_between_intervals(
+        interval_index,
+        *moving_mapping,
+        *exact_solution,
+        time_handler,
+        locally_relevant_dofs,
+        dofs_to_component);
   }
 
   // For unsteady simulations, postprocess either the initial condition, or the
@@ -678,6 +679,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
   *present_solution = newton_update;
   evaluation_point  = newton_update;
 
+  // FIXME: WHAT ABOUT THIS ROTATION?????????
   time_handler.rotate_solutions(*present_solution, *previous_solutions);
 }
 
@@ -1105,16 +1107,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
 {
-  if (param.bc_data.n_metric_fields > 0)
-  {
-    transient_fixed_point_data.scale_metrics(
-      param.metrics.metric_for_adaptation, time_handler);
-    transient_fixed_point_data.apply_gradation_to_metrics();
-  }
-  if (param.mesh.adaptation.enable)
-  {
-    transient_fixed_point_data.adapt_meshes();
-  }
+  Vector<float> cellwise_errors(triangulation->n_active_cells());
+  transient_fixed_point_data.adapt_meshes(time_handler, cellwise_errors);
 }
 
 template <int dim, bool with_moving_mesh>

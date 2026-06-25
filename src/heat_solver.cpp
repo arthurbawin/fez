@@ -2,9 +2,12 @@
 #include <compare_matrix.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <error_estimation/patches.h>
@@ -33,12 +36,6 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
                                      SolverInfo::SolverType::main_physics)
   , ordering(std::make_unique<ComponentOrderingHeat>())
   , param(param)
-  , fe(FE_SimplexP<dim>(param.finite_elements.temperature_degree), 1)
-  , quadrature(QGaussSimplex<dim>(4))
-  , error_quadrature(QWitherdenVincentSimplex<dim>((dim == 2) ? 6 : 5))
-  , face_quadrature(QGaussSimplex<dim - 1>(4))
-  , error_face_quadrature(QWitherdenVincentSimplex<dim - 1>((dim == 2) ? 6 : 5))
-  , mapping(std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1)))
   , time_handler(param.time_integration)
   , transient_fixed_point_data(this->param,
                                computing_timer,
@@ -50,8 +47,27 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
                                previous_solutions,
                                metric_for_adaptation)
 {
+  create_quadrature_rules(param.finite_elements,
+                          quadrature,
+                          face_quadrature,
+                          error_quadrature,
+                          error_face_quadrature);
+
+  if (param.finite_elements.use_quads)
+  {
+    mapping = std::make_unique<MappingQ<dim>>(1);
+    fe      = std::make_unique<FESystem<dim>>(
+      FE_Q<dim>(param.finite_elements.temperature_degree));
+  }
+  else
+  {
+    mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+    fe      = std::make_unique<FESystem<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.temperature_degree));
+  }
+
   temperature_extractor = FEValuesExtractors::Scalar(0);
-  temperature_mask      = fe.component_mask(temperature_extractor);
+  temperature_mask      = fe->component_mask(temperature_extractor);
 
   this->param.initial_conditions.create_initial_temperature(0, 1);
 
@@ -97,14 +113,15 @@ void HeatSolver<dim>::reset()
 
   // Clear mesh(es) and dof handler(s), and reassign immediately the
   // pointers for the first interval.
-  if (mms_param.current_step > 0)
-    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals,
-                                      triangulation,
-                                      dof_handler,
-                                      present_solution,
-                                      previous_solutions,
-                                      metric_for_adaptation);
-
+  if (!param.with_tree_based_adaptation())
+    if (mms_param.current_step > 0)
+      transient_fixed_point_data.reinit(param.time_integration.n_time_intervals,
+                                        triangulation,
+                                        dof_handler,
+                                        present_solution,
+                                        previous_solutions,
+                                        metric_for_adaptation);
+  
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
   set_time();
@@ -219,10 +236,12 @@ template <int dim>
 void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
 {
   set_interval_data(interval_index);
-  MeshTools::read_mesh(*triangulation, param);
+
+  if (should_create_triangulation())
+    MeshTools::read_mesh(*triangulation, param);
+
   setup_dofs();
   initialize_interval();
-  create_scratch_data();
   create_zero_constraints();
   create_nonzero_constraints();
   create_sparsity_pattern();
@@ -230,18 +249,33 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
   if (interval_index == 0)
     set_initial_conditions();
   else
-    transient_fixed_point_data.transfer_solution(interval_index,
-                                                 *mapping,
-                                                 *exact_solution,
-                                                 time_handler,
-                                                 locally_relevant_dofs,
-                                                 dofs_to_component);
+    transient_fixed_point_data.transfer_solution_between_intervals(
+      interval_index,
+      *mapping,
+      *exact_solution,
+      time_handler,
+      locally_relevant_dofs,
+      dofs_to_component);
 
   // For unsteady simulations, postprocess either the initial condition, or the
   // initial solution on this time interval. For unsteady simulations with mesh
   // adaptation with a Riemannian metric, this is needed to obtain an adapted
   // mesh that includes the initial condition.
   postprocess_solution();
+
+  /**
+   * Apply initial refinement.
+   */
+  if (!time_handler.is_steady() && param.with_tree_based_adaptation())
+    for (unsigned int step = 0;
+         step < param.mesh.adaptation.tree_amr.n_prerefinement_steps;
+         ++step)
+    {
+      update_boundary_conditions();
+      set_initial_conditions(false);
+      adapt_mesh();
+      output_results(/* is_prerefinement_step = */ true, step);
+    }
 
   while (!time_handler.is_finished())
   {
@@ -277,6 +311,18 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
                                               *previous_solutions));
 
     postprocess_solution();
+
+    /**
+     * Adapt the tree-based mesh during an unsteady simulation, if the current
+     * time step iteration matches the prescribed frequency.
+     *
+     * For steady-state simulations, the mesh is adapted after the finalize()
+     * function is called, so that the registered number of mesh elements
+     * and dofs matches the computed error for convergence studies.
+     */
+    if (should_adapt_tree_based_mesh(time_handler))
+      adapt_mesh();
+
     time_handler.rotate_solutions(*present_solution, *previous_solutions);
   }
 
@@ -288,12 +334,21 @@ void HeatSolver<dim>::run()
 {
   reset();
   initialize();
+  create_scratch_data();
 
   for (unsigned int i = 0; i < param.time_integration.n_time_intervals; ++i)
     run_time_subinterval(i);
 
-  adapt_mesh();
   finalize();
+
+  /**
+   * If using a riemannian metric to adapt the mesh(es), perform all the
+   * adaptations at the end of all time intervals (as it requires a global
+   * scaling factor).
+   */
+  // if (time_handler.is_steady() || param.with_metric_based_adaptation())
+  if (should_adapt_mesh_at_end_of_intervals(time_handler))
+    adapt_mesh();
 }
 
 template <int dim>
@@ -304,7 +359,7 @@ void HeatSolver<dim>::setup_dofs()
   auto &comm = mpi_communicator;
 
   // Initialize dof handler
-  dof_handler->distribute_dofs(fe);
+  dof_handler->distribute_dofs(*fe);
 
   pcout << "Number of degrees of freedom: " << dof_handler->n_dofs()
         << std::endl;
@@ -341,7 +396,7 @@ template <int dim>
 void HeatSolver<dim>::create_scratch_data()
 {
   scratch_data = std::make_unique<ScratchData>(
-    fe, *mapping, quadrature, face_quadrature, time_handler, param);
+    *fe, *mapping, *quadrature, *face_quadrature, time_handler, param);
 }
 
 template <int dim>
@@ -351,6 +406,9 @@ void HeatSolver<dim>::create_base_constraints(
 {
   constraints.clear();
   constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
+
+  if (param.with_tree_based_adaptation())
+    DoFTools::make_hanging_node_constraints(*dof_handler, constraints);
 
   Functions::ZeroFunction<dim> zero_fun(1);
   const Function<dim>         *fun_ptr;
@@ -417,7 +475,7 @@ void HeatSolver<dim>::create_sparsity_pattern()
 }
 
 template <int dim>
-void HeatSolver<dim>::set_initial_conditions()
+void HeatSolver<dim>::set_initial_conditions(const bool rotate_solutions)
 {
   const Function<dim> *temperature_fun =
     param.initial_conditions.set_to_mms ?
@@ -432,7 +490,9 @@ void HeatSolver<dim>::set_initial_conditions()
   *present_solution = newton_update;
   evaluation_point  = newton_update;
 
-  time_handler.rotate_solutions(*present_solution, *previous_solutions);
+  if (rotate_solutions)
+    // FIXME: WHAT ABOUT THIS ROTATION?????????
+    time_handler.rotate_solutions(*present_solution, *previous_solutions);
 }
 
 template <int dim>
@@ -466,7 +526,7 @@ void HeatSolver<dim>::assemble_matrix()
 
   system_matrix = 0;
 
-  CopyData copy_data(fe);
+  CopyData copy_data(*fe);
 
 #if defined(FEZ_WITH_PETSC)
   AssertThrow(
@@ -514,10 +574,13 @@ void HeatSolver<dim>::assemble_local_matrix(
 
     for (unsigned int i = 0; i < scratch_data.dofs_per_cell; ++i)
     {
+      const auto &phi_t_i      = phi_t[i];
+      const auto &grad_phi_t_i = grad_phi_t[i];
+
       for (unsigned int j = 0; j < scratch_data.dofs_per_cell; ++j)
       {
         local_matrix(i, j) +=
-          (bdf_c0 * phi_t[i] * phi_t[j] + grad_phi_t[i] * grad_phi_t[j]) * JxW;
+          (bdf_c0 * phi_t_i * phi_t[j] + grad_phi_t_i * grad_phi_t[j]) * JxW;
       }
     }
   }
@@ -537,7 +600,7 @@ void HeatSolver<dim>::copy_local_to_global_matrix(const CopyData &copy_data)
 template <int dim>
 void HeatSolver<dim>::compare_analytical_matrix_with_fd()
 {
-  CopyData copy_data(fe);
+  CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
     &HeatSolver::assemble_local_matrix,
@@ -554,7 +617,7 @@ void HeatSolver<dim>::assemble_rhs()
 
   system_rhs = 0;
 
-  CopyData copy_data(fe);
+  CopyData copy_data(*fe);
 
   // Assemble RHS (multithreaded if supported)
   WorkStream::run(dof_handler->begin_active(),
@@ -648,6 +711,14 @@ void HeatSolver<dim>::solve_linear_system()
                                  locally_owned_dofs,
                                  zero_constraints);
   }
+  else if (linear_solver_param.method == Parameters::LinearSolver::Method::cg)
+  {
+    solve_linear_system_cg(this,
+                           linear_solver_param,
+                           system_matrix,
+                           locally_owned_dofs,
+                           zero_constraints);
+  }
   else if (linear_solver_param.method ==
            Parameters::LinearSolver::Method::gmres)
   {
@@ -664,10 +735,15 @@ void HeatSolver<dim>::solve_linear_system()
 }
 
 template <int dim>
-void HeatSolver<dim>::output_results()
+void HeatSolver<dim>::output_results(const bool         is_pre_refinement_step,
+                                     const unsigned int pre_refinement_step)
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
-  postproc_handler->output_fields(*mapping, *present_solution, time_handler);
+  postproc_handler->output_fields(*mapping,
+                                  *present_solution,
+                                  time_handler,
+                                  is_pre_refinement_step,
+                                  pre_refinement_step);
 }
 
 template <int dim>
@@ -688,7 +764,7 @@ void HeatSolver<dim>::compute_and_add_errors(
                                                  *present_solution,
                                                  exact_solution,
                                                  cellwise_errors,
-                                                 error_quadrature,
+                                                 *error_quadrature,
                                                  norm,
                                                  &comp_function);
     error_handlers.at(norm).add_error(field_name, err, time);
@@ -748,12 +824,27 @@ void HeatSolver<dim>::compute_riemannian_metric()
 }
 
 template <int dim>
+void HeatSolver<dim>::compute_error_estimate()
+{
+  TimerOutput::Scope t(computing_timer, "Compute Kelly error estimate");
+
+  temperature_error_on_cells.reinit(triangulation->n_active_cells());
+  KellyErrorEstimator<dim>::estimate(
+    *mapping,
+    *dof_handler,
+    *error_face_quadrature,
+    std::map<types::boundary_id, const Function<dim> *>(),
+    *present_solution,
+    temperature_error_on_cells);
+}
+
+template <int dim>
 void HeatSolver<dim>::postprocess_solution()
 {
-  output_results();
-
   if (should_compute_errors(time_handler))
     compute_errors();
+
+  output_results();
 
   if (should_compute_reconstructions(param, time_handler))
     compute_reconstructions();
@@ -765,15 +856,27 @@ void HeatSolver<dim>::postprocess_solution()
 template <int dim>
 void HeatSolver<dim>::adapt_mesh()
 {
-  if (param.bc_data.n_metric_fields > 0)
+  if (param.with_tree_based_adaptation())
+    compute_error_estimate();
+
+  // Adapt the mesh(es): either with a riemannian metric, or with the cellwise
+  // error criteria.
+  transient_fixed_point_data.adapt_meshes(time_handler,
+                                          temperature_error_on_cells);
+
+  // Re-setup up the dof_handler, constraints and linear algebra structures.
+  // For steady-state convergence studies, we're doing the work twice, here
+  // and at the beginning of the next convergence step, but it's OK.
+  if (param.with_tree_based_adaptation())
   {
-    transient_fixed_point_data.scale_metrics(
-      param.metrics.metric_for_adaptation, time_handler);
-    transient_fixed_point_data.apply_gradation_to_metrics();
-  }
-  if (param.mesh.adaptation.enable)
-  {
-    transient_fixed_point_data.adapt_meshes();
+    setup_dofs();
+    create_zero_constraints();
+    create_nonzero_constraints();
+    create_sparsity_pattern();
+    postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
+                                                           *dof_handler);
+    transient_fixed_point_data.transfer_solution_between_refinements(
+      locally_relevant_dofs, nonzero_constraints);
   }
 }
 

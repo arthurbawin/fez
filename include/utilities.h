@@ -21,6 +21,22 @@
 
 using namespace dealii;
 
+/**
+ * Error message for functions requiring deal.II installed with p4est.
+ */
+DeclExceptionMsg(
+  ExcDealiiNeedsP4EST,
+  "You are attempting to use functionality that is only available if deal.II "
+  "was configured with p4est, but it was not."
+  "\n\n"
+  "You will have to ensure that your system has a usable p4est "
+  "installation and re-install deal.II, making sure that cmake finds the p4est "
+  "installation. You can check this by looking at the summary printed at the "
+  "end of the cmake output."
+  "\n\n"
+  "You will then have to re-compile fez with the updated deal.II "
+  "installation.");
+
 template <int dim>
 struct PointComparator
 {

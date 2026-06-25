@@ -11,8 +11,15 @@ add_subdirectory(unit_tests)
 add_subdirectory(unit_tests/metric_tensor)
 add_subdirectory(unit_tests/metric_field)
 add_subdirectory(unit_tests/stabilization)
-add_subdirectory(unit_tests/transient_fixed_point)
+
+if (DEAL_II_WITH_LAPACK)
+	add_subdirectory(unit_tests/transient_fixed_point)
+endif()
 
 if(ENABLE_MMG)
 	add_subdirectory(metric_based_adaptation)
+endif()
+
+if(DEAL_II_WITH_P4EST)
+	add_subdirectory(tree_based_adaptation)
 endif()

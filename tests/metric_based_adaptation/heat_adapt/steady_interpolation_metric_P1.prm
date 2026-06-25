@@ -38,6 +38,10 @@ subsection Metric tensor fields
 
   subsection Metric field 0
 
+    set type      = interpolation error
+    set variable  = temperature
+    set component = 0
+    
     set min mesh size = 1e-4
     set max mesh size = 10
 

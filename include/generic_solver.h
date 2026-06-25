@@ -122,6 +122,40 @@ public:
   virtual void adapt_mesh();
 
   /**
+   * Return true if the triangulation should be (re-)created on this time
+   * interval.
+   */
+  virtual bool should_create_triangulation() const;
+
+  /**
+   * Return true if the triangulation should be refined, i.e., if the simulation
+   * is unsteady and this is a time step matching the prescribed frequency.
+   * Only used to adapt tree-based meshes.
+   */
+  virtual bool
+  should_adapt_tree_based_mesh(const TimeHandler &time_handler) const;
+
+  /**
+   * Return true if the mesh(es) should be adapted, after all time steps have
+   * been computed on all time subintervals.
+   *
+   * With metric-based mesh adaptation, this is always true, as the transient
+   * fixed-point method requires scaling the metrics with a global scaling
+   * factor that can only be computed at the end of a fixed-point iteration
+   * (i.e., the whole simulation time interval).
+   *
+   * With tree-based adaptation, this is true only for steady-state convergence
+   * studies, and if there is another convergence step after this one. Because
+   * the number of mesh cells changes when calling the refinement and coarsening
+   * routines, this function should be called *after* registering the number of
+   * cells/dofs in the error handler (with add_reference_adata(...), which is
+   * typically done in a finalize() function), to provide matching cells/dofs
+   * and measured error norms in the convergence table.
+   */
+  virtual bool
+  should_adapt_mesh_at_end_of_intervals(const TimeHandler &time_handler) const;
+
+  /**
    * Return true if the solver should evaluate error norms. This is typically
    * always true, except when adapting the mesh with a Riemannian metric, in
    * which case a few fixed-point iterations are performed to converge to a

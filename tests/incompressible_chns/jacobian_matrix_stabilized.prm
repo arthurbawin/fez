@@ -18,6 +18,14 @@ subsection Mesh
   set refinement level       = 1
 end
 
+# A single time step is run on purpose. The stabilized Jacobian freezes the
+# SUPG/PSPG parameter tau (tau is not differentiated w.r.t. the solution), so the
+# analytical Jacobian only matches the finite-difference one exactly where the
+# d(tau)/du contribution vanishes, i.e. at the first step where the convective
+# velocity is still zero. Running further steps (u != 0) would flag the
+# intentional frozen-tau approximation as a false mismatch. This mirrors the
+# single-evaluation incompressible_ns/jacobian_matrix_supg test. Multi-step
+# robustness of the stabilization is covered by mms_chns_2d_spacetime_stab.
 subsection Time integration
   set dt        = 0.01
   set t_initial = 0

@@ -672,6 +672,9 @@ namespace NavierStokesScratch
           trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
           div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
           grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
+          if (enable_stabilization)
+            hessian_phi_x_moving[q][k] =
+              fe_values_moving[position].hessian(k, q);
         }
       }
     }
@@ -1456,6 +1459,7 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x;
     std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
     std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x_moving;
+    std::vector<std::vector<Tensor<3, dim>>>          hessian_phi_x_moving;
     std::vector<std::vector<double>>                  div_phi_x;
     std::vector<std::vector<double>>                  trace_grad_phi_x;
 

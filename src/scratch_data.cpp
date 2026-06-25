@@ -583,6 +583,9 @@ namespace NavierStokesScratch
         n_q_points, std::vector<SymmetricTensor<2, dim>>(max_dofs_per_cell));
       grad_phi_x_moving.resize(n_q_points,
                                std::vector<Tensor<2, dim>>(max_dofs_per_cell));
+      if (enable_stabilization)
+        hessian_phi_x_moving.resize(
+          n_q_points, std::vector<Tensor<3, dim>>(max_dofs_per_cell));
       div_phi_x.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       trace_grad_phi_x.resize(n_q_points,
                               std::vector<double>(max_dofs_per_cell));

@@ -108,7 +108,7 @@ void ParameterReader<dim>::check_parameters() const
 
   // Linear elasticity
   AssertThrow(
-    !(linear_elasticity.enable_source_term_on_current_mesh && mms_param.enable),
+    !(elasticity.enable_source_term_on_current_mesh && mms_param.enable),
     ExcMessage(
       "The parameter file specifies that the linear elasticity solver should "
       "evaluate the given source term on the current mesh (not the reference "

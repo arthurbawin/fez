@@ -32,7 +32,7 @@ subsection Nonlinear solver
 end
 
 subsection Linear solver
-  subsection linear elasticity
+  subsection elasticity
     set verbosity      = quiet
     set method         = direct_mumps
     set reuse          = true
@@ -91,7 +91,7 @@ subsection Pseudosolid boundary conditions
   end
 end
 
-subsection Linear elasticity
+subsection Elasticity
   subsection current mesh source term
     set enable = false
   end

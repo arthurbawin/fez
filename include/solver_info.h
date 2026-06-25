@@ -28,7 +28,7 @@ struct SolverInfo
     main_physics = 0,
     // Dedicated linear elasticity solver, mostly used to adapt the mesh
     // to an initial source term.
-    linear_elasticity = 1
+    elasticity = 1
   };
 
   /**
@@ -38,8 +38,8 @@ struct SolverInfo
   {
     if (solver_name == "main physics")
       return SolverType::main_physics;
-    else if (solver_name == "linear elasticity")
-      return SolverType::linear_elasticity;
+    else if (solver_name == "elasticity")
+      return SolverType::elasticity;
     else
       AssertThrow(false,
                   dealii::StandardExceptions::ExcMessage(

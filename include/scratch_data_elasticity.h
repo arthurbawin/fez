@@ -17,13 +17,13 @@ using namespace dealii;
  * Small scratch data for the linear elasticity equation on fixed mesh.
  */
 template <int dim>
-class ScratchDataLinearElasticity
+class ScratchDataElasticity
 {
 public:
   /**
    * Constructor
    */
-  ScratchDataLinearElasticity(const FESystem<dim>        &fe,
+  ScratchDataElasticity(const FESystem<dim>        &fe,
                               const Mapping<dim>         &mapping,
                               const Quadrature<dim>      &cell_quadrature,
                               const Quadrature<dim - 1>  &face_quadrature,
@@ -46,7 +46,7 @@ public:
   /**
    * Copy constructor
    */
-  ScratchDataLinearElasticity(const ScratchDataLinearElasticity &other)
+  ScratchDataElasticity(const ScratchDataElasticity &other)
     : param(other.param)
     , fe_values(other.fe_values.get_mapping(),
                 other.fe_values.get_fe(),

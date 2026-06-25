@@ -18,7 +18,7 @@
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
-#include <scratch_data_linear_elasticity.h>
+#include <scratch_data_elasticity.h>
 #include <time_handler.h>
 #include <types.h>
 
@@ -45,7 +45,7 @@ using namespace dealii;
  *
  * - \nabla \cdot \sigma(x) + alpha * f(x(X)) = 0.
  *
- * This feature is controlled by the "Linear elasticity" subsection of the
+ * This feature is controlled by the "Elasticity" subsection of the
  * parameter file. The continuation parameter alpha lies in the provided
  * [min_coeff, max_coeff] bracket, so that the last solved position field
  * satisfies :
@@ -54,9 +54,9 @@ using namespace dealii;
  *
  */
 template <int dim>
-class LinearElasticitySolver : public GenericSolver<LA::ParVectorType>
+class ElasticitySolver : public GenericSolver<LA::ParVectorType>
 {
-  using ScratchData = ScratchDataLinearElasticity<dim>;
+  using ScratchData = ScratchDataElasticity<dim>;
   using CopyData    = CopyDataBase<1>;
   using Assembler   = Assembly::AssemblerBase<ScratchData, CopyData>;
 
@@ -64,9 +64,9 @@ public:
   /**
    * Constructor
    */
-  LinearElasticitySolver(const ParameterReader<dim> &param);
+  ElasticitySolver(const ParameterReader<dim> &param);
 
-  virtual ~LinearElasticitySolver() = default;
+  virtual ~ElasticitySolver() = default;
 
 public:
   /**
@@ -241,13 +241,13 @@ protected:
 /* ---------------- template and inline functions ----------------- */
 
 template <int dim>
-const ParameterReader<dim> &LinearElasticitySolver<dim>::get_parameters() const
+const ParameterReader<dim> &ElasticitySolver<dim>::get_parameters() const
 {
   return param;
 }
 
 template <int dim>
-const DoFHandler<dim> &LinearElasticitySolver<dim>::get_dof_handler() const
+const DoFHandler<dim> &ElasticitySolver<dim>::get_dof_handler() const
 {
   return dof_handler;
 }

@@ -19,7 +19,7 @@ namespace Parameters
       : fluid_source(std::make_shared<Functions::ParsedFunction<dim>>(dim + 1))
       , pseudosolid_source(
           std::make_shared<Functions::ParsedFunction<dim>>(dim))
-      , linear_elasticity_source(
+      , elasticity_source(
           std::make_shared<Functions::ParsedFunction<dim>>(dim))
       , cahnhilliard_source(std::make_shared<Functions::ParsedFunction<dim>>(2))
       , temperature_source(std::make_shared<Functions::ParsedFunction<dim>>(1))
@@ -29,8 +29,8 @@ namespace Parameters
     {
       fluid_source->set_time(new_time);
       pseudosolid_source->set_time(new_time);
-      // Shouldn't be required as the LinearElasticitySolver is steady-state
-      linear_elasticity_source->set_time(new_time);
+      // Shouldn't be required as the ElasticitySolver is steady-state
+      elasticity_source->set_time(new_time);
       cahnhilliard_source->set_time(new_time);
       temperature_source->set_time(new_time);
     }
@@ -49,8 +49,8 @@ namespace Parameters
      *
      * This source term is called from all solvers having the pseudosolid
      * equation as an additional, coupled equation to the model, as opposed to
-     * linear_elasticity_source below, which is only called from the dedicated
-     * LinearElasticitySolver.
+     * elasticity_source below, which is only called from the dedicated
+     * ElasticitySolver.
      */
     std::shared_ptr<Functions::ParsedFunction<dim>> pseudosolid_source;
 
@@ -61,9 +61,9 @@ namespace Parameters
      * solver, which may or may not have a user-defined pseudosolid_source term
      * for the pseudosolid equation.
      *
-     * This source term is thus only called from the LinearElasticitySolver.
+     * This source term is thus only called from the ElasticitySolver.
      */
-    std::shared_ptr<Functions::ParsedFunction<dim>> linear_elasticity_source;
+    std::shared_ptr<Functions::ParsedFunction<dim>> elasticity_source;
 
     /**
      * Source term for the pseudosolid (linear elasticity) equation.
@@ -96,11 +96,11 @@ namespace Parameters
       }
       prm.leave_subsection();
 
-      // LinearElasticity source term is in the Linear elasticity section
-      prm.enter_subsection("Linear elasticity");
+      // Elasticity source term is in the Elasticity section
+      prm.enter_subsection("Elasticity");
       {
         prm.enter_subsection("source term");
-        linear_elasticity_source->declare_parameters(prm, dim);
+        elasticity_source->declare_parameters(prm, dim);
         prm.leave_subsection();
       }
       prm.leave_subsection();
@@ -125,10 +125,10 @@ namespace Parameters
       }
       prm.leave_subsection();
 
-      prm.enter_subsection("Linear elasticity");
+      prm.enter_subsection("Elasticity");
       {
         prm.enter_subsection("source term");
-        linear_elasticity_source->parse_parameters(prm);
+        elasticity_source->parse_parameters(prm);
         prm.leave_subsection();
       }
       prm.leave_subsection();

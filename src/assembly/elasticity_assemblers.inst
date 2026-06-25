@@ -5,28 +5,28 @@ namespace Assembly
   {
     // Instantiation for elasticity solver
     template class LinearElasticityAssembler<2,
-                                   ScratchDataLinearElasticity<2>,
+                                   ScratchDataElasticity<2>,
                                    CopyDataBase<>>;
     template class LinearElasticityAssembler<3,
-                                   ScratchDataLinearElasticity<3>,
+                                   ScratchDataElasticity<3>,
                                    CopyDataBase<>>;
     template class NeoHookeanAssembler<2,
-                                   ScratchDataLinearElasticity<2>,
+                                   ScratchDataElasticity<2>,
                                    CopyDataBase<>>;
     template class NeoHookeanAssembler<3,
-                                   ScratchDataLinearElasticity<3>,
+                                   ScratchDataElasticity<3>,
                                    CopyDataBase<>>;
     template class OgdenHyperelasticityAssembler<2,
-                                   ScratchDataLinearElasticity<2>,
+                                   ScratchDataElasticity<2>,
                                    CopyDataBase<>>;
     template class OgdenHyperelasticityAssembler<3,
-                                   ScratchDataLinearElasticity<3>,
+                                   ScratchDataElasticity<3>,
                                    CopyDataBase<>>;
     template class CurrentMeshSourceAssembler<2,
-                                   ScratchDataLinearElasticity<2>,
+                                   ScratchDataElasticity<2>,
                                    CopyDataBase<>>;
     template class CurrentMeshSourceAssembler<3,
-                                   ScratchDataLinearElasticity<3>,
+                                   ScratchDataElasticity<3>,
                                    CopyDataBase<>>;
 
     // Instantiation for FSI solver

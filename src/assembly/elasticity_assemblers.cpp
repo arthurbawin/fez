@@ -5,7 +5,7 @@
 #include <deal.II/base/symmetric_tensor.h>
 #include <parameter_reader.h>
 #include <scratch_data.h>
-#include <scratch_data_linear_elasticity.h>
+#include <scratch_data_elasticity.h>
 
 namespace Assembly
 {

@@ -230,6 +230,14 @@ namespace Assembly
       //
       const std::vector<Tensor<1, dim>> *phi_x;
       const std::vector<Tensor<2, dim>> *grad_phi_x_moving;
+      const std::vector<Tensor<3, dim>> *hessian_phi_x_moving;
+      // x-variation of the SUPG/PSPG strong residuals (frozen tau), used by the
+      // momentum, continuity and tracer rows.
+      std::vector<Tensor<1, dim>> strong_residual_momentum_x_variation(
+        sd.dofs_per_cell);
+      std::vector<double> strong_residual_tracer_x_variation(sd.dofs_per_cell);
+      std::vector<Tensor<1, dim>> mesh_velocity_x_variation(sd.dofs_per_cell);
+      std::vector<double>         trace_grad_phi_x_moving(sd.dofs_per_cell);
       std::vector<Tensor<1, dim>>        to_mult_by_phi_u_i_moving_mesh(
         sd.dofs_per_cell);
       std::vector<Tensor<2, dim>> to_mult_by_grad_phi_u_i_moving_mesh(
@@ -309,6 +317,9 @@ namespace Assembly
         {
           phi_x             = &sd.phi_x[q];
           grad_phi_x_moving = &sd.grad_phi_x_moving[q];
+          if constexpr (BaseType::with_stabilization ||
+                        BaseType::with_tracer_stabilization)
+            hessian_phi_x_moving = &sd.hessian_phi_x_moving[q];
 
 #if defined(WITH_GRADIENT_OF_SOURCE_TERMS)
           grad_source_term_velocity = &sd.grad_source_velocity[q];
@@ -438,6 +449,78 @@ namespace Assembly
              */
             const Tensor<2, dim> val =
               trG * identity_tensor - 2. * symmetrize(G);
+
+            // x-variation of the SUPG/PSPG strong residuals (frozen tau).
+            // Gradients transform as grad -> grad - G^T grad, the velocity
+            // gradient as grad_u -> grad_u - grad_u G, and the ALE convective
+            // velocity as u_conv -> u_conv - bdf_c0 phi_x.
+            if constexpr (BaseType::with_stabilization ||
+                          BaseType::with_tracer_stabilization)
+            {
+              const auto du_conv_dx  = -bdf_c0 * phi_x_j;
+              const auto dgrad_u_dx  = -grad_u_x_G_j; // -(grad_u * G)
+              const auto dgrad_mu_dx = -(transpose_G * grad_mu);
+              const auto dgrad_phi_dx = -(transpose_G * grad_phi);
+
+              mesh_velocity_x_variation[j] = du_conv_dx;
+              trace_grad_phi_x_moving[j]   = trG;
+
+              if constexpr (BaseType::with_stabilization)
+              {
+                const auto &H = sd.present_velocity_hessians[q];
+                const auto &K = (*hessian_phi_x_moving)[j];
+                const auto  dgrad_p_dx = -(transpose_G * grad_p);
+
+                // d(lap_u + grad_div_u)/dx_j, with H[c][a][b] = d^2 u_c.
+                Tensor<1, dim> d_lap_plus_graddiv_u_dx;
+                for (unsigned int c = 0; c < dim; ++c)
+                  for (unsigned int a = 0; a < dim; ++a)
+                    for (unsigned int b = 0; b < dim; ++b)
+                    {
+                      double dH = 0.;
+                      for (unsigned int m = 0; m < dim; ++m)
+                        dH -= G[m][a] * H[c][m][b] + G[m][b] * H[c][a][m] +
+                              K[m][a][b] * grad_u[c][m];
+                      if (a == b)
+                        d_lap_plus_graddiv_u_dx[c] += dH;
+                      if (a == c)
+                        d_lap_plus_graddiv_u_dx[b] += dH;
+                    }
+
+                const auto d_sym_grad_u_dx = symmetrize(dgrad_u_dx);
+                const auto d_viscous_divergence_dx =
+                  eta * d_lap_plus_graddiv_u_dx +
+                  2. * detadphi *
+                    (d_sym_grad_u_dx * grad_phi + sym_grad_u * dgrad_phi_dx);
+
+                const auto ddiffusive_flux_dx =
+                  diffusive_flux_factor *
+                  (dgrad_u_dx * grad_mu + grad_u * dgrad_mu_dx);
+                const auto dcapillary_dx = phi * dgrad_mu_dx;
+
+                strong_residual_momentum_x_variation[j] =
+                  rho * (dgrad_u_dx * u_conv + grad_u * du_conv_dx) +
+                  dgrad_p_dx + ddiffusive_flux_dx + dcapillary_dx -
+                  d_viscous_divergence_dx;
+              }
+
+              if constexpr (BaseType::with_tracer_stabilization)
+              {
+                const auto  &h = sd.potential_hessians[q];
+                const auto  &K = (*hessian_phi_x_moving)[j];
+
+                // d(laplacian mu)/dx_j = trace of the scalar hessian variation.
+                double dlap_mu_dx = 0.;
+                for (unsigned int i = 0; i < dim; ++i)
+                  for (unsigned int a = 0; a < dim; ++a)
+                    dlap_mu_dx -= G[a][i] * h[a][i] + G[a][i] * h[i][a] +
+                                  K[a][i][i] * grad_mu[a];
+
+                strong_residual_tracer_x_variation[j] =
+                  du_conv_dx * grad_phi + u_conv * dgrad_phi_dx -
+                  mobility * dlap_mu_dx;
+              }
+            }
 
             // Variation of momentum
             to_mult_by_phi_u_i_moving_mesh[j] =
@@ -587,6 +670,24 @@ namespace Assembly
                   local_matrix_ij +=
                     phi_u_i * to_mult_by_phi_u_i_moving_mesh[j] +
                     -div_phi_u_i * p_x_tr_G_j[j] + grad_phi_u_i_row * t_row;
+
+                  // SUPG : variation w.r.t. mesh position (frozen tau). The
+                  // trace term accounts for the variation of JxW_moving, which
+                  // multiplies local_matrix_ij below.
+                  if constexpr (BaseType::with_stabilization)
+                  {
+                    const auto &G = sd.grad_phi_x_moving[q][j];
+                    const auto  d_supg_test_dx =
+                      -(grad_phi_u_i * G) * u_conv +
+                      grad_phi_u_i * mesh_velocity_x_variation[j];
+                    local_matrix_ij +=
+                      tau *
+                      (u_conv_dot_grad_phi_u_i *
+                         strong_residual_momentum_x_variation[j] +
+                       d_supg_test_dx * strong_residual_momentum +
+                       u_conv_dot_grad_phi_u_i * strong_residual_momentum *
+                         trace_grad_phi_x_moving[j]);
+                  }
                 }
               }
 
@@ -624,6 +725,21 @@ namespace Assembly
                   // Continuity : variation w.r.t. x
                   matrix_row[j] +=
                     phi_p_i * to_mult_by_phi_p_i_moving_mesh[j] * JxW_moving;
+
+                  // PSPG : variation w.r.t. mesh position (frozen tau).
+                  if constexpr (BaseType::with_stabilization)
+                  {
+                    const auto &G = sd.grad_phi_x_moving[q][j];
+                    // d(grad_phi_p_i)/dx_j = -(G^T grad_phi_p_i)
+                    const auto dgrad_phi_p_i_dx = -(grad_phi_p_i * G);
+                    matrix_row[j] -=
+                      tau * inv_rho *
+                      (strong_residual_momentum_x_variation[j] * grad_phi_p_i +
+                       strong_residual_momentum * dgrad_phi_p_i_dx +
+                       strong_residual_momentum * grad_phi_p_i *
+                         trace_grad_phi_x_moving[j]) *
+                      JxW_moving;
+                  }
                 }
               }
             }
@@ -685,6 +801,24 @@ namespace Assembly
                      grad_phi_phi_i *
                        to_mult_by_grad_phi_phi_i_moving_mesh[j]) *
                     JxW_moving;
+
+                  // Tracer-SUPG : variation w.r.t. mesh position (frozen tau).
+                  if constexpr (BaseType::with_tracer_stabilization)
+                  {
+                    const auto &G = sd.grad_phi_x_moving[q][j];
+                    const auto  dgrad_phi_phi_i_dx = -(grad_phi_phi_i * G);
+                    const double d_supg_test_dx =
+                      mesh_velocity_x_variation[j] * grad_phi_phi_i +
+                      u_conv * dgrad_phi_phi_i_dx;
+                    matrix_row[j] +=
+                      tau_tracer *
+                      (u_conv_dot_grad_phi_phi_i *
+                         strong_residual_tracer_x_variation[j] +
+                       d_supg_test_dx * strong_residual_tracer +
+                       u_conv_dot_grad_phi_phi_i * strong_residual_tracer *
+                         trace_grad_phi_x_moving[j]) *
+                      JxW_moving;
+                  }
                 }
               }
             }

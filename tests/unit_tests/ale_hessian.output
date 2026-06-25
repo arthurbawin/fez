@@ -1,0 +1,5 @@
+
+DEAL::max ALE hessian error = 1.705303e-13
+DEAL::max fixed hessian error = 9.436896e-14
+DEAL::max ALE laplacian variation error = 1.178841e-07
+DEAL::OK

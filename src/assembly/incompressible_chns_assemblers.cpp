@@ -47,6 +47,7 @@ namespace Assembly
 
       Tensor<1, dim> strong_residual_momentum;
       double         strong_residual_tracer;
+      double         tau, tau_tracer;
 
       for (unsigned int q = 0; q < sd.n_q_points; ++q)
       {
@@ -103,30 +104,31 @@ namespace Assembly
         const auto &phi_mu       = sd.shape_mu[q];
         const auto &grad_phi_mu  = sd.grad_shape_mu[q];
 
+        double inv_rho = 0.;
         if constexpr (BaseType::with_stabilization)
         {
-          const double inv_rho = 1. / rho;
-          const auto viscous_divergence =
-            eta * (lap_u + grad_div_u) +
-            2. * sd.derivative_dynamic_viscosity_wrt_tracer[q] *
-              (sym_grad_u * grad_phi);
+          tau                   = sd.tau_supg_velocity[q];
+          inv_rho               = 1. / rho;
+          const double detadphi = sd.derivative_dynamic_viscosity_wrt_tracer[q];
 
-          /**
-           * The momentum residual is normalized by density and therefore has
-           * acceleration units. The consistent SUPG and PSPG test operators
-           * are rho * (u_conv . grad(v)) and grad(q), respectively.
-           */
+          // Compute strong residual of the momentum equation, in force units
+          // (i.e. multiplied by the density). The consistent SUPG and PSPG test
+          // operators are then (u_conv . grad(v)) and grad(q) / rho.
           strong_residual_momentum =
-            dudt + grad_u * u_conv - body_force +
-            inv_rho *
-              (diffusive_flux + phi * grad_mu + grad_p + source_u -
-               viscous_divergence);
+            rho * (dudt + grad_u * u_conv - body_force) + diffusive_flux +
+            phi * grad_mu + grad_p + source_u - eta * (lap_u + grad_div_u) -
+            2. * detadphi * (sym_grad_u * grad_phi);
         }
 
         if constexpr (BaseType::with_tracer_stabilization)
+        {
+          tau_tracer          = sd.tau_supg_tracer[q];
+          const double lap_mu = sd.potential_laplacians[q];
+
+          // Compute strong residual of the tracer equation
           strong_residual_tracer =
-            dphidt + u_conv * grad_phi -
-            mobility * sd.potential_laplacians[q] + source_phi;
+            dphidt + u_conv * grad_phi - mobility * lap_mu + source_phi;
+        }
 
         for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
         {
@@ -146,26 +148,20 @@ namespace Assembly
               2. * eta * scalar_product(sym_grad_phi_u[i], sym_grad_u);
 
             if constexpr (BaseType::with_stabilization)
+              // SUPG stabilization
               local_rhs_i -=
-                sd.tau_supg_velocity[q] * rho *
-                ((grad_phi_u[i] * u_conv) * strong_residual_momentum);
+                tau * (strong_residual_momentum * (grad_phi_u[i] * u_conv));
           }
 
-          // Continuity equation
-          if constexpr (BaseType::with_stabilization)
-            if (i_is_p)
-              local_rhs_i += sd.tau_supg_velocity[q] *
-                             (strong_residual_momentum * grad_phi_p[i]);
-
           // Tracer equation
-          if (i_is_phi)
+          else if (i_is_phi)
           {
             local_rhs_i -= phi_phi[i] * to_mult_by_phi_phi_i +
                            mobility * (grad_phi_phi[i] * grad_mu);
 
             if constexpr (BaseType::with_tracer_stabilization)
-              local_rhs_i -= sd.tau_supg_tracer[q] *
-                             (u_conv * grad_phi_phi[i]) *
+              // Tracer SUPG stabilization
+              local_rhs_i -= tau_tracer * (u_conv * grad_phi_phi[i]) *
                              strong_residual_tracer;
           }
 
@@ -175,6 +171,13 @@ namespace Assembly
             local_rhs_i -= phi_mu[i] * to_mult_by_phi_mu_i -
                            sigma_tilde_times_eps * (grad_phi_mu[i] * grad_phi);
           }
+
+          // Continuity equation
+          if constexpr (BaseType::with_stabilization)
+            if (i_is_p)
+              // PSPG stabilization
+              local_rhs_i +=
+                tau * inv_rho * (strong_residual_momentum * grad_phi_p[i]);
 
           local_rhs(i) += local_rhs_i * JxW_moving;
         }
@@ -209,6 +212,10 @@ namespace Assembly
       std::vector<double> strong_residual_tracer_variation(sd.dofs_per_cell);
       Tensor<1, dim>      strong_residual_momentum;
       double              strong_residual_tracer;
+      Tensor<1, dim>      u_conv_dot_grad_phi_u_i, residual_dot_grad_phi_u_i;
+      double              u_conv_dot_grad_phi_phi_i;
+      Tensor<1, dim>      residual_tracer_dot_grad_phi_phi_i;
+      double              tau, tau_tracer;
 
       const auto u_lower = this->ordering.u_lower;
 
@@ -319,24 +326,33 @@ namespace Assembly
           dphidt + u_conv * grad_phi + source_phi;
         const auto mu_partial_residual =
           mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) + source_mu;
-        const auto viscous_divergence =
-          eta * (lap_u + grad_div_u) + 2. * detadphi * (sym_grad_u * grad_phi);
-        const auto force_and_pressure =
-          diffusive_flux + phi * grad_mu + grad_p + source_u;
-        double inv_rho = 0.;
+        double inv_rho      = 0.;
+        double dinvrho_dphi = 0.;
 
         if constexpr (BaseType::with_stabilization)
         {
-          inv_rho = 1. / rho;
+          tau          = sd.tau_supg_velocity[q];
+          inv_rho      = 1. / rho;
+          dinvrho_dphi = -drhodphi * inv_rho * inv_rho;
+
+          // Compute strong residual of the momentum equation, in force units
+          // (i.e. multiplied by the density); see the rhs assembler for the
+          // corresponding test operators.
           strong_residual_momentum =
-            dudt + grad_u * u_conv - body_force +
-            inv_rho * (force_and_pressure - viscous_divergence);
+            rho * (dudt + grad_u * u_conv - body_force) + diffusive_flux +
+            phi * grad_mu + grad_p + source_u - eta * (lap_u + grad_div_u) -
+            2. * detadphi * (sym_grad_u * grad_phi);
         }
 
         if constexpr (BaseType::with_tracer_stabilization)
+        {
+          tau_tracer          = sd.tau_supg_tracer[q];
+          const double lap_mu = sd.potential_laplacians[q];
+
+          // Compute strong residual of the tracer equation
           strong_residual_tracer =
-            dphidt + u_conv * grad_phi -
-            mobility * sd.potential_laplacians[q] + source_phi;
+            dphidt + u_conv * grad_phi - mobility * lap_mu + source_phi;
+        }
 
         // Precompute quantities depending only on j
         for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
@@ -361,26 +377,27 @@ namespace Assembly
 
           if constexpr (BaseType::with_stabilization)
           {
-            // As in the stabilized NS assembler, tau is frozen in the Newton
-            // Jacobian; only the residual and test operator are linearized.
-            const double dinvrho_dphi = -drhodphi * inv_rho * inv_rho;
+            // As in the stabilized NS assembler, tau is kept constant in the
+            // Newton Jacobian; only the residual and test operator are
+            // linearized.
 
+            // Variation w.r.t. velocity and pressure
             strong_residual_momentum_variation[j] =
-              bdf_c0 * phi_u_j + grad_phi_u_j * u_conv + grad_u * phi_u_j +
-              inv_rho * (diffusive_flux_factor * grad_phi_u_j * grad_mu +
-                         grad_phi_p[j] -
-                         eta * (laplacian_phi_u[j] + grad_div_phi_u[j]) -
-                         2. * detadphi * (sym_grad_phi_u[j] * grad_phi));
+              to_mult_by_phi_u_i_momentum[j] + grad_phi_p[j] -
+              eta * (laplacian_phi_u[j] + grad_div_phi_u[j]) -
+              2. * detadphi * (sym_grad_phi_u[j] * grad_phi);
 
+            // Variation w.r.t. tracer
             strong_residual_momentum_variation[j] +=
-              phi_phi[j] *
-                (dinvrho_dphi * (force_and_pressure - viscous_divergence) +
-                 inv_rho * (grad_mu - detadphi * (lap_u + grad_div_u))) -
-              2. * inv_rho * detadphi * (sym_grad_u * grad_phi_phi[j]);
+              drhodphi * phi_phi[j] * (dudt + u_dot_grad_u_ale - body_force) +
+              phi_phi[j] * grad_mu -
+              detadphi * phi_phi[j] * (lap_u + grad_div_u) -
+              2. * detadphi * (sym_grad_u * grad_phi_phi[j]);
 
+            // Variation w.r.t. potential
             strong_residual_momentum_variation[j] +=
-              inv_rho * (diffusive_flux_factor * grad_u * grad_phi_mu_j +
-                         phi * grad_phi_mu_j);
+              diffusive_flux_factor * grad_u * grad_phi_mu_j +
+              phi * grad_phi_mu_j;
           }
 
           if constexpr (BaseType::with_tracer_stabilization)
@@ -497,6 +514,14 @@ namespace Assembly
            * Momentum equation
            */
           if (this->ordering.is_velocity(comp_i))
+          {
+            if constexpr (BaseType::with_stabilization)
+            {
+              u_conv_dot_grad_phi_u_i = grad_phi_u_i * u_conv;
+              residual_dot_grad_phi_u_i =
+                strong_residual_momentum * grad_phi_u_i;
+            }
+
             for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
             {
               const unsigned int comp_j   = sd.components[j];
@@ -535,14 +560,11 @@ namespace Assembly
 
               if constexpr (BaseType::with_stabilization)
               {
-                const auto supg_test = rho * (grad_phi_u_i * u_conv);
-                const auto supg_test_variation =
-                  rho * (grad_phi_u_i * phi_u[j]) +
-                  drhodphi * phi_phi[j] * (grad_phi_u_i * u_conv);
+                // SUPG stabilization : variation w.r.t. u and p
                 local_matrix_ij +=
-                  sd.tau_supg_velocity[q] *
-                  (supg_test * strong_residual_momentum_variation[j] +
-                   supg_test_variation * strong_residual_momentum);
+                  tau * (strong_residual_momentum_variation[j] *
+                           u_conv_dot_grad_phi_u_i +
+                         residual_dot_grad_phi_u_i * phi_u[j]);
               }
 
               if constexpr (BaseType::with_moving_mesh)
@@ -567,6 +589,7 @@ namespace Assembly
               // Increment local matrix
               matrix_row[j] += local_matrix_ij * JxW_moving;
             }
+          }
 
           /**
            * Continuity equation
@@ -582,9 +605,12 @@ namespace Assembly
                 matrix_row[j] += -phi_p_i * div_phi_u[j] * JxW_moving;
 
               if constexpr (BaseType::with_stabilization)
-                matrix_row[j] -=
-                  sd.tau_supg_velocity[q] *
-                  (strong_residual_momentum_variation[j] * grad_phi_p_i) *
+                // PSPG stabilization : variation w.r.t. u and p
+                matrix_row[j] +=
+                  -tau *
+                  ((inv_rho * strong_residual_momentum_variation[j] +
+                    dinvrho_dphi * phi_phi[j] * strong_residual_momentum) *
+                   grad_phi_p_i) *
                   JxW_moving;
 
               if constexpr (BaseType::with_moving_mesh)
@@ -602,6 +628,14 @@ namespace Assembly
            * Tracer equation
            */
           else if (this->ordering.is_tracer(comp_i))
+          {
+            if constexpr (BaseType::with_tracer_stabilization)
+            {
+              u_conv_dot_grad_phi_phi_i = u_conv * grad_phi_phi_i;
+              residual_tracer_dot_grad_phi_phi_i =
+                strong_residual_tracer * grad_phi_phi_i;
+            }
+
             for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
             {
               const unsigned int comp_j   = sd.components[j];
@@ -629,12 +663,12 @@ namespace Assembly
 
               if constexpr (BaseType::with_tracer_stabilization)
               {
-                const double supg_test           = u_conv * grad_phi_phi_i;
-                const double supg_test_variation = phi_u[j] * grad_phi_phi_i;
+                // Tracer SUPG stabilization : variation w.r.t. u and phi
                 matrix_row[j] +=
-                  sd.tau_supg_tracer[q] *
-                  (supg_test * strong_residual_tracer_variation[j] +
-                   supg_test_variation * strong_residual_tracer) *
+                  tau_tracer *
+                  (strong_residual_tracer_variation[j] *
+                     u_conv_dot_grad_phi_phi_i +
+                   residual_tracer_dot_grad_phi_phi_i * phi_u[j]) *
                   JxW_moving;
               }
               if constexpr (BaseType::with_moving_mesh)
@@ -650,6 +684,7 @@ namespace Assembly
                 }
               }
             }
+          }
 
           /**
            * Potential equation

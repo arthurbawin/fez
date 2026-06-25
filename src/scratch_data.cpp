@@ -56,13 +56,12 @@ namespace NavierStokesScratch
     const Quadrature<dim>      &cell_quadrature,
     const Quadrature<dim - 1>  &face_quadrature,
     const TimeHandler          &time_handler,
-    const ParameterReader<dim> &param,
-    const bool                  enable_stabilization)
+    const ParameterReader<dim> &param)
     : param(param)
     , use_quads(param.finite_elements.use_quads)
     , ordering(ordering)
     , n_components(ordering.n_components)
-    , enable_stabilization(enable_stabilization)
+    , enable_stabilization(param.stabilization.enable_supg)
     , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
     , physical_properties(param.physical_properties)
     , cahn_hilliard_param(param.cahn_hilliard)
@@ -130,13 +129,12 @@ namespace NavierStokesScratch
     const hp::QCollection<dim>       &cell_quadrature_collection,
     const hp::QCollection<dim - 1>   &face_quadrature_collection,
     const TimeHandler                &time_handler,
-    const ParameterReader<dim>       &param,
-    const bool                        enable_stabilization)
+    const ParameterReader<dim>       &param)
     : param(param)
     , use_quads(param.finite_elements.use_quads)
     , ordering(ordering)
     , n_components(ordering.n_components)
-    , enable_stabilization(enable_stabilization)
+    , enable_stabilization(param.stabilization.enable_supg)
     , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
     , physical_properties(param.physical_properties)
     , cahn_hilliard_param(param.cahn_hilliard)
@@ -658,7 +656,6 @@ namespace NavierStokesScratch
 
       if (enable_tracer_stabilization)
       {
-        potential_hessians.resize(n_q_points);
         potential_laplacians.resize(n_q_points);
         tau_supg_tracer.resize(n_q_points);
       }

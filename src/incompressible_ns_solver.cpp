@@ -129,8 +129,7 @@ void NSSolver<dim>::create_scratch_data()
                                   *this->quadrature,
                                   *this->face_quadrature,
                                   this->time_handler,
-                                  this->param,
-                                  this->param.stabilization.enable_supg);
+                                  this->param);
 }
 
 template <int dim>

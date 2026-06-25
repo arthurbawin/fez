@@ -236,6 +236,55 @@ namespace Parameters
                             "Adapt the mesh every n time steps");
         }
         prm.leave_subsection();
+        prm.enter_subsection("Local refinement");
+        {
+          prm.declare_entry("n fixed point",
+                            "1",
+                            Patterns::Integer(1),
+                            "Number of fixed point iterations to converge the "
+                            "mesh-solution pair");
+          prm.declare_entry("refinement strategy",
+                            "fixed number",
+                            Patterns::Selection("fixed number|fixed fraction"),
+                            "Refinement strategy used by deal.II's "
+                            "refine_and_coarsen routines");
+          prm.declare_entry(
+            "fraction to refine",
+            // As suggested in grid_refinement.h, use as default
+            // the fractions that lead to doubling the number of cells
+            // if no coarsening is applied (1/3 and 1/7).
+            // This is of course only valid for the "fixed number" strategy.
+            dim == 2 ? "0.3333333333" : "0.142857143",
+            Patterns::Double(0., 1.),
+            "Fraction of cells or errors to mark for refinement");
+          prm.declare_entry(
+            "fraction to coarsen",
+            "0.",
+            Patterns::Double(0., 1.),
+            "Fraction of cells or errors to mark for coarsening");
+          prm.declare_entry("min grid level",
+                            "0",
+                            Patterns::Integer(0),
+                            "Minimum level of grid refinement allowed");
+          prm.declare_entry("max grid level",
+                            "8",
+                            Patterns::Integer(0),
+                            "Maximum level of grid refinement allowed");
+          prm.declare_entry("max number of cells",
+                            "1000000",
+                            Patterns::Integer(0),
+                            "Maximum number of mesh cells allowed");
+          prm.declare_entry(
+            "number of prerefinement steps",
+            "0",
+            Patterns::Integer(0),
+            "Number of refinement steps to obtain the initial mesh");
+          prm.declare_entry("adapt frequency",
+                            "1",
+                            Patterns::Integer(1),
+                            "Adapt the mesh every n time steps");
+        }
+        prm.leave_subsection();
       }
       prm.leave_subsection();
     }
@@ -285,6 +334,40 @@ namespace Parameters
             prm.leave_subsection();
           }
           prm.leave_subsection();
+        }
+        prm.leave_subsection();
+        prm.enter_subsection("Local refinement");
+        {
+          auto &t = adaptation.tree_amr;
+
+          const std::string parsed_strategy = prm.get("refinement strategy");
+          if (parsed_strategy == "fixed number")
+            t.refinement_strategy =
+              Adaptation::TreeAMR::RefinementStrategy::FixedNumber;
+          else if (parsed_strategy == "fixed fraction")
+            t.refinement_strategy =
+              Adaptation::TreeAMR::RefinementStrategy::FixedFraction;
+          else
+            AssertThrow(false,
+                        ExcMessage(
+                          "Unexpected mesh adaptation refinement strategy: " +
+                          parsed_strategy));
+          t.fraction_to_refine  = prm.get_double("fraction to refine");
+          t.fraction_to_coarsen = prm.get_double("fraction to coarsen");
+          AssertThrow(t.fraction_to_refine + t.fraction_to_coarsen < 1 + 1e-12,
+                      ExcMessage(
+                        "The sum of the fractions of the cells/cellwise errors "
+                        "to refine and coarsen should not exceed 1."));
+          t.min_level = prm.get_integer("min grid level");
+          t.max_level = prm.get_integer("max grid level");
+          AssertThrow(t.max_level >= t.min_level,
+                      ExcMessage(
+                        "The maximum allowed grid refinement level should be "
+                        "greater than or equal to the minimum allowed level."));
+          t.max_n_cells = prm.get_integer("max number of cells");
+          t.n_prerefinement_steps =
+            prm.get_integer("number of prerefinement steps");
+          t.adapt_frequency = prm.get_integer("adapt frequency");
         }
         prm.leave_subsection();
         prm.enter_subsection("Local refinement");

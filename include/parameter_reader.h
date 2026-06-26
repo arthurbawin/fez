@@ -86,6 +86,22 @@ public:
   void check_parameters() const;
 
   /**
+   * Return true if mesh adaptation using a Riemannian metric is enabled.
+   */
+  bool with_metric_based_adaptation() const
+  {
+    return mesh.adaptation.with_metric_based_adaptation();
+  }
+
+  /**
+   * Return true if mesh adaptation using deal.II and p4est routines is enabled.
+   */
+  bool with_tree_based_adaptation() const
+  {
+    return mesh.adaptation.with_tree_based_adaptation();
+  }
+
+  /**
    * Return true if the so-called transient fixed-point mesh adaptation method,
    * which converges N solution-mesh pairs on time sub-intervals in a
    * fixed-point loop, is enabled. This requires information from both the mesh
@@ -104,7 +120,7 @@ public:
   {
     dummy_dimension.declare_parameters(prm);
     timer.declare_parameters(prm);
-    mesh.declare_parameters(prm);
+    mesh.declare_parameters(prm, dim);
     output.declare_parameters(prm);
     postprocessing.declare_parameters(prm);
     finite_elements.declare_parameters(prm);

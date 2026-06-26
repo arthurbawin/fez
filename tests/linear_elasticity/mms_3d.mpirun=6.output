@@ -12,7 +12,6 @@ ID 3 -> y_max
 ID 4 -> z_min
 ID 5 -> z_max
 Number of degrees of freedom: 81
-2 CG iterations needed to obtain convergence.
 Convergence test with manufactured solution:
 Mesh file was changed to 1.msh
 Mesh info:
@@ -26,7 +25,6 @@ ID 3 -> y_max
 ID 4 -> z_min
 ID 5 -> z_max
 Number of degrees of freedom: 375
-31 CG iterations needed to obtain convergence.
 
 L2_norm
 n_elm n_dof        x        

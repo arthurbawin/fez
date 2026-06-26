@@ -129,7 +129,8 @@ void NSSolver<dim>::create_scratch_data()
                                   *this->quadrature,
                                   *this->face_quadrature,
                                   this->time_handler,
-                                  this->param);
+                                  this->param,
+                                  this->param.stabilization.enable_supg);
 }
 
 template <int dim>
@@ -144,9 +145,10 @@ void NSSolver<dim>::setup_assemblers()
       setup_assemblers<dim, ScratchData, CopyData, stabilization>(
         this->param, *this->ordering, this->coupling_table, assemblers);
   else
-    Assembly::IncompressibleNavierStokes::
-      setup_assemblers<dim, ScratchData, CopyData, ns_laplace_form>(
-        this->param, *this->ordering, this->coupling_table, assemblers);
+    Assembly::IncompressibleNavierStokes::setup_assemblers(this->param,
+                                                           *this->ordering,
+                                                           this->coupling_table,
+                                                           assemblers);
 }
 
 template <int dim>

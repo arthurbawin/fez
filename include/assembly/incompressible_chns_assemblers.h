@@ -152,15 +152,11 @@ namespace Assembly
       constexpr unsigned int moving_mesh_flag =
         with_moving_mesh ? moving_mesh : chns;
 
-      if constexpr (with_moving_mesh)
-        AssertThrow(
-          !(supg || tracer_supg),
-          ExcMessage(
-            "CHNS stabilization on a moving mesh is not implemented yet."));
-
       // Assign the volume assembler
       if (supg)
       {
+        // TODO: Add SUPG for momentum and tracer equations
+        DEAL_II_NOT_IMPLEMENTED();
         if (tracer_supg)
           assemblers.emplace_back(
             std::make_unique<VolumeAssembler<
@@ -181,6 +177,7 @@ namespace Assembly
       {
         if (tracer_supg)
         {
+          DEAL_II_NOT_IMPLEMENTED();
           assemblers.emplace_back(
             std::make_unique<
               VolumeAssembler<dim,

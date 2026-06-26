@@ -56,39 +56,35 @@ namespace NavierStokesScratch
     const Quadrature<dim>      &cell_quadrature,
     const Quadrature<dim - 1>  &face_quadrature,
     const TimeHandler          &time_handler,
-    const ParameterReader<dim> &param)
+    const ParameterReader<dim> &param,
+    const bool                  enable_stabilization)
     : param(param)
     , use_quads(param.finite_elements.use_quads)
     , ordering(ordering)
     , n_components(ordering.n_components)
-    , enable_stabilization(param.stabilization.enable_supg)
-    , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
+    , enable_stabilization(enable_stabilization)
     , physical_properties(param.physical_properties)
     , cahn_hilliard_param(param.cahn_hilliard)
     , fe_values(std::make_unique<FEValues<dim>>(
         moving_mapping,
         fe,
         cell_quadrature,
-        get_cell_update_flags<update_flags>(enable_stabilization ||
-                                            enable_tracer_stabilization)))
+        get_cell_update_flags<update_flags>(enable_stabilization)))
     , fe_values_fixed(std::make_unique<FEValues<dim>>(
         fixed_mapping,
         fe,
         cell_quadrature,
-        get_cell_update_flags<update_flags>(enable_stabilization ||
-                                            enable_tracer_stabilization)))
+        get_cell_update_flags<update_flags>(enable_stabilization)))
     , fe_face_values(std::make_unique<FEFaceValues<dim>>(
         moving_mapping,
         fe,
         face_quadrature,
-        get_face_update_flags<update_flags>(enable_stabilization ||
-                                            enable_tracer_stabilization)))
+        get_face_update_flags<update_flags>(enable_stabilization)))
     , fe_face_values_fixed(std::make_unique<FEFaceValues<dim>>(
         fixed_mapping,
         fe,
         face_quadrature,
-        get_face_update_flags<update_flags>(enable_stabilization ||
-                                            enable_tracer_stabilization)))
+        get_face_update_flags<update_flags>(enable_stabilization)))
     , n_q_points(cell_quadrature.size())
     , n_faces(fe.reference_cell().n_faces())
     , n_faces_q_points(face_quadrature.size())
@@ -129,39 +125,35 @@ namespace NavierStokesScratch
     const hp::QCollection<dim>       &cell_quadrature_collection,
     const hp::QCollection<dim - 1>   &face_quadrature_collection,
     const TimeHandler                &time_handler,
-    const ParameterReader<dim>       &param)
+    const ParameterReader<dim>       &param,
+    const bool                        enable_stabilization)
     : param(param)
     , use_quads(param.finite_elements.use_quads)
     , ordering(ordering)
     , n_components(ordering.n_components)
-    , enable_stabilization(param.stabilization.enable_supg)
-    , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
+    , enable_stabilization(enable_stabilization)
     , physical_properties(param.physical_properties)
     , cahn_hilliard_param(param.cahn_hilliard)
     , hp_fe_values(std::make_unique<hp::FEValues<dim>>(
         moving_mapping_collection,
         fe_collection,
         cell_quadrature_collection,
-        get_cell_update_flags<update_flags>(enable_stabilization ||
-                                            enable_tracer_stabilization)))
+        get_cell_update_flags<update_flags>(enable_stabilization)))
     , hp_fe_values_fixed(std::make_unique<hp::FEValues<dim>>(
         fixed_mapping_collection,
         fe_collection,
         cell_quadrature_collection,
-        get_cell_update_flags<update_flags>(enable_stabilization ||
-                                            enable_tracer_stabilization)))
+        get_cell_update_flags<update_flags>(enable_stabilization)))
     , hp_fe_face_values(std::make_unique<hp::FEFaceValues<dim>>(
         moving_mapping_collection,
         fe_collection,
         face_quadrature_collection,
-        get_face_update_flags<update_flags>(enable_stabilization ||
-                                            enable_tracer_stabilization)))
+        get_face_update_flags<update_flags>(enable_stabilization)))
     , hp_fe_face_values_fixed(std::make_unique<hp::FEFaceValues<dim>>(
         fixed_mapping_collection,
         fe_collection,
         face_quadrature_collection,
-        get_face_update_flags<update_flags>(enable_stabilization ||
-                                            enable_tracer_stabilization)))
+        get_face_update_flags<update_flags>(enable_stabilization)))
     , n_q_points(cell_quadrature_collection[0].size())
     , n_faces(fe_collection[0].reference_cell().n_faces())
     , n_faces_q_points(face_quadrature_collection[0].size())
@@ -228,7 +220,6 @@ namespace NavierStokesScratch
     , ordering(other.ordering)
     , n_components(other.n_components)
     , enable_stabilization(other.enable_stabilization)
-    , enable_tracer_stabilization(other.enable_tracer_stabilization)
     , physical_properties(other.physical_properties)
     , cahn_hilliard_param(other.cahn_hilliard_param)
     , n_q_points(other.n_q_points)
@@ -651,14 +642,6 @@ namespace NavierStokesScratch
       shape_mu.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_mu.resize(n_q_points,
                            std::vector<Tensor<1, dim>>(max_dofs_per_cell));
-      laplacian_shape_mu.resize(n_q_points,
-                                std::vector<double>(max_dofs_per_cell));
-
-      if (enable_tracer_stabilization)
-      {
-        potential_laplacians.resize(n_q_points);
-        tau_supg_tracer.resize(n_q_points);
-      }
 
       source_term_tracer.resize(n_q_points);
       source_term_potential.resize(n_q_points);

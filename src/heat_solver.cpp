@@ -97,8 +97,18 @@ void HeatSolver<dim>::reset()
   if (postproc_handler)
     postproc_handler->clear();
 
-  // Clear mesh(es) and dof handler(s)
-  transient_fixed_point_data.clear();
+  // Clear mesh(es) and dof handler(s), and reassign immediately the
+  // pointers for the first interval.
+  if (mms_param.current_step > 0)
+  {
+    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals);
+    transient_fixed_point_data.set_interval_data(0,
+                                                 triangulation,
+                                                 dof_handler,
+                                                 present_solution,
+                                                 previous_solutions,
+                                                 metric_for_adaptation);
+  }
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);

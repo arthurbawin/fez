@@ -119,11 +119,40 @@ void ParameterReader<dim>::check_parameters() const
 
   // Mesh adaptation
   if (mesh.adaptation.with_metric_based_adaptation())
+  {
     if (time_integration.is_steady())
       AssertThrow(time_integration.n_time_intervals == 1,
                   ExcMessage(
                     "When solving for steady-state solution, a single time "
                     "subinterval is expected."));
+
+    // If adapting with a fixed-point loop and modifying some parameters every
+    // few iterations, check that these parameters exist in the relevant
+    // function objects before running any computation.
+    const auto &fpu = mesh.adaptation.metric.fixed_point_updates;
+
+    if (fpu.chns_interface_thickness.enable)
+    {
+      // Check for existence of interface thickness variable in tracer initial
+      // condition, which will need to be updated.
+      const auto &constants =
+        initial_conditions.initial_chns_tracer_callback->get_constants();
+      const auto &s = fpu.chns_interface_thickness.constant_name;
+      if (constants.count(s) == 0)
+      {
+        std::ostringstream oss;
+        oss << "The prescribed updates in the fixed-point mesh adaptation loop "
+               "require replacing the constant \""
+            << s
+            << "\" in the initial condition of the CHNS tracer, but that "
+               "function does not contain this constant. Instead, it contains "
+               "the following constants:\n";
+        for (const auto &[name, value] : constants)
+          oss << "  " << name << " = " << value << '\n';
+        AssertThrow(false, ExcMessage(oss.str()));
+      }
+    }
+  }
 }
 
 template class ParameterReader<2>;

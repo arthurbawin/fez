@@ -79,6 +79,16 @@ public:
   void run_fixed_point_loop();
 
   /**
+   * When running a fixed-point adaptation loop, this function updates the
+   * parameters specified in the parameter file, given the current iteration
+   * number.This allows for instance to reduce the interface thickness of a CHNS
+   * simulation as the mesh is refined.
+   */
+  virtual void
+  update_simulation_parameters(const unsigned int /* fixed_point_iteration */)
+  {}
+
+  /**
    * Assemble the Jacobian matrix of the nonlinear problem, that is, its
    * linearization at the current solution. This function is overloaded by each
    * derived solver.

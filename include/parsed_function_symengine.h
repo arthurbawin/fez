@@ -37,10 +37,18 @@ namespace ManufacturedSolutions
      */
     ParsedFunctionSDBase(const unsigned int n_components);
 
+    /**
+     * Declare parameters needed by this class. See parsed_function.h
+     * in deal.II for the complete documentation of this function.
+     */
     static void declare_parameters(ParameterHandler  &prm,
                                    const unsigned int n_components = 1,
                                    const std::string &input_expr   = "");
 
+    /**
+     * Parse parameters needed by this class. See parsed_function.h
+     * in deal.II for the complete documentation of this function.
+     */
     void parse_parameters(ParameterHandler &prm);
 
     /**
@@ -139,7 +147,28 @@ namespace ManufacturedSolutions
       return function_object.get_expressions()[component];
     }
 
+    /**
+     * Return the list of constants in the parsed expression of this function
+     * along with their values.
+     */
+    const std::map<std::string, double> &get_constants() { return constants; }
+
+    /**
+     * Replace the values of the given list of constants by their new values.
+     * An error is thrown if @p constant_names_and_new_values contains a constant
+     * name that is not present in the expression parsed from the parameter
+     * file.
+     */
+    void update_constants(
+      const std::map<std::string, double> &constant_names_and_new_values);
+
   private:
+    /**
+     * Initialize the function objects from the expression, variables and
+     * constants, and create the symbolic derivatives.
+     */
+    void initialize_function_and_derivatives();
+
     /**
      * Create the callbacks for the spatial and time derivatives.
      */
@@ -158,6 +187,15 @@ namespace ManufacturedSolutions
     std::vector<std::shared_ptr<FunctionParser<dim>>> grad_function_object;
     std::vector<std::shared_ptr<FunctionParser<dim>>> hess_function_object;
     std::vector<bool>                                 function_of_time_only;
+
+    /**
+     * The expressions parsed from the parameter file for this function.
+     * These are kept to allow replacing the value of a parameter during the
+     * simulation.
+     */
+    std::string                   parsed_variable_names;
+    std::string                   parsed_expression;
+    std::map<std::string, double> constants;
   };
 
 } // namespace ManufacturedSolutions

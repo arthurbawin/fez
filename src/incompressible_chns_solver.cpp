@@ -337,9 +337,11 @@ void CHNSSolver<dim, with_moving_mesh>::create_sparsity_pattern()
       if (this->ordering->is_velocity(i))
         coupling_table[i][j] = DoFTools::always;
 
-      // p couples to u , x
+      // p couples to u and x. PSPG also couples p to p, phi and mu through
+      // the strong momentum residual.
       if (this->ordering->is_pressure(i) &&
-          (this->ordering->is_velocity(j) || this->ordering->is_position(j)))
+          (this->ordering->is_velocity(j) || this->ordering->is_position(j) ||
+           this->param.stabilization.enable_supg))
         coupling_table[i][j] = DoFTools::always;
 
       // x couples x,phi,u

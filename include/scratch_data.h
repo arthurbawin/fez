@@ -178,8 +178,7 @@ namespace NavierStokesScratch
                 const Quadrature<dim>      &cell_quadrature,
                 const Quadrature<dim - 1>  &face_quadrature,
                 const TimeHandler          &time_handler,
-                const ParameterReader<dim> &param,
-                const bool                  enable_stabilization = false);
+                const ParameterReader<dim> &param);
 
     /**
      * Constructor with hp capabilities
@@ -191,8 +190,7 @@ namespace NavierStokesScratch
                 const hp::QCollection<dim>       &cell_quadrature_collection,
                 const hp::QCollection<dim - 1>   &face_quadrature_collection,
                 const TimeHandler                &time_handler,
-                const ParameterReader<dim>       &param,
-                const bool                        enable_stabilization = false);
+                const ParameterReader<dim>       &param);
 
     /**
      * Copy constructor
@@ -363,24 +361,28 @@ namespace NavierStokesScratch
           }
         }
 
-        if (enable_stabilization)
-        {
-          // Compute stabilization parameter tau.
-          // Mesh velocity has already been computed, so ALE velocity is well
-          // defined.
-          auto u_conv = present_velocity_values[q];
-          if constexpr (enable_pseudo_solid)
-            u_conv -= present_mesh_velocity_values[q];
+        // When the Cahn-Hilliard part is enabled, u_conv and tau are instead
+        // computed in reinit_cahn_hilliard, where the kinematic viscosity
+        // (which depends on the density, and thus on the tracer) is known.
+        if constexpr (!enable_cahn_hilliard)
+          if (enable_stabilization)
+          {
+            // Compute stabilization parameter tau.
+            // Mesh velocity has already been computed, so ALE velocity is well
+            // defined.
+            auto u_conv = present_velocity_values[q];
+            if constexpr (enable_pseudo_solid)
+              u_conv -= present_mesh_velocity_values[q];
 
-          tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
-            time_handler,
-            dofs_per_cell,
-            cell_diameter,
-            param.finite_elements.velocity_degree,
-            kinematic_viscosity,
-            u_conv,
-            grad_phi_u_first_component);
-        }
+            tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
+              time_handler,
+              dofs_per_cell,
+              cell_diameter,
+              param.finite_elements.velocity_degree,
+              kinematic_viscosity,
+              u_conv,
+              grad_phi_u_first_component);
+          }
       }
     }
 
@@ -1021,6 +1023,9 @@ namespace NavierStokesScratch
                                                       potential_values);
       fe_values_moving[potential].get_function_gradients(current_solution,
                                                          potential_gradients);
+      if (enable_tracer_stabilization)
+        fe_values_moving[potential].get_function_laplacians(
+          current_solution, potential_laplacians);
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
         fe_values_moving[tracer].get_function_values(previous_solutions[i],
@@ -1059,6 +1064,25 @@ namespace NavierStokesScratch
                             present_velocity_gradients[q] *
                             potential_gradients[q];
 
+        Tensor<1, dim> u_conv = present_velocity_values[q];
+        if constexpr (enable_pseudo_solid)
+          u_conv -= present_mesh_velocity_values[q];
+        if (enable_stabilization)
+        {
+          Assert(density[q] > 0.,
+                 ExcMessage("The density must be strictly positive to compute "
+                            "the kinematic viscosity for SUPG stabilization."));
+          const double kinematic_viscosity = dynamic_viscosity[q] / density[q];
+          tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
+            time_handler,
+            dofs_per_cell,
+            cell_diameter,
+            param.finite_elements.velocity_degree,
+            kinematic_viscosity,
+            u_conv,
+            grad_phi_u_first_component);
+        }
+
         for (unsigned int k = 0; k < dofs_per_cell; ++k)
         {
           // Shape functions on moving mesh
@@ -1066,6 +1090,9 @@ namespace NavierStokesScratch
           grad_shape_phi[q][k] = fe_values_moving[tracer].gradient(k, q);
           shape_mu[q][k]       = fe_values_moving[potential].value(k, q);
           grad_shape_mu[q][k]  = fe_values_moving[potential].gradient(k, q);
+          if (enable_tracer_stabilization)
+            laplacian_shape_mu[q][k] =
+              trace(fe_values_moving[potential].hessian(k, q));
 
           // Shape functions on fixed mesh
           if constexpr (enable_pseudo_solid)
@@ -1074,6 +1101,16 @@ namespace NavierStokesScratch
             grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
           }
         }
+
+        if (enable_tracer_stabilization)
+          tau_supg_tracer[q] = StabilizationTools::compute_tau_supg(
+            time_handler,
+            dofs_per_cell,
+            cell_diameter,
+            param.finite_elements.tracer_degree,
+            mobility,
+            u_conv,
+            grad_shape_phi[q]);
       }
     }
 
@@ -1109,7 +1146,7 @@ namespace NavierStokesScratch
 
       bdf_c0 = time_handler.bdf_coefficients[0];
 
-      if (enable_stabilization)
+      if (enable_stabilization || enable_tracer_stabilization)
         cell_diameter = cell->diameter();
 
       /**
@@ -1498,8 +1535,10 @@ namespace NavierStokesScratch
     // Potential on current mesh
     std::vector<double>         potential_values;
     std::vector<Tensor<1, dim>> potential_gradients;
+    std::vector<double>         potential_laplacians;
 
     std::vector<Tensor<1, dim>> diffusive_flux;
+    std::vector<double>         tau_supg_tracer;
 
     std::vector<std::vector<double>>         shape_phi;
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi;
@@ -1507,6 +1546,7 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi_fixed;
     std::vector<std::vector<double>>         shape_mu;
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_mu;
+    std::vector<std::vector<double>>         laplacian_shape_mu;
 
     std::vector<double> source_term_tracer;
     std::vector<double> source_term_potential;

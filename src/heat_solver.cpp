@@ -345,9 +345,11 @@ void HeatSolver<dim>::run()
    * If using a riemannian metric to adapt the mesh(es), perform all the
    * adaptations at the end of all time intervals (as it requires a global
    * scaling factor).
+   * 
+   * If using tree-based adaptation with a steady-state convergence study,
+   * adapt the mesh here.
    */
-  // if (time_handler.is_steady() || param.with_metric_based_adaptation())
-  if (should_adapt_mesh_at_end_of_intervals(time_handler))
+  if (should_adapt_mesh_at_end_of_intervals(param, time_handler))
     adapt_mesh();
 }
 

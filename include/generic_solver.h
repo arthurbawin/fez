@@ -162,8 +162,10 @@ public:
    * typically done in a finalize() function), to provide matching cells/dofs
    * and measured error norms in the convergence table.
    */
-  virtual bool
-  should_adapt_mesh_at_end_of_intervals(const TimeHandler &time_handler) const;
+  template <int dim>
+  bool
+  should_adapt_mesh_at_end_of_intervals(const ParameterReader<dim> &param,
+                                        const TimeHandler &time_handler) const;
 
   /**
    * Return true if the solver should evaluate error norms. This is typically

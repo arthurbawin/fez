@@ -13,7 +13,6 @@ ID 4 -> z_min
 ID 5 -> z_max
 Number of degrees of freedom: 396
 Newton iter.  0:          nonlinear residual = 8.60874158e+00
-8 CG iterations needed to obtain convergence.
 Newton iter.  1:          nonlinear residual = 9.39952948e-11 (M)
 Stopping because residual is below prescribed tolerance (1.00e-06)
 
@@ -24,7 +23,6 @@ Convergence test with manufactured solution:
 Mesh file was changed to 1.msh
 Number of degrees of freedom: 1169
 Newton iter.  0:          nonlinear residual = 2.68093820e+00
-13 CG iterations needed to obtain convergence.
 Newton iter.  1:          nonlinear residual = 2.44510500e-11 (M)
 Stopping because residual is below prescribed tolerance (1.00e-06)
 

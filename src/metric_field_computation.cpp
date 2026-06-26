@@ -296,6 +296,8 @@ void MetricField<dim>::apply_optimal_steady_multiscale_scaling()
 
   // Global scaling (operator *= includes update of the FE solution and ghosts)
   (*this) *= std::pow(N / det_field, 2. / n);
+
+  this->is_scaled = true;
 }
 
 template void MetricField<2>::apply_optimal_steady_multiscale_scaling();

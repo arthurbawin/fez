@@ -629,7 +629,10 @@ void TransientFixedPointData<dim>::scale_metrics(
     // Apply global scaling (operator *= includes update of FE solution and
     // ghosts)
     for (const auto &m_ptr : metrics_for_adaptation)
+    {
       (*m_ptr) *= std::pow(N / global_scaling, 2. / d);
+      m_ptr->is_scaled = true;
+    }
   }
 }
 
@@ -702,6 +705,11 @@ void TransientFixedPointData<dim>::adapt_meshes_with_mmg()
 
   for (unsigned int i = 0; i < n_time_intervals; ++i)
   {
+    Assert(metrics_for_adaptation[i]->is_scaled, ExcInternalError());
+    if (param.metric_fields[param.metrics.metric_for_adaptation]
+          .gradation.enable)
+      Assert(metrics_for_adaptation[i]->is_graded, ExcInternalError());
+
     const std::string input_meshfile = get_meshfile_name(i);
     const std::string output_meshfile =
       adapt_dir + param.mesh.adaptation.adapted_mesh_extension + "_" +

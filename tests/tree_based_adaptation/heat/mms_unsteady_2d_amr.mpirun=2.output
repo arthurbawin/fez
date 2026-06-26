@@ -25,7 +25,6 @@ Number of degrees of freedom: 487
 
 Time step 1 - Advancing to t = 0.05.
 Newton iter.  0:          nonlinear residual = 1.27912865e+01
-25 CG iterations needed to obtain convergence.
 Newton iter.  1:          nonlinear residual = 2.17342126e-11 (M)
 Stopping because residual is below prescribed tolerance (1.00e-06)
 
@@ -35,7 +34,6 @@ Number of degrees of freedom: 651
 
 Time step 2 - Advancing to t = 1.00e-01.
 Newton iter.  0:          nonlinear residual = 1.35690658e+01
-30 CG iterations needed to obtain convergence.
 Newton iter.  1:          nonlinear residual = 7.66338416e-11 (M)
 Stopping because residual is below prescribed tolerance (1.00e-06)
 
@@ -45,7 +43,6 @@ Number of degrees of freedom: 662
 
 Time step 3 - Advancing to t = 1.50e-01.
 Newton iter.  0:          nonlinear residual = 1.32043721e+01
-30 CG iterations needed to obtain convergence.
 Newton iter.  1:          nonlinear residual = 8.50244237e-11 (M)
 Stopping because residual is below prescribed tolerance (1.00e-06)
 

@@ -1,6 +1,7 @@
 
 #include <incompressible_chns_solver.h>
 #include <parameter_reader.h>
+#include <presolver_tools.h>
 #include <utilities.h>
 
 int main(int argc, char *argv[])
@@ -37,7 +38,10 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
+      auto elasticity_presolver = create_elasticity_presolver(param);
       CHNSSolver<2, true> problem(param);
+      if (elasticity_presolver)
+        problem.attach_presolver(elasticity_presolver.get());
       if (param.mms_param.enable)
         problem.run_convergence_loop<2>();
       else
@@ -52,7 +56,10 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
+      auto elasticity_presolver = create_elasticity_presolver(param);
       CHNSSolver<3, true> problem(param);
+      if (elasticity_presolver)
+        problem.attach_presolver(elasticity_presolver.get());
       if (param.mms_param.enable)
         problem.run_convergence_loop<3>();
       else

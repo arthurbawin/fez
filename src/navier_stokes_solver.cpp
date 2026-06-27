@@ -11,10 +11,14 @@
 #include <errors.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <elasticity_solver.h>
+#include <mesh_and_dof_tools.h>
 #include <navier_stokes_solver.h>
 #include <post_processing_handler.h>
 #include <solver_info.h>
 #include <utilities.h>
+
+#include <map>
 
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
@@ -658,6 +662,17 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
 
     // Update MappingFEField *BEFORE* interpolating velocity
     evaluation_point = newton_update;
+
+    // Inject the presolved mesh position (if a presolver is attached) before
+    // interpolating the other fields, so that they are evaluated on the
+    // presolved moving mesh.
+    if (presolver != nullptr)
+    {
+      *present_solution = newton_update;
+      overwrite_position_from_presolver(*presolver);
+      newton_update    = *present_solution;
+      evaluation_point = newton_update;
+    }
   }
 
   // Set velocity with moving mapping
@@ -673,6 +688,29 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
   evaluation_point  = newton_update;
 
   time_handler.rotate_solutions(*present_solution, *previous_solutions);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::overwrite_position_from_presolver(
+  ElasticitySolver<dim> &presolver)
+{
+  local_evaluation_point = *present_solution;
+
+  // The presolver solves the elasticity (mesh-position) system alone, whose
+  // components 0..dim-1 map to this solver's mesh-position components.
+  std::map<unsigned int, unsigned int> component_map;
+  for (unsigned int d = 0; d < dim; ++d)
+    component_map[d] = ordering->x_lower + d;
+
+  extract_subsolution<dim>(presolver.get_dof_handler(),
+                           *dof_handler,
+                           presolver.get_present_solution(),
+                           local_evaluation_point,
+                           component_map);
+  local_evaluation_point.compress(VectorOperation::insert);
+
+  *present_solution = local_evaluation_point;
+  evaluation_point  = *present_solution;
 }
 
 template <int dim, bool with_moving_mesh>

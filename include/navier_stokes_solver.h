@@ -27,6 +27,9 @@
 
 using namespace dealii;
 
+template <int dim>
+class ElasticitySolver;
+
 /**
  * A base class for Navier-Stokes solvers.
  *
@@ -71,6 +74,16 @@ public:
    * in time until the end of the simulation.
    */
   virtual void run() override;
+
+  /**
+   * Attach an elasticity presolver whose presolved mesh position is injected
+   * as the initial mesh when the initial conditions are created. The presolver
+   * remains owned by the caller.
+   */
+  void attach_presolver(ElasticitySolver<dim> *new_presolver)
+  {
+    presolver = new_presolver;
+  }
 
   /**
    * Update the mesh file for the current interval, and assigns the pointers to
@@ -270,6 +283,12 @@ public:
    * overload.
    */
   void set_initial_conditions();
+
+  /**
+   * Overwrite the mesh-position field of the current solution with the
+   * presolved mesh position obtained from the attached elasticity presolver.
+   */
+  void overwrite_position_from_presolver(ElasticitySolver<dim> &presolver);
 
   /**
    * Create the additional initial conditions specific to each derived solver.
@@ -580,6 +599,10 @@ protected:
 
   LA::ParVectorType              *present_solution;
   std::vector<LA::ParVectorType> *previous_solutions;
+
+  // Optional elasticity presolver, owned by the caller, providing the
+  // presolved initial mesh position. Null when no presolver is attached.
+  ElasticitySolver<dim> *presolver = nullptr;
 
   std::shared_ptr<Function<dim>> source_terms;
   std::shared_ptr<Function<dim>> exact_solution;

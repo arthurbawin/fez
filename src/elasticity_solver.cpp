@@ -79,8 +79,11 @@ ElasticitySolver<dim>::ElasticitySolver(
   direct_solver_reuse =
     std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
 
+  const bool evaluate_chns_forcing =
+    param.cahn_hilliard.mff_source_term ==
+    Parameters::CahnHilliard<dim>::MeshForcingSourceTerm::chns_form;
   scratch_data = std::make_unique<ScratchData>(
-    *fe, *mapping, *quadrature, *face_quadrature, param);
+    *fe, *mapping, *quadrature, *face_quadrature, param, evaluate_chns_forcing);
 }
 
 template <int dim>
@@ -129,7 +132,42 @@ void ElasticitySolver<dim>::run()
 
   update_boundary_conditions();
 
-  if (param.elasticity.enable_source_term_on_current_mesh)
+  if (param.cahn_hilliard.mff_source_term ==
+      Parameters::CahnHilliard<dim>::MeshForcingSourceTerm::chns_form)
+  {
+    /**
+     * Cahn-Hilliard moving-mesh forcing. The compression forcing is steep, so
+     * its multiplier is ramped from a small fraction up to its physical value
+     * (1) with a continuation method. The user-source multipliers are disabled.
+     */
+    scratch_data->source_term_fixed_mesh_multiplier  = 0.;
+    scratch_data->source_term_moving_mesh_multiplier = 0.;
+
+    const double c_min =
+      param.elasticity.presolver_initial_compression_multiplier;
+    const unsigned int n_steps = param.elasticity.presolver_continuation_steps;
+
+    const double r =
+      n_steps > 1 ? std::pow(1.0 / c_min, 1.0 / (n_steps - 1)) : 1.;
+
+    scratch_data->chns_compression_multiplier = c_min;
+
+    for (unsigned int n = 0; n < n_steps; ++n)
+    {
+      pcout << std::endl;
+      pcout << "Continuation method - Step " << n + 1 << "/" << n_steps
+            << " : chns compression multiplier = "
+            << scratch_data->chns_compression_multiplier << std::endl;
+      pcout << std::endl;
+
+      if (param.nonlinear_solver.compare_jacobian_with_finite_differences)
+        compare_analytical_matrix_with_fd();
+      solve_nonlinear_problem(time_handler);
+
+      scratch_data->chns_compression_multiplier *= r;
+    }
+  }
+  else if (param.elasticity.enable_source_term_on_current_mesh)
   {
     /**
      * Continuation method to handle possibly steep source terms evaluated

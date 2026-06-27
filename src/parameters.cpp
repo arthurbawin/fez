@@ -1146,17 +1146,35 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Enable limiter for the tracer (phase field marker)");
-      // Mesh forcing parameters
+      // Moving-mesh forcing parameters
       prm.declare_entry(
-        "alpha",
+        "mff source term",
+        "off",
+        Patterns::Selection("off|chns form|custom"),
+        "Source term forcing the pseudosolid (mesh) equation: 'off', the "
+        "built-in Cahn-Hilliard compression form ('chns form'), or a "
+        "user-defined 'custom' source term.");
+      prm.declare_entry(
+        "mff physics compression factor",
         "0.0",
         Patterns::Double(),
-        "Coefficient of pseudosolid source term alpha * phi * grad(phi).");
-      prm.declare_entry("beta",
+        "Compression factor of the phi-based forcing factor(phi) * grad(phi).");
+      prm.declare_entry("mff transport factor",
                         "0.0",
                         Patterns::Double(),
-                        "Coefficient of pseudosolid source term beta * (u_ALE "
-                        "* grad(phi)) * grad(phi).");
+                        "Transport factor of the forcing (u_ALE * grad(phi)) * "
+                        "grad(phi); full CHNS solver only.");
+      prm.declare_entry(
+        "mff regularization gamma",
+        "0.0",
+        Patterns::Double(),
+        "Regularization gamma inside the saturated compression factor.");
+      prm.declare_entry(
+        "use presolver",
+        "false",
+        Patterns::Bool(),
+        "Run an elasticity presolver to pre-position the mesh and inject its "
+        "mesh position as the initial mesh of the CHNS solver.");
     }
     prm.leave_subsection();
   }
@@ -1173,9 +1191,19 @@ namespace Parameters
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
-      // mesh forcing parameters
-      alpha = prm.get_double("alpha");
-      beta  = prm.get_double("beta");
+      // moving-mesh forcing parameters
+      const std::string parsed_mff_source_term = prm.get("mff source term");
+      if (parsed_mff_source_term == "chns form")
+        mff_source_term = MeshForcingSourceTerm::chns_form;
+      else if (parsed_mff_source_term == "custom")
+        mff_source_term = MeshForcingSourceTerm::custom;
+      else
+        mff_source_term = MeshForcingSourceTerm::off;
+      mff_physics_compression_factor =
+        prm.get_double("mff physics compression factor");
+      mff_transport_factor     = prm.get_double("mff transport factor");
+      mff_regularization_gamma = prm.get_double("mff regularization gamma");
+      use_presolver            = prm.get_bool("use presolver");
     }
     prm.leave_subsection();
   }
@@ -1211,6 +1239,23 @@ namespace Parameters
                           "Number of steps to use in the continuation method");
       }
       prm.leave_subsection();
+
+      prm.enter_subsection("presolver");
+      {
+        prm.declare_entry(
+          "initial compression multiplier",
+          "1.",
+          Patterns::Double(0.),
+          "Cahn-Hilliard presolver: initial fraction of the compression "
+          "forcing, ramped up to its physical value (1) by continuation.");
+        prm.declare_entry(
+          "continuation steps",
+          "1",
+          Patterns::Integer(1),
+          "Cahn-Hilliard presolver: number of continuation steps used to ramp "
+          "the compression forcing up to its physical value.");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -1231,6 +1276,15 @@ namespace Parameters
                     ExcMessage("Max source term multiplier should be greater "
                                "than the min multiplier"));
         n_continuation_steps = prm.get_integer("continuation steps");
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("presolver");
+      {
+        presolver_initial_compression_multiplier =
+          prm.get_double("initial compression multiplier");
+        presolver_continuation_steps =
+          prm.get_integer("continuation steps");
       }
       prm.leave_subsection();
     }

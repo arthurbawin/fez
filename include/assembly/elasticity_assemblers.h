@@ -7,10 +7,50 @@
 #include <parameters.h>
 #include <scratch_data.h>
 
+#include <algorithm>
+#include <cmath>
+
+template <int dim>
+class ScratchDataElasticity;
+
 namespace Assembly
 {
   namespace Elasticity
   {
+    /**
+     * Regularized compression coefficient of the Cahn-Hilliard moving-mesh
+     * forcing. The raw coefficient phi / (1 - gamma^2 phi^2) is singular as
+     * gamma*phi -> 1, so phi is saturated through a tanh before being used.
+     * Both the value and its derivative w.r.t. the phase are returned (the
+     * derivative is used to linearize the forcing).
+     */
+    struct MeshForcingFactor
+    {
+      double value;
+      double derivative;
+    };
+
+    inline MeshForcingFactor
+    mesh_forcing_factor(const double phase_value, const double gamma)
+    {
+      constexpr double phi_max_user = 0.998;
+      const double     phi_max_safe =
+        std::min(phi_max_user, 0.98 / std::max(gamma, 1e-14));
+
+      const double z                    = phase_value / phi_max_safe;
+      const double tanh_z               = std::tanh(z);
+      const double regularized_phase    = phi_max_safe * tanh_z;
+      const double regularized_jacobian = 1. - tanh_z * tanh_z;
+      const double denominator =
+        1. - gamma * gamma * regularized_phase * regularized_phase;
+      const double support            = 1. / denominator;
+      const double support_derivative = 2. * gamma * gamma * regularized_phase *
+                                        regularized_jacobian /
+                                        (denominator * denominator);
+
+      return {phase_value * support, support + phase_value * support_derivative};
+    }
+
     /**
      * Create the volume and relevant boundary assemblers, and store them as
      * unique pointers in @p assemblers.
@@ -148,11 +188,19 @@ namespace Assembly
     };
 
     /**
-     * Elasticity source term depending on the Cahn-Hilliard Navier-Stokes phase
-     * marker (tracer) and velocity.
+     * Cahn-Hilliard moving-mesh forcing source term of the pseudosolid
+     * equation, f = compression * eps * factor(phi) * grad phi. This is the
+     * "chns form" path (as opposed to a user-defined custom source term, which
+     * goes through CurrentMeshSourceAssembler).
      *
-     * Note: this is only instantiated for the CHNS scratch data with moving
-     * mesh.
+     * It is meant to support two ways of providing the phase marker:
+     *  - field mode  : phi/psi is an unknown FE field (full CHNS-ALE solver and
+     *                  the enlarged presolver). The Jacobian is exact and
+     *                  Hessian-free (material gradient remapping -G^T grad phi).
+     *  - function mode: phi is an analytic function to evaluate (the ALE
+     *                  elasticity presolver). The Jacobian is exact thanks to
+     *                  the analytic Hessian of phi (symbolic differentiation).
+     * Only the function mode (ScratchDataElasticity) is implemented for now.
      */
     template <int dim, typename ScratchData, typename CopyData>
     class SourceFromCHNSTracerAssembler
@@ -221,18 +269,23 @@ namespace Assembly
           DEAL_II_ASSERT_UNREACHABLE();
       }
 
+      // Custom (user-defined) source term on the current mesh.
       if (param.elasticity.enable_source_term_on_current_mesh)
         assemblers.emplace_back(
           std::make_unique<
             CurrentMeshSourceAssembler<dim, ScratchData, CopyData>>(param,
                                                                     ordering));
 
-      if constexpr (std::is_same_v<
-                      ScratchData,
-                      NavierStokesScratch::ScratchDataCHNS<dim, true>>)
+      // Cahn-Hilliard moving-mesh forcing ("chns form" path). Function mode for
+      // the elasticity presolver (analytic phi); field mode for the full
+      // CHNS-ALE solver is left for a later step.
+      const bool with_chns_form_forcing =
+        param.cahn_hilliard.mff_source_term ==
+        Parameters::CahnHilliard<dim>::MeshForcingSourceTerm::chns_form;
+
+      if constexpr (std::is_same_v<ScratchData, ScratchDataElasticity<dim>>)
       {
-        // FIXME: add an "enable" flag to assemble this only when needed
-        if (false)
+        if (with_chns_form_forcing)
           assemblers.emplace_back(
             std::make_unique<
               SourceFromCHNSTracerAssembler<dim, ScratchData, CopyData>>(

@@ -28,6 +28,12 @@ namespace Assembly
     template class CurrentMeshSourceAssembler<3,
                                    ScratchDataElasticity<3>,
                                    CopyDataBase<>>;
+    template class SourceFromCHNSTracerAssembler<2,
+                                   ScratchDataElasticity<2>,
+                                   CopyDataBase<>>;
+    template class SourceFromCHNSTracerAssembler<3,
+                                   ScratchDataElasticity<3>,
+                                   CopyDataBase<>>;
 
     // Instantiation for FSI solver
     template class LinearElasticityAssembler<2,

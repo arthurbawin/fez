@@ -27,13 +27,15 @@ public:
                               const Mapping<dim>         &mapping,
                               const Quadrature<dim>      &cell_quadrature,
                               const Quadrature<dim - 1>  &face_quadrature,
-                              const ParameterReader<dim> &param)
+                              const ParameterReader<dim> &param,
+                              const bool evaluate_chns_forcing = false)
     : param(param)
     , fe_values(mapping,
                 fe,
                 cell_quadrature,
                 update_values | update_gradients | update_quadrature_points |
                   update_JxW_values)
+    , evaluate_chns_forcing(evaluate_chns_forcing)
     , n_q_points(cell_quadrature.size())
     , n_faces(fe.reference_cell().n_faces())
     , n_faces_q_points(face_quadrature.size())
@@ -52,6 +54,7 @@ public:
                 other.fe_values.get_fe(),
                 other.fe_values.get_quadrature(),
                 other.fe_values.get_update_flags())
+    , evaluate_chns_forcing(other.evaluate_chns_forcing)
     , n_q_points(other.n_q_points)
     , n_faces(other.n_faces)
     , n_faces_q_points(other.n_faces_q_points)
@@ -59,6 +62,7 @@ public:
     , source_term_fixed_mesh_multiplier(other.source_term_fixed_mesh_multiplier)
     , source_term_moving_mesh_multiplier(
         other.source_term_moving_mesh_multiplier)
+    , chns_compression_multiplier(other.chns_compression_multiplier)
   {
     position.first_vector_component = 0;
     allocate();
@@ -71,7 +75,7 @@ private:
     lame_mu.resize(n_q_points);
     lame_lambda.resize(n_q_points);
 
-    components.resize(n_q_points);
+    components.resize(dofs_per_cell);
 
     position_values.resize(n_q_points);
     present_position_gradients.resize(n_q_points);
@@ -96,6 +100,13 @@ private:
                                               std::vector<Tensor<1, dim>>(dim));
     grad_source_term_position_current_mesh.resize(n_q_points);
     source_term_position.resize(n_q_points);
+
+    if (evaluate_chns_forcing)
+    {
+      chns_tracer_values.resize(n_q_points);
+      chns_tracer_gradients.resize(n_q_points);
+      chns_tracer_hessians.resize(n_q_points);
+    }
   }
 
 public:
@@ -133,6 +144,21 @@ public:
     // These are computed with finite differences by deal.II (AutoDerivative)
     source_terms->vector_gradient_list(qpoints_current_mesh,
                                        grad_source_term_full_current_mesh);
+
+    // Cahn-Hilliard moving-mesh forcing: evaluate the prescribed phase and its
+    // analytic gradient/Hessian on the current (deformed) mesh. The Hessian is
+    // needed to linearize the forcing w.r.t. the mesh position.
+    if (evaluate_chns_forcing)
+    {
+      const auto &tracer =
+        *param.initial_conditions.initial_chns_tracer_callback;
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        chns_tracer_values[q]    = tracer.value(qpoints_current_mesh[q]);
+        chns_tracer_gradients[q] = tracer.gradient(qpoints_current_mesh[q]);
+        chns_tracer_hessians[q]  = tracer.hessian(qpoints_current_mesh[q]);
+      }
+    }
 
     for (unsigned int q = 0; q < n_q_points; ++q)
     {
@@ -200,6 +226,10 @@ private:
 
   FEValues<dim> fe_values;
 
+  // Whether to evaluate the Cahn-Hilliard phase (and its derivatives) on the
+  // current mesh, for the moving-mesh forcing of the elasticity presolver.
+  const bool evaluate_chns_forcing;
+
 public:
   const unsigned int active_fe_index = 0;
 
@@ -230,6 +260,12 @@ public:
   std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
   std::vector<std::vector<double>>                  div_phi_x;
 
+  // Prescribed Cahn-Hilliard phase and its analytic derivatives, evaluated on
+  // the current (deformed) mesh. Filled only when evaluate_chns_forcing.
+  std::vector<double>                  chns_tracer_values;
+  std::vector<Tensor<1, dim>>          chns_tracer_gradients;
+  std::vector<SymmetricTensor<2, dim>> chns_tracer_hessians;
+
   /**
    * Evaluation of the given source term on the fixed mesh, that is, of f(X).
    */
@@ -259,6 +295,11 @@ public:
    */
   double                      source_term_fixed_mesh_multiplier;
   double                      source_term_moving_mesh_multiplier;
+
+  // Continuation multiplier ramping the Cahn-Hilliard compression forcing from
+  // a small fraction up to its physical value during the presolve.
+  double chns_compression_multiplier = 1.;
+
   std::vector<Tensor<1, dim>> source_term_position;
 };
 

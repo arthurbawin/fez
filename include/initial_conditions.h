@@ -4,6 +4,8 @@
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/parsed_function.h>
 
+#include <parsed_function_symengine.h>
+
 using namespace dealii;
 
 namespace Parameters
@@ -48,7 +50,7 @@ namespace Parameters
       : initial_velocity_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(dim))
       , initial_chns_tracer_callback(
-          std::make_shared<Functions::ParsedFunction<dim>>(1))
+          std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1))
       , initial_pressure_callback(
           std::make_shared<Functions::ParsedFunction<dim>>(1))
       , initial_temperature_callback(
@@ -110,8 +112,11 @@ namespace Parameters
     std::shared_ptr<Functions::ParsedFunction<dim>> initial_velocity_callback;
     std::shared_ptr<InitialVelocity<dim>>           initial_velocity;
 
-    // CHNS tracer data
-    std::shared_ptr<Functions::ParsedFunction<dim>>
+    // CHNS tracer data. A symbolic-differentiation parsed function is used (in
+    // place of deal.II's ParsedFunction) so that the analytic gradient and
+    // Hessian of phi are available - they are needed to linearize the
+    // Cahn-Hilliard mesh-forcing source term w.r.t. the mesh position.
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
                                             initial_chns_tracer_callback;
     std::shared_ptr<InitialCHNSTracer<dim>> initial_chns_tracer;
 
@@ -198,13 +203,13 @@ namespace Parameters
   {
   public:
     const unsigned int phi_lower;
-    std::shared_ptr<Functions::ParsedFunction<dim>>
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       initial_chns_tracer_callback;
 
   public:
     InitialCHNSTracer(const unsigned int phi_lower,
                       const unsigned int n_components,
-                      std::shared_ptr<Functions::ParsedFunction<dim>>
+                      std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
                         initial_chns_tracer_callback)
       : Function<dim>(n_components)
       , phi_lower(phi_lower)

@@ -1,0 +1,30 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 18
+ boundary indicators: 0(3 faces) 1(3 faces) 2(3 faces) 3(3 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 98
+
+Continuation method - Step 1/5 : chns compression multiplier = 0.1
+
+Max absolute error analytical vs fd matrix is 2.91785e-07
+
+Continuation method - Step 2/5 : chns compression multiplier = 0.177828
+
+Max absolute error analytical vs fd matrix is 2.86374e-07
+
+Continuation method - Step 3/5 : chns compression multiplier = 0.316228
+
+Max absolute error analytical vs fd matrix is 2.84493e-07
+
+Continuation method - Step 4/5 : chns compression multiplier = 0.562341
+
+Max absolute error analytical vs fd matrix is 2.84308e-07
+
+Continuation method - Step 5/5 : chns compression multiplier = 1
+
+Max absolute error analytical vs fd matrix is 2.86713e-07

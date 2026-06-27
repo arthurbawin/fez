@@ -624,6 +624,19 @@ namespace Parameters
     double       presolver_initial_compression_multiplier;
     unsigned int presolver_continuation_steps;
 
+    // Disk cache of the presolved mesh position. The cached field is keyed by
+    // support-point location, so it can be reloaded with a different number of
+    // MPI processes. 'reuse' loads a valid cache and writes one otherwise;
+    // 'force_recompute' always re-solves and refreshes the cache; 'off' (the
+    // default) disables caching entirely.
+    enum class PresolvedMeshPositionMode
+    {
+      off,
+      reuse,
+      force_recompute
+    } presolved_mesh_position_mode;
+    std::string presolved_mesh_position_file;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };

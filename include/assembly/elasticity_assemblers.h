@@ -276,6 +276,11 @@ namespace Assembly
             CurrentMeshSourceAssembler<dim, ScratchData, CopyData>>(param,
                                                                     ordering));
 
+      // TODO: wire the "custom" mff source term path, where the moving-mesh
+      // forcing is a user-defined expression assembled through
+      // CurrentMeshSourceAssembler. For now only "off" and "chns form" are
+      // functional; "custom" is parsed but assembles no forcing.
+
       // Cahn-Hilliard moving-mesh forcing ("chns form" path): function mode for
       // the elasticity presolver (analytic phi) and field mode for the full
       // CHNS-ALE solver (FE phi). Both share this assembler.

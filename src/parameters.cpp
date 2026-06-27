@@ -1256,6 +1256,22 @@ namespace Parameters
           "the compression forcing up to its physical value.");
       }
       prm.leave_subsection();
+
+      prm.enter_subsection("presolved mesh position");
+      {
+        prm.declare_entry(
+          "mode",
+          "off",
+          Patterns::Selection("off|reuse|force_recompute"),
+          "Disk cache of the presolved mesh position: 'off' disables caching, "
+          "'reuse' loads a valid cache (and writes one otherwise), "
+          "'force_recompute' always re-solves and refreshes the cache.");
+        prm.declare_entry("file",
+                          "presolved_mesh_position",
+                          Patterns::Anything(),
+                          "File name of the presolved mesh position cache.");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -1285,6 +1301,20 @@ namespace Parameters
           prm.get_double("initial compression multiplier");
         presolver_continuation_steps =
           prm.get_integer("continuation steps");
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("presolved mesh position");
+      {
+        const std::string parsed_mode = prm.get("mode");
+        if (parsed_mode == "reuse")
+          presolved_mesh_position_mode = PresolvedMeshPositionMode::reuse;
+        else if (parsed_mode == "force_recompute")
+          presolved_mesh_position_mode =
+            PresolvedMeshPositionMode::force_recompute;
+        else
+          presolved_mesh_position_mode = PresolvedMeshPositionMode::off;
+        presolved_mesh_position_file = prm.get("file");
       }
       prm.leave_subsection();
     }

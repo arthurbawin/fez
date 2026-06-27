@@ -20,7 +20,20 @@ create_elasticity_presolver(const ParameterReader<dim> &param)
     return nullptr;
 
   auto presolver = std::make_unique<ElasticitySolver<dim>>(param);
-  presolver->run();
+
+  using Mode      = Parameters::Elasticity::PresolvedMeshPositionMode;
+  const auto mode = param.elasticity.presolved_mesh_position_mode;
+
+  // Only 'reuse' tries an existing cache; 'force_recompute' (and 'off') always
+  // solve. run() writes the cache itself when caching is enabled (it must do
+  // so before the mesh is moved for postprocessing).
+  bool loaded = false;
+  if (mode == Mode::reuse)
+    loaded = presolver->try_load_presolved_mesh_cache();
+
+  if (!loaded)
+    presolver->run();
+
   return presolver;
 }
 

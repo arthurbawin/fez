@@ -350,7 +350,40 @@ namespace Assembly
         }
       }
       else
-        DEAL_II_NOT_IMPLEMENTED();
+      {
+        // Field mode: phi is an unknown finite-element field on the moving mesh
+        // (full CHNS-ALE solver). The forcing f = compression * eps *
+        // factor(phi) * grad phi + transport * eps^2 * (u_conv . grad phi) grad
+        // phi uses the discrete phase and its moving-mesh gradient. The sign
+        // convention (rhs -=) matches the elasticity source term and the
+        // presolver, so the presolved mesh is a coherent equilibrium here.
+        auto        &sd        = scratch_data;
+        auto        &local_rhs = copy_data.local_rhs(sd.active_fe_index);
+        const double epsilon   = param.cahn_hilliard.epsilon_interface;
+        const double gamma     = param.cahn_hilliard.mff_regularization_gamma;
+        const double compression =
+          param.cahn_hilliard.mff_physics_compression_factor;
+        const double transport = param.cahn_hilliard.mff_transport_factor;
+
+        for (unsigned int q = 0; q < sd.n_q_points; ++q)
+        {
+          const double            phi      = sd.tracer_values[q];
+          const Tensor<1, dim>   &grad_phi = sd.tracer_gradients[q];
+          const MeshForcingFactor factor   = mesh_forcing_factor(phi, gamma);
+
+          Tensor<1, dim> forcing =
+            compression * epsilon * factor.value * grad_phi;
+
+          const Tensor<1, dim> convective_velocity =
+            sd.present_velocity_values[q] - sd.present_mesh_velocity_values[q];
+          forcing += transport * epsilon * epsilon *
+                     ((convective_velocity * grad_phi) * grad_phi);
+
+          for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+            if (ordering.is_position(sd.components[i]))
+              local_rhs(i) -= sd.phi_x[q][i] * forcing * sd.JxW_fixed[q];
+        }
+      }
     }
 
     template <int dim, typename ScratchData, typename CopyData>
@@ -405,7 +438,84 @@ namespace Assembly
         }
       }
       else
-        DEAL_II_NOT_IMPLEMENTED();
+      {
+        // Field mode: phi is an unknown FE field, so the forcing varies w.r.t.
+        // the tracer (factor'(phi) shape + factor(phi) grad shape), the mesh
+        // position (the moving-mesh gradient remaps as -G^T grad phi), and the
+        // velocity (transport term). The sign (matrix +=) matches the field
+        // mode rhs (rhs -=).
+        auto        &sd           = scratch_data;
+        auto        &local_matrix = copy_data.local_matrix(sd.active_fe_index);
+        const double epsilon      = param.cahn_hilliard.epsilon_interface;
+        const double gamma        = param.cahn_hilliard.mff_regularization_gamma;
+        const double compression =
+          param.cahn_hilliard.mff_physics_compression_factor;
+        const double transport = param.cahn_hilliard.mff_transport_factor;
+
+        for (unsigned int q = 0; q < sd.n_q_points; ++q)
+        {
+          const double            phi      = sd.tracer_values[q];
+          const Tensor<1, dim>   &grad_phi = sd.tracer_gradients[q];
+          const MeshForcingFactor factor   = mesh_forcing_factor(phi, gamma);
+
+          const Tensor<1, dim> convective_velocity =
+            sd.present_velocity_values[q] - sd.present_mesh_velocity_values[q];
+          const double velocity_dot_grad_phi = convective_velocity * grad_phi;
+
+          for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+          {
+            if (!ordering.is_position(sd.components[i]))
+              continue;
+            const auto &test = sd.phi_x[q][i];
+
+            for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+            {
+              const unsigned int comp_j = sd.components[j];
+              Tensor<1, dim>     forcing_variation;
+
+              if (ordering.is_velocity(comp_j))
+                forcing_variation += transport * epsilon * epsilon *
+                                     ((sd.phi_u[q][j] * grad_phi) * grad_phi);
+
+              if (ordering.is_position(comp_j))
+              {
+                const Tensor<2, dim> &G = sd.grad_phi_x_moving[q][j];
+                const Tensor<1, dim>  transported_gradient =
+                  -transpose(G) * grad_phi;
+
+                forcing_variation +=
+                  compression * epsilon * factor.value * transported_gradient;
+
+                const Tensor<1, dim> convective_velocity_variation =
+                  -sd.bdf_c0 * sd.phi_x[q][j];
+                forcing_variation +=
+                  transport * epsilon * epsilon *
+                  ((convective_velocity_variation * grad_phi) * grad_phi +
+                   (convective_velocity * transported_gradient) * grad_phi +
+                   velocity_dot_grad_phi * transported_gradient);
+              }
+
+              if (ordering.is_tracer(comp_j))
+              {
+                const double          shape = sd.shape_phi[q][j];
+                const Tensor<1, dim> &shape_gradient =
+                  sd.grad_shape_phi[q][j];
+                forcing_variation +=
+                  compression * epsilon *
+                  (factor.derivative * shape * grad_phi +
+                   factor.value * shape_gradient);
+                forcing_variation +=
+                  transport * epsilon * epsilon *
+                  ((convective_velocity * shape_gradient) * grad_phi +
+                   velocity_dot_grad_phi * shape_gradient);
+              }
+
+              local_matrix(i, j) +=
+                test * forcing_variation * sd.JxW_fixed[q];
+            }
+          }
+        }
+      }
     }
   } // namespace Elasticity
 } // namespace Assembly

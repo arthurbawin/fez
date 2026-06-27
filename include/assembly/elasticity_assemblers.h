@@ -276,14 +276,17 @@ namespace Assembly
             CurrentMeshSourceAssembler<dim, ScratchData, CopyData>>(param,
                                                                     ordering));
 
-      // Cahn-Hilliard moving-mesh forcing ("chns form" path). Function mode for
-      // the elasticity presolver (analytic phi); field mode for the full
-      // CHNS-ALE solver is left for a later step.
+      // Cahn-Hilliard moving-mesh forcing ("chns form" path): function mode for
+      // the elasticity presolver (analytic phi) and field mode for the full
+      // CHNS-ALE solver (FE phi). Both share this assembler.
       const bool with_chns_form_forcing =
         param.cahn_hilliard.mff_source_term ==
         Parameters::CahnHilliard<dim>::MeshForcingSourceTerm::chns_form;
 
-      if constexpr (std::is_same_v<ScratchData, ScratchDataElasticity<dim>>)
+      if constexpr (std::is_same_v<ScratchData, ScratchDataElasticity<dim>> ||
+                    std::is_same_v<
+                      ScratchData,
+                      NavierStokesScratch::ScratchDataCHNS<dim, true>>)
       {
         if (with_chns_form_forcing)
           assemblers.emplace_back(

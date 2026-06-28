@@ -50,14 +50,16 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
 
   if (param.finite_elements.use_quads)
   {
-    mapping = std::make_unique<MappingQ<dim>>(1);
-    fe      = std::make_unique<FESystem<dim>>(
+    mapping =
+      std::make_unique<MappingQ<dim>>(param.finite_elements.mapping_degree);
+    fe = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.temperature_degree));
   }
   else
   {
-    mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
-    fe      = std::make_unique<FESystem<dim>>(
+    mapping = std::make_unique<MappingFE<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.mapping_degree));
+    fe = std::make_unique<FESystem<dim>>(
       FE_SimplexP<dim>(param.finite_elements.temperature_degree));
   }
 
@@ -340,7 +342,7 @@ void HeatSolver<dim>::run()
    * If using a riemannian metric to adapt the mesh(es), perform all the
    * adaptations at the end of all time intervals (as it requires a global
    * scaling factor).
-   * 
+   *
    * If using tree-based adaptation with a steady-state convergence study,
    * adapt the mesh here.
    */

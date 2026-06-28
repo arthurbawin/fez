@@ -360,10 +360,11 @@ void NSSolverLambda<dim>::setup_mappings()
   // This solver does not use a moving mesh, so moving_mapping and fixed_mapping
   // are identical
   if (this->param.finite_elements.use_quads)
-    this->moving_mapping = std::make_unique<MappingQ<dim>>(1);
+    this->moving_mapping = std::make_unique<MappingQ<dim>>(
+      this->param.finite_elements.mapping_degree);
   else
-    this->moving_mapping =
-      std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+    this->moving_mapping = std::make_unique<MappingFE<dim>>(
+      FE_SimplexP<dim>(this->param.finite_elements.mapping_degree));
 }
 
 template <int dim>

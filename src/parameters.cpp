@@ -79,7 +79,7 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void Mesh::declare_parameters(ParameterHandler &prm)
+  void Mesh::declare_parameters(ParameterHandler &prm, const int dim)
   {
     prm.enter_subsection("Mesh");
     {
@@ -92,10 +92,12 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Use cube mesh from deal.II's routines");
-      prm.declare_entry("dealii preset mesh",
-                        "none",
-                        Patterns::Selection("none|cube|rectangle|holed plate"),
-                        "Use dealii meshing routines for specified geometry");
+      prm.declare_entry(
+        "dealii preset mesh",
+        "none",
+        Patterns::Selection(
+          "none|cube|rectangle|holed plate|uniform channel with cylinder"),
+        "Use dealii meshing routines for specified geometry");
       prm.declare_entry("dealii mesh parameters",
                         "2, 2 : 0., 0. : 1., 1. : false");
       prm.declare_entry(
@@ -121,7 +123,8 @@ namespace Parameters
                           "Root extension for the adapted meshes");
         prm.declare_entry("strategy",
                           "riemannian metric",
-                          Patterns::Selection("riemannian metric"),
+                          Patterns::Selection(
+                            "riemannian metric|local refinement"),
                           "Mesh adaptation strategy");
         prm.enter_subsection("Metric");
         {
@@ -145,6 +148,55 @@ namespace Parameters
                             Patterns::Integer(1),
                             "Number of time sub-intervals for the transient "
                             "fixed point method");
+        }
+        prm.leave_subsection();
+        prm.enter_subsection("Local refinement");
+        {
+          prm.declare_entry("n fixed point",
+                            "1",
+                            Patterns::Integer(1),
+                            "Number of fixed point iterations to converge the "
+                            "mesh-solution pair");
+          prm.declare_entry("refinement strategy",
+                            "fixed number",
+                            Patterns::Selection("fixed number|fixed fraction"),
+                            "Refinement strategy used by deal.II's "
+                            "refine_and_coarsen routines");
+          prm.declare_entry(
+            "fraction to refine",
+            // As suggested in grid_refinement.h, use as default
+            // the fractions that lead to doubling the number of cells
+            // if no coarsening is applied (1/3 and 1/7).
+            // This is of course only valid for the "fixed number" strategy.
+            dim == 2 ? "0.3333333333" : "0.142857143",
+            Patterns::Double(0., 1.),
+            "Fraction of cells or errors to mark for refinement");
+          prm.declare_entry(
+            "fraction to coarsen",
+            "0.",
+            Patterns::Double(0., 1.),
+            "Fraction of cells or errors to mark for coarsening");
+          prm.declare_entry("min grid level",
+                            "0",
+                            Patterns::Integer(0),
+                            "Minimum level of grid refinement allowed");
+          prm.declare_entry("max grid level",
+                            "8",
+                            Patterns::Integer(0),
+                            "Maximum level of grid refinement allowed");
+          prm.declare_entry("max number of cells",
+                            "1000000",
+                            Patterns::Integer(0),
+                            "Maximum number of mesh cells allowed");
+          prm.declare_entry(
+            "number of prerefinement steps",
+            "0",
+            Patterns::Integer(0),
+            "Number of refinement steps to obtain the initial mesh");
+          prm.declare_entry("adapt frequency",
+                            "1",
+                            Patterns::Integer(1),
+                            "Adapt the mesh every n time steps");
         }
         prm.leave_subsection();
       }
@@ -172,6 +224,8 @@ namespace Parameters
         const std::string parsed_strategy = prm.get("strategy");
         if (parsed_strategy == "riemannian metric")
           adaptation.strategy = Adaptation::Strategy::RiemannianMetric;
+        else if (parsed_strategy == "local refinement")
+          adaptation.strategy = Adaptation::Strategy::LocalRefinement;
         else
           throw std::runtime_error("Unexpected mesh adaptation strategy: " +
                                    parsed_strategy);
@@ -185,6 +239,40 @@ namespace Parameters
             prm.get_integer("mmg verbosity level");
           adaptation.metric.n_time_intervals =
             prm.get_integer("n time intervals");
+        }
+        prm.leave_subsection();
+        prm.enter_subsection("Local refinement");
+        {
+          auto &t = adaptation.tree_amr;
+
+          const std::string parsed_strategy = prm.get("refinement strategy");
+          if (parsed_strategy == "fixed number")
+            t.refinement_strategy =
+              Adaptation::TreeAMR::RefinementStrategy::FixedNumber;
+          else if (parsed_strategy == "fixed fraction")
+            t.refinement_strategy =
+              Adaptation::TreeAMR::RefinementStrategy::FixedFraction;
+          else
+            AssertThrow(false,
+                        ExcMessage(
+                          "Unexpected mesh adaptation refinement strategy: " +
+                          parsed_strategy));
+          t.fraction_to_refine  = prm.get_double("fraction to refine");
+          t.fraction_to_coarsen = prm.get_double("fraction to coarsen");
+          AssertThrow(t.fraction_to_refine + t.fraction_to_coarsen < 1 + 1e-12,
+                      ExcMessage(
+                        "The sum of the fractions of the cells/cellwise errors "
+                        "to refine and coarsen should not exceed 1."));
+          t.min_level = prm.get_integer("min grid level");
+          t.max_level = prm.get_integer("max grid level");
+          AssertThrow(t.max_level >= t.min_level,
+                      ExcMessage(
+                        "The maximum allowed grid refinement level should be "
+                        "greater than or equal to the minimum allowed level."));
+          t.max_n_cells = prm.get_integer("max number of cells");
+          t.n_prerefinement_steps =
+            prm.get_integer("number of prerefinement steps");
+          t.adapt_frequency = prm.get_integer("adapt frequency");
         }
         prm.leave_subsection();
       }
@@ -214,6 +302,16 @@ namespace Parameters
         "1",
         Patterns::Integer(1),
         "Frequency (in time steps) for the standard vtu export.");
+      prm.declare_entry("number of vtu groups",
+                        "1",
+                        Patterns::Integer(0),
+                        "Number of groups of VTU files when writing in "
+                        "parallel (0 means one per MPI process).");
+      prm.declare_entry(
+        "number of subdivisions",
+        "2",
+        Patterns::Integer(0),
+        "Number of subdivisions used to build visualization patches.");
       prm.enter_subsection("skin");
       {
         prm.declare_entry(
@@ -248,6 +346,8 @@ namespace Parameters
       output_dir           = prm.get("output directory");
       output_prefix        = prm.get("output prefix");
       vtu_output_frequency = prm.get_integer("vtu output frequency");
+      n_vtu_groups         = prm.get_integer("number of vtu groups");
+      n_subdivisions       = prm.get_integer("number of subdivisions");
       prm.enter_subsection("skin");
       {
         skin.write_results    = prm.get_bool("write vtu results");
@@ -452,6 +552,13 @@ namespace Parameters
                         Patterns::Integer(),
                         "Polynomial degree of the temperature interpolant");
 
+      prm.declare_entry(
+        "mapping degree",
+        "1",
+        Patterns::Selection("isoparametric velocity|1|2|3|4|5"),
+        "Degree of the reference-to-physical mapping, or degree of the "
+        "velocity approximation if set to isoparametric");
+
       prm.enter_subsection("Quadrature rule");
       {
         declare_quadrature_rule<dim>(prm);
@@ -539,6 +646,18 @@ namespace Parameters
       tracer_degree      = prm.get_integer("Tracer degree");
       potential_degree   = prm.get_integer("Potential degree");
       temperature_degree = prm.get_integer("Temperature degree");
+
+      /**
+       * Set the degree of the geometric mapping.
+       * If the mesh position is a variable of the problem, their degree must
+       * match, but we cannot test it here, as we don't know which solver will
+       * be created.
+       */
+      const std::string parsed_mapping_degree = prm.get("mapping degree");
+      if (parsed_mapping_degree == "isoparametric velocity")
+        mapping_degree = velocity_degree;
+      else
+        mapping_degree = Utilities::string_to_int(parsed_mapping_degree);
 
       prm.enter_subsection("Quadrature rule");
       {

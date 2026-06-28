@@ -5,7 +5,7 @@
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/utilities.h>
-#include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria_base.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
@@ -542,8 +542,8 @@ protected:
 
   TransientFixedPointData<dim> transient_fixed_point_data;
 
-  parallel::fullydistributed::Triangulation<dim> *triangulation;
-  DoFHandler<dim>                                *dof_handler;
+  parallel::DistributedTriangulationBase<dim> *triangulation;
+  DoFHandler<dim>                             *dof_handler;
 
   std::unique_ptr<Mapping<dim>> fixed_mapping;
   std::unique_ptr<Mapping<dim>> moving_mapping;

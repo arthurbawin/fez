@@ -26,16 +26,16 @@ Fy = 0.000000e+00
 Fz = 0.000000e+00
 
 Forces per slice on boundary with id 7:
-Slice 0: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
-Slice 1: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
-Slice 2: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
-Slice 3: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
-Slice 4: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
-Slice 5: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
-Slice 6: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
-Slice 7: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
-Slice 8: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
-Slice 9: Fx = +0.000000e+00 Fy = +0.000000e+00  Fz = +0.000000e+00  
+Slice 0: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 1: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 2: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 3: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 4: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 5: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 6: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 7: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 8: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
+Slice 9: Fx = +0.000000e+00	Fy = +0.000000e+00	Fz = +0.000000e+00	
 
 Mean position (geometric center) on boundary with id 7:
 x = +7.991935e+00
@@ -52,28 +52,28 @@ Max diff between displacements is +2.66453526e-15 +0.00000000e+00 +1.77635684e-1
 Time step 1 - Advancing to t = +1.00000000e-01.
 Removing nonzero constraints on cylinder
 Removing nonzero constraints on cylinder
-Newton iter.  0:          nonlinear residual = 1.85258488e+00
-Newton iter.  1:          nonlinear residual = 1.13836972e-03   (M)
-Newton iter.  2:          nonlinear residual = 1.15773864e-09   (M)
-Newton iter.  3:          nonlinear residual = 2.37988226e-13   (M)
-Stopping because residual is below prescribed tolerance (1.00e-10)
+Newton iter.  0:          nonlinear residual = +1.85258488e+00
+Newton iter.  1:          nonlinear residual = +1.13849093e-03	(M)
+Newton iter.  2:          nonlinear residual = +1.15757151e-09	(M)
+Newton iter.  3:          nonlinear residual = +2.81177055e-13	(M)
+Stopping because residual is below prescribed tolerance (+1.00e-10)
 
 Forces on boundary with id 7 computed with method : lagrange_multiplier
 Fx = +9.995782e-02
-Fy = +4.755878e-08
-Fz = +7.610976e-04
+Fy = +5.881977e-08
+Fz = +7.656221e-04
 
 Forces per slice on boundary with id 7:
-Slice 0: Fx = +1.802576e-02 Fy = -1.599480e-04  Fz = -2.006562e-03  
-Slice 1: Fx = +6.411586e-03 Fy = -2.181340e-04  Fz = +6.878693e-05  
-Slice 2: Fx = +7.884548e-03 Fy = -6.441726e-05  Fz = -7.197854e-04  
-Slice 3: Fx = +7.406321e-03 Fy = -1.035594e-04  Fz = -3.009777e-04  
-Slice 4: Fx = +5.253316e-03 Fy = -1.945069e-04  Fz = +1.471128e-04  
-Slice 5: Fx = +8.162975e-03 Fy = +7.012591e-05  Fz = -1.561299e-05  
-Slice 6: Fx = +8.480367e-03 Fy = +3.036662e-05  Fz = -1.432420e-04  
-Slice 7: Fx = +1.044437e-02 Fy = +2.289613e-04  Fz = +9.975939e-04  
-Slice 8: Fx = +9.855962e-03 Fy = +4.330773e-04  Fz = -7.402864e-04  
-Slice 9: Fx = +1.803262e-02 Fy = -2.191798e-05  Fz = +3.474071e-03  
+Slice 0: Fx = +1.802122e-02	Fy = -1.544952e-04	Fz = -2.104080e-03	
+Slice 1: Fx = +6.419671e-03	Fy = -2.169270e-04	Fz = +6.602005e-05	
+Slice 2: Fx = +7.883878e-03	Fy = -5.747183e-05	Fz = -7.179206e-04	
+Slice 3: Fx = +7.409870e-03	Fy = -1.100052e-04	Fz = -3.033725e-04	
+Slice 4: Fx = +5.243679e-03	Fy = -1.944231e-04	Fz = +1.476485e-04	
+Slice 5: Fx = +8.163647e-03	Fy = +6.965769e-05	Fz = -1.554640e-05	
+Slice 6: Fx = +8.480971e-03	Fy = +2.932169e-05	Fz = -1.427455e-04	
+Slice 7: Fx = +1.044178e-02	Fy = +2.161746e-04	Fz = +9.988595e-04	
+Slice 8: Fx = +9.862438e-03	Fy = +4.381529e-04	Fz = -7.353339e-04	
+Slice 9: Fx = +1.803066e-02	Fy = -1.992576e-05	Fz = +3.572093e-03	
 
 Mean position (geometric center) on boundary with id 7:
 x = +8.091893e+00
@@ -81,8 +81,8 @@ y = +8.000069e+00
 z = +3.994095e+00
 
 Checking consistency between lambda integral and position BC:
-Integral of lambda on cylinder is -9.99578181e-02 -4.75587822e-08 -7.61097570e-04
-Prescribed displacement        is +9.99578181e-02 +4.75613486e-08 +0.00000000e+00
+Integral of lambda on cylinder is -9.99578230e-02 -5.88197735e-08 -7.65622090e-04
+Prescribed displacement        is +9.99578230e-02 +5.88205697e-08 +0.00000000e+00
                          Ratio is -1.00000000e+00 +0.00000000e+00 +0.00000000e+00 (expected: -1.00000000e+00)
-Max diff between displacements is +2.66453526e-15 +8.88178420e-16 +3.55271368e-15
+Max diff between displacements is +2.66453526e-15 +8.88178420e-16 +1.77635684e-15
 

@@ -212,6 +212,10 @@ namespace Parameters
     std::string  output_prefix;
     unsigned int vtu_output_frequency;
 
+    // Number of VTU files when writing in parallel
+    unsigned int n_vtu_groups;
+
+    // Number of cells subdivisions for visualization
     unsigned int n_subdivisions;
 
     // A "skin" is a codimension 1 boundary on which we wish to extract data

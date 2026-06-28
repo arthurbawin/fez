@@ -302,6 +302,11 @@ namespace Parameters
         "1",
         Patterns::Integer(1),
         "Frequency (in time steps) for the standard vtu export.");
+      prm.declare_entry("number of vtu groups",
+                        "1",
+                        Patterns::Integer(0),
+                        "Number of groups of VTU files when writing in "
+                        "parallel (0 means one per MPI process).");
       prm.declare_entry(
         "number of subdivisions",
         "2",
@@ -341,6 +346,7 @@ namespace Parameters
       output_dir           = prm.get("output directory");
       output_prefix        = prm.get("output prefix");
       vtu_output_frequency = prm.get_integer("vtu output frequency");
+      n_vtu_groups         = prm.get_integer("number of vtu groups");
       n_subdivisions       = prm.get_integer("number of subdivisions");
       prm.enter_subsection("skin");
       {

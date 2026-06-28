@@ -299,6 +299,7 @@ private:
   const Parameters::Output                  &output_param;
   const Parameters::PhysicalProperties<dim> &physical_properties;
   const Parameters::MMS                     &mms_param;
+  const Parameters::FiniteElements<dim>     &fe_param;
 
   ObserverPointer<const Triangulation<dim>, PostProcessingHandler<dim>>
     triangulation;
@@ -415,7 +416,10 @@ void PostProcessingHandler<dim>::output_volume_fields(
                             DataOut<dim>::type_dof_data,
                             data_component_interpretation);
   data_out->add_data_vector(subdomains, "subdomain");
-  data_out->build_patches(mapping, 2);
+
+  data_out->build_patches(mapping,
+                          output_param.n_subdivisions,
+                          DataOut<dim>::CurvedCellRegion::curved_inner_cells);
 
   std::string prefix = output_param.output_prefix;
   if (mms_param.enable)
@@ -468,7 +472,7 @@ void PostProcessingHandler<dim>::output_skin_fields(
                                    "slice index",
                                    DataOutFaces<dim>::type_cell_data);
   }
-  data_out_skin->build_patches(mapping, 2);
+  data_out_skin->build_patches(mapping, output_param.n_subdivisions);
 
   std::string prefix =
     output_param.output_prefix + "_" + output_param.skin.output_prefix;

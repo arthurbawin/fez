@@ -11,6 +11,7 @@ PostProcessingHandler<dim>::PostProcessingHandler(
   , output_param(param.output)
   , physical_properties(param.physical_properties)
   , mms_param(param.mms_param)
+  , fe_param(param.finite_elements)
   , triangulation(&triangulation, typeid(*this).name())
   , dof_handler(&dof_handler, typeid(*this).name())
   , mpi_communicator(dof_handler.get_mpi_communicator())
@@ -32,22 +33,7 @@ PostProcessingHandler<dim>::PostProcessingHandler(
       }
   }
 
-  if (output_param.write_results)
-  {
-    data_out = std::make_unique<DataOut<dim>>();
-    data_out->attach_dof_handler(dof_handler);
-  }
-
-  if (output_param.skin.write_results)
-  {
-    // build_patches is not (yet) implemented for DataOutFaces in hp context,
-    // but at this point the dof_handler might not yet be initialized.
-    // The check is done in output_skin_fields instead.
-    data_out_skin =
-      std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
-        triangulation, output_param.skin.boundary_id);
-    data_out_skin->attach_dof_handler(dof_handler);
-  }
+  this->attach_triangulation_and_dof_handler(triangulation, dof_handler);
 }
 
 template <int dim>
@@ -64,12 +50,30 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
   this->dof_handler   = &dof_handler;
 
   // Create new DataOuts
-  data_out = std::make_unique<DataOut<dim>>();
-  data_out->attach_dof_handler(dof_handler);
-  data_out_skin =
-    std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
-      triangulation, output_param.skin.boundary_id);
-  data_out_skin->attach_dof_handler(dof_handler);
+  if (output_param.write_results)
+  {
+    data_out = std::make_unique<DataOut<dim>>();
+    data_out->attach_dof_handler(dof_handler);
+
+    // Write high-order elements if needed
+    if (fe_param.mapping_degree > 1)
+    {
+      DataOutBase::VtkFlags flags;
+      flags.write_higher_order_cells = true;
+      data_out->set_flags(flags);
+    }
+  }
+
+  if (output_param.skin.write_results)
+  {
+    // build_patches is not (yet) implemented for DataOutFaces in hp context,
+    // but at this point the dof_handler might not yet be initialized.
+    // The check is done in output_skin_fields instead.
+    data_out_skin =
+      std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
+        triangulation, output_param.skin.boundary_id);
+    data_out_skin->attach_dof_handler(dof_handler);
+  }
 
   // Clear the stored cell-based vectors
   subdomains.reinit(0);

@@ -128,10 +128,12 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Use cube mesh from deal.II's routines");
-      prm.declare_entry("dealii preset mesh",
-                        "none",
-                        Patterns::Selection("none|cube|rectangle|holed plate"),
-                        "Use dealii meshing routines for specified geometry");
+      prm.declare_entry(
+        "dealii preset mesh",
+        "none",
+        Patterns::Selection(
+          "none|cube|rectangle|holed plate|uniform channel with cylinder"),
+        "Use dealii meshing routines for specified geometry");
       prm.declare_entry("dealii mesh parameters",
                         "2, 2 : 0., 0. : 1., 1. : false");
       prm.declare_entry(
@@ -431,6 +433,11 @@ namespace Parameters
         "1",
         Patterns::Integer(1),
         "Frequency (in time steps) for the standard vtu export.");
+      prm.declare_entry(
+        "number of subdivisions",
+        "2",
+        Patterns::Integer(0),
+        "Number of subdivisions used to build visualization patches.");
       prm.enter_subsection("skin");
       {
         prm.declare_entry(
@@ -465,6 +472,7 @@ namespace Parameters
       output_dir           = prm.get("output directory");
       output_prefix        = prm.get("output prefix");
       vtu_output_frequency = prm.get_integer("vtu output frequency");
+      n_subdivisions       = prm.get_integer("number of subdivisions");
       prm.enter_subsection("skin");
       {
         skin.write_results    = prm.get_bool("write vtu results");
@@ -669,6 +677,13 @@ namespace Parameters
                         Patterns::Integer(),
                         "Polynomial degree of the temperature interpolant");
 
+      prm.declare_entry(
+        "mapping degree",
+        "1",
+        Patterns::Selection("isoparametric velocity|1|2|3|4|5"),
+        "Degree of the reference-to-physical mapping, or degree of the "
+        "velocity approximation if set to isoparametric");
+
       prm.enter_subsection("Quadrature rule");
       {
         declare_quadrature_rule<dim>(prm);
@@ -756,6 +771,18 @@ namespace Parameters
       tracer_degree      = prm.get_integer("Tracer degree");
       potential_degree   = prm.get_integer("Potential degree");
       temperature_degree = prm.get_integer("Temperature degree");
+
+      /**
+       * Set the degree of the geometric mapping.
+       * If the mesh position is a variable of the problem, their degree must
+       * match, but we cannot test it here, as we don't know which solver will
+       * be created.
+       */
+      const std::string parsed_mapping_degree = prm.get("mapping degree");
+      if (parsed_mapping_degree == "isoparametric velocity")
+        mapping_degree = velocity_degree;
+      else
+        mapping_degree = Utilities::string_to_int(parsed_mapping_degree);
 
       prm.enter_subsection("Quadrature rule");
       {

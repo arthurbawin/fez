@@ -6,10 +6,10 @@
 #include <deal.II/distributed/tria.h>
 #include <deal.II/distributed/tria_base.h>
 #include <deal.II/grid/grid_generator.h>
-#include <deal.II/grid/manifold_lib.h>
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/grid_tools.h>
+#include <deal.II/grid/manifold_lib.h>
 #include <deal.II/grid/tria_description.h>
 #include <mesh.h>
 #include <parameter_reader.h>
@@ -260,17 +260,18 @@ namespace MeshTools
 
   template <int dim>
   void create_uniform_channel_with_cylinder(Triangulation<dim> &tria,
-                                    Parameters::Mesh   &mesh_param,
-                                    const std::string  &parameters,
-                                    const unsigned int  refinement,
-                                    const bool          convert_to_tets = false)
+                                            Parameters::Mesh   &mesh_param,
+                                            const std::string  &parameters,
+                                            const unsigned int  refinement,
+                                            const bool convert_to_tets = false)
   {
     auto blocks = Utilities::split_string_list(parameters, ':');
 
     AssertThrow(
       blocks.size() > 1,
       ExcMessage(
-        "The parsed arguments to create a mesh of a uniform channel with cylinder do not "
+        "The parsed arguments to create a mesh of a uniform channel with "
+        "cylinder do not "
         "contain any \":\" separator. Please separate the arguments by "
         "a colon. The parsed parameters are : " +
         parameters));
@@ -286,9 +287,9 @@ namespace MeshTools
 
     tria.refine_global(refinement);
 
-    // Colorize = true starts counting boundary ids at zero,
-    // but physical entities in Gmsh must have a strictly postiive tag.
-    // To be able to check the entities in Gmsh, increases the boundary ids by 1.
+    // Colorize = true starts counting boundary ids at zero, but physical
+    // entities in Gmsh must have a strictly postiive tag. To be able to check
+    // the entities in Gmsh, increases the boundary ids by 1.
     for (auto &cell : tria.active_cell_iterators())
       if (cell->at_boundary())
         for (auto &face : cell->face_iterators())
@@ -371,8 +372,8 @@ namespace MeshTools
   }
 
   template <int dim>
-  void create_deal_ii_triangulation(Triangulation<dim> &tria,
-    ParameterReader<dim>                             &param)
+  void create_deal_ii_triangulation(Triangulation<dim>   &tria,
+                                    ParameterReader<dim> &param)
   {
     const bool convert_to_simplices = !param.finite_elements.use_quads;
 
@@ -424,10 +425,10 @@ namespace MeshTools
                                               param.mms_param.mesh_suffix :
                                               param.mesh.refinement_level;
       create_uniform_channel_with_cylinder(tria,
-                       param.mesh,
-                       param.mesh.deal_ii_mesh_param,
-                       refinement_level,
-                       convert_to_simplices);
+                                           param.mesh,
+                                           param.mesh.deal_ii_mesh_param,
+                                           refinement_level,
+                                           convert_to_simplices);
     }
     else
     {
@@ -718,29 +719,33 @@ namespace MeshTools
       // Write to Gmsh's .msh format
       if (param.debug.write_dealii_mesh_as_msh)
       {
-        if (Utilities::MPI::this_mpi_process(triangulation.get_mpi_communicator()) == 0)
+        if (Utilities::MPI::this_mpi_process(
+              triangulation.get_mpi_communicator()) == 0)
         {
           GridOut grid_out;
-          if (dynamic_cast<
-          const parallel::fullydistributed::Triangulation<dim, spacedim> *>(&triangulation))
+          if (dynamic_cast<const parallel::fullydistributed::
+                             Triangulation<dim, spacedim> *>(&triangulation))
           {
-            // Using a p::f::Triangulation: the actual triangulation has not yet been
-            // created, so simply write the current serial triangulation as .msh from
-            // the root process.
+            // Using a p::f::Triangulation: the actual triangulation has not yet
+            // been created, so simply write the current serial triangulation as
+            // .msh from the root process.
             grid_out.write_msh(*tria,
-                               param.output.output_dir + "mesh_from_dealii.msh");
+                               param.output.output_dir +
+                                 "mesh_from_dealii.msh");
           }
-          else if (dynamic_cast<const parallel::distributed::Triangulation<dim, spacedim>
-                         *>(&triangulation))
+          else if (dynamic_cast<
+                     const parallel::distributed::Triangulation<dim, spacedim>
+                       *>(&triangulation))
           {
-            // Using a p::d::Triangulation: write_msh does not seem to work in parallel,
-            // and neither does creating a serial triangulation from a description obtained
-            // from a p::d::Triangulation. Instead, we create a new serial triangulation
-            // and write it as .msh.
+            // Using a p::d::Triangulation: write_msh does not seem to work in
+            // parallel, and neither does creating a serial triangulation from a
+            // description obtained from a p::d::Triangulation. Instead, we
+            // create a new serial triangulation and write it as .msh.
             Triangulation<dim> serial_tria;
             create_deal_ii_triangulation(serial_tria, param);
             grid_out.write_msh(serial_tria,
-                               param.output.output_dir + "mesh_from_dealii.msh");
+                               param.output.output_dir +
+                                 "mesh_from_dealii.msh");
           }
           else
             DEAL_II_ASSERT_UNREACHABLE();

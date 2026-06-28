@@ -250,6 +250,8 @@ namespace Parameters
     std::string  output_prefix;
     unsigned int vtu_output_frequency;
 
+    unsigned int n_subdivisions;
+
     // A "skin" is a codimension 1 boundary on which we wish to extract data
     // for visualization and/or postprocessing
     struct Skin
@@ -370,6 +372,9 @@ namespace Parameters
           DEAL_II_ASSERT_UNREACHABLE();
       }
     }
+
+    // Degree of the reference-to-physical mapping(s)
+    unsigned int mapping_degree;
 
     struct QuadratureRule
     {

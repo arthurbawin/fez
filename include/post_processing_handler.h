@@ -432,13 +432,21 @@ void PostProcessingHandler<dim>::output_volume_fields(
                                          prefix,
                                          time_handler.current_time_iteration,
                                          mpi_communicator,
-                                         2);
+                                         2,
+                                         output_param.n_vtu_groups);
   if (is_prerefinement_step)
     prerefinements_pseudotimes_and_names.emplace_back(
       static_cast<double>(prerefinement_step), pvtu_file);
   else
-    visualization_times_and_names.emplace_back(time_handler.current_time,
-                                               pvtu_file);
+    /**
+     * If steady, use time step counter as pseudo-time,
+     * otherwise use current time.
+     */
+    visualization_times_and_names.emplace_back(
+      time_handler.is_steady() ?
+        static_cast<double>(time_handler.current_time_iteration) :
+        time_handler.current_time,
+      pvtu_file);
 
   data_out->clear_data_vectors();
 }

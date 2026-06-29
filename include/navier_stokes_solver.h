@@ -369,7 +369,8 @@ public:
   /**
    * Write the results to a vtu/pvtu file for visualization.
    */
-  void output_results();
+  void output_results(const bool         is_prerefinement_step = false,
+                      const unsigned int prerefinement_step    = 0);
 
   /**
    * Add additional postprocessing data specific to each derived solver to the

@@ -1026,7 +1026,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
 }
 
 template <int dim, bool with_moving_mesh>
-void NavierStokesSolver<dim, with_moving_mesh>::output_results()
+void NavierStokesSolver<dim, with_moving_mesh>::output_results(
+  const bool         is_prerefinement_step,
+  const unsigned int prerefinement_step)
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
 

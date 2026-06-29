@@ -594,6 +594,22 @@ namespace Parameters
     // Regularization gamma inside the saturated compression factor.
     double mff_regularization_gamma;
 
+    // Enlarged (psi) solver. Psi is a widened tracer reconstructed by a
+    // Helmholtz equation psi - L^2 lap(psi) = phi (+ corrections), used as the
+    // mesh-forcing marker. The widening length is L = psi_interface_width_factor
+    // * epsilon_interface.
+    double psi_interface_width_factor;
+    // Optional opt-in mu-correction in the psi equation, localized near the
+    // interface (0 disables it).
+    double psi_mu_correction_factor;
+    // Compression factor multiplying the psi-based forcing factor(psi)*grad psi
+    // (enlarged solver). The phi-based physics compression is added on top when
+    // mff_physics_compression_factor != 0.
+    double mff_enlarged_compression_factor;
+    // Equalization exponent q of the enlarged forcing pre-map sign(psi)*|psi|^q
+    // (q = 1 is the identity, i.e. a no-op).
+    double mff_enlarged_factor_equalization_exponent;
+
     // If true, an elasticity presolver is run first to pre-position the mesh,
     // and its mesh position is injected as the initial mesh of the CHNS solver.
     bool use_presolver;

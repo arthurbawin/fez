@@ -51,7 +51,7 @@ struct SolverInfo
   }
 
   // Number of variables solved for in the available models
-  static constexpr unsigned int n_variables = 7;
+  static constexpr unsigned int n_variables = 8;
 
   /**
    * The available variables
@@ -64,7 +64,8 @@ struct SolverInfo
     temperature     = 3,
     phase_tracer    = 4,
     phase_potential = 5,
-    lagrange_mult   = 6
+    lagrange_mult   = 6,
+    phase_enlarged  = 7
   };
 
   template <int dim>
@@ -86,6 +87,8 @@ struct SolverInfo
         return 1;
       case VariableType::lagrange_mult:
         return dim;
+      case VariableType::phase_enlarged:
+        return 1;
     }
     // Cannot reach here
     AssertThrow(false, dealii::StandardExceptions::ExcInternalError());
@@ -102,7 +105,8 @@ struct SolverInfo
      VariableType::temperature,
      VariableType::phase_tracer,
      VariableType::phase_potential,
-     VariableType::lagrange_mult}};
+     VariableType::lagrange_mult,
+     VariableType::phase_enlarged}};
 
   static constexpr std::array<std::string_view, n_variables> variable_names = {
     {"velocity",
@@ -111,12 +115,13 @@ struct SolverInfo
      "temperature",
      "phase_tracer",
      "phase_potential",
-     "lagrange_mult"}};
+     "lagrange_mult",
+     "phase_enlarged"}};
 
   // Array with separators and including "none", to use in the parameter file
   static constexpr std::string_view variable_names_for_param = {
     {"none|velocity|pressure|mesh_position|temperature|phase_tracer|phase_"
-     "potential|lagrange_mult"}};
+     "potential|lagrange_mult|phase_enlarged"}};
 
   /**
    * Convert a VariableType to a string.
@@ -139,6 +144,8 @@ struct SolverInfo
         return "phase_potential";
       case VariableType::lagrange_mult:
         return "lagrange_mult";
+      case VariableType::phase_enlarged:
+        return "phase_enlarged";
     }
     // Cannot reach here
     AssertThrow(false, dealii::StandardExceptions::ExcInternalError());
@@ -167,6 +174,9 @@ struct SolverInfo
     else if (variable_name == "lagrange_mult" ||
              variable_name == "lagrange mult")
       return VariableType::lagrange_mult;
+    else if (variable_name == "phase_enlarged" ||
+             variable_name == "phase enlarged")
+      return VariableType::phase_enlarged;
     else
       AssertThrow(false,
                   dealii::StandardExceptions::ExcMessage(

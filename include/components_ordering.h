@@ -40,6 +40,9 @@ public:
   // Cahn-Hililard potential
   unsigned int mu_lower = invalid;
   unsigned int mu_upper = invalid;
+  // Enlarged (widened) Cahn-Hilliard tracer, used as the mesh-forcing marker
+  unsigned int psi_lower = invalid;
+  unsigned int psi_upper = invalid;
   // Temperature
   unsigned int t_lower = invalid;
   unsigned int t_upper = invalid;
@@ -71,6 +74,10 @@ public:
   {
     return mu_lower == component;
   }
+  inline bool is_psi(const unsigned int component) const
+  {
+    return psi_lower == component;
+  }
   inline bool is_temperature(const unsigned int component) const
   {
     return t_lower == component;
@@ -94,6 +101,8 @@ public:
       return phi_lower != invalid;
     else if (variable_type == Type::phase_potential)
       return mu_lower != invalid;
+    else if (variable_type == Type::phase_enlarged)
+      return psi_lower != invalid;
     else if (variable_type == Type::temperature)
       return t_lower != invalid;
     else
@@ -121,6 +130,8 @@ public:
       return phi_lower;
     else if (variable_type == Type::phase_potential)
       return mu_lower;
+    else if (variable_type == Type::phase_enlarged)
+      return psi_lower;
     else if (variable_type == Type::temperature)
       return t_lower;
     else
@@ -142,6 +153,8 @@ public:
       return SolverInfo::VariableType::phase_tracer;
     else if (is_potential(component))
       return SolverInfo::VariableType::phase_potential;
+    else if (is_psi(component))
+      return SolverInfo::VariableType::phase_enlarged;
     else if (is_temperature(component))
       return SolverInfo::VariableType::temperature;
     else
@@ -269,14 +282,16 @@ public:
 
 
 
-template <int dim, bool with_moving_mesh = false>
+template <int dim, bool with_moving_mesh = false, bool with_enlarged = false>
 class ConstexprComponentOrderingCHNS
 {
 public:
   constexpr ConstexprComponentOrderingCHNS() = default;
 
+  // The enlarged layout appends psi after mu, to keep the existing component
+  // indices unchanged when the enlarged tracer is not used.
   static constexpr unsigned int n_components =
-    with_moving_mesh ? (2 * dim + 3) : (dim + 3);
+    (with_moving_mesh ? (2 * dim + 3) : (dim + 3)) + (with_enlarged ? 1 : 0);
   static constexpr unsigned int u_lower = 0;
   static constexpr unsigned int u_upper = dim;
   static constexpr unsigned int p_lower = dim;
@@ -292,15 +307,20 @@ public:
     with_moving_mesh ? 2 * dim + 2 : dim + 2;
   static constexpr unsigned int mu_upper =
     with_moving_mesh ? 2 * dim + 3 : dim + 3;
+  static constexpr unsigned int psi_lower =
+    with_enlarged ? mu_upper : dealii::numbers::invalid_unsigned_int;
+  static constexpr unsigned int psi_upper =
+    with_enlarged ? mu_upper + 1 : dealii::numbers::invalid_unsigned_int;
 };
 
-template <int dim, bool with_moving_mesh>
+template <int dim, bool with_moving_mesh, bool with_enlarged = false>
 class ComponentOrderingCHNS : public ComponentOrdering
 {
 public:
   ComponentOrderingCHNS()
   {
-    using C      = ConstexprComponentOrderingCHNS<dim, with_moving_mesh>;
+    using C =
+      ConstexprComponentOrderingCHNS<dim, with_moving_mesh, with_enlarged>;
     n_components = C::n_components;
 
     u_lower   = C::u_lower;
@@ -313,6 +333,11 @@ public:
     phi_upper = C::phi_upper;
     mu_lower  = C::mu_lower;
     mu_upper  = C::mu_upper;
+    if constexpr (with_enlarged)
+    {
+      psi_lower = C::psi_lower;
+      psi_upper = C::psi_upper;
+    }
   }
 };
 

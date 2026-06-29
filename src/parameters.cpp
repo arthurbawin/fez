@@ -1169,6 +1169,31 @@ namespace Parameters
         "0.0",
         Patterns::Double(),
         "Regularization gamma inside the saturated compression factor.");
+      // Enlarged (psi) solver parameters
+      prm.declare_entry(
+        "psi interface width factor",
+        "1.0",
+        Patterns::Double(),
+        "Widening factor of the enlarged tracer psi: the Helmholtz length is "
+        "L = factor * interface thickness.");
+      prm.declare_entry(
+        "psi mu correction factor",
+        "0.0",
+        Patterns::Double(),
+        "Opt-in mu-correction in the psi equation, localized near the "
+        "interface (0 disables it).");
+      prm.declare_entry(
+        "mff enlarged compression factor",
+        "0.0",
+        Patterns::Double(),
+        "Compression factor of the psi-based forcing factor(psi) * grad(psi) "
+        "(enlarged solver).");
+      prm.declare_entry(
+        "mff enlarged factor equalization exponent",
+        "1.0",
+        Patterns::Double(),
+        "Equalization exponent q of the enlarged forcing pre-map "
+        "sign(psi)*|psi|^q (q = 1 is a no-op).");
       prm.declare_entry(
         "use presolver",
         "false",
@@ -1203,7 +1228,14 @@ namespace Parameters
         prm.get_double("mff physics compression factor");
       mff_transport_factor     = prm.get_double("mff transport factor");
       mff_regularization_gamma = prm.get_double("mff regularization gamma");
-      use_presolver            = prm.get_bool("use presolver");
+      psi_interface_width_factor =
+        prm.get_double("psi interface width factor");
+      psi_mu_correction_factor = prm.get_double("psi mu correction factor");
+      mff_enlarged_compression_factor =
+        prm.get_double("mff enlarged compression factor");
+      mff_enlarged_factor_equalization_exponent =
+        prm.get_double("mff enlarged factor equalization exponent");
+      use_presolver = prm.get_bool("use presolver");
     }
     prm.leave_subsection();
   }

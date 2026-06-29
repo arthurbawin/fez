@@ -234,8 +234,10 @@ namespace Parameters
         unsigned int min_level;
         unsigned int max_level;
 
-        // For steady-state computations, the number of times the mesh is adapted
-        // to the solution. One extra solve is performed, to obtain the solution on the last adapted mesh (i.e., setting this value to 1 yields 2 resolutions).
+        // For steady-state computations, the number of times the mesh is
+        // adapted to the solution. One extra solve is performed, to obtain the
+        // solution on the last adapted mesh (i.e., setting this value to 1
+        // yields 2 resolutions).
         unsigned int n_steady_adaptation_steps;
 
         // For unsteady computations, the number of refinement steps to adapt

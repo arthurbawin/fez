@@ -62,7 +62,7 @@ namespace Assembly
         const double div_u      = sd.present_velocity_divergence[q];
         const auto  &lap_u      = sd.present_velocity_laplacians[q];
         const auto  &grad_div_u = sd.present_velocity_grad_div[q];
-        const auto &source_u = sd.source_term_velocity[q];
+        const auto  &source_u   = sd.source_term_velocity[q];
 
         auto u_conv = u;
         if constexpr (BaseType::with_moving_mesh)
@@ -72,7 +72,7 @@ namespace Assembly
           u_conv -= dxdt;
         }
 
-        const auto &p = sd.present_pressure_values[q];
+        const auto &p        = sd.present_pressure_values[q];
         const auto &grad_p   = sd.present_pressure_gradients[q];
         const auto &source_p = sd.source_term_pressure[q];
 
@@ -93,16 +93,16 @@ namespace Assembly
         const auto to_mult_by_phi_mu_i =
           mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) + source_mu;
 
-        const auto &phi_u = sd.phi_u[q];
+        const auto &phi_u          = sd.phi_u[q];
         const auto &grad_phi_u     = sd.grad_phi_u[q];
         const auto &sym_grad_phi_u = sd.sym_grad_phi_u[q];
         const auto &div_phi_u      = sd.div_phi_u[q];
         const auto &phi_p          = sd.phi_p[q];
         const auto &grad_phi_p     = sd.grad_phi_p[q];
-        const auto &phi_phi      = sd.shape_phi[q];
-        const auto &grad_phi_phi = sd.grad_shape_phi[q];
-        const auto &phi_mu       = sd.shape_mu[q];
-        const auto &grad_phi_mu  = sd.grad_shape_mu[q];
+        const auto &phi_phi        = sd.shape_phi[q];
+        const auto &grad_phi_phi   = sd.grad_shape_phi[q];
+        const auto &phi_mu         = sd.shape_mu[q];
+        const auto &grad_phi_mu    = sd.grad_shape_mu[q];
 
         double inv_rho = 0.;
         if constexpr (BaseType::with_stabilization)
@@ -207,8 +207,8 @@ namespace Assembly
       std::vector<Tensor<1, dim>> to_mult_by_phi_u_i_momentum(sd.dofs_per_cell);
       std::vector<Tensor<1, dim>> to_mult_by_phi_u_i_potential(
         sd.dofs_per_cell);
-      std::vector<double> phi_u_j_x_grad_phi(sd.dofs_per_cell);
-      std::vector<double> to_mult_by_phi_phi_i(sd.dofs_per_cell);
+      std::vector<double>         phi_u_j_x_grad_phi(sd.dofs_per_cell);
+      std::vector<double>         to_mult_by_phi_phi_i(sd.dofs_per_cell);
       std::vector<Tensor<1, dim>> strong_residual_momentum_variation(
         sd.dofs_per_cell);
       std::vector<double> strong_residual_tracer_variation(sd.dofs_per_cell);
@@ -265,7 +265,7 @@ namespace Assembly
         const double div_u      = sd.present_velocity_divergence[q];
         const auto  &lap_u      = sd.present_velocity_laplacians[q];
         const auto  &grad_div_u = sd.present_velocity_grad_div[q];
-        const auto &source_u = sd.source_term_velocity[q];
+        const auto  &source_u   = sd.source_term_velocity[q];
 
         auto u_conv = u;
         if constexpr (BaseType::with_moving_mesh)
@@ -275,31 +275,31 @@ namespace Assembly
         }
         const auto u_dot_grad_u_ale = grad_u * u_conv;
 
-        const auto &p = sd.present_pressure_values[q];
+        const auto  &p        = sd.present_pressure_values[q];
         const auto  &grad_p   = sd.present_pressure_gradients[q];
         const double source_p = sd.source_term_pressure[q];
 
         const auto  &diffusive_flux = sd.diffusive_flux[q];
-        const auto  &dphidt     = sd.tracer_time_derivatives[q];
-        const auto  &phi        = sd.tracer_values[q];
-        const auto  &grad_phi   = sd.tracer_gradients[q];
-        const auto  &mu         = sd.potential_values[q];
-        const auto  &grad_mu    = sd.potential_gradients[q];
-        const double source_phi = sd.source_term_tracer[q];
-        const double source_mu  = sd.source_term_potential[q];
+        const auto  &dphidt         = sd.tracer_time_derivatives[q];
+        const auto  &phi            = sd.tracer_values[q];
+        const auto  &grad_phi       = sd.tracer_gradients[q];
+        const auto  &mu             = sd.potential_values[q];
+        const auto  &grad_mu        = sd.potential_gradients[q];
+        const double source_phi     = sd.source_term_tracer[q];
+        const double source_mu      = sd.source_term_potential[q];
 
-        const auto &phi_u          = sd.phi_u[q];
-        const auto &grad_phi_u     = sd.grad_phi_u[q];
-        const auto &sym_grad_phi_u = sd.sym_grad_phi_u[q];
-        const auto &div_phi_u      = sd.div_phi_u[q];
+        const auto &phi_u            = sd.phi_u[q];
+        const auto &grad_phi_u       = sd.grad_phi_u[q];
+        const auto &sym_grad_phi_u   = sd.sym_grad_phi_u[q];
+        const auto &div_phi_u        = sd.div_phi_u[q];
         const auto &laplacian_phi_u  = sd.laplacian_phi_u[q];
         const auto &grad_div_phi_u   = sd.grad_div_phi_u[q];
-        const auto &phi_p = sd.phi_p[q];
+        const auto &phi_p            = sd.phi_p[q];
         const auto &grad_phi_p       = sd.grad_phi_p[q];
-        const auto &phi_phi      = sd.shape_phi[q];
-        const auto &grad_phi_phi = sd.grad_shape_phi[q];
-        const auto &phi_mu       = sd.shape_mu[q];
-        const auto &grad_phi_mu  = sd.grad_shape_mu[q];
+        const auto &phi_phi          = sd.shape_phi[q];
+        const auto &grad_phi_phi     = sd.grad_shape_phi[q];
+        const auto &phi_mu           = sd.shape_mu[q];
+        const auto &grad_phi_mu      = sd.grad_shape_mu[q];
         const auto &laplacian_phi_mu = sd.laplacian_shape_mu[q];
 
         //
@@ -509,10 +509,10 @@ namespace Assembly
           const auto &div_phi_u_i      = div_phi_u[i];
           const auto &phi_p_i          = phi_p[i];
           const auto &grad_phi_p_i     = grad_phi_p[i];
-          const auto &phi_phi_i      = phi_phi[i];
-          const auto &grad_phi_phi_i = grad_phi_phi[i];
-          const auto &phi_mu_i       = phi_mu[i];
-          const auto &grad_phi_mu_i  = grad_phi_mu[i];
+          const auto &phi_phi_i        = phi_phi[i];
+          const auto &grad_phi_phi_i   = grad_phi_phi[i];
+          const auto &phi_mu_i         = phi_mu[i];
+          const auto &grad_phi_mu_i    = grad_phi_mu[i];
 
           /**
            * Momentum equation

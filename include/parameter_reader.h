@@ -215,6 +215,8 @@ public:
 
     // Copy info coming from mesh adaptation that affects time integration
     time_integration.n_time_intervals = mesh.adaptation.metric.n_time_intervals;
+    time_integration.n_steady_adaptation_steps =
+      mesh.adaptation.tree_amr.n_steady_adaptation_steps;
 
     check_parameters();
   }

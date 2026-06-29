@@ -44,7 +44,8 @@ TransientFixedPointData<dim>::TransientFixedPointData(
 #if defined(DEAL_II_WITH_P4EST)
       triangulations[i] =
         std::make_unique<parallel::distributed::Triangulation<dim>>(
-          mpi_communicator);
+          mpi_communicator,
+          Triangulation<dim>::limit_level_difference_at_vertices);
 #else
       AssertThrow(false, ExcDealiiNeedsP4EST());
 #endif

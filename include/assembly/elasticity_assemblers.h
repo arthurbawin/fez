@@ -52,6 +52,46 @@ namespace Assembly
     }
 
     /**
+     * Smooth odd approximation of sign(psi) * |psi|^q used to equalize the
+     * enlarged mesh-forcing marker before it enters the regularized factor. The
+     * small delta keeps the map differentiable at psi=0 for Newton. With q = 1
+     * the map is the identity (no-op). For 0 < q < 1 weak marker values are
+     * amplified (the mesh reacts earlier across the enlarged interface); q > 1
+     * damps them. Both the value and its derivative are returned.
+     */
+    inline MeshForcingFactor
+    smooth_power_equalized_phase(const double phase_value, const double exponent)
+    {
+      if (std::abs(exponent - 1.) < 1e-14)
+        return {phase_value, 1.};
+
+      constexpr double delta = 2e-2;
+      const double     a     = phase_value * phase_value + delta * delta;
+
+      return {phase_value * std::pow(a, 0.5 * (exponent - 1.)),
+              std::pow(a, 0.5 * (exponent - 3.)) *
+                (delta * delta + exponent * phase_value * phase_value)};
+    }
+
+    /**
+     * Regularized compression coefficient for the enlarged marker psi: the
+     * equalization map is chained into mesh_forcing_factor, so the returned
+     * value is factor(equalize(psi)) and the derivative is the product of the
+     * two chain-rule terms (w.r.t. psi).
+     */
+    inline MeshForcingFactor
+    enlarged_mesh_forcing_factor(const double phase_value,
+                                 const double gamma,
+                                 const double exponent)
+    {
+      const MeshForcingFactor equalized =
+        smooth_power_equalized_phase(phase_value, exponent);
+      MeshForcingFactor factor = mesh_forcing_factor(equalized.value, gamma);
+      factor.derivative *= equalized.derivative;
+      return factor;
+    }
+
+    /**
      * Create the volume and relevant boundary assemblers, and store them as
      * unique pointers in @p assemblers.
      */
@@ -200,7 +240,11 @@ namespace Assembly
      *  - function mode: phi is an analytic function to evaluate (the ALE
      *                  elasticity presolver). The Jacobian is exact thanks to
      *                  the analytic Hessian of phi (symbolic differentiation).
-     * Only the function mode (ScratchDataElasticity) is implemented for now.
+     * The function mode (ScratchDataElasticity) and the field mode
+     * (ScratchDataCHNS, with or without the enlarged psi marker) are both
+     * implemented. In the enlarged field mode the compression marker is the
+     * widened field psi (with its own length scale and equalized factor) while
+     * the physical compression still uses the sharp tracer phi.
      */
     template <int dim, typename ScratchData, typename CopyData>
     class SourceFromCHNSTracerAssembler
@@ -291,7 +335,10 @@ namespace Assembly
       if constexpr (std::is_same_v<ScratchData, ScratchDataElasticity<dim>> ||
                     std::is_same_v<
                       ScratchData,
-                      NavierStokesScratch::ScratchDataCHNS<dim, true>>)
+                      NavierStokesScratch::ScratchDataCHNS<dim, true, false>> ||
+                    std::is_same_v<
+                      ScratchData,
+                      NavierStokesScratch::ScratchDataCHNS<dim, true, true>>)
       {
         if (with_chns_form_forcing)
           assemblers.emplace_back(

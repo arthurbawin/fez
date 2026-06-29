@@ -351,17 +351,20 @@ namespace Assembly
       }
       else
       {
-        // Field mode: phi is an unknown finite-element field on the moving mesh
-        // (full CHNS-ALE solver). The forcing f = compression * eps *
-        // factor(phi) * grad phi + transport * eps^2 * (u_conv . grad phi) grad
-        // phi uses the discrete phase and its moving-mesh gradient. The sign
-        // convention (rhs -=) matches the elasticity source term and the
-        // presolver, so the presolved mesh is a coherent equilibrium here.
+        // Field mode: the phase markers are unknown finite-element fields on the
+        // moving mesh (full CHNS-ALE solver). The physical compression term
+        // f_phys = compression * eps * factor(phi) * grad phi always uses the
+        // sharp tracer phi. In the enlarged solver the compression marker is the
+        // widened field psi (with its own length scale L = factor * eps and the
+        // equalized factor), and the transport term acts on psi instead of phi;
+        // otherwise both use phi. The sign convention (rhs -=) matches the
+        // elasticity source term and the presolver, so the presolved mesh is a
+        // coherent equilibrium here.
         auto        &sd        = scratch_data;
         auto        &local_rhs = copy_data.local_rhs(sd.active_fe_index);
         const double epsilon   = param.cahn_hilliard.epsilon_interface;
         const double gamma     = param.cahn_hilliard.mff_regularization_gamma;
-        const double compression =
+        const double physics_compression =
           param.cahn_hilliard.mff_physics_compression_factor;
         const double transport = param.cahn_hilliard.mff_transport_factor;
 
@@ -369,15 +372,39 @@ namespace Assembly
         {
           const double            phi      = sd.tracer_values[q];
           const Tensor<1, dim>   &grad_phi = sd.tracer_gradients[q];
-          const MeshForcingFactor factor   = mesh_forcing_factor(phi, gamma);
-
-          Tensor<1, dim> forcing =
-            compression * epsilon * factor.value * grad_phi;
+          const MeshForcingFactor phi_factor = mesh_forcing_factor(phi, gamma);
 
           const Tensor<1, dim> convective_velocity =
             sd.present_velocity_values[q] - sd.present_mesh_velocity_values[q];
-          forcing += transport * epsilon * epsilon *
-                     ((convective_velocity * grad_phi) * grad_phi);
+
+          // Physical (sharp tracer) compression: always present.
+          Tensor<1, dim> forcing =
+            physics_compression * epsilon * phi_factor.value * grad_phi;
+
+          if constexpr (ScratchData::enable_enlarged)
+          {
+            const double marker_epsilon =
+              param.cahn_hilliard.psi_interface_width_factor * epsilon;
+            const double enlarged_compression =
+              param.cahn_hilliard.mff_enlarged_compression_factor;
+            const double exponent =
+              param.cahn_hilliard.mff_enlarged_factor_equalization_exponent;
+
+            const double            psi      = sd.psi_values[q];
+            const Tensor<1, dim>   &grad_psi = sd.psi_gradients[q];
+            const MeshForcingFactor psi_factor =
+              enlarged_mesh_forcing_factor(psi, gamma, exponent);
+
+            forcing +=
+              enlarged_compression * marker_epsilon * psi_factor.value * grad_psi;
+            forcing += transport * marker_epsilon * marker_epsilon *
+                       ((convective_velocity * grad_psi) * grad_psi);
+          }
+          else
+          {
+            forcing += transport * epsilon * epsilon *
+                       ((convective_velocity * grad_phi) * grad_phi);
+          }
 
           for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
             if (ordering.is_position(sd.components[i]))
@@ -439,16 +466,19 @@ namespace Assembly
       }
       else
       {
-        // Field mode: phi is an unknown FE field, so the forcing varies w.r.t.
-        // the tracer (factor'(phi) shape + factor(phi) grad shape), the mesh
-        // position (the moving-mesh gradient remaps as -G^T grad phi), and the
-        // velocity (transport term). The sign (matrix +=) matches the field
-        // mode rhs (rhs -=).
+        // Field mode: the markers are unknown FE fields, so the forcing varies
+        // w.r.t. the marker (factor'(m) shape + factor(m) grad shape), the mesh
+        // position (the moving-mesh gradient remaps as -G^T grad m), and the
+        // velocity (transport term). The physical compression always linearizes
+        // against the sharp tracer phi; in the enlarged solver the enlarged
+        // compression and the transport linearize against psi (length scale L,
+        // equalized factor) instead of phi, adding an x<->psi block. The sign
+        // (matrix +=) matches the field mode rhs (rhs -=).
         auto        &sd           = scratch_data;
         auto        &local_matrix = copy_data.local_matrix(sd.active_fe_index);
         const double epsilon      = param.cahn_hilliard.epsilon_interface;
         const double gamma        = param.cahn_hilliard.mff_regularization_gamma;
-        const double compression =
+        const double physics_compression =
           param.cahn_hilliard.mff_physics_compression_factor;
         const double transport = param.cahn_hilliard.mff_transport_factor;
 
@@ -456,11 +486,23 @@ namespace Assembly
         {
           const double            phi      = sd.tracer_values[q];
           const Tensor<1, dim>   &grad_phi = sd.tracer_gradients[q];
-          const MeshForcingFactor factor   = mesh_forcing_factor(phi, gamma);
+          const MeshForcingFactor phi_factor = mesh_forcing_factor(phi, gamma);
 
           const Tensor<1, dim> convective_velocity =
             sd.present_velocity_values[q] - sd.present_mesh_velocity_values[q];
           const double velocity_dot_grad_phi = convective_velocity * grad_phi;
+
+          // Transport acts on the marker: psi when enlarged, phi otherwise.
+          double         marker_epsilon = epsilon;
+          Tensor<1, dim> grad_marker    = grad_phi;
+          if constexpr (ScratchData::enable_enlarged)
+          {
+            marker_epsilon =
+              param.cahn_hilliard.psi_interface_width_factor * epsilon;
+            grad_marker = sd.psi_gradients[q];
+          }
+          const double velocity_dot_grad_marker =
+            convective_velocity * grad_marker;
 
           for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
           {
@@ -474,41 +516,85 @@ namespace Assembly
               Tensor<1, dim>     forcing_variation;
 
               if (ordering.is_velocity(comp_j))
-                forcing_variation += transport * epsilon * epsilon *
-                                     ((sd.phi_u[q][j] * grad_phi) * grad_phi);
+                forcing_variation +=
+                  transport * marker_epsilon * marker_epsilon *
+                  ((sd.phi_u[q][j] * grad_marker) * grad_marker);
 
               if (ordering.is_position(comp_j))
               {
                 const Tensor<2, dim> &G = sd.grad_phi_x_moving[q][j];
-                const Tensor<1, dim>  transported_gradient =
+                const Tensor<1, dim>  transported_grad_phi =
                   -transpose(G) * grad_phi;
+                const Tensor<1, dim>  transported_grad_marker =
+                  -transpose(G) * grad_marker;
 
-                forcing_variation +=
-                  compression * epsilon * factor.value * transported_gradient;
+                // Physical compression against the sharp tracer.
+                forcing_variation += physics_compression * epsilon *
+                                     phi_factor.value * transported_grad_phi;
 
                 const Tensor<1, dim> convective_velocity_variation =
                   -sd.bdf_c0 * sd.phi_x[q][j];
                 forcing_variation +=
-                  transport * epsilon * epsilon *
-                  ((convective_velocity_variation * grad_phi) * grad_phi +
-                   (convective_velocity * transported_gradient) * grad_phi +
-                   velocity_dot_grad_phi * transported_gradient);
+                  transport * marker_epsilon * marker_epsilon *
+                  ((convective_velocity_variation * grad_marker) * grad_marker +
+                   (convective_velocity * transported_grad_marker) * grad_marker +
+                   velocity_dot_grad_marker * transported_grad_marker);
+
+                if constexpr (ScratchData::enable_enlarged)
+                {
+                  const double enlarged_compression =
+                    param.cahn_hilliard.mff_enlarged_compression_factor;
+                  const MeshForcingFactor psi_factor =
+                    enlarged_mesh_forcing_factor(
+                      sd.psi_values[q],
+                      gamma,
+                      param.cahn_hilliard
+                        .mff_enlarged_factor_equalization_exponent);
+                  forcing_variation += enlarged_compression * marker_epsilon *
+                                       psi_factor.value *
+                                       transported_grad_marker;
+                }
               }
 
               if (ordering.is_tracer(comp_j))
               {
                 const double          shape = sd.shape_phi[q][j];
-                const Tensor<1, dim> &shape_gradient =
-                  sd.grad_shape_phi[q][j];
+                const Tensor<1, dim> &shape_gradient = sd.grad_shape_phi[q][j];
                 forcing_variation +=
-                  compression * epsilon *
-                  (factor.derivative * shape * grad_phi +
-                   factor.value * shape_gradient);
-                forcing_variation +=
-                  transport * epsilon * epsilon *
-                  ((convective_velocity * shape_gradient) * grad_phi +
-                   velocity_dot_grad_phi * shape_gradient);
+                  physics_compression * epsilon *
+                  (phi_factor.derivative * shape * grad_phi +
+                   phi_factor.value * shape_gradient);
+
+                if constexpr (!ScratchData::enable_enlarged)
+                  forcing_variation +=
+                    transport * epsilon * epsilon *
+                    ((convective_velocity * shape_gradient) * grad_phi +
+                     velocity_dot_grad_phi * shape_gradient);
               }
+
+              if constexpr (ScratchData::enable_enlarged)
+                if (ordering.is_psi(comp_j))
+                {
+                  const double enlarged_compression =
+                    param.cahn_hilliard.mff_enlarged_compression_factor;
+                  const MeshForcingFactor psi_factor =
+                    enlarged_mesh_forcing_factor(
+                      sd.psi_values[q],
+                      gamma,
+                      param.cahn_hilliard
+                        .mff_enlarged_factor_equalization_exponent);
+                  const double          shape = sd.shape_psi[q][j];
+                  const Tensor<1, dim> &shape_gradient =
+                    sd.grad_shape_psi[q][j];
+                  forcing_variation +=
+                    enlarged_compression * marker_epsilon *
+                    (psi_factor.derivative * shape * grad_marker +
+                     psi_factor.value * shape_gradient);
+                  forcing_variation +=
+                    transport * marker_epsilon * marker_epsilon *
+                    ((convective_velocity * shape_gradient) * grad_marker +
+                     velocity_dot_grad_marker * shape_gradient);
+                }
 
               local_matrix(i, j) +=
                 test * forcing_variation * sd.JxW_fixed[q];

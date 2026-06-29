@@ -433,6 +433,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::create_sparsity_pattern()
              this->ordering->is_velocity(j)))
           coupling_table[i][j] = DoFTools::always;
 
+      // x also couples to psi: the enlarged moving-mesh forcing compresses the
+      // mesh along the widened marker psi.
+      if constexpr (with_enlarged)
+        if (this->ordering->is_position(i) && this->ordering->is_psi(j))
+          coupling_table[i][j] = DoFTools::always;
+
       // phi couples to u, phi, mu, x
       if (this->ordering->is_tracer(i))
         if (!this->ordering->is_pressure(j))

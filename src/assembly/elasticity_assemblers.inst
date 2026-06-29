@@ -34,6 +34,13 @@ namespace Assembly
     template class SourceFromCHNSTracerAssembler<3,
                                    ScratchDataElasticity<3>,
                                    CopyDataBase<>>;
+    // Enlarged presolver (hybrid: analytic phi, FE psi)
+    template class PresolverPsiAssembler<2,
+                                   ScratchDataElasticity<2>,
+                                   CopyDataBase<>>;
+    template class PresolverPsiAssembler<3,
+                                   ScratchDataElasticity<3>,
+                                   CopyDataBase<>>;
 
     // Instantiation for FSI solver
     template class LinearElasticityAssembler<2,

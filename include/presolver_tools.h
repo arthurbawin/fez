@@ -14,12 +14,14 @@
  */
 template <int dim>
 std::unique_ptr<ElasticitySolver<dim>>
-create_elasticity_presolver(const ParameterReader<dim> &param)
+create_elasticity_presolver(const ParameterReader<dim> &param,
+                            const bool with_enlarged_psi = false)
 {
   if (!param.cahn_hilliard.use_presolver)
     return nullptr;
 
-  auto presolver = std::make_unique<ElasticitySolver<dim>>(param);
+  auto presolver =
+    std::make_unique<ElasticitySolver<dim>>(param, with_enlarged_psi);
 
   using Mode      = Parameters::Elasticity::PresolvedMeshPositionMode;
   const auto mode = param.elasticity.presolved_mesh_position_mode;

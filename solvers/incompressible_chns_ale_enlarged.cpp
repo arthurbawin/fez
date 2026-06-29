@@ -38,7 +38,8 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      auto elasticity_presolver = create_elasticity_presolver(param);
+      auto elasticity_presolver =
+        create_elasticity_presolver(param, /* with_enlarged_psi = */ true);
       CHNSSolver<2, true, true> problem(param);
       if (elasticity_presolver)
         problem.attach_presolver(elasticity_presolver.get());
@@ -56,7 +57,8 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      auto elasticity_presolver = create_elasticity_presolver(param);
+      auto elasticity_presolver =
+        create_elasticity_presolver(param, /* with_enlarged_psi = */ true);
       CHNSSolver<3, true, true> problem(param);
       if (elasticity_presolver)
         problem.attach_presolver(elasticity_presolver.get());

@@ -325,7 +325,11 @@ namespace Assembly
     {
       // Function mode: phi is the prescribed (analytic) phase, evaluated on the
       // current mesh. The forcing is f = compression * eps * factor(phi) * grad
-      // phi, integrated against the position test functions.
+      // phi, integrated against the position test functions. In the enlarged
+      // presolver (hybrid third case) the widened marker psi is an FE field, so
+      // an extra enlarged compression C_psi * L * factor_eq(psi) * grad psi is
+      // added on top of the analytic-phi physical compression; the transport
+      // term is intentionally OFF in the presolver.
       if constexpr (std::is_same_v<ScratchData, ScratchDataElasticity<dim>>)
       {
         auto        &sd        = scratch_data;
@@ -340,9 +344,24 @@ namespace Assembly
         {
           const double          phi      = sd.chns_tracer_values[q];
           const Tensor<1, dim> &grad_phi = sd.chns_tracer_gradients[q];
-          const Tensor<1, dim>  forcing =
+          Tensor<1, dim>        forcing =
             compression * epsilon * mesh_forcing_factor(phi, gamma).value *
             grad_phi;
+
+          if (sd.with_enlarged_psi)
+          {
+            const double marker_epsilon =
+              param.cahn_hilliard.psi_interface_width_factor * epsilon;
+            const double enlarged_compression =
+              param.cahn_hilliard.mff_enlarged_compression_factor *
+              sd.chns_compression_multiplier;
+            const MeshForcingFactor psi_factor = enlarged_mesh_forcing_factor(
+              sd.psi_values[q],
+              gamma,
+              param.cahn_hilliard.mff_enlarged_factor_equalization_exponent);
+            forcing += enlarged_compression * marker_epsilon * psi_factor.value *
+                       sd.psi_gradients[q];
+          }
 
           for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
             if (ordering.is_position(sd.components[i]))
@@ -434,8 +453,6 @@ namespace Assembly
           param.cahn_hilliard.mff_physics_compression_factor *
           sd.chns_compression_multiplier;
 
-        std::vector<Tensor<1, dim>> dforcing_dot_phi_x_j(sd.dofs_per_cell);
-
         for (unsigned int q = 0; q < sd.n_q_points; ++q)
         {
           const double                   phi      = sd.chns_tracer_values[q];
@@ -443,25 +460,68 @@ namespace Assembly
           const SymmetricTensor<2, dim> &hess_phi  = sd.chns_tracer_hessians[q];
           const MeshForcingFactor        factor    = mesh_forcing_factor(phi, gamma);
 
+          // x <- x from the analytic phi physical compression (exact via the
+          // analytic Hessian of phi).
           const Tensor<2, dim> dforcing_dx =
             compression * epsilon *
             (factor.derivative * outer_product(grad_phi, grad_phi) +
              factor.value * Tensor<2, dim>(hess_phi));
 
+          // Enlarged (hybrid) presolver: the psi compression is an FE field, so
+          // it varies w.r.t. the mesh position through the ALE remapping of grad
+          // psi (-G^T grad psi) and w.r.t. the psi dofs through the shapes.
+          const bool   with_psi = sd.with_enlarged_psi;
+          double       enlarged_compression = 0.;
+          double       marker_epsilon       = 0.;
+          MeshForcingFactor psi_factor{0., 0.};
+          if (with_psi)
+          {
+            marker_epsilon =
+              param.cahn_hilliard.psi_interface_width_factor * epsilon;
+            enlarged_compression =
+              param.cahn_hilliard.mff_enlarged_compression_factor *
+              sd.chns_compression_multiplier;
+            psi_factor = enlarged_mesh_forcing_factor(
+              sd.psi_values[q],
+              gamma,
+              param.cahn_hilliard.mff_enlarged_factor_equalization_exponent);
+          }
+
           const auto &phi_x = sd.phi_x[q];
-          for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
-            if (ordering.is_position(sd.components[j]))
-              dforcing_dot_phi_x_j[j] = dforcing_dx * phi_x[j];
 
           for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
-            if (ordering.is_position(sd.components[i]))
+          {
+            if (!ordering.is_position(sd.components[i]))
+              continue;
+            const auto &phi_x_i = phi_x[i];
+
+            for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
             {
-              const auto &phi_x_i = phi_x[i];
-              for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
-                if (ordering.is_position(sd.components[j]))
-                  local_matrix(i, j) +=
-                    phi_x_i * dforcing_dot_phi_x_j[j] * sd.JxW_fixed[q];
+              const unsigned int comp_j = sd.components[j];
+              Tensor<1, dim>     dforcing;
+
+              if (ordering.is_position(comp_j))
+              {
+                dforcing += dforcing_dx * phi_x[j];
+                if (with_psi)
+                {
+                  const Tensor<2, dim> &G = sd.grad_phi_x_moving[q][j];
+                  const Tensor<1, dim>  transported_grad_psi =
+                    -transpose(G) * sd.psi_gradients[q];
+                  dforcing += enlarged_compression * marker_epsilon *
+                              psi_factor.value * transported_grad_psi;
+                }
+              }
+
+              if (with_psi && ordering.is_psi(comp_j))
+                dforcing += enlarged_compression * marker_epsilon *
+                            (psi_factor.derivative * sd.shape_psi[q][j] *
+                               sd.psi_gradients[q] +
+                             psi_factor.value * sd.grad_shape_psi[q][j]);
+
+              local_matrix(i, j) += phi_x_i * dforcing * sd.JxW_fixed[q];
             }
+          }
         }
       }
       else
@@ -602,6 +662,96 @@ namespace Assembly
           }
         }
       }
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void PresolverPsiAssembler<dim, ScratchData, CopyData>::assemble_rhs(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      auto        &sd              = scratch_data;
+      auto        &local_rhs       = copy_data.local_rhs(sd.active_fe_index);
+      const double length_scale_sq = sd.psi_length_scale_sq;
+
+      // Helmholtz residual of psi on the moving mesh, with the analytic phi_0
+      // as source: R = w_psi (psi - phi_0) + L^2 grad(w_psi) . grad(psi).
+      for (unsigned int q = 0; q < sd.n_q_points; ++q)
+        for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+        {
+          if (!ordering.is_psi(sd.components[i]))
+            continue;
+
+          const double residual_i =
+            sd.shape_psi[q][i] *
+              (sd.psi_values[q] - sd.chns_tracer_values[q]) +
+            length_scale_sq * dealii::scalar_product(sd.grad_shape_psi[q][i],
+                                                     sd.psi_gradients[q]);
+
+          local_rhs(i) -= residual_i * sd.JxW_moving[q];
+        }
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void PresolverPsiAssembler<dim, ScratchData, CopyData>::assemble_matrix(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      using namespace dealii;
+      auto        &sd              = scratch_data;
+      auto        &local_matrix    = copy_data.local_matrix(sd.active_fe_index);
+      const double length_scale_sq = sd.psi_length_scale_sq;
+
+      for (unsigned int q = 0; q < sd.n_q_points; ++q)
+        for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+        {
+          if (!ordering.is_psi(sd.components[i]))
+            continue;
+
+          const double          test      = sd.shape_psi[q][i];
+          const Tensor<1, dim> &grad_test = sd.grad_shape_psi[q][i];
+
+          for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+          {
+            const unsigned int comp_j   = sd.components[j];
+            double             local_ij = 0.;
+
+            // psi <- psi: Helmholtz operator (mass + L^2 stiffness).
+            if (ordering.is_psi(comp_j))
+              local_ij +=
+                test * sd.shape_psi[q][j] +
+                length_scale_sq *
+                  scalar_product(grad_test, sd.grad_shape_psi[q][j]);
+
+            // psi <- x: moving-domain variation. The psi value is nodal (does
+            // not transform), but the analytic source phi_0(x) does, giving the
+            // extra term -grad(phi_0).delta x; the value term also picks up the
+            // JxW trace, and the Helmholtz stiffness term varies as a weak
+            // laplacian under the ALE remapping grad -> grad - G^T grad.
+            if (ordering.is_position(comp_j))
+            {
+              const Tensor<2, dim> &G       = sd.grad_phi_x_moving[q][j];
+              const double          trG     = trace(G);
+              const Tensor<1, dim> &delta_x = sd.phi_x[q][j];
+
+              const double delta_phi_0 = sd.chns_tracer_gradients[q] * delta_x;
+
+              local_ij +=
+                test * (-delta_phi_0 +
+                        (sd.psi_values[q] - sd.chns_tracer_values[q]) * trG);
+
+              const Tensor<1, dim> dgrad_test = -transpose(G) * grad_test;
+              const Tensor<1, dim> dgrad_psi =
+                -transpose(G) * sd.psi_gradients[q];
+              local_ij +=
+                length_scale_sq *
+                (scalar_product(dgrad_test, sd.psi_gradients[q]) +
+                 scalar_product(grad_test, dgrad_psi) +
+                 scalar_product(grad_test, sd.psi_gradients[q]) * trG);
+            }
+
+            local_matrix(i, j) += local_ij * sd.JxW_moving[q];
+          }
+        }
     }
   } // namespace Elasticity
 } // namespace Assembly

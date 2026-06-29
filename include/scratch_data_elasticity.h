@@ -7,6 +7,7 @@
 #include <deal.II/fe/fe_update_flags.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping.h>
+#include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <parameter_reader.h>
 #include <types.h>
@@ -28,20 +29,32 @@ public:
                               const Quadrature<dim>      &cell_quadrature,
                               const Quadrature<dim - 1>  &face_quadrature,
                               const ParameterReader<dim> &param,
-                              const bool evaluate_chns_forcing = false)
+                              const bool evaluate_chns_forcing = false,
+                              const bool with_enlarged_psi     = false)
     : param(param)
     , fe_values(mapping,
                 fe,
                 cell_quadrature,
                 update_values | update_gradients | update_quadrature_points |
                   update_JxW_values)
-    , evaluate_chns_forcing(evaluate_chns_forcing)
+    , evaluate_chns_forcing(evaluate_chns_forcing || with_enlarged_psi)
+    , with_enlarged_psi(with_enlarged_psi)
     , n_q_points(cell_quadrature.size())
     , n_faces(fe.reference_cell().n_faces())
     , n_faces_q_points(face_quadrature.size())
     , dofs_per_cell(fe.dofs_per_cell)
   {
     position.first_vector_component = 0;
+    if (with_enlarged_psi)
+    {
+      // The enlarged marker psi is the extra scalar field appended after the
+      // mesh position (components 0..dim-1), so it sits at component dim.
+      psi.component  = dim;
+      position_mask  = fe.component_mask(position);
+      epsilon        = param.cahn_hilliard.epsilon_interface;
+      const double L = param.cahn_hilliard.psi_interface_width_factor * epsilon;
+      psi_length_scale_sq = L * L;
+    }
     allocate();
   }
 
@@ -55,6 +68,7 @@ public:
                 other.fe_values.get_quadrature(),
                 other.fe_values.get_update_flags())
     , evaluate_chns_forcing(other.evaluate_chns_forcing)
+    , with_enlarged_psi(other.with_enlarged_psi)
     , n_q_points(other.n_q_points)
     , n_faces(other.n_faces)
     , n_faces_q_points(other.n_faces_q_points)
@@ -63,8 +77,15 @@ public:
     , source_term_moving_mesh_multiplier(
         other.source_term_moving_mesh_multiplier)
     , chns_compression_multiplier(other.chns_compression_multiplier)
+    , psi_length_scale_sq(other.psi_length_scale_sq)
+    , epsilon(other.epsilon)
   {
     position.first_vector_component = 0;
+    if (with_enlarged_psi)
+    {
+      psi.component = dim;
+      position_mask = other.position_mask;
+    }
     allocate();
   }
 
@@ -106,6 +127,18 @@ private:
       chns_tracer_values.resize(n_q_points);
       chns_tracer_gradients.resize(n_q_points);
       chns_tracer_hessians.resize(n_q_points);
+    }
+
+    if (with_enlarged_psi)
+    {
+      JxW_moving.resize(n_q_points);
+      psi_values.resize(n_q_points);
+      psi_gradients.resize(n_q_points);
+      shape_psi.resize(n_q_points, std::vector<double>(dofs_per_cell));
+      grad_shape_psi.resize(n_q_points,
+                            std::vector<Tensor<1, dim>>(dofs_per_cell));
+      grad_phi_x_moving.resize(n_q_points,
+                               std::vector<Tensor<2, dim>>(dofs_per_cell));
     }
   }
 
@@ -157,6 +190,38 @@ public:
         chns_tracer_values[q]    = tracer.value(qpoints_current_mesh[q]);
         chns_tracer_gradients[q] = tracer.gradient(qpoints_current_mesh[q]);
         chns_tracer_hessians[q]  = tracer.hessian(qpoints_current_mesh[q]);
+      }
+    }
+
+    // Enlarged presolver: build the psi finite-element field on the moving
+    // (deformed) mesh, so the psi Helmholtz reconstruction is assembled on the
+    // current configuration exactly as in the full CHNS solver. The physical
+    // tracer phi stays analytic (chns_tracer_* above); only psi is an unknown.
+    if (with_enlarged_psi)
+    {
+      const MappingFEField<dim, dim, VectorType> moving_mapping(
+        cell->get_dof_handler(), current_solution, position_mask);
+      FEValues<dim> fe_values_moving(moving_mapping,
+                                     fe_values.get_fe(),
+                                     fe_values.get_quadrature(),
+                                     update_values | update_gradients |
+                                       update_quadrature_points |
+                                       update_JxW_values);
+      fe_values_moving.reinit(cell);
+
+      fe_values_moving[psi].get_function_values(current_solution, psi_values);
+      fe_values_moving[psi].get_function_gradients(current_solution,
+                                                   psi_gradients);
+
+      for (unsigned int q = 0; q < n_q_points; ++q)
+      {
+        JxW_moving[q] = fe_values_moving.JxW(q);
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          shape_psi[q][k]         = fe_values_moving[psi].value(k, q);
+          grad_shape_psi[q][k]    = fe_values_moving[psi].gradient(k, q);
+          grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
+        }
       }
     }
 
@@ -230,7 +295,16 @@ private:
   // current mesh, for the moving-mesh forcing of the elasticity presolver.
   const bool evaluate_chns_forcing;
 
+  // Component mask of the mesh position, used to build the moving mapping that
+  // evaluates psi on the deformed configuration (enlarged presolver only).
+  ComponentMask position_mask;
+
 public:
+  // Whether the presolver carries the enlarged marker psi as an extra finite-
+  // element field (hybrid mode: analytic phi source, psi FE unknown). When set,
+  // psi is reconstructed on the moving mesh and drives the enlarged forcing.
+  const bool with_enlarged_psi;
+
   const unsigned int active_fe_index = 0;
 
   const unsigned int n_q_points;
@@ -265,6 +339,25 @@ public:
   std::vector<double>                  chns_tracer_values;
   std::vector<Tensor<1, dim>>          chns_tracer_gradients;
   std::vector<SymmetricTensor<2, dim>> chns_tracer_hessians;
+
+  // Enlarged marker psi as a finite-element field on the moving mesh, and the
+  // moving-mesh quantities needed to assemble its Helmholtz reconstruction and
+  // the enlarged forcing. Filled only when with_enlarged_psi. The extractor
+  // psi sits at component dim (right after the mesh position).
+  FEValuesExtractors::Scalar               psi;
+  std::vector<double>                      JxW_moving;
+  std::vector<double>                      psi_values;
+  std::vector<Tensor<1, dim>>              psi_gradients;
+  std::vector<std::vector<double>>         shape_psi;
+  std::vector<std::vector<Tensor<1, dim>>> grad_shape_psi;
+  // Spatial gradient of the mesh-position shape functions on the moving mesh
+  // (G_k = grad_x N_k), used for the ALE x-variation of the psi residual.
+  std::vector<std::vector<Tensor<2, dim>>> grad_phi_x_moving;
+
+  // Enlarged length scale squared L^2 = (psi_interface_width_factor * eps)^2
+  // and the interface thickness eps, mirrored from the Cahn-Hilliard params.
+  double psi_length_scale_sq = 0.;
+  double epsilon             = 0.;
 
   /**
    * Evaluation of the given source term on the fixed mesh, that is, of f(X).

@@ -84,7 +84,8 @@ namespace
 
 template <int dim>
 ElasticitySolver<dim>::ElasticitySolver(
-  const ParameterReader<dim> &param)
+  const ParameterReader<dim> &param,
+  const bool                  with_enlarged_psi)
   : GenericSolver<LA::ParVectorType>(param.output,
                                      param.nonlinear_solver,
                                      param.timer,
@@ -97,6 +98,7 @@ ElasticitySolver<dim>::ElasticitySolver(
   , triangulation(mpi_communicator)
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
+  , with_enlarged_psi(with_enlarged_psi)
 {
   create_quadrature_rules(param.finite_elements,
                           quadrature,
@@ -107,18 +109,38 @@ ElasticitySolver<dim>::ElasticitySolver(
   if (param.finite_elements.use_quads)
   {
     mapping = std::make_unique<MappingQ<dim>>(1);
-    fe      = std::make_unique<FESystem<dim>>(
-      FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim);
+    if (with_enlarged_psi)
+      fe = std::make_unique<FESystem<dim>>(
+        FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
+                      dim),
+        FE_Q<dim>(param.finite_elements.tracer_degree));
+    else
+      fe = std::make_unique<FESystem<dim>>(
+        FE_Q<dim>(param.finite_elements.mesh_position_degree) ^ dim);
   }
   else
   {
     mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
-    fe      = std::make_unique<FESystem<dim>>(
-      FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim);
+    if (with_enlarged_psi)
+      fe = std::make_unique<FESystem<dim>>(
+        FESystem<dim>(
+          FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim),
+        FE_SimplexP<dim>(param.finite_elements.tracer_degree));
+    else
+      fe = std::make_unique<FESystem<dim>>(
+        FE_SimplexP<dim>(param.finite_elements.mesh_position_degree) ^ dim);
   }
+
+  if (with_enlarged_psi)
+    ordering = ComponentOrderingElasticity<dim, true>();
 
   position_extractor = FEValuesExtractors::Vector(0);
   position_mask      = fe->component_mask(position_extractor);
+  if (with_enlarged_psi)
+  {
+    psi_extractor = FEValuesExtractors::Scalar(dim);
+    psi_mask      = fe->component_mask(psi_extractor);
+  }
 
   if (param.mms_param.enable)
   {
@@ -145,8 +167,13 @@ ElasticitySolver<dim>::ElasticitySolver(
   const bool evaluate_chns_forcing =
     param.cahn_hilliard.mff_source_term ==
     Parameters::CahnHilliard<dim>::MeshForcingSourceTerm::chns_form;
-  scratch_data = std::make_unique<ScratchData>(
-    *fe, *mapping, *quadrature, *face_quadrature, param, evaluate_chns_forcing);
+  scratch_data = std::make_unique<ScratchData>(*fe,
+                                               *mapping,
+                                               *quadrature,
+                                               *face_quadrature,
+                                               param,
+                                               evaluate_chns_forcing,
+                                               with_enlarged_psi);
 }
 
 template <int dim>
@@ -613,6 +640,14 @@ void ElasticitySolver<dim>::output_results()
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
       data_component_interpretation(
         dim, DataComponentInterpretation::component_is_part_of_vector);
+    // Enlarged presolver: also write the reconstructed marker psi (it is only
+    // visualized here, never injected into the CHNS solver).
+    if (with_enlarged_psi)
+    {
+      solution_names.emplace_back("psi");
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_scalar);
+    }
     DataOut<dim> data_out;
     data_out.attach_dof_handler(dof_handler);
     data_out.add_data_vector(present_solution,

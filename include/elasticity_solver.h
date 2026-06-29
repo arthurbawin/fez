@@ -62,9 +62,15 @@ class ElasticitySolver : public GenericSolver<LA::ParVectorType>
 
 public:
   /**
-   * Constructor
+   * Constructor. With @p with_enlarged_psi the presolver also carries the
+   * enlarged Cahn-Hilliard marker psi as an extra finite-element field (hybrid
+   * mode: analytic phi source, psi FE unknown), so the presolved mesh matches
+   * the equilibrium of the enlarged CHNS-ALE solver. The physical tracer phi
+   * stays analytic. psi is reconstructed but NOT injected into the CHNS solver
+   * (only the mesh position is handed off).
    */
-  ElasticitySolver(const ParameterReader<dim> &param);
+  ElasticitySolver(const ParameterReader<dim> &param,
+                   const bool                  with_enlarged_psi = false);
 
   virtual ~ElasticitySolver() = default;
 
@@ -197,8 +203,14 @@ protected:
   std::unique_ptr<ScratchData>            scratch_data;
   std::vector<std::unique_ptr<Assembler>> assemblers;
 
+  // Enlarged-presolver mode: psi is carried as an extra FE field (component dim)
+  // to reconstruct the widened mesh-forcing marker. False for a plain presolve.
+  const bool with_enlarged_psi;
+
   FEValuesExtractors::Vector position_extractor;
   ComponentMask              position_mask;
+  FEValuesExtractors::Scalar psi_extractor;
+  ComponentMask              psi_mask;
 
   IndexSet locally_owned_dofs;
   IndexSet locally_relevant_dofs;

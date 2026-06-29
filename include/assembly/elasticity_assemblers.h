@@ -272,6 +272,45 @@ namespace Assembly
       const ParameterReader<dim> &param;
       const ComponentOrdering    &ordering;
     };
+
+    /**
+     * Enlarged-presolver reconstruction of the widened marker psi by the
+     * Helmholtz equation
+     *
+     *     psi - L^2 lap(psi) = phi_0,
+     *
+     * assembled on the moving (deformed) configuration, exactly as in the full
+     * CHNS solver (see assemble_psi_equation_* in incompressible_chns_assemblers
+     * .h). The crucial difference is that here phi_0 is an *analytic* function
+     * (the prescribed Cahn-Hilliard initial condition), not a finite-element
+     * unknown, so:
+     *  - there is no psi<-phi nor psi<-mu coupling and no mu-correction;
+     *  - the psi<-x block carries the extra source variation delta phi_0 =
+     *    grad(phi_0) . delta x, which the field-mode CHNS assembler omits
+     *    (there phi is an FE field, so its value does not transform).
+     * This is the third assembly case (hybrid: analytic phi, FE psi); it must
+     * not be confused with the field-mode CHNS solver.
+     */
+    template <int dim, typename ScratchData, typename CopyData>
+    class PresolverPsiAssembler : public AssemblerBase<ScratchData, CopyData>
+    {
+    public:
+      PresolverPsiAssembler(const ParameterReader<dim> &param,
+                            const ComponentOrdering    &ordering)
+        : param(param)
+        , ordering(ordering)
+      {}
+
+      virtual void assemble_matrix(const ScratchData &scratch_data,
+                                   CopyData          &copy_data) const override;
+
+      virtual void assemble_rhs(const ScratchData &scratch_data,
+                                CopyData          &copy_data) const override;
+
+    public:
+      const ParameterReader<dim> &param;
+      const ComponentOrdering    &ordering;
+    };
   } // namespace Elasticity
 } // namespace Assembly
 
@@ -345,6 +384,18 @@ namespace Assembly
             std::make_unique<
               SourceFromCHNSTracerAssembler<dim, ScratchData, CopyData>>(
               param, ordering));
+      }
+
+      // Enlarged presolver: reconstruct the widened marker psi by its Helmholtz
+      // equation (hybrid mode, analytic phi). Registered only when the ordering
+      // carries psi, i.e. the elasticity solver runs in enlarged-presolver mode.
+      if constexpr (std::is_same_v<ScratchData, ScratchDataElasticity<dim>>)
+      {
+        if (ordering.has_variable(SolverInfo::VariableType::phase_enlarged))
+          assemblers.emplace_back(
+            std::make_unique<
+              PresolverPsiAssembler<dim, ScratchData, CopyData>>(param,
+                                                                 ordering));
       }
     }
   } // namespace Elasticity

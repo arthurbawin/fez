@@ -343,17 +343,32 @@ public:
 
 /**
  * Components ordering for the elasticity solver.
+ *
+ * With @p with_enlarged_psi the elasticity presolver also carries the enlarged
+ * Cahn-Hilliard marker psi as an extra finite-element field appended after the
+ * mesh position (the physical tracer phi stays analytic, so it is not part of
+ * the ordering). The plain elasticity layout (position only) is unchanged when
+ * the flag is false.
  */
-template <int dim>
+template <int dim, bool with_enlarged_psi = false>
 class ComponentOrderingElasticity : public ComponentOrdering
 {
 public:
   ComponentOrderingElasticity()
     : ComponentOrdering()
   {
-    n_components = dim;
-    x_lower      = 0;
-    x_upper      = dim;
+    x_lower = 0;
+    x_upper = dim;
+    if constexpr (with_enlarged_psi)
+    {
+      psi_lower    = dim;
+      psi_upper    = dim + 1;
+      n_components = dim + 1;
+    }
+    else
+    {
+      n_components = dim;
+    }
   }
 };
 

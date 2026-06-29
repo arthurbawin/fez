@@ -693,9 +693,11 @@ void TransientFixedPointData<dim>::apply_gradation_to_metrics()
 }
 
 template <int dim>
-void TransientFixedPointData<dim>::adapt_meshes(const TimeHandler &time_handler,
-                                                const Vector<float> &criteria)
+void TransientFixedPointData<dim>::adapt_meshes(const Vector<float> &criteria)
 {
+  if (!param.mesh.adaptation.enable)
+    return;
+
   switch (param.mesh.adaptation.strategy)
   {
     case Parameters::Mesh::Adaptation::Strategy::RiemannianMetric:
@@ -704,21 +706,7 @@ void TransientFixedPointData<dim>::adapt_meshes(const TimeHandler &time_handler,
        * For each time interval, adapt the associated mesh with mmg, using
        * the designated Riemannian metric.
        */
-      if (param.mesh.adaptation.enable || param.metrics.always_compute)
-      {
-        AssertThrow(
-          param.bc_data.n_metric_fields > 0,
-          ExcMessage("Mesh adaptation with a Riemannian metric is enabled, but "
-                     "no metric field was provided (set number = 0)."));
-
-        // Scale and smooth the metric field, then adapt the mesh for each time
-        // interval.
-        this->scale_metrics(param.metrics.metric_for_adaptation, time_handler);
-        this->apply_gradation_to_metrics();
-
-        if (param.mesh.adaptation.enable)
-          this->adapt_meshes_with_mmg();
-      }
+      this->adapt_meshes_with_mmg();
       break;
     }
     case Parameters::Mesh::Adaptation::Strategy::LocalRefinement:
@@ -726,9 +714,7 @@ void TransientFixedPointData<dim>::adapt_meshes(const TimeHandler &time_handler,
       /**
        * Adapt the triangulation with the routines from deal.II.
        */
-      if (param.mesh.adaptation.enable)
-        this->adapt_mesh_with_dealii_routines(criteria);
-
+      this->adapt_mesh_with_dealii_routines(criteria);
       break;
     }
     default:

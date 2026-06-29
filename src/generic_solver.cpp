@@ -307,13 +307,10 @@ bool GenericSolver<VectorType>::should_adapt_tree_based_mesh(
 }
 
 template <typename VectorType>
-template <int dim>
 bool GenericSolver<VectorType>::should_adapt_mesh_at_end_of_intervals(
-  const ParameterReader<dim> &param,
-  const TimeHandler          &time_handler) const
+  const TimeHandler &time_handler) const
 {
-  if (mesh_param.adaptation.with_metric_based_adaptation() ||
-      param.metrics.always_compute)
+  if (mesh_param.adaptation.with_metric_based_adaptation())
     return true;
   else if (mesh_param.adaptation.with_tree_based_adaptation())
     if (time_handler.is_steady())
@@ -456,6 +453,17 @@ bool GenericSolver<VectorType>::should_compute_riemannian_metric(
 }
 
 template <typename VectorType>
+template <int dim>
+bool GenericSolver<VectorType>::should_scale_and_grade_riemannian_metric(
+  const ParameterReader<dim> &param,
+  const TimeHandler & /*time_handler*/) const
+{
+  if (param.with_metric_based_adaptation() || param.metrics.always_compute)
+    return true;
+  return false;
+}
+
+template <typename VectorType>
 const Parameters::TimeIntegration &
 GenericSolver<VectorType>::get_time_parameters() const
 {
@@ -483,14 +491,6 @@ template class GenericSolver<LA::ParVectorType>;
 template void GenericSolver<LA::ParVectorType>::run_convergence_loop<2>();
 template void GenericSolver<LA::ParVectorType>::run_convergence_loop<3>();
 
-template bool
-GenericSolver<LA::ParVectorType>::should_adapt_mesh_at_end_of_intervals(
-  const ParameterReader<2> &,
-  const TimeHandler &) const;
-template bool
-GenericSolver<LA::ParVectorType>::should_adapt_mesh_at_end_of_intervals(
-  const ParameterReader<3> &,
-  const TimeHandler &) const;
 template bool GenericSolver<LA::ParVectorType>::should_compute_reconstructions(
   const ParameterReader<2> &,
   const TimeHandler &) const;
@@ -503,5 +503,13 @@ GenericSolver<LA::ParVectorType>::should_compute_riemannian_metric(
   const TimeHandler &) const;
 template bool
 GenericSolver<LA::ParVectorType>::should_compute_riemannian_metric(
+  const ParameterReader<3> &,
+  const TimeHandler &) const;
+template bool
+GenericSolver<LA::ParVectorType>::should_scale_and_grade_riemannian_metric(
+  const ParameterReader<2> &,
+  const TimeHandler &) const;
+template bool
+GenericSolver<LA::ParVectorType>::should_scale_and_grade_riemannian_metric(
   const ParameterReader<3> &,
   const TimeHandler &) const;

@@ -186,8 +186,7 @@ public:
   /**
    * Adapt the meshes on all subintervals.
    */
-  void adapt_meshes(const TimeHandler   &time_handler,
-                    const Vector<float> &criteria);
+  void adapt_meshes(const Vector<float> &criteria);
 
   /**
    * Clear the data for each subinterval.
@@ -226,8 +225,6 @@ private:
    * Adapt the mesh using deal.II's adaptation routines.
    * This function assumes a single time interval, and adapts the mesh
    * associated with the first interval.
-   *
-   * FIXME: maybe template on Number instead of float.
    */
   void adapt_mesh_with_dealii_routines(const Vector<float> &criteria);
 

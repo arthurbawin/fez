@@ -1108,7 +1108,7 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
 {
   Vector<float> cellwise_errors(triangulation->n_active_cells());
-  transient_fixed_point_data.adapt_meshes(time_handler, cellwise_errors);
+  transient_fixed_point_data.adapt_meshes(cellwise_errors);
 }
 
 template <int dim, bool with_moving_mesh>

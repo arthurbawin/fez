@@ -162,10 +162,8 @@ public:
    * typically done in a finalize() function), to provide matching cells/dofs
    * and measured error norms in the convergence table.
    */
-  template <int dim>
   bool
-  should_adapt_mesh_at_end_of_intervals(const ParameterReader<dim> &param,
-                                        const TimeHandler &time_handler) const;
+  should_adapt_mesh_at_end_of_intervals(const TimeHandler &time_handler) const;
 
   /**
    * Return true if the solver should evaluate error norms. This is typically
@@ -204,6 +202,16 @@ public:
   template <int dim>
   bool should_compute_riemannian_metric(const ParameterReader<dim> &param,
                                         const TimeHandler &time_handler) const;
+
+  /**
+   * Return true if the Riemannian metric used for mesh adaptation should be
+   * scaled to reach a target number of vertices, and if gradation should be
+   * applied.
+   */
+  template <int dim>
+  bool should_scale_and_grade_riemannian_metric(
+    const ParameterReader<dim> &param,
+    const TimeHandler          &time_handler) const;
 
   /**
    * Return the (ghosted) solution vector.

@@ -126,6 +126,7 @@ void ParameterReader<dim>::check_parameters() const
                     "When solving for steady-state solution, a single time "
                     "subinterval is expected."));
 
+
     // If adapting with a fixed-point loop and modifying some parameters every
     // few iterations, check that these parameters exist in the relevant
     // function objects before running any computation.
@@ -153,6 +154,13 @@ void ParameterReader<dim>::check_parameters() const
       }
     }
   }
+
+  if (mesh.adaptation.with_metric_based_adaptation() || metrics.always_compute)
+    AssertThrow(
+      bc_data.n_metric_fields > 0,
+      ExcMessage(
+        "A Riemannian metric for mesh adaptation should be computed, but no "
+        "metric field parameters were provided (set number = 0)."));
 }
 
 template class ParameterReader<2>;

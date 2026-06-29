@@ -345,11 +345,17 @@ void HeatSolver<dim>::run()
    * If using a riemannian metric to adapt the mesh(es), perform all the
    * adaptations at the end of all time intervals (as it requires a global
    * scaling factor).
-   * 
+   *
    * If using tree-based adaptation with a steady-state convergence study,
    * adapt the mesh here.
    */
-  if (should_adapt_mesh_at_end_of_intervals(param, time_handler))
+  if (should_scale_and_grade_riemannian_metric(param, time_handler))
+  {
+    transient_fixed_point_data.scale_metrics(
+      param.metrics.metric_for_adaptation, time_handler);
+    transient_fixed_point_data.apply_gradation_to_metrics();
+  }
+  if (should_adapt_mesh_at_end_of_intervals(time_handler))
     adapt_mesh();
 }
 
@@ -863,8 +869,7 @@ void HeatSolver<dim>::adapt_mesh()
 
   // Adapt the mesh(es): either with a riemannian metric, or with the cellwise
   // error criteria.
-  transient_fixed_point_data.adapt_meshes(time_handler,
-                                          temperature_error_on_cells);
+  transient_fixed_point_data.adapt_meshes(temperature_error_on_cells);
 
   // Re-setup up the dof_handler, constraints and linear algebra structures.
   // For steady-state convergence studies, we're doing the work twice, here

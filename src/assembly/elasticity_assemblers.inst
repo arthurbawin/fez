@@ -144,5 +144,47 @@ namespace Assembly
                                    NavierStokesScratch::ScratchDataCHNS<3, true>,
                                    CopyDataBase<>>;
 
+    // Instantiation for the enlarged (psi) incompressible CHNS-ALE solver
+    template class LinearElasticityAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>>;
+    template class LinearElasticityAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>>;
+    template class NeoHookeanAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>>;
+    template class NeoHookeanAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>>;
+    template class OgdenHyperelasticityAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>>;
+    template class CurrentMeshSourceAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>>;
+    template class SourceFromCHNSTracerAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>>;
+    template class SourceFromCHNSTracerAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>>;
+
   } // namespace Elasticity
 } // namespace Assembly

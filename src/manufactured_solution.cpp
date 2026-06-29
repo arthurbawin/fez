@@ -315,6 +315,11 @@ namespace ManufacturedSolutions
       dummy_scalar_fun->declare_parameters(prm, 1);
       declare_preset_manufactured_solutions<dim>(prm);
       prm.leave_subsection();
+      prm.enter_subsection("exact phase enlarged");
+      prm.declare_entry("as solution", "false", Patterns::Bool(), "");
+      dummy_scalar_fun->declare_parameters(prm, 1);
+      declare_preset_manufactured_solutions<dim>(prm);
+      prm.leave_subsection();
       prm.enter_subsection("exact temperature");
       prm.declare_entry("as solution", "false", Patterns::Bool(), "");
       dummy_scalar_fun->declare_parameters(prm, 1);
@@ -343,6 +348,7 @@ namespace ManufacturedSolutions
     auto sym_mesh_position = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
     auto sym_tracer        = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_potential     = std::make_shared<ParsedFunctionSDBase<dim>>(1);
+    auto sym_psi           = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_temperature   = std::make_shared<ParsedFunctionSDBase<dim>>(1);
     auto sym_multiplier    = std::make_shared<ParsedFunctionSDBase<dim>>(dim);
 
@@ -351,6 +357,7 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> preset_mesh_position;
     std::shared_ptr<MMSFunction<dim>> preset_tracer;
     std::shared_ptr<MMSFunction<dim>> preset_potential;
+    std::shared_ptr<MMSFunction<dim>> preset_psi;
     std::shared_ptr<MMSFunction<dim>> preset_temperature;
     std::shared_ptr<MMSFunction<dim>> preset_multiplier;
 
@@ -391,6 +398,11 @@ namespace ManufacturedSolutions
                                          preset_potential_type,
                                          preset_potential);
       prm.leave_subsection();
+      prm.enter_subsection("exact phase enlarged");
+      set_field_as_solution["phase_enlarged"] = prm.get_bool("as solution");
+      sym_psi->parse_parameters(prm);
+      parse_preset_manufactured_solution(prm, preset_psi_type, preset_psi);
+      prm.leave_subsection();
       prm.enter_subsection("exact temperature");
       set_field_as_solution["temperature"] = prm.get_bool("as solution");
       sym_temperature->parse_parameters(prm);
@@ -423,6 +435,8 @@ namespace ManufacturedSolutions
     exact_potential   = (preset_potential_type == PresetMMS::none) ?
                           sym_potential :
                           preset_potential;
+    exact_psi =
+      (preset_psi_type == PresetMMS::none) ? sym_psi : preset_psi;
     exact_temperature = (preset_temperature_type == PresetMMS::none) ?
                           sym_temperature :
                           preset_temperature;
@@ -435,6 +449,7 @@ namespace ManufacturedSolutions
     exact_solution["mesh position"] = exact_mesh_position;
     exact_solution["tracer"]        = exact_tracer;
     exact_solution["potential"]     = exact_potential;
+    exact_solution["phase_enlarged"] = exact_psi;
     exact_solution["temperature"]   = exact_temperature;
     exact_solution["lambda"]        = exact_lagrange_multiplier;
   }

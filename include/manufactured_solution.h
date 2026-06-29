@@ -64,6 +64,8 @@ namespace ManufacturedSolutions
       exact_mesh_position->set_time(new_time);
       exact_tracer->set_time(new_time);
       exact_potential->set_time(new_time);
+      if (exact_psi)
+        exact_psi->set_time(new_time);
       exact_temperature->set_time(new_time);
       exact_lagrange_multiplier->set_time(new_time);
     }
@@ -77,6 +79,7 @@ namespace ManufacturedSolutions
     std::shared_ptr<MMSFunction<dim>> exact_mesh_position;
     std::shared_ptr<MMSFunction<dim>> exact_tracer;
     std::shared_ptr<MMSFunction<dim>> exact_potential;
+    std::shared_ptr<MMSFunction<dim>> exact_psi;
     std::shared_ptr<MMSFunction<dim>> exact_temperature;
     std::shared_ptr<MMSFunction<dim>> exact_lagrange_multiplier;
 
@@ -91,6 +94,7 @@ namespace ManufacturedSolutions
     PresetMMS preset_mesh_position_type       = PresetMMS::none;
     PresetMMS preset_tracer_type              = PresetMMS::none;
     PresetMMS preset_potential_type           = PresetMMS::none;
+    PresetMMS preset_psi_type                 = PresetMMS::none;
     PresetMMS preset_temperature_type         = PresetMMS::none;
     PresetMMS preset_lagrange_multiplier_type = PresetMMS::none;
   };

@@ -1555,6 +1555,10 @@ namespace NavierStokesScratch
     double         epsilon;
     double         sigma_tilde;
     double         diffusive_flux_factor;
+    // Enlarged (psi) Helmholtz length scale squared (L^2, L = width factor *
+    // epsilon) and the raw mu-correction factor. Only set when enlarged.
+    double         psi_length_scale_sq;
+    double         psi_mu_correction_factor;
     Tensor<1, dim> body_force;
 
     CahnHilliard::TracerLimiterFunction tracer_limiter;

@@ -134,5 +134,47 @@ namespace Assembly
                                    NavierStokesScratch::ScratchDataCHNS<3, true>,
                                    CopyDataBase<>,
                                    stabilization | tracer_stabilization | moving_mesh>;
+
+    // Enlarged (psi), moving mesh only
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>,
+      moving_mesh | enlarged>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>,
+      moving_mesh | enlarged>;
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>,
+      stabilization | moving_mesh | enlarged>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>,
+      stabilization | moving_mesh | enlarged>;
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>,
+      tracer_stabilization | moving_mesh | enlarged>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>,
+      tracer_stabilization | moving_mesh | enlarged>;
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>,
+      stabilization | tracer_stabilization | moving_mesh | enlarged>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>,
+      stabilization | tracer_stabilization | moving_mesh | enlarged>;
   } // namespace IncompressibleCHNS
 } // namespace Assembly

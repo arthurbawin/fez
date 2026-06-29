@@ -184,6 +184,9 @@ namespace Assembly
           local_rhs(i) += local_rhs_i * JxW_moving;
         }
       }
+
+      if constexpr (BaseType::with_enlarged)
+        assemble_psi_equation_rhs<dim>(this->ordering, sd, local_rhs);
     }
 
     template <int dim,
@@ -867,6 +870,10 @@ namespace Assembly
             }
         }
       }
+
+      if constexpr (BaseType::with_enlarged)
+        assemble_psi_equation_matrix<dim, BaseType::with_moving_mesh>(
+          this->ordering, this->coupling_table, sd, local_matrix);
     }
   } // namespace IncompressibleCHNS
 } // namespace Assembly

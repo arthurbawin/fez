@@ -289,33 +289,24 @@ namespace MeshTools
 
     tria.refine_global(refinement);
 
-    // Colorize = true starts counting boundary ids at zero, but physical
-    // entities in Gmsh must have a strictly postiive tag. To be able to check
-    // the entities in Gmsh, increases the boundary ids by 1.
-    for (auto &cell : tria.active_cell_iterators())
-      if (cell->at_boundary())
-        for (auto &face : cell->face_iterators())
-          if (face->at_boundary())
-            face->set_boundary_id(face->boundary_id() + 1);
-
-    // Use the boundary pattern (+1) obtained with "colorize = true" for
+    // Use the boundary pattern obtained with "colorize = true" for
     // uniform_channel_with_cylinder (see also grid_generator.h).
-    mesh_param.id2name.insert({1, "inlet"});
-    mesh_param.id2name.insert({2, "outlet"});
-    mesh_param.id2name.insert({3, "cylinder"});
-    mesh_param.id2name.insert({4, "bottom"});
-    mesh_param.id2name.insert({5, "top"});
-    mesh_param.name2id.insert({"inlet", 1});
-    mesh_param.name2id.insert({"outlet", 2});
-    mesh_param.name2id.insert({"cylinder", 3});
-    mesh_param.name2id.insert({"bottom", 4});
-    mesh_param.name2id.insert({"top", 5});
+    mesh_param.id2name.insert({0, "inlet"});
+    mesh_param.id2name.insert({1, "outlet"});
+    mesh_param.id2name.insert({2, "cylinder"});
+    mesh_param.id2name.insert({3, "bottom"});
+    mesh_param.id2name.insert({4, "top"});
+    mesh_param.name2id.insert({"inlet", 0});
+    mesh_param.name2id.insert({"outlet", 1});
+    mesh_param.name2id.insert({"cylinder", 2});
+    mesh_param.name2id.insert({"bottom", 3});
+    mesh_param.name2id.insert({"top", 4});
     if constexpr (dim == 3)
     {
-      mesh_param.id2name.insert({6, "front"});
-      mesh_param.id2name.insert({7, "back"});
-      mesh_param.name2id.insert({"front", 6});
-      mesh_param.name2id.insert({"back", 7});
+      mesh_param.id2name.insert({5, "front"});
+      mesh_param.id2name.insert({6, "back"});
+      mesh_param.name2id.insert({"front", 5});
+      mesh_param.name2id.insert({"back", 6});
     }
 
     if (convert_to_tets)
@@ -639,8 +630,8 @@ namespace MeshTools
 
       std::cout << "Mesh info:" << std::endl
                 << " dimension: " << dim << std::endl
-                << " no. of cells: " << serial_triangulation.n_active_cells()
-                << std::endl;
+                << " no. of cells: "
+                << serial_triangulation.n_global_active_cells() << std::endl;
 
       std::cout << " boundary indicators: ";
       for (const auto &[id, count] : boundary_count)

@@ -2,6 +2,7 @@
 #define COMPONENT_ORDERING_H
 
 #include <deal.II/base/types.h>
+#include <deal.II/fe/fe_values_extractors.h>
 #include <solver_info.h>
 
 /**
@@ -22,24 +23,31 @@ public:
   static constexpr unsigned int invalid = dealii::numbers::invalid_unsigned_int;
 
   unsigned int n_components = invalid;
+
   // Fluid velocity
   unsigned int u_lower = invalid;
   unsigned int u_upper = invalid;
+
   // Pressure
   unsigned int p_lower = invalid;
   unsigned int p_upper = invalid;
+
   // Mesh position
   unsigned int x_lower = invalid;
   unsigned int x_upper = invalid;
-  // Lagrange multiplier
+
+  // Lagrange multiplier (for velocity constraints)
   unsigned int l_lower = invalid;
   unsigned int l_upper = invalid;
+
   // Cahn-Hilliard tracer
   unsigned int phi_lower = invalid;
   unsigned int phi_upper = invalid;
+
   // Cahn-Hililard potential
   unsigned int mu_lower = invalid;
   unsigned int mu_upper = invalid;
+
   // Temperature
   unsigned int t_lower = invalid;
   unsigned int t_upper = invalid;
@@ -81,23 +89,24 @@ public:
    */
   inline bool has_variable(const SolverInfo::VariableType variable_type) const
   {
-    using Type = SolverInfo::VariableType;
-    if (variable_type == Type::velocity)
-      return u_lower != invalid;
-    else if (variable_type == Type::pressure)
-      return p_lower != invalid;
-    else if (variable_type == Type::mesh_position)
-      return x_lower != invalid;
-    else if (variable_type == Type::lagrange_mult)
-      return l_lower != invalid;
-    else if (variable_type == Type::phase_tracer)
-      return phi_lower != invalid;
-    else if (variable_type == Type::phase_potential)
-      return mu_lower != invalid;
-    else if (variable_type == Type::temperature)
-      return t_lower != invalid;
-    else
-      DEAL_II_ASSERT_UNREACHABLE();
+    switch (variable_type)
+    {
+      case SolverInfo::VariableType::velocity:
+        return u_lower != invalid;
+      case SolverInfo::VariableType::pressure:
+        return p_lower != invalid;
+      case SolverInfo::VariableType::mesh_position:
+        return x_lower != invalid;
+      case SolverInfo::VariableType::lagrange_mult:
+        return l_lower != invalid;
+      case SolverInfo::VariableType::phase_tracer:
+        return phi_lower != invalid;
+      case SolverInfo::VariableType::phase_potential:
+        return mu_lower != invalid;
+      case SolverInfo::VariableType::temperature:
+        return t_lower != invalid;
+    }
+    DEAL_II_ASSERT_UNREACHABLE();
   }
 
   /**
@@ -108,23 +117,24 @@ public:
   inline unsigned int variable_to_first_component(
     const SolverInfo::VariableType variable_type) const
   {
-    using Type = SolverInfo::VariableType;
-    if (variable_type == Type::velocity)
-      return u_lower;
-    else if (variable_type == Type::pressure)
-      return p_lower;
-    else if (variable_type == Type::mesh_position)
-      return x_lower;
-    else if (variable_type == Type::lagrange_mult)
-      return l_lower;
-    else if (variable_type == Type::phase_tracer)
-      return phi_lower;
-    else if (variable_type == Type::phase_potential)
-      return mu_lower;
-    else if (variable_type == Type::temperature)
-      return t_lower;
-    else
-      DEAL_II_ASSERT_UNREACHABLE();
+    switch (variable_type)
+    {
+      case SolverInfo::VariableType::velocity:
+        return u_lower;
+      case SolverInfo::VariableType::pressure:
+        return p_lower;
+      case SolverInfo::VariableType::mesh_position:
+        return x_lower;
+      case SolverInfo::VariableType::lagrange_mult:
+        return l_lower;
+      case SolverInfo::VariableType::phase_tracer:
+        return phi_lower;
+      case SolverInfo::VariableType::phase_potential:
+        return mu_lower;
+      case SolverInfo::VariableType::temperature:
+        return t_lower;
+    }
+    DEAL_II_ASSERT_UNREACHABLE();
   }
 
   inline SolverInfo::VariableType
@@ -146,6 +156,105 @@ public:
       return SolverInfo::VariableType::temperature;
     else
       DEAL_II_ASSERT_UNREACHABLE();
+  }
+
+  /**
+   * Return true if the variable is scalar-valued, false otherwise.
+   * Used to return a FEValueExtractor::Scalar.
+   */
+  inline bool is_scalar(const SolverInfo::VariableType variable_type) const
+  {
+    switch (variable_type)
+    {
+      case SolverInfo::VariableType::velocity:
+        return false;
+      case SolverInfo::VariableType::pressure:
+        return true;
+      case SolverInfo::VariableType::mesh_position:
+        return false;
+      case SolverInfo::VariableType::lagrange_mult:
+        return false;
+      case SolverInfo::VariableType::phase_tracer:
+        return true;
+      case SolverInfo::VariableType::phase_potential:
+        return true;
+      case SolverInfo::VariableType::temperature:
+        return true;
+    }
+    DEAL_II_ASSERT_UNREACHABLE();
+  }
+
+  /**
+   * Return a FEValueExtractor::Scalar for this variable. Expects a
+   * scalar-valued variable, which can be checked with the function above.
+   */
+  inline dealii::FEValuesExtractors::Scalar
+  get_scalar_extractor(const SolverInfo::VariableType variable_type) const
+  {
+    Assert(
+      is_scalar(variable_type),
+      dealii::StandardExceptions::ExcMessage(
+        "Cannot return a FEValuesExtractors::Scalar for non-scalar variable"));
+    switch (variable_type)
+    {
+      case SolverInfo::VariableType::velocity:
+        DEAL_II_ASSERT_UNREACHABLE();
+      case SolverInfo::VariableType::pressure:
+        return dealii::FEValuesExtractors::Scalar(p_lower);
+      case SolverInfo::VariableType::mesh_position:
+        DEAL_II_ASSERT_UNREACHABLE();
+      case SolverInfo::VariableType::lagrange_mult:
+        DEAL_II_ASSERT_UNREACHABLE();
+      case SolverInfo::VariableType::phase_tracer:
+        return dealii::FEValuesExtractors::Scalar(phi_lower);
+      case SolverInfo::VariableType::phase_potential:
+        return dealii::FEValuesExtractors::Scalar(mu_lower);
+      case SolverInfo::VariableType::temperature:
+        return dealii::FEValuesExtractors::Scalar(t_lower);
+    }
+    DEAL_II_ASSERT_UNREACHABLE();
+  }
+
+  /**
+   * Return true if the variable is vector-valued, false otherwise.
+   * Used to return a FEValueExtractor::Vector.
+   */
+  inline bool is_vector(const SolverInfo::VariableType variable_type) const
+  {
+    // There is no tensor-valued variable for now, so simply return !is_scalar
+    return !is_scalar(variable_type);
+  }
+
+  /**
+   * Return a FEValueExtractor::Vector for this variable. Expects a
+   * vector-valued variable, which can be checked with the function above.
+   */
+  inline dealii::FEValuesExtractors::Vector
+  get_vector_extractor(const SolverInfo::VariableType variable_type) const
+  {
+    Assert(
+      is_vector(variable_type),
+      dealii::StandardExceptions::ExcMessage(
+        "Cannot return a FEValuesExtractors::Vector for non-vector variable"));
+    switch (variable_type)
+    {
+      case SolverInfo::VariableType::velocity:
+        return dealii::FEValuesExtractors::Vector(u_lower);
+      case SolverInfo::VariableType::pressure:
+        DEAL_II_ASSERT_UNREACHABLE();
+      case SolverInfo::VariableType::mesh_position:
+        return dealii::FEValuesExtractors::Vector(x_lower);
+      case SolverInfo::VariableType::lagrange_mult:
+        return dealii::FEValuesExtractors::Vector(l_lower);
+        DEAL_II_ASSERT_UNREACHABLE();
+      case SolverInfo::VariableType::phase_tracer:
+        DEAL_II_ASSERT_UNREACHABLE();
+      case SolverInfo::VariableType::phase_potential:
+        DEAL_II_ASSERT_UNREACHABLE();
+      case SolverInfo::VariableType::temperature:
+        DEAL_II_ASSERT_UNREACHABLE();
+    }
+    DEAL_II_ASSERT_UNREACHABLE();
   }
 };
 

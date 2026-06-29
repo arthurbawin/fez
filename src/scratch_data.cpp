@@ -399,6 +399,15 @@ namespace NavierStokesScratch
     tracer.component = phi_lower = ordering.phi_lower;
     potential.component = mu_lower = ordering.mu_lower;
 
+    if constexpr (enable_enlarged)
+    {
+      AssertThrow(
+        ordering.psi_lower != numbers::invalid_unsigned_int,
+        ExcMessage("Cannot create enlarged ScratchData because the solver does "
+                   "not have an enlarged tracer (psi) variable."));
+      psi.component = psi_lower = ordering.psi_lower;
+    }
+
     density0           = physical_properties.fluids[0].density;
     density1           = physical_properties.fluids[1].density;
     const double nu0   = physical_properties.fluids[0].kinematic_viscosity;
@@ -667,6 +676,16 @@ namespace NavierStokesScratch
 
       source_term_tracer.resize(n_q_points);
       source_term_potential.resize(n_q_points);
+
+      if constexpr (enable_enlarged)
+      {
+        psi_values.resize(n_q_points);
+        psi_gradients.resize(n_q_points);
+        shape_psi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
+        grad_shape_psi.resize(n_q_points,
+                              std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+        source_term_psi.resize(n_q_points);
+      }
     }
 
     if constexpr (enable_compressible)
@@ -752,4 +771,8 @@ namespace NavierStokesScratch
   // Incompressible CHNS with mesh movement
   template class ScratchData<2, cahn_hilliard | pseudo_solid>;
   template class ScratchData<3, cahn_hilliard | pseudo_solid>;
+
+  // Enlarged incompressible CHNS with mesh movement
+  template class ScratchData<2, cahn_hilliard | pseudo_solid | enlarged>;
+  template class ScratchData<3, cahn_hilliard | pseudo_solid | enlarged>;
 } // namespace NavierStokesScratch

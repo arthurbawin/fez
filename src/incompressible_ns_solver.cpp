@@ -121,15 +121,14 @@ void NSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
 template <int dim>
 void NSSolver<dim>::create_scratch_data()
 {
-  scratch_data =
-    std::make_unique<ScratchData>(*this->ordering,
-                                  *fe,
-                                  *mapping,
-                                  *mapping,
-                                  *this->quadrature,
-                                  *this->face_quadrature,
-                                  this->time_handler,
-                                  this->param);
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               *mapping,
+                                               *mapping,
+                                               *this->quadrature,
+                                               *this->face_quadrature,
+                                               this->time_handler,
+                                               this->param);
 }
 
 template <int dim>

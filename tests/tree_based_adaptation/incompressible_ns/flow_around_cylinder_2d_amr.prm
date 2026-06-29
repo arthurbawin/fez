@@ -1,0 +1,112 @@
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write vtu results      = false
+  set output directory       = ../tmp/results/
+  set output prefix          = solution
+end
+
+subsection Mesh
+
+  set dealii preset mesh     = uniform channel with cylinder
+  set dealii mesh parameters = 5, 15, 5, 5 : 1 : 1 : 0.75 : 2 : 2. : true : true
+  set refinement level       = 0
+
+  subsection Adaptation
+    set verbosity = verbose
+    set enable    = true
+    set strategy  = local refinement
+
+    subsection Local refinement
+      set variables for adaptation          = velocity
+      set number of steady adaptation steps = 3
+      set refinement strategy               = fixed number
+      set fraction to refine                = 0.3
+      set fraction to coarsen               = 0.3
+    end
+  end
+end
+
+subsection Time integration
+  set verbosity = verbose
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-6
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set use quads       = true
+  set Velocity degree = 2
+  set Pressure degree = 1
+  set mapping degree  = isoparametric velocity
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 0.05
+  end
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 5
+  subsection boundary 0
+    set id   = 0
+    set name = inlet
+    set type = input_function
+    subsection u
+      set Function expression = 1
+    end
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = outlet
+    set type = outflow
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = cylinder
+    set type = no_slip
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = bottom
+    set type = slip
+  end
+  subsection boundary 4
+    set id   = 4
+    set name = top
+    set type = slip
+  end
+end

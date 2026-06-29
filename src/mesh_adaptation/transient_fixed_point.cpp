@@ -5,6 +5,10 @@
 #include <deal.II/base/table_handler.h>
 #include <deal.II/base/timer.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/grid_refinement.h>
+#include <deal.II/distributed/tria.h>
+#include <deal.II/distributed/tria_base.h>
+#include <deal.II/lac/affine_constraints.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <mesh_adaptation/transient_fixed_point.h>
@@ -33,9 +37,23 @@ TransientFixedPointData<dim>::TransientFixedPointData(
 {
   for (unsigned int i = 0; i < n_time_intervals; ++i)
   {
-    triangulations[i] =
-      std::make_unique<parallel::fullydistributed::Triangulation<dim>>(
-        mpi_communicator);
+    // Use a parallel::distributed::Triangulation if tree-based AMR is enabled.
+    // Otherwise, use a parallel::fullydistributed::Triangulation.
+    if (param.mesh.adaptation.strategy ==
+        Parameters::Mesh::Adaptation::Strategy::LocalRefinement)
+#if defined(DEAL_II_WITH_P4EST)
+      triangulations[i] =
+        std::make_unique<parallel::distributed::Triangulation<dim>>(
+          mpi_communicator,
+          Triangulation<dim>::limit_level_difference_at_vertices);
+#else
+      AssertThrow(false, ExcDealiiNeedsP4EST());
+#endif
+    else
+      triangulations[i] =
+        std::make_unique<parallel::fullydistributed::Triangulation<dim>>(
+          mpi_communicator);
+
     dof_handlers[i] = std::make_unique<DoFHandler<dim>>(*triangulations[i]);
     present_solutions[i]  = std::make_unique<LA::ParVectorType>();
     previous_solutions[i] = std::make_unique<std::vector<LA::ParVectorType>>();
@@ -50,7 +68,7 @@ unsigned int TransientFixedPointData<dim>::get_n_time_intervals() const
 }
 
 template <int dim>
-parallel::fullydistributed::Triangulation<dim> *
+parallel::DistributedTriangulationBase<dim> *
 TransientFixedPointData<dim>::get_triangulation(
   const unsigned int interval_index)
 {
@@ -172,12 +190,12 @@ unsigned int TransientFixedPointData<dim>::get_effective_space_time_complexity(
 
 template <int dim>
 void TransientFixedPointData<dim>::set_interval_data(
-  const unsigned int                               interval_index,
-  parallel::fullydistributed::Triangulation<dim> *&triangulation,
-  DoFHandler<dim>                                *&dof_handler,
-  LA::ParVectorType                              *&present_solution,
-  std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
-  MetricField<dim>                               *&metric_for_adaptation)
+  const unsigned int                            interval_index,
+  parallel::DistributedTriangulationBase<dim> *&triangulation,
+  DoFHandler<dim>                             *&dof_handler,
+  LA::ParVectorType                           *&present_solution,
+  std::vector<LA::ParVectorType>              *&solver_previous_solutions,
+  MetricField<dim>                            *&metric_for_adaptation)
 {
   AssertIndexRange(interval_index, n_time_intervals);
 
@@ -376,7 +394,7 @@ void TransientFixedPointData<dim>::do_solution_transfer(
 }
 
 template <int dim>
-void TransientFixedPointData<dim>::transfer_solution(
+void TransientFixedPointData<dim>::transfer_solution_between_intervals(
   const unsigned int                interval_index,
   const Mapping<dim>               &mapping,
   Function<dim>                    &exact_solution,
@@ -500,6 +518,54 @@ void TransientFixedPointData<dim>::transfer_solution(
 }
 
 template <int dim>
+void TransientFixedPointData<dim>::transfer_solution_between_refinements(
+  const IndexSet                  &locally_relevant_dofs,
+  const AffineConstraints<double> &nonzero_constraints)
+{
+  TimerOutput::Scope t(timer, "Transfer solution between refinements");
+
+  // Adapt only the first interval for now
+  const auto &dh               = *dof_handlers[0];
+  auto       &present_solution = *present_solutions[0];
+  auto       &previous_sols    = *previous_solutions[0];
+
+  LA::ParVectorType completely_distributed_solution(dh.locally_owned_dofs(),
+                                                    mpi_communicator);
+
+  std::vector<LA::ParVectorType> all_out(previous_sols.size() + 1);
+  for (unsigned int i = 0; i < all_out.size(); ++i)
+    all_out[i] = completely_distributed_solution;
+
+  Assert(solution_transfer, ExcInternalError());
+
+  // Interpolate the (ghosted) solutions stored in the SolutionTransfer object.
+  solution_transfer->interpolate(all_out);
+
+  // Apply the nonhomogeneous and hanging nodes constraints to the current sol
+  nonzero_constraints.distribute(all_out[0]);
+  present_solution = all_out[0];
+
+  /**
+   * At this point, we only have the nonzero_constraints for the current time
+   * available, but not for the previous times, see also the discussion in
+   * step-86.cc (transfer_solution_vectors_to_new_mesh).
+   *
+   * What we can do, however, is create the hanging node constraints for the
+   * current mesh, and apply them to the previous solutions.
+   */
+  AffineConstraints<double> hanging_node_constraints(dh.locally_owned_dofs(),
+                                                     locally_relevant_dofs);
+  DoFTools::make_hanging_node_constraints(dh, hanging_node_constraints);
+  hanging_node_constraints.close();
+
+  for (unsigned int i = 0; i < previous_sols.size(); ++i)
+  {
+    hanging_node_constraints.distribute(all_out[i + 1]);
+    previous_sols[i] = all_out[i + 1];
+  }
+}
+
+template <int dim>
 void TransientFixedPointData<dim>::scale_metrics(
   const unsigned int metric_index,
   const TimeHandler &time_handler)
@@ -564,7 +630,10 @@ void TransientFixedPointData<dim>::scale_metrics(
     // Apply global scaling (operator *= includes update of FE solution and
     // ghosts)
     for (const auto &m_ptr : metrics_for_adaptation)
+    {
       (*m_ptr) *= std::pow(N / global_scaling, 2. / d);
+      m_ptr->is_scaled = true;
+    }
   }
 }
 
@@ -576,7 +645,51 @@ void TransientFixedPointData<dim>::apply_gradation_to_metrics()
 }
 
 template <int dim>
-void TransientFixedPointData<dim>::adapt_meshes()
+void TransientFixedPointData<dim>::adapt_meshes(const TimeHandler &time_handler,
+                                                const Vector<float> &criteria)
+{
+  switch (param.mesh.adaptation.strategy)
+  {
+    case Parameters::Mesh::Adaptation::Strategy::RiemannianMetric:
+    {
+      /**
+       * For each time interval, adapt the associated mesh with mmg, using
+       * the designated Riemannian metric.
+       */
+      if (param.mesh.adaptation.enable || param.metrics.always_compute)
+      {
+        AssertThrow(
+          param.bc_data.n_metric_fields > 0,
+          ExcMessage("Mesh adaptation with a Riemannian metric is enabled, but "
+                     "no metric field was provided (set number = 0)."));
+
+        // Scale and smooth the metric field, then adapt the mesh for each time
+        // interval.
+        this->scale_metrics(param.metrics.metric_for_adaptation, time_handler);
+        this->apply_gradation_to_metrics();
+
+        if (param.mesh.adaptation.enable)
+          this->adapt_meshes_with_mmg();
+      }
+      break;
+    }
+    case Parameters::Mesh::Adaptation::Strategy::LocalRefinement:
+    {
+      /**
+       * Adapt the triangulation with the routines from deal.II.
+       */
+      if (param.mesh.adaptation.enable)
+        this->adapt_mesh_with_dealii_routines(criteria);
+
+      break;
+    }
+    default:
+      DEAL_II_ASSERT_UNREACHABLE();
+  }
+}
+
+template <int dim>
+void TransientFixedPointData<dim>::adapt_meshes_with_mmg()
 {
   const bool verbose =
     Utilities::MPI::this_mpi_process(mpi_communicator) == 0 &&
@@ -593,6 +706,11 @@ void TransientFixedPointData<dim>::adapt_meshes()
 
   for (unsigned int i = 0; i < n_time_intervals; ++i)
   {
+    Assert(metrics_for_adaptation[i]->is_scaled, ExcInternalError());
+    if (param.metric_fields[param.metrics.metric_for_adaptation]
+          .gradation.enable)
+      Assert(metrics_for_adaptation[i]->is_graded, ExcInternalError());
+
     const std::string input_meshfile = get_meshfile_name(i);
     const std::string output_meshfile =
       adapt_dir + param.mesh.adaptation.adapted_mesh_extension + "_" +
@@ -605,6 +723,96 @@ void TransientFixedPointData<dim>::adapt_meshes()
                               output_meshfile,
                               i);
   }
+}
+
+template <int dim>
+void TransientFixedPointData<dim>::adapt_mesh_with_dealii_routines(
+  const Vector<float> &criteria)
+{
+  const bool verbose =
+    Utilities::MPI::this_mpi_process(mpi_communicator) == 0 &&
+    param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose;
+
+  if (verbose)
+  {
+    std::cout << std::endl;
+    std::cout << "-- Adapting tree-based mesh" << std::endl;
+  }
+
+#if defined(DEAL_II_WITH_P4EST)
+
+  // Adapt only the first interval for now
+  auto       &triangulation    = *triangulations[0];
+  const auto &dh               = *dof_handlers[0];
+  const auto &present_solution = *present_solutions[0];
+  const auto &previous_sols    = *previous_solutions[0];
+
+  const auto &tree_amr = param.mesh.adaptation.tree_amr;
+
+  // Mark cells for refinement and coarsening
+  switch (tree_amr.refinement_strategy)
+  {
+    case Parameters::Mesh::Adaptation::TreeAMR::RefinementStrategy::FixedNumber:
+      parallel::distributed::GridRefinement::refine_and_coarsen_fixed_number(
+        triangulation,
+        criteria,
+        tree_amr.fraction_to_refine,
+        tree_amr.fraction_to_coarsen,
+        tree_amr.max_n_cells);
+      break;
+    case Parameters::Mesh::Adaptation::TreeAMR::RefinementStrategy::
+      FixedFraction:
+      parallel::distributed::GridRefinement::refine_and_coarsen_fixed_fraction(
+        triangulation,
+        criteria,
+        tree_amr.fraction_to_refine,
+        tree_amr.fraction_to_coarsen);
+      break;
+    default:
+      DEAL_II_ASSERT_UNREACHABLE();
+  }
+
+  // Bound refinement according to prescribed min and max allowed levels
+  if (triangulation.n_levels() > tree_amr.max_level)
+    for (const auto &cell :
+         triangulation.active_cell_iterators_on_level(tree_amr.max_level))
+      cell->clear_refine_flag();
+  for (const auto &cell :
+       triangulation.active_cell_iterators_on_level(tree_amr.min_level))
+    cell->clear_coarsen_flag();
+
+  // (Re-)initialize the solution transfer object, and adapt the mesh
+  solution_transfer =
+    std::make_unique<SolutionTransfer<dim, LA::ParVectorType>>(dh);
+
+  // Create the vector of pointers to give the solution_transfer.
+  // Each entry must point to a *ghosted* parallel vector.
+  std::vector<const LA::ParVectorType *> all_in(previous_sols.size() + 1);
+  all_in[0] = &present_solution;
+  for (unsigned int i = 0; i < previous_sols.size(); ++i)
+    all_in[i + 1] = &previous_sols[i];
+
+  for (auto vec : all_in)
+  {
+    Assert(vec->size() == dh.n_dofs(), ExcInternalError());
+    Assert(vec->has_ghost_elements(), ExcInternalError());
+  }
+
+  triangulation.prepare_coarsening_and_refinement();
+  solution_transfer->prepare_for_coarsening_and_refinement(all_in);
+
+  // Now actually refine the mesh
+  triangulation.execute_coarsening_and_refinement();
+
+  if (verbose)
+  {
+    std::cout << "-- \tNumber of cells after adaptation: "
+              << triangulation.n_global_active_cells() << std::endl;
+  }
+
+#else
+  AssertThrow(false, ExcDealiiNeedsP4EST());
+#endif
 }
 
 template <int dim>

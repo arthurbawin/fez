@@ -5,7 +5,7 @@
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/utilities.h>
-#include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria_base.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
@@ -269,7 +269,7 @@ public:
    * Initial conditions on additional fields must be set in the solver-specific
    * overload.
    */
-  void set_initial_conditions();
+  void set_initial_conditions(const bool rotate_solutions = true);
 
   /**
    * Create the additional initial conditions specific to each derived solver.
@@ -354,7 +354,8 @@ public:
   /**
    * Write the results to a vtu/pvtu file for visualization.
    */
-  void output_results();
+  void output_results(const bool         is_prerefinement_step = false,
+                      const unsigned int prerefinement_step    = 0);
 
   /**
    * Add additional postprocessing data specific to each derived solver to the
@@ -411,6 +412,12 @@ public:
   virtual void compute_riemannian_metric();
 
   /**
+   * Compute the cellwise error estimate used as refinement/coarsening
+   * criterion.
+   */
+  void compute_error_estimate();
+
+  /**
    * Adapt the mesh (metric-based remeshing only for now).
    */
   virtual void adapt_mesh() override;
@@ -465,6 +472,13 @@ public:
    * Return the (ghosted) solution vector.
    */
   virtual LA::ParVectorType &get_present_solution() override;
+
+  /**
+   * Return a component mask for the given @p variable.
+   * Throws an error if the solver does not solve for this variable.
+   */
+  ComponentMask
+  get_component_mask(const SolverInfo::VariableType variable) const;
 
 private:
   /**
@@ -542,8 +556,8 @@ protected:
 
   TransientFixedPointData<dim> transient_fixed_point_data;
 
-  parallel::fullydistributed::Triangulation<dim> *triangulation;
-  DoFHandler<dim>                                *dof_handler;
+  parallel::DistributedTriangulationBase<dim> *triangulation;
+  DoFHandler<dim>                             *dof_handler;
 
   std::unique_ptr<Mapping<dim>> fixed_mapping;
   std::unique_ptr<Mapping<dim>> moving_mapping;
@@ -596,6 +610,12 @@ protected:
     patch_handlers;
   std::vector<std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>>>
     recoveries;
+
+  /**
+   * Cellwise error used to adapt the mesh when tree-based adaptation is
+   * enabled.
+   */
+  Vector<float> cellwise_refinement_criterion;
 };
 
 /* ---------------- template and inline functions ----------------- */
@@ -646,6 +666,25 @@ LA::ParVectorType &
 NavierStokesSolver<dim, with_moving_mesh>::get_present_solution()
 {
   return *present_solution;
+}
+
+template <int dim, bool with_moving_mesh>
+ComponentMask NavierStokesSolver<dim, with_moving_mesh>::get_component_mask(
+  const SolverInfo::VariableType variable) const
+{
+  Assert(ordering->has_variable(variable),
+         ExcMessage("You are requiring a ComponentMask for the variable \"" +
+                    SolverInfo::to_string(variable) +
+                    "\", but this solver does not store this variable."));
+
+  if (ordering->is_scalar(variable))
+    return this->get_fe_system().component_mask(
+      ordering->get_scalar_extractor(variable));
+  else if (ordering->is_vector(variable))
+    return this->get_fe_system().component_mask(
+      ordering->get_vector_extractor(variable));
+  else
+    DEAL_II_NOT_IMPLEMENTED();
 }
 
 template <int dim, bool with_moving_mesh>

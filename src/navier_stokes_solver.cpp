@@ -400,7 +400,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
    * If using tree-based adaptation with a steady-state convergence study,
    * adapt the mesh here.
    */
-  if (should_adapt_mesh_at_end_of_intervals(param, time_handler))
+  if (should_scale_and_grade_riemannian_metric(param, time_handler))
+  {
+    transient_fixed_point_data.scale_metrics(
+      param.metrics.metric_for_adaptation, time_handler);
+    transient_fixed_point_data.apply_gradation_to_metrics();
+  }
+  if (should_adapt_mesh_at_end_of_intervals(time_handler))
     adapt_mesh();
 }
 
@@ -1168,8 +1174,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_error_estimate()
   cellwise_refinement_criterion.reinit(triangulation->n_active_cells());
 
   // FIXME: Implement adaptation with multiple variables
-  AssertThrow(param.mesh.adaptation.tree_amr.variables_for_adaptation.size() == 1,
-    ExcMessage("Adaptation is limited to a single variable for now"));
+  AssertThrow(param.mesh.adaptation.tree_amr.variables_for_adaptation.size() ==
+                1,
+              ExcMessage("Adaptation is limited to a single variable for now"));
 
   for (const auto variable :
        param.mesh.adaptation.tree_amr.variables_for_adaptation)
@@ -1193,8 +1200,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
 
   // Adapt the mesh(es): either with a riemannian metric, or with the cellwise
   // error criteria.
-  transient_fixed_point_data.adapt_meshes(time_handler,
-                                          cellwise_refinement_criterion);
+  transient_fixed_point_data.adapt_meshes(cellwise_refinement_criterion);
 
   // Re-setup up the dof_handler, constraints and linear algebra structures.
   // For steady-state convergence studies, we're doing the work twice, here

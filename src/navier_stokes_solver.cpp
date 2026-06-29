@@ -1169,8 +1169,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_error_estimate()
   cellwise_refinement_criterion.reinit(triangulation->n_active_cells());
 
   // FIXME: Implement adaptation with multiple variables
-  AssertThrow(param.mesh.adaptation.tree_amr.variables_for_adaptation.size() == 1,
-    ExcMessage("Adaptation is limited to a single variable for now"));
+  AssertThrow(param.mesh.adaptation.tree_amr.variables_for_adaptation.size() ==
+                1,
+              ExcMessage("Adaptation is limited to a single variable for now"));
 
   for (const auto variable :
        param.mesh.adaptation.tree_amr.variables_for_adaptation)
@@ -1194,8 +1195,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
 
   // Adapt the mesh(es): either with a riemannian metric, or with the cellwise
   // error criteria.
-  transient_fixed_point_data.adapt_meshes(time_handler,
-                                          cellwise_refinement_criterion);
+  transient_fixed_point_data.adapt_meshes(cellwise_refinement_criterion);
 
   // Re-setup up the dof_handler, constraints and linear algebra structures.
   // For steady-state convergence studies, we're doing the work twice, here

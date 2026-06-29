@@ -1,0 +1,41 @@
+Number of MPI processes: 4
+Mesh info:
+ dimension: 2
+ no. of cells: 32
+ boundary indicators: 0(8 faces) 1(8 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 441
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 50
+Number of degrees of freedom: 694
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 110
+Number of degrees of freedom: 1492
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 218
+Number of degrees of freedom: 2925
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 464
+Number of degrees of freedom: 6071
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 986
+Number of degrees of freedom: 12560
+
+Time step 1 - Advancing to t = 0.01.
+Newton iter.  0:          nonlinear residual = 1.32836840e+02
+	Line search with alpha = 1.000 : res = 1.84640896e-01
+Newton iter.  1:          nonlinear residual = 1.84640896e-01	(M)
+	Line search with alpha = 1.000 : res = 1.91383908e-04
+Newton iter.  2:          nonlinear residual = 1.91383908e-04	(M)
+	Line search with alpha = 1.000 : res = 3.30973161e-10
+Newton iter.  3:          nonlinear residual = 3.30973161e-10	(M)
+	Line search with alpha = 1.000 : res = 3.82479569e-13
+Stopping because residual is below prescribed tolerance (1.00e-10)

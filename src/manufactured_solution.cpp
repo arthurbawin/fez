@@ -399,7 +399,7 @@ namespace ManufacturedSolutions
                                          preset_potential);
       prm.leave_subsection();
       prm.enter_subsection("exact phase enlarged");
-      set_field_as_solution["phase_enlarged"] = prm.get_bool("as solution");
+      set_field_as_solution["psi"] = prm.get_bool("as solution");
       sym_psi->parse_parameters(prm);
       parse_preset_manufactured_solution(prm, preset_psi_type, preset_psi);
       prm.leave_subsection();
@@ -449,7 +449,7 @@ namespace ManufacturedSolutions
     exact_solution["mesh position"] = exact_mesh_position;
     exact_solution["tracer"]        = exact_tracer;
     exact_solution["potential"]     = exact_potential;
-    exact_solution["phase_enlarged"] = exact_psi;
+    exact_solution["psi"] = exact_psi;
     exact_solution["temperature"]   = exact_temperature;
     exact_solution["lambda"]        = exact_lagrange_multiplier;
   }

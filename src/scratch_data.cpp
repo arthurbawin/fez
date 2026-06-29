@@ -406,11 +406,6 @@ namespace NavierStokesScratch
         ExcMessage("Cannot create enlarged ScratchData because the solver does "
                    "not have an enlarged tracer (psi) variable."));
       psi.component = psi_lower = ordering.psi_lower;
-
-      const double psi_length_scale =
-        cahn_hilliard_param.psi_interface_width_factor * epsilon;
-      psi_length_scale_sq      = psi_length_scale * psi_length_scale;
-      psi_mu_correction_factor = cahn_hilliard_param.psi_mu_correction_factor;
     }
 
     density0           = physical_properties.fluids[0].density;
@@ -425,6 +420,15 @@ namespace NavierStokesScratch
     diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
     body_force            = physical_properties.body_force;
     tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
+
+    if constexpr (enable_enlarged)
+    {
+      // Computed after epsilon is set above.
+      const double psi_length_scale =
+        cahn_hilliard_param.psi_interface_width_factor * epsilon;
+      psi_length_scale_sq      = psi_length_scale * psi_length_scale;
+      psi_mu_correction_factor = cahn_hilliard_param.psi_mu_correction_factor;
+    }
   }
 
   template <int dim, unsigned int update_flags>

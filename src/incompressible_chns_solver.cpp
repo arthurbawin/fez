@@ -318,6 +318,14 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
                                                  this->ordering->n_components),
                                                this->zero_constraints,
                                                potential_mask);
+      if constexpr (with_enlarged)
+        VectorTools::interpolate_boundary_values(
+          *this->moving_mapping,
+          *this->dof_handler,
+          id,
+          Functions::ZeroFunction<dim>(this->ordering->n_components),
+          this->zero_constraints,
+          psi_mask);
     }
   }
 }
@@ -345,6 +353,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
                                                *this->exact_solution,
                                                this->nonzero_constraints,
                                                potential_mask);
+      if constexpr (with_enlarged)
+        VectorTools::interpolate_boundary_values(*this->moving_mapping,
+                                                 *this->dof_handler,
+                                                 id,
+                                                 *this->exact_solution,
+                                                 this->nonzero_constraints,
+                                                 psi_mask);
     }
   }
 }

@@ -204,6 +204,46 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
 }
 
 template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::update_simulation_parameters(
+  const unsigned int fixed_point_iteration)
+{
+  // Don't update anything at the first iteration.
+  if (fixed_point_iteration == 0)
+    return;
+
+  const auto &fpu = this->param.mesh.adaptation.metric.fixed_point_updates;
+
+  // Update the interface thickness
+  {
+    const auto &eps_update_data = fpu.chns_interface_thickness;
+    if (eps_update_data.enable &&
+        fixed_point_iteration % eps_update_data.update_frequency == 0)
+    {
+      auto &ch = this->param.cahn_hilliard;
+
+      if (fpu.verbosity == Parameters::Verbosity::verbose)
+        this->pcout << "-- Updating interface thickness from "
+                    << ch.epsilon_interface << " to "
+                    << ch.epsilon_interface * eps_update_data.factor
+                    << std::endl;
+
+      // Update Cahn-Hilliard parameters
+      ch.epsilon_interface *= eps_update_data.factor;
+
+      // FIXME: Update mobility accordingly?
+
+      // Update initial condition
+      {
+        std::map<std::string, double> new_constants;
+        new_constants[eps_update_data.constant_name] = ch.epsilon_interface;
+        this->param.initial_conditions.initial_chns_tracer->update_constants(
+          new_constants);
+      }
+    }
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim, with_moving_mesh>::create_scratch_data()
 {
   scratch_data = std::make_unique<ScratchData>(*this->ordering,

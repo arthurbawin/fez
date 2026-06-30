@@ -630,9 +630,10 @@ namespace NavierStokesScratch
 
         const Point<dim> &q_point = fixed_quadrature_points[q];
         lame_mu[q] =
-          physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
+          param.physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
         lame_lambda[q] =
-          physical_properties.pseudosolids[0].lame_lambda_fun->value(q_point);
+          param.physical_properties.pseudosolids[0].lame_lambda_fun->value(
+            q_point);
 
         AssertThrow(lame_mu[q] >= 0,
                     ExcMessage("Lamé coefficient mu should be positive"));
@@ -1265,10 +1266,6 @@ namespace NavierStokesScratch
 
     bool enable_stabilization;
     bool enable_tracer_stabilization;
-
-  private:
-    Parameters::PhysicalProperties<dim> physical_properties;
-    Parameters::CahnHilliard<dim>       cahn_hilliard_param;
 
   public:
     unsigned int active_fe_index;

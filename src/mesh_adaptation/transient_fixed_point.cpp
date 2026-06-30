@@ -17,20 +17,49 @@
 
 template <int dim>
 TransientFixedPointData<dim>::TransientFixedPointData(
-  const ParameterReader<dim> &param,
-  TimerOutput                &timer,
-  const unsigned int          n_time_intervals,
-  const MPI_Comm              mpi_communicator)
+  const ParameterReader<dim>                      &param,
+  TimerOutput                                     &timer,
+  const unsigned int                               n_time_intervals,
+  const MPI_Comm                                   mpi_communicator,
+  parallel::fullydistributed::Triangulation<dim> *&triangulation,
+  DoFHandler<dim>                                *&dof_handler,
+  LA::ParVectorType                              *&present_solution,
+  std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
+  MetricField<dim>                               *&metric_for_adaptation)
   : param(param)
   , timer(timer)
   , mpi_communicator(mpi_communicator)
   , n_time_intervals(n_time_intervals)
-  , triangulations(n_time_intervals)
-  , dof_handlers(n_time_intervals)
-  , present_solutions(n_time_intervals)
-  , previous_solutions(n_time_intervals)
-  , metrics_for_adaptation(n_time_intervals)
 {
+  reinit(n_time_intervals,
+         triangulation,
+         dof_handler,
+         present_solution,
+         solver_previous_solutions,
+         metric_for_adaptation);
+}
+
+template <int dim>
+void TransientFixedPointData<dim>::reinit(
+  const unsigned int                               new_n_time_intervals,
+  parallel::fullydistributed::Triangulation<dim> *&triangulation,
+  DoFHandler<dim>                                *&dof_handler,
+  LA::ParVectorType                              *&present_solution,
+  std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
+  MetricField<dim>                               *&metric_for_adaptation)
+{
+  // Clear and reallocate for the new number of intervals
+  if (triangulations.size() > 0)
+    clear();
+
+  n_time_intervals = new_n_time_intervals;
+
+  triangulations.resize(n_time_intervals);
+  dof_handlers.resize(n_time_intervals);
+  present_solutions.resize(n_time_intervals);
+  previous_solutions.resize(n_time_intervals);
+  metrics_for_adaptation.resize(n_time_intervals);
+
   for (unsigned int i = 0; i < n_time_intervals; ++i)
   {
     triangulations[i] =
@@ -41,6 +70,32 @@ TransientFixedPointData<dim>::TransientFixedPointData(
     previous_solutions[i] = std::make_unique<std::vector<LA::ParVectorType>>();
     metrics_for_adaptation[i] = std::make_unique<MetricField<dim>>();
   }
+
+  // Assign the data at interval 0 to the passed non-owning pointers
+  this->set_interval_data(0,
+                          triangulation,
+                          dof_handler,
+                          present_solution,
+                          solver_previous_solutions,
+                          metric_for_adaptation);
+}
+
+template <int dim>
+void TransientFixedPointData<dim>::set_interval_data(
+  const unsigned int                               interval_index,
+  parallel::fullydistributed::Triangulation<dim> *&triangulation,
+  DoFHandler<dim>                                *&dof_handler,
+  LA::ParVectorType                              *&present_solution,
+  std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
+  MetricField<dim>                               *&metric_for_adaptation)
+{
+  AssertIndexRange(interval_index, n_time_intervals);
+
+  triangulation             = get_triangulation(interval_index);
+  dof_handler               = get_dof_handler(interval_index);
+  present_solution          = get_present_solution(interval_index);
+  solver_previous_solutions = get_previous_solutions(interval_index);
+  metric_for_adaptation     = get_metric_field(interval_index);
 }
 
 template <int dim>
@@ -168,24 +223,6 @@ unsigned int TransientFixedPointData<dim>::get_effective_space_time_complexity(
     sum += n_vertices_i * time_handler.n_steps_on_each_interval[i];
   }
   return sum;
-}
-
-template <int dim>
-void TransientFixedPointData<dim>::set_interval_data(
-  const unsigned int                               interval_index,
-  parallel::fullydistributed::Triangulation<dim> *&triangulation,
-  DoFHandler<dim>                                *&dof_handler,
-  LA::ParVectorType                              *&present_solution,
-  std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
-  MetricField<dim>                               *&metric_for_adaptation)
-{
-  AssertIndexRange(interval_index, n_time_intervals);
-
-  triangulation             = get_triangulation(interval_index);
-  dof_handler               = get_dof_handler(interval_index);
-  present_solution          = get_present_solution(interval_index);
-  solver_previous_solutions = get_previous_solutions(interval_index);
-  metric_for_adaptation     = get_metric_field(interval_index);
 }
 
 template <int dim>
@@ -517,13 +554,33 @@ void TransientFixedPointData<dim>::scale_metrics(
   {
     // Scaling for the transient method.
 
-    // Space-time complexity N_st.
+    // Target average spatial complexity on each time interval.
     // If this is a convergence study with anisotropic adaptation, get this
     // value from the MMS parameters.
-    const double N =
+    const double Navg =
       param.mms_param.enable ?
         (double)param.mms_param.n_target_vertices :
         (double)param.metric_fields[metric_index].multiscale.n_target_vertices;
+
+    const auto &n_steps_on_each_interval =
+      time_handler.n_steps_on_each_interval;
+
+    AssertDimension(n_steps_on_each_interval.size(), n_time_intervals);
+
+    // Space-time complexity N_st.
+    // If we want Navg vertices for each mesh on which "n_steps" time steps
+    // were performed, the total space-time complexity should be the sum
+    // of Navg * n_steps over each interval.
+
+    // FIXME: quadruple-check this during the convergence study
+    // const double Nst = Navg * n_time_intervals;
+
+    double Nst = 0;
+    for (auto n_steps : n_steps_on_each_interval)
+    {
+      Assert(n_steps > 0, ExcInternalError());
+      Nst += Navg * n_steps;
+    }
 
     // FIXME: use general exponents for higher order solutions
     const double p   = (double)param.metric_fields[metric_index].multiscale.p;
@@ -533,14 +590,6 @@ void TransientFixedPointData<dim>::scale_metrics(
     const double exponent_int_steps        = 2. * p / den;
     const double exponent_local_scaling    = -1. / den;
     const double exponent_local_scaling_dt = -2. / den;
-
-    // Integral of det(Q)^exponent
-    // std::vector<double> integral_determinants(n_time_intervals);
-
-    const auto &n_steps_on_each_interval =
-      time_handler.n_steps_on_each_interval;
-
-    AssertDimension(n_steps_on_each_interval.size(), n_time_intervals);
 
     // Compute the global scaling factors from the collection of metrics
     double global_scaling = 0.;
@@ -564,7 +613,7 @@ void TransientFixedPointData<dim>::scale_metrics(
     // Apply global scaling (operator *= includes update of FE solution and
     // ghosts)
     for (const auto &m_ptr : metrics_for_adaptation)
-      (*m_ptr) *= std::pow(N / global_scaling, 2. / d);
+      (*m_ptr) *= std::pow(Nst / global_scaling, 2. / d);
   }
 }
 

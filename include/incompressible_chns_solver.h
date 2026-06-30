@@ -33,6 +33,13 @@ public:
   virtual ~CHNSSolver() = default;
 
   /**
+   * Update parameters in between mesh adaptation fixed point iterations.
+   * This specific function updates the interface thickness.
+   */
+  virtual void update_simulation_parameters(
+    const unsigned int fixed_point_iteration) override;
+
+  /**
    * Create the scratch data structure for this solver.
    */
   virtual void create_scratch_data() override;

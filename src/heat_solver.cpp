@@ -43,15 +43,13 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
   , transient_fixed_point_data(this->param,
                                computing_timer,
                                param.time_integration.n_time_intervals,
-                               mpi_communicator)
+                               mpi_communicator,
+                               triangulation,
+                               dof_handler,
+                               present_solution,
+                               previous_solutions,
+                               metric_for_adaptation)
 {
-  transient_fixed_point_data.set_interval_data(/* interval_index = */ 0,
-                                               triangulation,
-                                               dof_handler,
-                                               present_solution,
-                                               previous_solutions,
-                                               metric_for_adaptation);
-
   temperature_extractor = FEValuesExtractors::Scalar(0);
   temperature_mask      = fe.component_mask(temperature_extractor);
 
@@ -97,8 +95,15 @@ void HeatSolver<dim>::reset()
   if (postproc_handler)
     postproc_handler->clear();
 
-  // Clear mesh(es) and dof handler(s)
-  transient_fixed_point_data.clear();
+  // Clear mesh(es) and dof handler(s), and reassign immediately the
+  // pointers for the first interval.
+  if (mms_param.current_step > 0)
+    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals,
+                                      triangulation,
+                                      dof_handler,
+                                      present_solution,
+                                      previous_solutions,
+                                      metric_for_adaptation);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);

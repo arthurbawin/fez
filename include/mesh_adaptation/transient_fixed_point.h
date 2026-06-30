@@ -27,9 +27,7 @@
  * with the index-th time subinterval.
  *
  * A more fitting name for this class would maybe be "SolverDataCollection".
- *
- * FIXME: This will probably also need to store MappingFEFields.
- *  */
+ */
 template <int dim>
 class TransientFixedPointData
 {
@@ -37,10 +35,38 @@ public:
   /**
    * Constructor. Initializes the data for @p n subintervals.
    */
-  TransientFixedPointData(const ParameterReader<dim> &param,
-                          TimerOutput                &timer,
-                          const unsigned int          n_time_intervals,
-                          const MPI_Comm              mpi_communicator);
+  TransientFixedPointData(
+    const ParameterReader<dim>                      &param,
+    TimerOutput                                     &timer,
+    const unsigned int                               n_time_intervals,
+    const MPI_Comm                                   mpi_communicator,
+    parallel::fullydistributed::Triangulation<dim> *&triangulation,
+    DoFHandler<dim>                                *&dof_handler,
+    LA::ParVectorType                              *&present_solution,
+    std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
+    MetricField<dim>                               *&metric_for_adaptation);
+
+  /**
+   * Reinitialize this object to hold data for @p n_time_intervals intervals.
+   */
+  void reinit(const unsigned int                               n_time_intervals,
+              parallel::fullydistributed::Triangulation<dim> *&triangulation,
+              DoFHandler<dim>                                *&dof_handler,
+              LA::ParVectorType                              *&present_solution,
+              std::vector<LA::ParVectorType> *&solver_previous_solutions,
+              MetricField<dim>               *&metric_for_adaptation);
+
+  /**
+   * Assign the data associated with the interval_index-th time interval to the
+   * given pointers.
+   */
+  void set_interval_data(
+    const unsigned int                               interval_index,
+    parallel::fullydistributed::Triangulation<dim> *&triangulation,
+    DoFHandler<dim>                                *&dof_handler,
+    LA::ParVectorType                              *&present_solution,
+    std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
+    MetricField<dim>                               *&metric_for_adaptation);
 
   /**
    * Return the number of time intervals stored in this object.
@@ -119,18 +145,6 @@ public:
   get_effective_space_time_complexity(const TimeHandler &time_handler) const;
 
   /**
-   * Assign the data associated with the interval_index-th time interval to the
-   * given pointers.
-   */
-  void set_interval_data(
-    const unsigned int                               interval_index,
-    parallel::fullydistributed::Triangulation<dim> *&triangulation,
-    DoFHandler<dim>                                *&dof_handler,
-    LA::ParVectorType                              *&present_solution,
-    std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
-    MetricField<dim>                               *&metric_for_adaptation);
-
-  /**
    * Transfer the current and previous solution from the (interval_index - 1)-th
    * interval to the @p interval_index-th interval.
    *
@@ -189,7 +203,7 @@ public:
   void write_summary(const TimeHandler &time_handler,
                      std::ostream      &out = std::cout) const;
 
-public:
+private:
   /**
    *
    */
@@ -208,7 +222,7 @@ public:
   /**
    *
    */
-  const unsigned int n_time_intervals;
+  unsigned int n_time_intervals;
 
   /**
    *

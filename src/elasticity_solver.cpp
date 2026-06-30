@@ -692,9 +692,9 @@ template <int dim>
 std::string ElasticitySolver<dim>::presolved_mesh_fingerprint() const
 {
   const auto        &solid = param.physical_properties.pseudosolids[0];
+  const auto        &ch    = param.cahn_hilliard;
   std::ostringstream fingerprint;
-  fingerprint << "v1"
-              << ";mesh=" << param.mesh.filename << "#"
+  fingerprint << "mesh=" << param.mesh.filename << "#"
               << hash_file_contents(param.mesh.filename)
               << ";degree=" << param.finite_elements.mesh_position_degree
               << ";quads=" << param.finite_elements.use_quads
@@ -703,10 +703,18 @@ std::string ElasticitySolver<dim>::presolved_mesh_fingerprint() const
               << ";lame_mu=" << solid.lame_mu_fun->get_function_expression()
               << ";lame_lambda="
               << solid.lame_lambda_fun->get_function_expression()
-              << ";ogden_beta=" << solid.ogden_beta << ";compression="
-              << param.cahn_hilliard.mff_physics_compression_factor
-              << ";transport=" << param.cahn_hilliard.mff_transport_factor
-              << ";gamma=" << param.cahn_hilliard.mff_regularization_gamma
+              << ";ogden_beta=" << solid.ogden_beta
+              // Moving-mesh forcing parameters that shape the presolved mesh.
+              << ";mff=" << static_cast<int>(ch.mff_source_term)
+              << ";eps=" << ch.epsilon_interface
+              << ";compression=" << ch.mff_physics_compression_factor
+              << ";gamma=" << ch.mff_regularization_gamma
+              // Enlarged (psi) presolver: marker length scale, enlarged
+              // compression and equalization exponent all change the mesh.
+              << ";enlarged=" << with_enlarged_psi
+              << ";psi_width=" << ch.psi_interface_width_factor
+              << ";enl_compression=" << ch.mff_enlarged_compression_factor
+              << ";equal_exp=" << ch.mff_enlarged_factor_equalization_exponent
               << ";mult0="
               << param.elasticity.presolver_initial_compression_multiplier
               << ";steps=" << param.elasticity.presolver_continuation_steps

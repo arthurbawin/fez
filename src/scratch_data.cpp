@@ -675,6 +675,18 @@ namespace NavierStokesScratch
       laplacian_shape_mu.resize(n_q_points,
                                 std::vector<double>(max_dofs_per_cell));
 
+      // Cahn-Hilliard face data (for boundary terms, e.g. the wetting BC).
+      tracer_values_face.resize(n_faces,
+                                std::vector<double>(n_faces_q_points));
+      shape_phi_face.resize(
+        n_faces,
+        std::vector<std::vector<double>>(n_faces_q_points,
+                                         std::vector<double>(max_dofs_per_cell)));
+      shape_mu_face.resize(
+        n_faces,
+        std::vector<std::vector<double>>(n_faces_q_points,
+                                         std::vector<double>(max_dofs_per_cell)));
+
       if (enable_tracer_stabilization)
       {
         potential_laplacians.resize(n_q_points);

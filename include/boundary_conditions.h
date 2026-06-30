@@ -221,6 +221,12 @@ namespace BoundaryConditions
   class CahnHilliardBC : public BoundaryCondition
   {
   public:
+    // Equilibrium static contact angle, stored in radians and measured through
+    // the phi = +1 phase. A negative value means no wetting condition is active.
+    // It is an attribute on top of the boundary type (e.g. no_flux + wetting),
+    // so type = none with a contact angle is a pure wetting wall.
+    double contact_angle = -1.;
+
     virtual void declare_parameters(ParameterHandler &prm) override;
     virtual void read_parameters(ParameterHandler &prm) override;
     virtual void set_time(const double) override {}

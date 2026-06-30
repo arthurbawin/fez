@@ -8,6 +8,7 @@
 #include <deal.II/base/tensor.h>
 #include <parameter_reader.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace Assembly
@@ -303,6 +304,42 @@ namespace Assembly
     public:
       const Table<2, DoFTools::Coupling> &coupling_table;
     };
+
+    /**
+     * Boundary assembler for the static contact-angle (wetting) condition. On
+     * Cahn-Hilliard boundary faces carrying a contact angle, the natural Neumann
+     * condition n.grad(phi) = 0 of the potential equation is replaced by the
+     * wetting condition n.grad(phi) = g(phi), adding the boundary term
+     *
+     *   - coeff * g(phi) * w_mu        (residual, mu rows)
+     *   + coeff * g'(phi) * N_phi * w_mu   (Jacobian, mu <- phi),
+     *
+     * with coeff = contact_angle_surface_coefficient (= sigma_tilde * epsilon).
+     * Following the rest of the framework, the boundary contribution is added
+     * inside assemble_rhs/assemble_matrix by looping over the cell's boundary
+     * faces (using the moving-mesh Cahn-Hilliard face data).
+     */
+    template <int dim, typename ScratchData, typename CopyData>
+    class ContactAngleBoundaryAssembler
+      : public AssemblerBase<ScratchData, CopyData>
+    {
+    public:
+      ContactAngleBoundaryAssembler(const ParameterReader<dim> &param,
+                                    const ComponentOrdering    &ordering)
+        : param(param)
+        , ordering(ordering)
+      {}
+
+      virtual void assemble_matrix(const ScratchData &scratch_data,
+                                   CopyData          &copy_data) const override;
+
+      virtual void assemble_rhs(const ScratchData &scratch_data,
+                                CopyData          &copy_data) const override;
+
+    public:
+      const ParameterReader<dim> &param;
+      const ComponentOrdering    &ordering;
+    };
   } // namespace IncompressibleCHNS
 } // namespace Assembly
 
@@ -385,8 +422,18 @@ namespace Assembly
               ordering, coupling_table));
       }
 
-      // Assign the relevant boundary assemblers
-      // ...
+      // Assign the relevant boundary assemblers.
+      // Static contact-angle (wetting) condition: registered only when at least
+      // one Cahn-Hilliard boundary carries a contact angle.
+      const bool any_contact_angle = std::any_of(
+        param.cahn_hilliard_bc.begin(),
+        param.cahn_hilliard_bc.end(),
+        [](const auto &id_bc) { return id_bc.second.contact_angle >= 0.; });
+      if (any_contact_angle)
+        assemblers.emplace_back(
+          std::make_unique<
+            ContactAngleBoundaryAssembler<dim, ScratchData, CopyData>>(
+            param, ordering));
     }
   } // namespace IncompressibleCHNS
 } // namespace Assembly

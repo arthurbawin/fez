@@ -447,6 +447,26 @@ namespace NavierStokesScratch
       }
     }
 
+    // Cahn-Hilliard face data on the moving mesh, needed by boundary terms such
+    // as the static contact-angle (wetting) condition: the tracer value and the
+    // tracer/potential shape functions at the face quadrature points. The face
+    // measure face_JxW_moving is filled by reinit_navier_stokes_face.
+    template <typename VectorType>
+    void reinit_cahn_hilliard_face(const unsigned int       i_face,
+                                   const FEFaceValues<dim> &fe_face_values,
+                                   const VectorType        &current_solution)
+    {
+      fe_face_values[tracer].get_function_values(current_solution,
+                                                 tracer_values_face[i_face]);
+
+      for (unsigned int q = 0; q < n_faces_q_points; ++q)
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          shape_phi_face[i_face][q][k] = fe_face_values[tracer].value(k, q);
+          shape_mu_face[i_face][q][k]  = fe_face_values[potential].value(k, q);
+        }
+    }
+
     template <typename VectorType>
     void
     reinit_compressible_cell(const FEValues<dim>           &fe_values,
@@ -1244,6 +1264,10 @@ namespace NavierStokesScratch
                                       previous_solutions,
                                       source_terms,
                                       exact_solution);
+            if constexpr (enable_cahn_hilliard)
+              reinit_cahn_hilliard_face(i_face,
+                                        *active_fe_face_values,
+                                        current_solution);
             if constexpr (enable_compressible)
               reinit_compressible_face(i_face,
                                        *active_fe_face_values,
@@ -1393,6 +1417,13 @@ namespace NavierStokesScratch
                                                   sym_grad_phi_u_face;
     std::vector<std::vector<std::vector<double>>> div_phi_u_face;
     std::vector<std::vector<std::vector<double>>> phi_p_face;
+
+    // Cahn-Hilliard face data (moving mesh): tracer value and tracer/potential
+    // shape functions at the face quadrature points (for boundary terms such as
+    // the contact-angle wetting condition).
+    std::vector<std::vector<double>>              tracer_values_face;
+    std::vector<std::vector<std::vector<double>>> shape_phi_face;
+    std::vector<std::vector<std::vector<double>>> shape_mu_face;
 
     // Source term in volume
     std::vector<Vector<double>> source_term_full_moving;

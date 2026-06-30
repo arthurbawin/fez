@@ -3,6 +3,8 @@
 
 #include <parameters.h>
 
+#include <cmath>
+
 namespace CahnHilliard
 {
   /**
@@ -55,6 +57,44 @@ namespace CahnHilliard
                                          const double val_b)
   {
     return 0.5 * (val_a - val_b);
+  }
+
+  /**
+   * Surface-term coefficient for the static contact-angle (wetting) condition in
+   * the potential equation. It matches the bulk gradient-term coefficient
+   * sigma_tilde * epsilon, so the wetting boundary term scales consistently with
+   * the volume Cahn-Hilliard energy. (When model switching is added this becomes
+   * model-dependent, like the bulk gradient term.)
+   */
+  inline double contact_angle_surface_coefficient(const double sigma_tilde,
+                                                  const double epsilon)
+  {
+    return sigma_tilde * epsilon;
+  }
+
+  /**
+   * Static wetting condition for a tanh diffuse interface:
+   *
+   *   n . grad(phi) = -cos(theta) (1 - phi^2) / (sqrt(2) eps),
+   *
+   * with theta the equilibrium contact angle measured through the phi = +1
+   * phase. Returns the prescribed normal derivative g(phi).
+   */
+  inline double contact_angle_normal_derivative(const double phi,
+                                                const double epsilon,
+                                                const double theta)
+  {
+    return -std::cos(theta) * (1. - phi * phi) / (std::sqrt(2.) * epsilon);
+  }
+
+  /**
+   * Derivative of contact_angle_normal_derivative w.r.t. the tracer phi.
+   */
+  inline double contact_angle_normal_derivative_jacobian(const double phi,
+                                                         const double epsilon,
+                                                         const double theta)
+  {
+    return 2. * std::cos(theta) * phi / (std::sqrt(2.) * epsilon);
   }
 } // namespace CahnHilliard
 

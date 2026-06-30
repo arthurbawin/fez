@@ -176,5 +176,32 @@ namespace Assembly
       NavierStokesScratch::ScratchDataCHNS<3, true, true>,
       CopyDataBase<>,
       stabilization | tracer_stabilization | moving_mesh | enlarged>;
+
+    // Contact-angle (wetting) boundary assembler, for every CHNS variant
+    // (non-ALE, ALE, enlarged).
+    template class ContactAngleBoundaryAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2>,
+      CopyDataBase<>>;
+    template class ContactAngleBoundaryAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3>,
+      CopyDataBase<>>;
+    template class ContactAngleBoundaryAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true>,
+      CopyDataBase<>>;
+    template class ContactAngleBoundaryAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true>,
+      CopyDataBase<>>;
+    template class ContactAngleBoundaryAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>>;
+    template class ContactAngleBoundaryAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>>;
   } // namespace IncompressibleCHNS
 } // namespace Assembly

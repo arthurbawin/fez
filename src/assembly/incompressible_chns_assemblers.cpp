@@ -1,5 +1,6 @@
 
 #include <assembly/incompressible_chns_assemblers.h>
+#include <cahn_hilliard.h>
 #include <components_ordering.h>
 #include <copy_data.h>
 #include <parameter_reader.h>
@@ -874,6 +875,91 @@ namespace Assembly
       if constexpr (BaseType::with_enlarged)
         assemble_psi_equation_matrix<dim, BaseType::with_moving_mesh>(
           this->ordering, this->coupling_table, sd, local_matrix);
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void ContactAngleBoundaryAssembler<dim, ScratchData, CopyData>::assemble_rhs(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      if (!copy_data.cell_is_at_boundary)
+        return;
+
+      const auto  &sd        = scratch_data;
+      auto        &local_rhs = copy_data.local_rhs(sd.active_fe_index);
+      const double epsilon   = param.cahn_hilliard.epsilon_interface;
+      const double coeff =
+        CahnHilliard::contact_angle_surface_coefficient(sd.sigma_tilde, epsilon);
+
+      for (unsigned int i_face = 0; i_face < sd.n_faces; ++i_face)
+      {
+        if (!sd.face_at_boundary[i_face])
+          continue;
+        const auto bc_it = param.cahn_hilliard_bc.find(sd.face_boundary_id[i_face]);
+        if (bc_it == param.cahn_hilliard_bc.end() ||
+            bc_it->second.contact_angle < 0.)
+          continue;
+        const double theta = bc_it->second.contact_angle;
+
+        for (unsigned int qf = 0; qf < sd.n_faces_q_points; ++qf)
+        {
+          const double g_phi = CahnHilliard::contact_angle_normal_derivative(
+            sd.tracer_values_face[i_face][qf], epsilon, theta);
+          const double weight = sd.face_JxW_moving[i_face][qf];
+
+          for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+            if (ordering.is_potential(sd.components[i]))
+              local_rhs(i) -=
+                coeff * g_phi * sd.shape_mu_face[i_face][qf][i] * weight;
+        }
+      }
+    }
+
+    template <int dim, typename ScratchData, typename CopyData>
+    void
+    ContactAngleBoundaryAssembler<dim, ScratchData, CopyData>::assemble_matrix(
+      const ScratchData &scratch_data,
+      CopyData          &copy_data) const
+    {
+      if (!copy_data.cell_is_at_boundary)
+        return;
+
+      const auto  &sd           = scratch_data;
+      auto        &local_matrix = copy_data.local_matrix(sd.active_fe_index);
+      const double epsilon      = param.cahn_hilliard.epsilon_interface;
+      const double coeff =
+        CahnHilliard::contact_angle_surface_coefficient(sd.sigma_tilde, epsilon);
+
+      for (unsigned int i_face = 0; i_face < sd.n_faces; ++i_face)
+      {
+        if (!sd.face_at_boundary[i_face])
+          continue;
+        const auto bc_it = param.cahn_hilliard_bc.find(sd.face_boundary_id[i_face]);
+        if (bc_it == param.cahn_hilliard_bc.end() ||
+            bc_it->second.contact_angle < 0.)
+          continue;
+        const double theta = bc_it->second.contact_angle;
+
+        for (unsigned int qf = 0; qf < sd.n_faces_q_points; ++qf)
+        {
+          const double g_phi_prime =
+            CahnHilliard::contact_angle_normal_derivative_jacobian(
+              sd.tracer_values_face[i_face][qf], epsilon, theta);
+          const double weight = sd.face_JxW_moving[i_face][qf];
+
+          for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
+          {
+            if (!ordering.is_potential(sd.components[i]))
+              continue;
+            const double test = sd.shape_mu_face[i_face][qf][i];
+            for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
+              if (ordering.is_tracer(sd.components[j]))
+                local_matrix(i, j) += coeff * g_phi_prime *
+                                      sd.shape_phi_face[i_face][qf][j] * test *
+                                      weight;
+          }
+        }
+      }
     }
   } // namespace IncompressibleCHNS
 } // namespace Assembly

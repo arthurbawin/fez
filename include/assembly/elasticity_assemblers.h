@@ -245,6 +245,10 @@ namespace Assembly
      * implemented. In the enlarged field mode the compression marker is the
      * widened field psi (with its own length scale and equalized factor) while
      * the physical compression still uses the sharp tracer phi.
+     *
+     * SIGN CONVENTION: the forcing enters the residual with rhs -= forcing (it
+     * is treated as a pseudosolid source term, matching the elasticity sign), so
+     * a POSITIVE compression factor compresses the mesh towards the interface.
      */
     template <int dim, typename ScratchData, typename CopyData>
     class SourceFromCHNSTracerAssembler

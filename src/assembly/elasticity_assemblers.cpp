@@ -385,7 +385,10 @@ namespace Assembly
         const double gamma     = param.cahn_hilliard.mff_regularization_gamma;
         const double physics_compression =
           param.cahn_hilliard.mff_physics_compression_factor;
-        const double transport = param.cahn_hilliard.mff_transport_factor;
+        // Negated relative to the compression term so that the transport
+        // factor keeps its usual sign convention (the whole forcing enters the
+        // residual with rhs -=, which flips the compression factor's sign).
+        const double transport = -param.cahn_hilliard.mff_transport_factor;
 
         for (unsigned int q = 0; q < sd.n_q_points; ++q)
         {
@@ -540,7 +543,10 @@ namespace Assembly
         const double gamma        = param.cahn_hilliard.mff_regularization_gamma;
         const double physics_compression =
           param.cahn_hilliard.mff_physics_compression_factor;
-        const double transport = param.cahn_hilliard.mff_transport_factor;
+        // Negated relative to the compression term so that the transport
+        // factor keeps its usual sign convention (the whole forcing enters the
+        // residual with rhs -=, which flips the compression factor's sign).
+        const double transport = -param.cahn_hilliard.mff_transport_factor;
 
         for (unsigned int q = 0; q < sd.n_q_points; ++q)
         {

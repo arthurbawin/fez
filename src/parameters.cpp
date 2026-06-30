@@ -1158,7 +1158,9 @@ namespace Parameters
         "mff physics compression factor",
         "0.0",
         Patterns::Double(),
-        "Compression factor of the phi-based forcing factor(phi) * grad(phi).");
+        "Compression factor of the phi-based forcing factor(phi) * grad(phi). "
+        "Sign convention: a positive factor compresses the mesh towards the "
+        "interface.");
       prm.declare_entry("mff transport factor",
                         "0.0",
                         Patterns::Double(),
@@ -1187,7 +1189,8 @@ namespace Parameters
         "0.0",
         Patterns::Double(),
         "Compression factor of the psi-based forcing factor(psi) * grad(psi) "
-        "(enlarged solver).");
+        "(enlarged solver). Same sign convention as 'mff physics compression "
+        "factor': a positive factor compresses the mesh towards the interface.");
       prm.declare_entry(
         "mff enlarged factor equalization exponent",
         "1.0",

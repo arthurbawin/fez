@@ -1013,13 +1013,35 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_max_cfl()
   {
     TimerOutput::Scope               t(computing_timer, "Compute CFL");
     const FEValuesExtractors::Vector velocity_extractor(ordering->u_lower);
-    const double                     cfl =
-      PostProcessingTools::compute_max_cfl(time_handler.current_dt,
-                                           *moving_mapping,
-                                           *dof_handler,
-                                           *quadrature,
-                                           *present_solution,
-                                           velocity_extractor);
+
+    // On a moving mesh the CFL must use the convective velocity (u - u_mesh) and
+    // the deformed cell size: pass the previous positions, the BDF coefficients
+    // and the position extractor so the mesh velocity is subtracted.
+    double cfl = 0.;
+    if constexpr (with_moving_mesh)
+    {
+      const FEValuesExtractors::Vector position_extractor_local(
+        ordering->x_lower);
+      cfl = PostProcessingTools::compute_max_cfl(time_handler.current_dt,
+                                                 *moving_mapping,
+                                                 *dof_handler,
+                                                 *quadrature,
+                                                 *present_solution,
+                                                 velocity_extractor,
+                                                 previous_solutions,
+                                                 &time_handler
+                                                    .get_bdf_coefficients(),
+                                                 &position_extractor_local);
+    }
+    else
+    {
+      cfl = PostProcessingTools::compute_max_cfl(time_handler.current_dt,
+                                                 *moving_mapping,
+                                                 *dof_handler,
+                                                 *quadrature,
+                                                 *present_solution,
+                                                 velocity_extractor);
+    }
     time_handler.set_max_cfl(cfl);
   }
 }

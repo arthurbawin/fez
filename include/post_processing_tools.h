@@ -11,6 +11,9 @@
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/vector.h>
 #include <deal.II/numerics/data_out_faces.h>
+#include <stabilization_tools.h>
+
+#include <limits>
 
 using namespace dealii;
 
@@ -154,26 +157,40 @@ namespace PostProcessingTools
     const FEValuesExtractors::Vector &field_extractor);
 
   /**
-   * Compute the maximum CFL number over the mesh cells.
+   * Compute the maximum CFL number over the mesh cells. The mesh size is the
+   * streamline length along the (convective) velocity computed on the supplied
+   * mapping, so passing the moving mapping yields the ALE cell size. When the
+   * optional ALE arguments are given (previous mesh-position solutions, BDF
+   * coefficients and the position extractor), the mesh velocity u_mesh =
+   * sum_i bdf_i x_i is subtracted so the CFL uses the convective velocity
+   * u - u_mesh.
    */
   template <int dim, typename VectorType>
-  double compute_max_cfl(const double                      timestep,
-                         const hp::MappingCollection<dim> &mapping_collection,
-                         const DoFHandler<dim>            &dof_handler,
-                         const hp::QCollection<dim> &cell_quadrature_collection,
-                         const VectorType           &solution,
-                         const FEValuesExtractors::Vector &velocity_extractor);
+  double compute_max_cfl(
+    const double                      timestep,
+    const hp::MappingCollection<dim> &mapping_collection,
+    const DoFHandler<dim>            &dof_handler,
+    const hp::QCollection<dim>       &cell_quadrature_collection,
+    const VectorType                 &solution,
+    const FEValuesExtractors::Vector &velocity_extractor,
+    const std::vector<VectorType>    *previous_solutions = nullptr,
+    const std::vector<double>        *bdf_coefficients   = nullptr,
+    const FEValuesExtractors::Vector *position_extractor = nullptr);
 
   /**
    * Non-hp version of the function above.
    */
   template <int dim, typename VectorType>
-  double compute_max_cfl(const double                      timestep,
-                         const Mapping<dim>               &mapping,
-                         const DoFHandler<dim>            &dof_handler,
-                         const Quadrature<dim>            &cell_quadrature,
-                         const VectorType                 &solution,
-                         const FEValuesExtractors::Vector &velocity_extractor);
+  double compute_max_cfl(
+    const double                      timestep,
+    const Mapping<dim>               &mapping,
+    const DoFHandler<dim>            &dof_handler,
+    const Quadrature<dim>            &cell_quadrature,
+    const VectorType                 &solution,
+    const FEValuesExtractors::Vector &velocity_extractor,
+    const std::vector<VectorType>    *previous_solutions = nullptr,
+    const std::vector<double>        *bdf_coefficients   = nullptr,
+    const FEValuesExtractors::Vector *position_extractor = nullptr);
 
   enum class SliceAxis : unsigned int
   {
@@ -595,32 +612,98 @@ double PostProcessingTools::compute_max_cfl(
   const DoFHandler<dim>            &dof_handler,
   const hp::QCollection<dim>       &cell_quadrature_collection,
   const VectorType                 &solution,
-  const FEValuesExtractors::Vector &velocity_extractor)
+  const FEValuesExtractors::Vector &velocity_extractor,
+  const std::vector<VectorType>    *previous_solutions,
+  const std::vector<double>        *bdf_coefficients,
+  const FEValuesExtractors::Vector *position_extractor)
 {
   AssertDimension(solution.size(), dof_handler.n_dofs());
 
+  const bool use_mesh_velocity = previous_solutions != nullptr &&
+                                 bdf_coefficients != nullptr &&
+                                 position_extractor != nullptr;
+  if (use_mesh_velocity)
+    AssertDimension(bdf_coefficients->size(), previous_solutions->size() + 1);
+
+  // The streamline cell length is built from the velocity-shape gradients on the
+  // supplied (moving) mapping, exactly as the SUPG length, so it reflects the
+  // deformed ALE cell size.
   hp::FEValues<dim> hp_fe_values(mapping_collection,
                                  dof_handler.get_fe_collection(),
                                  cell_quadrature_collection,
-                                 UpdateFlags(update_values));
+                                 UpdateFlags(update_values | update_gradients));
 
-  double                      local_max_cfl = 0.;
-  std::vector<Tensor<1, dim>> values;
+  // Scalar gradients of the first velocity component (the Lagrange basis is
+  // shared by every component) feed the Tezduyar length.
+  const FEValuesExtractors::Scalar velocity_first_component(
+    velocity_extractor.first_vector_component);
+
+  double                                   local_max_cfl = 0.;
+  std::vector<Tensor<1, dim>>              velocity_values;
+  std::vector<Tensor<1, dim>>              position_values;
+  std::vector<std::vector<Tensor<1, dim>>> previous_position_values;
+  std::vector<Tensor<1, dim>>              grad_scalar_shape;
+  if (use_mesh_velocity)
+    previous_position_values.resize(previous_solutions->size());
 
   for (const auto &cell : dof_handler.active_cell_iterators() |
                             IteratorFilters::LocallyOwnedCell())
   {
-    const double h = cell->diameter();
+    const double cell_diameter = cell->diameter();
 
     hp_fe_values.reinit(cell);
     const FEValues<dim> &fe_values = hp_fe_values.get_present_fe_values();
+    const unsigned int   n_q       = fe_values.n_quadrature_points;
+    const unsigned int   n_dofs    = fe_values.dofs_per_cell;
 
-    values.resize(fe_values.n_quadrature_points);
-    fe_values[velocity_extractor].get_function_values(solution, values);
-    for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+    velocity_values.resize(n_q);
+    fe_values[velocity_extractor].get_function_values(solution,
+                                                      velocity_values);
+    if (use_mesh_velocity)
     {
-      const double velocity_norm = values[q].norm();
-      local_max_cfl              = std::max(local_max_cfl, velocity_norm / h);
+      position_values.resize(n_q);
+      fe_values[*position_extractor].get_function_values(solution,
+                                                         position_values);
+      for (unsigned int i = 0; i < previous_solutions->size(); ++i)
+      {
+        previous_position_values[i].resize(n_q);
+        fe_values[*position_extractor].get_function_values(
+          (*previous_solutions)[i], previous_position_values[i]);
+      }
+    }
+
+    grad_scalar_shape.resize(n_dofs);
+    for (unsigned int q = 0; q < n_q; ++q)
+    {
+      // Convective velocity (mesh velocity subtracted on a moving mesh).
+      Tensor<1, dim> convective_velocity = velocity_values[q];
+      double         h                   = cell_diameter;
+      if (use_mesh_velocity)
+      {
+        Tensor<1, dim> mesh_velocity =
+          (*bdf_coefficients)[0] * position_values[q];
+        for (unsigned int i = 1; i < bdf_coefficients->size(); ++i)
+          mesh_velocity +=
+            (*bdf_coefficients)[i] * previous_position_values[i - 1][q];
+        convective_velocity -= mesh_velocity;
+
+        // Deformed (ALE) streamline cell length from the moving-mapping shape
+        // gradients; cell_diameter is the fallback for vanishing velocity.
+        for (unsigned int k = 0; k < n_dofs; ++k)
+          grad_scalar_shape[k] =
+            fe_values[velocity_first_component].gradient(k, q);
+        h = std::sqrt(
+          StabilizationTools::compute_squared_cell_length_along_velocity_field<
+            dim>(n_dofs,
+                 cell_diameter,
+                 convective_velocity,
+                 convective_velocity.norm_square(),
+                 grad_scalar_shape));
+      }
+
+      if (h > std::numeric_limits<double>::epsilon())
+        local_max_cfl =
+          std::max(local_max_cfl, convective_velocity.norm() / h);
     }
   }
 
@@ -639,7 +722,10 @@ double PostProcessingTools::compute_max_cfl(
   const DoFHandler<dim>            &dof_handler,
   const Quadrature<dim>            &cell_quadrature,
   const VectorType                 &solution,
-  const FEValuesExtractors::Vector &velocity_extractor)
+  const FEValuesExtractors::Vector &velocity_extractor,
+  const std::vector<VectorType>    *previous_solutions,
+  const std::vector<double>        *bdf_coefficients,
+  const FEValuesExtractors::Vector *position_extractor)
 {
   return PostProcessingTools::compute_max_cfl(
     timestep,
@@ -647,7 +733,10 @@ double PostProcessingTools::compute_max_cfl(
     dof_handler,
     hp::QCollection<dim>(cell_quadrature),
     solution,
-    velocity_extractor);
+    velocity_extractor,
+    previous_solutions,
+    bdf_coefficients,
+    position_extractor);
 }
 
 #endif

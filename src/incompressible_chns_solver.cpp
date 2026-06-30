@@ -241,9 +241,6 @@ void CHNSSolver<dim, with_moving_mesh>::update_simulation_parameters(
       }
     }
   }
-
-  // Reinitialize the parameters in the scratch (holding a reference to param)
-  scratch_data->initialize_cahn_hilliard();
 }
 
 template <int dim, bool with_moving_mesh>

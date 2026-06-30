@@ -103,7 +103,8 @@ void GenericSolver<VectorType>::run_convergence_loop()
           {
             mesh_param.adaptation.metric.n_time_intervals *=
               mms_param.n_time_intervals_multiplier;
-            time_param.n_time_intervals *= mms_param.n_time_intervals_multiplier;
+            time_param.n_time_intervals *=
+              mms_param.n_time_intervals_multiplier;
           }
         }
 

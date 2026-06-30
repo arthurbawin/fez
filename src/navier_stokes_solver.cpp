@@ -31,15 +31,13 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   , transient_fixed_point_data(this->param,
                                computing_timer,
                                param.time_integration.n_time_intervals,
-                               mpi_communicator)
+                               mpi_communicator,
+                               triangulation,
+                               dof_handler,
+                               present_solution,
+                               previous_solutions,
+                               metric_for_adaptation)
 {
-  transient_fixed_point_data.set_interval_data(/* interval_index = */ 0,
-                                               triangulation,
-                                               dof_handler,
-                                               present_solution,
-                                               previous_solutions,
-                                               metric_for_adaptation);
-
   create_quadrature_rules(param.finite_elements,
                           quadrature,
                           face_quadrature,
@@ -94,15 +92,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
   // Clear mesh(es) and dof handler(s), and reassign immediately the
   // pointers for the first interval.
   if (mms_param.current_step > 0)
-  {
-    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals);
-    transient_fixed_point_data.set_interval_data(0,
-                                                 triangulation,
-                                                 dof_handler,
-                                                 present_solution,
-                                                 previous_solutions,
-                                                 metric_for_adaptation);
-  }
+    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals,
+                                      triangulation,
+                                      dof_handler,
+                                      present_solution,
+                                      previous_solutions,
+                                      metric_for_adaptation);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);

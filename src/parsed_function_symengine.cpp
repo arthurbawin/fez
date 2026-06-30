@@ -239,8 +239,14 @@ namespace ManufacturedSolutions
       constants.at(constant) = new_value;
     }
 
+    // Save current time from any FunctionParser
+    const double current_time = this->function_object.get_time();
+
     // Recreate the functions and derivatives
     initialize_function_and_derivatives();
+
+    // Restore time in all callbacks
+    this->set_time(current_time);
   }
 
   template <int dim>

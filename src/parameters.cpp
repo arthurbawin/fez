@@ -194,11 +194,6 @@ namespace Parameters
         prm.leave_subsection();
         prm.enter_subsection("Local refinement");
         {
-          prm.declare_entry("n fixed point",
-                            "1",
-                            Patterns::Integer(1),
-                            "Number of fixed point iterations to converge the "
-                            "mesh-solution pair");
           prm.declare_entry("refinement strategy",
                             "fixed number",
                             Patterns::Selection("fixed number|fixed fraction"),

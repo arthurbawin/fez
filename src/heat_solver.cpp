@@ -121,7 +121,7 @@ void HeatSolver<dim>::reset()
                                         present_solution,
                                         previous_solutions,
                                         metric_for_adaptation);
-  
+
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
   set_time();
@@ -880,6 +880,8 @@ void HeatSolver<dim>::adapt_mesh()
     create_zero_constraints();
     create_nonzero_constraints();
     create_sparsity_pattern();
+    direct_solver_reuse =
+      std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
     postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
                                                            *dof_handler);
     transient_fixed_point_data.transfer_solution_between_refinements(

@@ -18,6 +18,9 @@
 #include <time_handler.h>
 #include <types.h>
 
+#include <map>
+#include <memory>
+
 using namespace dealii;
 
 /**

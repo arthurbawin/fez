@@ -79,10 +79,12 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
 template <int dim>
 void PostProcessingHandler<dim>::write_pvd() const
 {
-  const std::string suffix =
-    mms_param.enable ?
-      "_convergence_step_" + std::to_string(mms_param.current_step) + ".pvd" :
-      ".pvd";
+  std::string suffix = "";
+  if (mms_param.enable)
+    suffix += "_convergence_step_" + std::to_string(mms_param.current_step);
+  if (!prerefinements_pseudotimes_and_names.empty())
+    suffix += "_prerefinement_steps";
+  suffix += ".pvd";
 
   if (mpi_rank == 0)
   {
@@ -102,8 +104,7 @@ void PostProcessingHandler<dim>::write_pvd() const
     if (!prerefinements_pseudotimes_and_names.empty())
     {
       std::ofstream pvd_output(output_param.output_dir +
-                               output_param.output_prefix +
-                               "_prerefinement_steps.pvd");
+                               output_param.output_prefix + suffix);
       DataOutBase::write_pvd_record(pvd_output,
                                     prerefinements_pseudotimes_and_names);
     }

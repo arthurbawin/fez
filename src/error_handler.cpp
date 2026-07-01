@@ -266,22 +266,18 @@ void ErrorHandler::compute_temporal_error()
     {
       case Parameters::MMS::TimeLpNorm::L1:
       {
-        // Get time A single time step was done: the dt is the first simulation
-        // time. const double dt = (error_vec.size() > 1) ?
-        // std::abs(error_vec[1].first - error_vec[0].first) :
-        // error_vec[0].first; if (error_vec.size() > 1)
-        // {
-        // const double dt = std::abs(error_vec[1].first - error_vec[0].first);
-        // for (const auto &[time, err] : error_vec)
-
-        double t_prev = 0;
+        double t_prev = time_param.t_initial;
         for (unsigned int i = 0; i < n_steps; ++i)
         {
           const double t   = error_vec[i].first;
           const double err = error_vec[i].second;
           const double dt  = t - t_prev;
-          // FIXME: if computing error at t = 0, this will throw
-          Assert(dt > 0, ExcInternalError());
+          // FIXME: correct this if computing error at t = 0
+          AssertThrow(
+            dt > 0,
+            ExcInternalError(
+              "Computation of the Lp error norm in time must be adapted if "
+              "errors are computed for the initial condition."));
           error += dt * err;
           t_prev = t;
         }

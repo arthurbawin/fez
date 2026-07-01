@@ -273,7 +273,15 @@ bool GenericSolver<VectorType>::should_create_triangulation() const
    * is created.
    */
   if (mesh_param.adaptation.with_tree_based_adaptation())
-    return mms_param.current_step == 0;
+  {
+    // If starting the convergence study at a later step, create the mesh only
+    // for that step
+    if (mms_param.run_only_step >= 0)
+      return mms_param.current_step ==
+             static_cast<unsigned int>(mms_param.run_only_step);
+    else
+      return mms_param.current_step == 0;
+  }
 
   return true;
 }

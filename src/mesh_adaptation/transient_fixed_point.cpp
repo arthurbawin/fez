@@ -21,15 +21,15 @@
 
 template <int dim>
 TransientFixedPointData<dim>::TransientFixedPointData(
-  const ParameterReader<dim>                      &param,
-  TimerOutput                                     &timer,
-  const unsigned int                               n_time_intervals,
-  const MPI_Comm                                   mpi_communicator,
-  parallel::fullydistributed::Triangulation<dim> *&triangulation,
-  DoFHandler<dim>                                *&dof_handler,
-  LA::ParVectorType                              *&present_solution,
-  std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
-  MetricField<dim>                               *&metric_for_adaptation)
+  const ParameterReader<dim>                   &param,
+  TimerOutput                                  &timer,
+  const unsigned int                            n_time_intervals,
+  const MPI_Comm                                mpi_communicator,
+  parallel::DistributedTriangulationBase<dim> *&triangulation,
+  DoFHandler<dim>                             *&dof_handler,
+  LA::ParVectorType                           *&present_solution,
+  std::vector<LA::ParVectorType>              *&solver_previous_solutions,
+  MetricField<dim>                            *&metric_for_adaptation)
   : param(param)
   , timer(timer)
   , mpi_communicator(mpi_communicator)
@@ -45,12 +45,12 @@ TransientFixedPointData<dim>::TransientFixedPointData(
 
 template <int dim>
 void TransientFixedPointData<dim>::reinit(
-  const unsigned int                               new_n_time_intervals,
-  parallel::fullydistributed::Triangulation<dim> *&triangulation,
-  DoFHandler<dim>                                *&dof_handler,
-  LA::ParVectorType                              *&present_solution,
-  std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
-  MetricField<dim>                               *&metric_for_adaptation)
+  const unsigned int                            new_n_time_intervals,
+  parallel::DistributedTriangulationBase<dim> *&triangulation,
+  DoFHandler<dim>                             *&dof_handler,
+  LA::ParVectorType                           *&present_solution,
+  std::vector<LA::ParVectorType>              *&solver_previous_solutions,
+  MetricField<dim>                            *&metric_for_adaptation)
 {
   // Clear and reallocate for the new number of intervals
   if (triangulations.size() > 0)
@@ -99,12 +99,12 @@ void TransientFixedPointData<dim>::reinit(
 
 template <int dim>
 void TransientFixedPointData<dim>::set_interval_data(
-  const unsigned int                               interval_index,
-  parallel::fullydistributed::Triangulation<dim> *&triangulation,
-  DoFHandler<dim>                                *&dof_handler,
-  LA::ParVectorType                              *&present_solution,
-  std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
-  MetricField<dim>                               *&metric_for_adaptation)
+  const unsigned int                            interval_index,
+  parallel::DistributedTriangulationBase<dim> *&triangulation,
+  DoFHandler<dim>                             *&dof_handler,
+  LA::ParVectorType                           *&present_solution,
+  std::vector<LA::ParVectorType>              *&solver_previous_solutions,
+  MetricField<dim>                            *&metric_for_adaptation)
 {
   AssertIndexRange(interval_index, n_time_intervals);
 

@@ -27,7 +27,6 @@ subsection Mesh
     set strategy                 = local refinement
 
     subsection Local refinement
-      set n fixed point                 = 10 # unused for now
       set adapt frequency               = 1
       set refinement strategy           = fixed number
       set fraction to refine            = 0.3

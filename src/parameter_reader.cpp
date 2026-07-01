@@ -161,6 +161,23 @@ void ParameterReader<dim>::check_parameters() const
       ExcMessage(
         "A Riemannian metric for mesh adaptation should be computed, but no "
         "metric field parameters were provided (set number = 0)."));
+  if (mesh.adaptation.with_tree_based_adaptation())
+  {
+    // Only available for quads/hexes
+    AssertThrow(finite_elements.use_quads,
+                ExcMessage(
+                  "Mesh adaptation using p4est and deal.II's routines is only "
+                  "available for quad/hex finite elements. Howwver, mesh "
+                  "adaptation with remeshing is available for simplices using "
+                  "the \"riemannian metric\" strategy."));
+
+    // Not available with the transient-fixed point method for now: limit to a
+    // single time subinterval
+    AssertThrow(time_integration.n_time_intervals == 1,
+                ExcMessage(
+                  "The transient fixed-point method is not implemented for "
+                  "tree-based meshes. Please use a single time interval."));
+  }
 }
 
 template class ParameterReader<2>;

@@ -29,6 +29,8 @@ template <int dim>
 MetricField<dim>::MetricField()
   : param(nullptr, typeid(*this).name())
   , triangulation(nullptr, typeid(*this).name())
+  , is_scaled(false)
+  , is_graded(false)
 {}
 
 template <int dim>
@@ -188,6 +190,8 @@ void MetricField<dim>::clear()
   metric_dofs_to_vertex.clear();
   edges_for_deterministic_gradation.clear();
   edges_for_nondeterministic_gradation.clear();
+  is_scaled = false;
+  is_graded = false;
 }
 
 template <int dim>
@@ -390,6 +394,7 @@ void MetricField<dim>::apply_gradation()
       apply_gradation_deterministic();
     else
       apply_gradation_non_deterministic();
+    this->is_graded = true;
   }
 }
 

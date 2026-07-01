@@ -254,21 +254,34 @@ void ErrorHandler::compute_temporal_error()
 {
   for (const auto &key : ordered_field_keys)
   {
-    auto &error_vec = unsteady_errors.at(key);
+    auto              &error_vec = unsteady_errors.at(key);
+    const unsigned int n_steps   = error_vec.size();
+    AssertThrow(
+      n_steps > 0,
+      ExcMessage(
+        "Cannot compute unsteady error because no time step was computed!"));
 
     double error = 0.;
     switch (mms_param.time_norm)
     {
       case Parameters::MMS::TimeLpNorm::L1:
       {
-        if (error_vec.size() >= 1)
+        double t_prev = time_param.t_initial;
+        for (unsigned int i = 0; i < n_steps; ++i)
         {
-          const double dt = std::abs(error_vec[1].first - error_vec[0].first);
-          for (const auto &[time, err] : error_vec)
-          {
-            error += dt * err;
-          }
+          const double t   = error_vec[i].first;
+          const double err = error_vec[i].second;
+          const double dt  = t - t_prev;
+          // FIXME: correct this if computing error at t = 0
+          AssertThrow(
+            dt > 0,
+            ExcInternalError(
+              "Computation of the Lp error norm in time must be adapted if "
+              "errors are computed for the initial condition."));
+          error += dt * err;
+          t_prev = t;
         }
+        // }
         break;
       }
       case Parameters::MMS::TimeLpNorm::L2:

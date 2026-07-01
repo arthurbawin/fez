@@ -1,5 +1,6 @@
 
 #include <generic_solver.h>
+#include <parameters.h>
 #include <time_handler.h>
 
 template <typename VectorType>
@@ -262,6 +263,73 @@ void GenericSolver<VectorType>::adapt_mesh()
 }
 
 template <typename VectorType>
+bool GenericSolver<VectorType>::should_create_triangulation() const
+{
+  /**
+   * A new mesh is always created (at the beginning of a time interval), unless
+   * this is a convergence study where the mesh is adapted using deal.II's
+   * routines and p4est. In that case, the subsequent refinements and
+   * coarsenings are performed on the same triangulation object, and no new mesh
+   * is created.
+   */
+  if (mesh_param.adaptation.with_tree_based_adaptation())
+  {
+    // If starting the convergence study at a later step, create the mesh only
+    // for that step
+    if (mms_param.run_only_step >= 0)
+      return mms_param.current_step ==
+             static_cast<unsigned int>(mms_param.run_only_step);
+    else
+      return mms_param.current_step == 0;
+  }
+
+  return true;
+}
+
+template <typename VectorType>
+bool GenericSolver<VectorType>::should_adapt_tree_based_mesh(
+  const TimeHandler &time_handler) const
+{
+  if (!mesh_param.adaptation.with_tree_based_adaptation())
+    return false;
+
+  if (time_handler.is_steady())
+  {
+    if (mms_param.enable)
+      return false;
+  }
+  else
+  {
+    // Do not adapt at the last time step, to avoid one extra solution transfer.
+    if (time_handler.is_finished())
+      return false;
+
+    // Refine the mesh if the time step matches the prescribed frequency.
+    if (time_handler.current_time_iteration %
+          mesh_param.adaptation.tree_amr.adapt_frequency ==
+        0)
+      return true;
+  }
+
+  return false;
+}
+
+template <typename VectorType>
+bool GenericSolver<VectorType>::should_adapt_mesh_at_end_of_intervals(
+  const TimeHandler &time_handler) const
+{
+  if (mesh_param.adaptation.with_metric_based_adaptation())
+    return true;
+  else if (mesh_param.adaptation.with_tree_based_adaptation())
+    if (time_handler.is_steady())
+      if (mms_param.enable &&
+          mms_param.current_step < mms_param.n_convergence - 1)
+        return true;
+
+  return false;
+}
+
+template <typename VectorType>
 bool GenericSolver<VectorType>::should_compute_errors(
   const TimeHandler &time_handler) const
 {
@@ -393,6 +461,17 @@ bool GenericSolver<VectorType>::should_compute_riemannian_metric(
 }
 
 template <typename VectorType>
+template <int dim>
+bool GenericSolver<VectorType>::should_scale_and_grade_riemannian_metric(
+  const ParameterReader<dim> &param,
+  const TimeHandler & /*time_handler*/) const
+{
+  if (param.with_metric_based_adaptation() || param.metrics.always_compute)
+    return true;
+  return false;
+}
+
+template <typename VectorType>
 const Parameters::TimeIntegration &
 GenericSolver<VectorType>::get_time_parameters() const
 {
@@ -432,5 +511,13 @@ GenericSolver<LA::ParVectorType>::should_compute_riemannian_metric(
   const TimeHandler &) const;
 template bool
 GenericSolver<LA::ParVectorType>::should_compute_riemannian_metric(
+  const ParameterReader<3> &,
+  const TimeHandler &) const;
+template bool
+GenericSolver<LA::ParVectorType>::should_scale_and_grade_riemannian_metric(
+  const ParameterReader<2> &,
+  const TimeHandler &) const;
+template bool
+GenericSolver<LA::ParVectorType>::should_scale_and_grade_riemannian_metric(
   const ParameterReader<3> &,
   const TimeHandler &) const;

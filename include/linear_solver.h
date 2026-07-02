@@ -93,6 +93,7 @@ namespace LinearSolvers
     std::unique_ptr<PETScWrappers::PreconditionBase> &preconditioner);
 } // namespace LinearSolvers
 
+
 /* ---------------- Template functions ----------------- */
 
 namespace LinearSolvers

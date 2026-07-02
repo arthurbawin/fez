@@ -1104,12 +1104,26 @@ namespace NavierStokesScratch
                                                  dynamic_viscosity0,
                                                  dynamic_viscosity1);
 
+        // Mobility M(phi) and its derivatives (optionally on a clamped tracer).
+        const double filtered_phi_mobility =
+          mobility_tracer_limiter(tracer_values[q]);
+        mobility_values[q] =
+          mobility_function(cahn_hilliard_param, filtered_phi_mobility);
+        derivative_mobility_wrt_tracer[q] =
+          mobility_derivative_function(cahn_hilliard_param,
+                                       filtered_phi_mobility);
+        second_derivative_mobility_wrt_tracer[q] =
+          mobility_second_derivative_function(cahn_hilliard_param,
+                                              filtered_phi_mobility);
+        diffusive_flux_factor_values[q] =
+          mobility_values[q] * 0.5 * (density1 - density0);
+
         source_term_tracer[q]    = source_term_full_moving[q](phi_lower);
         source_term_potential[q] = source_term_full_moving[q](mu_lower);
         if constexpr (enable_enlarged)
           source_term_psi[q] = source_term_full_moving[q](psi_lower);
 
-        diffusive_flux[q] = diffusive_flux_factor *
+        diffusive_flux[q] = diffusive_flux_factor_values[q] *
                             present_velocity_gradients[q] *
                             potential_gradients[q];
 
@@ -1585,18 +1599,28 @@ namespace NavierStokesScratch
     double         mobility;
     double         epsilon;
     double         sigma_tilde;
-    double         diffusive_flux_factor;
     // Enlarged (psi) Helmholtz length scale squared (L^2, L = width factor *
     // epsilon) and the raw mu-correction factor. Only set when enlarged.
     double         psi_length_scale_sq;
     double         psi_mu_correction_factor;
     Tensor<1, dim> body_force;
 
-    CahnHilliard::TracerLimiterFunction tracer_limiter;
+    CahnHilliard::TracerLimiterFunction         tracer_limiter;
+    CahnHilliard::MobilityTracerLimiterFunction mobility_tracer_limiter;
+    CahnHilliard::MobilityFunction<dim>         mobility_function;
+    CahnHilliard::MobilityFunction<dim>         mobility_derivative_function;
+    CahnHilliard::MobilityFunction<dim>         mobility_second_derivative_function;
 
     std::vector<double> derivative_density_wrt_tracer;
     std::vector<double> dynamic_viscosity;
     std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
+
+    // Mobility M(phi), its first and second derivative w.r.t. the tracer, and
+    // the Abels diffusive-flux factor 0.5*(rho1 - rho0)*M(phi), per node.
+    std::vector<double> mobility_values;
+    std::vector<double> derivative_mobility_wrt_tracer;
+    std::vector<double> second_derivative_mobility_wrt_tracer;
+    std::vector<double> diffusive_flux_factor_values;
 
     // Tracer on current and fixed (reference) mesh
     std::vector<double>              tracer_values;

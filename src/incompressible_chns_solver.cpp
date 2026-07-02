@@ -177,7 +177,14 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   const double eta0 = rho0 * physical_properties.fluids[0].kinematic_viscosity;
   const double eta1 = rho1 * physical_properties.fluids[1].kinematic_viscosity;
   const double eta  = CahnHilliard::linear_mixing(filtered_phi, eta0, eta1);
-  const double M    = cahn_hilliard_param.mobility;
+  // Mobility M(phi) and its derivative (constant model: dM_dphi = 0).
+  const double filtered_phi_mobility =
+    CahnHilliard::get_mobility_limiter_function(cahn_hilliard_param)(phi);
+  const double M = CahnHilliard::get_mobility_function(cahn_hilliard_param)(
+    cahn_hilliard_param, filtered_phi_mobility);
+  const double dM_dphi =
+    CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param)(
+      cahn_hilliard_param, filtered_phi_mobility);
   const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
   // const double drhodphi =
   //   CahnHilliard::linear_mixing_derivative(filtered_phi, rho0, rho1);
@@ -233,7 +240,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   // Tracer source term
   const double dphidt = mms.exact_tracer->time_derivative(p);
   const double lap_mu = mms.exact_potential->laplacian(p);
-  values[phi_lower]   = -(dphidt + u * grad_phi - M * lap_mu);
+  // div(M(phi) grad mu) = M lap(mu) + M'(phi) grad(phi).grad(mu).
+  values[phi_lower] =
+    -(dphidt + u * grad_phi - M * lap_mu - dM_dphi * (grad_phi * grad_mu));
 
   // Potential source term
   const double mu      = mms.exact_potential->value(p);

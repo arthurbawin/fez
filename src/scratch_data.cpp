@@ -417,9 +417,21 @@ namespace NavierStokesScratch
     mobility           = cahn_hilliard_param.mobility;
     epsilon            = cahn_hilliard_param.epsilon_interface;
     sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
-    diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
     body_force            = physical_properties.body_force;
     tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
+
+    // Mobility M(phi): constant, or a parsed function of the tracer. The value,
+    // its first and second derivative are evaluated per quadrature node in
+    // reinit; for the constant model the derivatives are zero, so the assembly
+    // reduces to the constant-mobility case. The Abels diffusive-flux factor
+    // 0.5*(rho1 - rho0)*M(phi) is therefore also per node.
+    mobility_function = CahnHilliard::get_mobility_function(cahn_hilliard_param);
+    mobility_derivative_function =
+      CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param);
+    mobility_second_derivative_function =
+      CahnHilliard::get_mobility_second_derivative_function(cahn_hilliard_param);
+    mobility_tracer_limiter =
+      CahnHilliard::get_mobility_limiter_function(cahn_hilliard_param);
 
     if constexpr (enable_enlarged)
     {
@@ -650,6 +662,11 @@ namespace NavierStokesScratch
       derivative_density_wrt_tracer.resize(n_q_points);
       dynamic_viscosity.resize(n_q_points);
       derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
+
+      mobility_values.resize(n_q_points);
+      derivative_mobility_wrt_tracer.resize(n_q_points);
+      second_derivative_mobility_wrt_tracer.resize(n_q_points);
+      diffusive_flux_factor_values.resize(n_q_points);
 
       tracer_values.resize(n_q_points);
       tracer_time_derivatives.resize(n_q_points);

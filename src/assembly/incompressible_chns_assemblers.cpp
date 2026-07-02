@@ -41,7 +41,6 @@ namespace Assembly
 
       auto &local_rhs = copy_data.local_rhs(sd.active_fe_index);
 
-      const double mobility              = sd.mobility;
       const double sigma_tilde_over_eps  = sd.sigma_tilde / sd.epsilon;
       const double sigma_tilde_times_eps = sd.sigma_tilde * sd.epsilon;
       const auto  &body_force            = sd.body_force;
@@ -86,6 +85,10 @@ namespace Assembly
         const auto &source_phi     = sd.source_term_tracer[q];
         const auto &source_mu      = sd.source_term_potential[q];
 
+        // Mobility M(phi) and its derivative (both constant-model trivial).
+        const double mobility       = sd.mobility_values[q];
+        const double dmobility_dphi = sd.derivative_mobility_wrt_tracer[q];
+
         const auto to_mult_by_phi_u_i =
           rho * (dudt + grad_u * u_conv - body_force) + diffusive_flux +
           phi * grad_mu + source_u;
@@ -126,9 +129,13 @@ namespace Assembly
           tau_tracer          = sd.tau_supg_tracer[q];
           const double lap_mu = sd.potential_laplacians[q];
 
-          // Compute strong residual of the tracer equation
-          strong_residual_tracer =
-            dphidt + u_conv * grad_phi - mobility * lap_mu + source_phi;
+          // Strong residual of the tracer equation. For a degenerate mobility
+          // div(M(phi) grad mu) = M lap(mu) + M'(phi) grad(phi).grad(mu); the
+          // second term vanishes when M is constant.
+          strong_residual_tracer = dphidt + u_conv * grad_phi -
+                                   mobility * lap_mu -
+                                   dmobility_dphi * (grad_phi * grad_mu) +
+                                   source_phi;
         }
 
         for (unsigned int i = 0; i < sd.dofs_per_cell; ++i)
@@ -202,10 +209,8 @@ namespace Assembly
       auto &local_matrix = copy_data.local_matrix(sd.active_fe_index);
 
       const double bdf_c0                = sd.bdf_c0;
-      const double mobility              = sd.mobility;
       const double sigma_tilde_over_eps  = sd.sigma_tilde / sd.epsilon;
       const double sigma_tilde_times_eps = sd.sigma_tilde * sd.epsilon;
-      const double diffusive_flux_factor = sd.diffusive_flux_factor;
       const auto  &body_force            = sd.body_force;
 
       std::vector<Tensor<1, dim>> to_mult_by_phi_u_i_momentum(sd.dofs_per_cell);
@@ -300,6 +305,18 @@ namespace Assembly
         const double source_phi = sd.source_term_tracer[q];
         const double source_mu  = sd.source_term_potential[q];
 
+        // Mobility M(phi) with its first two derivatives, and the Abels
+        // diffusive-flux factor 0.5*(rho1 - rho0)*M(phi) with its derivative.
+        // Every derivative is zero for the constant-mobility model.
+        const double mobility         = sd.mobility_values[q];
+        const double dmobility_dphi   = sd.derivative_mobility_wrt_tracer[q];
+        const double d2mobility_dphi2 =
+          sd.second_derivative_mobility_wrt_tracer[q];
+        const double diffusive_flux_factor =
+          sd.diffusive_flux_factor_values[q];
+        const double ddiffusive_flux_factor_dphi =
+          dmobility_dphi * 0.5 * (sd.density1 - sd.density0);
+
         const auto &phi_u          = sd.phi_u[q];
         const auto &grad_phi_u     = sd.grad_phi_u[q];
         const auto &sym_grad_phi_u = sd.sym_grad_phi_u[q];
@@ -333,9 +350,12 @@ namespace Assembly
 #endif
         }
 
-        // Precompute shape functions-independent terms
+        // Precompute shape functions-independent terms. The last term is the
+        // tracer variation of the Abels diffusive flux M(phi)*grad(u).grad(mu)
+        // and is zero for a constant mobility.
         const auto to_mult_by_phi_u_i_phi_phi_j =
-          (drhodphi * (dudt + u_dot_grad_u_ale - body_force) + grad_mu);
+          (drhodphi * (dudt + u_dot_grad_u_ale - body_force) + grad_mu +
+           ddiffusive_flux_factor_dphi * (grad_u * grad_mu));
 
         const auto momentum_partial_residual =
           rho * (dudt - body_force + u_dot_grad_u_ale) + phi * grad_mu +
@@ -370,9 +390,13 @@ namespace Assembly
           tau_tracer          = sd.tau_supg_tracer[q];
           const double lap_mu = sd.potential_laplacians[q];
 
-          // Compute strong residual of the tracer equation
-          strong_residual_tracer =
-            dphidt + u_conv * grad_phi - mobility * lap_mu + source_phi;
+          // Strong residual of the tracer equation. For a degenerate mobility
+          // div(M(phi) grad mu) = M lap(mu) + M'(phi) grad(phi).grad(mu); the
+          // second term vanishes when M is constant.
+          strong_residual_tracer = dphidt + u_conv * grad_phi -
+                                   mobility * lap_mu -
+                                   dmobility_dphi * (grad_phi * grad_mu) +
+                                   source_phi;
         }
 
         // Precompute quantities depending only on j
@@ -420,9 +444,20 @@ namespace Assembly
           }
 
           if constexpr (BaseType::with_tracer_stabilization)
+          {
             strong_residual_tracer_variation[j] =
               bdf_c0 * phi_phi[j] + phi_u_j * grad_phi +
               u_conv * grad_phi_phi[j] - mobility * laplacian_phi_mu[j];
+
+            // Degenerate-mobility variations of -M(phi) lap(mu)
+            // - M'(phi) grad(phi).grad(mu) (all zero for a constant mobility).
+            const double lap_mu = sd.potential_laplacians[q];
+            strong_residual_tracer_variation[j] -=
+              dmobility_dphi * phi_phi[j] * lap_mu +
+              d2mobility_dphi2 * phi_phi[j] * (grad_phi * grad_mu) +
+              dmobility_dphi * (grad_phi_phi[j] * grad_mu) +
+              dmobility_dphi * (grad_phi * grad_phi_mu_j);
+          }
 
           // Variations w.r.t. mesh position
           if constexpr (BaseType::with_moving_mesh)
@@ -522,7 +557,9 @@ namespace Assembly
 
                 strong_residual_tracer_x_variation[j] =
                   du_conv_dx * grad_phi + u_conv * dgrad_phi_dx -
-                  mobility * dlap_mu_dx;
+                  mobility * dlap_mu_dx -
+                  dmobility_dphi *
+                    (dgrad_phi_dx * grad_mu + grad_phi * dgrad_mu_dx);
               }
             }
 
@@ -778,6 +815,10 @@ namespace Assembly
               {
                 matrix_row[j] +=
                   phi_phi_i * to_mult_by_phi_phi_i[j] * JxW_moving;
+                // Tracer variation of the diffusion term M(phi) grad(v).grad(mu)
+                // (zero for a constant mobility).
+                matrix_row[j] += dmobility_dphi * phi_phi[j] *
+                                 (grad_phi_phi_i * grad_mu) * JxW_moving;
               }
               else if (j_is_mu)
               {

@@ -702,6 +702,20 @@ void NavierStokesSolver<dim, with_moving_mesh>::overwrite_position_from_presolve
   for (unsigned int d = 0; d < dim; ++d)
     component_map[d] = ordering->x_lower + d;
 
+  // When the enlarged marker psi is present in both the presolver and this
+  // solver, also inject the presolver's equilibrium psi as the CHNS initial
+  // guess. The presolved (compressed) mesh is in equilibrium with the forcing
+  // built from that psi; starting the CHNS with psi = 0 would leave the
+  // pseudosolid residual = elastic stress of the compressed mesh unbalanced,
+  // blowing up the very first residual at the handoff. The presolver's psi is
+  // its component dim (ComponentOrderingElasticity appends psi after position).
+  const bool presolver_has_psi =
+    presolver.get_dof_handler().get_fe().n_components() > dim;
+  const bool this_has_psi =
+    ordering->has_variable(SolverInfo::VariableType::phase_enlarged);
+  if (presolver_has_psi && this_has_psi)
+    component_map[dim] = ordering->psi_lower;
+
   extract_subsolution<dim>(presolver.get_dof_handler(),
                            *dof_handler,
                            presolver.get_present_solution(),

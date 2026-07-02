@@ -45,9 +45,11 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                           error_face_quadrature);
 
   if (param.finite_elements.use_quads)
-    fixed_mapping = std::make_unique<MappingQ<dim>>(1);
+    fixed_mapping =
+      std::make_unique<MappingQ<dim>>(param.finite_elements.mapping_degree);
   else
-    fixed_mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+    fixed_mapping = std::make_unique<MappingFE<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.mapping_degree));
 
   if (param.mms_param.enable)
     for (auto &[norm, handler] : error_handlers)
@@ -436,9 +438,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_mappings()
   {
     // Moving_mapping and fixed_mapping are identical
     if (param.finite_elements.use_quads)
-      moving_mapping = std::make_unique<MappingQ<dim>>(1);
+      moving_mapping =
+        std::make_unique<MappingQ<dim>>(param.finite_elements.mapping_degree);
     else
-      moving_mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+      moving_mapping = std::make_unique<MappingFE<dim>>(
+        FE_SimplexP<dim>(param.finite_elements.mapping_degree));
   }
 }
 

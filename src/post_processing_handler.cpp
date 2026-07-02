@@ -73,6 +73,14 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
       std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
         triangulation, output_param.skin.boundary_id);
     data_out_skin->attach_dof_handler(dof_handler);
+
+    // Write high-order elements if needed
+    if (fe_param.mapping_degree > 1)
+    {
+      DataOutBase::VtkFlags flags;
+      flags.write_higher_order_cells = true;
+      data_out_skin->set_flags(flags);
+    }
   }
 
   // Clear the stored cell-based vectors
@@ -86,7 +94,8 @@ void PostProcessingHandler<dim>::write_pvd() const
   std::string suffix = "";
   if (mms_param.enable)
     suffix += "_convergence_step_" + std::to_string(mms_param.current_step);
-  if (!prerefinements_pseudotimes_and_names.empty())
+  if (!prerefinements_pseudotimes_and_names.empty() ||
+      !prerefinements_pseudotimes_and_names_skin.empty())
     suffix += "_prerefinement_steps";
   suffix += ".pvd";
 
@@ -111,6 +120,13 @@ void PostProcessingHandler<dim>::write_pvd() const
                                output_param.output_prefix + suffix);
       DataOutBase::write_pvd_record(pvd_output,
                                     prerefinements_pseudotimes_and_names);
+    }
+    if (!prerefinements_pseudotimes_and_names_skin.empty())
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.skin.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    prerefinements_pseudotimes_and_names_skin);
     }
   }
 }

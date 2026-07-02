@@ -55,14 +55,16 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
 
   if (param.finite_elements.use_quads)
   {
-    mapping = std::make_unique<MappingQ<dim>>(1);
-    fe      = std::make_unique<FESystem<dim>>(
+    mapping =
+      std::make_unique<MappingQ<dim>>(param.finite_elements.mapping_degree);
+    fe = std::make_unique<FESystem<dim>>(
       FE_Q<dim>(param.finite_elements.temperature_degree));
   }
   else
   {
-    mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
-    fe      = std::make_unique<FESystem<dim>>(
+    mapping = std::make_unique<MappingFE<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.mapping_degree));
+    fe = std::make_unique<FESystem<dim>>(
       FE_SimplexP<dim>(param.finite_elements.temperature_degree));
   }
 

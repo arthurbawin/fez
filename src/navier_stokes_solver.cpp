@@ -780,35 +780,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system()
   if (linear_solver_param.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    if (linear_solver_param.reuse)
-    {
-      solve_linear_system_direct(this,
-                                 linear_solver_param,
-                                 system_matrix,
-                                 locally_owned_dofs,
-                                 zero_constraints,
-                                 *direct_solver_reuse);
-    }
-    else
-      solve_linear_system_direct(this,
-                                 linear_solver_param,
-                                 system_matrix,
-                                 locally_owned_dofs,
-                                 zero_constraints);
-  }
-  else if (linear_solver_param.method ==
-           Parameters::LinearSolver::Method::gmres)
-  {
-    solve_linear_system_iterative(this,
-                                  linear_solver_param,
-                                  system_matrix,
-                                  locally_owned_dofs,
-                                  zero_constraints);
+    LinearSolvers::solve_mumps(this,
+                               linear_solver_param,
+                               system_matrix,
+                               locally_owned_dofs,
+                               zero_constraints,
+                               linear_solver_param.reuse ?
+                                 direct_solver_reuse.get() :
+                                 nullptr);
   }
   else
-  {
-    AssertThrow(false, ExcMessage("No known resolution method"));
-  }
+    // The choice of appropriate iterative solver and preconditioner is
+    // delegated to each derived solver
+    solve_linear_system_iterative();
 }
 
 template <int dim, bool with_moving_mesh>

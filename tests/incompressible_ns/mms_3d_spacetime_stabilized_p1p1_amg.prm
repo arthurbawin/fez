@@ -37,8 +37,10 @@ end
 subsection Linear solver
   subsection main physics
     set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set method         = gmres
+    set preconditioner = amg 
+    set tolerance      = 1e-9
+    set max iterations = 1000
   end
 end
 

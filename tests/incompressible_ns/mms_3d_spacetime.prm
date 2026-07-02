@@ -38,6 +38,7 @@ subsection Linear solver
   subsection main physics
     set verbosity      = quiet
     set method         = direct_mumps
+    set reuse          = true
   end
 end
 

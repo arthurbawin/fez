@@ -8,6 +8,9 @@
 #include <nonlinear_solver.h>
 #include <time_handler.h>
 
+#include <cmath>
+#include <limits>
+
 /**
  * Generic Newton nonlinear solver.
  */
@@ -34,7 +37,7 @@ public:
     unsigned int iter           = 0;
     // double       norm_increment = 0;
     double norm_residual = 0;
-    double last_residual;
+    double last_residual = 0.;
     bool   recompute_rhs = true;
     bool   assemble      = false;
 
@@ -118,6 +121,15 @@ public:
         last_residual           = norm_residual;
         unsigned int ls_iter    = 0;
 
+        // Best finite alpha seen during this line search. The control flow
+        // below is left exactly as is (a non-finite residual still poisons the
+        // comparisons, which keeps shrinking alpha). This is only used to (a)
+        // fall back on the best finite step instead of the last (possibly
+        // non-finite) one, and (b) reject the time step if NO alpha is finite.
+        double best_ls_residual = std::numeric_limits<double>::infinity();
+        double best_alpha       = 0.;
+        bool   accepted_step    = false;
+
         for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
         {
           // Compute NL(u + alpha * du) and check if residual decreases
@@ -134,6 +146,15 @@ public:
                           << std::setprecision(3) << alpha << std::scientific
                           << std::setprecision(8)
                           << " : res = " << norm_ls_residual << std::endl;
+          }
+
+          // Track the best finite alpha (used only as a fallback / to detect
+          // the all-non-finite case; does not alter the logic below).
+          if (std::isfinite(norm_ls_residual) &&
+              norm_ls_residual < best_ls_residual)
+          {
+            best_ls_residual = norm_ls_residual;
+            best_alpha       = alpha;
           }
 
           // Exit if next residual is below tolerance
@@ -158,6 +179,7 @@ public:
             recompute_rhs = false;
             // last_residual = norm_ls_residual;
             norm_residual = norm_ls_residual;
+            accepted_step = true;
             break;
           }
 
@@ -175,12 +197,39 @@ public:
             solver->local_evaluation_point.add(alpha, solver->newton_update);
             solver->distribute_nonzero_constraints();
             solver->evaluation_point = solver->local_evaluation_point;
+            accepted_step = true;
             break;
           }
 
           // Residual decreased, but not enough to accept step or finish Newton
           // solve. Continue with smaller alpha.
           last_ls_residual = norm_ls_residual;
+        }
+
+        // The line search fell through without accepting a step (no Armijo, no
+        // backtrack). This is also where every alpha was non-finite. Fall back
+        // on the best finite alpha if one exists; only reject the time step if
+        // none of the alphas gave a finite residual.
+        if (!stop && !accepted_step)
+        {
+          if (best_alpha > 0.)
+          {
+            solver->local_evaluation_point = present_solution;
+            solver->local_evaluation_point.add(best_alpha,
+                                               solver->newton_update);
+            solver->distribute_nonzero_constraints();
+            solver->evaluation_point = solver->local_evaluation_point;
+            recompute_rhs            = true;
+          }
+          else
+          {
+            if (verbose)
+              solver->pcout << "\tLine search failed: all residuals "
+                               "non-finite, rejecting step"
+                            << std::endl;
+            solver->evaluation_point = present_solution;
+            stop                     = true;
+          }
         }
 
         if (!stop)
@@ -204,10 +253,13 @@ public:
     // Update present solution
     present_solution = solver->evaluation_point;
 
-    if (iter > this->param.max_iterations &&
-        norm_residual > this->param.tolerance)
-      if (throw_on_failure)
-        throw std::runtime_error("Nonlinear solver did not converge");
+    // Not converged: max iterations reached, or the line search rejected the
+    // step because every alpha gave a non-finite residual. Throw when the
+    // failure is not recoverable by time-step adaptation (the `nan > tol`
+    // comparison in the old check silently missed the non-finite case);
+    // otherwise let the caller reject the step via the (false) status below.
+    if (!solution_found && throw_on_failure)
+      throw std::runtime_error("Nonlinear solver did not converge");
 
     time_handler.set_last_nonlinear_solve_status(solution_found);
   }

@@ -390,7 +390,18 @@ void NSSolver<dim>::create_preconditioner()
                            "BoomerAMG preconditioner"));
 #  endif
     // Set options not accessible through AdditionnalData
+#  if DEAL_II_PETSC_VERSION_GTE(3, 22, 0)
+    // ILU smoother is available from PETSc 3.22 onward
     PETScWrappers::set_option_value("-pc_hypre_boomeramg_smooth_type", "ILU");
+    PETScWrappers::set_option_value("-pc_hypre_boomeramg_ilu_level",
+                                    std::to_string(
+                                      linear_solver_param.ilu_fill_level));
+#  else
+    AssertThrow(
+      false,
+      ExcMessage(
+        "PETSc 3.22 onward is required to use BoomerAMG with ILU smoother"));
+#  endif
 #endif
 
     LA::MPI::PreconditionAMG::AdditionalData data;

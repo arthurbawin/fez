@@ -39,6 +39,23 @@ namespace CahnHilliard
   }
 
   /**
+   * Return a pointer to the tracer limiter used when evaluating the degenerate
+   * mobility M(phi). Optional and independent from the material-property
+   * limiter above.
+   */
+  using MobilityTracerLimiterFunction = double (*)(double);
+
+  template <int dim>
+  MobilityTracerLimiterFunction
+  get_mobility_limiter_function(const Parameters::CahnHilliard<dim> param)
+  {
+    if (param.mobility_tracer_limiter)
+      return &tracer_limiter;
+    else
+      return &tracer_identity;
+  }
+
+  /**
    * Apply linear mixing from value A (when phase marker = 1) to value B (phase
    * marker = -1).
    */
@@ -95,6 +112,100 @@ namespace CahnHilliard
                                                          const double theta)
   {
     return 2. * std::cos(theta) * phi / (std::sqrt(2.) * epsilon);
+  }
+
+  // --- Mobility M(phi) ------------------------------------------------------
+  // The mobility is either a constant or a parsed function of the tracer phi
+  // (its single variable x is phi). The degenerate helpers evaluate the parsed
+  // function, its first and second derivative at x = phi.
+
+  template <int dim>
+  using MobilityFunction = double (*)(const Parameters::CahnHilliard<dim> &,
+                                      double);
+
+  template <int dim>
+  inline double constant_mobility(const Parameters::CahnHilliard<dim> &param,
+                                  const double /*phi*/)
+  {
+    return param.mobility;
+  }
+
+  template <int dim>
+  inline double degenerate_mobility(const Parameters::CahnHilliard<dim> &param,
+                                    const double phi)
+  {
+    dealii::Point<dim> p;
+    p[0] = phi;
+    return param.degenerate_mobility->value(p);
+  }
+
+  template <int dim>
+  MobilityFunction<dim>
+  get_mobility_function(const Parameters::CahnHilliard<dim> &param)
+  {
+    if (param.mobility_model ==
+        Parameters::CahnHilliard<dim>::MobilityModel::constant)
+      return &constant_mobility<dim>;
+    else
+      return &degenerate_mobility<dim>;
+  }
+
+  template <int dim>
+  inline double
+  constant_mobility_derivative(const Parameters::CahnHilliard<dim> & /*param*/,
+                               const double /*phi*/)
+  {
+    return 0.;
+  }
+
+  template <int dim>
+  inline double
+  degenerate_mobility_derivative(const Parameters::CahnHilliard<dim> &param,
+                                 const double                         phi)
+  {
+    dealii::Point<dim> p;
+    p[0] = phi;
+    return param.degenerate_mobility->gradient(p)[0];
+  }
+
+  template <int dim>
+  MobilityFunction<dim>
+  get_mobility_derivative_function(const Parameters::CahnHilliard<dim> &param)
+  {
+    if (param.mobility_model ==
+        Parameters::CahnHilliard<dim>::MobilityModel::constant)
+      return &constant_mobility_derivative<dim>;
+    else
+      return &degenerate_mobility_derivative<dim>;
+  }
+
+  template <int dim>
+  inline double
+  constant_mobility_second_derivative(const Parameters::CahnHilliard<dim> &,
+                                      const double /*phi*/)
+  {
+    return 0.;
+  }
+
+  template <int dim>
+  inline double
+  degenerate_mobility_second_derivative(const Parameters::CahnHilliard<dim> &param,
+                                        const double phi)
+  {
+    dealii::Point<dim> p;
+    p[0] = phi;
+    return param.degenerate_mobility->hessian(p)[0][0];
+  }
+
+  template <int dim>
+  MobilityFunction<dim> get_mobility_second_derivative_function(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    if (param.mobility_model ==
+        Parameters::CahnHilliard<dim>::MobilityModel::constant)
+      return &constant_mobility_second_derivative<dim>;
+    else
+      return &degenerate_mobility_second_derivative<dim>;
   }
 } // namespace CahnHilliard
 

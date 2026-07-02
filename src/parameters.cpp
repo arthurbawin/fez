@@ -1134,16 +1134,29 @@ namespace Parameters
   template <int dim>
   void CahnHilliard<dim>::declare_parameters(ParameterHandler &prm)
   {
+    degenerate_mobility =
+      std::make_shared<ManufacturedSolutions::ParsedFunctionSDBase<dim>>(1);
+
     prm.enter_subsection("Cahn Hilliard");
     {
       prm.declare_entry("mobility model",
                         "constant",
-                        Patterns::Selection("constant"),
+                        Patterns::Selection("constant|degenerate"),
                         "Model for the mobility tensor");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
                         "Mobility value if constant");
+      prm.declare_entry("enable mobility tracer limiter",
+                        "false",
+                        Patterns::Bool(),
+                        "Clamp the tracer to [-1, 1] before evaluating the "
+                        "degenerate mobility M(phi)");
+      prm.enter_subsection("degenerate mobility");
+      {
+        degenerate_mobility->declare_parameters(prm, 1, "(1 - x*x)*(1 - x*x)");
+      }
+      prm.leave_subsection();
       prm.declare_entry("surface tension",
                         "1.",
                         Patterns::Double(),
@@ -1223,9 +1236,19 @@ namespace Parameters
     prm.enter_subsection("Cahn Hilliard");
     {
       const std::string parsed_mobility_model = prm.get("mobility model");
-      if (parsed_mobility_model == "linear")
+      if (parsed_mobility_model == "constant")
         mobility_model = MobilityModel::constant;
-      mobility            = prm.get_double("mobility");
+      else if (parsed_mobility_model == "degenerate")
+        mobility_model = MobilityModel::degenerate;
+      else
+        AssertThrow(false, ExcMessage("Unknown mobility model"));
+      mobility                = prm.get_double("mobility");
+      mobility_tracer_limiter = prm.get_bool("enable mobility tracer limiter");
+      prm.enter_subsection("degenerate mobility");
+      {
+        degenerate_mobility->parse_parameters(prm);
+      }
+      prm.leave_subsection();
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
       with_tracer_limiter = prm.get_bool("enable tracer limiter");

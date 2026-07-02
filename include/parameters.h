@@ -578,10 +578,18 @@ namespace Parameters
   public:
     enum class MobilityModel
     {
-      constant
+      constant,
+      degenerate
     } mobility_model;
 
     double mobility;
+    // Degenerate mobility M(phi) as a parsed function of the tracer (its single
+    // variable x is phi); the magnitude is baked into the expression. Only used
+    // when mobility_model == degenerate.
+    std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
+         degenerate_mobility;
+    bool mobility_tracer_limiter;
+
     double surface_tension;
     double epsilon_interface;
     bool   with_tracer_limiter;

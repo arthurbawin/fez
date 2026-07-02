@@ -78,6 +78,14 @@ public:
                            const std::vector<std::string> &names);
 
   /**
+   * Add a continuous (nodal) auxiliary field, built from the solution, to the
+   * underlying DataOut. The handler takes ownership of the field and keeps it
+   * alive until the next VTU file has been written, after which it is cleared.
+   */
+  void add_continuous_data_field(
+    std::unique_ptr<PostProcessingTools::ContinuousDataField<dim>> field);
+
+  /**
    * Output the fields stored in solution, both in the volume and on the
    * prescribed boundary (skin), if any. Also output the fields that were added
    * to the underlying DataOut and/or DataOutFacesOnBoundary by calling the
@@ -308,6 +316,11 @@ private:
   std::unique_ptr<PostProcessingTools::DataOutFacesOnBoundary<dim>>
     data_out_skin;
 
+  // Auxiliary continuous (nodal) fields derived from the solution, kept alive
+  // until the patches are built and the VTU is written, then cleared.
+  std::vector<std::unique_ptr<PostProcessingTools::ContinuousDataField<dim>>>
+    auxiliary_continuous_fields;
+
   // Name and component interpretation of the fields to write
   std::vector<std::string> solution_names;
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
@@ -351,6 +364,19 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
                             names,
                             DataOut<dim>::type_dof_data,
                             data_component_interpretation);
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::add_continuous_data_field(
+  std::unique_ptr<PostProcessingTools::ContinuousDataField<dim>> field)
+{
+  AssertThrow(data_out != nullptr,
+              ExcMessage("Volume output must be enabled to add continuous "
+                         "VTU data."));
+  AssertThrow(field != nullptr, ExcInternalError());
+
+  PostProcessingTools::add_continuous_data_field(*data_out, *field);
+  auxiliary_continuous_fields.push_back(std::move(field));
 }
 
 template <int dim>
@@ -415,6 +441,7 @@ void PostProcessingHandler<dim>::output_volume_fields(
   visualization_times_and_names.emplace_back(time_handler.current_time,
                                              pvtu_file);
   data_out->clear_data_vectors();
+  auxiliary_continuous_fields.clear();
 }
 
 template <int dim>

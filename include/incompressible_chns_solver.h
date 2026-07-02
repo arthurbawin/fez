@@ -132,6 +132,22 @@ protected:
 
   virtual bool uses_hp_capabilities() const override { return false; };
 
+  /**
+   * Append CHNS-specific derived fields (density, Abels pressure) to the VTU
+   * output as continuous nodal data. The Abels pressure is the physically
+   * meaningful bulk pressure carrying the Young-Laplace jump:
+   * p_abels = p + phi * mu.
+   */
+  virtual void add_solver_specific_postprocessing_data() override;
+
+  /**
+   * Compute and write the CHNS characteristic time scales and dimensionless
+   * numbers (advection vs Cahn-Hilliard chemical diffusion, capillary,
+   * viscous, ...) to a CSV, one row per output step. Used to analyse the
+   * stiffness of the nonlinear solve as the mobility / dynamics change.
+   */
+  virtual void solver_specific_post_processing() override;
+
 protected:
   std::unique_ptr<FESystem<dim>> fe;
 
@@ -150,6 +166,9 @@ protected:
   ComponentMask              tracer_mask;
   ComponentMask              potential_mask;
   ComponentMask              psi_mask;
+
+  // Accumulates one row of characteristic time scales per output step.
+  TableHandler time_scales_table;
 
 protected:
   /**

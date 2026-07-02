@@ -21,6 +21,10 @@
 #include <scratch_data.h>
 #include <utilities.h>
 
+#include <cmath>
+#include <fstream>
+#include <limits>
+
 template <int dim, bool with_moving_mesh, bool with_enlarged>
 CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
@@ -661,6 +665,227 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::compute_solver_specific_e
                                  cellwise_errors,
                                  psi_comp_select,
                                  "psi");
+  }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  add_solver_specific_postprocessing_data()
+{
+  if (!this->postproc_handler->should_output_volume_fields(this->time_handler))
+    return;
+
+  const auto tracer_limiter =
+    CahnHilliard::get_limiter_function(this->param.cahn_hilliard);
+  const double density0 = this->param.physical_properties.fluids[0].density;
+  const double density1 = this->param.physical_properties.fluids[1].density;
+
+  // Abels pressure: the physically meaningful bulk pressure carrying the
+  // Young-Laplace jump, p_abels = p + phi * mu. Depending on the mobility, the
+  // jump migrates between the solved pressure p and the capillary part phi*mu,
+  // so this reconstruction is what should be read for plateau-to-plateau jumps.
+  const std::vector<std::string> component_names{"density", "pressure_abels"};
+  const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    component_interpretation(component_names.size(),
+                             DataComponentInterpretation::component_is_scalar);
+
+  // Sample at the support points of a continuous element so the pointwise CHNS
+  // definitions are preserved (no DG0 cell-average staircase).
+  const unsigned int output_degree =
+    std::max({1u,
+              this->param.finite_elements.pressure_degree,
+              this->param.finite_elements.tracer_degree,
+              this->param.finite_elements.potential_degree});
+  auto output_field =
+    std::make_unique<PostProcessingTools::ContinuousDataField<dim>>(
+      *this->triangulation,
+      fe->reference_cell().is_hyper_cube(),
+      output_degree,
+      component_names,
+      component_interpretation);
+
+  const Quadrature<dim> output_points(output_field->get_unit_support_points());
+  FEValues<dim>         fe_values(*this->moving_mapping,
+                          *fe,
+                          output_points,
+                          update_values);
+  std::vector<double>   tracer_values(output_points.size());
+  std::vector<double>   pressure_values(output_points.size());
+  std::vector<double>   potential_values(output_points.size());
+
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
+    if (cell->is_locally_owned())
+    {
+      fe_values.reinit(cell);
+      fe_values[tracer_extractor].get_function_values(*this->present_solution,
+                                                      tracer_values);
+      fe_values[this->pressure_extractor].get_function_values(
+        *this->present_solution, pressure_values);
+      fe_values[potential_extractor].get_function_values(
+        *this->present_solution, potential_values);
+
+      std::vector<std::vector<double>> values(
+        output_points.size(), std::vector<double>(component_names.size()));
+      for (unsigned int q = 0; q < output_points.size(); ++q)
+      {
+        const double phi = tracer_values[q];
+        values[q][0] =
+          CahnHilliard::linear_mixing(tracer_limiter(phi), density0, density1);
+        values[q][1] = pressure_values[q] + phi * potential_values[q];
+      }
+      output_field->set_cell_values(cell, values);
+    }
+
+  this->postproc_handler->add_continuous_data_field(std::move(output_field));
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  solver_specific_post_processing()
+{
+  const auto &ts = this->param.postprocessing.time_scales;
+  if (!ts.enable)
+    return;
+
+  const bool do_output =
+    ts.write_results &&
+    (this->time_handler.current_time_iteration % ts.output_frequency == 0 ||
+     this->time_handler.is_finished());
+  if (!do_output)
+    return;
+
+  // --- Model parameters (Abels-Garcke-Grun, constant mobility) -------------
+  const auto  &chp     = this->param.cahn_hilliard;
+  const double M       = chp.mobility;
+  const double eps     = chp.epsilon_interface;
+  const double sigma   = chp.surface_tension;
+  const double sigma_t = 3. / (2. * std::sqrt(2.)) * sigma; // CH coefficient
+
+  // Bulk chemical (Cahn-Hilliard) diffusivity, D_phi = M * f''(+/-1) * sigma~/
+  // eps, with f(phi) = (phi^2-1)^2/4 so f''(+/-1) = 2.
+  const double D_phi = 2. * M * sigma_t / eps;
+
+  // Reference fluid = fluid 0 (the droplet phase, phi = -1).
+  const double rho_ref = this->param.physical_properties.fluids[0].density;
+  const double eta_ref =
+    rho_ref * this->param.physical_properties.fluids[0].kinematic_viscosity;
+
+  // --- Field reductions ----------------------------------------------------
+  FEValues<dim> fe_values(*this->moving_mapping,
+                          *fe,
+                          *this->quadrature,
+                          update_values | update_JxW_values);
+  const unsigned int        n_q = this->quadrature->size();
+  std::vector<Tensor<1, dim>> u_values(n_q);
+  std::vector<double>         phi_values(n_q);
+  std::vector<double>         mu_values(n_q);
+  std::vector<double>         p_values(n_q);
+
+  double max_u      = 0.;
+  double vol_phase  = 0.; // droplet volume, integral of (1-phi)/2
+  double max_abs_pmu = 0.;
+  double max_abs_p    = 0.;
+
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
+    if (cell->is_locally_owned())
+    {
+      fe_values.reinit(cell);
+      fe_values[this->velocity_extractor].get_function_values(
+        *this->present_solution, u_values);
+      fe_values[tracer_extractor].get_function_values(*this->present_solution,
+                                                      phi_values);
+      fe_values[potential_extractor].get_function_values(
+        *this->present_solution, mu_values);
+      fe_values[this->pressure_extractor].get_function_values(
+        *this->present_solution, p_values);
+
+      for (unsigned int q = 0; q < n_q; ++q)
+      {
+        max_u = std::max(max_u, u_values[q].norm());
+        vol_phase += 0.5 * (1. - phi_values[q]) * fe_values.JxW(q);
+        max_abs_pmu =
+          std::max(max_abs_pmu, std::abs(phi_values[q] * mu_values[q]));
+        max_abs_p = std::max(max_abs_p, std::abs(p_values[q]));
+      }
+    }
+
+  const MPI_Comm comm = this->mpi_communicator;
+  max_u       = Utilities::MPI::max(max_u, comm);
+  vol_phase   = Utilities::MPI::sum(vol_phase, comm);
+  max_abs_pmu = Utilities::MPI::max(max_abs_pmu, comm);
+  max_abs_p   = Utilities::MPI::max(max_abs_p, comm);
+
+  // Equivalent droplet radius from its measured volume.
+  const double R_eq = (dim == 2) ?
+                        std::sqrt(vol_phase / numbers::PI) :
+                        std::cbrt(3. * vol_phase / (4. * numbers::PI));
+
+  // --- Velocity scales -----------------------------------------------------
+  const double U_field = max_u;            // instantaneous, from the field
+  const double U_sigma = sigma / eta_ref;  // intrinsic visco-capillary scale
+
+  const double inf = std::numeric_limits<double>::infinity();
+  auto safe_ratio  = [&](double num, double den) {
+    return (den > 0.) ? num / den : inf;
+  };
+
+  // --- Characteristic times ------------------------------------------------
+  const double tau_adv_field   = safe_ratio(R_eq, U_field);
+  const double tau_adv_sigma   = safe_ratio(R_eq, U_sigma);
+  const double tau_phi_macro   = safe_ratio(R_eq * R_eq, D_phi);
+  const double tau_phi_int     = safe_ratio(eps * eps, D_phi);
+  const double tau_visc        = safe_ratio(rho_ref * R_eq * R_eq, eta_ref);
+  const double tau_sigma_visc  = safe_ratio(eta_ref * R_eq, sigma);
+  const double tau_sigma_inert = std::sqrt(rho_ref * R_eq * R_eq * R_eq / sigma);
+
+  // --- Dimensionless numbers ----------------------------------------------
+  const double Pe_phi_field = safe_ratio(U_field * R_eq, D_phi);
+  const double Pe_phi_sigma = safe_ratio(U_sigma * R_eq, D_phi);
+  const double Cn           = safe_ratio(eps, R_eq);
+  const double Ca_field     = eta_ref * U_field / sigma;
+  const double Re_field     = safe_ratio(rho_ref * U_field * R_eq, eta_ref);
+  const double S_param      = safe_ratio(std::sqrt(M * eta_ref), eps); // Yue-Feng
+
+  // --- Assemble the row ----------------------------------------------------
+  auto &tbl = time_scales_table;
+  const auto add = [&](const std::string &key, const double value) {
+    tbl.add_value(key, value);
+    tbl.set_precision(key, ts.precision);
+    tbl.set_scientific(key, true);
+  };
+
+  tbl.add_value("iteration", this->time_handler.current_time_iteration);
+  add("time", this->time_handler.current_time);
+  add("dt", this->time_handler.current_dt);
+  add("cfl", this->time_handler.max_cfl_number);
+  add("R_eq", R_eq);
+  add("vol_phase", vol_phase);
+  add("max_u", U_field);
+  add("U_sigma", U_sigma);
+  add("D_phi", D_phi);
+  add("tau_adv_u", tau_adv_field);
+  add("tau_adv_sigma", tau_adv_sigma);
+  add("tau_phi_macro", tau_phi_macro);
+  add("tau_phi_int", tau_phi_int);
+  add("tau_visc", tau_visc);
+  add("tau_sigma_visc", tau_sigma_visc);
+  add("tau_sigma_inert", tau_sigma_inert);
+  add("Pe_phi_u", Pe_phi_field);
+  add("Pe_phi_sigma", Pe_phi_sigma);
+  add("Cn", Cn);
+  add("Ca_u", Ca_field);
+  add("Re_u", Re_field);
+  add("S_yuefeng", S_param);
+  add("max_abs_phi_mu", max_abs_pmu);
+  add("max_abs_p", max_abs_p);
+
+  if (Utilities::MPI::this_mpi_process(comm) == 0)
+  {
+    std::ofstream out(this->param.output.output_dir + ts.output_prefix +
+                      ".csv");
+    // Whitespace-delimited table: a header row followed by one row per output
+    // step. Readable with e.g. pandas.read_csv(..., sep=r"\s+").
+    tbl.write_text(out, TableHandler::TextOutputFormat::table_with_headers);
   }
 }
 

@@ -333,6 +333,11 @@ namespace Parameters
           "Compute and write the hydrodynamic forces on each slice");
       }
       prm.leave_subsection();
+      prm.enter_subsection("time scales");
+      {
+        declare_postprocessing_base(prm);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -381,6 +386,11 @@ namespace Parameters
         slices.along_which_axis         = prm.get("along which axis");
         slices.n_slices                 = prm.get_integer("number of slices");
         slices.compute_forces_on_slices = prm.get_bool("compute forces");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("time scales");
+      {
+        read_postprocessing_base(prm, time_scales);
       }
       prm.leave_subsection();
     }

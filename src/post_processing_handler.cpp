@@ -142,6 +142,7 @@ void PostProcessingHandler<dim>::clear()
     data_out->clear_data_vectors();
   if (data_out_skin)
     data_out_skin->clear_data_vectors();
+  auxiliary_continuous_fields.clear();
   visualization_times_and_names.clear();
   visualization_times_and_names_skin.clear();
   subdomains.reinit(0);

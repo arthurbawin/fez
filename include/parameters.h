@@ -241,6 +241,15 @@ namespace Parameters
       bool         compute_forces_on_slices;
     } slices;
 
+    // CHNS characteristic time scales and dimensionless numbers (advection vs
+    // Cahn-Hilliard chemical diffusion, capillary, viscous, ...), written per
+    // output step to a CSV. Used to analyse why the nonlinear solve becomes
+    // stiff as the mobility / dynamics change (e.g. mobility sweeps).
+    struct TimeScales : public PostProcessingBase
+    {
+      // No additional members for now
+    } time_scales;
+
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
   };

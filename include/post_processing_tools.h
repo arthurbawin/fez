@@ -5,12 +5,19 @@
 #include <deal.II/base/tensor.h>
 #include <deal.II/base/types.h>
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
+#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values_extractors.h>
 #include <deal.II/hp/fe_collection.h>
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/vector.h>
+#include <deal.II/numerics/data_component_interpretation.h>
+#include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/data_out_faces.h>
+
+#include <memory>
 #include <stabilization_tools.h>
 
 #include <limits>
@@ -192,6 +199,64 @@ namespace PostProcessingTools
     const std::vector<double>        *bdf_coefficients   = nullptr,
     const FEValuesExtractors::Vector *position_extractor = nullptr);
 
+  /**
+   * Continuous auxiliary field used to export values computed from the
+   * solution as genuine nodal VTU data. Values are prescribed at the support
+   * points of a scalar Q_k/P_k element and are therefore interpolated
+   * continuously between them by DataOut. This avoids the cell-average (DG0)
+   * staircase that hides interfacial plateaus, which matters for reading
+   * Young-Laplace pressure jumps across a diffuse interface.
+   */
+  template <int dim>
+  class ContinuousDataField
+  {
+  public:
+    using CellIterator = typename DoFHandler<dim>::active_cell_iterator;
+
+    ContinuousDataField(
+      const Triangulation<dim>       &triangulation,
+      const bool                      use_quads,
+      const unsigned int              degree,
+      const std::vector<std::string> &component_names,
+      const std::vector<
+        DataComponentInterpretation::DataComponentInterpretation>
+        &component_interpretation);
+
+    const DoFHandler<dim> &get_dof_handler() const { return dof_handler; }
+    const Vector<double>  &get_data() const { return data; }
+    const std::vector<std::string> &get_component_names() const
+    {
+      return component_names;
+    }
+    const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      &get_component_interpretation() const
+    {
+      return component_interpretation;
+    }
+    const std::vector<Point<dim>> &get_unit_support_points() const
+    {
+      return unit_support_points;
+    }
+
+    void set_cell_values(
+      const CellIterator                     &cell,
+      const std::vector<std::vector<double>> &values_at_support_points);
+
+  private:
+    std::unique_ptr<FiniteElement<dim>> fe;
+    DoFHandler<dim>                     dof_handler;
+    Vector<double>                      data;
+    std::vector<std::string>            component_names;
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      component_interpretation;
+    std::vector<Point<dim>> unit_support_points;
+    std::vector<std::vector<types::global_dof_index>> cell_to_dof_indices;
+  };
+
+  template <int dim>
+  void add_continuous_data_field(DataOut<dim>                   &data_out,
+                                 const ContinuousDataField<dim> &field);
+
   enum class SliceAxis : unsigned int
   {
     x = 0,
@@ -218,6 +283,81 @@ namespace PostProcessingTools
 } // namespace PostProcessingTools
 
 /* ---------------- Template functions ----------------- */
+
+template <int dim>
+PostProcessingTools::ContinuousDataField<dim>::ContinuousDataField(
+  const Triangulation<dim>       &triangulation,
+  const bool                      use_quads,
+  const unsigned int              degree,
+  const std::vector<std::string> &component_names,
+  const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    &component_interpretation)
+  : dof_handler(triangulation)
+  , component_names(component_names)
+  , component_interpretation(component_interpretation)
+{
+  Assert(degree > 0, ExcMessage("A continuous output field needs degree > 0."));
+  AssertDimension(this->component_names.size(),
+                  this->component_interpretation.size());
+
+  if (use_quads)
+  {
+    const FE_Q<dim> scalar_fe(degree);
+    unit_support_points = scalar_fe.get_unit_support_points();
+    fe = std::make_unique<FESystem<dim>>(scalar_fe,
+                                         this->component_names.size());
+  }
+  else
+  {
+    const FE_SimplexP<dim> scalar_fe(degree);
+    unit_support_points = scalar_fe.get_unit_support_points();
+    fe = std::make_unique<FESystem<dim>>(scalar_fe,
+                                         this->component_names.size());
+  }
+
+  dof_handler.distribute_dofs(*fe);
+  data.reinit(dof_handler.n_dofs());
+
+  cell_to_dof_indices.resize(triangulation.n_active_cells());
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned() || cell->is_ghost())
+    {
+      std::vector<types::global_dof_index> indices(fe->n_dofs_per_cell());
+      cell->get_dof_indices(indices);
+      cell_to_dof_indices[cell->active_cell_index()] = std::move(indices);
+    }
+}
+
+template <int dim>
+void PostProcessingTools::ContinuousDataField<dim>::set_cell_values(
+  const CellIterator                     &cell,
+  const std::vector<std::vector<double>> &values_at_support_points)
+{
+  AssertDimension(values_at_support_points.size(), unit_support_points.size());
+  for (const auto &values : values_at_support_points)
+    AssertDimension(values.size(), component_names.size());
+
+  const auto &local_dof_indices =
+    cell_to_dof_indices[cell->active_cell_index()];
+  for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
+  {
+    const auto component_and_index = fe->system_to_component_index(i);
+    data[local_dof_indices[i]] =
+      values_at_support_points[component_and_index.second]
+                              [component_and_index.first];
+  }
+}
+
+template <int dim>
+void PostProcessingTools::add_continuous_data_field(
+  DataOut<dim>                   &data_out,
+  const ContinuousDataField<dim> &field)
+{
+  data_out.add_data_vector(field.get_dof_handler(),
+                           field.get_data(),
+                           field.get_component_names(),
+                           field.get_component_interpretation());
+}
 
 template <int dim, typename VectorType>
 Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(

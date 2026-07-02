@@ -193,9 +193,18 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
-  const double sigma_tilde_over_eps  = sigma_tilde / epsilon;
-  const double sigma_tilde_times_eps = sigma_tilde * epsilon;
-  const auto  &body_force            = physical_properties.body_force;
+  // Model-dependent potential coefficients and Ding-Horriche capillary gamma.
+  const double double_well_coeff =
+    CahnHilliard::potential_double_well_coefficient(cahn_hilliard_param,
+                                                    sigma_tilde);
+  const double gradient_coeff =
+    CahnHilliard::potential_gradient_coefficient(cahn_hilliard_param,
+                                                 sigma_tilde);
+  const bool use_ding_horriche =
+    CahnHilliard::is_ding_horriche_model(cahn_hilliard_param);
+  const double capillary_coeff =
+    CahnHilliard::ding_horriche_capillary_coefficient(cahn_hilliard_param);
+  const auto &body_force = physical_properties.body_force;
 
   Tensor<1, dim> u, dudt_eulerian;
   for (unsigned int d = 0; d < dim; ++d)
@@ -210,15 +219,30 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   Tensor<1, dim> grad_div_u  = mms.exact_velocity->grad_div(p);
   Tensor<1, dim> grad_p      = mms.exact_pressure->gradient(p);
   Tensor<1, dim> uDotGradu   = u * grad_u;
+  const double   mu          = mms.exact_potential->value(p);
   Tensor<1, dim> grad_mu     = mms.exact_potential->gradient(p);
   Tensor<1, dim> grad_phi    = mms.exact_tracer->gradient(p);
   Tensor<1, dim> J_flux      = diff_flux_factor * grad_mu;
   Tensor<1, dim> div_viscous = (eta * (lap_u + grad_div_u) +
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
 
+  // Capillary force and diffusive inertia depend on the model (see the
+  // assembler): Abels uses phi*grad(mu) with diffusive inertia J.grad(u);
+  // Ding-Horriche uses -gamma*mu*grad(phi) and drops diffusive inertia.
+  Tensor<1, dim> momentum_capillary;
+  Tensor<1, dim> momentum_diffusive_inertia;
+  if (use_ding_horriche)
+    momentum_capillary = -capillary_coeff * mu * grad_phi;
+  else
+  {
+    momentum_capillary         = phi * grad_mu;
+    momentum_diffusive_inertia = J_flux * grad_u;
+  }
+
   // Navier-Stokes momentum (velocity) source term
   Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu - body_force) +
-                       J_flux * grad_u + grad_p - div_viscous + phi * grad_mu);
+                       momentum_diffusive_inertia + grad_p - div_viscous +
+                       momentum_capillary);
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
 
@@ -245,10 +269,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
     -(dphidt + u * grad_phi - M * lap_mu - dM_dphi * (grad_phi * grad_mu));
 
   // Potential source term
-  const double mu      = mms.exact_potential->value(p);
   const double lap_phi = mms.exact_tracer->laplacian(p);
-  values[mu_lower]     = -(mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) +
-                       sigma_tilde_times_eps * lap_phi);
+  values[mu_lower]     = -(mu - double_well_coeff * phi * (phi * phi - 1.) +
+                       gradient_coeff * lap_phi);
 
   // Enlarged (psi) Helmholtz reconstruction source term. The strong form is
   // psi - phi - mu_correction - L^2 lap(psi) = source, so the manufactured
@@ -689,11 +712,17 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   const double density0 = this->param.physical_properties.fluids[0].density;
   const double density1 = this->param.physical_properties.fluids[1].density;
 
-  // Abels pressure: the physically meaningful bulk pressure carrying the
-  // Young-Laplace jump, p_abels = p + phi * mu. Depending on the mobility, the
-  // jump migrates between the solved pressure p and the capillary part phi*mu,
-  // so this reconstruction is what should be read for plateau-to-plateau jumps.
-  const std::vector<std::string> component_names{"density", "pressure_abels"};
+  // Bulk pressure carrying the Young-Laplace jump. For the Abels model the
+  // capillary force is phi*grad(mu), so the jump migrates between the solved
+  // pressure p and the capillary part phi*mu, and the reconstruction to read is
+  // p_abels = p + phi * mu. For Ding-Horriche the capillary force is
+  // gamma*mu*grad(phi) (a gradient of no scalar), so the solved pressure p
+  // already carries the jump; expose it as pressure_hat = p.
+  const bool use_ding_horriche =
+    CahnHilliard::is_ding_horriche_model(this->param.cahn_hilliard);
+  const std::string pressure_name =
+    use_ding_horriche ? "pressure_hat" : "pressure_abels";
+  const std::vector<std::string> component_names{"density", pressure_name};
   const std::vector<DataComponentInterpretation::DataComponentInterpretation>
     component_interpretation(component_names.size(),
                              DataComponentInterpretation::component_is_scalar);
@@ -740,7 +769,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
         const double phi = tracer_values[q];
         values[q][0] =
           CahnHilliard::linear_mixing(tracer_limiter(phi), density0, density1);
-        values[q][1] = pressure_values[q] + phi * potential_values[q];
+        values[q][1] = use_ding_horriche ?
+                         pressure_values[q] :
+                         pressure_values[q] + phi * potential_values[q];
       }
       output_field->set_cell_values(cell, values);
     }

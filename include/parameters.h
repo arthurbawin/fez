@@ -576,6 +576,17 @@ namespace Parameters
   class CahnHilliard
   {
   public:
+    // CHNS model. 'abels' uses the diffuse material marker phi with the
+    // phi*grad(mu) capillary force and diffusive inertia; 'ding_horriche'
+    // uses the unscaled potential (double-well coefficient 1, gradient
+    // coefficient eps^2) with the mu*grad(phi) capillary force and no
+    // diffusive inertia.
+    enum class CHNSModel
+    {
+      abels,
+      ding_horriche
+    } chns_model = CHNSModel::abels;
+
     enum class MobilityModel
     {
       constant,

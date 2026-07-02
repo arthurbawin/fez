@@ -177,6 +177,165 @@ namespace Assembly
       CopyDataBase<>,
       stabilization | tracer_stabilization | moving_mesh | enlarged>;
 
+    // Ding-Horriche model variants of every combination above (the model is
+    // carried by the ding_horriche assembly flag).
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   ding_horriche>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   ding_horriche>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   ding_horriche>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   ding_horriche>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   stabilization | ding_horriche>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   stabilization | ding_horriche>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   stabilization | ding_horriche>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   stabilization | ding_horriche>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization | ding_horriche>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization | ding_horriche>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization | ding_horriche>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   tracer_stabilization | ding_horriche>;
+
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2>,
+      CopyDataBase<>,
+      stabilization | tracer_stabilization | ding_horriche>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3>,
+      CopyDataBase<>,
+      stabilization | tracer_stabilization | ding_horriche>;
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true>,
+      CopyDataBase<>,
+      stabilization | tracer_stabilization | ding_horriche>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true>,
+      CopyDataBase<>,
+      stabilization | tracer_stabilization | ding_horriche>;
+
+    // With moving mesh
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true>,
+                                   CopyDataBase<>,
+                                   moving_mesh | ding_horriche>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true>,
+                                   CopyDataBase<>,
+                                   moving_mesh | ding_horriche>;
+
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true>,
+      CopyDataBase<>,
+      stabilization | moving_mesh | ding_horriche>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true>,
+      CopyDataBase<>,
+      stabilization | moving_mesh | ding_horriche>;
+
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true>,
+      CopyDataBase<>,
+      tracer_stabilization | moving_mesh | ding_horriche>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true>,
+      CopyDataBase<>,
+      tracer_stabilization | moving_mesh | ding_horriche>;
+
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true>,
+      CopyDataBase<>,
+      stabilization | tracer_stabilization | moving_mesh | ding_horriche>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true>,
+      CopyDataBase<>,
+      stabilization | tracer_stabilization | moving_mesh | ding_horriche>;
+
+    // Enlarged (psi), moving mesh only
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>,
+      moving_mesh | enlarged | ding_horriche>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>,
+      moving_mesh | enlarged | ding_horriche>;
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>,
+      stabilization | moving_mesh | enlarged | ding_horriche>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>,
+      stabilization | moving_mesh | enlarged | ding_horriche>;
+    template class VolumeAssembler<
+      2,
+      NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+      CopyDataBase<>,
+      tracer_stabilization | moving_mesh | enlarged | ding_horriche>;
+    template class VolumeAssembler<
+      3,
+      NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+      CopyDataBase<>,
+      tracer_stabilization | moving_mesh | enlarged | ding_horriche>;
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2, true, true>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization |
+                                     moving_mesh | enlarged | ding_horriche>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3, true, true>,
+                                   CopyDataBase<>,
+                                   stabilization | tracer_stabilization |
+                                     moving_mesh | enlarged | ding_horriche>;
+
     // Contact-angle (wetting) boundary assembler, for every CHNS variant
     // (non-ALE, ALE, enlarged).
     template class ContactAngleBoundaryAssembler<

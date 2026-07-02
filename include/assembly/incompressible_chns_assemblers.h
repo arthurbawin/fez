@@ -3,6 +3,7 @@
 
 #include <assembly/assembler.h>
 #include <boundary_conditions.h>
+#include <cahn_hilliard.h>
 #include <components_ordering.h>
 #include <deal.II/base/table.h>
 #include <deal.II/base/tensor.h>
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <type_traits>
 
 namespace Assembly
 {
@@ -49,7 +51,15 @@ namespace Assembly
        * Assemble the enlarged (psi) tracer Helmholtz reconstruction. Implies
        * moving_mesh (the enlarged solver is ALE only).
        */
-      enlarged = 1 << 3
+      enlarged = 1 << 3,
+
+      /**
+       * Assemble the Ding-Horriche CHNS model instead of the default Abels
+       * model. This changes the potential scaling, the capillary momentum
+       * force (mu*grad(phi) instead of phi*grad(mu)) and drops the diffusive
+       * inertia term.
+       */
+      ding_horriche = 1 << 4
     };
 
     /* ---------- Enlarged (psi) tracer Helmholtz reconstruction ----------
@@ -265,6 +275,8 @@ namespace Assembly
         (assembly_flags & moving_mesh) != 0;
       static constexpr bool with_enlarged =
         (assembly_flags & enlarged) != 0;
+      static constexpr bool with_ding_horriche =
+        (assembly_flags & ding_horriche) != 0;
 
       const ComponentOrdering &ordering;
     };
@@ -377,49 +389,57 @@ namespace Assembly
 
       const bool supg        = param.stabilization.enable_supg;
       const bool tracer_supg = param.stabilization.enable_tracer_supg;
+      const bool use_ding_horriche =
+        CahnHilliard::is_ding_horriche_model(param.cahn_hilliard);
       constexpr unsigned int moving_mesh_flag =
         with_moving_mesh ? moving_mesh : chns;
       constexpr unsigned int enlarged_flag = with_enlarged ? enlarged : chns;
+
+      // Instantiate the volume assembler for a compile-time base flag set,
+      // adding the Ding-Horriche model flag when that model is selected. This
+      // keeps the model a compile-time assembly flag (branched with
+      // if constexpr in the assembler) rather than an extra template parameter.
+      auto emplace_volume_assembler = [&](auto base_flags_constant) {
+        constexpr unsigned int base_flags = decltype(base_flags_constant)::value;
+        if (use_ding_horriche)
+          assemblers.emplace_back(
+            std::make_unique<VolumeAssembler<dim,
+                                             ScratchData,
+                                             CopyData,
+                                             base_flags | ding_horriche>>(
+              ordering, coupling_table));
+        else
+          assemblers.emplace_back(
+            std::make_unique<
+              VolumeAssembler<dim, ScratchData, CopyData, base_flags>>(
+              ordering, coupling_table));
+      };
 
       // Assign the volume assembler
       if (supg)
       {
         if (tracer_supg)
-          assemblers.emplace_back(
-            std::make_unique<VolumeAssembler<
-              dim,
-              ScratchData,
-              CopyData,
-              stabilization | tracer_stabilization | moving_mesh_flag |
-                enlarged_flag>>(ordering, coupling_table));
+          emplace_volume_assembler(
+            std::integral_constant<unsigned int,
+                                   stabilization | tracer_stabilization |
+                                     moving_mesh_flag | enlarged_flag>{});
         else
-          assemblers.emplace_back(
-            std::make_unique<VolumeAssembler<
-              dim,
-              ScratchData,
-              CopyData,
-              stabilization | moving_mesh_flag | enlarged_flag>>(
-              ordering, coupling_table));
+          emplace_volume_assembler(
+            std::integral_constant<unsigned int,
+                                   stabilization | moving_mesh_flag |
+                                     enlarged_flag>{});
       }
       else
       {
         if (tracer_supg)
-        {
-          assemblers.emplace_back(
-            std::make_unique<VolumeAssembler<
-              dim,
-              ScratchData,
-              CopyData,
-              tracer_stabilization | moving_mesh_flag | enlarged_flag>>(
-              ordering, coupling_table));
-        }
+          emplace_volume_assembler(
+            std::integral_constant<unsigned int,
+                                   tracer_stabilization | moving_mesh_flag |
+                                     enlarged_flag>{});
         else
-          assemblers.emplace_back(
-            std::make_unique<VolumeAssembler<dim,
-                                             ScratchData,
-                                             CopyData,
-                                             moving_mesh_flag | enlarged_flag>>(
-              ordering, coupling_table));
+          emplace_volume_assembler(
+            std::integral_constant<unsigned int,
+                                   moving_mesh_flag | enlarged_flag>{});
       }
 
       // Assign the relevant boundary assemblers.

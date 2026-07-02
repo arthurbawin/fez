@@ -41,9 +41,25 @@ namespace Assembly
 
       auto &local_rhs = copy_data.local_rhs(sd.active_fe_index);
 
-      const double sigma_tilde_over_eps  = sd.sigma_tilde / sd.epsilon;
-      const double sigma_tilde_times_eps = sd.sigma_tilde * sd.epsilon;
-      const auto  &body_force            = sd.body_force;
+      // Potential-equation coefficients of the double-well term phi(phi^2-1)
+      // and the gradient term grad(phi). The Abels model scales them by
+      // sigma_tilde/eps and sigma_tilde*eps; Ding-Horriche uses the unscaled
+      // potential (1 and eps^2). The capillary coefficient gamma is only used
+      // by the Ding-Horriche capillary force gamma*mu*grad(phi).
+      double double_well_coeff, gradient_coeff;
+      if constexpr (BaseType::with_ding_horriche)
+      {
+        double_well_coeff = 1.;
+        gradient_coeff    = sd.epsilon * sd.epsilon;
+      }
+      else
+      {
+        double_well_coeff = sd.sigma_tilde / sd.epsilon;
+        gradient_coeff    = sd.sigma_tilde * sd.epsilon;
+      }
+      [[maybe_unused]] const double capillary_coeff =
+        sd.sigma_tilde / sd.epsilon;
+      const auto &body_force = sd.body_force;
 
       Tensor<1, dim> strong_residual_momentum;
       double         strong_residual_tracer;
@@ -89,13 +105,26 @@ namespace Assembly
         const double mobility       = sd.mobility_values[q];
         const double dmobility_dphi = sd.derivative_mobility_wrt_tracer[q];
 
+        // Capillary momentum force and diffusive inertia depend on the model:
+        // Abels uses phi*grad(mu) with the diffusive inertia J.grad(u);
+        // Ding-Horriche uses -gamma*mu*grad(phi) and drops diffusive inertia.
+        Tensor<1, dim> momentum_capillary;
+        Tensor<1, dim> momentum_diffusive_inertia;
+        if constexpr (BaseType::with_ding_horriche)
+          momentum_capillary = -capillary_coeff * mu * grad_phi;
+        else
+        {
+          momentum_capillary         = phi * grad_mu;
+          momentum_diffusive_inertia = diffusive_flux;
+        }
+
         const auto to_mult_by_phi_u_i =
-          rho * (dudt + grad_u * u_conv - body_force) + diffusive_flux +
-          phi * grad_mu + source_u;
+          rho * (dudt + grad_u * u_conv - body_force) +
+          momentum_diffusive_inertia + momentum_capillary + source_u;
         const auto to_mult_by_phi_phi_i =
           dphidt + u_conv * grad_phi + source_phi;
         const auto to_mult_by_phi_mu_i =
-          mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) + source_mu;
+          mu - double_well_coeff * phi * (phi * phi - 1.) + source_mu;
 
         const auto &phi_u = sd.phi_u[q];
         const auto &grad_phi_u     = sd.grad_phi_u[q];
@@ -119,8 +148,9 @@ namespace Assembly
           // (i.e. multiplied by the density). The consistent SUPG and PSPG test
           // operators are then (u_conv . grad(v)) and grad(q) / rho.
           strong_residual_momentum =
-            rho * (dudt + grad_u * u_conv - body_force) + diffusive_flux +
-            phi * grad_mu + grad_p + source_u - eta * (lap_u + grad_div_u) -
+            rho * (dudt + grad_u * u_conv - body_force) +
+            momentum_diffusive_inertia + momentum_capillary + grad_p +
+            source_u - eta * (lap_u + grad_div_u) -
             2. * detadphi * (sym_grad_u * grad_phi);
         }
 
@@ -186,7 +216,7 @@ namespace Assembly
           else if (i_is_mu)
           {
             local_rhs_i -= phi_mu[i] * to_mult_by_phi_mu_i -
-                           sigma_tilde_times_eps * (grad_phi_mu[i] * grad_phi);
+                           gradient_coeff * (grad_phi_mu[i] * grad_phi);
           }
 
           local_rhs(i) += local_rhs_i * JxW_moving;
@@ -208,10 +238,23 @@ namespace Assembly
       auto &sd           = scratch_data;
       auto &local_matrix = copy_data.local_matrix(sd.active_fe_index);
 
-      const double bdf_c0                = sd.bdf_c0;
-      const double sigma_tilde_over_eps  = sd.sigma_tilde / sd.epsilon;
-      const double sigma_tilde_times_eps = sd.sigma_tilde * sd.epsilon;
-      const auto  &body_force            = sd.body_force;
+      const double bdf_c0 = sd.bdf_c0;
+      // Potential-equation coefficients (double-well and gradient terms) and
+      // the Ding-Horriche capillary coefficient gamma; see the rhs assembler.
+      double double_well_coeff, gradient_coeff;
+      if constexpr (BaseType::with_ding_horriche)
+      {
+        double_well_coeff = 1.;
+        gradient_coeff    = sd.epsilon * sd.epsilon;
+      }
+      else
+      {
+        double_well_coeff = sd.sigma_tilde / sd.epsilon;
+        gradient_coeff    = sd.sigma_tilde * sd.epsilon;
+      }
+      [[maybe_unused]] const double capillary_coeff =
+        sd.sigma_tilde / sd.epsilon;
+      const auto &body_force = sd.body_force;
 
       std::vector<Tensor<1, dim>> to_mult_by_phi_u_i_momentum(sd.dofs_per_cell);
       std::vector<Tensor<1, dim>> to_mult_by_phi_u_i_potential(
@@ -317,6 +360,19 @@ namespace Assembly
         const double ddiffusive_flux_factor_dphi =
           dmobility_dphi * 0.5 * (sd.density1 - sd.density0);
 
+        // Capillary momentum force and diffusive inertia (see the rhs
+        // assembler): Abels uses phi*grad(mu) with diffusive inertia,
+        // Ding-Horriche uses -gamma*mu*grad(phi) and no diffusive inertia.
+        Tensor<1, dim> momentum_capillary;
+        Tensor<1, dim> momentum_diffusive_inertia;
+        if constexpr (BaseType::with_ding_horriche)
+          momentum_capillary = -capillary_coeff * mu * grad_phi;
+        else
+        {
+          momentum_capillary         = phi * grad_mu;
+          momentum_diffusive_inertia = diffusive_flux;
+        }
+
         const auto &phi_u          = sd.phi_u[q];
         const auto &grad_phi_u     = sd.grad_phi_u[q];
         const auto &sym_grad_phi_u = sd.sym_grad_phi_u[q];
@@ -353,17 +409,24 @@ namespace Assembly
         // Precompute shape functions-independent terms. The last term is the
         // tracer variation of the Abels diffusive flux M(phi)*grad(u).grad(mu)
         // and is zero for a constant mobility.
-        const auto to_mult_by_phi_u_i_phi_phi_j =
-          (drhodphi * (dudt + u_dot_grad_u_ale - body_force) + grad_mu +
-           ddiffusive_flux_factor_dphi * (grad_u * grad_mu));
+        // Tracer (phi) column of the momentum equation, multiplied by the
+        // scalar shape phi_phi[j]. For Abels the capillary derivative grad(mu)
+        // and the diffusive-inertia derivative both scale with phi_phi[j]; for
+        // Ding-Horriche the capillary derivative scales with grad(phi_phi[j])
+        // instead and is added separately in the i/j loops below.
+        Tensor<1, dim> to_mult_by_phi_u_i_phi_phi_j =
+          drhodphi * (dudt + u_dot_grad_u_ale - body_force);
+        if constexpr (!BaseType::with_ding_horriche)
+          to_mult_by_phi_u_i_phi_phi_j +=
+            grad_mu + ddiffusive_flux_factor_dphi * (grad_u * grad_mu);
 
         const auto momentum_partial_residual =
-          rho * (dudt - body_force + u_dot_grad_u_ale) + phi * grad_mu +
+          rho * (dudt - body_force + u_dot_grad_u_ale) + momentum_capillary +
           source_u;
         const auto phi_partial_residual =
           dphidt + u_conv * grad_phi + source_phi;
         const auto mu_partial_residual =
-          mu - sigma_tilde_over_eps * phi * (phi * phi - 1.) + source_mu;
+          mu - double_well_coeff * phi * (phi * phi - 1.) + source_mu;
         double inv_rho      = 0.;
         double dinvrho_dphi = 0.;
 
@@ -377,8 +440,9 @@ namespace Assembly
           // (i.e. multiplied by the density); see the rhs assembler for the
           // corresponding test operators.
           strong_residual_momentum =
-            rho * (dudt + grad_u * u_conv - body_force) + diffusive_flux +
-            phi * grad_mu + grad_p + source_u - eta * (lap_u + grad_div_u) -
+            rho * (dudt + grad_u * u_conv - body_force) +
+            momentum_diffusive_inertia + momentum_capillary + grad_p +
+            source_u - eta * (lap_u + grad_div_u) -
             2. * detadphi * (sym_grad_u * grad_phi);
 
           strong_residual_momentum_variation_phi_phi =
@@ -408,12 +472,22 @@ namespace Assembly
 
           to_mult_by_phi_u_i_momentum[j] =
             rho *
-              (bdf_c0 * phi_u_j + grad_phi_u_j * u_conv + grad_u * phi_u_j) +
-            diffusive_flux_factor * grad_phi_u_j * grad_mu;
+            (bdf_c0 * phi_u_j + grad_phi_u_j * u_conv + grad_u * phi_u_j);
+          if constexpr (!BaseType::with_ding_horriche)
+            // Diffusive-inertia velocity coupling (Abels only).
+            to_mult_by_phi_u_i_momentum[j] +=
+              diffusive_flux_factor * grad_phi_u_j * grad_mu;
 
-          to_mult_by_phi_u_i_potential[j] =
-            diffusive_flux_factor * grad_u * grad_phi_mu_j +
-            phi * grad_phi_mu_j;
+          // Potential (mu) column of the momentum equation. Abels:
+          // diffusive-inertia + capillary phi*grad(mu). Ding-Horriche:
+          // capillary -gamma*mu*grad(phi), i.e. -gamma*phi_mu[j]*grad(phi).
+          if constexpr (BaseType::with_ding_horriche)
+            to_mult_by_phi_u_i_potential[j] =
+              -capillary_coeff * phi_mu[j] * grad_phi;
+          else
+            to_mult_by_phi_u_i_potential[j] =
+              diffusive_flux_factor * grad_u * grad_phi_mu_j +
+              phi * grad_phi_mu_j;
 
           phi_u_j_x_grad_phi[j] = phi_u_j * grad_phi;
 
@@ -436,11 +510,15 @@ namespace Assembly
             strong_residual_momentum_variation[j] +=
               phi_phi[j] * strong_residual_momentum_variation_phi_phi -
               2. * detadphi * (sym_grad_u * grad_phi_phi[j]);
+            if constexpr (BaseType::with_ding_horriche)
+              // Ding-Horriche capillary derivative w.r.t. phi scales with
+              // grad(phi_phi[j]) (see to_mult_by_phi_u_i_phi_phi_j).
+              strong_residual_momentum_variation[j] +=
+                -capillary_coeff * mu * grad_phi_phi[j];
 
-            // Variation w.r.t. potential
+            // Variation w.r.t. potential (same as the momentum mu column).
             strong_residual_momentum_variation[j] +=
-              diffusive_flux_factor * grad_u * grad_phi_mu_j +
-              phi * grad_phi_mu_j;
+              to_mult_by_phi_u_i_potential[j];
           }
 
           if constexpr (BaseType::with_tracer_stabilization)
@@ -532,10 +610,21 @@ namespace Assembly
                   2. * detadphi *
                     (d_sym_grad_u_dx * grad_phi + sym_grad_u * dgrad_phi_dx);
 
-                const auto ddiffusive_flux_dx =
-                  diffusive_flux_factor *
-                  (dgrad_u_dx * grad_mu + grad_u * dgrad_mu_dx);
-                const auto dcapillary_dx = phi * dgrad_mu_dx;
+                // Frozen-tau x-variation of the diffusive inertia and the
+                // capillary force. Ding-Horriche drops the diffusive inertia
+                // and its capillary varies through grad(phi) instead of
+                // grad(mu).
+                Tensor<1, dim> ddiffusive_flux_dx;
+                Tensor<1, dim> dcapillary_dx;
+                if constexpr (BaseType::with_ding_horriche)
+                  dcapillary_dx = -capillary_coeff * mu * dgrad_phi_dx;
+                else
+                {
+                  ddiffusive_flux_dx =
+                    diffusive_flux_factor *
+                    (dgrad_u_dx * grad_mu + grad_u * dgrad_mu_dx);
+                  dcapillary_dx = phi * dgrad_mu_dx;
+                }
 
                 strong_residual_momentum_x_variation[j] =
                   rho * (dgrad_u_dx * u_conv + grad_u * du_conv_dx) +
@@ -563,12 +652,19 @@ namespace Assembly
               }
             }
 
-            // Variation of momentum
+            // Variation of momentum. The capillary trG part comes from
+            // momentum_partial_residual*trG; the non-trG part and (for Abels)
+            // the diffusive-inertia mesh variation are added here.
             to_mult_by_phi_u_i_moving_mesh[j] =
               momentum_partial_residual * trG +
-              rho * (grad_u * (-bdf_c0 * phi_x_j - G * u_conv)) -
-              phi * transpose_G * grad_mu +
-              diffusive_flux_factor * grad_u * val * grad_mu;
+              rho * (grad_u * (-bdf_c0 * phi_x_j - G * u_conv));
+            if constexpr (BaseType::with_ding_horriche)
+              to_mult_by_phi_u_i_moving_mesh[j] +=
+                capillary_coeff * mu * (transpose_G * grad_phi);
+            else
+              to_mult_by_phi_u_i_moving_mesh[j] +=
+                -phi * transpose_G * grad_mu +
+                diffusive_flux_factor * grad_u * val * grad_mu;
 
             to_mult_by_grad_phi_u_i_moving_mesh[j] =
               p * transpose_G +
@@ -592,7 +688,7 @@ namespace Assembly
             to_mult_by_phi_mu_i_moving_mesh[j] = mu_partial_residual * trG;
 
             to_mult_by_grad_phi_mu_i_moving_mesh[j] =
-              -sigma_tilde_times_eps * (val * grad_phi);
+              -gradient_coeff * (val * grad_phi);
 
 #if defined(WITH_GRADIENT_OF_SOURCE_TERMS)
             to_mult_by_phi_u_i_moving_mesh[j] +=
@@ -679,10 +775,18 @@ namespace Assembly
                   local_matrix_ij += eta * gui * guj;
               }
               else if (j_is_phi)
+              {
                 local_matrix_ij +=
                   phi_phi_j * (phi_u_i * to_mult_by_phi_u_i_phi_phi_j +
                                2. * detadphi *
                                  scalar_product(sym_grad_phi_u_i, sym_grad_u));
+                if constexpr (BaseType::with_ding_horriche)
+                  // Ding-Horriche capillary -gamma*mu*grad(phi) varies with
+                  // grad(phi_phi[j]) rather than the scalar shape phi_phi[j].
+                  local_matrix_ij +=
+                    -capillary_coeff * mu *
+                    (phi_u_i * grad_phi_phi[j]);
+              }
               else if (j_is_mu)
                 local_matrix_ij += phi_u_i * to_mult_by_phi_u_i_potential[j];
 
@@ -892,9 +996,9 @@ namespace Assembly
               else if (j_is_phi)
               {
                 matrix_row[j] +=
-                  (-sigma_tilde_over_eps * phi_mu_i * phi_phi_j *
+                  (-double_well_coeff * phi_mu_i * phi_phi_j *
                      (3. * phi * phi - 1.) -
-                   sigma_tilde_times_eps * (grad_phi_mu_i * grad_phi_phi_j)) *
+                   gradient_coeff * (grad_phi_mu_i * grad_phi_phi_j)) *
                   JxW_moving;
               }
 
@@ -930,7 +1034,8 @@ namespace Assembly
       auto        &local_rhs = copy_data.local_rhs(sd.active_fe_index);
       const double epsilon   = param.cahn_hilliard.epsilon_interface;
       const double coeff =
-        CahnHilliard::contact_angle_surface_coefficient(sd.sigma_tilde, epsilon);
+        CahnHilliard::contact_angle_surface_coefficient(param.cahn_hilliard,
+                                                        sd.sigma_tilde);
 
       for (unsigned int i_face = 0; i_face < sd.n_faces; ++i_face)
       {
@@ -969,7 +1074,8 @@ namespace Assembly
       auto        &local_matrix = copy_data.local_matrix(sd.active_fe_index);
       const double epsilon      = param.cahn_hilliard.epsilon_interface;
       const double coeff =
-        CahnHilliard::contact_angle_surface_coefficient(sd.sigma_tilde, epsilon);
+        CahnHilliard::contact_angle_surface_coefficient(param.cahn_hilliard,
+                                                        sd.sigma_tilde);
 
       for (unsigned int i_face = 0; i_face < sd.n_faces; ++i_face)
       {

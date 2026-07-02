@@ -1139,6 +1139,13 @@ namespace Parameters
 
     prm.enter_subsection("Cahn Hilliard");
     {
+      prm.declare_entry("CHNS model",
+                        "abels",
+                        Patterns::Selection("abels|ding_horriche"),
+                        "CHNS model. 'abels' uses the diffuse material marker "
+                        "phi with the phi*grad(mu) capillary force and "
+                        "diffusive inertia; 'ding_horriche' uses the unscaled "
+                        "potential with the mu*grad(phi) capillary force.");
       prm.declare_entry("mobility model",
                         "constant",
                         Patterns::Selection("constant|degenerate"),
@@ -1235,6 +1242,16 @@ namespace Parameters
   {
     prm.enter_subsection("Cahn Hilliard");
     {
+      const std::string parsed_chns_model = prm.get("CHNS model");
+      if (parsed_chns_model == "abels")
+        chns_model = CHNSModel::abels;
+      else if (parsed_chns_model == "ding_horriche")
+        chns_model = CHNSModel::ding_horriche;
+      else
+        AssertThrow(false,
+                    ExcMessage("Unknown CHNS model '" + parsed_chns_model +
+                               "'"));
+
       const std::string parsed_mobility_model = prm.get("mobility model");
       if (parsed_mobility_model == "constant")
         mobility_model = MobilityModel::constant;

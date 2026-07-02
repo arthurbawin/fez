@@ -7,6 +7,82 @@
 
 namespace CahnHilliard
 {
+  // --- CHNS model selection -------------------------------------------------
+  // Two diffuse-interface models share the same unknowns (u, p, phi, mu) but
+  // differ in the potential scaling, the capillary momentum force and the
+  // presence of diffusive inertia:
+  //   * abels          : mu = sigma_tilde/eps phi(phi^2-1) - sigma_tilde eps
+  //                      lap(phi); capillary force phi*grad(mu); diffusive
+  //                      inertia present.
+  //   * ding_horriche  : mu = phi(phi^2-1) - eps^2 lap(phi) (unscaled
+  //                      potential); capillary force gamma*mu*grad(phi); no
+  //                      diffusive inertia.
+
+  template <int dim>
+  inline bool is_abels_model(const Parameters::CahnHilliard<dim> &param)
+  {
+    return param.chns_model == Parameters::CahnHilliard<dim>::CHNSModel::abels;
+  }
+
+  template <int dim>
+  inline bool is_ding_horriche_model(const Parameters::CahnHilliard<dim> &param)
+  {
+    return param.chns_model ==
+           Parameters::CahnHilliard<dim>::CHNSModel::ding_horriche;
+  }
+
+  template <int dim>
+  inline const char *model_name(const Parameters::CahnHilliard<dim> &param)
+  {
+    if (is_ding_horriche_model(param))
+      return "Ding-Horriche";
+    return "Abels";
+  }
+
+  /**
+   * Coefficient of the double-well term phi(phi^2 - 1) in the potential
+   * equation. Ding-Horriche uses the unscaled potential (coefficient 1);
+   * Abels scales it by sigma_tilde / epsilon.
+   */
+  template <int dim>
+  inline double
+  potential_double_well_coefficient(const Parameters::CahnHilliard<dim> &param,
+                                    const double sigma_tilde)
+  {
+    if (is_ding_horriche_model(param))
+      return 1.;
+    return sigma_tilde / param.epsilon_interface;
+  }
+
+  /**
+   * Coefficient of the gradient term grad(phi) in the potential equation.
+   * Ding-Horriche uses eps^2; Abels uses sigma_tilde * epsilon.
+   */
+  template <int dim>
+  inline double
+  potential_gradient_coefficient(const Parameters::CahnHilliard<dim> &param,
+                                 const double sigma_tilde)
+  {
+    if (is_ding_horriche_model(param))
+      return param.epsilon_interface * param.epsilon_interface;
+    return sigma_tilde * param.epsilon_interface;
+  }
+
+  /**
+   * Coefficient gamma of the Ding-Horriche capillary momentum force
+   * gamma * mu * grad(phi). The normalized surface tension sigma_tilde / eps is
+   * used so that the tanh diffuse-interface energy integrates to the physical
+   * surface tension sigma.
+   */
+  template <int dim>
+  inline double
+  ding_horriche_capillary_coefficient(const Parameters::CahnHilliard<dim> &param)
+  {
+    const double sigma_tilde =
+      3. / (2. * std::sqrt(2.)) * param.surface_tension;
+    return sigma_tilde / param.epsilon_interface;
+  }
+
   /**
    * Simply return the passed phase marker
    */
@@ -79,14 +155,17 @@ namespace CahnHilliard
   /**
    * Surface-term coefficient for the static contact-angle (wetting) condition in
    * the potential equation. It matches the bulk gradient-term coefficient
-   * sigma_tilde * epsilon, so the wetting boundary term scales consistently with
-   * the volume Cahn-Hilliard energy. (When model switching is added this becomes
-   * model-dependent, like the bulk gradient term.)
+   * (potential_gradient_coefficient) so the wetting boundary term scales
+   * consistently with the volume Cahn-Hilliard energy, including the
+   * model-dependent scaling (sigma_tilde * epsilon for Abels, eps^2 for
+   * Ding-Horriche).
    */
-  inline double contact_angle_surface_coefficient(const double sigma_tilde,
-                                                  const double epsilon)
+  template <int dim>
+  inline double
+  contact_angle_surface_coefficient(const Parameters::CahnHilliard<dim> &param,
+                                    const double sigma_tilde)
   {
-    return sigma_tilde * epsilon;
+    return potential_gradient_coefficient(param, sigma_tilde);
   }
 
   /**

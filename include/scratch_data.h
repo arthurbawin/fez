@@ -1083,38 +1083,80 @@ namespace NavierStokesScratch
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
-        // Time derivatives
+        // Material marker m(phi) on the raw tracer (= q for abels_nlm, = phi
+        // otherwise) with its first two derivatives and gradient. The
+        // transported/conserved variable and the capillary marker are m.
+        material_phase_values[q] =
+          material_phase_function(cahn_hilliard_param, tracer_values[q]);
+        derivative_material_phase_wrt_tracer[q] =
+          material_phase_derivative_function(cahn_hilliard_param,
+                                             tracer_values[q]);
+        second_derivative_material_phase_wrt_tracer[q] =
+          material_phase_second_derivative_function(cahn_hilliard_param,
+                                                    tracer_values[q]);
+        material_phase_gradients[q] =
+          derivative_material_phase_wrt_tracer[q] * tracer_gradients[q];
+
+        // Time derivatives. tracer_time_derivatives is d(phi)/dt;
+        // material_phase_time_derivatives is d(m)/dt (BDF over m at the current
+        // and previous steps) = d(phi)/dt for the non-nlm identity marker.
         tracer_time_derivatives[q] =
           time_handler.compute_time_derivative_at_quadrature_node(
             q, tracer_values[q], previous_tracer_values);
+        for (unsigned int i = 0; i < previous_tracer_values.size(); ++i)
+          previous_material_phase_values[i][q] =
+            material_phase_function(cahn_hilliard_param,
+                                    previous_tracer_values[i][q]);
+        material_phase_time_derivatives[q] =
+          time_handler.compute_time_derivative_at_quadrature_node(
+            q, material_phase_values[q], previous_material_phase_values);
 
-        // Physical properties based on tracer, filter if applicable
+        // Physical properties: affine in the marker on the filtered tracer.
+        // The identity marker reproduces the original limited-phi mixing
+        // exactly (byte-neutral for the non-nlm models); d/dphi via chain rule.
         const double filtered_phi = tracer_limiter(tracer_values[q]);
+        const double material_marker =
+          material_phase_function(cahn_hilliard_param, filtered_phi);
+        const double material_marker_derivative =
+          material_phase_derivative_function(cahn_hilliard_param, filtered_phi);
         density[q] =
-          CahnHilliard::linear_mixing(filtered_phi, density0, density1);
-        dynamic_viscosity[q] = CahnHilliard::linear_mixing(filtered_phi,
+          CahnHilliard::linear_mixing(material_marker, density0, density1);
+        dynamic_viscosity[q] = CahnHilliard::linear_mixing(material_marker,
                                                            dynamic_viscosity0,
                                                            dynamic_viscosity1);
         derivative_density_wrt_tracer[q] =
-          CahnHilliard::linear_mixing_derivative(filtered_phi,
+          CahnHilliard::linear_mixing_derivative(material_marker,
                                                  density0,
-                                                 density1);
+                                                 density1) *
+          material_marker_derivative;
         derivative_dynamic_viscosity_wrt_tracer[q] =
-          CahnHilliard::linear_mixing_derivative(filtered_phi,
+          CahnHilliard::linear_mixing_derivative(material_marker,
                                                  dynamic_viscosity0,
-                                                 dynamic_viscosity1);
+                                                 dynamic_viscosity1) *
+          material_marker_derivative;
 
-        // Mobility M(phi) and its derivatives (optionally on a clamped tracer).
-        const double filtered_phi_mobility =
-          mobility_tracer_limiter(tracer_values[q]);
-        mobility_values[q] =
-          mobility_function(cahn_hilliard_param, filtered_phi_mobility);
-        derivative_mobility_wrt_tracer[q] =
-          mobility_derivative_function(cahn_hilliard_param,
-                                       filtered_phi_mobility);
+        // Mobility M(q) with the chain rule through the marker:
+        // dM/dphi = M'(q) q', d2M/dphi2 = M''(q) q'^2 + M'(q) q''. The mobility
+        // limiter is applied to phi before the marker. Identity marker (q'=1,
+        // q''=0) reproduces the original M(phi) exactly.
+        const double mobility_phi = mobility_tracer_limiter(tracer_values[q]);
+        const double mobility_arg =
+          material_phase_function(cahn_hilliard_param, mobility_phi);
+        const double mobility_arg_d =
+          material_phase_derivative_function(cahn_hilliard_param, mobility_phi);
+        const double mobility_arg_dd =
+          material_phase_second_derivative_function(cahn_hilliard_param,
+                                                    mobility_phi);
+        const double M_val =
+          mobility_function(cahn_hilliard_param, mobility_arg);
+        const double dM_val =
+          mobility_derivative_function(cahn_hilliard_param, mobility_arg);
+        const double ddM_val =
+          mobility_second_derivative_function(cahn_hilliard_param, mobility_arg);
+        mobility_values[q]                = M_val;
+        derivative_mobility_wrt_tracer[q] = dM_val * mobility_arg_d;
         second_derivative_mobility_wrt_tracer[q] =
-          mobility_second_derivative_function(cahn_hilliard_param,
-                                              filtered_phi_mobility);
+          ddM_val * mobility_arg_d * mobility_arg_d + dM_val * mobility_arg_dd;
         diffusive_flux_factor_values[q] =
           mobility_values[q] * 0.5 * (density1 - density0);
 
@@ -1611,16 +1653,36 @@ namespace NavierStokesScratch
     CahnHilliard::MobilityFunction<dim>         mobility_derivative_function;
     CahnHilliard::MobilityFunction<dim>         mobility_second_derivative_function;
 
+    // Material marker m(phi) and its two derivatives. Identity for every model
+    // but abels_nlm (where m = q = tanh(k phi)/tanh(k)); the material
+    // properties, the transported variable and the capillary marker are affine
+    // in m. See CahnHilliard::material_phase_*.
+    CahnHilliard::MaterialPhaseFunction<dim> material_phase_function;
+    CahnHilliard::MaterialPhaseFunction<dim> material_phase_derivative_function;
+    CahnHilliard::MaterialPhaseFunction<dim> material_phase_second_derivative_function;
+
     std::vector<double> derivative_density_wrt_tracer;
     std::vector<double> dynamic_viscosity;
     std::vector<double> derivative_dynamic_viscosity_wrt_tracer;
 
-    // Mobility M(phi), its first and second derivative w.r.t. the tracer, and
-    // the Abels diffusive-flux factor 0.5*(rho1 - rho0)*M(phi), per node.
+    // Mobility M(q), its first and second derivative w.r.t. the tracer phi
+    // (chain rule through the material marker for abels_nlm), and the diffusive
+    // -flux factor 0.5*(rho1 - rho0)*M(q), per node.
     std::vector<double> mobility_values;
     std::vector<double> derivative_mobility_wrt_tracer;
     std::vector<double> second_derivative_mobility_wrt_tracer;
     std::vector<double> diffusive_flux_factor_values;
+
+    // Material marker m = m(phi) per node (= q for abels_nlm, = phi otherwise),
+    // its gradient m'(phi) grad(phi), its BDF time derivative, and its first
+    // two derivatives w.r.t. phi. The transported/conserved variable and the
+    // capillary marker are m; the material properties are affine in m.
+    std::vector<double>              material_phase_values;
+    std::vector<Tensor<1, dim>>      material_phase_gradients;
+    std::vector<double>              material_phase_time_derivatives;
+    std::vector<double>              derivative_material_phase_wrt_tracer;
+    std::vector<double>              second_derivative_material_phase_wrt_tracer;
+    std::vector<std::vector<double>> previous_material_phase_values;
 
     // Tracer on current and fixed (reference) mesh
     std::vector<double>              tracer_values;

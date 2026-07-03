@@ -433,6 +433,16 @@ namespace NavierStokesScratch
     mobility_tracer_limiter =
       CahnHilliard::get_mobility_limiter_function(cahn_hilliard_param);
 
+    // Material marker m(phi) = q (abels_nlm) or phi (else) with its first two
+    // derivatives; selected once here so the hot loop carries no model branch.
+    material_phase_function =
+      CahnHilliard::get_material_phase_function(cahn_hilliard_param);
+    material_phase_derivative_function =
+      CahnHilliard::get_material_phase_derivative_function(cahn_hilliard_param);
+    material_phase_second_derivative_function =
+      CahnHilliard::get_material_phase_second_derivative_function(
+        cahn_hilliard_param);
+
     if constexpr (enable_enlarged)
     {
       // Computed after epsilon is set above.
@@ -667,6 +677,14 @@ namespace NavierStokesScratch
       derivative_mobility_wrt_tracer.resize(n_q_points);
       second_derivative_mobility_wrt_tracer.resize(n_q_points);
       diffusive_flux_factor_values.resize(n_q_points);
+
+      material_phase_values.resize(n_q_points);
+      material_phase_gradients.resize(n_q_points);
+      material_phase_time_derivatives.resize(n_q_points);
+      derivative_material_phase_wrt_tracer.resize(n_q_points);
+      second_derivative_material_phase_wrt_tracer.resize(n_q_points);
+      previous_material_phase_values.resize(time_handler.n_previous_solutions,
+                                            std::vector<double>(n_q_points));
 
       tracer_values.resize(n_q_points);
       tracer_time_derivatives.resize(n_q_points);

@@ -101,12 +101,21 @@ namespace Assembly
         const auto &source_phi     = sd.source_term_tracer[q];
         const auto &source_mu      = sd.source_term_potential[q];
 
-        // Mobility M(phi) and its derivative (both constant-model trivial).
+        // Mobility M(q) and its derivative (both constant-model trivial).
         const double mobility       = sd.mobility_values[q];
         const double dmobility_dphi = sd.derivative_mobility_wrt_tracer[q];
 
+        // Material marker m(phi) = q (abels_nlm) or phi (else): the
+        // transported/conserved variable and the capillary marker are m, and
+        // the potential mass factor is m'(phi). Identity marker (m=phi, m'=1)
+        // reduces this to Abels/Ding-Horriche.
+        const double m_marker  = sd.material_phase_values[q];
+        const double dm_marker = sd.derivative_material_phase_wrt_tracer[q];
+        const auto  &grad_m    = sd.material_phase_gradients[q];
+        const double dmdt      = sd.material_phase_time_derivatives[q];
+
         // Capillary momentum force and diffusive inertia depend on the model:
-        // Abels uses phi*grad(mu) with the diffusive inertia J.grad(u);
+        // Abels/abels_nlm use m*grad(mu) with the diffusive inertia J.grad(u);
         // Ding-Horriche uses -gamma*mu*grad(phi) and drops diffusive inertia.
         Tensor<1, dim> momentum_capillary;
         Tensor<1, dim> momentum_diffusive_inertia;
@@ -114,17 +123,17 @@ namespace Assembly
           momentum_capillary = -capillary_coeff * mu * grad_phi;
         else
         {
-          momentum_capillary         = phi * grad_mu;
+          momentum_capillary         = m_marker * grad_mu;
           momentum_diffusive_inertia = diffusive_flux;
         }
 
         const auto to_mult_by_phi_u_i =
           rho * (dudt + grad_u * u_conv - body_force) +
           momentum_diffusive_inertia + momentum_capillary + source_u;
-        const auto to_mult_by_phi_phi_i =
-          dphidt + u_conv * grad_phi + source_phi;
+        const auto to_mult_by_phi_phi_i = dmdt + u_conv * grad_m + source_phi;
         const auto to_mult_by_phi_mu_i =
-          mu - double_well_coeff * phi * (phi * phi - 1.) + source_mu;
+          dm_marker * mu - double_well_coeff * phi * (phi * phi - 1.) +
+          source_mu;
 
         const auto &phi_u = sd.phi_u[q];
         const auto &grad_phi_u     = sd.grad_phi_u[q];
@@ -159,10 +168,11 @@ namespace Assembly
           tau_tracer          = sd.tau_supg_tracer[q];
           const double lap_mu = sd.potential_laplacians[q];
 
-          // Strong residual of the tracer equation. For a degenerate mobility
-          // div(M(phi) grad mu) = M lap(mu) + M'(phi) grad(phi).grad(mu); the
-          // second term vanishes when M is constant.
-          strong_residual_tracer = dphidt + u_conv * grad_phi -
+          // Strong residual of the transport equation (on the marker m).
+          // div(M(q) grad mu) = M lap(mu) + (dM/dphi) grad(phi).grad(mu); the
+          // second term vanishes when M is constant. Advection is on m
+          // (grad_m = m' grad_phi), diffusion expands with grad_phi.
+          strong_residual_tracer = dmdt + u_conv * grad_m -
                                    mobility * lap_mu -
                                    dmobility_dphi * (grad_phi * grad_mu) +
                                    source_phi;
@@ -360,8 +370,18 @@ namespace Assembly
         const double ddiffusive_flux_factor_dphi =
           dmobility_dphi * 0.5 * (sd.density1 - sd.density0);
 
+        // Material marker m(phi) = q (abels_nlm) or phi (else), its first two
+        // derivatives, gradient and BDF time derivative. Identity marker
+        // (m=phi, m'=1, m''=0) reduces every term below to Abels/Ding-Horriche.
+        const double m_marker   = sd.material_phase_values[q];
+        const double dm_marker  = sd.derivative_material_phase_wrt_tracer[q];
+        const double d2m_marker =
+          sd.second_derivative_material_phase_wrt_tracer[q];
+        const auto  &grad_m     = sd.material_phase_gradients[q];
+        const double dmdt       = sd.material_phase_time_derivatives[q];
+
         // Capillary momentum force and diffusive inertia (see the rhs
-        // assembler): Abels uses phi*grad(mu) with diffusive inertia,
+        // assembler): Abels/abels_nlm use m*grad(mu) with diffusive inertia,
         // Ding-Horriche uses -gamma*mu*grad(phi) and no diffusive inertia.
         Tensor<1, dim> momentum_capillary;
         Tensor<1, dim> momentum_diffusive_inertia;
@@ -369,7 +389,7 @@ namespace Assembly
           momentum_capillary = -capillary_coeff * mu * grad_phi;
         else
         {
-          momentum_capillary         = phi * grad_mu;
+          momentum_capillary         = m_marker * grad_mu;
           momentum_diffusive_inertia = diffusive_flux;
         }
 
@@ -417,16 +437,18 @@ namespace Assembly
         Tensor<1, dim> to_mult_by_phi_u_i_phi_phi_j =
           drhodphi * (dudt + u_dot_grad_u_ale - body_force);
         if constexpr (!BaseType::with_ding_horriche)
+          // Capillary m*grad(mu): d/dphi = m'*grad(mu) (m'=1 for Abels).
           to_mult_by_phi_u_i_phi_phi_j +=
-            grad_mu + ddiffusive_flux_factor_dphi * (grad_u * grad_mu);
+            dm_marker * grad_mu +
+            ddiffusive_flux_factor_dphi * (grad_u * grad_mu);
 
         const auto momentum_partial_residual =
           rho * (dudt - body_force + u_dot_grad_u_ale) + momentum_capillary +
           source_u;
-        const auto phi_partial_residual =
-          dphidt + u_conv * grad_phi + source_phi;
+        const auto phi_partial_residual = dmdt + u_conv * grad_m + source_phi;
         const auto mu_partial_residual =
-          mu - double_well_coeff * phi * (phi * phi - 1.) + source_mu;
+          dm_marker * mu - double_well_coeff * phi * (phi * phi - 1.) +
+          source_mu;
         double inv_rho      = 0.;
         double dinvrho_dphi = 0.;
 
@@ -454,10 +476,11 @@ namespace Assembly
           tau_tracer          = sd.tau_supg_tracer[q];
           const double lap_mu = sd.potential_laplacians[q];
 
-          // Strong residual of the tracer equation. For a degenerate mobility
-          // div(M(phi) grad mu) = M lap(mu) + M'(phi) grad(phi).grad(mu); the
-          // second term vanishes when M is constant.
-          strong_residual_tracer = dphidt + u_conv * grad_phi -
+          // Strong residual of the transport equation (on the marker m).
+          // div(M(q) grad mu) = M lap(mu) + (dM/dphi) grad(phi).grad(mu); the
+          // second term vanishes when M is constant. Advection is on m
+          // (grad_m = m' grad_phi), diffusion expands with grad_phi.
+          strong_residual_tracer = dmdt + u_conv * grad_m -
                                    mobility * lap_mu -
                                    dmobility_dphi * (grad_phi * grad_mu) +
                                    source_phi;
@@ -487,12 +510,17 @@ namespace Assembly
           else
             to_mult_by_phi_u_i_potential[j] =
               diffusive_flux_factor * grad_u * grad_phi_mu_j +
-              phi * grad_phi_mu_j;
+              m_marker * grad_phi_mu_j;
 
-          phi_u_j_x_grad_phi[j] = phi_u_j * grad_phi;
+          // Velocity column of the transport advection u.grad(m): d/du_j.
+          phi_u_j_x_grad_phi[j] = phi_u_j * grad_m;
 
+          // Tracer (phi) column of the transport dm/dt + u.grad(m). With the
+          // marker m(phi): d/dphi_j = m'(bdf_c0 N + u.grad N)
+          //                          + m'' N (u.grad phi). Identity -> Abels.
           to_mult_by_phi_phi_i[j] =
-            bdf_c0 * phi_phi[j] + u_conv * grad_phi_phi[j];
+            dm_marker * (bdf_c0 * phi_phi[j] + u_conv * grad_phi_phi[j]) +
+            d2m_marker * phi_phi[j] * (u_conv * grad_phi);
 
           if constexpr (BaseType::with_stabilization)
           {
@@ -510,6 +538,14 @@ namespace Assembly
             strong_residual_momentum_variation[j] +=
               phi_phi[j] * strong_residual_momentum_variation_phi_phi -
               2. * detadphi * (sym_grad_u * grad_phi_phi[j]);
+            if constexpr (!BaseType::with_ding_horriche)
+              // Non-linear-mixing second-order viscous cross term: the strong
+              // residual has -2 eta'(phi)(d.grad phi) with eta'(phi)=eta_q m',
+              // so d/dphi_j adds -2 eta_q m'' N_phi (d.grad phi). eta_q m'' = 0
+              // for the identity marker, so this is byte-neutral for Abels.
+              strong_residual_momentum_variation[j] +=
+                -2. * 0.5 * (sd.dynamic_viscosity0 - sd.dynamic_viscosity1) *
+                d2m_marker * phi_phi[j] * (sym_grad_u * grad_phi);
             if constexpr (BaseType::with_ding_horriche)
               // Ding-Horriche capillary derivative w.r.t. phi scales with
               // grad(phi_phi[j]) (see to_mult_by_phi_u_i_phi_phi_j).
@@ -523,9 +559,13 @@ namespace Assembly
 
           if constexpr (BaseType::with_tracer_stabilization)
           {
+            // Transport dm/dt + u.grad(m) variation: bdf_c0 m' N + phi_u.grad m
+            // + m'(u.grad N) + m'' N (u.grad phi), then the diffusion column.
             strong_residual_tracer_variation[j] =
-              bdf_c0 * phi_phi[j] + phi_u_j * grad_phi +
-              u_conv * grad_phi_phi[j] - mobility * laplacian_phi_mu[j];
+              bdf_c0 * dm_marker * phi_phi[j] + phi_u_j * grad_m +
+              dm_marker * (u_conv * grad_phi_phi[j]) +
+              d2m_marker * phi_phi[j] * (u_conv * grad_phi) -
+              mobility * laplacian_phi_mu[j];
 
             // Degenerate-mobility variations of -M(phi) lap(mu)
             // - M'(phi) grad(phi).grad(mu) (all zero for a constant mobility).
@@ -623,7 +663,9 @@ namespace Assembly
                   ddiffusive_flux_dx =
                     diffusive_flux_factor *
                     (dgrad_u_dx * grad_mu + grad_u * dgrad_mu_dx);
-                  dcapillary_dx = phi * dgrad_mu_dx;
+                  // Capillary m*grad(mu): m is a nodal value (invariant under
+                  // the mesh x-variation), only grad(mu) transforms.
+                  dcapillary_dx = m_marker * dgrad_mu_dx;
                 }
 
                 strong_residual_momentum_x_variation[j] =
@@ -644,8 +686,11 @@ namespace Assembly
                     dlap_mu_dx -= G[a][i] * h[a][i] + G[a][i] * h[i][a] +
                                   K[a][i][i] * grad_mu[a];
 
+                // Advection u.grad(m) = m' u.grad(phi): m' is invariant under
+                // the mesh x-variation, so the advection x-variation scales by
+                // m'; the diffusion column is unchanged.
                 strong_residual_tracer_x_variation[j] =
-                  du_conv_dx * grad_phi + u_conv * dgrad_phi_dx -
+                  dm_marker * (du_conv_dx * grad_phi + u_conv * dgrad_phi_dx) -
                   mobility * dlap_mu_dx -
                   dmobility_dphi *
                     (dgrad_phi_dx * grad_mu + grad_phi * dgrad_mu_dx);
@@ -663,7 +708,7 @@ namespace Assembly
                 capillary_coeff * mu * (transpose_G * grad_phi);
             else
               to_mult_by_phi_u_i_moving_mesh[j] +=
-                -phi * transpose_G * grad_mu +
+                -m_marker * transpose_G * grad_mu +
                 diffusive_flux_factor * grad_u * val * grad_mu;
 
             to_mult_by_grad_phi_u_i_moving_mesh[j] =
@@ -676,10 +721,10 @@ namespace Assembly
             to_mult_by_phi_p_i_moving_mesh[j] =
               trace(grad_u_x_G_j) + (-div_u + source_p) * trG;
 
-            // Variation of tracer
+            // Variation of tracer (transport on m; grad_m = m' grad_phi).
             to_mult_by_phi_phi_i_moving_mesh[j] =
-              phi_partial_residual * trG - bdf_c0 * (phi_x_j * grad_phi) -
-              u_conv * (transpose_G * grad_phi);
+              phi_partial_residual * trG - bdf_c0 * (phi_x_j * grad_m) -
+              u_conv * (transpose_G * grad_m);
 
             to_mult_by_grad_phi_phi_i_moving_mesh[j] =
               mobility * (val * grad_mu);
@@ -990,8 +1035,9 @@ namespace Assembly
 
               if (j_is_mu)
               {
-                // Mass
-                matrix_row[j] += phi_mu_i * phi_mu_j * JxW_moving;
+                // Mass factor m'(phi) mu: d/dmu_j = m' N_mu (m'=1 for Abels).
+                matrix_row[j] +=
+                  dm_marker * phi_mu_i * phi_mu_j * JxW_moving;
               }
               else if (j_is_phi)
               {
@@ -1000,6 +1046,10 @@ namespace Assembly
                      (3. * phi * phi - 1.) -
                    gradient_coeff * (grad_phi_mu_i * grad_phi_phi_j)) *
                   JxW_moving;
+                // Non-linear-mixing: d/dphi_j of the mass factor m'(phi) mu is
+                // m'' N_phi mu (zero for the identity marker).
+                matrix_row[j] +=
+                  d2m_marker * phi_mu_i * phi_phi_j * mu * JxW_moving;
               }
 
               if constexpr (BaseType::with_moving_mesh)

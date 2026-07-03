@@ -1141,11 +1141,18 @@ namespace Parameters
     {
       prm.declare_entry("CHNS model",
                         "abels",
-                        Patterns::Selection("abels|ding_horriche"),
+                        Patterns::Selection("abels|ding_horriche|abels_nlm"),
                         "CHNS model. 'abels' uses the diffuse material marker "
                         "phi with the phi*grad(mu) capillary force and "
                         "diffusive inertia; 'ding_horriche' uses the unscaled "
-                        "potential with the mu*grad(phi) capillary force.");
+                        "potential with the mu*grad(phi) capillary force; "
+                        "'abels_nlm' is Abels with material properties affine "
+                        "in q = tanh(k phi)/tanh(k) (non-linear mixing).");
+      prm.declare_entry("tanh mixing steepness",
+                        "5.",
+                        Patterns::Double(0.),
+                        "Steepness k of the non-linear material marker "
+                        "q = tanh(k phi)/tanh(k) used by the abels_nlm model.");
       prm.declare_entry("mobility model",
                         "constant",
                         Patterns::Selection("constant|degenerate"),
@@ -1247,10 +1254,14 @@ namespace Parameters
         chns_model = CHNSModel::abels;
       else if (parsed_chns_model == "ding_horriche")
         chns_model = CHNSModel::ding_horriche;
+      else if (parsed_chns_model == "abels_nlm")
+        chns_model = CHNSModel::abels_nlm;
       else
         AssertThrow(false,
                     ExcMessage("Unknown CHNS model '" + parsed_chns_model +
                                "'"));
+
+      tanh_mixing_steepness = prm.get_double("tanh mixing steepness");
 
       const std::string parsed_mobility_model = prm.get("mobility model");
       if (parsed_mobility_model == "constant")

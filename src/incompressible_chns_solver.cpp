@@ -170,26 +170,41 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   Vector<double>   &values) const
 {
   const double phi          = mms.exact_tracer->value(p);
-  const double filtered_phi = phi;
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
-  const double rho  = CahnHilliard::linear_mixing(filtered_phi, rho0, rho1);
   const double eta0 = rho0 * physical_properties.fluids[0].kinematic_viscosity;
   const double eta1 = rho1 * physical_properties.fluids[1].kinematic_viscosity;
-  const double eta  = CahnHilliard::linear_mixing(filtered_phi, eta0, eta1);
-  // Mobility M(phi) and its derivative (constant model: dM_dphi = 0).
-  const double filtered_phi_mobility =
+  // Material marker m(phi) = q (abels_nlm) or phi (else), and m'(phi): the
+  // properties are affine in m, the transported/conserved variable and the
+  // capillary marker are m, and the potential mass factor is m'. Identity
+  // marker reproduces the Abels/Ding-Horriche source terms.
+  const double m_marker =
+    CahnHilliard::get_material_phase_function(cahn_hilliard_param)(
+      cahn_hilliard_param, phi);
+  const double dm_marker =
+    CahnHilliard::get_material_phase_derivative_function(cahn_hilliard_param)(
+      cahn_hilliard_param, phi);
+  const double rho  = CahnHilliard::linear_mixing(m_marker, rho0, rho1);
+  const double eta  = CahnHilliard::linear_mixing(m_marker, eta0, eta1);
+  // Mobility M(q) with the chain rule dM/dphi = M'(q) q'.
+  const double mobility_phi =
     CahnHilliard::get_mobility_limiter_function(cahn_hilliard_param)(phi);
+  const double mobility_arg =
+    CahnHilliard::get_material_phase_function(cahn_hilliard_param)(
+      cahn_hilliard_param, mobility_phi);
+  const double mobility_arg_d =
+    CahnHilliard::get_material_phase_derivative_function(cahn_hilliard_param)(
+      cahn_hilliard_param, mobility_phi);
   const double M = CahnHilliard::get_mobility_function(cahn_hilliard_param)(
-    cahn_hilliard_param, filtered_phi_mobility);
+    cahn_hilliard_param, mobility_arg);
   const double dM_dphi =
     CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param)(
-      cahn_hilliard_param, filtered_phi_mobility);
+      cahn_hilliard_param, mobility_arg) *
+    mobility_arg_d;
   const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
-  // const double drhodphi =
-  //   CahnHilliard::linear_mixing_derivative(filtered_phi, rho0, rho1);
+  // d(eta)/d(phi) = eta_q m' (chain rule through the marker).
   const double detadphi =
-    CahnHilliard::linear_mixing_derivative(filtered_phi, eta0, eta1);
+    CahnHilliard::linear_mixing_derivative(m_marker, eta0, eta1) * dm_marker;
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
@@ -235,7 +250,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
     momentum_capillary = -capillary_coeff * mu * grad_phi;
   else
   {
-    momentum_capillary         = phi * grad_mu;
+    momentum_capillary         = m_marker * grad_mu;
     momentum_diffusive_inertia = J_flux * grad_u;
   }
 
@@ -261,16 +276,20 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
       values[x_lower + d] = f_PS[d];
   }
 
-  // Tracer source term
+  // Transport source term (on the marker m). d(m)/dt = m' d(phi)/dt and
+  // grad(m) = m' grad(phi); div(M(q) grad mu) = M lap(mu) + (dM/dphi)
+  // grad(phi).grad(mu).
   const double dphidt = mms.exact_tracer->time_derivative(p);
   const double lap_mu = mms.exact_potential->laplacian(p);
-  // div(M(phi) grad mu) = M lap(mu) + M'(phi) grad(phi).grad(mu).
   values[phi_lower] =
-    -(dphidt + u * grad_phi - M * lap_mu - dM_dphi * (grad_phi * grad_mu));
+    -(dm_marker * (dphidt + u * grad_phi) - M * lap_mu -
+      dM_dphi * (grad_phi * grad_mu));
 
-  // Potential source term
+  // Potential source term. Mass factor m'(phi) mu; the double-well and gradient
+  // terms stay in phi.
   const double lap_phi = mms.exact_tracer->laplacian(p);
-  values[mu_lower]     = -(mu - double_well_coeff * phi * (phi * phi - 1.) +
+  values[mu_lower] = -(dm_marker * mu -
+                       double_well_coeff * phi * (phi * phi - 1.) +
                        gradient_coeff * lap_phi);
 
   // Enlarged (psi) Helmholtz reconstruction source term. The strong form is
@@ -707,22 +726,33 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   if (!this->postproc_handler->should_output_volume_fields(this->time_handler))
     return;
 
-  const auto tracer_limiter =
-    CahnHilliard::get_limiter_function(this->param.cahn_hilliard);
+  const auto  &chp     = this->param.cahn_hilliard;
+  const auto   marker  = CahnHilliard::get_material_phase_function(chp);
+  const auto   marker_derivative =
+    CahnHilliard::get_material_phase_derivative_function(chp);
+  const auto tracer_limiter = CahnHilliard::get_limiter_function(chp);
   const double density0 = this->param.physical_properties.fluids[0].density;
   const double density1 = this->param.physical_properties.fluids[1].density;
 
-  // Bulk pressure carrying the Young-Laplace jump. For the Abels model the
-  // capillary force is phi*grad(mu), so the jump migrates between the solved
-  // pressure p and the capillary part phi*mu, and the reconstruction to read is
-  // p_abels = p + phi * mu. For Ding-Horriche the capillary force is
-  // gamma*mu*grad(phi) (a gradient of no scalar), so the solved pressure p
-  // already carries the jump; expose it as pressure_hat = p.
-  const bool use_ding_horriche =
-    CahnHilliard::is_ding_horriche_model(this->param.cahn_hilliard);
+  // Bulk pressure carrying the Young-Laplace jump, and the exposed potential.
+  //  * Abels     : capillary phi*grad(mu) -> pressure_abels = p + phi*mu.
+  //  * Ding-Horriche : capillary gamma*mu*grad(phi) (gradient of no scalar) ->
+  //    the solved pressure already carries the jump; pressure_hat = p.
+  //  * abels_nlm : capillary q*grad(mu) -> pressure_sharp = p + q*mu; also
+  //    expose the material marker q and the Abels-equivalent potential
+  //    mu_phi = m'(phi)*mu (the raw solved potential is mu_q).
+  const bool use_ding_horriche = CahnHilliard::is_ding_horriche_model(chp);
+  const bool use_abels_nlm     = CahnHilliard::is_abels_nlm_model(chp);
   const std::string pressure_name =
-    use_ding_horriche ? "pressure_hat" : "pressure_abels";
-  const std::vector<std::string> component_names{"density", pressure_name};
+    use_ding_horriche ? "pressure_hat" :
+    use_abels_nlm     ? "pressure_sharp" :
+                        "pressure_abels";
+  std::vector<std::string> component_names{"density", pressure_name};
+  if (use_abels_nlm)
+  {
+    component_names.push_back("q");
+    component_names.push_back("potential_phi");
+  }
   const std::vector<DataComponentInterpretation::DataComponentInterpretation>
     component_interpretation(component_names.size(),
                              DataComponentInterpretation::component_is_scalar);
@@ -767,11 +797,21 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
       for (unsigned int q = 0; q < output_points.size(); ++q)
       {
         const double phi = tracer_values[q];
-        values[q][0] =
-          CahnHilliard::linear_mixing(tracer_limiter(phi), density0, density1);
-        values[q][1] = use_ding_horriche ?
-                         pressure_values[q] :
-                         pressure_values[q] + phi * potential_values[q];
+        // Material marker m = q (abels_nlm) or phi (else); density is affine
+        // in m (identity marker -> the original phi mixing).
+        const double m = marker(chp, tracer_limiter(phi));
+        values[q][0] = CahnHilliard::linear_mixing(m, density0, density1);
+        if (use_ding_horriche)
+          values[q][1] = pressure_values[q];
+        else if (use_abels_nlm)
+        {
+          const double q_marker = marker(chp, phi);
+          values[q][1] = pressure_values[q] + q_marker * potential_values[q];
+          values[q][2] = q_marker;
+          values[q][3] = marker_derivative(chp, phi) * potential_values[q];
+        }
+        else
+          values[q][1] = pressure_values[q] + phi * potential_values[q];
       }
       output_field->set_cell_values(cell, values);
     }

@@ -580,11 +580,16 @@ namespace Parameters
     // phi*grad(mu) capillary force and diffusive inertia; 'ding_horriche'
     // uses the unscaled potential (double-well coefficient 1, gradient
     // coefficient eps^2) with the mu*grad(phi) capillary force and no
-    // diffusive inertia.
+    // diffusive inertia; 'abels_nlm' (non-linear mixing) is Abels with the
+    // material properties made affine in a sharpened material marker
+    // q = tanh(k phi)/tanh(k) instead of phi (see tanh_mixing_steepness), so
+    // the conserved/transported variable is q while phi keeps the capillary
+    // energy.
     enum class CHNSModel
     {
       abels,
-      ding_horriche
+      ding_horriche,
+      abels_nlm
     } chns_model = CHNSModel::abels;
 
     enum class MobilityModel
@@ -604,6 +609,11 @@ namespace Parameters
     double surface_tension;
     double epsilon_interface;
     bool   with_tracer_limiter;
+
+    // Steepness k of the non-linear material marker q = tanh(k phi)/tanh(k)
+    // used by the abels_nlm model (larger k sharpens the material transition
+    // relative to the capillary transition). Unused by the other models.
+    double tanh_mixing_steepness;
 
     // Moving-mesh forcing of the pseudosolid equation (CHNS-ALE model). The
     // source term is either the built-in Cahn-Hilliard compression form ("chns

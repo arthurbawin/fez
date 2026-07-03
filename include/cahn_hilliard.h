@@ -31,11 +31,25 @@ namespace CahnHilliard
            Parameters::CahnHilliard<dim>::CHNSModel::ding_horriche;
   }
 
+  // Abels with non-linear mixing: the material properties (density, viscosity)
+  // are affine in the sharpened material marker q = tanh(k phi)/tanh(k) instead
+  // of phi. Everything else is the Abels model, so is_abels_model() below is
+  // deliberately NOT true for it (the marker abstraction handles the
+  // difference at the value level, not through a structural branch).
+  template <int dim>
+  inline bool is_abels_nlm_model(const Parameters::CahnHilliard<dim> &param)
+  {
+    return param.chns_model ==
+           Parameters::CahnHilliard<dim>::CHNSModel::abels_nlm;
+  }
+
   template <int dim>
   inline const char *model_name(const Parameters::CahnHilliard<dim> &param)
   {
     if (is_ding_horriche_model(param))
       return "Ding-Horriche";
+    if (is_abels_nlm_model(param))
+      return "Abels (non-linear mixing)";
     return "Abels";
   }
 
@@ -285,6 +299,142 @@ namespace CahnHilliard
       return &constant_mobility_second_derivative<dim>;
     else
       return &degenerate_mobility_second_derivative<dim>;
+  }
+
+  // --- Material phase marker m(phi) -----------------------------------------
+  // The material properties (density, viscosity) and the transported/conserved
+  // variable are affine in a material marker m(phi):
+  //   * abels / ding_horriche : m = phi          (m' = 1, m'' = 0)
+  //   * abels_nlm             : m = q = tanh(k phi)/tanh(k)
+  // For abels_nlm this sharpens the material transition (large k) while phi
+  // keeps the capillary energy. The solved unknowns stay (u, p, phi, mu):
+  //   - phi is the DOF (NOT q): q = s_k^{-1} inverse is atanh, undefined at
+  //     q = +/-1, so phi would blow up in the bulk on any over/undershoot.
+  //   - mu is the potential conjugate to q (mu_q), NOT mu_phi: the potential
+  //     equation then reads s'_k(phi) mu = mu_phi(phi), i.e. s'_k always
+  //     MULTIPLIES; taking mu_phi as the DOF would need mu_q = mu_phi / s'_k in
+  //     the transport flux, i.e. a DIVISION by s'_k (which vanishes far from
+  //     the interface) -> blow-up. See material_phase helpers below.
+
+  // tanh mixing from val_a (marker = 1) to val_b (marker = -1); with
+  // (val_a, val_b) = (1, -1) this returns q = tanh(k phi)/tanh(k).
+  inline double tanh_mixing(const double phase_marker,
+                            const double val_a,
+                            const double val_b,
+                            const double k)
+  {
+    const double tanh_k   = std::tanh(k);
+    const double tanh_phi = std::tanh(k * phase_marker);
+    return ((tanh_k + tanh_phi) * val_a + (tanh_k - tanh_phi) * val_b) /
+           (2. * tanh_k);
+  }
+
+  // Derivative w.r.t. the tracer of tanh_mixing.
+  inline double tanh_mixing_derivative(const double phase_marker,
+                                       const double val_a,
+                                       const double val_b,
+                                       const double k)
+  {
+    const double tanh_k    = std::tanh(k);
+    const double tanh_phi  = std::tanh(k * phase_marker);
+    const double sech2_phi = 1. - tanh_phi * tanh_phi;
+    return 0.5 * (val_a - val_b) * k / tanh_k * sech2_phi;
+  }
+
+  // Second derivative w.r.t. the tracer of tanh_mixing.
+  inline double tanh_mixing_second_derivative(const double phase_marker,
+                                              const double val_a,
+                                              const double val_b,
+                                              const double k)
+  {
+    const double tanh_k    = std::tanh(k);
+    const double tanh_phi  = std::tanh(k * phase_marker);
+    const double sech2_phi = 1. - tanh_phi * tanh_phi;
+    return -(val_a - val_b) * k * k / tanh_k * sech2_phi * tanh_phi;
+  }
+
+  // Material marker m(phi) and its first two derivatives, as branchless
+  // functions selected once by the dispatchers below (as for the mobility), so
+  // the hot loops carry no per-quadrature-point model branch. The identity
+  // branch (m = phi, m' = 1, m'' = 0) keeps every non-nlm model byte-neutral.
+  template <int dim>
+  using MaterialPhaseFunction = double (*)(const Parameters::CahnHilliard<dim> &,
+                                           double);
+
+  template <int dim>
+  inline double
+  material_phase_identity(const Parameters::CahnHilliard<dim> & /*param*/,
+                          const double phi)
+  {
+    return phi;
+  }
+
+  template <int dim>
+  inline double
+  material_phase_identity_derivative(const Parameters::CahnHilliard<dim> &,
+                                     const double /*phi*/)
+  {
+    return 1.;
+  }
+
+  template <int dim>
+  inline double
+  material_phase_identity_second_derivative(const Parameters::CahnHilliard<dim> &,
+                                            const double /*phi*/)
+  {
+    return 0.;
+  }
+
+  template <int dim>
+  inline double
+  material_phase_tanh(const Parameters::CahnHilliard<dim> &param,
+                      const double                         phi)
+  {
+    return tanh_mixing(phi, 1., -1., param.tanh_mixing_steepness);
+  }
+
+  template <int dim>
+  inline double
+  material_phase_tanh_derivative(const Parameters::CahnHilliard<dim> &param,
+                                 const double                         phi)
+  {
+    return tanh_mixing_derivative(phi, 1., -1., param.tanh_mixing_steepness);
+  }
+
+  template <int dim>
+  inline double
+  material_phase_tanh_second_derivative(const Parameters::CahnHilliard<dim> &param,
+                                        const double phi)
+  {
+    return tanh_mixing_second_derivative(
+      phi, 1., -1., param.tanh_mixing_steepness);
+  }
+
+  template <int dim>
+  MaterialPhaseFunction<dim>
+  get_material_phase_function(const Parameters::CahnHilliard<dim> &param)
+  {
+    if (is_abels_nlm_model(param))
+      return &material_phase_tanh<dim>;
+    return &material_phase_identity<dim>;
+  }
+
+  template <int dim>
+  MaterialPhaseFunction<dim> get_material_phase_derivative_function(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    if (is_abels_nlm_model(param))
+      return &material_phase_tanh_derivative<dim>;
+    return &material_phase_identity_derivative<dim>;
+  }
+
+  template <int dim>
+  MaterialPhaseFunction<dim> get_material_phase_second_derivative_function(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    if (is_abels_nlm_model(param))
+      return &material_phase_tanh_second_derivative<dim>;
+    return &material_phase_identity_second_derivative<dim>;
   }
 } // namespace CahnHilliard
 

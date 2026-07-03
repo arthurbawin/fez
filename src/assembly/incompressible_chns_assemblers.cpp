@@ -93,7 +93,6 @@ namespace Assembly
         const auto &source_p = sd.source_term_pressure[q];
 
         const auto &diffusive_flux = sd.diffusive_flux[q];
-        const auto &dphidt         = sd.tracer_time_derivatives[q];
         const auto &phi            = sd.tracer_values[q];
         const auto &grad_phi       = sd.tracer_gradients[q];
         const auto &mu             = sd.potential_values[q];
@@ -350,7 +349,6 @@ namespace Assembly
         const double source_p = sd.source_term_pressure[q];
 
         const auto  &diffusive_flux = sd.diffusive_flux[q];
-        const auto  &dphidt     = sd.tracer_time_derivatives[q];
         const auto  &phi        = sd.tracer_values[q];
         const auto  &grad_phi   = sd.tracer_gradients[q];
         const auto  &mu         = sd.potential_values[q];

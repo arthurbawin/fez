@@ -3,10 +3,13 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria.h>
+#include <deal.II/distributed/tria_base.h>
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/grid_tools.h>
+#include <deal.II/grid/manifold_lib.h>
 #include <deal.II/grid/tria_description.h>
 #include <mesh.h>
 #include <parameter_reader.h>
@@ -40,6 +43,9 @@ namespace MeshTools
   {
     MPI_Comm comm = triangulation.get_mpi_communicator();
 
+    // Clear existing parallel triangulation
+    triangulation.clear();
+
     // Partition serial triangulation
     GridTools::partition_triangulation(Utilities::MPI::n_mpi_processes(comm),
                                        serial_triangulation);
@@ -48,6 +54,11 @@ namespace MeshTools
     const TriangulationDescription::Description<dim> description =
       TriangulationDescription::Utilities::
         create_description_from_triangulation(serial_triangulation, comm);
+
+    // Add manifolds
+    for (const auto id : serial_triangulation.get_manifold_ids())
+      if (id != numbers::flat_manifold_id)
+        triangulation.set_manifold(id, serial_triangulation.get_manifold(id));
 
     // Create a fully distributed triangulation
     triangulation.create_triangulation(description);
@@ -250,6 +261,71 @@ namespace MeshTools
   }
 
   template <int dim>
+  void create_uniform_channel_with_cylinder(Triangulation<dim> &tria,
+                                            Parameters::Mesh   &mesh_param,
+                                            const std::string  &parameters,
+                                            const unsigned int  refinement,
+                                            const bool convert_to_tets = false)
+  {
+    auto blocks = Utilities::split_string_list(parameters, ':');
+
+    AssertThrow(
+      blocks.size() > 1,
+      ExcMessage(
+        "The parsed arguments to create a mesh of a uniform channel with "
+        "cylinder do not "
+        "contain any \":\" separator. Please separate the arguments by "
+        "a colon. The parsed parameters are : " +
+        parameters));
+
+    GridGenerator::generate_from_name_and_arguments(
+      tria, "uniform_channel_with_cylinder", parameters);
+
+    // There is a typo in deal.II and the FlatManifold is not assigned in 2D
+    // if use_transfinite_region (the 7th parameter) is false. Add it here
+    // if needed.
+    if (blocks[6] == "false")
+      tria.set_manifold(1, FlatManifold<dim>());
+
+    tria.refine_global(refinement);
+
+    // Colorize = true starts counting boundary ids at zero, but physical
+    // entities in Gmsh must have a strictly postiive tag. To be able to check
+    // the entities in Gmsh, increases the boundary ids by 1.
+    for (auto &cell : tria.active_cell_iterators())
+      if (cell->at_boundary())
+        for (auto &face : cell->face_iterators())
+          if (face->at_boundary())
+            face->set_boundary_id(face->boundary_id() + 1);
+
+    // Use the boundary pattern (+1) obtained with "colorize = true" for
+    // uniform_channel_with_cylinder (see also grid_generator.h).
+    mesh_param.id2name.insert({1, "inlet"});
+    mesh_param.id2name.insert({2, "outlet"});
+    mesh_param.id2name.insert({3, "cylinder"});
+    mesh_param.id2name.insert({4, "bottom"});
+    mesh_param.id2name.insert({5, "top"});
+    mesh_param.name2id.insert({"inlet", 1});
+    mesh_param.name2id.insert({"outlet", 2});
+    mesh_param.name2id.insert({"cylinder", 3});
+    mesh_param.name2id.insert({"bottom", 4});
+    mesh_param.name2id.insert({"top", 5});
+    if constexpr (dim == 3)
+    {
+      mesh_param.id2name.insert({6, "front"});
+      mesh_param.id2name.insert({7, "back"});
+      mesh_param.name2id.insert({"front", 6});
+      mesh_param.name2id.insert({"back", 7});
+    }
+
+    if (convert_to_tets)
+    {
+      const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
+      GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+    }
+  }
+
+  template <int dim>
   void create_holed_plate(Triangulation<dim> &tria,
                           Parameters::Mesh   &mesh_param,
                           const unsigned int  refinement_level,
@@ -294,6 +370,74 @@ namespace MeshTools
     {
       const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
       GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+    }
+  }
+
+  template <int dim>
+  void create_deal_ii_triangulation(Triangulation<dim>   &tria,
+                                    ParameterReader<dim> &param)
+  {
+    const bool convert_to_simplices = !param.finite_elements.use_quads;
+
+    if (param.mesh.deal_ii_preset_mesh == "cube" ||
+        param.mesh.use_deal_ii_cube_mesh ||
+        param.mms_param.use_deal_ii_cube_mesh)
+    {
+      const double       min_corner = (dim == 2) ? 0. : 0.;
+      const double       max_corner = 1.;
+      const unsigned int refinement_level =
+        param.with_tree_based_adaptation() ?
+          param.mesh.refinement_level :
+          (param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix + 1) :
+                                    param.mesh.refinement_level);
+      create_cube(tria,
+                  param.mesh,
+                  min_corner,
+                  max_corner,
+                  refinement_level,
+                  convert_to_simplices);
+    }
+    else if (param.mesh.deal_ii_preset_mesh == "rectangle")
+    {
+      const unsigned int refinement_level =
+        param.with_tree_based_adaptation() ?
+          param.mesh.refinement_level :
+          (param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix) :
+                                    param.mesh.refinement_level);
+      create_rectangle(tria,
+                       param.mesh,
+                       param.mesh.deal_ii_mesh_param,
+                       refinement_level,
+                       convert_to_simplices);
+    }
+    else if (param.mesh.deal_ii_preset_mesh == "holed plate" ||
+             param.mms_param.use_deal_ii_holed_plate_mesh)
+    {
+      const unsigned int refinement_level = param.mms_param.enable ?
+                                              param.mms_param.mesh_suffix :
+                                              param.mesh.refinement_level;
+      create_holed_plate(tria,
+                         param.mesh,
+                         refinement_level,
+                         convert_to_simplices);
+    }
+    else if (param.mesh.deal_ii_preset_mesh == "uniform channel with cylinder")
+    {
+      const unsigned int refinement_level = param.mms_param.enable ?
+                                              param.mms_param.mesh_suffix :
+                                              param.mesh.refinement_level;
+      create_uniform_channel_with_cylinder(tria,
+                                           param.mesh,
+                                           param.mesh.deal_ii_mesh_param,
+                                           refinement_level,
+                                           convert_to_simplices);
+    }
+    else
+    {
+      AssertThrow(false,
+                  ExcMessage("Mesh creation for deal.II preset geometry \"" +
+                             param.mesh.deal_ii_preset_mesh +
+                             "\" is not implemented."));
     }
   }
 
@@ -551,7 +695,18 @@ namespace MeshTools
     parallel::DistributedTriangulationBase<dim, spacedim> &triangulation,
     ParameterReader<spacedim>                             &param)
   {
-    Triangulation<dim> serial_triangulation;
+    Triangulation<dim>  serial_triangulation;
+    Triangulation<dim> *tria = &serial_triangulation;
+
+    /**
+     * If using a p4est triangulation, do not use a temporary triangulation,
+     * simply create the mesh with the input triangulation.
+     */
+    if (dynamic_cast<const parallel::distributed::Triangulation<dim, spacedim>
+                       *>(&triangulation))
+    {
+      tria = &triangulation;
+    }
 
     bool use_deal_ii_mesh =
       param.mesh.deal_ii_preset_mesh != "none" ||
@@ -561,65 +716,48 @@ namespace MeshTools
 
     if (use_deal_ii_mesh)
     {
-      const bool convert_to_simplices = !param.finite_elements.use_quads;
+      create_deal_ii_triangulation(*tria, param);
 
-      if (param.mesh.deal_ii_preset_mesh == "cube" ||
-          param.mesh.use_deal_ii_cube_mesh ||
-          param.mms_param.use_deal_ii_cube_mesh)
-      {
-        const double       min_corner = (dim == 2) ? 0. : 0.;
-        const double       max_corner = 1.;
-        const unsigned int refinement_level =
-          param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix + 1) :
-                                   param.mesh.refinement_level;
-        create_cube(serial_triangulation,
-                    param.mesh,
-                    min_corner,
-                    max_corner,
-                    refinement_level,
-                    convert_to_simplices);
-      }
-      else if (param.mesh.deal_ii_preset_mesh == "rectangle")
-      {
-        const unsigned int refinement_level =
-          param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix) :
-                                   param.mesh.refinement_level;
-        create_rectangle(serial_triangulation,
-                         param.mesh,
-                         param.mesh.deal_ii_mesh_param,
-                         refinement_level,
-                         convert_to_simplices);
-      }
-      else if (param.mesh.deal_ii_preset_mesh == "holed plate" ||
-               param.mms_param.use_deal_ii_holed_plate_mesh)
-      {
-        const unsigned int refinement_level = param.mms_param.enable ?
-                                                param.mms_param.mesh_suffix :
-                                                param.mesh.refinement_level;
-        create_holed_plate(serial_triangulation,
-                           param.mesh,
-                           refinement_level,
-                           convert_to_simplices);
-      }
-      else
-      {
-        AssertThrow(false,
-                    ExcMessage("Mesh creation for deal.II preset geometry \"" +
-                               param.mesh.deal_ii_preset_mesh +
-                               "\" is not implemented."));
-      }
-
+      // Write to Gmsh's .msh format
       if (param.debug.write_dealii_mesh_as_msh)
       {
-        GridOut grid_out;
-        grid_out.write_msh(serial_triangulation,
-                           param.output.output_dir + "mesh_from_dealii.msh");
+        if (Utilities::MPI::this_mpi_process(
+              triangulation.get_mpi_communicator()) == 0)
+        {
+          GridOut grid_out;
+          if (dynamic_cast<const parallel::fullydistributed::
+                             Triangulation<dim, spacedim> *>(&triangulation))
+          {
+            // Using a p::f::Triangulation: the actual triangulation has not yet
+            // been created, so simply write the current serial triangulation as
+            // .msh from the root process.
+            grid_out.write_msh(*tria,
+                               param.output.output_dir +
+                                 "mesh_from_dealii.msh");
+          }
+          else if (dynamic_cast<
+                     const parallel::distributed::Triangulation<dim, spacedim>
+                       *>(&triangulation))
+          {
+            // Using a p::d::Triangulation: write_msh does not seem to work in
+            // parallel, and neither does creating a serial triangulation from a
+            // description obtained from a p::d::Triangulation. Instead, we
+            // create a new serial triangulation and write it as .msh.
+            Triangulation<dim> serial_tria;
+            create_deal_ii_triangulation(serial_tria, param);
+            grid_out.write_msh(serial_tria,
+                               param.output.output_dir +
+                                 "mesh_from_dealii.msh");
+          }
+          else
+            DEAL_II_ASSERT_UNREACHABLE();
+        }
       }
     }
     else
     {
       // Read Gmsh .msh4 mesh file
-      read_gmsh_mesh(serial_triangulation, param.mesh.filename);
+      read_gmsh_mesh(*tria, param.mesh.filename);
 
       // Manually read the Gmsh entity names and store them
       read_gmsh_physical_names(param.mesh.filename,
@@ -627,11 +765,17 @@ namespace MeshTools
                                param.mesh.name2id);
     }
 
-    partition_and_create_parallel_mesh(serial_triangulation, triangulation);
+    if (dynamic_cast<
+          const parallel::fullydistributed::Triangulation<dim, spacedim> *>(
+          &triangulation))
+    {
+      partition_and_create_parallel_mesh(*tria, triangulation);
+    }
+
     if (param.debug.write_partition_pos_gmsh)
       write_partition_gmsh(triangulation, param);
-    print_mesh_info(serial_triangulation, triangulation, param);
-    check_boundary_ids(serial_triangulation, param);
+    print_mesh_info(*tria, triangulation, param);
+    check_boundary_ids(*tria, param);
     check_boundary_conditions_compatibility(param);
   }
 

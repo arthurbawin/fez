@@ -123,8 +123,19 @@ namespace Parameters
        */
       enum class Strategy
       {
-        RiemannianMetric
+        RiemannianMetric,
+        LocalRefinement
       } strategy;
+
+      bool with_metric_based_adaptation() const
+      {
+        return enable && strategy == Strategy::RiemannianMetric;
+      }
+
+      bool with_tree_based_adaptation() const
+      {
+        return enable && strategy == Strategy::LocalRefinement;
+      }
 
       /**
        * Parameters for mesh adaptation with a Riemannian metric
@@ -156,16 +167,79 @@ namespace Parameters
         {
           return current_fixed_point_iteration == n_fixed_point - 1;
         }
+
+        /**
+         * Metric-based mesh adaptation is typically performed within a fixed
+         * point loop, converging the mesh-solution pair together.
+         * These parameters specify how to update the prescribed simulation
+         * parameters in between fixed-point iterations. This allows, for
+         * instance, reducing the interface thickness of a CHNS simulation as
+         * the mesh is refined.
+         */
+        struct FixedPointUpdates
+        {
+          Verbosity verbosity;
+
+          /**
+           * Base struct for quantities updated during fixed point loop.
+           */
+          struct UpdateBase
+          {
+            // Enable/disable this update
+            bool enable;
+
+            // Quantity will be updated according to this frequency
+            unsigned int update_frequency;
+
+            // When updated, quantity will be multiplied by this value
+            double factor;
+
+            // If the quantity must be replaced in function objects, this is
+            // the string that will be replaced.
+            std::string constant_name;
+          };
+
+          // This struct controls the update of the interface thickness in a
+          // Cahn-Hilliard Navier-Stokes simulation.
+          struct CHNSInterfaceThickness : public UpdateBase
+          {
+          } chns_interface_thickness;
+        } fixed_point_updates;
       } metric;
 
-      bool with_metric_based_adaptation() const
+      /**
+       * Parameters for mesh adaptation using deal.II's facilities, using p4est
+       * tree-based meshes.
+       */
+      struct TreeAMR
       {
-        return enable && strategy == Strategy::RiemannianMetric;
-      }
+        enum class RefinementStrategy
+        {
+          FixedNumber,
+          FixedFraction
+        } refinement_strategy;
 
+        // The target fractions of cells or cellwise errors to refine and
+        // coarsen, depending on the refinement strategy.
+        double fraction_to_refine;
+        double fraction_to_coarsen;
+
+        // Maximum number of cells allowed
+        unsigned int max_n_cells;
+
+        // Minimum and maximum grid levels allowed
+        unsigned int min_level;
+        unsigned int max_level;
+
+        unsigned int n_prerefinement_steps;
+
+        // Frequency (in time steps) at which the mesh is adapted
+        unsigned int adapt_frequency;
+
+      } tree_amr;
     } adaptation;
 
-    void declare_parameters(ParameterHandler &prm);
+    void declare_parameters(ParameterHandler &prm, const int dim);
     void read_parameters(ParameterHandler &prm);
   };
 
@@ -175,6 +249,12 @@ namespace Parameters
     std::string  output_dir;
     std::string  output_prefix;
     unsigned int vtu_output_frequency;
+
+    // Number of VTU files when writing in parallel
+    unsigned int n_vtu_groups;
+
+    // Number of cells subdivisions for visualization
+    unsigned int n_subdivisions;
 
     // A "skin" is a codimension 1 boundary on which we wish to extract data
     // for visualization and/or postprocessing
@@ -305,6 +385,9 @@ namespace Parameters
           DEAL_II_ASSERT_UNREACHABLE();
       }
     }
+
+    // Degree of the reference-to-physical mapping(s)
+    unsigned int mapping_degree;
 
     struct QuadratureRule
     {
@@ -776,6 +859,9 @@ namespace Parameters
     // FIXME: the GenericSolver should use the full parameters and modify the
     // metric field parameters instead of duplicating this information
     unsigned int n_target_vertices;
+    unsigned int n_target_vertices_multiplier;
+
+    unsigned int n_time_intervals_multiplier;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {
@@ -821,6 +907,17 @@ namespace Parameters
       global_position_master_to_global_accumulator = 4,
 
     } coupling;
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  /**
+   * Solution and derivatives recovery
+   */
+  struct SolutionRecovery
+  {
+    Verbosity verbosity;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

@@ -108,7 +108,8 @@ ElasticitySolver<dim>::ElasticitySolver(
 
   if (param.finite_elements.use_quads)
   {
-    mapping = std::make_unique<MappingQ<dim>>(1);
+    mapping =
+      std::make_unique<MappingQ<dim>>(param.finite_elements.mapping_degree);
     if (with_enlarged_psi)
       fe = std::make_unique<FESystem<dim>>(
         FESystem<dim>(FE_Q<dim>(param.finite_elements.mesh_position_degree) ^
@@ -120,7 +121,8 @@ ElasticitySolver<dim>::ElasticitySolver(
   }
   else
   {
-    mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+    mapping = std::make_unique<MappingFE<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.mapping_degree));
     if (with_enlarged_psi)
       fe = std::make_unique<FESystem<dim>>(
         FESystem<dim>(
@@ -610,11 +612,11 @@ void ElasticitySolver<dim>::solve_linear_system()
   }
   else if (linear_solver_param.method == Parameters::LinearSolver::Method::cg)
   {
-    solve_linear_system_unpreconditioned_cg(this,
-                                            linear_solver_param,
-                                            system_matrix,
-                                            locally_owned_dofs,
-                                            zero_constraints);
+    solve_linear_system_cg(this,
+                           linear_solver_param,
+                           system_matrix,
+                           locally_owned_dofs,
+                           zero_constraints);
   }
   else if (linear_solver_param.method ==
            Parameters::LinearSolver::Method::gmres)

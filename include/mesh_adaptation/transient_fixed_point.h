@@ -1,10 +1,12 @@
-#ifndef TRANSIENT_FIXED_POINT_CPP
-#define TRANSIENT_FIXED_POINT_CPP
+#ifndef TRANSIENT_FIXED_POINT_H
+#define TRANSIENT_FIXED_POINT_H
 
 #include <deal.II/base/timer.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/lac/affine_constraints.h>
+#include <deal.II/numerics/solution_transfer.h>
 #include <metric_field.h>
 #include <parameter_reader.h>
 #include <time_handler.h>
@@ -27,9 +29,7 @@
  * with the index-th time subinterval.
  *
  * A more fitting name for this class would maybe be "SolverDataCollection".
- *
- * FIXME: This will probably also need to store MappingFEFields.
- *  */
+ */
 template <int dim>
 class TransientFixedPointData
 {
@@ -37,10 +37,38 @@ public:
   /**
    * Constructor. Initializes the data for @p n subintervals.
    */
-  TransientFixedPointData(const ParameterReader<dim> &param,
-                          TimerOutput                &timer,
-                          const unsigned int          n_time_intervals,
-                          const MPI_Comm              mpi_communicator);
+  TransientFixedPointData(
+    const ParameterReader<dim>                   &param,
+    TimerOutput                                  &timer,
+    const unsigned int                            n_time_intervals,
+    const MPI_Comm                                mpi_communicator,
+    parallel::DistributedTriangulationBase<dim> *&triangulation,
+    DoFHandler<dim>                             *&dof_handler,
+    LA::ParVectorType                           *&present_solution,
+    std::vector<LA::ParVectorType>              *&solver_previous_solutions,
+    MetricField<dim>                            *&metric_for_adaptation);
+
+  /**
+   * Reinitialize this object to hold data for @p n_time_intervals intervals.
+   */
+  void reinit(const unsigned int                            n_time_intervals,
+              parallel::DistributedTriangulationBase<dim> *&triangulation,
+              DoFHandler<dim>                             *&dof_handler,
+              LA::ParVectorType                           *&present_solution,
+              std::vector<LA::ParVectorType> *&solver_previous_solutions,
+              MetricField<dim>               *&metric_for_adaptation);
+
+  /**
+   * Assign the data associated with the interval_index-th time interval to the
+   * given pointers.
+   */
+  void
+  set_interval_data(const unsigned int interval_index,
+                    parallel::DistributedTriangulationBase<dim> *&triangulation,
+                    DoFHandler<dim>                             *&dof_handler,
+                    LA::ParVectorType              *&present_solution,
+                    std::vector<LA::ParVectorType> *&solver_previous_solutions,
+                    MetricField<dim>               *&metric_for_adaptation);
 
   /**
    * Return the number of time intervals stored in this object.
@@ -50,7 +78,7 @@ public:
   /**
    * Get the raw pointer to the @p interval_index-th triangulation.
    */
-  parallel::fullydistributed::Triangulation<dim> *
+  parallel::DistributedTriangulationBase<dim> *
   get_triangulation(const unsigned int interval_index);
 
   /**
@@ -119,30 +147,59 @@ public:
   get_effective_space_time_complexity(const TimeHandler &time_handler) const;
 
   /**
-   * Assign the data associated with the interval_index-th time interval to the
-   * given pointers.
-   */
-  void set_interval_data(
-    const unsigned int                               interval_index,
-    parallel::fullydistributed::Triangulation<dim> *&triangulation,
-    DoFHandler<dim>                                *&dof_handler,
-    LA::ParVectorType                              *&present_solution,
-    std::vector<LA::ParVectorType>                 *&solver_previous_solutions,
-    MetricField<dim>                               *&metric_for_adaptation);
-
-  /**
    * Transfer the current and previous solution from the (interval_index - 1)-th
    * interval to the @p interval_index-th interval.
-   *
-   * FIXME: For now it is simply re-interpolated, for prototyping.
-   * This is a hard operation to do in parallel.
    */
-  void transfer_solution(const unsigned int  interval_index,
-                         const Mapping<dim> &mapping,
-                         Function<dim>      &exact_solution,
-                         const TimeHandler  &time_handler,
-                         const IndexSet     &locally_relevant_dofs,
-                         const std::vector<unsigned char> &dofs_to_component);
+  void transfer_solution_between_intervals(
+    const unsigned int                interval_index,
+    const Mapping<dim>               &mapping,
+    Function<dim>                    &exact_solution,
+    const TimeHandler                &time_handler,
+    const IndexSet                   &locally_relevant_dofs,
+    const std::vector<unsigned char> &dofs_to_component);
+
+  /**
+   * Transfer the solutions associated with the previous state of refinement of
+   * the triangulation to the solutions associated with its current state. This
+   * function is used when using the deal.II refinement and coarsening routines,
+   * and thus expects a single time interval (i.e., a single triangulation) for
+   * now.
+   *
+   * This functions interpolates the data stored in the SolutionTransfer object,
+   * which must have been previously (re-)initialized in adapt_meshes().
+   */
+  void transfer_solution_between_refinements(
+    const IndexSet                  &locally_relevant_dofs,
+    const AffineConstraints<double> &nonzero_constraints);
+
+  /**
+   * Apply a local and global scaling to all metric fields.
+   */
+  void scale_metrics(const unsigned int metric_index,
+                     const TimeHandler &time_handler);
+
+  /**
+   * Apply gradation to all metric fields.
+   */
+  void apply_gradation_to_metrics();
+
+  /**
+   * Adapt the meshes on all subintervals.
+   */
+  void adapt_meshes(const Vector<float> &criteria);
+
+  /**
+   * Clear the data for each subinterval.
+   */
+  void clear();
+
+  /**
+   * Write a summary of the data stored in this object, such as the number of
+   * intervals, their starting and ending times, the number of time steps spent
+   * in each interval, the number of mesh vertices, of dofs, etc.
+   */
+  void write_summary(const TimeHandler &time_handler,
+                     std::ostream      &out = std::cout) const;
 
 private:
   /**
@@ -159,37 +216,19 @@ private:
                        const IndexSet                   &locally_relevant_dofs,
                        const std::vector<unsigned char> &dofs_to_component);
 
-public:
   /**
-   * Apply a local and global scaling to all metric fields.
+   * Adapt the mesh for each time interval with the mmg library.
    */
-  void scale_metrics(const unsigned int metric_index,
-                     const TimeHandler &time_handler);
+  void adapt_meshes_with_mmg();
 
   /**
-   * Apply gradation to all metric fields.
+   * Adapt the mesh using deal.II's adaptation routines.
+   * This function assumes a single time interval, and adapts the mesh
+   * associated with the first interval.
    */
-  void apply_gradation_to_metrics();
+  void adapt_mesh_with_dealii_routines(const Vector<float> &criteria);
 
-  /**
-   * Adapt the meshes on all subintervals.
-   */
-  void adapt_meshes();
-
-  /**
-   * Clear the data for each subinterval.
-   */
-  void clear();
-
-  /**
-   * Write a summary of the data stored in this object, such as the number of
-   * intervals, their starting and ending times, the number of time steps spent
-   * in each interval, the number of mesh vertices, of dofs, etc.
-   */
-  void write_summary(const TimeHandler &time_handler,
-                     std::ostream      &out = std::cout) const;
-
-public:
+private:
   /**
    *
    */
@@ -208,12 +247,12 @@ public:
   /**
    *
    */
-  const unsigned int n_time_intervals;
+  unsigned int n_time_intervals;
 
   /**
    *
    */
-  std::vector<std::unique_ptr<parallel::fullydistributed::Triangulation<dim>>>
+  std::vector<std::unique_ptr<parallel::DistributedTriangulationBase<dim>>>
     triangulations;
 
   /**
@@ -236,6 +275,11 @@ public:
    *
    */
   std::vector<std::unique_ptr<MetricField<dim>>> metrics_for_adaptation;
+
+  /**
+   *
+   */
+  std::unique_ptr<SolutionTransfer<dim, LA::ParVectorType>> solution_transfer;
 };
 
 #endif

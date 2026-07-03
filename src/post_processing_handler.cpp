@@ -11,6 +11,7 @@ PostProcessingHandler<dim>::PostProcessingHandler(
   , output_param(param.output)
   , physical_properties(param.physical_properties)
   , mms_param(param.mms_param)
+  , fe_param(param.finite_elements)
   , triangulation(&triangulation, typeid(*this).name())
   , dof_handler(&dof_handler, typeid(*this).name())
   , mpi_communicator(dof_handler.get_mpi_communicator())
@@ -32,22 +33,7 @@ PostProcessingHandler<dim>::PostProcessingHandler(
       }
   }
 
-  if (output_param.write_results)
-  {
-    data_out = std::make_unique<DataOut<dim>>();
-    data_out->attach_dof_handler(dof_handler);
-  }
-
-  if (output_param.skin.write_results)
-  {
-    // build_patches is not (yet) implemented for DataOutFaces in hp context,
-    // but at this point the dof_handler might not yet be initialized.
-    // The check is done in output_skin_fields instead.
-    data_out_skin =
-      std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
-        triangulation, output_param.skin.boundary_id);
-    data_out_skin->attach_dof_handler(dof_handler);
-  }
+  this->attach_triangulation_and_dof_handler(triangulation, dof_handler);
 }
 
 template <int dim>
@@ -64,12 +50,38 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
   this->dof_handler   = &dof_handler;
 
   // Create new DataOuts
-  data_out = std::make_unique<DataOut<dim>>();
-  data_out->attach_dof_handler(dof_handler);
-  data_out_skin =
-    std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
-      triangulation, output_param.skin.boundary_id);
-  data_out_skin->attach_dof_handler(dof_handler);
+  if (output_param.write_results)
+  {
+    data_out = std::make_unique<DataOut<dim>>();
+    data_out->attach_dof_handler(dof_handler);
+
+    // Write high-order elements if needed
+    if (fe_param.mapping_degree > 1)
+    {
+      DataOutBase::VtkFlags flags;
+      flags.write_higher_order_cells = true;
+      data_out->set_flags(flags);
+    }
+  }
+
+  if (output_param.skin.write_results)
+  {
+    // build_patches is not (yet) implemented for DataOutFaces in hp context,
+    // but at this point the dof_handler might not yet be initialized.
+    // The check is done in output_skin_fields instead.
+    data_out_skin =
+      std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
+        triangulation, output_param.skin.boundary_id);
+    data_out_skin->attach_dof_handler(dof_handler);
+
+    // Write high-order elements if needed
+    if (fe_param.mapping_degree > 1)
+    {
+      DataOutBase::VtkFlags flags;
+      flags.write_higher_order_cells = true;
+      data_out_skin->set_flags(flags);
+    }
+  }
 
   // Clear the stored cell-based vectors
   subdomains.reinit(0);
@@ -79,23 +91,43 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
 template <int dim>
 void PostProcessingHandler<dim>::write_pvd() const
 {
-  const std::string suffix =
-    mms_param.enable ?
-      "_convergence_step_" + std::to_string(mms_param.current_step) + ".pvd" :
-      ".pvd";
+  std::string suffix = "";
+  if (mms_param.enable)
+    suffix += "_convergence_step_" + std::to_string(mms_param.current_step);
+  if (!prerefinements_pseudotimes_and_names.empty() ||
+      !prerefinements_pseudotimes_and_names_skin.empty())
+    suffix += "_prerefinement_steps";
+  suffix += ".pvd";
 
-  if (mpi_rank == 0 && output_param.write_results)
+  if (mpi_rank == 0)
   {
-    std::ofstream pvd_output(output_param.output_dir +
-                             output_param.output_prefix + suffix);
-    DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
-  }
-  if (mpi_rank == 0 && output_param.skin.write_results)
-  {
-    std::ofstream pvd_output(output_param.output_dir +
-                             output_param.skin.output_prefix + suffix);
-    DataOutBase::write_pvd_record(pvd_output,
-                                  visualization_times_and_names_skin);
+    if (output_param.write_results)
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
+    }
+    if (output_param.skin.write_results)
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.skin.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    visualization_times_and_names_skin);
+    }
+    if (!prerefinements_pseudotimes_and_names.empty())
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    prerefinements_pseudotimes_and_names);
+    }
+    if (!prerefinements_pseudotimes_and_names_skin.empty())
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.skin.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    prerefinements_pseudotimes_and_names_skin);
+    }
   }
 }
 

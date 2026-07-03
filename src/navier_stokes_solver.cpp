@@ -35,15 +35,13 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   , transient_fixed_point_data(this->param,
                                computing_timer,
                                param.time_integration.n_time_intervals,
-                               mpi_communicator)
+                               mpi_communicator,
+                               triangulation,
+                               dof_handler,
+                               present_solution,
+                               previous_solutions,
+                               metric_for_adaptation)
 {
-  transient_fixed_point_data.set_interval_data(/* interval_index = */ 0,
-                                               triangulation,
-                                               dof_handler,
-                                               present_solution,
-                                               previous_solutions,
-                                               metric_for_adaptation);
-
   create_quadrature_rules(param.finite_elements,
                           quadrature,
                           face_quadrature,
@@ -51,9 +49,11 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                           error_face_quadrature);
 
   if (param.finite_elements.use_quads)
-    fixed_mapping = std::make_unique<MappingQ<dim>>(1);
+    fixed_mapping =
+      std::make_unique<MappingQ<dim>>(param.finite_elements.mapping_degree);
   else
-    fixed_mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+    fixed_mapping = std::make_unique<MappingFE<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.mapping_degree));
 
   if (param.mms_param.enable)
     for (auto &[norm, handler] : error_handlers)
@@ -95,20 +95,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
   if (postproc_handler)
     postproc_handler->clear();
 
-  // Clear mesh(es) and dof handler(s)
-  transient_fixed_point_data.clear();
-
-  dofs_to_component.clear();
+  // Clear mesh(es) and dof handler(s), and reassign immediately the
+  // pointers for the first interval.
+  if (mms_param.current_step > 0)
+    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals,
+                                      triangulation,
+                                      dof_handler,
+                                      present_solution,
+                                      previous_solutions,
+                                      metric_for_adaptation);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
   this->set_time();
-
-  // Pressure DOF
-  constrained_pressure_dof = numbers::invalid_dof_index;
-
-  // Initial mesh position
-  initial_positions.clear();
 
   reset_solver_specific_data();
 }
@@ -201,6 +200,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_interval_data(
   mesh_param.filename = param.mesh.filename;
   time_handler.set_time_interval(interval_index);
 
+  // Reset dof to component map
+  dofs_to_component.clear();
+
+  // Reset initial mesh position
+  initial_positions.clear();
+
+  // Reset pressure DOF
+  constrained_pressure_dof = numbers::invalid_dof_index;
+
   if (param.time_integration.n_time_intervals > 1 &&
       param.time_integration.verbosity == Parameters::Verbosity::verbose)
   {
@@ -269,12 +277,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
     if (interval_index == 0)
       set_initial_conditions();
     else
-      transient_fixed_point_data.transfer_solution(interval_index,
-                                                   *moving_mapping,
-                                                   *exact_solution,
-                                                   time_handler,
-                                                   locally_relevant_dofs,
-                                                   dofs_to_component);
+      transient_fixed_point_data.transfer_solution_between_intervals(
+        interval_index,
+        *moving_mapping,
+        *exact_solution,
+        time_handler,
+        locally_relevant_dofs,
+        dofs_to_component);
   }
 
   // For unsteady simulations, postprocess either the initial condition, or the
@@ -433,9 +442,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_mappings()
   {
     // Moving_mapping and fixed_mapping are identical
     if (param.finite_elements.use_quads)
-      moving_mapping = std::make_unique<MappingQ<dim>>(1);
+      moving_mapping =
+        std::make_unique<MappingQ<dim>>(param.finite_elements.mapping_degree);
     else
-      moving_mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+      moving_mapping = std::make_unique<MappingFE<dim>>(
+        FE_SimplexP<dim>(param.finite_elements.mapping_degree));
   }
 }
 
@@ -687,6 +698,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
   *present_solution = newton_update;
   evaluation_point  = newton_update;
 
+  // FIXME: WHAT ABOUT THIS ROTATION?????????
   time_handler.rotate_solutions(*present_solution, *previous_solutions);
 }
 
@@ -1173,16 +1185,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
 {
-  if (param.bc_data.n_metric_fields > 0)
-  {
-    transient_fixed_point_data.scale_metrics(
-      param.metrics.metric_for_adaptation, time_handler);
-    transient_fixed_point_data.apply_gradation_to_metrics();
-  }
-  if (param.mesh.adaptation.enable)
-  {
-    transient_fixed_point_data.adapt_meshes();
-  }
+  Vector<float> cellwise_errors(triangulation->n_active_cells());
+  transient_fixed_point_data.adapt_meshes(cellwise_errors);
 }
 
 template <int dim, bool with_moving_mesh>

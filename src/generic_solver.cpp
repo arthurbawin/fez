@@ -1,5 +1,6 @@
 
 #include <generic_solver.h>
+#include <parameters.h>
 #include <time_handler.h>
 
 template <typename VectorType>
@@ -96,7 +97,16 @@ void GenericSolver<VectorType>::run_convergence_loop()
           // FIXME: when GenericSolver is templatized over dim and stores the
           // full parameter structure, double the target number of vertices in
           // each metric field instead.
-          mms_param.n_target_vertices *= 2;
+          mms_param.n_target_vertices *= mms_param.n_target_vertices_multiplier;
+
+          // For unsteady MMS, also increase the number of time intervals.
+          if (!time_param.is_steady())
+          {
+            mesh_param.adaptation.metric.n_time_intervals *=
+              mms_param.n_time_intervals_multiplier;
+            time_param.n_time_intervals *=
+              mms_param.n_time_intervals_multiplier;
+          }
         }
 
         // Restart from the initial mesh. Alternatively we could also restart
@@ -220,55 +230,17 @@ void GenericSolver<VectorType>::run_fixed_point_loop()
   {
     mesh_param.adaptation.metric.current_fixed_point_iteration = ifp;
 
+    pcout << std::endl;
     pcout << "Run with metric-based mesh adaptation - Fixed-point iteration "
           << ifp + 1 << "/" << nfp << std::endl;
 
-    // if (ifp > 0)
-    // {
-    //   // Update the mesh file
-    //   mesh_param.filename =
-    //     output_param.output_dir + mesh_param.adaptation.adapt_dir +
-    //     mesh_param.adaptation.adapted_mesh_extension + ".msh";
-    //   pcout << "Mesh file was changed to " << mesh_param.filename <<
-    //   std::endl;
-    // }
+    // Update the simulation parameters
+    this->update_simulation_parameters(ifp);
 
+    // Solve for this iteration
     this->run();
   }
 }
-
-// template <typename VectorType>
-// void GenericSolver<VectorType>::run_transient_fixed_point_loop()
-// {
-//   Assert(mesh_param.adaptation.enable &&
-//            mesh_param.adaptation.strategy ==
-//              Parameters::Mesh::Adaptation::Strategy::RiemannianMetric,
-//          ExcMessage("This run function is intended for simulations with mesh
-//          "
-//                     "adaptation with a Riemannian metric only."));
-
-//   const unsigned int nfp = mesh_param.adaptation.metric.n_fixed_point;
-
-//   for (unsigned int ifp = 0; ifp < nfp; ++ifp)
-//   {
-//     mesh_param.adaptation.metric.current_fixed_point_iteration = ifp;
-
-//     pcout << "Run with metric-based mesh adaptation - Fixed-point iteration "
-//           << ifp + 1 << "/" << nfp << std::endl;
-
-//     // if (ifp > 0)
-//     // {
-//     //   // Update the mesh file
-//     //   mesh_param.filename =
-//     //     output_param.output_dir + mesh_param.adaptation.adapt_dir +
-//     //     mesh_param.adaptation.adapted_mesh_extension + ".msh";
-//     //   pcout << "Mesh file was changed to " << mesh_param.filename <<
-//     //   std::endl;
-//     // }
-
-//     this->run();
-//   }
-// }
 
 template <typename VectorType>
 void GenericSolver<VectorType>::solve_nonlinear_problem(
@@ -288,6 +260,73 @@ template <typename VectorType>
 void GenericSolver<VectorType>::adapt_mesh()
 {
   AssertThrow(false, ExcPureFunctionCalled());
+}
+
+template <typename VectorType>
+bool GenericSolver<VectorType>::should_create_triangulation() const
+{
+  /**
+   * A new mesh is always created (at the beginning of a time interval), unless
+   * this is a convergence study where the mesh is adapted using deal.II's
+   * routines and p4est. In that case, the subsequent refinements and
+   * coarsenings are performed on the same triangulation object, and no new mesh
+   * is created.
+   */
+  if (mesh_param.adaptation.with_tree_based_adaptation())
+  {
+    // If starting the convergence study at a later step, create the mesh only
+    // for that step
+    if (mms_param.run_only_step >= 0)
+      return mms_param.current_step ==
+             static_cast<unsigned int>(mms_param.run_only_step);
+    else
+      return mms_param.current_step == 0;
+  }
+
+  return true;
+}
+
+template <typename VectorType>
+bool GenericSolver<VectorType>::should_adapt_tree_based_mesh(
+  const TimeHandler &time_handler) const
+{
+  if (!mesh_param.adaptation.with_tree_based_adaptation())
+    return false;
+
+  if (time_handler.is_steady())
+  {
+    if (mms_param.enable)
+      return false;
+  }
+  else
+  {
+    // Do not adapt at the last time step, to avoid one extra solution transfer.
+    if (time_handler.is_finished())
+      return false;
+
+    // Refine the mesh if the time step matches the prescribed frequency.
+    if (time_handler.current_time_iteration %
+          mesh_param.adaptation.tree_amr.adapt_frequency ==
+        0)
+      return true;
+  }
+
+  return false;
+}
+
+template <typename VectorType>
+bool GenericSolver<VectorType>::should_adapt_mesh_at_end_of_intervals(
+  const TimeHandler &time_handler) const
+{
+  if (mesh_param.adaptation.with_metric_based_adaptation())
+    return true;
+  else if (mesh_param.adaptation.with_tree_based_adaptation())
+    if (time_handler.is_steady())
+      if (mms_param.enable &&
+          mms_param.current_step < mms_param.n_convergence - 1)
+        return true;
+
+  return false;
 }
 
 template <typename VectorType>
@@ -422,6 +461,17 @@ bool GenericSolver<VectorType>::should_compute_riemannian_metric(
 }
 
 template <typename VectorType>
+template <int dim>
+bool GenericSolver<VectorType>::should_scale_and_grade_riemannian_metric(
+  const ParameterReader<dim> &param,
+  const TimeHandler & /*time_handler*/) const
+{
+  if (param.with_metric_based_adaptation() || param.metrics.always_compute)
+    return true;
+  return false;
+}
+
+template <typename VectorType>
 const Parameters::TimeIntegration &
 GenericSolver<VectorType>::get_time_parameters() const
 {
@@ -461,5 +511,13 @@ GenericSolver<LA::ParVectorType>::should_compute_riemannian_metric(
   const TimeHandler &) const;
 template bool
 GenericSolver<LA::ParVectorType>::should_compute_riemannian_metric(
+  const ParameterReader<3> &,
+  const TimeHandler &) const;
+template bool
+GenericSolver<LA::ParVectorType>::should_scale_and_grade_riemannian_metric(
+  const ParameterReader<2> &,
+  const TimeHandler &) const;
+template bool
+GenericSolver<LA::ParVectorType>::should_scale_and_grade_riemannian_metric(
   const ParameterReader<3> &,
   const TimeHandler &) const;

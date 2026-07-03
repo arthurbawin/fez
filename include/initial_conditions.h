@@ -3,6 +3,7 @@
 
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/parsed_function.h>
+#include <parsed_function_symengine.h>
 
 #include <parsed_function_symengine.h>
 
@@ -215,6 +216,16 @@ namespace Parameters
       , phi_lower(phi_lower)
       , initial_chns_tracer_callback(initial_chns_tracer_callback)
     {}
+
+    /**
+     * See documentation of the same function in ParsedFunctionSDBase.
+     */
+    void update_constants(
+      const std::map<std::string, double> &constant_names_and_new_values)
+    {
+      initial_chns_tracer_callback->update_constants(
+        constant_names_and_new_values);
+    }
 
     virtual double value(const Point<dim> &p,
                          unsigned int      component) const override

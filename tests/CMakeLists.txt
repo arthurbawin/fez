@@ -16,7 +16,7 @@ if (DEAL_II_WITH_LAPACK)
 	add_subdirectory(unit_tests/transient_fixed_point)
 endif()
 
-if(ENABLE_MMG)
+if(FEZ_WITH_MMG)
 	add_subdirectory(metric_based_adaptation)
 endif()
 

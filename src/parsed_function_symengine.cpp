@@ -1,5 +1,6 @@
 
 #include <deal.II/base/function_parser.h>
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/differentiation/sd/symengine_tensor_operations.h>
@@ -21,6 +22,7 @@ namespace ManufacturedSolutions
     , grad_function_object(n_components)
     , hess_function_object(n_components)
     , function_of_time_only(n_components)
+    , use_fd_derivatives(n_components, false)
   {
     for (unsigned int i_comp = 0; i_comp < n_components; ++i_comp)
     {
@@ -264,83 +266,155 @@ namespace ManufacturedSolutions
       // Get the parsed expression
       const std::string expr = this->function_object.get_expressions()[i_comp];
 
-      Tensor<1, dim, Expression> independent_variables;
-      independent_variables[0] = Expression("x");
-      independent_variables[1] = Expression("y");
-      if constexpr (dim == 3)
-        independent_variables[2] = Expression("z");
-      const Expression time("t");
+      use_fd_derivatives[i_comp] = false;
 
-      // Set the vector component as a symbolic expression
-      const Expression f(expr, true);
-
-      //
-      // Get symbolic gradient of component
-      //
-      const Tensor<1, dim, Expression> grad_f =
-        differentiate(f, independent_variables);
-
-      // Check if function depends only on time
-      function_of_time_only[i_comp] = true;
-      for (unsigned int d = 0; d < dim; ++d)
-        if (!numbers::value_is_zero(grad_f[d]))
-          function_of_time_only[i_comp] = false;
-
-      // Get the string expressions of the spatial derivatives
-      std::vector<std::string> grad_expressions;
-      for (unsigned int d = 0; d < dim; ++d)
+      try
       {
-        std::stringstream sstream;
-        sstream << grad_f[d];
-        grad_expressions.push_back(replace_all_exponents(sstream.str()));
-      }
-      grad_function_object[i_comp]->initialize(variables,
-                                               grad_expressions,
-                                               constants,
-                                               time_dependent);
-      //
-      // Get symbolic hessian of component
-      //
-      // Get the string expression of the 2nd spatial derivatives
-      std::vector<std::string> hess_expressions;
-      for (unsigned int di = 0; di < dim; ++di)
-      {
-        // Get symbolic gradient of gradient component
-        const Tensor<1, dim, Expression> hess_i =
-          differentiate(grad_f[di], independent_variables);
+        Tensor<1, dim, Expression> independent_variables;
+        independent_variables[0] = Expression("x");
+        independent_variables[1] = Expression("y");
+        if constexpr (dim == 3)
+          independent_variables[2] = Expression("z");
+        const Expression time("t");
 
-        for (unsigned int dj = 0; dj < dim; ++dj)
+        // Set the vector component as a symbolic expression
+        const Expression f(expr, true);
+
+        //
+        // Get symbolic gradient of component
+        //
+        const Tensor<1, dim, Expression> grad_f =
+          differentiate(f, independent_variables);
+
+        // Check if function depends only on time
+        function_of_time_only[i_comp] = true;
+        for (unsigned int d = 0; d < dim; ++d)
+          if (!numbers::value_is_zero(grad_f[d]))
+            function_of_time_only[i_comp] = false;
+
+        // Get the string expressions of the spatial derivatives
+        std::vector<std::string> grad_expressions;
+        for (unsigned int d = 0; d < dim; ++d)
         {
           std::stringstream sstream;
-          sstream << hess_i[dj];
-          hess_expressions.push_back(replace_all_exponents(sstream.str()));
+          sstream << grad_f[d];
+          grad_expressions.push_back(replace_all_exponents(sstream.str()));
+        }
+        grad_function_object[i_comp]->initialize(variables,
+                                                 grad_expressions,
+                                                 constants,
+                                                 time_dependent);
+        //
+        // Get symbolic hessian of component
+        //
+        // Get the string expression of the 2nd spatial derivatives
+        std::vector<std::string> hess_expressions;
+        for (unsigned int di = 0; di < dim; ++di)
+        {
+          // Get symbolic gradient of gradient component
+          const Tensor<1, dim, Expression> hess_i =
+            differentiate(grad_f[di], independent_variables);
+
+          for (unsigned int dj = 0; dj < dim; ++dj)
+          {
+            std::stringstream sstream;
+            sstream << hess_i[dj];
+            hess_expressions.push_back(replace_all_exponents(sstream.str()));
+          }
+        }
+        hess_function_object[i_comp]->initialize(variables,
+                                                 hess_expressions,
+                                                 constants,
+                                                 time_dependent);
+
+        //
+        // Get time derivatives
+        //
+        const Expression fdot   = f.differentiate(time);
+        const Expression fddot  = fdot.differentiate(time);
+        const Expression fdddot = fddot.differentiate(time);
+        {
+          std::stringstream sstream;
+          sstream << fdot;
+          time_derivatives += replace_all_exponents(sstream.str()) + ";";
+        }
+        {
+          std::stringstream sstream;
+          sstream << fddot;
+          time_second_derivatives += replace_all_exponents(sstream.str()) + ";";
+        }
+        {
+          std::stringstream sstream;
+          sstream << fdddot;
+          time_third_derivatives += replace_all_exponents(sstream.str()) + ";";
         }
       }
-      hess_function_object[i_comp]->initialize(variables,
-                                               hess_expressions,
-                                               constants,
-                                               time_dependent);
+      catch (const std::exception &exc)
+      {
+        // SymEngine cannot differentiate this expression (e.g. a piecewise
+        // if(...) initial condition). Values stay exact (muParser); gradient
+        // and hessian fall back to finite differences. Expressions that
+        // actually reference the time variable are not supported (their time
+        // derivatives cannot be recovered here).
+        const std::string time_variable =
+          time_dependent ?
+            Utilities::split_string_list(variables).back() :
+            std::string();
+        bool references_time = false;
+        if (!time_variable.empty())
+          for (size_t pos = expr.find(time_variable); pos != std::string::npos;
+               pos = expr.find(time_variable, pos + 1))
+          {
+            const auto is_token_char = [](const char c) {
+              return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+            };
+            const bool starts_token =
+              pos == 0 || !is_token_char(expr[pos - 1]);
+            const bool ends_token =
+              pos + time_variable.size() >= expr.size() ||
+              !is_token_char(expr[pos + time_variable.size()]);
+            if (starts_token && ends_token)
+            {
+              references_time = true;
+              break;
+            }
+          }
+        AssertThrow(
+          !references_time,
+          ExcMessage(
+            "The expression '" + expr +
+            "' could not be differentiated symbolically (" + exc.what() +
+            ") and depends on time. The finite-difference fallback only "
+            "supports time-independent expressions: make the expression "
+            "smooth or remove its time dependence."));
 
-      //
-      // Get time derivatives
-      //
-      const Expression fdot   = f.differentiate(time);
-      const Expression fddot  = fdot.differentiate(time);
-      const Expression fdddot = fddot.differentiate(time);
-      {
-        std::stringstream sstream;
-        sstream << fdot;
-        time_derivatives += replace_all_exponents(sstream.str()) + ";";
-      }
-      {
-        std::stringstream sstream;
-        sstream << fddot;
-        time_second_derivatives += replace_all_exponents(sstream.str()) + ";";
-      }
-      {
-        std::stringstream sstream;
-        sstream << fdddot;
-        time_third_derivatives += replace_all_exponents(sstream.str()) + ";";
+        use_fd_derivatives[i_comp]    = true;
+        function_of_time_only[i_comp] = false;
+
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cerr
+            << "Warning: the expression '" << expr
+            << "' could not be differentiated symbolically (" << exc.what()
+            << "). Falling back to finite-difference gradient/hessian for "
+               "this component; derivatives are approximate and undefined "
+               "on the non-smooth locus."
+            << std::endl;
+
+        grad_function_object[i_comp]->initialize(
+          variables,
+          std::vector<std::string>(dim, "0"),
+          constants,
+          time_dependent);
+        hess_function_object[i_comp]->initialize(
+          variables,
+          std::vector<std::string>(dim * dim, "0"),
+          constants,
+          time_dependent);
+
+        // Time-independent expression: the time derivatives are exactly zero.
+        time_derivatives += "0;";
+        time_second_derivatives += "0;";
+        time_third_derivatives += "0;";
       }
     }
     dfdt.initialize(variables, time_derivatives, constants, time_dependent);

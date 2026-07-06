@@ -360,7 +360,7 @@ void ElasticitySolver<dim>::create_base_constraints(
   BoundaryConditions::apply_mesh_position_boundary_conditions(
     homogeneous,
     0,
-    dim,
+    fe->n_components(),
     dof_handler,
     *mapping,
     param.pseudosolid_bc,

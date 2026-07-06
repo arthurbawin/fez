@@ -58,6 +58,12 @@ namespace MeshTools
 
 #  if defined(DEAL_II_GMSH_WITH_API)
 
+      // Starting with version 9.8.0, deal.II initializes/finalizes Gmsh in the
+      // MPI_InitFinalize call. If that's the case, we don't need to do it here.
+      const bool gmsh_initialized_by_dealii = gmsh::isInitialized();
+      if (!gmsh_initialized_by_dealii)
+        gmsh::initialize();
+
       /**
        * There seems to be a bug when using deal.II's write_msh with the Gmsh
        * API, when the deal.II mesh is created wiht colorize=true and has
@@ -72,7 +78,6 @@ namespace MeshTools
 
       // Write the current mesh to msh2 format using the Gmsh API
       // (MMG only takes .msh format 2.2 as input)
-      gmsh::initialize();
       gmsh::option::setNumber("General.Verbosity", 2);
       gmsh::open(input_meshfile);
 
@@ -100,7 +105,6 @@ namespace MeshTools
 
       gmsh::write(current_mesh_in_msh2);
       gmsh::clear();
-      gmsh::finalize();
 #  else
       AssertThrow(
         false,
@@ -320,7 +324,6 @@ namespace MeshTools
 #  if defined(DEAL_II_GMSH_WITH_API)
       // MMG does not save the names of the physical entities, so re-assign them
       // here based on the saved my_description.
-      gmsh::initialize();
       gmsh::option::setNumber("General.Verbosity", 2); // Errors and warnings
       gmsh::open(output_meshfile);
 
@@ -363,7 +366,9 @@ namespace MeshTools
 
       gmsh::write(output_meshfile);
       gmsh::clear();
-      gmsh::finalize();
+
+      if (!gmsh_initialized_by_dealii)
+        gmsh::finalize();
 #  endif
     }
 

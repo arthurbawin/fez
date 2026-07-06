@@ -274,14 +274,19 @@ namespace NavierStokesScratch
                                                    present_velocity_divergence);
       fe_values[pressure].get_function_values(current_solution,
                                               present_pressure_values);
+      // The Stepien (quasi-incompressible) phase equation diffuses a quantity q
+      // that depends on the pressure, so its gradient is needed even without
+      // stabilization.
+      if (enable_stabilization ||
+          CahnHilliard::is_stepien_model(cahn_hilliard_param))
+        fe_values[pressure].get_function_gradients(current_solution,
+                                                   present_pressure_gradients);
       if (enable_stabilization)
       {
         fe_values[velocity].get_function_laplacians(
           current_solution, present_velocity_laplacians);
         fe_values[velocity].get_function_hessians(current_solution,
                                                   present_velocity_hessians);
-        fe_values[pressure].get_function_gradients(current_solution,
-                                                   present_pressure_gradients);
 
         // Compute grad(div)
         for (unsigned int q = 0; q < n_q_points; ++q)
@@ -325,10 +330,14 @@ namespace NavierStokesScratch
           div_phi_u[q][k]      = fe_values[velocity].divergence(k, q);
           phi_p[q][k]          = fe_values[pressure].value(k, q);
 
-          if (enable_stabilization)
-          {
+          // The Stepien phase-equation Jacobian (block phi-p) needs the
+          // pressure shape-function gradient even without stabilization.
+          if (enable_stabilization ||
+              CahnHilliard::is_stepien_model(cahn_hilliard_param))
             grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
 
+          if (enable_stabilization)
+          {
             auto &lap      = laplacian_phi_u[q][k];
             auto &grad_div = grad_div_phi_u[q][k];
 

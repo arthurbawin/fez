@@ -55,12 +55,25 @@ namespace CahnHilliard
   }
 
   template <int dim>
+  inline bool
+  use_stepien_capillary_form(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    return is_stepien_model(param);
+  }
+
+  template <int dim>
   inline const char *
   model_name(const Parameters::CahnHilliard<dim> &param)
   {
+    if (is_abels_model(param))
+      return "Abels";
     if (is_ding_horriche_model(param))
       return "Ding-Horriche";
-    return "Abels";
+    if (is_stepien_model(param))
+      return "Stepien";
+  
+    DEAL_II_ASSERT_UNREACHABLE();
   }
 
   template <int dim>
@@ -79,6 +92,10 @@ namespace CahnHilliard
   {
     if (is_ding_horriche_model(param))
       return 1.;
+
+    if (is_stepien_model(param))
+      return sigma_tilde / param.epsilon_interface;
+
     return sigma_tilde / param.epsilon_interface;
   }
 
@@ -90,6 +107,10 @@ namespace CahnHilliard
   {
     if (is_ding_horriche_model(param))
       return param.epsilon_interface * param.epsilon_interface;
+
+    if (is_stepien_model(param))
+      return param.epsilon_interface * sigma_tilde;
+
     return sigma_tilde * param.epsilon_interface;
   }
 
@@ -116,6 +137,17 @@ namespace CahnHilliard
     const double sigma_tilde =
       3. / (2. * std::sqrt(2.)) * param.surface_tension;
     return sigma_tilde / param.epsilon_interface;
+  }
+
+  template <int dim>
+  inline double
+  stepien_capillary_coefficient(
+    const Parameters::CahnHilliard<dim> & /*param*/)
+  {
+    // The Stepien momentum capillary force is muhat * grad(phi). Since the
+    // potential unknown mu already stores muhat (same scaling as the potential
+    // equation), the force prefactor is exactly 1.
+    return 1.;
   }
 
   /**

@@ -1274,7 +1274,7 @@ namespace Parameters
       else
         AssertThrow(false,
                     ExcMessage("Unknown CHNS model '" + parsed_chns_model +
-                               "'. Accepted values are 'abels',"
+                               "'. Accepted values are 'abels', "
                                "'ding_horriche' and 'stepien'."));
 
       const std::string parsed_mobility_model = prm.get("mobility model");

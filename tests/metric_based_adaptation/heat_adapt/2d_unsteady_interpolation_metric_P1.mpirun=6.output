@@ -18,27 +18,27 @@ Number of degrees of freedom: 486
 
 Time step 1 - Advancing to t = 0.1.
 Newton iter.  0:          nonlinear residual = 1.44716027e+01
-Newton iter.  1:          nonlinear residual = 5.98981894e-15	(M)
+Newton iter.  1:          nonlinear residual = 5.78777822e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 2 - Advancing to t = 2.00e-01.
 Newton iter.  0:          nonlinear residual = 1.31243832e+01
-Newton iter.  1:          nonlinear residual = 5.78664946e-15	(M)
+Newton iter.  1:          nonlinear residual = 6.42799862e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 3 - Advancing to t = 3.00e-01.
 Newton iter.  0:          nonlinear residual = 1.20137000e+01
-Newton iter.  1:          nonlinear residual = 6.21099245e-15	(M)
+Newton iter.  1:          nonlinear residual = 6.76443105e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 4 - Advancing to t = 4.00e-01.
 Newton iter.  0:          nonlinear residual = 1.33781413e+01
-Newton iter.  1:          nonlinear residual = 6.16829934e-15	(M)
+Newton iter.  1:          nonlinear residual = 6.01694258e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 5 - Advancing to t = 5.00e-01.
 Newton iter.  0:          nonlinear residual = 1.32511104e+01
-Newton iter.  1:          nonlinear residual = 6.18788677e-15	(M)
+Newton iter.  1:          nonlinear residual = 6.21617322e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time sub-interval 2/2 : t in [5.00e-01, 1.00e+00]
@@ -57,27 +57,27 @@ Number of degrees of freedom: 486
 
 Time step 6 - Advancing to t = 6.00e-01.
 Newton iter.  0:          nonlinear residual = 1.18811528e+01
-Newton iter.  1:          nonlinear residual = 5.78595649e-15	(M)
+Newton iter.  1:          nonlinear residual = 6.03668402e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 7 - Advancing to t = 7.00e-01.
 Newton iter.  0:          nonlinear residual = 1.31321653e+01
-Newton iter.  1:          nonlinear residual = 5.97746027e-15	(M)
+Newton iter.  1:          nonlinear residual = 6.23417419e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 8 - Advancing to t = 8.00e-01.
 Newton iter.  0:          nonlinear residual = 1.33522079e+01
-Newton iter.  1:          nonlinear residual = 5.32700820e-15	(M)
+Newton iter.  1:          nonlinear residual = 6.87058426e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 9 - Advancing to t = 9.00e-01.
 Newton iter.  0:          nonlinear residual = 1.16954195e+01
-Newton iter.  1:          nonlinear residual = 7.12487454e-15	(M)
+Newton iter.  1:          nonlinear residual = 6.58252676e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 10 - Advancing to t = 1.00e+00.
 Newton iter.  0:          nonlinear residual = 1.31615050e+01
-Newton iter.  1:          nonlinear residual = 6.18300920e-15	(M)
+Newton iter.  1:          nonlinear residual = 5.85934071e-15	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 Summary of all time sub-intervals
 | Interval | from   | to     | Time steps | # of vertices | # of elements | # of dofs | 
@@ -117,28 +117,28 @@ ID 5 -> Domain
 Number of degrees of freedom: 594
 
 Time step 1 - Advancing to t = 1.00e-01.
-Newton iter.  0:          nonlinear residual = 4.77168028e+01
-Newton iter.  1:          nonlinear residual = 2.89503497e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.77168037e+01
+Newton iter.  1:          nonlinear residual = 3.34508539e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 2 - Advancing to t = 2.00e-01.
-Newton iter.  0:          nonlinear residual = 4.50830815e+01
-Newton iter.  1:          nonlinear residual = 3.95648930e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.50830804e+01
+Newton iter.  1:          nonlinear residual = 4.00907818e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 3 - Advancing to t = 3.00e-01.
-Newton iter.  0:          nonlinear residual = 4.44337070e+01
-Newton iter.  1:          nonlinear residual = 4.31700833e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.44337038e+01
+Newton iter.  1:          nonlinear residual = 4.06575224e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 4 - Advancing to t = 4.00e-01.
-Newton iter.  0:          nonlinear residual = 4.52757372e+01
-Newton iter.  1:          nonlinear residual = 3.90581903e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.52757356e+01
+Newton iter.  1:          nonlinear residual = 3.36101998e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 5 - Advancing to t = 5.00e-01.
-Newton iter.  0:          nonlinear residual = 4.84581201e+01
-Newton iter.  1:          nonlinear residual = 3.06148464e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.84581365e+01
+Newton iter.  1:          nonlinear residual = 3.26725890e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time sub-interval 2/2 : t in [5.00e-01, 1.00e+00]
@@ -156,28 +156,28 @@ ID 5 -> Domain
 Number of degrees of freedom: 594
 
 Time step 6 - Advancing to t = 6.00e-01.
-Newton iter.  0:          nonlinear residual = 4.28363006e+01
-Newton iter.  1:          nonlinear residual = 3.15893052e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.28363162e+01
+Newton iter.  1:          nonlinear residual = 2.95223250e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 7 - Advancing to t = 7.00e-01.
-Newton iter.  0:          nonlinear residual = 4.49762750e+01
-Newton iter.  1:          nonlinear residual = 3.51952679e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.49762749e+01
+Newton iter.  1:          nonlinear residual = 4.19046774e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 8 - Advancing to t = 8.00e-01.
-Newton iter.  0:          nonlinear residual = 4.50398770e+01
-Newton iter.  1:          nonlinear residual = 3.52051101e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.50398769e+01
+Newton iter.  1:          nonlinear residual = 4.56987059e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 9 - Advancing to t = 9.00e-01.
-Newton iter.  0:          nonlinear residual = 4.55784909e+01
-Newton iter.  1:          nonlinear residual = 3.93139903e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.55784908e+01
+Newton iter.  1:          nonlinear residual = 3.73696924e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 10 - Advancing to t = 1.00e+00.
-Newton iter.  0:          nonlinear residual = 4.76233142e+01
-Newton iter.  1:          nonlinear residual = 3.10892631e-14	(M)
+Newton iter.  0:          nonlinear residual = 4.76233137e+01
+Newton iter.  1:          nonlinear residual = 3.81239578e-14	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 Summary of all time sub-intervals
 | Interval | from   | to     | Time steps | # of vertices | # of elements | # of dofs | 

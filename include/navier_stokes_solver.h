@@ -309,7 +309,7 @@ public:
    * Post-process the numerical solution: output for visualization,
    * compute errors, forces, etc.
    */
-  void postprocess_solution();
+  void postprocess_solution(const unsigned int interval_index);
 
   /**
    * Post-process the additional data specific to each derived solver. By
@@ -354,7 +354,9 @@ public:
   /**
    * Write the results to a vtu/pvtu file for visualization.
    */
-  void output_results(const bool         is_prerefinement_step = false,
+  void output_results(const bool         is_time_subinterval   = false,
+                      const unsigned int interval_index        = 0,
+                      const bool         is_prerefinement_step = false,
                       const unsigned int prerefinement_step    = 0);
 
   /**

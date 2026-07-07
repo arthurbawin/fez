@@ -653,7 +653,7 @@ void MetricField<dim>::set_mmg_solution(
   const MMG5_int int_n_total_owned_vertices =
     static_cast<MMG5_int>(n_total_owned_vertices);
 
-  const unsigned int n_significant_digits = 10;
+  const unsigned int n_significant_digits = 6;
 
   int ier;
   if constexpr (dim == 2)

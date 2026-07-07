@@ -263,7 +263,7 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
   // initial solution on this time interval. For unsteady simulations with mesh
   // adaptation with a Riemannian metric, this is needed to obtain an adapted
   // mesh that includes the initial condition.
-  postprocess_solution();
+  postprocess_solution(interval_index);
 
   /**
    * Apply initial refinement.
@@ -276,7 +276,11 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
       update_boundary_conditions();
       set_initial_conditions(false);
       adapt_mesh();
-      output_results(/* is_prerefinement_step = */ true, step);
+      output_results(
+        /* is_time_subinterval = */ param.time_integration.n_time_intervals > 1,
+        interval_index,
+        /* is_prerefinement_step = */ true,
+        step);
     }
 
   while (!time_handler.is_finished())
@@ -312,7 +316,7 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
     while (!time_handler.is_timestep_accepted(*present_solution,
                                               *previous_solutions));
 
-    postprocess_solution();
+    postprocess_solution(interval_index);
 
     /**
      * Adapt the tree-based mesh during an unsteady simulation, if the current
@@ -745,13 +749,17 @@ void HeatSolver<dim>::solve_linear_system()
 }
 
 template <int dim>
-void HeatSolver<dim>::output_results(const bool         is_pre_refinement_step,
+void HeatSolver<dim>::output_results(const bool         is_time_subinterval,
+                                     const unsigned int interval_index,
+                                     const bool         is_pre_refinement_step,
                                      const unsigned int pre_refinement_step)
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
   postproc_handler->output_fields(*mapping,
                                   *present_solution,
                                   time_handler,
+                                  is_time_subinterval,
+                                  interval_index,
                                   is_pre_refinement_step,
                                   pre_refinement_step);
 }
@@ -849,12 +857,12 @@ void HeatSolver<dim>::compute_error_estimate()
 }
 
 template <int dim>
-void HeatSolver<dim>::postprocess_solution()
+void HeatSolver<dim>::postprocess_solution(const unsigned int interval_index)
 {
   if (should_compute_errors(time_handler))
     compute_errors();
 
-  output_results();
+  output_results(param.time_integration.n_time_intervals > 1, interval_index);
 
   if (should_compute_reconstructions(param, time_handler))
     compute_reconstructions();

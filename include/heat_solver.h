@@ -189,7 +189,7 @@ public:
   /**
    *
    */
-  void postprocess_solution();
+  void postprocess_solution(const unsigned int interval_index);
 
   /**
    * Compute the volume integrals of the selected finite element variables.

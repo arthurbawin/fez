@@ -1,0 +1,205 @@
+Number of MPI processes: 1
+Mesh file was changed to ../../../starting_mesh.msh
+Convergence test with mesh adaptation - Fixed-point iteration 1/2
+
+Time sub-interval 1/2 : t in [0, 0.5]
+Reading mesh file: ../../../starting_mesh.msh
+
+Mesh info:
+ dimension: 2
+ no. of cells: 888
+ boundary indicators: 1(14 faces) 2(14 faces) 3(27 faces) 4(27 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+ID 5 -> Domain
+Number of degrees of freedom: 486
+
+Time step 1 - Advancing to t = 0.1.
+Newton iter.  0:          nonlinear residual = 1.44716027e+01
+Newton iter.  1:          nonlinear residual = 5.98981894e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 2 - Advancing to t = 2.00e-01.
+Newton iter.  0:          nonlinear residual = 1.31243832e+01
+Newton iter.  1:          nonlinear residual = 5.78664946e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 3 - Advancing to t = 3.00e-01.
+Newton iter.  0:          nonlinear residual = 1.20137000e+01
+Newton iter.  1:          nonlinear residual = 6.21099245e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 4 - Advancing to t = 4.00e-01.
+Newton iter.  0:          nonlinear residual = 1.33781413e+01
+Newton iter.  1:          nonlinear residual = 6.16829934e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 5 - Advancing to t = 5.00e-01.
+Newton iter.  0:          nonlinear residual = 1.32511104e+01
+Newton iter.  1:          nonlinear residual = 6.18788677e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time sub-interval 2/2 : t in [5.00e-01, 1.00e+00]
+Reading mesh file: ../../../starting_mesh.msh
+
+Mesh info:
+ dimension: 2
+ no. of cells: 888
+ boundary indicators: 1(14 faces) 2(14 faces) 3(27 faces) 4(27 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+ID 5 -> Domain
+Number of degrees of freedom: 486
+
+Time step 6 - Advancing to t = 6.00e-01.
+Newton iter.  0:          nonlinear residual = 1.18811528e+01
+Newton iter.  1:          nonlinear residual = 5.78595649e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 7 - Advancing to t = 7.00e-01.
+Newton iter.  0:          nonlinear residual = 1.31321653e+01
+Newton iter.  1:          nonlinear residual = 5.97746027e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 8 - Advancing to t = 8.00e-01.
+Newton iter.  0:          nonlinear residual = 1.33522079e+01
+Newton iter.  1:          nonlinear residual = 5.32700820e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 9 - Advancing to t = 9.00e-01.
+Newton iter.  0:          nonlinear residual = 1.16954195e+01
+Newton iter.  1:          nonlinear residual = 7.12487454e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 10 - Advancing to t = 1.00e+00.
+Newton iter.  0:          nonlinear residual = 1.31615050e+01
+Newton iter.  1:          nonlinear residual = 6.18300920e-15	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+Summary of all time sub-intervals
+| Interval | from   | to     | Time steps | # of vertices | # of elements | # of dofs | 
+| 0        | 0.0000 | 0.5000 | 5          | 486           | 888           | 486       | 
+| 1        | 0.5000 | 1.0000 | 5          | 486           | 888           | 486       | 
+
+-- Adapting meshes on all time intervals :
+
+-- Adapting the mesh with Gmsh and MMG for time interval 0...
+	Current mesh file                 : ../../../starting_mesh.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh
+	Number of mesh vertices after adaptation : 594
+
+
+-- Adapting the mesh with Gmsh and MMG for time interval 1...
+	Current mesh file                 : ../../../starting_mesh.msh
+	Target mesh file after adaptation : ././adapted_1.msh
+	Successfully adapted the mesh
+	Number of mesh vertices after adaptation : 594
+
+Convergence test with mesh adaptation - Fixed-point iteration 2/2
+Mesh file was changed to ././adapted.msh
+
+Time sub-interval 1/2 : t in [0.00e+00, 5.00e-01]
+Reading mesh file: ././adapted_0.msh
+
+Mesh info:
+ dimension: 2
+ no. of cells: 1132
+ boundary indicators: 1(2 faces) 2(3 faces) 3(25 faces) 4(24 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+ID 5 -> Domain
+Number of degrees of freedom: 594
+
+Time step 1 - Advancing to t = 1.00e-01.
+Newton iter.  0:          nonlinear residual = 4.77168028e+01
+Newton iter.  1:          nonlinear residual = 2.89503497e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 2 - Advancing to t = 2.00e-01.
+Newton iter.  0:          nonlinear residual = 4.50830815e+01
+Newton iter.  1:          nonlinear residual = 3.95648930e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 3 - Advancing to t = 3.00e-01.
+Newton iter.  0:          nonlinear residual = 4.44337070e+01
+Newton iter.  1:          nonlinear residual = 4.31700833e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 4 - Advancing to t = 4.00e-01.
+Newton iter.  0:          nonlinear residual = 4.52757372e+01
+Newton iter.  1:          nonlinear residual = 3.90581903e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 5 - Advancing to t = 5.00e-01.
+Newton iter.  0:          nonlinear residual = 4.84581201e+01
+Newton iter.  1:          nonlinear residual = 3.06148464e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time sub-interval 2/2 : t in [5.00e-01, 1.00e+00]
+Reading mesh file: ././adapted_1.msh
+
+Mesh info:
+ dimension: 2
+ no. of cells: 1132
+ boundary indicators: 1(2 faces) 2(5 faces) 3(25 faces) 4(22 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+ID 5 -> Domain
+Number of degrees of freedom: 594
+
+Time step 6 - Advancing to t = 6.00e-01.
+Newton iter.  0:          nonlinear residual = 4.28363006e+01
+Newton iter.  1:          nonlinear residual = 3.15893052e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 7 - Advancing to t = 7.00e-01.
+Newton iter.  0:          nonlinear residual = 4.49762750e+01
+Newton iter.  1:          nonlinear residual = 3.51952679e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 8 - Advancing to t = 8.00e-01.
+Newton iter.  0:          nonlinear residual = 4.50398770e+01
+Newton iter.  1:          nonlinear residual = 3.52051101e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 9 - Advancing to t = 9.00e-01.
+Newton iter.  0:          nonlinear residual = 4.55784909e+01
+Newton iter.  1:          nonlinear residual = 3.93139903e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 10 - Advancing to t = 1.00e+00.
+Newton iter.  0:          nonlinear residual = 4.76233142e+01
+Newton iter.  1:          nonlinear residual = 3.10892631e-14	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+Summary of all time sub-intervals
+| Interval | from   | to     | Time steps | # of vertices | # of elements | # of dofs | 
+| 0        | 0.0000 | 0.5000 | 5          | 594           | 1132          | 594       | 
+| 1        | 0.5000 | 1.0000 | 5          | 594           | 1132          | 594       | 
+
+-- Adapting meshes on all time intervals :
+
+-- Adapting the mesh with Gmsh and MMG for time interval 0...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh
+	Number of mesh vertices after adaptation : 731
+
+
+-- Adapting the mesh with Gmsh and MMG for time interval 1...
+	Current mesh file                 : ././adapted_1.msh
+	Target mesh file after adaptation : ././adapted_1.msh
+	Successfully adapted the mesh
+	Number of mesh vertices after adaptation : 744
+
+
+L2_norm
+n_intervals target_nvrt n_st n_tot_vrt n_tot_elm n_tot_dof   dt        T       
+          2         500 5940      1188      2264      1188 0.1000 7.2417e-02 -

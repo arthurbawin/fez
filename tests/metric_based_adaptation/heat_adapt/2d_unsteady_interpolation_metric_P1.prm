@@ -139,6 +139,7 @@ subsection Manufactured solution
   set convergence steps      = 1
 
   subsection Space convergence
+    #set mesh prefix = ../tests/metric_based_adaptation/meshes/starting_mesh
     set mesh prefix = ../../../starting_mesh
     set initial target number of vertices = 500
     set norms to compute = L2_norm
@@ -150,8 +151,4 @@ subsection Manufactured solution
     set spatial mesh index   = 1
     set time step reduction  = 0.5
   end
-end
-
-subsection Debug
-  set apply exact solution = false
 end

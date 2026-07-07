@@ -565,7 +565,7 @@ void PostProcessingHandler<dim>::output_skin_fields(
       Assert(time_handler.get_current_timestep() > eps, ExcInternalError());
       current_time += eps;
     }
-    
+
     /**
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.

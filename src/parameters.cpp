@@ -420,7 +420,7 @@ namespace Parameters
                       Patterns::Bool(),
                       "Write result of this postprocessing to file");
     prm.declare_entry("output prefix",
-                      "forces",
+                      "postprocessed_data",
                       Patterns::FileName(),
                       "Prefix for the postprocessing output files");
     prm.declare_entry(
@@ -481,6 +481,21 @@ namespace Parameters
           "Compute and write the hydrodynamic forces on each slice");
       }
       prm.leave_subsection();
+      prm.enter_subsection("chns phase volume");
+      {
+        declare_postprocessing_boundary(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase center of mass");
+      {
+        declare_postprocessing_boundary(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase average velocity");
+      {
+        declare_postprocessing_boundary(prm);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -529,6 +544,21 @@ namespace Parameters
         slices.along_which_axis         = prm.get("along which axis");
         slices.n_slices                 = prm.get_integer("number of slices");
         slices.compute_forces_on_slices = prm.get_bool("compute forces");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase volume");
+      {
+        read_postprocessing_base(prm, chns_volumes);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase center of mass");
+      {
+        read_postprocessing_base(prm, chns_center_mass);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase average velocity");
+      {
+        read_postprocessing_base(prm, chns_avg_velocity);
       }
       prm.leave_subsection();
     }

@@ -368,8 +368,24 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   for (unsigned int i = 0; i < param.time_integration.n_time_intervals; ++i)
     run_time_subinterval(i);
 
-  adapt_mesh();
   finalize();
+
+  /**
+   * If using a riemannian metric to adapt the mesh(es), perform all the
+   * adaptations at the end of all time intervals (as it requires a global
+   * scaling factor).
+   *
+   * If using tree-based adaptation with a steady-state convergence study,
+   * adapt the mesh here.
+   */
+  if (should_scale_and_grade_riemannian_metric(param, time_handler))
+  {
+    transient_fixed_point_data.scale_metrics(
+      param.metrics.metric_for_adaptation, time_handler);
+    transient_fixed_point_data.apply_gradation_to_metrics();
+  }
+  if (should_adapt_mesh_at_end_of_intervals(time_handler))
+    adapt_mesh();
 }
 
 template <int dim, bool with_moving_mesh>

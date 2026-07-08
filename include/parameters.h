@@ -256,6 +256,27 @@ namespace Parameters
     // Number of cells subdivisions for visualization
     unsigned int n_subdivisions;
 
+    // Output data when using a (steady or unsteady) fixed-point method,
+    // typically when using a riemannian metric to adapt the mesh.
+    struct FixedPointMethod
+    {
+      // Specifies whether a single pvd must be generated.
+      // If true, only a pvd file for the last fixed-point iteration is written.
+      // If false, one pvd file is generated per fixed-point iteration.
+      bool single_pvd;
+
+      // This flag is used only for the unsteady fixed-point method.
+      // If true, then at the junction time between two time sub-intervals, the
+      // solution on both the current and the next mesh are written in the pvd
+      // file, which effectively duplicates these timesteps. If false, only the
+      // solution after transfer on the next mesh will appear.
+      //
+      // In other words, the outputted solutions are for the times [t_i, t_i+1]
+      // if true, and for times [t_i, t_i+1) if false, except for the last
+      // interval, which always includes the final time.
+      bool show_solution_transfer;
+    } fixed_point;
+
     // A "skin" is a codimension 1 boundary on which we wish to extract data
     // for visualization and/or postprocessing
     struct Skin

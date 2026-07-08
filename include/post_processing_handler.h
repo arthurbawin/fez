@@ -27,6 +27,61 @@ class PostProcessingHandler
 {
 public:
   /**
+   * A struct to set up the prefixes and suffixes of the files to be written.
+   */
+  struct PrefixData
+  {
+    /**
+     * Is this a step of a convergence study with manufactured solutions?
+     */
+    bool is_convergence_step = false;
+
+    /**
+     * Convergence step, if applicable
+     */
+    unsigned int convergence_step = 0;
+
+    /**
+     * Is this a step of a fixed-point mesh adaptation loop?
+     */
+    bool is_fixed_point_step = false;
+
+    /**
+     * Fixed-point step, if applicable
+     */
+    unsigned int fixed_point_step = 0;
+
+    /**
+     * Is this a time subinterval within an unsteady fixed-point mesh adaptation
+     * loop?
+     */
+    bool is_time_subinterval = false;
+
+    /**
+     * Time subinterval index, if applicable
+     */
+    unsigned int interval_index = 0;
+
+    /**
+     * Is this a tree-based prerefinement step in an unsteady problem?
+     */
+    bool is_prerefinement_step = false;
+
+    /**
+     * Prerefinement step, if applicable
+     */
+    unsigned int prerefinement_step = 0;
+
+    /**
+     * Append some additional strings to the given prefix or suffix,
+     * depending on the stored flags and step counters.
+     */
+    void append_to_prefix_or_suffix(const Parameters::Output &output_param,
+                                    const bool                is_for_pvd,
+                                    std::string &prefix_or_suffix) const;
+  };
+
+  /**
    * Constructor.
    *
    * This function accepts an empty mesh and dof_handler, so it can be called
@@ -95,8 +150,7 @@ public:
   void output_fields(const Mapping<dim> &mapping,
                      const VectorType   &solution,
                      const TimeHandler  &time_handler,
-                     const bool          is_prerefinement_step = false,
-                     const unsigned int  prerefinement_step    = 0);
+                     const PrefixData   &prefix_data = PrefixData());
 
   /**
    * Write the .pvd files (volume and skin, if applicable).
@@ -105,7 +159,7 @@ public:
    * If a convergence study with a manufactured solution is being run,
    * a suffix with the current convergence step is appended to the pvd file.
    */
-  void write_pvd() const;
+  void write_pvd(const PrefixData &prefix_data = PrefixData()) const;
 
   /**
    * Compute the hydrodynamic forces on the boundary prescribed in the forces
@@ -274,8 +328,7 @@ private:
   void output_volume_fields(const Mapping<dim> &mapping,
                             const VectorType   &solution,
                             const TimeHandler  &time_handler,
-                            const bool          is_prerefinement_step,
-                            const unsigned int  prerefinement_step);
+                            const PrefixData   &prefix_data);
 
   /**
    * Output the fields defined on the skin for visualization. This includes
@@ -286,8 +339,7 @@ private:
   void output_skin_fields(const Mapping<dim> &mapping,
                           const VectorType   &solution,
                           const TimeHandler  &time_handler,
-                          const bool          is_prerefinement_step,
-                          const unsigned int  prerefinement_step);
+                          const PrefixData   &prefix_data);
 
   /**
    * Add the computed forces to the passed table with required formatting.
@@ -390,6 +442,29 @@ private:
 /* ---------------- Template functions ----------------- */
 
 template <int dim>
+void PostProcessingHandler<dim>::PrefixData::append_to_prefix_or_suffix(
+  const Parameters::Output &output_param,
+  const bool                is_for_pvd,
+  std::string              &prefix_or_suffix) const
+{
+  if (is_convergence_step)
+    prefix_or_suffix += "_convergence_step_" + std::to_string(convergence_step);
+
+  if (is_fixed_point_step)
+    if (!output_param.fixed_point.single_pvd)
+      prefix_or_suffix += "_fp_" + std::to_string(fixed_point_step);
+
+  // The interval index should not be written in the name of the pvd file
+  if (!is_for_pvd)
+    if (is_time_subinterval)
+      prefix_or_suffix += "_int_" + std::to_string(interval_index);
+
+  if (is_prerefinement_step)
+    prefix_or_suffix +=
+      "_prerefinement_step_" + std::to_string(prerefinement_step);
+}
+
+template <int dim>
 template <typename VectorType>
 void PostProcessingHandler<dim>::add_cell_data_vector(const VectorType  &data,
                                                       const std::string &name)
@@ -411,12 +486,10 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
 
 template <int dim>
 template <typename VectorType>
-void PostProcessingHandler<dim>::output_fields(
-  const Mapping<dim> &mapping,
-  const VectorType   &solution,
-  const TimeHandler  &time_handler,
-  const bool          is_prerefinement_step,
-  const unsigned int  prerefinement_step)
+void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
+                                               const VectorType   &solution,
+                                               const TimeHandler  &time_handler,
+                                               const PrefixData   &prefix_data)
 {
   // Get the partitions only once
   if (subdomains.size() == 0)
@@ -436,23 +509,15 @@ void PostProcessingHandler<dim>::output_fields(
 
   // Export fields in volume
   if (should_output_volume_fields(time_handler))
-    output_volume_fields(mapping,
-                         solution,
-                         time_handler,
-                         is_prerefinement_step,
-                         prerefinement_step);
+    output_volume_fields(mapping, solution, time_handler, prefix_data);
 
   // Export fields on prescribed boundary (skin)
   if (should_output_skin_fields(time_handler))
-    output_skin_fields(mapping,
-                       solution,
-                       time_handler,
-                       is_prerefinement_step,
-                       prerefinement_step);
+    output_skin_fields(mapping, solution, time_handler, prefix_data);
 
   if (mpi_rank == 0 && (should_output_volume_fields(time_handler) ||
                         should_output_skin_fields(time_handler)))
-    write_pvd();
+    write_pvd(prefix_data);
 }
 
 template <int dim>
@@ -461,8 +526,7 @@ void PostProcessingHandler<dim>::output_volume_fields(
   const Mapping<dim> &mapping,
   const VectorType   &solution,
   const TimeHandler  &time_handler,
-  const bool          is_prerefinement_step,
-  const unsigned int  prerefinement_step)
+  const PrefixData   &prefix_data)
 {
   data_out->add_data_vector(solution,
                             solution_names,
@@ -475,10 +539,7 @@ void PostProcessingHandler<dim>::output_volume_fields(
                           DataOut<dim>::CurvedCellRegion::curved_inner_cells);
 
   std::string prefix = output_param.output_prefix;
-  if (mms_param.enable)
-    prefix += "_convergence_step_" + std::to_string(mms_param.current_step);
-  if (is_prerefinement_step)
-    prefix += "_prerefinement_step_" + std::to_string(prerefinement_step);
+  prefix_data.append_to_prefix_or_suffix(output_param, false, prefix);
 
   const std::string pvtu_file =
     data_out->write_vtu_with_pvtu_record(output_param.output_dir,
@@ -487,10 +548,34 @@ void PostProcessingHandler<dim>::output_volume_fields(
                                          mpi_communicator,
                                          2,
                                          output_param.n_vtu_groups);
-  if (is_prerefinement_step)
+
+  if (prefix_data.is_prerefinement_step)
     prerefinements_pseudotimes_and_names.emplace_back(
-      static_cast<double>(prerefinement_step), pvtu_file);
+      static_cast<double>(prefix_data.prerefinement_step), pvtu_file);
   else
+  {
+    /**
+     * When using more than one time subinterval, we currently output at the end
+     * of an interval the solution on both the previous and current interval, to
+     * assess the quality of the solution transfer between meshes. These
+     * solutions are associated with the same time, and ParaView does not seem
+     * to show both solutions if the "timestep" in the same in the .pvd file.
+     * The "part" keyword does not seem to help either.
+     *
+     * Instead, the timestep at the beginning of an interval is set to t +
+     * epsilon.
+     */
+    double current_time = time_handler.current_time;
+    if (output_param.fixed_point.show_solution_transfer)
+      if (prefix_data.is_time_subinterval && prefix_data.interval_index > 0 &&
+          time_handler.current_time_iteration_in_interval == 0)
+      {
+        const double eps = 1e-12;
+        // Make sure the time step is greater than this epsilon, just in case
+        Assert(time_handler.get_current_timestep() > eps, ExcInternalError());
+        current_time += eps;
+      }
+
     /**
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
@@ -498,8 +583,9 @@ void PostProcessingHandler<dim>::output_volume_fields(
     visualization_times_and_names.emplace_back(
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        time_handler.current_time,
+        current_time,
       pvtu_file);
+  }
 
   data_out->clear_data_vectors();
 }
@@ -510,8 +596,7 @@ void PostProcessingHandler<dim>::output_skin_fields(
   const Mapping<dim> &mapping,
   const VectorType   &solution,
   const TimeHandler  &time_handler,
-  const bool          is_prerefinement_step,
-  const unsigned int  prerefinement_step)
+  const PrefixData   &prefix_data)
 {
   // build_patches is not (yet) implemented for DataOutFaces in hp context
   AssertThrow(
@@ -539,10 +624,7 @@ void PostProcessingHandler<dim>::output_skin_fields(
 
   std::string prefix =
     output_param.output_prefix + "_" + output_param.skin.output_prefix;
-  if (mms_param.enable)
-    prefix += "_convergence_step_" + std::to_string(mms_param.current_step);
-  if (is_prerefinement_step)
-    prefix += "_prerefinement_step_" + std::to_string(prerefinement_step);
+  prefix_data.append_to_prefix_or_suffix(output_param, false, prefix);
 
   const std::string pvtu_file = data_out_skin->write_vtu_with_pvtu_record(
     output_param.output_dir,
@@ -552,10 +634,33 @@ void PostProcessingHandler<dim>::output_skin_fields(
     2,
     output_param.n_vtu_groups);
 
-  if (is_prerefinement_step)
+  if (prefix_data.is_prerefinement_step)
     prerefinements_pseudotimes_and_names_skin.emplace_back(
-      static_cast<double>(prerefinement_step), pvtu_file);
+      static_cast<double>(prefix_data.prerefinement_step), pvtu_file);
   else
+  {
+    /**
+     * When using more than one time subinterval, we currently output at the end
+     * of an interval the solution on both the previous and current interval, to
+     * assess the quality of the solution transfer between meshes. These
+     * solutions are associated with the same time, and ParaView does not seem
+     * to show both solutions if the "timestep" in the same in the .pvd file.
+     * The "part" keyword does not seem to help either.
+     *
+     * Instead, the timestep at the beginning of an interval is set to t +
+     * epsilon.
+     */
+    double current_time = time_handler.current_time;
+    if (output_param.fixed_point.show_solution_transfer)
+      if (prefix_data.is_time_subinterval && prefix_data.interval_index > 0 &&
+          time_handler.current_time_iteration_in_interval == 0)
+      {
+        const double eps = 1e-12;
+        // Make sure the time step is greater than this epsilon, just in case
+        Assert(time_handler.get_current_timestep() > eps, ExcInternalError());
+        current_time += eps;
+      }
+
     /**
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
@@ -563,8 +668,9 @@ void PostProcessingHandler<dim>::output_skin_fields(
     visualization_times_and_names_skin.emplace_back(
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        time_handler.current_time,
+        current_time,
       pvtu_file);
+  }
 
   data_out_skin->clear_data_vectors();
 }

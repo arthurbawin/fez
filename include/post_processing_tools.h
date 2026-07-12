@@ -742,15 +742,25 @@ void PostProcessingTools::compute_multiphase_indicators(
 
   if (cm_param.enable)
     for (unsigned int i = 0; i < n_phases; ++i)
+    {
+      Assert(phase_volumes[i] > 0,
+             ExcMessage("Cannot compute volume average because phase " +
+                        std::to_string(i) + " has no volume"));
       phase_center_of_mass[i] =
         1. / phase_volumes[i] *
         Utilities::MPI::sum(local_phase_center_of_mass[i], comm);
+    }
 
   if (vel_param.enable)
     for (unsigned int i = 0; i < n_phases; ++i)
+    {
+      Assert(phase_volumes[i] > 0,
+             ExcMessage("Cannot compute volume average because phase " +
+                        std::to_string(i) + " has no volume"));
       phase_average_velocity[i] =
         1. / phase_volumes[i] *
         Utilities::MPI::sum(local_phase_average_velocity[i], comm);
+    }
 }
 
 #endif

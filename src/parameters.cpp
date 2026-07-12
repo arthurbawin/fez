@@ -483,17 +483,17 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("chns phase volume");
       {
-        declare_postprocessing_boundary(prm);
+        declare_postprocessing_base(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase center of mass");
       {
-        declare_postprocessing_boundary(prm);
+        declare_postprocessing_base(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase average velocity");
       {
-        declare_postprocessing_boundary(prm);
+        declare_postprocessing_base(prm);
       }
       prm.leave_subsection();
     }

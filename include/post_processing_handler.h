@@ -159,7 +159,7 @@ public:
    *
    * Each of these quantities can be controlled with the dedicated subsections
    * of the Postprocessing parameters.
-   * 
+   *
    * Limited to two phases for now.
    *
    * This function calls the function with the same name in PostProcessingTools,

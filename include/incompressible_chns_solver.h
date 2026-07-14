@@ -120,6 +120,11 @@ public:
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
+  /**
+   * Post-process the additional data specific to this solver.
+   */
+  virtual void solver_specific_post_processing() override;
+
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override

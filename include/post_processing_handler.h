@@ -151,6 +151,29 @@ public:
                                   const TimeHandler        &time_handler);
 
   /**
+   * Compute indicators for multiphase computations, namely:
+   *
+   * - the total volume occupied by each fluid phase,
+   * - the position of the center of mass of each phase,
+   * - the average velocity in each phase.
+   *
+   * Each of these quantities can be controlled with the dedicated subsections
+   * of the Postprocessing parameters.
+   *
+   * Limited to two phases for now.
+   *
+   * This function calls the function with the same name in PostProcessingTools,
+   * and handles writing the data to tables and outputting then.
+   */
+  template <typename VectorType>
+  void compute_multiphase_indicators(const ComponentOrdering &ordering,
+                                     const DoFHandler<dim>   &dof_handler,
+                                     const Mapping<dim>      &mapping,
+                                     const Quadrature<dim>   &quadrature,
+                                     const VectorType        &solution,
+                                     const TimeHandler       &time_handler);
+
+  /**
    * Reset the underlying data and vectors.
    */
   void clear();
@@ -284,6 +307,19 @@ private:
                              TableHandler         &position_table);
 
   /**
+   * Add data available for each fluid phase to @p table, according to the
+   * options stored in @p pp_param.
+   *
+   * Only handles two phases.
+   */
+  template <typename DataType>
+  void add_multiphase_data_to_table(
+    const std::array<DataType, 2>                        &data_for_phases,
+    const TimeHandler                                    &time_handler,
+    TableHandler                                         &table,
+    const Parameters::PostProcessing::PostProcessingBase &pp_param);
+
+  /**
    * Write the given table to the out stream.
    */
   void write_table(
@@ -340,6 +376,15 @@ private:
   // The position of the geometric center (average) of the structure,
   // if solving a fluid-structure interaction problem
   TableHandler structure_mean_position_table;
+
+  // For multiphase flows: volume occupied by each phase
+  TableHandler volume_of_phases;
+
+  // For multiphase flows: center of mass of each phase
+  TableHandler center_of_mass_phases;
+
+  // For multiphase flows: average velocity in each phase
+  TableHandler average_velocity_phases;
 };
 
 /* ---------------- Template functions ----------------- */
@@ -752,6 +797,92 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
     write_table(outfile,
                 structure_mean_position_table,
                 post_proc_param.structure_position);
+  }
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::compute_multiphase_indicators(
+  const ComponentOrdering &ordering,
+  const DoFHandler<dim>   &dof_handler,
+  const Mapping<dim>      &mapping,
+  const Quadrature<dim>   &quadrature,
+  const VectorType        &solution,
+  const TimeHandler       &time_handler)
+{
+  const auto &vol_param = post_proc_param.chns_volumes;
+  const auto &cm_param  = post_proc_param.chns_center_mass;
+  const auto &vel_param = post_proc_param.chns_avg_velocity;
+
+  if (!(vol_param.enable or cm_param.enable or vel_param.enable))
+    return;
+
+  constexpr int                        n_phases = 2;
+  std::array<double, n_phases>         phase_volumes;
+  std::array<Tensor<1, dim>, n_phases> phase_center_of_mass;
+  std::array<Tensor<1, dim>, n_phases> phase_average_velocity;
+
+  PostProcessingTools::compute_multiphase_indicators<dim, n_phases, VectorType>(
+    post_proc_param,
+    ordering,
+    dof_handler,
+    mapping,
+    quadrature,
+    solution,
+    phase_volumes,
+    phase_center_of_mass,
+    phase_average_velocity);
+
+  // Lambda function to announce the computed quantities, add them to table and
+  // write the table to file
+  auto do_postprocessing =
+    [&](const auto &data, const auto &msg, auto &table, const auto &param) {
+      if (!param.enable)
+        return;
+
+      if (param.verbosity == Parameters::Verbosity::verbose)
+      {
+        std::cout << std::setprecision(param.precision);
+        std::cout << msg << " 0:" << data[0] << std::endl;
+        std::cout << msg << " 1:" << data[1] << std::endl;
+      }
+
+      add_multiphase_data_to_table(data, time_handler, table, param);
+
+      if (should_output_postprocessing(time_handler, param))
+      {
+        std::ofstream outfile(output_param.output_dir + param.output_prefix +
+                              ".txt");
+        write_table(outfile, table, param);
+      }
+    };
+
+  // Add to tables and write
+  if (mpi_rank == 0)
+  {
+    // Save std::cout flags
+    std::ios::fmtflags old_flags     = std::cout.flags();
+    unsigned int       old_precision = std::cout.precision();
+    std::cout << std::scientific << std::showpos;
+
+    do_postprocessing(phase_volumes,
+                      "Volume of phase ",
+                      volume_of_phases,
+                      vol_param);
+
+    do_postprocessing(phase_center_of_mass,
+                      "Center of mass of phase ",
+                      center_of_mass_phases,
+                      cm_param);
+
+    do_postprocessing(phase_average_velocity,
+                      "Average velocity in phase ",
+                      average_velocity_phases,
+                      vel_param);
+
+    // Restore flags
+    std::cout.precision(old_precision);
+    std::cout.flags(old_flags);
   }
 }
 

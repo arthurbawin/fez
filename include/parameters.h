@@ -321,6 +321,21 @@ namespace Parameters
       bool         compute_forces_on_slices;
     } slices;
 
+    // For the CHNS solver, compute the volume of each phase
+    struct CHNSPhasesVolume : public PostProcessingBase
+    {
+    } chns_volumes;
+
+    // For the CHNS solver, compute the center of mass of each phase
+    struct CHNSPhasesCenterOfMass : public PostProcessingBase
+    {
+    } chns_center_mass;
+
+    // For the CHNS solver, compute the average velocity in each phase
+    struct CHNSPhasesAvgVelocity : public PostProcessingBase
+    {
+    } chns_avg_velocity;
+
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
   };

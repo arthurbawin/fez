@@ -220,6 +220,62 @@ void PostProcessingHandler<dim>::add_position_to_table(
 }
 
 template <int dim>
+template <typename DataType>
+void PostProcessingHandler<dim>::add_multiphase_data_to_table(
+  const std::array<DataType, 2>                        &data_for_phases,
+  const TimeHandler                                    &time_handler,
+  TableHandler                                         &table,
+  const Parameters::PostProcessing::PostProcessingBase &pp_param)
+{
+  if constexpr (std::is_same_v<DataType, Tensor<1, dim>>)
+  {
+    std::vector<std::string> dim_str = {"x", "y", "z"};
+    table.add_value("time", time_handler.current_time);
+    for (unsigned int i = 0; i < 2; ++i)
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        std::string key = "phase" + std::to_string(i) + "_" + dim_str[d];
+        table.add_value(key, data_for_phases[i][d]);
+        table.set_precision(key, pp_param.precision);
+        table.set_scientific(key, true);
+      }
+  }
+  else
+  {
+    table.add_value("time", time_handler.current_time);
+    for (unsigned int i = 0; i < 2; ++i)
+    {
+      std::string key = "phase" + std::to_string(i);
+      table.add_value(key, data_for_phases[i]);
+      table.set_precision(key, pp_param.precision);
+      table.set_scientific(key, true);
+    }
+  }
+}
+
+// Explicit instantiations for dim = 2,3, two phases and double/Tensor<1, dim>
+template void PostProcessingHandler<2>::add_multiphase_data_to_table(
+  const std::array<Tensor<1, 2>, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingBase &);
+template void PostProcessingHandler<3>::add_multiphase_data_to_table(
+  const std::array<Tensor<1, 3>, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingBase &);
+template void PostProcessingHandler<2>::add_multiphase_data_to_table(
+  const std::array<double, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingBase &);
+template void PostProcessingHandler<3>::add_multiphase_data_to_table(
+  const std::array<double, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingBase &);
+
+template <int dim>
 void PostProcessingHandler<dim>::write_table(
   std::ostream                                         &out,
   const TableHandler                                   &table,

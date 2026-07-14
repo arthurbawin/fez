@@ -597,6 +597,19 @@ void CHNSSolver<dim, with_moving_mesh>::compute_solver_specific_errors()
                                "mu");
 }
 
+template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::solver_specific_post_processing()
+{
+  TimerOutput::Scope t(this->computing_timer, "Compute multiphase indicators");
+
+  this->postproc_handler->compute_multiphase_indicators(*this->ordering,
+                                                        *this->dof_handler,
+                                                        *this->moving_mapping,
+                                                        *this->quadrature,
+                                                        *this->present_solution,
+                                                        this->time_handler);
+}
+
 // Explicit instantiation
 template class CHNSSolver<2, false>;
 template class CHNSSolver<3, false>;

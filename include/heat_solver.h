@@ -189,7 +189,7 @@ public:
   /**
    *
    */
-  void postprocess_solution();
+  void postprocess_solution(const unsigned int interval_index);
 
   /**
    *
@@ -208,7 +208,9 @@ public:
   /**
    *
    */
-  virtual void output_results(const bool         is_prerefinement_step = false,
+  virtual void output_results(const bool         is_time_subinterval   = false,
+                              const unsigned int interval_index        = 0,
+                              const bool         is_prerefinement_step = false,
                               const unsigned int prerefinement_step    = 0);
 
   /**

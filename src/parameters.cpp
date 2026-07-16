@@ -202,6 +202,12 @@ namespace Parameters
                             "Refinement strategy used by deal.II's "
                             "refine_and_coarsen routines");
           prm.declare_entry(
+            "variables for adaptation",
+            "velocity",
+            Patterns::List(Patterns::Selection(
+              std::string(SolverInfo::variable_names_for_param))),
+            "Comma-separated list of variables used for mesh adaptation");
+          prm.declare_entry(
             "fraction to refine",
             // As suggested in grid_refinement.h, use as default
             // the fractions that lead to doubling the number of cells
@@ -227,6 +233,11 @@ namespace Parameters
                             "1000000",
                             Patterns::Integer(0),
                             "Maximum number of mesh cells allowed");
+          prm.declare_entry(
+            "number of steady adaptation steps",
+            "0",
+            Patterns::Integer(0),
+            "Number of adaptation steps for steady-state computations");
           prm.declare_entry(
             "number of prerefinement steps",
             "0",
@@ -305,6 +316,13 @@ namespace Parameters
                         ExcMessage(
                           "Unexpected mesh adaptation refinement strategy: " +
                           parsed_strategy));
+          const auto parsed_variable_list =
+            Utilities::split_string_list(prm.get("variables for adaptation"),
+                                         ",");
+          t.variables_for_adaptation.clear();
+          for (const auto &var : parsed_variable_list)
+            t.variables_for_adaptation.push_back(
+              SolverInfo::to_variable_type(var));
           t.fraction_to_refine  = prm.get_double("fraction to refine");
           t.fraction_to_coarsen = prm.get_double("fraction to coarsen");
           AssertThrow(t.fraction_to_refine + t.fraction_to_coarsen < 1 + 1e-12,
@@ -318,6 +336,8 @@ namespace Parameters
                         "The maximum allowed grid refinement level should be "
                         "greater than or equal to the minimum allowed level."));
           t.max_n_cells = prm.get_integer("max number of cells");
+          t.n_steady_adaptation_steps =
+            prm.get_integer("number of steady adaptation steps");
           t.n_prerefinement_steps =
             prm.get_integer("number of prerefinement steps");
           t.adapt_frequency = prm.get_integer("adapt frequency");

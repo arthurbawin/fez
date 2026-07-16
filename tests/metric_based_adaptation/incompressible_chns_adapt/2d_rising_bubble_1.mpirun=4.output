@@ -1,0 +1,269 @@
+Number of MPI processes: 4
+
+Run with metric-based mesh adaptation - Fixed-point iteration 1/2
+
+Time sub-interval 1/2 : t in [0, 0.02]
+Reading mesh file: ../../../rising_bubble.msh
+
+Mesh info:
+ dimension: 2
+ no. of cells: 1024
+ boundary indicators: 1(32 faces) 2(32 faces) 3(16 faces) 4(16 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+ID 5 -> Domain
+Number of degrees of freedom: 5973
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 1 - Advancing to t = 0.001.
+Newton iter.  0:          nonlinear residual = 4.67077538e+01
+Newton iter.  1:          nonlinear residual = 1.27124236e-01	(M)
+Newton iter.  2:          nonlinear residual = 6.91760054e-07	(M)
+Newton iter.  3:          nonlinear residual = 7.09893520e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 2 - Advancing to t = 1.00e-02.
+Newton iter.  0:          nonlinear residual = 4.58030379e+01
+Newton iter.  1:          nonlinear residual = 4.78356602e-01	(M)
+Newton iter.  2:          nonlinear residual = 4.94033175e-04	(M)
+Newton iter.  3:          nonlinear residual = 2.13803290e-07	(M)
+Newton iter.  4:          nonlinear residual = 1.16444760e-10	(M)
+Newton iter.  5:          nonlinear residual = 4.87264197e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 3 - Advancing to t = 2.00e-02.
+Newton iter.  0:          nonlinear residual = 2.49159465e+01
+Newton iter.  1:          nonlinear residual = 1.26313862e-01	(M)
+Newton iter.  2:          nonlinear residual = 2.23066398e-04	(M)
+Newton iter.  3:          nonlinear residual = 2.29942262e-07	(M)
+Newton iter.  4:          nonlinear residual = 2.47538032e-10	(M)
+Newton iter.  5:          nonlinear residual = 5.53582750e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time sub-interval 2/2 : t in [2.00e-02, 4.00e-02]
+Reading mesh file: ../../../rising_bubble.msh
+
+Mesh info:
+ dimension: 2
+ no. of cells: 1024
+ boundary indicators: 1(32 faces) 2(32 faces) 3(16 faces) 4(16 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+ID 5 -> Domain
+Number of degrees of freedom: 5973
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 4 - Advancing to t = 3.00e-02.
+Newton iter.  0:          nonlinear residual = 2.18298759e+01
+Newton iter.  1:          nonlinear residual = 9.56960674e-02	(M)
+Newton iter.  2:          nonlinear residual = 9.37530184e-05	(M)
+Newton iter.  3:          nonlinear residual = 1.15869307e-07	(M)
+Newton iter.  4:          nonlinear residual = 1.50466063e-10	(M)
+Newton iter.  5:          nonlinear residual = 5.07171506e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 5 - Advancing to t = 4.00e-02.
+Newton iter.  0:          nonlinear residual = 2.06852265e+01
+Newton iter.  1:          nonlinear residual = 1.08979505e-01	(M)
+Newton iter.  2:          nonlinear residual = 9.93300126e-05	(M)
+Newton iter.  3:          nonlinear residual = 1.18290172e-07	(M)
+Newton iter.  4:          nonlinear residual = 1.42885166e-10	(M)
+Newton iter.  5:          nonlinear residual = 5.14631860e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+Summary of all time sub-intervals
+| Interval | from   | to     | Time steps | # of vertices | # of elements | # of dofs | 
+| 0        | 0.0000 | 0.0200 | 3          | 561           | 1024          | 5973      | 
+| 1        | 0.0200 | 0.0400 | 2          | 561           | 1024          | 5973      | 
+
+Applying partition-independent metric gradation on root process...
+Target gradation value : 1.80e+00
+Sweep   1 - Number of modified edges: 998
+Sweep   2 - Number of modified edges: 389
+Sweep   3 - Number of modified edges: 239
+Sweep   4 - Number of modified edges: 209
+Sweep   5 - Number of modified edges: 148
+Sweep   6 - Number of modified edges: 112
+Sweep   7 - Number of modified edges: 94
+Sweep   8 - Number of modified edges: 36
+Sweep   9 - Number of modified edges: 25
+Sweep  10 - Number of modified edges: 15
+Sweep  11 - Number of modified edges: 9
+Sweep  12 - Number of modified edges: 18
+Sweep  13 - Number of modified edges: 0
+
+Applying partition-independent metric gradation on root process...
+Target gradation value : 1.80e+00
+Sweep   1 - Number of modified edges: 914
+Sweep   2 - Number of modified edges: 323
+Sweep   3 - Number of modified edges: 148
+Sweep   4 - Number of modified edges: 117
+Sweep   5 - Number of modified edges: 54
+Sweep   6 - Number of modified edges: 29
+Sweep   7 - Number of modified edges: 12
+Sweep   8 - Number of modified edges: 3
+Sweep   9 - Number of modified edges: 1
+Sweep  10 - Number of modified edges: 0
+
+-- Adapting meshes on all time intervals :
+
+-- Adapting the mesh with Gmsh and MMG for time interval 0...
+	Current mesh file                 : ../../../rising_bubble.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh
+	Number of mesh vertices after adaptation : 561
+
+
+-- Adapting the mesh with Gmsh and MMG for time interval 1...
+	Current mesh file                 : ../../../rising_bubble.msh
+	Target mesh file after adaptation : ././adapted_1.msh
+	Successfully adapted the mesh
+	Number of mesh vertices after adaptation : 637
+
+
+Run with metric-based mesh adaptation - Fixed-point iteration 2/2
+
+Time sub-interval 1/2 : t in [0.00e+00, 2.00e-02]
+Reading mesh file: ././adapted_0.msh
+
+Mesh info:
+ dimension: 2
+ no. of cells: 1096
+ boundary indicators: 1(9 faces) 2(7 faces) 3(6 faces) 4(2 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+ID 5 -> Domain
+Number of degrees of freedom: 6117
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 1 - Advancing to t = 1.00e-03.
+Newton iter.  0:          nonlinear residual = 1.77158865e+02
+Newton iter.  1:          nonlinear residual = 2.18926789e-02	(M)
+Newton iter.  2:          nonlinear residual = 1.15710443e-07	(M)
+Newton iter.  3:          nonlinear residual = 5.81531803e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 2 - Advancing to t = 1.00e-02.
+Newton iter.  0:          nonlinear residual = 1.94271185e+01
+Newton iter.  1:          nonlinear residual = 6.06730296e-02	(M)
+Newton iter.  2:          nonlinear residual = 4.73885777e-07	(M)
+Newton iter.  3:          nonlinear residual = 3.75169720e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 3 - Advancing to t = 2.00e-02.
+Newton iter.  0:          nonlinear residual = 1.53051103e+01
+Newton iter.  1:          nonlinear residual = 1.46392163e-02	(M)
+Newton iter.  2:          nonlinear residual = 3.22819633e-07	(M)
+Newton iter.  3:          nonlinear residual = 5.10775192e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time sub-interval 2/2 : t in [2.00e-02, 4.00e-02]
+Reading mesh file: ././adapted_1.msh
+
+Mesh info:
+ dimension: 2
+ no. of cells: 1245
+ boundary indicators: 1(10 faces) 2(8 faces) 3(7 faces) 4(2 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+ID 5 -> Domain
+Number of degrees of freedom: 6947
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 4 - Advancing to t = 3.00e-02.
+Newton iter.  0:          nonlinear residual = 1.32258483e+01
+Newton iter.  1:          nonlinear residual = 8.16729767e-02	(M)
+Newton iter.  2:          nonlinear residual = 8.57023727e-06	(M)
+Newton iter.  3:          nonlinear residual = 6.38310600e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+Time step 5 - Advancing to t = 4.00e-02.
+Newton iter.  0:          nonlinear residual = 1.31772155e+01
+Newton iter.  1:          nonlinear residual = 4.06194602e-02	(M)
+Newton iter.  2:          nonlinear residual = 3.29284576e-07	(M)
+Newton iter.  3:          nonlinear residual = 5.04643658e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+-- Reconstructing solution and derivatives of order up to 2...
+Summary of all time sub-intervals
+| Interval | from   | to     | Time steps | # of vertices | # of elements | # of dofs | 
+| 0        | 0.0000 | 0.0200 | 3          | 561           | 1096          | 6117      | 
+| 1        | 0.0200 | 0.0400 | 2          | 637           | 1245          | 6947      | 
+
+Applying partition-independent metric gradation on root process...
+Target gradation value : 1.80e+00
+Sweep   1 - Number of modified edges: 859
+Sweep   2 - Number of modified edges: 410
+Sweep   3 - Number of modified edges: 284
+Sweep   4 - Number of modified edges: 200
+Sweep   5 - Number of modified edges: 158
+Sweep   6 - Number of modified edges: 116
+Sweep   7 - Number of modified edges: 72
+Sweep   8 - Number of modified edges: 39
+Sweep   9 - Number of modified edges: 22
+Sweep  10 - Number of modified edges: 9
+Sweep  11 - Number of modified edges: 11
+Sweep  12 - Number of modified edges: 7
+Sweep  13 - Number of modified edges: 2
+Sweep  14 - Number of modified edges: 0
+
+Applying partition-independent metric gradation on root process...
+Target gradation value : 1.80e+00
+Sweep   1 - Number of modified edges: 899
+Sweep   2 - Number of modified edges: 391
+Sweep   3 - Number of modified edges: 275
+Sweep   4 - Number of modified edges: 204
+Sweep   5 - Number of modified edges: 151
+Sweep   6 - Number of modified edges: 107
+Sweep   7 - Number of modified edges: 69
+Sweep   8 - Number of modified edges: 41
+Sweep   9 - Number of modified edges: 25
+Sweep  10 - Number of modified edges: 6
+Sweep  11 - Number of modified edges: 10
+Sweep  12 - Number of modified edges: 2
+Sweep  13 - Number of modified edges: 1
+Sweep  14 - Number of modified edges: 0
+
+-- Adapting meshes on all time intervals :
+
+-- Adapting the mesh with Gmsh and MMG for time interval 0...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh
+	Number of mesh vertices after adaptation : 646
+
+
+-- Adapting the mesh with Gmsh and MMG for time interval 1...
+	Current mesh file                 : ././adapted_1.msh
+	Target mesh file after adaptation : ././adapted_1.msh
+	Successfully adapted the mesh
+	Number of mesh vertices after adaptation : 697

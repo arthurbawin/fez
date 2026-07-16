@@ -95,8 +95,10 @@ public:
   void output_fields(const Mapping<dim> &mapping,
                      const VectorType   &solution,
                      const TimeHandler  &time_handler,
-                     const bool          is_prerefinement_step = false,
-                     const unsigned int  prerefinement_step    = 0);
+                     const bool          is_time_subinterval,
+                     const unsigned int  interval_index,
+                     const bool          is_prerefinement_step,
+                     const unsigned int  prerefinement_step);
 
   /**
    * Write the .pvd files (volume and skin, if applicable).
@@ -274,6 +276,8 @@ private:
   void output_volume_fields(const Mapping<dim> &mapping,
                             const VectorType   &solution,
                             const TimeHandler  &time_handler,
+                            const bool          is_time_subinterval,
+                            const unsigned int  interval_index,
                             const bool          is_prerefinement_step,
                             const unsigned int  prerefinement_step);
 
@@ -286,6 +290,8 @@ private:
   void output_skin_fields(const Mapping<dim> &mapping,
                           const VectorType   &solution,
                           const TimeHandler  &time_handler,
+                          const bool          is_time_subinterval,
+                          const unsigned int  interval_index,
                           const bool          is_prerefinement_step,
                           const unsigned int  prerefinement_step);
 
@@ -415,6 +421,8 @@ void PostProcessingHandler<dim>::output_fields(
   const Mapping<dim> &mapping,
   const VectorType   &solution,
   const TimeHandler  &time_handler,
+  const bool          is_time_subinterval,
+  const unsigned int  interval_index,
   const bool          is_prerefinement_step,
   const unsigned int  prerefinement_step)
 {
@@ -439,6 +447,8 @@ void PostProcessingHandler<dim>::output_fields(
     output_volume_fields(mapping,
                          solution,
                          time_handler,
+                         is_time_subinterval,
+                         interval_index,
                          is_prerefinement_step,
                          prerefinement_step);
 
@@ -447,6 +457,8 @@ void PostProcessingHandler<dim>::output_fields(
     output_skin_fields(mapping,
                        solution,
                        time_handler,
+                       is_time_subinterval,
+                       interval_index,
                        is_prerefinement_step,
                        prerefinement_step);
 
@@ -461,6 +473,8 @@ void PostProcessingHandler<dim>::output_volume_fields(
   const Mapping<dim> &mapping,
   const VectorType   &solution,
   const TimeHandler  &time_handler,
+  const bool          is_time_subinterval,
+  const unsigned int  interval_index,
   const bool          is_prerefinement_step,
   const unsigned int  prerefinement_step)
 {
@@ -477,6 +491,8 @@ void PostProcessingHandler<dim>::output_volume_fields(
   std::string prefix = output_param.output_prefix;
   if (mms_param.enable)
     prefix += "_convergence_step_" + std::to_string(mms_param.current_step);
+  if (is_time_subinterval)
+    prefix += "_time_interval_" + std::to_string(interval_index);
   if (is_prerefinement_step)
     prefix += "_prerefinement_step_" + std::to_string(prerefinement_step);
 
@@ -491,6 +507,28 @@ void PostProcessingHandler<dim>::output_volume_fields(
     prerefinements_pseudotimes_and_names.emplace_back(
       static_cast<double>(prerefinement_step), pvtu_file);
   else
+  {
+    /**
+     * When using more than one time subinterval, we currently output at the end
+     * of an interval the solution on both the previous and current interval, to
+     * assess the quality of the solution transfer between meshes. These
+     * solutions are associated with the same time, and ParaView does not seem
+     * to show both solutions if the "timestep" in the same in the .pvd file.
+     * The "part" keyword does not seem to help either.
+     *
+     * Instead, the timestep at the beginning of an interval is set to t +
+     * epsilon.
+     */
+    double current_time = time_handler.current_time;
+    if (is_time_subinterval && interval_index > 0 &&
+        time_handler.current_time_iteration_in_interval == 0)
+    {
+      const double eps = 1e-12;
+      // Make sure the time step is greater than this epsilon, just in case
+      Assert(time_handler.get_current_timestep() > eps, ExcInternalError());
+      current_time += eps;
+    }
+
     /**
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
@@ -498,8 +536,9 @@ void PostProcessingHandler<dim>::output_volume_fields(
     visualization_times_and_names.emplace_back(
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        time_handler.current_time,
+        current_time,
       pvtu_file);
+  }
 
   data_out->clear_data_vectors();
 }
@@ -510,6 +549,8 @@ void PostProcessingHandler<dim>::output_skin_fields(
   const Mapping<dim> &mapping,
   const VectorType   &solution,
   const TimeHandler  &time_handler,
+  const bool          is_time_subinterval,
+  const unsigned int  interval_index,
   const bool          is_prerefinement_step,
   const unsigned int  prerefinement_step)
 {
@@ -541,6 +582,8 @@ void PostProcessingHandler<dim>::output_skin_fields(
     output_param.output_prefix + "_" + output_param.skin.output_prefix;
   if (mms_param.enable)
     prefix += "_convergence_step_" + std::to_string(mms_param.current_step);
+  if (is_time_subinterval)
+    prefix += "_time_interval_" + std::to_string(interval_index);
   if (is_prerefinement_step)
     prefix += "_prerefinement_step_" + std::to_string(prerefinement_step);
 
@@ -556,6 +599,18 @@ void PostProcessingHandler<dim>::output_skin_fields(
     prerefinements_pseudotimes_and_names_skin.emplace_back(
       static_cast<double>(prerefinement_step), pvtu_file);
   else
+  {
+    // See comment in output_volume_fields
+    double current_time = time_handler.current_time;
+    if (is_time_subinterval && interval_index > 0 &&
+        time_handler.current_time_iteration_in_interval == 0)
+    {
+      const double eps = 1e-12;
+      // Make sure the time step is greater than this epsilon, just in case
+      Assert(time_handler.get_current_timestep() > eps, ExcInternalError());
+      current_time += eps;
+    }
+
     /**
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
@@ -563,8 +618,9 @@ void PostProcessingHandler<dim>::output_skin_fields(
     visualization_times_and_names_skin.emplace_back(
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        time_handler.current_time,
+        current_time,
       pvtu_file);
+  }
 
   data_out_skin->clear_data_vectors();
 }

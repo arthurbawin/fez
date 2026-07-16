@@ -73,7 +73,8 @@ void TransientFixedPointData<dim>::reinit(
 #if defined(DEAL_II_WITH_P4EST)
       triangulations[i] =
         std::make_unique<parallel::distributed::Triangulation<dim>>(
-          mpi_communicator);
+          mpi_communicator,
+          Triangulation<dim>::limit_level_difference_at_vertices);
 #else
       AssertThrow(false, ExcDealiiNeedsP4EST());
 #endif
@@ -413,10 +414,28 @@ void TransientFixedPointData<dim>::do_solution_transfer(
                              distributed_solution);
     present_solution = distributed_solution;
 
-    // Interpolate previous solutions, at previous times
-    for (unsigned int k = 0; k < this_previous_solutions.size(); ++k)
+    /**
+     * Interpolate previous solutions, at previous times.
+     *
+     * Important: this function is called at the beginning of the interval,
+     * after time_handler.rotate() was called. After this call, the first
+     * previous solution and the current solution match. For instance, for two
+     * intervals of [0,1] and dt = 0.1, after time_handler.rotate() was called
+     * at the end of the first interval [0, 0.5], the stored solutions are:
+     *
+     * present_solution     : sol at t = 0.5
+     * previous_solution[0] : sol at t = 0.5 <--
+     * previous_solution[1] : sol at t = 0.4
+     * previous_solution[2] : sol at t = 0.3 etc.
+     *
+     * Thus, the first previous solution is the present solution, and the
+     * subsequent previous ones are interpolated from the exact solution at
+     * previous times starting from t - dt (and not starting from t - 2*dt).
+     */
+    this_previous_solutions[0] = present_solution;
+    for (unsigned int k = 1; k < this_previous_solutions.size(); ++k)
     {
-      exact_solution.set_time(time_handler.simulation_times[1 + k]);
+      exact_solution.set_time(time_handler.simulation_times[k]);
       VectorTools::interpolate(mapping,
                                dof_handler,
                                exact_solution,

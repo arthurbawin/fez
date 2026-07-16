@@ -60,6 +60,11 @@ public:
   virtual ~NSSolver() = default;
 
   /**
+   * Reset data specific to this solver (e.g., the preconditioner).
+   */
+  virtual void reset_solver_specific_data() override;
+
+  /**
    * Create the scratch data structure for this solver.
    */
   virtual void create_scratch_data() override;
@@ -126,6 +131,17 @@ public:
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
+  /**
+   * Create and initialize the chosen preconditioner.
+   */
+  void create_preconditioner();
+
+  /**
+   * Solve the linear system for a single nonlinear solver iteration.
+   * GMRES is currently the only iterative solver supported for this solver.
+   */
+  virtual void solve_linear_system_iterative() override;
+
 protected:
   /**
    * Get the descriptions (name and number of components) of the variables
@@ -157,6 +173,11 @@ protected:
   std::unique_ptr<ScratchData> scratch_data;
 
   std::vector<std::unique_ptr<Assembler>> assemblers;
+
+  /**
+   * PETSc-based preconditioner, which can be ILU, AMG (BoomerAMG), ...
+   */
+  std::unique_ptr<PETScWrappers::PreconditionBase> preconditioner;
 
   /**
    * Exact solution when performing a convergence study with a manufactured

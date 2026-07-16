@@ -1043,6 +1043,10 @@ namespace Parameters
                         "direct_mumps",
                         Patterns::Selection("direct_mumps|cg|gmres"),
                         "Method");
+      prm.declare_entry("preconditioner",
+                        "none",
+                        Patterns::Selection("none|ilu|block_jacobi|amg"),
+                        "Method");
       prm.declare_entry("tolerance",
                         "1e-6",
                         Patterns::Double(),
@@ -1076,6 +1080,21 @@ namespace Parameters
           method = Method::cg;
         else if (parsed_method == "gmres")
           method = Method::gmres;
+
+        const std::string parsed_prec = prm.get("preconditioner");
+        if (parsed_prec == "none")
+          preconditioner = PreconditionerType::none;
+        else if (parsed_prec == "ilu")
+          preconditioner = PreconditionerType::ilu;
+        else if (parsed_prec == "block_jacobi")
+          preconditioner = PreconditionerType::block_jacobi;
+        else if (parsed_prec == "amg")
+          preconditioner = PreconditionerType::amg;
+        else
+          AssertThrow(false,
+                      ExcMessage("Unknown preconditioner type: " +
+                                 parsed_prec));
+
         tolerance      = prm.get_double("tolerance");
         max_iterations = prm.get_integer("max iterations");
         ilu_fill_level = prm.get_integer("ilu fill level");

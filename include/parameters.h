@@ -540,6 +540,14 @@ namespace Parameters
       gmres
     } method;
 
+    enum class PreconditionerType
+    {
+      none,
+      ilu,
+      block_jacobi,
+      amg
+    } preconditioner;
+
     // Tolerance and max number of iterations for iterative solvers
     double       tolerance;
     unsigned int max_iterations;

@@ -1,6 +1,6 @@
 
 subsection Dimension
-  set dimension = 3
+  set dimension = 2
 end
 
 subsection Timer
@@ -8,9 +8,9 @@ subsection Timer
 end
 
 subsection Output
-  set write vtu results    = false
-  set output directory = ../data/mms/
-  set output prefix    = solution
+  set write vtu results = false
+  set output directory  = ../data/mms/
+  set output prefix     = solution
 end
 
 subsection Mesh
@@ -21,8 +21,8 @@ subsection Time integration
   set verbosity = quiet
   set dt        = 0.1
   set t_initial = 0
-  set t_end     = 0.4
-  set scheme    = BDF2
+  set t_end     = 0.5
+  set scheme    = BDF1
 end
 
 subsection Nonlinear solver
@@ -32,13 +32,15 @@ subsection Nonlinear solver
   set max_iterations       = 50
   set enable_line_search   = false
   set analytic_jacobian    = true
-end 
+end
 
 subsection Linear solver
   subsection main physics
     set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set method         = gmres
+    set preconditioner = amg
+    set tolerance      = 1e-9
+    set max iterations = 1000
   end
 end
 
@@ -64,7 +66,7 @@ subsection Initial conditions
 end
 
 subsection Fluid boundary conditions
-  set number = 6
+  set number = 4
   set fix pressure constant = true
   subsection boundary 0
     set id   = 1
@@ -86,26 +88,14 @@ subsection Fluid boundary conditions
     set name = y_max
     set type = velocity_mms
   end
-  subsection boundary 4
-    set id   = 5
-    set name = z_min
-    set type = velocity_mms
-  end
-  subsection boundary 5
-    set id   = 6
-    set name = z_max
-    set type = velocity_mms
-  end
 end
 
 subsection Exact solution
-    # Divergence-free velocity field
   subsection exact velocity
-    set Function expression = cos(t) * sin(pi*x)*cos(pi*y)*cos(pi*z); 1/(1 + t^2) * cos(pi*x)*sin(pi*y)*cos(pi*z); sin(t) * (-2.)*cos(pi*x)*cos(pi*y)*sin(pi*z)
+    set Function expression =sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * cos(t); cos(pi*x)*sin(pi*x)*sin(pi*y)*sin(pi*y) * 1/(1 + t^2)
   end
-
   subsection exact pressure
-    set Function expression = cos(t)*cos(pi*x)*sin(pi*y)*cos(pi*z)
+    set Function expression = sin(pi*x)*sin(pi*x)*cos(pi*y)*sin(pi*y) * sin(t)
   end
 end
 
@@ -120,9 +110,10 @@ subsection Manufactured solution
   end
 
   subsection Time convergence
-    set norm                = Linfty
-    set use spatial mesh    = true
-    set spatial mesh index  = 0
-    set time step reduction = 0.5
+    set norm                 = Linfty
+    set use spatial mesh     = true
+    set spatial mesh index   = 1
+    set time step reduction  = 0.5
   end
 end
+

@@ -303,7 +303,18 @@ public:
   /**
    * Solve the linear system for a single nonlinear solver iteration.
    */
-  virtual void solve_linear_system() override;
+  virtual void solve_linear_system() override final;
+
+  /**
+   * Solve the linear system for a single nonlinear solver iteration
+   * using an iterative solver (e.g., GMRES).
+   *
+   * Although this function is not pure virtual, the base class does not provide
+   * a default implementation and will throw if called. Each derived solver
+   * should specify which choices of iterative solvers and preconditioners are
+   * suitable.
+   */
+  virtual void solve_linear_system_iterative();
 
   /**
    * Post-process the numerical solution: output for visualization,
@@ -612,6 +623,12 @@ NavierStokesSolver<dim, with_moving_mesh>::get_nonzero_constraints()
 {
   return nonzero_constraints;
 }
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system_iterative()
+{
+  AssertThrow(false, ExcPureFunctionCalled());
+};
 
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::write_forces(

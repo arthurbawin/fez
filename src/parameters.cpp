@@ -1,5 +1,6 @@
 
 #include <assembly/chns_enlarged_forms.h>
+#include <deal.II/differentiation/sd.h>
 #include <deal.II/differentiation/sd/symengine_tensor_operations.h>
 #include <parameters.h>
 #include <solver_info.h>
@@ -9,7 +10,7 @@
 
 namespace Parameters
 {
-  using namespace Differentiation::SD;
+  using Differentiation::SD::Expression;
 
   /**
    * These should agree with the declare_entry in utilities.h
@@ -337,6 +338,25 @@ namespace Parameters
           "Compute and write the hydrodynamic forces on each slice");
       }
       prm.leave_subsection();
+
+      prm.enter_subsection("flow diagnostics");
+      {
+        prm.declare_entry("enable",
+                          "false",
+                          Patterns::Bool(),
+                          "Enable/disable flow diagnostic fields in the main "
+                          "VTU output.");
+        prm.declare_entry("compute vorticity",
+                          "false",
+                          Patterns::Bool(),
+                          "Compute and export the continuous vorticity field.");
+        prm.declare_entry("compute Q criterion",
+                          "false",
+                          Patterns::Bool(),
+                          "Compute and export the continuous Q criterion "
+                          "field.");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -385,6 +405,16 @@ namespace Parameters
         slices.along_which_axis         = prm.get("along which axis");
         slices.n_slices                 = prm.get_integer("number of slices");
         slices.compute_forces_on_slices = prm.get_bool("compute forces");
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("flow diagnostics");
+      {
+        flow_diagnostics.enable = prm.get_bool("enable");
+        flow_diagnostics.compute_vorticity =
+          prm.get_bool("compute vorticity");
+        flow_diagnostics.compute_qcriterion =
+          prm.get_bool("compute Q criterion");
       }
       prm.leave_subsection();
     }

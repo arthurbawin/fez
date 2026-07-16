@@ -77,6 +77,14 @@ public:
   void add_dof_data_vector(const VectorType               &data,
                            const std::vector<std::string> &names);
 
+  template <typename VectorType>
+  void add_dof_data_vector(
+    const VectorType               &data,
+    const std::vector<std::string> &names,
+    const std::vector<
+      DataComponentInterpretation::DataComponentInterpretation>
+      &component_interpretation);
+
   void add_cell_dg0_data_field(
     std::unique_ptr<PostProcessingTools::DG0DataField<dim>> field);
 
@@ -368,10 +376,22 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
   const VectorType               &data,
   const std::vector<std::string> &names)
 {
+  add_dof_data_vector(data, names, data_component_interpretation);
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::add_dof_data_vector(
+  const VectorType               &data,
+  const std::vector<std::string> &names,
+  const std::vector<
+    DataComponentInterpretation::DataComponentInterpretation>
+    &component_interpretation)
+{
   data_out->add_data_vector(data,
                             names,
                             DataOut<dim>::type_dof_data,
-                            data_component_interpretation);
+                            component_interpretation);
 }
 
 template <int dim>

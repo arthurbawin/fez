@@ -21,6 +21,7 @@
 #include <mumps_solver.h>
 #include <parameter_reader.h>
 #include <post_processing_handler.h>
+#include <post_processing_tools.h>
 #include <time_handler.h>
 #include <types.h>
 
@@ -412,6 +413,12 @@ public:
   void restart();
 
   /**
+   * Add recovered flow diagnostics, such as vorticity and Q criterion, to the
+   * main VTU output.
+   */
+  void add_flow_diagnostics_postprocessing_data();
+
+  /**
    * Save this object to file. See also the comments for the checkpoint()
    * function. This function currently only saves the present and previous
    * solution vectors.
@@ -499,6 +506,8 @@ protected:
 
 protected:
   std::unique_ptr<ComponentOrdering> ordering;
+  PostProcessingTools::RecoveredVelocityGradientData<dim>
+    recovered_velocity_gradient_data;
 
   LinearElasticitySolver<dim> *presolver = nullptr;
 

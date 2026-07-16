@@ -1,7 +1,30 @@
 
+#include <h_target_fsi_solver.h>
 #include <monolithic_fsi_solver.h>
 #include <parameter_reader.h>
 #include <utilities.h>
+
+template <int dim>
+void
+run_monolithic_fsi_solver(const ParameterReader<dim> &param)
+{
+  if (param.h_target.enable_h_target_equation)
+  {
+    FSISolverHTarget<dim> problem(param);
+    if (param.mms_param.enable)
+      problem.template run_convergence_loop<dim>();
+    else
+      problem.run();
+  }
+  else
+  {
+    FSISolver<dim> problem(param);
+    if (param.mms_param.enable)
+      problem.template run_convergence_loop<dim>();
+    else
+      problem.run();
+  }
+}
 
 int main(int argc, char *argv[])
 {
@@ -37,11 +60,7 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      FSISolver<2> problem(param);
-      if (param.mms_param.enable)
-        problem.run_convergence_loop<2>();
-      else
-        problem.run();
+      run_monolithic_fsi_solver(param);
     }
     else if (dim == 3)
     {
@@ -52,11 +71,7 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      FSISolver<3> problem(param);
-      if (param.mms_param.enable)
-        problem.run_convergence_loop<3>();
-      else
-        problem.run();
+      run_monolithic_fsi_solver(param);
     }
     else
     {

@@ -12,6 +12,8 @@
 #include <parameter_reader.h>
 #include <parameters.h>
 
+#include <fstream>
+
 namespace MeshTools
 {
   /**
@@ -611,9 +613,14 @@ namespace MeshTools
 
       if (param.debug.write_dealii_mesh_as_msh)
       {
-        GridOut grid_out;
-        grid_out.write_msh(serial_triangulation,
-                           param.output.output_dir + "mesh_from_dealii.msh");
+        GridOut           grid_out;
+        const std::string output_filename =
+          param.output.output_dir + "mesh_from_dealii.msh";
+        std::ofstream output(output_filename);
+        AssertThrow(output,
+                    ExcMessage("Could not open mesh file for writing: " +
+                               output_filename));
+        grid_out.write_msh(serial_triangulation, output);
       }
     }
     else

@@ -242,6 +242,14 @@ namespace Parameters
       bool         compute_forces_on_slices;
     } slices;
 
+    // Generic flow diagnostics exported in the main VTU file.
+    struct FlowDiagnostics
+    {
+      bool enable             = false;
+      bool compute_vorticity  = false;
+      bool compute_qcriterion = false;
+    } flow_diagnostics;
+
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
   };

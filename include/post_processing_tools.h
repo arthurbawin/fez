@@ -16,8 +16,12 @@
 #include <deal.II/numerics/data_component_interpretation.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/data_out_faces.h>
+#include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
+#include <parameter_reader.h>
 #include <stabilization_utils.h>
 
+#include <array>
 #include <limits>
 #include <memory>
 
@@ -218,6 +222,74 @@ namespace PostProcessingTools
                                    const types::boundary_id  boundary_id,
                                    const unsigned int        n_slices,
                                    const SliceAxis           axis);
+
+  template <int dim>
+  Tensor<1, dim>
+  compute_vorticity_from_velocity_gradient(const Tensor<2, dim> &grad_u);
+
+  template <int dim>
+  double
+  compute_qcriterion_from_velocity_gradient(const Tensor<2, dim> &grad_u);
+
+  template <int dim>
+  struct RecoveredVelocityGradientData
+  {
+    std::array<std::shared_ptr<ErrorEstimation::PatchHandler<dim>>, dim>
+      patch_handlers;
+    std::array<
+      std::shared_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>>,
+      dim>
+      recoveries;
+    std::array<ComponentMask, dim> velocity_component_masks;
+
+    bool initialized = false;
+  };
+
+  template <int dim, typename VectorType>
+  void initialize_recovered_velocity_gradient_data(
+    const ParameterReader<dim>                        &param,
+    const parallel::DistributedTriangulationBase<dim> &triangulation,
+    const DoFHandler<dim>                             &dof_handler,
+    const Mapping<dim>                                &mapping,
+    const VectorType                                  &solution,
+    const FiniteElement<dim>                          &fe,
+    const FEValuesExtractors::Vector                  &velocity_extractor,
+    RecoveredVelocityGradientData<dim>                &data);
+
+  template <int dim, typename VectorType>
+  void update_recovered_velocity_gradient_data(
+    const Mapping<dim>                 &moving_mapping,
+    const VectorType                   &solution,
+    RecoveredVelocityGradientData<dim> &data);
+
+  template <int dim>
+  std::array<std::vector<unsigned int>, dim>
+  build_local_component_shape_to_dof_table(
+    const FiniteElement<dim>         &fe,
+    const FEValuesExtractors::Vector &vector_extractor);
+
+  template <int dim>
+  Tensor<2, dim>
+  get_recovered_velocity_gradient_at_velocity_dofs(
+    const RecoveredVelocityGradientData<dim>       &data,
+    const std::array<types::global_dof_index, dim> &velocity_component_dofs);
+
+  template <int dim>
+  void compute_recovered_vorticity_dof_vector(
+    const DoFHandler<dim>              &dof_handler,
+    const FiniteElement<dim>           &fe,
+    RecoveredVelocityGradientData<dim> &data,
+    const FEValuesExtractors::Vector   &velocity_extractor,
+    LA::ParVectorType                  &vorticity_dof_vector);
+
+  template <int dim>
+  void compute_recovered_qcriterion_dof_vector(
+    const DoFHandler<dim>              &dof_handler,
+    const FiniteElement<dim>           &fe,
+    RecoveredVelocityGradientData<dim> &data,
+    const FEValuesExtractors::Vector   &velocity_extractor,
+    const FEValuesExtractors::Scalar   &qcriterion_output_extractor,
+    LA::ParVectorType                  &qcriterion_dof_vector);
 
   /**
    * Discontinuous degree-zero auxiliary field used to export cellwise vector
@@ -922,6 +994,347 @@ double PostProcessingTools::compute_max_cfl(
     previous_solutions,
     bdf_coefficients,
     position_extractor);
+}
+
+template <int dim>
+Tensor<1, dim>
+PostProcessingTools::compute_vorticity_from_velocity_gradient(
+  const Tensor<2, dim> &grad_u)
+{
+  Tensor<1, dim> omega;
+
+  if constexpr (dim == 2)
+  {
+    omega[0] = grad_u[1][0] - grad_u[0][1];
+    omega[1] = 0.;
+  }
+  else if constexpr (dim == 3)
+  {
+    omega[0] = grad_u[2][1] - grad_u[1][2];
+    omega[1] = grad_u[0][2] - grad_u[2][0];
+    omega[2] = grad_u[1][0] - grad_u[0][1];
+  }
+  else
+  {
+    DEAL_II_NOT_IMPLEMENTED();
+  }
+
+  return omega;
+}
+
+template <int dim>
+double
+PostProcessingTools::compute_qcriterion_from_velocity_gradient(
+  const Tensor<2, dim> &grad_u)
+{
+  double norm_S_squared     = 0.;
+  double norm_Omega_squared = 0.;
+
+  for (unsigned int i = 0; i < dim; ++i)
+    for (unsigned int j = 0; j < dim; ++j)
+    {
+      const double S_ij     = 0.5 * (grad_u[i][j] + grad_u[j][i]);
+      const double Omega_ij = 0.5 * (grad_u[i][j] - grad_u[j][i]);
+
+      norm_S_squared += S_ij * S_ij;
+      norm_Omega_squared += Omega_ij * Omega_ij;
+    }
+
+  return 0.5 * (norm_Omega_squared - norm_S_squared);
+}
+
+template <int dim, typename VectorType>
+void PostProcessingTools::initialize_recovered_velocity_gradient_data(
+  const ParameterReader<dim>                        &param,
+  const parallel::DistributedTriangulationBase<dim> &triangulation,
+  const DoFHandler<dim>                             &dof_handler,
+  const Mapping<dim>                                &mapping,
+  const VectorType                                  &solution,
+  const FiniteElement<dim>                          &fe,
+  const FEValuesExtractors::Vector                  &velocity_extractor,
+  RecoveredVelocityGradientData<dim>                &data)
+{
+  if (data.initialized)
+    return;
+
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    const FEValuesExtractors::Scalar velocity_component(
+      velocity_extractor.first_vector_component + d);
+    const ComponentMask mask = fe.component_mask(velocity_component);
+
+    AssertThrow(mask.n_selected_components(fe.n_components()) == 1,
+                ExcMessage("Velocity-gradient recovery must be initialized "
+                           "component by component."));
+
+    data.velocity_component_masks[d] = mask;
+
+    const unsigned int scalar_velocity_degree = fe.get_sub_fe(mask).degree;
+    const unsigned int recovery_polynomial_degree =
+      scalar_velocity_degree + 1;
+
+    data.patch_handlers[d] =
+      std::make_shared<ErrorEstimation::PatchHandler<dim>>(
+        triangulation,
+        mapping,
+        dof_handler,
+        solution,
+        recovery_polynomial_degree,
+        mask);
+    data.patch_handlers[d]->build_patches();
+
+    data.recoveries[d] =
+      std::make_shared<ErrorEstimation::SolutionRecovery::Scalar<dim>>(
+        1,
+        param,
+        *data.patch_handlers[d],
+        dof_handler,
+        solution,
+        fe,
+        mapping,
+        mask,
+        false,
+        false);
+  }
+
+  data.initialized = true;
+}
+
+template <int dim, typename VectorType>
+void PostProcessingTools::update_recovered_velocity_gradient_data(
+  const Mapping<dim>                 &moving_mapping,
+  const VectorType                   &solution,
+  RecoveredVelocityGradientData<dim> &data)
+{
+  AssertThrow(data.initialized,
+              ExcMessage("RecoveredVelocityGradientData must be initialized "
+                         "before updating/reconstructing."));
+
+  for (unsigned int d = 0; d < dim; ++d)
+  {
+    data.patch_handlers[d]->update_patches(moving_mapping);
+    data.recoveries[d]->reconstruct_fields(solution);
+  }
+}
+
+template <int dim>
+std::array<std::vector<unsigned int>, dim>
+PostProcessingTools::build_local_component_shape_to_dof_table(
+  const FiniteElement<dim>         &fe,
+  const FEValuesExtractors::Vector &vector_extractor)
+{
+  std::array<std::vector<unsigned int>, dim> table;
+  const unsigned int first_component =
+    vector_extractor.first_vector_component;
+
+  const FEValuesExtractors::Scalar first_scalar(first_component);
+  const ComponentMask              scalar_mask = fe.component_mask(first_scalar);
+  const unsigned int n_scalar_dofs = fe.get_sub_fe(scalar_mask).n_dofs_per_cell();
+
+  for (unsigned int d = 0; d < dim; ++d)
+    table[d].assign(n_scalar_dofs, numbers::invalid_unsigned_int);
+
+  for (unsigned int local_dof = 0; local_dof < fe.n_dofs_per_cell();
+       ++local_dof)
+  {
+    const auto component_shape = fe.system_to_component_index(local_dof);
+    const unsigned int component = component_shape.first;
+    const unsigned int shape     = component_shape.second;
+
+    if (component >= first_component && component < first_component + dim)
+    {
+      const unsigned int d = component - first_component;
+      AssertIndexRange(shape, n_scalar_dofs);
+      table[d][shape] = local_dof;
+    }
+  }
+
+  for (unsigned int d = 0; d < dim; ++d)
+    for (unsigned int shape = 0; shape < n_scalar_dofs; ++shape)
+      AssertThrow(table[d][shape] != numbers::invalid_unsigned_int,
+                  ExcMessage("Could not build component-shape to local DoF "
+                             "table for vector field."));
+
+  return table;
+}
+
+template <int dim>
+Tensor<2, dim>
+PostProcessingTools::get_recovered_velocity_gradient_at_velocity_dofs(
+  const RecoveredVelocityGradientData<dim>       &data,
+  const std::array<types::global_dof_index, dim> &velocity_component_dofs)
+{
+  Tensor<2, dim> grad_u;
+
+  for (unsigned int i = 0; i < dim; ++i)
+  {
+    const auto &recovery = *data.recoveries[i];
+    const auto &solution_to_gradient_dofs =
+      recovery.get_solution_to_gradient_dof_map();
+    const auto &recovery_vector = recovery.get_reconstructions();
+
+    const types::global_dof_index velocity_dof = velocity_component_dofs[i];
+    AssertThrow(solution_to_gradient_dofs.count(velocity_dof) > 0,
+                ExcMessage("Velocity DoF not found in the recovery map."));
+
+    const auto &gradient_dofs = solution_to_gradient_dofs.at(velocity_dof);
+    for (unsigned int j = 0; j < dim; ++j)
+      grad_u[i][j] = recovery_vector[gradient_dofs[j]];
+  }
+
+  return grad_u;
+}
+
+template <int dim>
+void PostProcessingTools::compute_recovered_vorticity_dof_vector(
+  const DoFHandler<dim>              &dof_handler,
+  const FiniteElement<dim>           &fe,
+  RecoveredVelocityGradientData<dim> &data,
+  const FEValuesExtractors::Vector   &velocity_extractor,
+  LA::ParVectorType                  &vorticity_dof_vector)
+{
+  const MPI_Comm mpi_communicator = dof_handler.get_mpi_communicator();
+  const IndexSet locally_owned_dofs = dof_handler.locally_owned_dofs();
+  const IndexSet locally_relevant_dofs =
+    DoFTools::extract_locally_relevant_dofs(dof_handler);
+
+  vorticity_dof_vector.reinit(locally_owned_dofs,
+                              locally_relevant_dofs,
+                              mpi_communicator);
+  vorticity_dof_vector = 0.;
+
+  LA::ParVectorType local_vorticity;
+  local_vorticity.reinit(locally_owned_dofs, mpi_communicator);
+  local_vorticity = 0.;
+
+  const auto velocity_local_dof =
+    build_local_component_shape_to_dof_table<dim>(fe, velocity_extractor);
+  std::vector<types::global_dof_index> local_dof_indices(
+    fe.n_dofs_per_cell());
+
+  const unsigned int u_lower = velocity_extractor.first_vector_component;
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned())
+      continue;
+
+    cell->get_dof_indices(local_dof_indices);
+
+    for (unsigned int local_dof = 0; local_dof < fe.n_dofs_per_cell();
+         ++local_dof)
+    {
+      const auto component_shape = fe.system_to_component_index(local_dof);
+      const unsigned int component = component_shape.first;
+      const unsigned int shape     = component_shape.second;
+
+      if (component < u_lower || component >= u_lower + dim)
+        continue;
+
+      const unsigned int omega_component = component - u_lower;
+      std::array<types::global_dof_index, dim> velocity_component_dofs;
+
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        AssertIndexRange(shape, velocity_local_dof[i].size());
+        velocity_component_dofs[i] =
+          local_dof_indices[velocity_local_dof[i][shape]];
+      }
+
+      const Tensor<2, dim> grad_u =
+        get_recovered_velocity_gradient_at_velocity_dofs<dim>(
+          data,
+          velocity_component_dofs);
+      const Tensor<1, dim> omega =
+        compute_vorticity_from_velocity_gradient<dim>(grad_u);
+
+      const types::global_dof_index global_output_dof =
+        local_dof_indices[local_dof];
+      if (locally_owned_dofs.is_element(global_output_dof))
+        local_vorticity[global_output_dof] = omega[omega_component];
+    }
+  }
+
+  local_vorticity.compress(VectorOperation::insert);
+  vorticity_dof_vector = local_vorticity;
+}
+
+template <int dim>
+void PostProcessingTools::compute_recovered_qcriterion_dof_vector(
+  const DoFHandler<dim>              &dof_handler,
+  const FiniteElement<dim>           &fe,
+  RecoveredVelocityGradientData<dim> &data,
+  const FEValuesExtractors::Vector   &velocity_extractor,
+  const FEValuesExtractors::Scalar   &qcriterion_output_extractor,
+  LA::ParVectorType                  &qcriterion_dof_vector)
+{
+  const MPI_Comm mpi_communicator = dof_handler.get_mpi_communicator();
+  const IndexSet locally_owned_dofs = dof_handler.locally_owned_dofs();
+  const IndexSet locally_relevant_dofs =
+    DoFTools::extract_locally_relevant_dofs(dof_handler);
+
+  qcriterion_dof_vector.reinit(locally_owned_dofs,
+                               locally_relevant_dofs,
+                               mpi_communicator);
+  qcriterion_dof_vector = 0.;
+
+  LA::ParVectorType local_qcriterion;
+  local_qcriterion.reinit(locally_owned_dofs, mpi_communicator);
+  local_qcriterion = 0.;
+
+  const auto velocity_local_dof =
+    build_local_component_shape_to_dof_table<dim>(fe, velocity_extractor);
+  std::vector<types::global_dof_index> local_dof_indices(
+    fe.n_dofs_per_cell());
+
+  const unsigned int q_component = qcriterion_output_extractor.component;
+  const unsigned int u_lower     = velocity_extractor.first_vector_component;
+
+  AssertThrow(q_component >= u_lower && q_component < u_lower + dim,
+              ExcMessage("Q criterion output must be stored on one velocity "
+                         "component support."));
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+  {
+    if (!cell->is_locally_owned())
+      continue;
+
+    cell->get_dof_indices(local_dof_indices);
+
+    for (unsigned int local_dof = 0; local_dof < fe.n_dofs_per_cell();
+         ++local_dof)
+    {
+      const auto component_shape = fe.system_to_component_index(local_dof);
+      const unsigned int component = component_shape.first;
+      const unsigned int shape     = component_shape.second;
+
+      if (component != q_component)
+        continue;
+
+      std::array<types::global_dof_index, dim> velocity_component_dofs;
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        AssertIndexRange(shape, velocity_local_dof[i].size());
+        velocity_component_dofs[i] =
+          local_dof_indices[velocity_local_dof[i][shape]];
+      }
+
+      const Tensor<2, dim> grad_u =
+        get_recovered_velocity_gradient_at_velocity_dofs<dim>(
+          data,
+          velocity_component_dofs);
+      const double qcriterion =
+        compute_qcriterion_from_velocity_gradient<dim>(grad_u);
+
+      const types::global_dof_index global_output_dof =
+        local_dof_indices[local_dof];
+      if (locally_owned_dofs.is_element(global_output_dof))
+        local_qcriterion[global_output_dof] = qcriterion;
+    }
+  }
+
+  local_qcriterion.compress(VectorOperation::insert);
+  qcriterion_dof_vector = local_qcriterion;
 }
 
 #endif

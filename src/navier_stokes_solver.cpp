@@ -84,6 +84,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
   if (postproc_handler)
     postproc_handler->clear();
 
+  recovered_velocity_gradient_data = {};
+
   // Mesh
   triangulation.clear();
 
@@ -904,6 +906,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
     }
   }
 
+  // Generic Navier-Stokes flow diagnostics: vorticity, Q criterion, etc.
+  add_flow_diagnostics_postprocessing_data();
+
   // Let the derived solvers add their own relevant cell and/or dof-based
   // data, to output either in the volume or on the prescribed boundary (skin).
   add_solver_specific_postprocessing_data();
@@ -913,6 +918,89 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
   postproc_handler->output_fields(*moving_mapping,
                                   present_solution,
                                   time_handler);
+}
+
+template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+  add_flow_diagnostics_postprocessing_data()
+{
+  const auto &flow_diag = param.postprocessing.flow_diagnostics;
+
+  if (!flow_diag.enable ||
+      (!flow_diag.compute_vorticity && !flow_diag.compute_qcriterion))
+    return;
+
+  if (!postproc_handler->should_output_volume_fields(time_handler))
+    return;
+
+  AssertThrow(!uses_hp_capabilities(),
+              ExcMessage("Recovered vorticity and Q criterion output are not "
+                         "implemented for hp solvers yet."));
+
+  PostProcessingTools::initialize_recovered_velocity_gradient_data<dim>(
+    param,
+    triangulation,
+    dof_handler,
+    *moving_mapping,
+    present_solution,
+    dof_handler.get_fe(),
+    velocity_extractor,
+    recovered_velocity_gradient_data);
+
+  PostProcessingTools::update_recovered_velocity_gradient_data<dim>(
+    *moving_mapping,
+    present_solution,
+    recovered_velocity_gradient_data);
+
+  if (flow_diag.compute_vorticity)
+  {
+    LA::ParVectorType vorticity_dof_vector;
+    PostProcessingTools::compute_recovered_vorticity_dof_vector<dim>(
+      dof_handler,
+      dof_handler.get_fe(),
+      recovered_velocity_gradient_data,
+      velocity_extractor,
+      vorticity_dof_vector);
+
+    auto vorticity_names = postproc_handler->get_field_names();
+    for (unsigned int c = 0; c < vorticity_names.size(); ++c)
+      vorticity_names[c] = "unused_vorticity_" + std::to_string(c);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      vorticity_names[ordering->u_lower + d] = "vorticity";
+
+    postproc_handler->add_dof_data_vector(vorticity_dof_vector,
+                                          vorticity_names);
+  }
+
+  if (flow_diag.compute_qcriterion)
+  {
+    LA::ParVectorType qcriterion_dof_vector;
+    const FEValuesExtractors::Scalar qcriterion_output_extractor(
+      ordering->u_lower);
+
+    PostProcessingTools::compute_recovered_qcriterion_dof_vector<dim>(
+      dof_handler,
+      dof_handler.get_fe(),
+      recovered_velocity_gradient_data,
+      velocity_extractor,
+      qcriterion_output_extractor,
+      qcriterion_dof_vector);
+
+    auto qcriterion_names = postproc_handler->get_field_names();
+    for (unsigned int c = 0; c < qcriterion_names.size(); ++c)
+      qcriterion_names[c] = "unused_Qcriterion_" + std::to_string(c);
+    qcriterion_names[ordering->u_lower] = "Qcriterion";
+
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      qcriterion_interpretation(
+        ordering->n_components,
+        DataComponentInterpretation::component_is_scalar);
+
+    postproc_handler->add_dof_data_vector(qcriterion_dof_vector,
+                                          qcriterion_names,
+                                          qcriterion_interpretation);
+  }
 }
 
 template <int dim, bool with_moving_mesh>

@@ -2,12 +2,14 @@
 #include <deal.II/base/function_parser.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/utilities.h>
+#include <deal.II/differentiation/sd.h>
 #include <deal.II/differentiation/sd/symengine_tensor_operations.h>
 #include <parsed_function_symengine.h>
 
 namespace ManufacturedSolutions
 {
-  using namespace Differentiation::SD;
+  using Differentiation::SD::differentiate;
+  using Differentiation::SD::Expression;
 
   template <int dim>
   ParsedFunctionSDBase<dim>::ParsedFunctionSDBase(

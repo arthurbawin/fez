@@ -10,19 +10,27 @@ SetFactory("Built-in");
 //==============================
 H  = 160;
 L  = 240;
-l  = 2;
+l  = 8;
 r  = 0.5;
 
 cx = L/4;
 cy = H/2;
 
-lc_cyl = r/10;
+lc_cyl = r/20;
 lc_far = 30*r;
-lc_end = 8*r;
-lc_near = r/2;
+lc_end = 16*r;
+lc_near = r/2.5;
 
-n_cyl    = 2; // nb de points sur le cercle (plus = plus lisse)
-n_slices = 4;  // nb de tranches en z -> (n_slices+1) cercles
+n_cyl    = 2;   // nb de points sur le cercle (plus = plus lisse)
+n_slices = 50;   // nb de tranches geometriques en z
+
+dz_slice = l / n_slices;
+n_z_per_slice = Ceil(dz_slice / lc_cyl);
+n_z_per_slice_pts = n_z_per_slice + 1;
+
+arc_cyl = 2*Pi*r / n_cyl;
+n_arc_per_patch = Ceil(arc_cyl / lc_cyl);
+n_arc_per_patch_pts = n_arc_per_patch + 1;
 
 // ===========================
 // Geometrie général (z=0)
@@ -130,6 +138,8 @@ For k In {0:n_slices-1}
 
     lv = newc;
     Line(lv) = {p_bot, p_top};
+    // Chaque slice geometrique est subdivisee pour garder dz proche de lc_cyl.
+    Transfinite Curve{lv} = n_z_per_slice_pts Using Progression 1;
     cyl_vlines[] += lv;
   EndFor
 EndFor
@@ -146,6 +156,7 @@ For k In {0:n_slices}
 
     arc = newc;
     Circle(arc) = {p_i, ctr, p_next};
+    Transfinite Curve{arc} = n_arc_per_patch_pts Using Progression 1;
     cyl_arcs[] += arc;
   EndFor
 EndFor
@@ -166,6 +177,7 @@ For k In {0:n_slices-1}
 
     s = news;
     Surface(s) = {ll};
+    Transfinite Surface{s};
     cyl_surfaces[] += s;
   EndFor
 EndFor
@@ -199,17 +211,17 @@ Plane Surface(front) = {3, ll_cyl1};
 //==============================
 
 // Points d'accroche
-Point(1210) = {cx, cy-5*r, 0, lc_near};
-Point(1310) = {cx, cy+5*r, 0, lc_near};
+pb_wake_low = newp; Point(pb_wake_low) = {cx, cy-5*r, 0, lc_near};
+pb_wake_high = newp; Point(pb_wake_high) = {cx, cy+5*r, 0, lc_near};
 
-Line(2110) = {1210, 3};
-Line(2210) = {1310, 4};
-Line{2110, 2210} In Surface{back};
+lb_wake_low = newc; Line(lb_wake_low) = {pb_wake_low, 3};
+lb_wake_high = newc; Line(lb_wake_high) = {pb_wake_high, 4};
+Line{lb_wake_low, lb_wake_high} In Surface{back};
 
 // Cercle 5*r (arc gauche)
 pc1_c = newp; Point(pc1_c) = {cx,       cy,       0, lc_near};
 
-c1510_1 = newc; Circle(c1510_1) = {1310, pc1_c, 1210};
+c1510_1 = newc; Circle(c1510_1) = {pb_wake_high, pc1_c, pb_wake_low};
 
 Curve{c1510_1} In Surface{back};
 
@@ -219,17 +231,17 @@ MeshSize{Point{pc1_c}} = lc_near;
 // RAFFINEMENT (Front z=l)
 //==============================
 
-Point(1200) = {cx, cy-5*r, l, lc_near};
-Point(1300) = {cx, cy+5*r, l, lc_near};
+pf_wake_low = newp; Point(pf_wake_low) = {cx, cy-5*r, l, lc_near};
+pf_wake_high = newp; Point(pf_wake_high) = {cx, cy+5*r, l, lc_near};
 
-Line(2100) = {1300, 104};
-Line(2200) = {1200, 103};
-Line{2100, 2200} In Surface{front};
+lf_wake_high = newc; Line(lf_wake_high) = {pf_wake_high, 104};
+lf_wake_low = newc; Line(lf_wake_low) = {pf_wake_low, 103};
+Line{lf_wake_high, lf_wake_low} In Surface{front};
 
 // Cercle 5*r (arc gauche)
 pf1_c = newp; Point(pf1_c) = {cx,       cy,       l, lc_near};
 
-c1500_1 = newc; Circle(c1500_1) = {1300, pf1_c, 1200};
+c1500_1 = newc; Circle(c1500_1) = {pf_wake_high, pf1_c, pf_wake_low};
 
 Curve{c1500_1} In Surface{front};
 
@@ -266,3 +278,12 @@ MeshSize { Point{101}} = lc_far;
 MeshSize { Point{102}} = lc_far;
 MeshSize { Point{105}} = lc_far;
 MeshSize { Point{106}} = lc_far;
+
+//==============================
+// Options maillage
+//==============================
+Mesh.CharacteristicLengthFromPoints = 1;
+Mesh.CharacteristicLengthFromCurvature = 1;
+Mesh.CharacteristicLengthExtendFromBoundary = 1;
+Mesh.CharacteristicLengthMin = lc_cyl;
+Mesh.CharacteristicLengthMax = lc_far;

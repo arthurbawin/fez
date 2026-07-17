@@ -152,7 +152,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   if (enable_compressible)
     initialize_compressible();
 
-  if (enable_h_target)
+  if (enable_h_target && ordering.h_lower != numbers::invalid_unsigned_int)
     initialize_h_target();
 
   allocate();
@@ -278,7 +278,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(
   if (enable_compressible)
     initialize_compressible();
 
-  if (enable_h_target)
+  if (enable_h_target && ordering.h_lower != numbers::invalid_unsigned_int)
     initialize_h_target();
 
   allocate();
@@ -365,7 +365,7 @@ ScratchData<dim, has_hp_capabilities>::ScratchData(const ScratchData &other)
   if (enable_compressible)
     initialize_compressible();
 
-  if (enable_h_target)
+  if (enable_h_target && ordering.h_lower != numbers::invalid_unsigned_int)
     initialize_h_target();
 
   allocate();
@@ -834,7 +834,7 @@ void ScratchData<dim, has_hp_capabilities>::allocate()
     b_T.resize(n_q_points);
   }
 
-  if (enable_h_target)
+  if (enable_h_target && ordering.h_lower != numbers::invalid_unsigned_int)
   {
     present_h_target_values.resize(n_q_points);
     present_h_target_gradients.resize(n_q_points);

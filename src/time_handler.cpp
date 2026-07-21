@@ -154,8 +154,10 @@ bool TimeHandler::is_finished() const
 {
   if (scheme == STAT)
   {
-    // Stop after a single "time step"
-    return current_time_iteration > 0;
+    // Stop after a single "time step".
+    // If adapting the tree-based mesh, instead stop after the prescribed
+    // number of adaptation steps have been performed.
+    return current_time_iteration > time_parameters.n_steady_adaptation_steps;
   }
   return current_time >= final_time - 1e-10;
 }

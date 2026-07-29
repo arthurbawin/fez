@@ -138,6 +138,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize()
   postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
     param, *triangulation, *dof_handler, description);
 
+  // Set up data to create the names of the visualization files
+  prefix_data.is_convergence_step = param.mms_param.enable;
+  prefix_data.convergence_step    = param.mms_param.current_step;
+  prefix_data.is_fixed_point_step = param.with_metric_based_adaptation();
+  prefix_data.fixed_point_step =
+    param.mesh.adaptation.metric.current_fixed_point_iteration;
+  // Interval index is set in set_interval_data()
+  prefix_data.is_time_subinterval =
+    param.transient_fixed_point_adaptation_enabled();
+
   // Create the assemblers
   setup_assemblers();
 }
@@ -229,6 +239,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_interval_data(
   // Update the post-processing handler.
   postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
                                                          *dof_handler);
+  prefix_data.interval_index = interval_index;
 
   // Create a direct solver for each interval
   direct_solver_reuse =
@@ -357,8 +368,24 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   for (unsigned int i = 0; i < param.time_integration.n_time_intervals; ++i)
     run_time_subinterval(i);
 
-  adapt_mesh();
   finalize();
+
+  /**
+   * If using a riemannian metric to adapt the mesh(es), perform all the
+   * adaptations at the end of all time intervals (as it requires a global
+   * scaling factor).
+   *
+   * If using tree-based adaptation with a steady-state convergence study,
+   * adapt the mesh here.
+   */
+  if (should_scale_and_grade_riemannian_metric(param, time_handler))
+  {
+    transient_fixed_point_data.scale_metrics(
+      param.metrics.metric_for_adaptation, time_handler);
+    transient_fixed_point_data.apply_gradation_to_metrics();
+  }
+  if (should_adapt_mesh_at_end_of_intervals(time_handler))
+    adapt_mesh();
 }
 
 template <int dim, bool with_moving_mesh>
@@ -976,7 +1003,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
   // we should output at this time step or not.
   postproc_handler->output_fields(*moving_mapping,
                                   *present_solution,
-                                  time_handler);
+                                  time_handler,
+                                  prefix_data);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -1058,7 +1086,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_reconstructions()
   {
     Assert(recoveries[i], ExcInternalError());
     recoveries[i]->reconstruct_fields(*present_solution);
-    recoveries[i]->write_pvtu(*moving_mapping, "recovery");
+    // recoveries[i]->write_pvtu(*moving_mapping, "recovery");
   }
 }
 
@@ -1140,7 +1168,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::finalize()
       param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose)
     transient_fixed_point_data.write_summary(time_handler, std::cout);
 
-  postproc_handler->write_pvd();
+  postproc_handler->write_pvd(prefix_data);
 }
 
 template <int dim, bool with_moving_mesh>

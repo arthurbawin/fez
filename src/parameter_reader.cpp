@@ -86,7 +86,7 @@ void ParameterReader<dim>::check_parameters() const
                   postprocessing.flow_diagnostics.compute_qcriterion,
                 ExcMessage("Flow diagnostics are enabled, but neither "
                           "vorticity nor Q criterion is requested."));
-  }  
+  }
 
   // FSI
   if (!fsi.enable_coupling)

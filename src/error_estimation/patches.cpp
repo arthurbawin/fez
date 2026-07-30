@@ -7,6 +7,7 @@
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/grid/grid_tools.h>
 
+#include <sstream>
 #include <tuple>
 
 #include "mesh_and_dof_tools.h"
@@ -168,14 +169,45 @@ namespace ErrorEstimation
         // layers were added.
         stop = layer + 1 == n_layers;
 
-      // Add a maximum number of layers to avoid loops.
-      // Unless on bizarre meshes, 1 to 3 layers of elements should be enough.
-      AssertThrow(layer < 5,
-                  ExcMessage(
-                    "The maximum number of cell layers to define a patch for "
-                    "the polynomial-preserving recovery operator is for now "
-                    "capped to 5 layers. If you believe this value is too low "
-                    "based for your specific mesh, this cap can be removed."));
+      // Add a maximum number of layers to avoid loops. Only throw when another
+      // iteration is actually needed: previously the assertion also fired when
+      // the last allowed layer had just made every patch valid.
+      if (!stop && layer >= 5)
+      {
+        std::ostringstream local_diagnostics;
+        for (types::global_vertex_index v = 0; v < n_vertices; ++v)
+          if (owned_vertices[v] &&
+              least_squares_matrices_rank[v] < dim_recovery_basis)
+          {
+            set_unique_neighbours_from_map(patches[v]);
+            local_diagnostics
+              << "\n  rank " << mpi_rank << ", vertex " << v
+              << ", center " << patches[v].center << ": "
+              << patches[v].neighbours.size()
+              << " unique support points, last tested rank "
+              << least_squares_matrices_rank[v] << "/"
+              << dim_recovery_basis;
+          }
+
+        const auto diagnostics_by_rank =
+          Utilities::MPI::all_gather(mpi_communicator,
+                                     local_diagnostics.str());
+        std::ostringstream diagnostics;
+        for (const auto &rank_diagnostics : diagnostics_by_rank)
+          diagnostics << rank_diagnostics;
+
+        AssertThrow(
+          false,
+          ExcMessage(
+            "Polynomial-preserving recovery still has rank-deficient patches "
+            "after 6 cell-layer expansions. The polynomial basis requires " +
+            std::to_string(dim_recovery_basis) +
+            " geometrically independent support points per patch. "
+            "Diagnostics below list the owning MPI rank, local vertex index, "
+            "patch center, number of unique support points, and the rank "
+            "measured before the last expansion:" +
+            diagnostics.str()));
+      }
     }
 
     /**
@@ -279,10 +311,6 @@ namespace ErrorEstimation
     // Re-compute least-squares matrices
     // FIXME: For now and by simplicity, assume that the new position will
     // lead to full-rank matrices. Otherwise we need to re-expand some patches.
-    FullMatrix<double> AtA(dim_recovery_basis, dim_recovery_basis);
-    Eigen::MatrixXd    eigenAtA =
-      Eigen::MatrixXd::Zero(dim_recovery_basis, dim_recovery_basis);
-
     for (unsigned int v = 0; v < n_vertices; ++v)
       if (owned_vertices[v])
       {
@@ -290,8 +318,6 @@ namespace ErrorEstimation
           compute_least_squares_matrix(patches[v],
                                        dim_recovery_basis,
                                        *monomials_recovery,
-                                       AtA,
-                                       eigenAtA,
                                        least_squares_matrices[v],
                                        vandermonde_matrices[v]);
         least_squares_matrices_rank[v] = rank;
@@ -333,19 +359,23 @@ namespace ErrorEstimation
   }
 
   /**
-   * Use Eigen to get the rank of a FullMatrix
+   * Use Eigen to get the rank of a FullMatrix.
+   *
+   * Compute the rank of the Vandermonde matrix directly. Computing it from
+   * A^T*A squares the condition number and can therefore report a false rank
+   * deficiency, especially for cubic recovery patches in 3D.
    */
   template <int dim>
-  unsigned int get_rank(const FullMatrix<double> &full_matrix,
-                        Eigen::MatrixXd          &eigen_matrix)
+  unsigned int get_rank(const FullMatrix<double> &full_matrix)
   {
     const unsigned int m = full_matrix.m();
     const unsigned int n = full_matrix.n();
+    Eigen::MatrixXd eigen_matrix(m, n);
     for (unsigned int i = 0; i < m; ++i)
       for (unsigned int j = 0; j < n; ++j)
         eigen_matrix(i, j) = full_matrix(i, j);
-    Eigen::FullPivLU<Eigen::MatrixXd> lu_decomp(eigen_matrix);
-    return lu_decomp.rank();
+    Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(eigen_matrix);
+    return qr.rank();
   }
 
   // Construct (A^T*A)^-1 * A^T
@@ -354,8 +384,6 @@ namespace ErrorEstimation
   compute_least_squares_matrix(Patch<dim>                 &patch,
                                const unsigned int          dim_recovery_basis,
                                const PolynomialSpace<dim> &basis,
-                               FullMatrix<double>         &workspace_AtA,
-                               Eigen::MatrixXd            &workspace_eigenAtA,
                                FullMatrix<double>         &least_squares_mat,
                                FullMatrix<double>         &A_matrix)
   {
@@ -366,11 +394,7 @@ namespace ErrorEstimation
     fill_vandermonde_matrix(patch, dim_recovery_basis, basis, A);
     // std::cout << "A: " << std::endl;
     // A.print_formatted(std::cout, 16, true, 0, 0, 1., -1., " ");
-    A.Tmmult(workspace_AtA, A);
-    // std::cout << "AtA: " << std::endl;
-    // workspace_AtA.print_formatted(std::cout, 16, true, 0, 0, 1., -1., " ");
-
-    const unsigned int rank = get_rank<dim>(workspace_AtA, workspace_eigenAtA);
+    const unsigned int rank = get_rank<dim>(A);
 
     // If A^T * A is full rank, actually compute the least-squares matrix.
     // left_invert() throws in debug if matrix is singular, so we need to check
@@ -440,15 +464,6 @@ namespace ErrorEstimation
 
     std::vector<bool> needs_expansion(n_vertices, false);
 
-    // Workspace matrices to compute least-squares matrices.
-    // The least-squares matrices (A^T*A)^-1 * A^T are of size
-    // dim_recovery_basis x n_adjacent, but n_adjacent varies and can change if
-    // the patch is increased. The matrix A^T * A, however, is
-    // dim_recovery_basis x dim_recovery_basis
-    FullMatrix<double> AtA(dim_recovery_basis, dim_recovery_basis);
-    Eigen::MatrixXd    eigenAtA =
-      Eigen::MatrixXd::Zero(dim_recovery_basis, dim_recovery_basis);
-
     /**
      * For each mesh vertex, check if its patch needs to be enlarged,
      * which is the case if
@@ -504,8 +519,6 @@ namespace ErrorEstimation
               compute_least_squares_matrix(patch,
                                            dim_recovery_basis,
                                            *monomials_recovery,
-                                           AtA,
-                                           eigenAtA,
                                            least_squares_matrices[v],
                                            vandermonde_matrices[v]);
             least_squares_matrices_rank[v] = rank;

@@ -1281,11 +1281,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::
    * Make sure the mapping is synchronized.
    * This is especially important for moving mesh / ALE cases.
    */
-  this->present_solution.update_ghost_values();
+  this->present_solution->update_ghost_values();
 
   if constexpr (with_moving_mesh)
   {
-    this->evaluation_point = this->present_solution;
+    this->evaluation_point = *this->present_solution;
     this->evaluation_point.update_ghost_values();
   }
 
@@ -1299,11 +1299,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::
    */
   PostProcessingTools::initialize_recovered_velocity_gradient_data<dim>(
     this->param,
-    this->triangulation,
-    this->dof_handler,
+    *this->triangulation,
+    *this->dof_handler,
     *this->moving_mapping,
-    this->present_solution,
-    this->dof_handler.get_fe(),
+    *this->present_solution,
+    this->dof_handler->get_fe(),
     velocity_extractor,
     this->recovered_velocity_gradient_data);
 
@@ -1312,7 +1312,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::
    */
   PostProcessingTools::update_recovered_velocity_gradient_data<dim>(
     *this->moving_mapping,
-    this->present_solution,
+    *this->present_solution,
     this->recovered_velocity_gradient_data);
 
   /*
@@ -1325,8 +1325,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::
     LA::ParVectorType vorticity_dof_vector;
 
     PostProcessingTools::compute_recovered_vorticity_dof_vector<dim>(
-      this->dof_handler,
-      this->dof_handler.get_fe(),
+      *this->dof_handler,
+      this->dof_handler->get_fe(),
       this->recovered_velocity_gradient_data,
       velocity_extractor,
       vorticity_dof_vector);
@@ -1343,7 +1343,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::
                                                 vorticity_names);
   }
 
-  
+
   if (flow_diag.compute_qcriterion)
   {
     LA::ParVectorType qcriterion_dof_vector;
@@ -1352,8 +1352,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::
       this->ordering->u_lower);
 
     PostProcessingTools::compute_recovered_qcriterion_dof_vector<dim>(
-      this->dof_handler,
-      this->dof_handler.get_fe(),
+      *this->dof_handler,
+      this->dof_handler->get_fe(),
       this->recovered_velocity_gradient_data,
       velocity_extractor,
       qcriterion_p2_extractor,
@@ -1367,7 +1367,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::
     qcriterion_names[this->ordering->u_lower] = "Qcriterion";
 
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
-    qcriterion_interpretation(
+      qcriterion_interpretation(
       this->ordering->n_components,
       DataComponentInterpretation::component_is_scalar);
 

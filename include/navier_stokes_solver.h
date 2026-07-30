@@ -532,8 +532,6 @@ protected:
 
 protected:
   std::unique_ptr<ComponentOrdering> ordering;
-  PostProcessingTools::RecoveredVelocityGradientData<dim>
-  recovered_velocity_gradient_data;
 
   ParameterReader<dim> param;
 

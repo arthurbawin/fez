@@ -1,5 +1,4 @@
 
 DEAL::vorticity 2 -4 2
 DEAL::Qcriterion -130.5
-DEAL::P3 recovery basis 20
-DEAL::P3 patches full rank 1
+DEAL::nodal diagnostics solid rotation OK

@@ -1292,28 +1292,18 @@ void NavierStokesSolver<dim, with_moving_mesh>::
   const FEValuesExtractors::Vector velocity_extractor(
     this->ordering->u_lower);
 
-  /*
-   * Initialize recovery data only once.
-   * The function internally creates one scalar PatchHandler/SolutionRecovery
-   * per velocity component.
-   */
-  PostProcessingTools::initialize_recovered_velocity_gradient_data<dim>(
-    this->param,
-    *this->triangulation,
+  LA::ParVectorType vorticity_dof_vector;
+  LA::ParVectorType qcriterion_dof_vector;
+  PostProcessingTools::compute_nodal_flow_diagnostics<dim>(
     *this->dof_handler,
     *this->moving_mapping,
     *this->present_solution,
     this->dof_handler->get_fe(),
     velocity_extractor,
-    this->recovered_velocity_gradient_data);
-
-  /*
-   * Update patches and reconstruct fields once per output.
-   */
-  PostProcessingTools::update_recovered_velocity_gradient_data<dim>(
-    *this->moving_mapping,
-    *this->present_solution,
-    this->recovered_velocity_gradient_data);
+    flow_diag.compute_vorticity,
+    flow_diag.compute_qcriterion,
+    vorticity_dof_vector,
+    qcriterion_dof_vector);
 
   /*
    * Vorticity:
@@ -1322,15 +1312,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::
    */
   if (flow_diag.compute_vorticity)
   {
-    LA::ParVectorType vorticity_dof_vector;
-
-    PostProcessingTools::compute_recovered_vorticity_dof_vector<dim>(
-      *this->dof_handler,
-      this->dof_handler->get_fe(),
-      this->recovered_velocity_gradient_data,
-      velocity_extractor,
-      vorticity_dof_vector);
-
     auto vorticity_names = this->postproc_handler->get_field_names();
 
     for (unsigned int c = 0; c < vorticity_names.size(); ++c)
@@ -1346,19 +1327,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::
 
   if (flow_diag.compute_qcriterion)
   {
-    LA::ParVectorType qcriterion_dof_vector;
-
-    const FEValuesExtractors::Scalar qcriterion_p2_extractor(
-      this->ordering->u_lower);
-
-    PostProcessingTools::compute_recovered_qcriterion_dof_vector<dim>(
-      *this->dof_handler,
-      this->dof_handler->get_fe(),
-      this->recovered_velocity_gradient_data,
-      velocity_extractor,
-      qcriterion_p2_extractor,
-      qcriterion_dof_vector);
-
     auto qcriterion_names = this->postproc_handler->get_field_names();
 
     for (unsigned int c = 0; c < qcriterion_names.size(); ++c)

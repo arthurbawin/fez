@@ -8,11 +8,28 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria_description.h>
+#include <deal.II/numerics/vector_tools.h>
 
 #include "../tests.h"
 
-#include "error_estimation/patches.h"
 #include "post_processing_tools.h"
+
+class SolidBodyRotation : public Function<3>
+{
+public:
+  SolidBodyRotation()
+    : Function<3>(4)
+  {}
+
+  void vector_value(const Point<3> &point,
+                    Vector<double> &values) const override
+  {
+    values[0] = -point[1];
+    values[1] = point[0];
+    values[2] = 0.;
+    values[3] = 0.;
+  }
+};
 
 int main(int argc, char *argv[])
 {
@@ -51,7 +68,7 @@ int main(int argc, char *argv[])
     parallel::fullydistributed::Triangulation<3> triangulation(MPI_COMM_WORLD);
     triangulation.create_triangulation(description);
 
-    FESystem<3>  fe(FE_Q<3>(2), 1);
+    FESystem<3>  fe(FE_Q<3>(2), 3, FE_Q<3>(1), 1);
     DoFHandler<3> dof_handler(triangulation);
     dof_handler.distribute_dofs(fe);
 
@@ -62,22 +79,55 @@ int main(int argc, char *argv[])
     solution.reinit(locally_owned_dofs,
                     locally_relevant_dofs,
                     MPI_COMM_WORLD);
-    solution = 0.;
-
     const MappingQ1<3> mapping;
-    ErrorEstimation::PatchHandler<3> patch_handler(
-      triangulation,
+    LA::ParVectorType owned_solution;
+    owned_solution.reinit(locally_owned_dofs, MPI_COMM_WORLD);
+    VectorTools::interpolate(
       mapping,
       dof_handler,
-      solution,
-      3,
-      fe.component_mask(FEValuesExtractors::Scalar(0)));
-    patch_handler.build_patches();
+      SolidBodyRotation(),
+      owned_solution);
+    owned_solution.compress(VectorOperation::insert);
+    solution = owned_solution;
+    solution.update_ghost_values();
 
-    deallog << "P3 recovery basis " << patch_handler.dim_recovery_basis
-            << std::endl;
-    deallog << "P3 patches full rank "
-            << patch_handler.has_least_squares_matrices() << std::endl;
+    LA::ParVectorType nodal_vorticity;
+    LA::ParVectorType nodal_qcriterion;
+    PostProcessingTools::compute_nodal_flow_diagnostics<3>(
+      dof_handler,
+      mapping,
+      solution,
+      fe,
+      FEValuesExtractors::Vector(0),
+      true,
+      true,
+      nodal_vorticity,
+      nodal_qcriterion);
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+      if (cell->is_locally_owned())
+      {
+        std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
+        cell->get_dof_indices(dof_indices);
+        for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
+        {
+          const auto [component, shape] = fe.system_to_component_index(i);
+          (void)shape;
+          const auto dof = dof_indices[i];
+          if (!locally_owned_dofs.is_element(dof) || component >= 3)
+            continue;
+
+          const double expected_vorticity = component == 2 ? 2. : 0.;
+          AssertThrow(std::abs(nodal_vorticity[dof] - expected_vorticity) <
+                        1e-12,
+                      ExcInternalError());
+          if (component == 0)
+            AssertThrow(std::abs(nodal_qcriterion[dof] - 1.) < 1e-12,
+                        ExcInternalError());
+        }
+      }
+
+    deallog << "nodal diagnostics solid rotation OK" << std::endl;
   }
   catch (const std::exception &exc)
   {

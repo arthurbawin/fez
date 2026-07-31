@@ -100,6 +100,11 @@ public:
   virtual void create_sparsity_pattern() override;
 
   /**
+   * If solid has nonzero mass, set its initial velocity.
+   */
+  virtual void set_solver_specific_initial_conditions() override;
+
+  /**
    *
    */
   void add_algebraic_position_coupling_to_matrix();
@@ -230,6 +235,28 @@ protected:
   std::array<types::global_dof_index, dim> global_lambda_accumulators;
 
   std::vector<std::vector<types::global_dof_index>> all_lambda_accumulators;
+
+  /**
+   * This flag specifies if this process stores dofs for the solid's velocity.
+   * If it's the case, "dim" unused Lagrange multiplier dofs are repurposed to
+   * represent the velocity of the solid, whose value should be identical on all
+   * partitions.
+   */
+  bool has_cylinder_velocity_dofs = false;
+
+  /**
+   * Number of ranks storing dofs for the solid's velocity (i.e., number of
+   * processes with has_cylinder_velocity_dofs = true)
+   */
+  unsigned int n_ranks_with_cylinder_velocity_dofs;
+
+  /**
+   * Degrees of freedom used to represent the solid's velocity.
+   * Since the solid is assumed to be infinitely rigid, its velocity needs only
+   * be stored at a single point. To limit communications, each process with a
+   * piece of the solid actually stores its own set of velocity dofs.
+   */
+  std::array<types::global_dof_index, dim> local_cylinder_velocity_dofs;
 
 public:
   /**

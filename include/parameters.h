@@ -828,7 +828,13 @@ namespace Parameters
   {
     Verbosity verbosity;
 
-    bool   enable_coupling;
+    bool enable_coupling;
+
+    // True if using a zero mass evolution equation.
+    // This avoids using arbitrary threshold on the mass of the solid to
+    // determine which model to use.
+    bool zero_mass_model;
+
     double spring_constant;
     double damping;
     double mass;
@@ -837,6 +843,9 @@ namespace Parameters
     double cylinder_length;
 
     Point<dim> cylinder_center;
+
+    // Initial velocity of the solid
+    Tensor<1, dim> initial_velocity;
 
     bool fix_z_component;
 

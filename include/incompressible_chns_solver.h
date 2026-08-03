@@ -60,6 +60,11 @@ public:
   virtual void create_solver_specific_nonzero_constraints() override;
 
   /**
+   * Update the time of the Cahn-Hilliard boundary conditions.
+   */
+  virtual void set_solver_specific_time() override;
+
+  /**
    *
    */
   virtual void create_sparsity_pattern() override;

@@ -213,9 +213,20 @@ namespace BoundaryConditions
   class CahnHilliardBC : public BoundaryCondition
   {
   public:
+    // User-defined tracer function for input_function boundary
+    std::shared_ptr<Functions::ParsedFunction<dim>> tracer;
+
+  public:
+    CahnHilliardBC()
+      : tracer(std::make_shared<Functions::ParsedFunction<dim>>())
+    {}
+
     virtual void declare_parameters(ParameterHandler &prm) override;
     virtual void read_parameters(ParameterHandler &prm) override;
-    virtual void set_time(const double) override {}
+    virtual void set_time(const double new_time) override
+    {
+      tracer->set_time(new_time);
+    }
   };
 
   /**

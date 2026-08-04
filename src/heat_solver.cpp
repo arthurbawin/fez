@@ -146,6 +146,16 @@ template <int dim>
 void HeatSolver<dim>::initialize()
 {
   time_handler.validate_parameters(*ordering);
+
+  // Set up data to create the names of the visualization files
+  prefix_data.is_convergence_step = param.mms_param.enable;
+  prefix_data.convergence_step    = param.mms_param.current_step;
+  prefix_data.is_fixed_point_step = param.with_metric_based_adaptation();
+  prefix_data.fixed_point_step =
+    param.mesh.adaptation.metric.current_fixed_point_iteration;
+  // Interval index is set in set_interval_data()
+  prefix_data.is_time_subinterval =
+    param.transient_fixed_point_adaptation_enabled();
 }
 
 template <int dim>
@@ -229,6 +239,8 @@ void HeatSolver<dim>::set_interval_data(const unsigned int interval_index)
     postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
                                                            *dof_handler);
 
+  prefix_data.interval_index = interval_index;
+
   // Create a direct solver for each interval
   direct_solver_reuse =
     std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
@@ -269,15 +281,20 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
    * Apply initial refinement.
    */
   if (!time_handler.is_steady() && param.with_tree_based_adaptation())
-    for (unsigned int step = 0;
-         step < param.mesh.adaptation.tree_amr.n_prerefinement_steps;
-         ++step)
+  {
+    prefix_data.is_prerefinement_step = true;
+    for (prefix_data.prerefinement_step = 0;
+         prefix_data.prerefinement_step <
+         param.mesh.adaptation.tree_amr.n_prerefinement_steps;
+         ++prefix_data.prerefinement_step)
     {
       update_boundary_conditions();
       set_initial_conditions(false);
       adapt_mesh();
-      output_results(/* is_prerefinement_step = */ true, step);
+      output_results();
     }
+    prefix_data.is_prerefinement_step = false;
+  }
 
   while (!time_handler.is_finished())
   {
@@ -745,15 +762,13 @@ void HeatSolver<dim>::solve_linear_system()
 }
 
 template <int dim>
-void HeatSolver<dim>::output_results(const bool         is_pre_refinement_step,
-                                     const unsigned int pre_refinement_step)
+void HeatSolver<dim>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
   postproc_handler->output_fields(*mapping,
                                   *present_solution,
                                   time_handler,
-                                  is_pre_refinement_step,
-                                  pre_refinement_step);
+                                  prefix_data);
 }
 
 template <int dim>
@@ -909,7 +924,7 @@ void HeatSolver<dim>::finalize()
       param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose)
     transient_fixed_point_data.write_summary(time_handler, std::cout);
 
-  postproc_handler->write_pvd();
+  postproc_handler->write_pvd(prefix_data);
 }
 
 // Explicit instantiation

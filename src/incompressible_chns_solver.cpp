@@ -863,6 +863,19 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   solver_specific_post_processing()
 {
+  {
+    TimerOutput::Scope t(this->computing_timer,
+                         "Compute multiphase indicators");
+
+    this->postproc_handler->compute_multiphase_indicators(
+      *this->ordering,
+      *this->dof_handler,
+      *this->moving_mapping,
+      *this->quadrature,
+      *this->present_solution,
+      this->time_handler);
+  }
+
   const auto &ts = this->param.postprocessing.time_scales;
   if (!ts.enable)
     return;

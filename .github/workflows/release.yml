@@ -44,6 +44,8 @@ jobs:
           mkdir build && cd build
           cmake -D CMAKE_BUILD_TYPE=Release \
                 -D ENABLE_TESTING=1 \
+                -D FEZ_WITH_MMG=ON \
+                -D FEZ_WITH_BUNDLED_MMG=ON \
                 -D DEAL_II_WITH_HP_IDENTITIES_BUG=1 \
                 -D REFERENCE_CELL_WITH_TEMPLATE_PARAMETER=${{ matrix.dealii_version == 'master-noble' && '1' || '0' }} \
                 .. \
@@ -54,7 +56,7 @@ jobs:
       - name: Run serial tests in release
         run: |
           cd build
-          ctest -V --output-on-failure -E "mpirun=[2-9]" -j ${{ env.N_JOBS }}
+          ctest -V --output-on-failure -E "(mpirun=[2-9])" -j ${{ env.N_JOBS }}
 
       # Run the parallel tests one at a time 
       - name: Run parallel tests in release

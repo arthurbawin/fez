@@ -174,6 +174,12 @@ public:
   void compare_forces_and_position_on_obstacle() const;
 
   /**
+   * If rigid-body rotation is enabled, check that the rotation angles are
+   * identical across processes where it is defined.
+   */
+  void check_rigid_body_rotation_angles() const;
+
+  /**
    *
    */
   void check_velocity_boundary() const;
@@ -257,6 +263,17 @@ protected:
    * piece of the solid actually stores its own set of velocity dofs.
    */
   std::array<types::global_dof_index, dim> local_cylinder_velocity_dofs;
+
+  /**
+   * This flag specifies if this process stores dof(s) to represent a rigid-body
+   * rotation angle.
+   */
+  bool has_rotation_angle = false;
+
+  /**
+   * In 2D, the dof index associated with the unique rigid-body rotation angle.
+   */
+  double rotation_angle_dof; // 3 angles in 3D, as for a curltype
 
 public:
   /**

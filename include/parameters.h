@@ -847,6 +847,19 @@ namespace Parameters
     // Initial velocity of the solid
     Tensor<1, dim> initial_velocity;
 
+    /**
+     * Parameters controlling the rigid body rotation of the solid.
+     * Only implemented for the zero-mass model for now.
+     */
+    struct RigidBodyRotation
+    {
+      // Enable rotation around center of rotation
+      bool enable;
+
+      // Fixed center of rotation
+      Point<dim> center;
+    } rotation;
+
     bool fix_z_component;
 
     bool compute_error_on_forces;

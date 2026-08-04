@@ -16,6 +16,7 @@
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <deal.II/physics/transformations.h>
 #include <errors.h>
 #include <fsi_exact_solution.h>
 #include <lagrange_multiplier_tools.h>
@@ -110,19 +111,24 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
 
   // Announce FSI parameters
   const auto fsi = this->param.fsi;
-  if (!fsi.zero_mass_model)
+  if (!fsi.zero_mass_model || fsi.rotation.enable)
     if (fsi.verbosity == Parameters::Verbosity::verbose)
     {
       this->pcout << std::endl;
       this->pcout << "-- Fluid-structure interaction parameters:" << std::endl;
-      this->pcout << "\t Using zero-mass model:" << fsi.zero_mass_model
-                  << std::endl;
+      this->pcout << "\t Using zero-mass model:"
+                  << (fsi.zero_mass_model ? "yes" : "no") << std::endl;
       this->pcout << "\t     Mass of the solid:" << fsi.mass << std::endl;
       this->pcout << "\t   Damping coefficient:" << fsi.damping << std::endl;
       this->pcout << "\t   Spring  coefficient:" << fsi.spring_constant
                   << std::endl;
       this->pcout << "\tInitial solid velocity:" << fsi.initial_velocity
                   << std::endl;
+      this->pcout << "\t   Rigid-body rotation:"
+                  << (fsi.rotation.enable ? "yes" : "no") << std::endl;
+      if (fsi.rotation.enable)
+        this->pcout << "\t    Center of rotation:" << fsi.rotation.center
+                    << std::endl;
     }
 
   /**
@@ -321,8 +327,9 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
     {
       types::global_dof_index dof = local_dofs[i];
 
-      // If using the coupling method with accumulators and if dof is a local
-      // accumulator, do not constrain it
+      // Skip (do not constrain) this degree of freedom if...
+
+      // ...it is a force accumulator on this partition
       bool skip_dof = false;
       if (requires_local_lambda_accumulator)
         for (unsigned int d = 0; d < dim; ++d)
@@ -332,13 +339,21 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
             break;
           }
 
-      // If dof is used to represent the velocity of the solid, skip it too
+      // ...it is used to represent the velocity of the solid
       for (unsigned int d = 0; d < dim; ++d)
         if (local_cylinder_velocity_dofs[d] == dof)
         {
           skip_dof = true;
           break;
         }
+
+      // ...it is used to represent a rigid-body rotation angle of the solid
+      // for (unsigned int d = 0; d < dim; ++d)
+      if (rotation_angle_dof == dof)
+      {
+        skip_dof = true;
+        // break;
+      }
 
       if (!skip_dof)
       {
@@ -1111,6 +1126,165 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
   }
 
   /**
+   * If rigid-body rotation is enabled, determine which owned and unused
+   * Lagrange multiplier dof(s) will be promoted to represent the rotation
+   * angle(s).
+   */
+  if (this->param.fsi.rotation.enable)
+  {
+    // Rank should store rotation angle(s) if it has at least one owned face on
+    // the cylinder
+    for (const auto &cell : this->dof_handler->active_cell_iterators())
+      if (cell->is_locally_owned())
+        if (cell->at_boundary())
+          for (const auto &face : cell->face_iterators())
+            if (face->at_boundary() &&
+                face->boundary_id() == weak_no_slip_boundary_id)
+            {
+              has_rotation_angle = true;
+              goto reduce_rotation_dofs;
+            }
+  reduce_rotation_dofs:
+    const unsigned int n_ranks_with_rotation_angle =
+      Utilities::MPI::sum(has_rotation_angle ? 1 : 0, this->mpi_communicator);
+
+    if constexpr (running_in_debug_mode())
+    {
+      if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+        this->pcout << "There are " << n_ranks_with_rotation_angle
+                    << " ranks with rotation dofs" << std::endl;
+    }
+
+    rotation_angle_dof = numbers::invalid_unsigned_int;
+
+    // Now actually set the rotation dofs, if possible
+    if (has_rotation_angle)
+    {
+      std::vector<types::global_dof_index> face_dofs(fe->n_dofs_per_face());
+      unsigned int                         n_rotation_dofs = 0;
+      for (const auto &cell : this->dof_handler->active_cell_iterators())
+        if (cell->is_locally_owned())
+        {
+          bool skip_cell = false;
+
+          // Skip this cell altogether if it touches the target boundary
+          // with a face
+          for (const auto &face : cell->face_iterators())
+            if (face->at_boundary() &&
+                face->boundary_id() == weak_no_slip_boundary_id)
+            {
+              skip_cell = true;
+              break;
+            };
+
+          if (!skip_cell)
+            for (const auto i_face : cell->face_indices())
+            {
+              const auto &face      = cell->face(i_face);
+              bool        skip_face = false;
+
+              // Skip face if neighbouring cell through this face touches
+              // the target boundary
+              auto neighbor = cell->neighbor(i_face);
+              if (neighbor->state() == IteratorState::IteratorStates::valid)
+                for (const auto neighbor_i_face : neighbor->face_indices())
+                {
+                  const auto &neighbor_face = neighbor->face(neighbor_i_face);
+                  if (neighbor_face->at_boundary() &&
+                      neighbor_face->boundary_id() == weak_no_slip_boundary_id)
+                  {
+                    skip_face = true;
+                    break;
+                  }
+                }
+
+              if (!skip_face)
+              {
+                face->get_dof_indices(face_dofs);
+                for (unsigned int i = 0; i < face_dofs.size(); ++i)
+                {
+                  types::global_dof_index dof = face_dofs[i];
+                  unsigned int            comp =
+                    fe->face_system_to_component_index(i, i_face).first;
+                  unsigned int base =
+                    fe->face_system_to_component_index(i, i_face).second;
+
+                  // FIXME:
+                  // Hardcoded to the first P2 dof of the first face whose
+                  // neighbouring cell does not touch the boundary Its shape
+                  // functions index (base) is 2 in 2D (P2 dof on a line)
+                  // and 3 in 3D (P2 dof on triangle). This is for simplices
+                  // only...
+                  AssertThrow(
+                    !this->param.finite_elements.use_quads &&
+                      this->param.finite_elements
+                          .no_slip_lagrange_mult_degree == 2,
+                    ExcMessage(
+                      "Promoting lambda dofs to cylinder velocity dofs for now "
+                      "assumes a P2 Lagrange multiplier on simplices only."));
+                  unsigned int target_base = (dim == 2) ? 2 : 3;
+                  if (base == target_base)
+                    if (this->ordering->is_lambda(comp))
+                      /**
+                       * The accumulator must be an owned dof. It might not
+                       * be possible to assign velocity dofs, based on the
+                       * partition used, see the assert below.
+                       */
+                      if (this->locally_owned_dofs.is_element(dof))
+                      {
+                        // Check that this dof was not already used as a lambda
+                        // accumulator
+                        bool in_use = false;
+                        for (unsigned int d = 0; d < dim; ++d)
+                          if (local_lambda_accumulators[d] == dof)
+                          {
+                            in_use = true;
+                            break;
+                          }
+
+                        if (!in_use)
+                        {
+                          // FIXME: stop after 3 angles dofs were assigned in
+                          // 3D, only 1 in 2D
+                          rotation_angle_dof = dof;
+                          goto rotation_dofs_found;
+                          // if (n_velocity_dofs == dim)
+                          //   goto rotation_dofs_found;
+                        }
+                      }
+                }
+              }
+            }
+        }
+    rotation_dofs_found:
+      if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
+      {
+        if constexpr (dim == 2)
+          std::cout << "Set rotation dof at " << rotation_angle_dof
+                    << std::endl;
+        else
+          std::cout << "Set rotation dof at " /* ADD DATA */ << std::endl;
+      }
+      AssertThrow(
+        rotation_angle_dof != numbers::invalid_unsigned_int,
+        ExcMessage(
+          "\n This rank owns at least one cell touching a boundary where "
+          "no-slip should be enforced with a Lagrange multiplier (lambda). "
+          "But it doesn't own any lambda degree of freedom that can be "
+          "used to safely represent the rigid-body rotation angle of the solid "
+          "(all "
+          "its lambda dofs are either ghosts, or owned but on the prescribed "
+          "boundary)."
+          "\n\n This can happen on somewhat pathological mesh partitions "
+          "with isolated elements touching the boundary, and it probably "
+          "indicates that the mesh has too few elements for the number of "
+          "MPI processes used."
+          "\n\n To go around this issue, try running with another number "
+          "of MPI processes."));
+    }
+  }
+
+  /**
    * Compute the weights c_ij and identify the constrained position DOFs.
    * Done only once as cylinder is rigid and those weights will not change.
    */
@@ -1876,6 +2050,46 @@ void FSISolver<dim>::create_sparsity_pattern()
     }
   }
 
+  if (this->param.fsi.rotation.enable)
+  {
+    switch (this->param.fsi.coupling)
+    {
+      case Coupling::all_position_to_all_lambda:
+
+        // Rotation angle dof to itself and all lambdas
+        dsp.add(rotation_angle_dof, rotation_angle_dof);
+        for (unsigned int d = 0; d < dim; ++d)
+          for (const auto &[lambda_dof, weight] : lambda_integral_coeffs[d])
+            dsp.add(rotation_angle_dof, lambda_dof);
+
+        // Position to rotation angle
+        for (const auto &[x_dof, d] : coupled_position_dofs)
+          dsp.add(x_dof, rotation_angle_dof);
+
+        break;
+
+      case Coupling::local_position_master_to_lambda_accumulators:
+
+        // Rotation angle dof to itself and all accumulators
+        dsp.add(rotation_angle_dof, rotation_angle_dof);
+        for (unsigned int d = 0; d < dim; ++d)
+          for (const auto &l_dof : all_lambda_accumulators[d])
+            dsp.add(rotation_angle_dof, l_dof);
+
+        // Because this is a rotation, each vertex on the solid will a priori
+        // move with a displacement different from the displacement
+        // of the position master. Thus, all local position dofs are coupled
+        // directly to the rotation angle.
+        for (const auto &[x_dof, d] : coupled_position_dofs)
+          dsp.add(x_dof, rotation_angle_dof);
+
+        break;
+
+      default:
+        DEAL_II_NOT_IMPLEMENTED();
+    }
+  }
+
   SparsityTools::distribute_sparsity_pattern(dsp,
                                              this->locally_owned_dofs,
                                              this->mpi_communicator,
@@ -2056,9 +2270,10 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
 
   // FIXME: these column iterators should be obtained only once
 
-  // Get row entries for each pos_dof
   std::map<types::global_dof_index, std::vector<LA::ConstMatrixIterator>>
-    position_rows, master_position_rows, cylinder_velocity_rows;
+    position_rows, master_position_rows, cylinder_velocity_rows, theta_rows;
+
+  // Get row entries for each pos_dof
   for (const auto &[pos_dof, d] : coupled_position_dofs)
     if (this->locally_owned_dofs.is_element(pos_dof))
       position_rows[pos_dof] = get_matrix_rows(this->system_matrix, pos_dof);
@@ -2081,6 +2296,12 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
     for (const auto &dof : local_cylinder_velocity_dofs)
       if (this->locally_owned_dofs.is_element(dof))
         cylinder_velocity_rows[dof] = get_matrix_rows(this->system_matrix, dof);
+
+  // Get row entries for the rotation angle(s)
+  if (this->param.fsi.rotation.enable)
+    if (has_rotation_angle)
+      theta_rows[rotation_angle_dof] =
+        get_matrix_rows(this->system_matrix, rotation_angle_dof);
 
   switch (this->param.fsi.coupling)
   {
@@ -2203,32 +2424,115 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
         // Zero mass case
         if (has_local_position_master)
         {
-          // Set x_i - x_master = 0 for the other coupled position dofs
-          for (const auto &[pos_dof, d] : coupled_position_dofs)
-            if (this->locally_owned_dofs.is_element(pos_dof) &&
-                pos_dof != local_position_master_dofs[d])
-              constrain_matrix_row(this->system_matrix,
-                                   pos_dof,
-                                   position_rows.at(pos_dof),
-                                   local_position_master_dofs[d],
-                                   -1.);
-
-          // Couple local master to all lambda accumulators:
-          // Constrain: x_master - sum_{i_rank} accumulator_{i_rank} = 0
-          for (unsigned int d = 0; d < dim; ++d)
+          if (this->param.fsi.rotation.enable)
           {
-            if (this->locally_owned_dofs.is_element(
-                  local_position_master_dofs[d]))
+            // Rigid-body rotation
+
+            if (has_rotation_angle)
             {
-              std::vector<std::pair<types::global_dof_index, double>>
-                accumulator_coeffs;
-              for (auto lambda_accumulator : all_lambda_accumulators[d])
-                accumulator_coeffs.emplace_back(lambda_accumulator, 1.);
-              constrain_matrix_row(this->system_matrix,
-                                   local_position_master_dofs[d],
-                                   master_position_rows.at(
-                                     local_position_master_dofs[d]),
-                                   accumulator_coeffs);
+              const auto t_dof = rotation_angle_dof;
+              AssertThrow(this->locally_owned_dofs.is_element(t_dof),
+                          ExcInternalError());
+
+              Tensor<2, dim> rotation_matrix_derivative;
+              const double   theta             = this->evaluation_point[t_dof];
+              const double   ct                = std::cos(theta);
+              const double   st                = std::sin(theta);
+              rotation_matrix_derivative[0][0] = -st;
+              rotation_matrix_derivative[0][1] = -ct;
+              rotation_matrix_derivative[1][0] = ct;
+              rotation_matrix_derivative[1][1] = -st;
+
+              {
+                // Equation for theta in 2D:
+                // Enforce F_D * tan(theta) - F_L = 0
+                for (const auto &it : theta_rows.at(t_dof))
+                  this->system_matrix.set(t_dof, it->column(), 0.0);
+
+                const double tan_theta =
+                  std::tan(this->evaluation_point[t_dof]);
+
+                // Set diagonal entry
+                {
+                  double coeff_theta = 0.;
+
+                  // Contributions from lambda_x and tan(theta)
+                  for (const auto l_dof : all_lambda_accumulators[0])
+                    coeff_theta += this->evaluation_point[l_dof];
+                  coeff_theta *= (1. + tan_theta * tan_theta);
+
+                  // During the very first Newton iteration, the Lagrange
+                  // multipliers are zero, which yields a zero diagonal
+                  // coefficient. Set it to 1 instead.
+                  if (std::abs(coeff_theta) < 1e-12)
+                    coeff_theta = 1.;
+
+                  this->system_matrix.set(t_dof, t_dof, coeff_theta);
+                }
+
+                // Coupling with lambda_x
+                for (const auto l_dof : all_lambda_accumulators[0])
+                  this->system_matrix.set(t_dof, l_dof, tan_theta);
+
+                // Coupling with lambda_y
+                for (const auto l_dof : all_lambda_accumulators[1])
+                  this->system_matrix.set(t_dof, l_dof, -1.);
+              }
+
+              {
+                // Equation for the master position dofs linked to theta
+                // Enforce x - x_c - M(theta) * (X - X_c) = 0
+                const auto &xc = this->param.fsi.rotation.center;
+
+                for (const auto &[x_dof, d] : coupled_position_dofs)
+                  if (this->locally_owned_dofs.is_element(x_dof))
+                  {
+                    // Coupling coefficient with theta
+                    const Point<dim> &X = this->initial_positions.at(x_dof);
+                    const auto        v_rotated =
+                      rotation_matrix_derivative * (X - xc);
+                    const auto coeff_theta = -v_rotated[d];
+
+                    constrain_matrix_row(this->system_matrix,
+                                         x_dof,
+                                         position_rows.at(x_dof),
+                                         rotation_angle_dof,
+                                         coeff_theta);
+                  }
+              }
+            }
+          }
+          else
+          {
+            // Spring only model.
+
+            // Set x_i - x_master = 0 for the other coupled position dofs
+            for (const auto &[pos_dof, d] : coupled_position_dofs)
+              if (this->locally_owned_dofs.is_element(pos_dof) &&
+                  pos_dof != local_position_master_dofs[d])
+                constrain_matrix_row(this->system_matrix,
+                                     pos_dof,
+                                     position_rows.at(pos_dof),
+                                     local_position_master_dofs[d],
+                                     -1.);
+
+            // Couple local master to all lambda accumulators:
+            // Constrain: x_master - sum_{i_rank} accumulator_{i_rank} = 0
+            for (unsigned int d = 0; d < dim; ++d)
+            {
+              if (this->locally_owned_dofs.is_element(
+                    local_position_master_dofs[d]))
+              {
+                std::vector<std::pair<types::global_dof_index, double>>
+                  accumulator_coeffs;
+                for (auto lambda_accumulator : all_lambda_accumulators[d])
+                  accumulator_coeffs.emplace_back(lambda_accumulator, 1.);
+                constrain_matrix_row(this->system_matrix,
+                                     local_position_master_dofs[d],
+                                     master_position_rows.at(
+                                       local_position_master_dofs[d]),
+                                     accumulator_coeffs);
+              }
             }
           }
         }
@@ -2420,11 +2724,74 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_rhs()
 
   if (this->param.fsi.zero_mass_model)
   {
-    // Zero mass.
-    // Set RHS to zero for coupled position dofs
-    for (const auto &[pos_dof, d] : coupled_position_dofs)
-      if (this->locally_owned_dofs.is_element(pos_dof))
-        this->system_rhs(pos_dof) = 0.;
+    if (this->param.fsi.rotation.enable)
+    {
+      // Rigid-body rotation
+
+      if (has_rotation_angle)
+      {
+        const unsigned int theta_dof = rotation_angle_dof;
+
+        {
+          // Equation for theta
+          // Enforce F_D * tan(theta) - F_L = 0
+          AssertThrow(this->locally_owned_dofs.is_element(rotation_angle_dof),
+                      ExcInternalError());
+
+          double constraint = 0.;
+
+          // Contributions from lambda_x and tan(theta)
+          for (const auto l_dof : all_lambda_accumulators[0])
+            constraint += this->evaluation_point[l_dof];
+          constraint *= std::tan(this->evaluation_point[theta_dof]);
+
+          // Contributions from lambda_y
+          for (const auto l_dof : all_lambda_accumulators[1])
+            constraint -= this->evaluation_point[l_dof];
+
+          this->system_rhs(theta_dof) = -constraint;
+        }
+
+        // Equation for the position
+        // Enforce x - x_c - M(theta) * (X - X_c) = 0
+        {
+          const double   theta = this->evaluation_point[theta_dof];
+          Tensor<2, dim> rotation_matrix;
+          if constexpr (dim == 2)
+            rotation_matrix =
+              Physics::Transformations::Rotations::rotation_matrix_2d(theta);
+          else
+          {
+            DEAL_II_NOT_IMPLEMENTED();
+            // rotation_matrix =
+            // Physics::Transformations::Rotations::rotation_matrix_3d(axis,
+            // theta);
+          }
+
+          for (const auto &[x_dof, d] : coupled_position_dofs)
+            if (this->locally_owned_dofs.is_element(x_dof))
+            {
+              const auto &xc = this->param.fsi.rotation.center;
+
+              const Point<dim> &X         = this->initial_positions.at(x_dof);
+              const auto        v_rotated = rotation_matrix * (X - xc);
+
+              const double constraint =
+                this->evaluation_point[x_dof] - xc[d] - v_rotated[d];
+
+              this->system_rhs(x_dof) = -constraint;
+            }
+        }
+      }
+    }
+    else
+    {
+      // Zero mass, spring only model.
+      // Set RHS to zero for coupled position dofs
+      for (const auto &[pos_dof, d] : coupled_position_dofs)
+        if (this->locally_owned_dofs.is_element(pos_dof))
+          this->system_rhs(pos_dof) = 0.;
+    }
   }
   else
   {
@@ -2663,34 +3030,67 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
               ExcMessage(
                 "Displacement values of the cylinder are not all the same."));
 
-  if (this->param.fsi.zero_mass_model)
+  //
+  // For the zero-mass spring model only, check that the ratio
+  // force/displacement is indeed the prescribed spring constant.
+  //
+  for (unsigned int d = 0; d < dim; ++d)
   {
-    //
-    // Check relative error between lambda/disp ratio vs spring constant
-    //
-    for (unsigned int d = 0; d < dim; ++d)
-    {
-      if (std::abs(ratio[d]) < 1e-10)
-        continue;
-      if (std::abs(lambda_integral[d]) < 1e-12)
-        continue;
+    if (std::abs(ratio[d]) < 1e-10)
+      continue;
+    if (std::abs(lambda_integral[d]) < 1e-12)
+      continue;
 
-      const double absolute_error =
-        std::abs(ratio[d] - (-this->param.fsi.spring_constant));
+    const double absolute_error =
+      std::abs(ratio[d] - (-this->param.fsi.spring_constant));
 
-      if (absolute_error <= 1e-6)
-        continue;
+    if (absolute_error <= 1e-6)
+      continue;
 
-      const double relative_error =
-        absolute_error / this->param.fsi.spring_constant;
+    const double relative_error =
+      absolute_error / this->param.fsi.spring_constant;
 
-      this->pcout << "Relative error = " << relative_error << std::endl;
+    this->pcout << "Relative error = " << relative_error << std::endl;
 
-      AssertThrow(relative_error <= 1e-2,
-                  ExcMessage(
-                    "Ratio integral vs displacement values is not -k"));
-    }
+    AssertThrow(relative_error <= 1e-2,
+                ExcMessage("Ratio integral vs displacement values is not -k"));
   }
+}
+
+template <int dim>
+void FSISolver<dim>::check_rigid_body_rotation_angles() const
+{
+  if (has_rotation_angle &&
+      this->param.fsi.verbosity == Parameters::Verbosity::verbose)
+  {
+    const double theta     = (*this->present_solution)[rotation_angle_dof];
+    const double theta_deg = theta / M_PI * 180.;
+    this->pcout << std::endl;
+    this->pcout << "Rigid-body rotation angle: " << theta << " (" << theta_deg
+                << " degrees)" << std::endl;
+  }
+
+  // Check that the angles on all partitions (if defined) are identical
+  double theta_min, theta_max;
+  {
+    double theta =
+      has_rotation_angle ? (*this->present_solution)[rotation_angle_dof] : 1e22;
+    MPI_Reduce(
+      &theta, &theta_min, 1, MPI_DOUBLE, MPI_MIN, 0, this->mpi_communicator);
+  }
+  {
+    double theta = has_rotation_angle ?
+                     (*this->present_solution)[rotation_angle_dof] :
+                     -1e22;
+    MPI_Reduce(
+      &theta, &theta_max, 1, MPI_DOUBLE, MPI_MAX, 0, this->mpi_communicator);
+  }
+
+  if (this->mpi_rank == 0)
+    AssertThrow(
+      std::abs(theta_max - theta_min) < 1e-12,
+      ExcMessage(
+        "Rigid-body rotation angles are not identical across partitions"));
 }
 
 template <int dim>
@@ -3077,9 +3477,15 @@ void FSISolver<dim>::solver_specific_post_processing()
     if (this->param.debug.fsi_check_mms_on_boundary)
       check_manufactured_solution_boundary();
 
-  // Check position - lambda coupling if coupled
   if (this->param.fsi.enable_coupling)
-    compare_forces_and_position_on_obstacle();
+  {
+    // Check position - lambda coupling if coupled
+    if (this->param.fsi.zero_mass_model && !this->param.fsi.rotation.enable)
+      compare_forces_and_position_on_obstacle();
+
+    if (this->param.fsi.rotation.enable)
+      check_rigid_body_rotation_angles();
+  }
 
   // Check that no-slip condition is satisfied
   if (this->should_check_weakly_enforced_velocity(this->time_handler))

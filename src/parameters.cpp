@@ -1744,6 +1744,20 @@ namespace Parameters
           "lambda_accumulators|global_position_master_to_global_accumulator"),
         "Coupling strategy between force (Lagrange multiplier) "
         "and position dofs");
+
+      prm.enter_subsection("Rigid body rotation");
+      {
+        prm.declare_entry(
+          "enable",
+          "false",
+          Patterns::Bool(),
+          "Enable rigid-body rotation around center of rotation");
+        prm.declare_entry("center of rotation",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Fixed center of rotation");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -1783,6 +1797,18 @@ namespace Parameters
       else
         throw std::runtime_error("Unknown force-position coupling: " +
                                  parsed_coupling);
+
+      prm.enter_subsection("Rigid body rotation");
+      {
+        rotation.enable = prm.get_bool("enable");
+        if (rotation.enable)
+          AssertThrow(zero_mass_model,
+                      ExcMessage("Rigid-body rotation is only available for "
+                                 "the zero-mass model."));
+        rotation.center =
+          parse_rank_1_tensor<dim>(prm.get("center of rotation"));
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }

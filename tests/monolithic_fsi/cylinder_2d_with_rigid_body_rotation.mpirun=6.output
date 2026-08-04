@@ -1,12 +1,13 @@
 Number of MPI processes: 6
 
 -- Fluid-structure interaction parameters:
-	 Using zero-mass model:no
+	 Using zero-mass model:yes
 	     Mass of the solid:1
 	   Damping coefficient:1
 	   Spring  coefficient:1
-	Initial solid velocity:1 1
-	   Rigid-body rotation:no
+	Initial solid velocity:0 0
+	   Rigid-body rotation:yes
+	    Center of rotation:4 8
 Mesh info:
  dimension: 2
  no. of cells: 100
@@ -26,33 +27,38 @@ Mean position (geometric center) on boundary with id 4:
 x = +8.0000000000e+00
 y = +8.0000000000e+00
 
+Rigid-body rotation angle: 0 (0 degrees)
+
 Time step 1 - Advancing to t = 0.01.
-Newton iter.  0:          nonlinear residual = 2.55587722e+00
-Newton iter.  1:          nonlinear residual = 3.82112052e-01	(M)
-Newton iter.  2:          nonlinear residual = 5.04893611e-05	(M)
-Newton iter.  3:          nonlinear residual = 1.70325710e-12	(M)
+Newton iter.  0:          nonlinear residual = 7.28360041e-01
+Newton iter.  1:          nonlinear residual = 5.93066275e-01	(M)
+Newton iter.  2:          nonlinear residual = 5.04369244e-05	(M)
+Newton iter.  3:          nonlinear residual = 2.89711574e-12	(M)
 Stopping because residual is below prescribed tolerance (1.00e-08)
 
 Forces on boundary with id 4 computed with method : lagrange_multiplier
-Fx = -2.0418222908e-01
-Fy = -5.8990644197e+01
+Fx = +1.4829611541e+02
+Fy = +1.2628444221e-02
 
 Mean position (geometric center) on boundary with id 4:
-x = +8.0098797958e+00
-y = +8.0040599303e+00
+x = +7.9999999855e+00
+y = +8.0003406278e+00
+
+Rigid-body rotation angle: 8.52e-05 (4.88e-03 degrees)
 
 Time step 2 - Advancing to t = 1.00e-01.
-Newton iter.  0:          nonlinear residual = 2.00980057e+02
-Newton iter.  1:          nonlinear residual = 8.87494113e-01	(M)
-Newton iter.  2:          nonlinear residual = 1.82708088e-03	(M)
-Newton iter.  3:          nonlinear residual = 1.74756704e-08	(M)
-Newton iter.  4:          nonlinear residual = 1.40361518e-13	(M)
+Newton iter.  0:          nonlinear residual = 1.14988526e+02
+Newton iter.  1:          nonlinear residual = 3.62626200e-01	(M)
+Newton iter.  2:          nonlinear residual = 2.88093789e-05	(M)
+Newton iter.  3:          nonlinear residual = 3.96460656e-11	(M)
 Stopping because residual is below prescribed tolerance (1.00e-08)
 
 Forces on boundary with id 4 computed with method : lagrange_multiplier
-Fx = +1.3537273051e+00
-Fy = +5.3459966751e+01
+Fx = -1.3232991589e+02
+Fy = -1.1290427263e-01
 
 Mean position (geometric center) on boundary with id 4:
-x = +8.0970559642e+00
-y = +8.0396432052e+00
+x = +7.9999985441e+00
+y = +8.0034128105e+00
+
+Rigid-body rotation angle: 8.53e-04 (4.89e-02 degrees)

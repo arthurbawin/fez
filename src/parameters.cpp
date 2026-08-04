@@ -1322,12 +1322,24 @@ namespace Parameters
                         "q = tanh(k phi)/tanh(k) used by the abels_nlm model.");
       prm.declare_entry("mobility model",
                         "constant",
-                        Patterns::Selection("constant|degenerate"),
-                        "Model for the mobility tensor");
+                        Patterns::Selection("constant|degenerate|adaptative_mobility"),
+                        "Model for the scalar mobility.");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
                         "Mobility value if constant");
+      prm.declare_entry(
+        "adaptive mobility n",
+        "10.",
+        Patterns::Double(0.),
+        "Strictly positive multiplier n of adaptative_mobility: "
+        "n*sqrt(2)*(u.grad(phi))*epsilon^3/sigma_tilde.");
+      prm.declare_entry(
+        "adaptive mobility delta",
+        "1e-12",
+        Patterns::Double(0.),
+        "Strictly positive regularization delta of adaptative_mobility: "
+        "M_reg=sqrt(M_raw^2+delta^2).");
       prm.declare_entry("enable mobility tracer limiter",
                         "false",
                         Patterns::Bool(),
@@ -1435,9 +1447,18 @@ namespace Parameters
         mobility_model = MobilityModel::constant;
       else if (parsed_mobility_model == "degenerate")
         mobility_model = MobilityModel::degenerate;
+      else if (parsed_mobility_model == "adaptative_mobility")
+        mobility_model = MobilityModel::adaptive;
       else
         AssertThrow(false, ExcMessage("Unknown mobility model"));
       mobility                = prm.get_double("mobility");
+      adaptive_mobility_n     = prm.get_double("adaptive mobility n");
+      adaptive_mobility_delta = prm.get_double("adaptive mobility delta");
+      AssertThrow(adaptive_mobility_n > 0.,
+                  ExcMessage("'adaptive mobility n' must be strictly positive"));
+      AssertThrow(adaptive_mobility_delta > 0.,
+                  ExcMessage(
+                    "'adaptive mobility delta' must be strictly positive"));
       mobility_tracer_limiter = prm.get_bool("enable mobility tracer limiter");
       prm.enter_subsection("degenerate mobility");
       {
@@ -1446,6 +1467,13 @@ namespace Parameters
       prm.leave_subsection();
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
+      if (mobility_model == MobilityModel::adaptive)
+      {
+        AssertThrow(surface_tension > 0.,
+                    ExcMessage("adaptative_mobility requires positive surface tension"));
+        AssertThrow(epsilon_interface > 0.,
+                    ExcMessage("adaptative_mobility requires positive interface thickness"));
+      }
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
       // moving-mesh forcing parameters
       const std::string parsed_mff_source_term = prm.get("mff source term");

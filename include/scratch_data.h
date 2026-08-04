@@ -1147,16 +1147,22 @@ namespace NavierStokesScratch
         const double mobility_arg_dd =
           material_phase_second_derivative_function(cahn_hilliard_param,
                                                     mobility_phi);
-        const double M_val =
-          mobility_function(cahn_hilliard_param, mobility_arg);
-        const double dM_val =
-          mobility_derivative_function(cahn_hilliard_param, mobility_arg);
-        const double ddM_val =
-          mobility_second_derivative_function(cahn_hilliard_param, mobility_arg);
-        mobility_values[q]                = M_val;
-        derivative_mobility_wrt_tracer[q] = dM_val * mobility_arg_d;
+        const auto mobility_evaluation = mobility_evaluation_function(
+          cahn_hilliard_param,
+          mobility_arg,
+          mobility_arg_d,
+          mobility_arg_dd,
+          present_velocity_values[q],
+          tracer_gradients[q],
+          adaptive_mobility_coefficient,
+          adaptive_mobility_delta);
+        mobility_values[q] = mobility_evaluation.value;
+        derivative_mobility_wrt_tracer[q] =
+          mobility_evaluation.derivative_wrt_tracer;
         second_derivative_mobility_wrt_tracer[q] =
-          ddM_val * mobility_arg_d * mobility_arg_d + dM_val * mobility_arg_dd;
+          mobility_evaluation.second_derivative_wrt_tracer;
+        adaptive_mobility_sensitivities[q] =
+          mobility_evaluation.adaptive_sensitivity;
         diffusive_flux_factor_values[q] =
           mobility_values[q] * 0.5 * (density1 - density0);
 
@@ -1641,6 +1647,9 @@ namespace NavierStokesScratch
     double         mobility;
     double         epsilon;
     double         sigma_tilde;
+    // n sqrt(2) epsilon^3 / sigma_tilde for adaptive_mobility.
+    double         adaptive_mobility_coefficient;
+    double         adaptive_mobility_delta;
     // Enlarged (psi) Helmholtz length scale squared (L^2, L = width factor *
     // epsilon) and the raw mu-correction factor. Only set when enlarged.
     double         psi_length_scale_sq;
@@ -1649,9 +1658,7 @@ namespace NavierStokesScratch
 
     CahnHilliard::TracerLimiterFunction         tracer_limiter;
     CahnHilliard::MobilityTracerLimiterFunction mobility_tracer_limiter;
-    CahnHilliard::MobilityFunction<dim>         mobility_function;
-    CahnHilliard::MobilityFunction<dim>         mobility_derivative_function;
-    CahnHilliard::MobilityFunction<dim>         mobility_second_derivative_function;
+    CahnHilliard::MobilityEvaluationFunction<dim> mobility_evaluation_function;
 
     // Material marker m(phi) and its two derivatives. Identity for every model
     // but abels_nlm (where m = q = tanh(k phi)/tanh(k)); the material
@@ -1669,6 +1676,8 @@ namespace NavierStokesScratch
     // (chain rule through the material marker for abels_nlm), and the diffusive
     // -flux factor 0.5*(rho1 - rho0)*M(q), per node.
     std::vector<double> mobility_values;
+    // dM_reg/d(u.grad(phi)) for adaptative_mobility; zero otherwise.
+    std::vector<double> adaptive_mobility_sensitivities;
     std::vector<double> derivative_mobility_wrt_tracer;
     std::vector<double> second_derivative_mobility_wrt_tracer;
     std::vector<double> diffusive_flux_factor_values;

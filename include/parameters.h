@@ -678,10 +678,17 @@ namespace Parameters
     enum class MobilityModel
     {
       constant,
-      degenerate
+      degenerate,
+      adaptive
     } mobility_model;
 
     double mobility;
+    // Positive multiplier n of the adaptive mobility
+    // n*sqrt(2)*(u.grad(phi))*epsilon^3/sigma_tilde.
+    double adaptive_mobility_n;
+    // Strictly positive regularization of adaptative_mobility, in mobility
+    // units: M_reg = sqrt(M_raw^2 + delta^2).
+    double adaptive_mobility_delta;
     // Degenerate mobility M(phi) as a parsed function of the tracer (its single
     // variable x is phi); the magnitude is baked into the expression. Only used
     // when mobility_model == degenerate.

@@ -195,19 +195,15 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   const double mobility_arg_d =
     CahnHilliard::get_material_phase_derivative_function(cahn_hilliard_param)(
       cahn_hilliard_param, mobility_phi);
-  const double M = CahnHilliard::get_mobility_function(cahn_hilliard_param)(
-    cahn_hilliard_param, mobility_arg);
-  const double dM_dphi =
-    CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param)(
-      cahn_hilliard_param, mobility_arg) *
-    mobility_arg_d;
-  const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
   // d(eta)/d(phi) = eta_q m' (chain rule through the marker).
   const double detadphi =
     CahnHilliard::linear_mixing_derivative(m_marker, eta0, eta1) * dm_marker;
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
+  const double adaptive_mobility_coefficient =
+    cahn_hilliard_param.adaptive_mobility_n * sqrt(2.) * epsilon * epsilon *
+    epsilon / sigma_tilde;
   // Model-dependent potential coefficients and Ding-Horriche capillary gamma.
   const double double_well_coeff =
     CahnHilliard::potential_double_well_coefficient(cahn_hilliard_param,
@@ -237,6 +233,22 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   const double   mu          = mms.exact_potential->value(p);
   Tensor<1, dim> grad_mu     = mms.exact_potential->gradient(p);
   Tensor<1, dim> grad_phi    = mms.exact_tracer->gradient(p);
+  const auto mobility_evaluation =
+    CahnHilliard::get_mobility_evaluation_function(cahn_hilliard_param)(
+      cahn_hilliard_param,
+      mobility_arg,
+      mobility_arg_d,
+      0.,
+      u,
+      grad_phi,
+      adaptive_mobility_coefficient,
+      cahn_hilliard_param.adaptive_mobility_delta);
+  const double M = mobility_evaluation.value;
+  const Tensor<1, dim> grad_mobility =
+    mobility_evaluation.derivative_wrt_tracer * grad_phi +
+    mobility_evaluation.adaptive_sensitivity *
+      (grad_u * grad_phi + mms.exact_tracer->hessian(p) * u);
+  const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
   Tensor<1, dim> J_flux      = diff_flux_factor * grad_mu;
   Tensor<1, dim> div_viscous = (eta * (lap_u + grad_div_u) +
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
@@ -278,12 +290,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
 
   // Transport source term (on the marker m). d(m)/dt = m' d(phi)/dt and
   // grad(m) = m' grad(phi); div(M(q) grad mu) = M lap(mu) + (dM/dphi)
-  // grad(phi).grad(mu).
+  // grad(phi).grad(mu). For adaptive_mobility, grad(M) is evaluated directly.
   const double dphidt = mms.exact_tracer->time_derivative(p);
   const double lap_mu = mms.exact_potential->laplacian(p);
   values[phi_lower] =
     -(dm_marker * (dphidt + u * grad_phi) - M * lap_mu -
-      dM_dphi * (grad_phi * grad_mu));
+      grad_mobility * grad_mu);
 
   // Potential source term. Mass factor m'(phi) mu; the double-well and gradient
   // terms stay in phi.

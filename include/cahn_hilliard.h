@@ -213,42 +213,12 @@ namespace CahnHilliard
   // function, its first and second derivative at x = phi.
 
   template <int dim>
-  using MobilityFunction = double (*)(const Parameters::CahnHilliard<dim> &,
-                                      double);
-
-  template <int dim>
-  inline double constant_mobility(const Parameters::CahnHilliard<dim> &param,
-                                  const double /*phi*/)
-  {
-    return param.mobility;
-  }
-
-  template <int dim>
   inline double degenerate_mobility(const Parameters::CahnHilliard<dim> &param,
                                     const double phi)
   {
     dealii::Point<dim> p;
     p[0] = phi;
     return param.degenerate_mobility->value(p);
-  }
-
-  template <int dim>
-  MobilityFunction<dim>
-  get_mobility_function(const Parameters::CahnHilliard<dim> &param)
-  {
-    if (param.mobility_model ==
-        Parameters::CahnHilliard<dim>::MobilityModel::constant)
-      return &constant_mobility<dim>;
-    else
-      return &degenerate_mobility<dim>;
-  }
-
-  template <int dim>
-  inline double
-  constant_mobility_derivative(const Parameters::CahnHilliard<dim> & /*param*/,
-                               const double /*phi*/)
-  {
-    return 0.;
   }
 
   template <int dim>
@@ -262,25 +232,6 @@ namespace CahnHilliard
   }
 
   template <int dim>
-  MobilityFunction<dim>
-  get_mobility_derivative_function(const Parameters::CahnHilliard<dim> &param)
-  {
-    if (param.mobility_model ==
-        Parameters::CahnHilliard<dim>::MobilityModel::constant)
-      return &constant_mobility_derivative<dim>;
-    else
-      return &degenerate_mobility_derivative<dim>;
-  }
-
-  template <int dim>
-  inline double
-  constant_mobility_second_derivative(const Parameters::CahnHilliard<dim> &,
-                                      const double /*phi*/)
-  {
-    return 0.;
-  }
-
-  template <int dim>
   inline double
   degenerate_mobility_second_derivative(const Parameters::CahnHilliard<dim> &param,
                                         const double phi)
@@ -290,15 +241,90 @@ namespace CahnHilliard
     return param.degenerate_mobility->hessian(p)[0][0];
   }
 
+  /** Mobility data at one quadrature point. The adaptive sensitivity is
+   * dM_reg/d(u.grad(phi)); it is zero for the other mobility models. */
   template <int dim>
-  MobilityFunction<dim> get_mobility_second_derivative_function(
+  struct MobilityEvaluation
+  {
+    double value;
+    double derivative_wrt_tracer;
+    double second_derivative_wrt_tracer;
+    double adaptive_sensitivity;
+  };
+
+  template <int dim>
+  using MobilityEvaluationFunction = MobilityEvaluation<dim> (*)
+    (const Parameters::CahnHilliard<dim> &,
+     double,
+     double,
+     double,
+     const dealii::Tensor<1, dim> &,
+     const dealii::Tensor<1, dim> &,
+     double,
+     double);
+
+  template <int dim>
+  inline MobilityEvaluation<dim>
+  evaluate_constant_mobility(const Parameters::CahnHilliard<dim> &param,
+                             const double,
+                             const double,
+                             const double,
+                             const dealii::Tensor<1, dim> &,
+                             const dealii::Tensor<1, dim> &,
+                             const double,
+                             const double)
+  {
+    return {param.mobility, 0., 0., 0.};
+  }
+
+  template <int dim>
+  inline MobilityEvaluation<dim>
+  evaluate_degenerate_mobility(const Parameters::CahnHilliard<dim> &param,
+                               const double                         phi,
+                               const double                         phi_d,
+                               const double                         phi_dd,
+                               const dealii::Tensor<1, dim> &,
+                               const dealii::Tensor<1, dim> &,
+                               const double,
+                               const double)
+  {
+    const double value = degenerate_mobility(param, phi);
+    const double derivative = degenerate_mobility_derivative(param, phi);
+    return {value,
+            derivative * phi_d,
+            degenerate_mobility_second_derivative(param, phi) * phi_d * phi_d +
+              derivative * phi_dd,
+            0.};
+  }
+
+  template <int dim>
+  inline MobilityEvaluation<dim>
+  evaluate_adaptative_mobility(const Parameters::CahnHilliard<dim> &,
+                               const double,
+                               const double,
+                               const double,
+                               const dealii::Tensor<1, dim> &velocity,
+                               const dealii::Tensor<1, dim> &tracer_gradient,
+                               const double adaptive_coefficient,
+                               const double delta)
+  {
+    const double raw = adaptive_coefficient * (velocity * tracer_gradient);
+    const double value = std::sqrt(raw * raw + delta * delta);
+    return {value, 0., 0., raw / value * adaptive_coefficient};
+  }
+
+  template <int dim>
+  MobilityEvaluationFunction<dim> get_mobility_evaluation_function(
     const Parameters::CahnHilliard<dim> &param)
   {
     if (param.mobility_model ==
         Parameters::CahnHilliard<dim>::MobilityModel::constant)
-      return &constant_mobility_second_derivative<dim>;
+      return &evaluate_constant_mobility<dim>;
+    else if (param.mobility_model ==
+             Parameters::CahnHilliard<dim>::MobilityModel::degenerate)
+      return &evaluate_degenerate_mobility<dim>;
     else
-      return &degenerate_mobility_second_derivative<dim>;
+      return &evaluate_adaptative_mobility<dim>;
   }
 
   // --- Material phase marker m(phi) -----------------------------------------

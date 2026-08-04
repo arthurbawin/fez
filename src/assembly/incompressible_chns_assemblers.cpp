@@ -360,6 +360,8 @@ namespace Assembly
         // diffusive-flux factor 0.5*(rho1 - rho0)*M(phi) with its derivative.
         // Every derivative is zero for the constant-mobility model.
         const double mobility         = sd.mobility_values[q];
+        const double adaptive_mobility_sensitivity =
+          sd.adaptive_mobility_sensitivities[q];
         const double dmobility_dphi   = sd.derivative_mobility_wrt_tracer[q];
         const double d2mobility_dphi2 =
           sd.second_derivative_mobility_wrt_tracer[q];
@@ -498,6 +500,12 @@ namespace Assembly
             // Diffusive-inertia velocity coupling (Abels only).
             to_mult_by_phi_u_i_momentum[j] +=
               diffusive_flux_factor * grad_phi_u_j * grad_mu;
+          if constexpr (!BaseType::with_ding_horriche)
+            // This contribution is zero for constant and degenerate mobility.
+            to_mult_by_phi_u_i_momentum[j] +=
+              0.5 * (sd.density1 - sd.density0) *
+              adaptive_mobility_sensitivity * (phi_u_j * grad_phi) *
+              (grad_u * grad_mu);
 
           // Potential (mu) column of the momentum equation. Abels:
           // diffusive-inertia + capillary phi*grad(mu). Ding-Horriche:
@@ -829,6 +837,13 @@ namespace Assembly
                   local_matrix_ij +=
                     -capillary_coeff * mu *
                     (phi_u_i * grad_phi_phi[j]);
+                if constexpr (!BaseType::with_ding_horriche)
+                  // Zero for constant and degenerate mobility.
+                  local_matrix_ij +=
+                    phi_u_i *
+                    (0.5 * (sd.density1 - sd.density0) *
+                     adaptive_mobility_sensitivity *
+                     (u * grad_phi_phi[j]) * (grad_u * grad_mu));
               }
               else if (j_is_mu)
                 local_matrix_ij += phi_u_i * to_mult_by_phi_u_i_potential[j];
@@ -957,6 +972,9 @@ namespace Assembly
               if (j_is_u)
               {
                 matrix_row[j] += phi_phi_i * phi_u_j_x_grad_phi[j] * JxW_moving;
+                matrix_row[j] +=
+                  adaptive_mobility_sensitivity * (phi_u[j] * grad_phi) *
+                  (grad_phi_phi_i * grad_mu) * JxW_moving;
               }
               else if (j_is_phi)
               {
@@ -966,6 +984,9 @@ namespace Assembly
                 // (zero for a constant mobility).
                 matrix_row[j] += dmobility_dphi * phi_phi[j] *
                                  (grad_phi_phi_i * grad_mu) * JxW_moving;
+                matrix_row[j] +=
+                  adaptive_mobility_sensitivity * (u * grad_phi_phi[j]) *
+                  (grad_phi_phi_i * grad_mu) * JxW_moving;
               }
               else if (j_is_mu)
               {

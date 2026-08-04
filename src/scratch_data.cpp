@@ -417,19 +417,18 @@ namespace NavierStokesScratch
     mobility           = cahn_hilliard_param.mobility;
     epsilon            = cahn_hilliard_param.epsilon_interface;
     sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
+    adaptive_mobility_coefficient =
+      cahn_hilliard_param.adaptive_mobility_n * sqrt(2.) *
+      epsilon * epsilon * epsilon / sigma_tilde;
+    adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_delta;
     body_force            = physical_properties.body_force;
     tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
 
-    // Mobility M(phi): constant, or a parsed function of the tracer. The value,
-    // its first and second derivative are evaluated per quadrature node in
-    // reinit; for the constant model the derivatives are zero, so the assembly
-    // reduces to the constant-mobility case. The Abels diffusive-flux factor
-    // 0.5*(rho1 - rho0)*M(phi) is therefore also per node.
-    mobility_function = CahnHilliard::get_mobility_function(cahn_hilliard_param);
-    mobility_derivative_function =
-      CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param);
-    mobility_second_derivative_function =
-      CahnHilliard::get_mobility_second_derivative_function(cahn_hilliard_param);
+    // Select the mobility evaluator once. It returns M, its tracer derivatives,
+    // and the adaptative-mobility sensitivity at each quadrature point; this
+    // keeps model selection outside the reinit hot loop.
+    mobility_evaluation_function =
+      CahnHilliard::get_mobility_evaluation_function(cahn_hilliard_param);
     mobility_tracer_limiter =
       CahnHilliard::get_mobility_limiter_function(cahn_hilliard_param);
 
@@ -674,6 +673,7 @@ namespace NavierStokesScratch
       derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
 
       mobility_values.resize(n_q_points);
+      adaptive_mobility_sensitivities.assign(n_q_points, 0.);
       derivative_mobility_wrt_tracer.resize(n_q_points);
       second_derivative_mobility_wrt_tracer.resize(n_q_points);
       diffusive_flux_factor_values.resize(n_q_points);

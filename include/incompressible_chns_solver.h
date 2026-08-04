@@ -140,8 +140,8 @@ protected:
   virtual bool uses_hp_capabilities() const override { return false; };
 
   /**
-   * Append CHNS-specific derived fields (density, Abels pressure) to the VTU
-   * output as continuous nodal data. The Abels pressure is the physically
+   * Append CHNS-specific derived fields (density, pressure, mobility) to the
+   * VTU output as continuous nodal data. The Abels pressure is the physically
    * meaningful bulk pressure carrying the Young-Laplace jump:
    * p_abels = p + phi * mu.
    */

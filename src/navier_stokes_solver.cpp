@@ -530,6 +530,24 @@ void NavierStokesSolver<dim, with_moving_mesh>::
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+  update_constraints_for_evaluation_point()
+{
+  if constexpr (with_moving_mesh)
+  {
+    // First apply the position constraints on the mapping currently available.
+    create_nonzero_constraints();
+    nonzero_constraints.distribute(local_evaluation_point);
+    evaluation_point = local_evaluation_point;
+
+    // Rebuild all constraints on the resulting ALE mapping. In particular,
+    // input_function values must be evaluated at the deformed support points.
+    create_zero_constraints();
+    create_nonzero_constraints();
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
   const bool                 homogeneous,
   AffineConstraints<double> &constraints)
@@ -719,6 +737,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
 
   // Set other solver-specific fields on moving mesh (e.g., CHNS tracer)
   set_solver_specific_initial_conditions();
+
+  // Constraints created during setup were evaluated on the undeformed mesh.
+  // Recompute their values now that the initial ALE mapping (including the
+  // presolved mesh position) has been initialized.
+  if constexpr (with_moving_mesh)
+    create_nonzero_constraints();
 
   // Apply non-homogeneous Dirichlet BC and set as current solution
   nonzero_constraints.distribute(newton_update);

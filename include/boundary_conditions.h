@@ -221,15 +221,25 @@ namespace BoundaryConditions
   class CahnHilliardBC : public BoundaryCondition
   {
   public:
+    // User-defined tracer function for input_function boundary
+    std::shared_ptr<Functions::ParsedFunction<dim>> tracer;
+
     // Equilibrium static contact angle, stored in radians and measured through
     // the phi = +1 phase. A negative value means no wetting condition is active.
     // It is an attribute on top of the boundary type (e.g. no_flux + wetting),
     // so type = none with a contact angle is a pure wetting wall.
     double contact_angle = -1.;
 
+    CahnHilliardBC()
+      : tracer(std::make_shared<Functions::ParsedFunction<dim>>())
+    {}
+
     virtual void declare_parameters(ParameterHandler &prm) override;
     virtual void read_parameters(ParameterHandler &prm) override;
-    virtual void set_time(const double) override {}
+    virtual void set_time(const double new_time) override
+    {
+      tracer->set_time(new_time);
+    }
   };
 
   /**
@@ -477,7 +487,6 @@ public:
   {
     if (component == field_component)
       return field_fun.value(p);
-    DEAL_II_ASSERT_UNREACHABLE();
     return 0.;
   }
 };

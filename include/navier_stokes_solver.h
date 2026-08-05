@@ -75,6 +75,8 @@ public:
    */
   virtual void run() override;
 
+  virtual void update_constraints_for_evaluation_point() override;
+
   /**
    * Attach an elasticity presolver whose presolved mesh position is injected
    * as the initial mesh when the initial conditions are created. The presolver

@@ -360,6 +360,22 @@ namespace Parameters
         "2",
         Patterns::Integer(0),
         "Number of subdivisions used to build visualization patches.");
+      prm.enter_subsection("fixed point method");
+      {
+        prm.declare_entry("single pvd file",
+                          "true",
+                          Patterns::Bool(),
+                          "Generate a single pvd file when using a fixed-point "
+                          "mesh adaptation method. If false, one pvd file per "
+                          "fixed-point iteration is generated instead.");
+        prm.declare_entry(
+          "show solution transfer",
+          "false",
+          Patterns::Bool(),
+          "Show the solution transfer between subinterval meshes. This "
+          "duplicates the timesteps at the junction of subintervals.");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("skin");
       {
         prm.declare_entry(
@@ -396,6 +412,13 @@ namespace Parameters
       vtu_output_frequency = prm.get_integer("vtu output frequency");
       n_vtu_groups         = prm.get_integer("number of vtu groups");
       n_subdivisions       = prm.get_integer("number of subdivisions");
+      prm.enter_subsection("fixed point method");
+      {
+        fixed_point.single_pvd = prm.get_bool("single pvd file");
+        fixed_point.show_solution_transfer =
+          prm.get_bool("show solution transfer");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("skin");
       {
         skin.write_results    = prm.get_bool("write vtu results");
@@ -420,7 +443,7 @@ namespace Parameters
                       Patterns::Bool(),
                       "Write result of this postprocessing to file");
     prm.declare_entry("output prefix",
-                      "forces",
+                      "postprocessed_data",
                       Patterns::FileName(),
                       "Prefix for the postprocessing output files");
     prm.declare_entry(
@@ -486,6 +509,21 @@ namespace Parameters
         declare_postprocessing_base(prm);
       }
       prm.leave_subsection();
+      prm.enter_subsection("chns phase volume");
+      {
+        declare_postprocessing_base(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase center of mass");
+      {
+        declare_postprocessing_base(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase average velocity");
+      {
+        declare_postprocessing_base(prm);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -539,6 +577,21 @@ namespace Parameters
       prm.enter_subsection("time scales");
       {
         read_postprocessing_base(prm, time_scales);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase volume");
+      {
+        read_postprocessing_base(prm, chns_volumes);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase center of mass");
+      {
+        read_postprocessing_base(prm, chns_center_mass);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase average velocity");
+      {
+        read_postprocessing_base(prm, chns_avg_velocity);
       }
       prm.leave_subsection();
     }

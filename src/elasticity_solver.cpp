@@ -404,7 +404,7 @@ void ElasticitySolver<dim>::create_sparsity_pattern()
 template <int dim>
 void ElasticitySolver<dim>::set_initial_conditions()
 {
-  FixedMeshPosition<dim> fixed_mesh(0, dim);
+  FixedMeshPosition<dim> fixed_mesh(0, fe->n_components());
   VectorTools::interpolate(
     *mapping, dof_handler, fixed_mesh, newton_update, position_mask);
   evaluation_point = newton_update;

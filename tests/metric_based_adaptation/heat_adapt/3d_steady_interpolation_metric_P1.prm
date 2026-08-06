@@ -1,0 +1,165 @@
+
+subsection Dimension
+  set dimension = 3
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write vtu results = true
+  set output directory  = ./
+  set output prefix     = solution
+end
+
+subsection Mesh
+
+  # Initial mesh file is given in the MMS subsection
+
+  subsection Adaptation
+    set verbosity                = verbose
+    set enable                   = true
+    set adaptation directory     = ./
+    set adapted meshes extension = adapted
+    set strategy                 = riemannian metric
+
+    subsection Metric
+      set n fixed point       = 5
+      set n time intervals    = 1
+      set transfer solution   = false
+      set mmg verbosity level = -1
+    end
+  end
+end
+
+subsection Metric tensor fields
+  set number = 1
+
+  subsection Metric field 0
+
+    set type      = interpolation error
+    set variable  = temperature
+    set component = 0
+
+    set min mesh size = 1e-4
+    set max mesh size = 10
+
+    subsection Analytical scalar field
+      # Use same function as exact solution
+      set Function expression = tanh( (2*x - sin(5*y)) * sin(z) / 0.2)
+    end
+
+    subsection Multiscale optimal metric for interpolation error
+      set target norm                = L2_norm
+      set use analytical derivatives = true
+
+      # Unused, using the one in MMS section
+      set n target vertices          = 1000
+    end
+
+    subsection Gradation
+      set enable         = false
+      set deterministic  = true
+      set gradation      = 1.8
+      set max iteration  = 100
+      set tolerance      = 1e-4
+      set spanning space = metric 
+    end
+  end
+end
+
+subsection Time integration
+  set scheme = stationary
+end
+
+subsection Nonlinear solver
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set Temperature degree = 1
+end
+
+subsection Initial conditions
+  subsection temperature
+    set Function expression = 0
+  end
+end
+
+subsection Heat boundary conditions
+  set number = 6
+  subsection boundary 0
+    set id   = 2
+    set name = x_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 1
+    set id   = 3
+    set name = x_max
+    set type = dirichlet_mms
+  end
+  subsection boundary 2
+    set id   = 4
+    set name = y_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 3
+    set id   = 5
+    set name = y_max
+    set type = dirichlet_mms
+  end
+  subsection boundary 4
+    set id   = 6
+    set name = y_min
+    set type = dirichlet_mms
+  end
+  subsection boundary 5
+    set id   = 7
+    set name = y_max
+    set type = dirichlet_mms
+  end
+end
+
+subsection Exact solution
+  subsection exact temperature
+    set Function expression = tanh( (2*x - sin(5*y)) * sin(z) / 0.2)
+  end
+end
+
+subsection Manufactured solution
+  set enable                 = true
+  set type                   = space
+  set convergence steps      = 2
+
+  subsection Space convergence
+    #set mesh prefix = /home/arthur/Code/fez/data/meshes/rectangular_box
+    set mesh prefix = ../../../rectangular_box
+    set initial target number of vertices = 200
+    set norms to compute = L2_norm, Linfty_norm, H1_seminorm
+  end
+
+  subsection Time convergence
+    set norm                 = Linfty
+    set use spatial mesh     = true
+    set spatial mesh index   = 1
+    set time step reduction  = 0.5
+  end
+end
+
+subsection Debug
+  set apply exact solution = true
+  set write partition gmsh = false
+end

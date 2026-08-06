@@ -276,8 +276,12 @@ namespace BoundaryConditions
     BoundaryCondition::declare_parameters(prm);
     prm.declare_entry("type",
                       "none",
-                      Patterns::Selection("none|no_flux|dirichlet_mms"),
+                      Patterns::Selection(
+                        "none|no_flux|dirichlet_mms|input_function"),
                       "Type of Cahn-Hilliard boundary condition");
+    prm.enter_subsection("tracer");
+    tracer->declare_parameters(prm);
+    prm.leave_subsection();
     prm.declare_entry("contact angle",
                       "-1",
                       Patterns::Double(-1., 180.),
@@ -298,6 +302,12 @@ namespace BoundaryConditions
       type = Type::no_flux;
     if (parsed_type == "dirichlet_mms")
       type = Type::dirichlet_mms;
+    if (parsed_type == "input_function")
+      type = Type::input_function;
+
+    prm.enter_subsection("tracer");
+    tracer->parse_parameters(prm);
+    prm.leave_subsection();
 
     // Contact angle: a degrees value in [0, 180] activates the wetting
     // condition (stored in radians); any negative input is canonicalized to the

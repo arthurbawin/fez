@@ -402,6 +402,17 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::setup_assemblers()
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  set_solver_specific_time()
+{
+  for (auto &[id, bc] : this->param.cahn_hilliard_bc)
+  {
+    (void)id;
+    bc.set_time(this->time_handler.current_time);
+  }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   create_solver_specific_zero_constraints()
 {
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
@@ -434,6 +445,15 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
           this->zero_constraints,
           psi_mask);
     }
+
+    if (bc.type == BoundaryConditions::Type::input_function)
+      VectorTools::interpolate_boundary_values(
+        *this->moving_mapping,
+        *this->dof_handler,
+        id,
+        Functions::ZeroFunction<dim>(this->ordering->n_components),
+        this->zero_constraints,
+        tracer_mask);
   }
 }
 
@@ -468,6 +488,17 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
                                                  this->nonzero_constraints,
                                                  psi_mask);
     }
+
+    if (bc.type == BoundaryConditions::Type::input_function)
+      VectorTools::interpolate_boundary_values(
+        *this->moving_mapping,
+        *this->dof_handler,
+        id,
+        ScalarFunctionFromComponents<dim>(this->ordering->phi_lower,
+                                          this->ordering->n_components,
+                                          *bc.tracer),
+        this->nonzero_constraints,
+        tracer_mask);
   }
 }
 
@@ -909,6 +940,19 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   solver_specific_post_processing()
 {
+  {
+    TimerOutput::Scope t(this->computing_timer,
+                         "Compute multiphase indicators");
+
+    this->postproc_handler->compute_multiphase_indicators(
+      *this->ordering,
+      *this->dof_handler,
+      *this->moving_mapping,
+      *this->quadrature,
+      *this->present_solution,
+      this->time_handler);
+  }
+
   const auto &ts = this->param.postprocessing.time_scales;
   if (!ts.enable)
     return;

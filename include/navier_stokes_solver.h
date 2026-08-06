@@ -75,6 +75,8 @@ public:
    */
   virtual void run() override;
 
+  virtual void update_constraints_for_evaluation_point() override;
+
   /**
    * Attach an elasticity presolver whose presolved mesh position is injected
    * as the initial mesh when the initial conditions are created. The presolver
@@ -610,7 +612,8 @@ protected:
   SolverControl                                          solver_control;
   std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
+  std::unique_ptr<PostProcessingHandler<dim>>     postproc_handler;
+  typename PostProcessingHandler<dim>::PrefixData prefix_data;
 
   MetricField<dim> *metric_for_adaptation;
 

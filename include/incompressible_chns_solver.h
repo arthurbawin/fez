@@ -66,6 +66,11 @@ public:
   virtual void create_solver_specific_nonzero_constraints() override;
 
   /**
+   * Update time-dependent Cahn-Hilliard boundary functions.
+   */
+  virtual void set_solver_specific_time() override;
+
+  /**
    *
    */
   virtual void create_sparsity_pattern() override;
@@ -148,10 +153,9 @@ protected:
   virtual void add_solver_specific_postprocessing_data() override;
 
   /**
-   * Compute and write the CHNS characteristic time scales and dimensionless
-   * numbers (advection vs Cahn-Hilliard chemical diffusion, capillary,
-   * viscous, ...) to a CSV, one row per output step. Used to analyse the
-   * stiffness of the nonlinear solve as the mobility / dynamics change.
+   * Compute the CHNS multiphase indicators and write the characteristic time
+   * scales and dimensionless numbers (advection vs Cahn-Hilliard chemical
+   * diffusion, capillary, viscous, ...) to a CSV when enabled.
    */
   virtual void solver_specific_post_processing() override;
 

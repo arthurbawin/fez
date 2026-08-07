@@ -593,6 +593,14 @@ namespace Assembly
 
             const auto grad_u_x_G_j = grad_u * G;
 
+            // The adaptive mobility is defined with the physical fluid
+            // velocity u, not the relative ALE convective velocity u - dx/dt.
+            // A mesh-position variation leaves the nodal value of u unchanged
+            // but transforms grad(phi) as -G^T grad(phi).
+            const auto dgrad_phi_dx = -(transpose_G * grad_phi);
+            const double mobility_x_variation =
+              adaptive_mobility_sensitivity * (u * dgrad_phi_dx);
+
             p_x_tr_G_j[j] = p * trG;
 
             /**
@@ -623,8 +631,6 @@ namespace Assembly
               const auto du_conv_dx  = -bdf_c0 * phi_x_j;
               const auto dgrad_u_dx  = -grad_u_x_G_j; // -(grad_u * G)
               const auto dgrad_mu_dx = -(transpose_G * grad_mu);
-              const auto dgrad_phi_dx = -(transpose_G * grad_phi);
-
               mesh_velocity_x_variation[j] = du_conv_dx;
               trace_grad_phi_x_moving[j]   = trG;
 
@@ -668,7 +674,9 @@ namespace Assembly
                 {
                   ddiffusive_flux_dx =
                     diffusive_flux_factor *
-                    (dgrad_u_dx * grad_mu + grad_u * dgrad_mu_dx);
+                      (dgrad_u_dx * grad_mu + grad_u * dgrad_mu_dx) +
+                    0.5 * (sd.density1 - sd.density0) *
+                      mobility_x_variation * (grad_u * grad_mu);
                   // Capillary m*grad(mu): m is a nodal value (invariant under
                   // the mesh x-variation), only grad(mu) transforms.
                   dcapillary_dx = m_marker * dgrad_mu_dx;
@@ -715,7 +723,9 @@ namespace Assembly
             else
               to_mult_by_phi_u_i_moving_mesh[j] +=
                 -m_marker * transpose_G * grad_mu +
-                diffusive_flux_factor * grad_u * val * grad_mu;
+                diffusive_flux_factor * grad_u * val * grad_mu +
+                0.5 * (sd.density1 - sd.density0) *
+                  mobility_x_variation * (grad_u * grad_mu);
 
             to_mult_by_grad_phi_u_i_moving_mesh[j] =
               p * transpose_G +
@@ -733,7 +743,7 @@ namespace Assembly
               u_conv * (transpose_G * grad_m);
 
             to_mult_by_grad_phi_phi_i_moving_mesh[j] =
-              mobility * (val * grad_mu);
+              mobility * (val * grad_mu) + mobility_x_variation * grad_mu;
 
             // Variation of potential
             to_mult_by_phi_mu_i_moving_mesh[j] = mu_partial_residual * trG;

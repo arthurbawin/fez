@@ -201,9 +201,24 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
-  const double adaptive_mobility_coefficient =
-    cahn_hilliard_param.adaptive_mobility_n * sqrt(2.) * epsilon * epsilon *
-    epsilon / sigma_tilde;
+  double adaptive_mobility_coefficient = 0.;
+  double adaptive_mobility_delta       = 0.;
+  if (cahn_hilliard_param.mobility_model ==
+      Parameters::CahnHilliard<dim>::MobilityModel::adaptive)
+  {
+    adaptive_mobility_coefficient =
+      cahn_hilliard_param.adaptive_mobility_n * sqrt(2.) * epsilon * epsilon *
+      epsilon / sigma_tilde;
+    adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_delta;
+  }
+  else if (cahn_hilliard_param.mobility_model ==
+           Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2)
+  {
+    adaptive_mobility_coefficient =
+      cahn_hilliard_param.adaptive_mobility_2_n * 2. * epsilon * epsilon *
+      epsilon * epsilon / sigma_tilde;
+    adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_2_delta;
+  }
   // Model-dependent potential coefficients and Ding-Horriche capillary gamma.
   const double double_well_coeff =
     CahnHilliard::potential_double_well_coefficient(cahn_hilliard_param,
@@ -242,7 +257,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
       u,
       grad_phi,
       adaptive_mobility_coefficient,
-      cahn_hilliard_param.adaptive_mobility_delta);
+      adaptive_mobility_delta);
   const double M = mobility_evaluation.value;
   const Tensor<1, dim> grad_mobility =
     mobility_evaluation.derivative_wrt_tracer * grad_phi +

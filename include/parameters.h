@@ -715,7 +715,8 @@ namespace Parameters
     {
       constant,
       degenerate,
-      adaptive
+      adaptive,
+      adaptive_mobility_2
     } mobility_model;
 
     double mobility;
@@ -725,6 +726,12 @@ namespace Parameters
     // Additive gradient term coefficient m of the adaptive mobility
     // contribution m*2*epsilon^2*|grad(phi)|^2.
     double adaptive_mobility_m;
+    // Positive multiplier n of the second adaptive mobility model:
+    // n*|grad(phi)|^2*||u||_reg*2*epsilon^4/sigma_tilde.
+    double adaptive_mobility_2_n;
+    // Strictly positive regularization of the velocity norm in the second
+    // adaptive mobility model: ||u||_reg = sqrt(u^2 + delta^2).
+    double adaptive_mobility_2_delta;
     // Strictly positive regularization of adaptative_mobility, in mobility
     // units: M_reg = sqrt(M_raw^2 + delta^2).
     double adaptive_mobility_delta;

@@ -1375,7 +1375,8 @@ namespace Parameters
                         "q = tanh(k phi)/tanh(k) used by the abels_nlm model.");
       prm.declare_entry("mobility model",
                         "constant",
-                        Patterns::Selection("constant|degenerate|adaptative_mobility"),
+                        Patterns::Selection(
+                          "constant|degenerate|adaptative_mobility|adaptative_mobility_2"),
                         "Model for the scalar mobility.");
       prm.declare_entry("mobility",
                         "1.",
@@ -1393,6 +1394,18 @@ namespace Parameters
         Patterns::Double(),
         "Coefficient m of the additive gradient term "
         "m*2*epsilon^2*|grad(phi)|^2 in adaptative_mobility.");
+      prm.declare_entry(
+        "adaptive mobility 2 n",
+        "1.",
+        Patterns::Double(0.),
+        "Positive multiplier n of adaptative_mobility_2: "
+        "n*|grad(phi)|^2*||u||_reg*2*epsilon^4/sigma_tilde.");
+      prm.declare_entry(
+        "adaptive mobility 2 delta",
+        "1e-12",
+        Patterns::Double(0.),
+        "Strictly positive regularization delta of adaptative_mobility_2: "
+        "||u||_reg = sqrt(u^2 + delta^2).");
       prm.declare_entry(
         "adaptive mobility delta",
         "1e-12",
@@ -1508,14 +1521,23 @@ namespace Parameters
         mobility_model = MobilityModel::degenerate;
       else if (parsed_mobility_model == "adaptative_mobility")
         mobility_model = MobilityModel::adaptive;
+      else if (parsed_mobility_model == "adaptative_mobility_2")
+        mobility_model = MobilityModel::adaptive_mobility_2;
       else
         AssertThrow(false, ExcMessage("Unknown mobility model"));
-      mobility                = prm.get_double("mobility");
-      adaptive_mobility_n     = prm.get_double("adaptive mobility n");
-      adaptive_mobility_m     = prm.get_double("adaptive mobility m");
-      adaptive_mobility_delta = prm.get_double("adaptive mobility delta");
+      mobility                    = prm.get_double("mobility");
+      adaptive_mobility_n         = prm.get_double("adaptive mobility n");
+      adaptive_mobility_m         = prm.get_double("adaptive mobility m");
+      adaptive_mobility_2_n       = prm.get_double("adaptive mobility 2 n");
+      adaptive_mobility_2_delta   = prm.get_double("adaptive mobility 2 delta");
+      adaptive_mobility_delta     = prm.get_double("adaptive mobility delta");
       AssertThrow(adaptive_mobility_n > 0.,
                   ExcMessage("'adaptive mobility n' must be strictly positive"));
+      AssertThrow(adaptive_mobility_2_n > 0.,
+                  ExcMessage("'adaptive mobility 2 n' must be strictly positive"));
+      AssertThrow(adaptive_mobility_2_delta > 0.,
+                  ExcMessage(
+                    "'adaptive mobility 2 delta' must be strictly positive"));
       AssertThrow(adaptive_mobility_delta > 0.,
                   ExcMessage(
                     "'adaptive mobility delta' must be strictly positive"));

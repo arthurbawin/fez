@@ -417,10 +417,24 @@ namespace NavierStokesScratch
     mobility           = cahn_hilliard_param.mobility;
     epsilon            = cahn_hilliard_param.epsilon_interface;
     sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
-    adaptive_mobility_coefficient =
-      cahn_hilliard_param.adaptive_mobility_n * sqrt(2.) *
-      epsilon * epsilon * epsilon / sigma_tilde;
-    adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_delta;
+    adaptive_mobility_coefficient = 0.;
+    adaptive_mobility_delta       = 0.;
+    if (cahn_hilliard_param.mobility_model ==
+        Parameters::CahnHilliard<dim>::MobilityModel::adaptive)
+    {
+      adaptive_mobility_coefficient =
+        cahn_hilliard_param.adaptive_mobility_n * sqrt(2.) * epsilon *
+        epsilon * epsilon / sigma_tilde;
+      adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_delta;
+    }
+    else if (cahn_hilliard_param.mobility_model ==
+             Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2)
+    {
+      adaptive_mobility_coefficient =
+        cahn_hilliard_param.adaptive_mobility_2_n * 2. * epsilon * epsilon *
+        epsilon * epsilon / sigma_tilde;
+      adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_2_delta;
+    }
     body_force            = physical_properties.body_force;
     tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
 

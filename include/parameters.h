@@ -719,9 +719,12 @@ namespace Parameters
     } mobility_model;
 
     double mobility;
-    // Positive multiplier n of the adaptive mobility
+    // Positive multiplier n of the adaptive mobility contribution
     // n*sqrt(2)*(u.grad(phi))*epsilon^3/sigma_tilde.
     double adaptive_mobility_n;
+    // Additive gradient term coefficient m of the adaptive mobility
+    // contribution m*2*epsilon^2*|grad(phi)|^2.
+    double adaptive_mobility_m;
     // Strictly positive regularization of adaptative_mobility, in mobility
     // units: M_reg = sqrt(M_raw^2 + delta^2).
     double adaptive_mobility_delta;

@@ -299,7 +299,7 @@ namespace CahnHilliard
 
   template <int dim>
   inline MobilityEvaluation<dim>
-  evaluate_adaptative_mobility(const Parameters::CahnHilliard<dim> &,
+  evaluate_adaptative_mobility(const Parameters::CahnHilliard<dim> &param,
                                const double,
                                const double,
                                const double,
@@ -309,7 +309,12 @@ namespace CahnHilliard
                                const double delta)
   {
     const double raw = adaptive_coefficient * (velocity * tracer_gradient);
-    const double value = std::sqrt(raw * raw + delta * delta);
+    const double grad_phi_sq = tracer_gradient * tracer_gradient;
+    const double extra_gradient_term =
+      param.adaptive_mobility_m * 2. * param.epsilon_interface *
+      param.epsilon_interface * grad_phi_sq;
+    const double value = std::sqrt(raw * raw + delta * delta) +
+                         extra_gradient_term;
     return {value, 0., 0., raw / value * adaptive_coefficient};
   }
 

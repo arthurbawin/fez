@@ -1388,6 +1388,12 @@ namespace Parameters
         "Strictly positive multiplier n of adaptative_mobility: "
         "n*sqrt(2)*(u.grad(phi))*epsilon^3/sigma_tilde.");
       prm.declare_entry(
+        "adaptive mobility m",
+        "0.",
+        Patterns::Double(),
+        "Coefficient m of the additive gradient term "
+        "m*2*epsilon^2*|grad(phi)|^2 in adaptative_mobility.");
+      prm.declare_entry(
         "adaptive mobility delta",
         "1e-12",
         Patterns::Double(0.),
@@ -1506,6 +1512,7 @@ namespace Parameters
         AssertThrow(false, ExcMessage("Unknown mobility model"));
       mobility                = prm.get_double("mobility");
       adaptive_mobility_n     = prm.get_double("adaptive mobility n");
+      adaptive_mobility_m     = prm.get_double("adaptive mobility m");
       adaptive_mobility_delta = prm.get_double("adaptive mobility delta");
       AssertThrow(adaptive_mobility_n > 0.,
                   ExcMessage("'adaptive mobility n' must be strictly positive"));

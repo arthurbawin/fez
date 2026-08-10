@@ -336,6 +336,22 @@ namespace CahnHilliard
   }
 
   template <int dim>
+  inline MobilityEvaluation<dim>
+  evaluate_adaptative_mobility_3(const Parameters::CahnHilliard<dim> &,
+                                 const double,
+                                 const double,
+                                 const double,
+                                 const dealii::Tensor<1, dim> &velocity,
+                                 const dealii::Tensor<1, dim> &,
+                                 const double adaptive_coefficient,
+                                 const double delta)
+  {
+    const double velocity_norm = std::sqrt(velocity * velocity + delta * delta);
+    const double value = adaptive_coefficient * velocity_norm;
+    return {value, 0., 0., 0.};
+  }
+
+  template <int dim>
   MobilityEvaluationFunction<dim> get_mobility_evaluation_function(
     const Parameters::CahnHilliard<dim> &param)
   {
@@ -348,6 +364,9 @@ namespace CahnHilliard
     else if (param.mobility_model ==
              Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2)
       return &evaluate_adaptative_mobility_2<dim>;
+    else if (param.mobility_model ==
+             Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_3)
+      return &evaluate_adaptative_mobility_3<dim>;
     else
       return &evaluate_adaptative_mobility<dim>;
   }

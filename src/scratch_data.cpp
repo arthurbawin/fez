@@ -435,6 +435,14 @@ namespace NavierStokesScratch
         epsilon * epsilon / sigma_tilde;
       adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_2_delta;
     }
+    else if (cahn_hilliard_param.mobility_model ==
+             Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_3)
+    {
+      adaptive_mobility_coefficient =
+        cahn_hilliard_param.adaptive_mobility_3_n * epsilon * epsilon /
+        sigma_tilde;
+      adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_3_delta;
+    }
     body_force            = physical_properties.body_force;
     tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
 

@@ -219,6 +219,14 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
       epsilon * epsilon / sigma_tilde;
     adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_2_delta;
   }
+  else if (cahn_hilliard_param.mobility_model ==
+           Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_3)
+  {
+    adaptive_mobility_coefficient =
+      cahn_hilliard_param.adaptive_mobility_3_n * epsilon * epsilon /
+      sigma_tilde;
+    adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_3_delta;
+  }
   // Model-dependent potential coefficients and Ding-Horriche capillary gamma.
   const double double_well_coeff =
     CahnHilliard::potential_double_well_coefficient(cahn_hilliard_param,
@@ -857,6 +865,15 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
       chp.adaptive_mobility_2_n * 2. * epsilon * epsilon * epsilon * epsilon /
       sigma_tilde;
     adaptive_mobility_delta = chp.adaptive_mobility_2_delta;
+  }
+  else if (chp.mobility_model ==
+           Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_3)
+  {
+    const double epsilon = chp.epsilon_interface;
+    const double sigma_tilde = 3. / (2. * sqrt(2.)) * chp.surface_tension;
+    adaptive_mobility_coefficient =
+      chp.adaptive_mobility_3_n * epsilon * epsilon / sigma_tilde;
+    adaptive_mobility_delta = chp.adaptive_mobility_3_delta;
   }
 
   // Bulk pressure carrying the Young-Laplace jump, and the exposed potential.

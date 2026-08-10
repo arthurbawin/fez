@@ -716,7 +716,8 @@ namespace Parameters
       constant,
       degenerate,
       adaptive,
-      adaptive_mobility_2
+      adaptive_mobility_2,
+      adaptive_mobility_3
     } mobility_model;
 
     double mobility;
@@ -732,6 +733,12 @@ namespace Parameters
     // Strictly positive regularization of the velocity norm in the second
     // adaptive mobility model: ||u||_reg = sqrt(u^2 + delta^2).
     double adaptive_mobility_2_delta;
+    // Positive multiplier n of the third adaptive mobility model:
+    // n*||u||_reg*epsilon^2/sigma_tilde.
+    double adaptive_mobility_3_n;
+    // Strictly positive regularization of the velocity norm in the third
+    // adaptive mobility model: ||u||_reg = sqrt(u^2 + delta^2).
+    double adaptive_mobility_3_delta;
     // Strictly positive regularization of adaptative_mobility, in mobility
     // units: M_reg = sqrt(M_raw^2 + delta^2).
     double adaptive_mobility_delta;

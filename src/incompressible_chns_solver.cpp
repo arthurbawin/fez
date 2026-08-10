@@ -838,6 +838,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   const double density0 = this->param.physical_properties.fluids[0].density;
   const double density1 = this->param.physical_properties.fluids[1].density;
   double adaptive_mobility_coefficient = 0.;
+  double adaptive_mobility_delta       = 0.;
   if (chp.mobility_model == Parameters::CahnHilliard<dim>::MobilityModel::adaptive)
   {
     const double epsilon = chp.epsilon_interface;
@@ -845,6 +846,17 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
     adaptive_mobility_coefficient =
       chp.adaptive_mobility_n * sqrt(2.) * epsilon * epsilon * epsilon /
       sigma_tilde;
+    adaptive_mobility_delta = chp.adaptive_mobility_delta;
+  }
+  else if (chp.mobility_model ==
+           Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2)
+  {
+    const double epsilon = chp.epsilon_interface;
+    const double sigma_tilde = 3. / (2. * sqrt(2.)) * chp.surface_tension;
+    adaptive_mobility_coefficient =
+      chp.adaptive_mobility_2_n * 2. * epsilon * epsilon * epsilon * epsilon /
+      sigma_tilde;
+    adaptive_mobility_delta = chp.adaptive_mobility_2_delta;
   }
 
   // Bulk pressure carrying the Young-Laplace jump, and the exposed potential.
@@ -942,7 +954,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
           velocity_values[q],
           tracer_gradients[q],
           adaptive_mobility_coefficient,
-          chp.adaptive_mobility_delta);
+          adaptive_mobility_delta);
         values[q].back() = mobility_evaluation.value;
       }
       output_field->set_cell_values(cell, values);

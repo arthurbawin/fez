@@ -89,7 +89,7 @@ subsection Cahn Hilliard
   set mff enlarged compression factor        = 0.5
   set mff transport factor                   = 0.1
   set mff regularization gamma               = 0.5
-  set mff enlarged factor equalization exponent = 0.7
+  set mff enlarged lobe position exponent = 0.7
 end
 
 subsection Initial conditions

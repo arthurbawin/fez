@@ -1492,11 +1492,13 @@ namespace Parameters
         "(enlarged solver). Same sign convention as 'mff physics compression "
         "factor': a positive factor compresses the mesh towards the interface.");
       prm.declare_entry(
-        "mff enlarged factor equalization exponent",
+        "mff enlarged lobe position exponent",
         "1.0",
-        Patterns::Double(),
-        "Equalization exponent q of the enlarged forcing pre-map "
-        "sign(psi)*|psi|^q (q = 1 is a no-op).");
+        Patterns::Double(0.),
+        "Lobe-position exponent q of the enlarged forcing pre-map "
+        "sign(psi)*|psi|^q (q = 1 is a no-op). Its amplitude is "
+        "automatically normalized to preserve the theoretical Helmholtz-lobe "
+        "peak when q changes.");
       prm.declare_entry(
         "use presolver",
         "false",
@@ -1595,8 +1597,11 @@ namespace Parameters
       psi_mu_correction_factor = prm.get_double("psi mu correction factor");
       mff_enlarged_compression_factor =
         prm.get_double("mff enlarged compression factor");
-      mff_enlarged_factor_equalization_exponent =
-        prm.get_double("mff enlarged factor equalization exponent");
+      mff_enlarged_lobe_position_exponent =
+        prm.get_double("mff enlarged lobe position exponent");
+      AssertThrow(mff_enlarged_lobe_position_exponent > 0.,
+                  ExcMessage("'mff enlarged lobe position exponent' "
+                             "must be strictly positive"));
       use_presolver = prm.get_bool("use presolver");
     }
     prm.leave_subsection();

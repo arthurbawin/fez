@@ -339,7 +339,6 @@ namespace Assembly
         const double compression =
           param.cahn_hilliard.mff_physics_compression_factor *
           sd.chns_compression_multiplier;
-
         for (unsigned int q = 0; q < sd.n_q_points; ++q)
         {
           const double          phi      = sd.chns_tracer_values[q];
@@ -358,7 +357,8 @@ namespace Assembly
             const MeshForcingFactor psi_factor = enlarged_mesh_forcing_factor(
               sd.psi_values[q],
               gamma,
-              param.cahn_hilliard.mff_enlarged_factor_equalization_exponent);
+              param.cahn_hilliard.mff_enlarged_lobe_position_exponent,
+              enlarged_normalization);
             forcing += enlarged_compression * marker_epsilon * psi_factor.value *
                        sd.psi_gradients[q];
           }
@@ -389,7 +389,6 @@ namespace Assembly
         // factor keeps its usual sign convention (the whole forcing enters the
         // residual with rhs -=, which flips the compression factor's sign).
         const double transport = -param.cahn_hilliard.mff_transport_factor;
-
         for (unsigned int q = 0; q < sd.n_q_points; ++q)
         {
           const double            phi      = sd.tracer_values[q];
@@ -410,12 +409,13 @@ namespace Assembly
             const double enlarged_compression =
               param.cahn_hilliard.mff_enlarged_compression_factor;
             const double exponent =
-              param.cahn_hilliard.mff_enlarged_factor_equalization_exponent;
+              param.cahn_hilliard.mff_enlarged_lobe_position_exponent;
 
             const double            psi      = sd.psi_values[q];
             const Tensor<1, dim>   &grad_psi = sd.psi_gradients[q];
             const MeshForcingFactor psi_factor =
-              enlarged_mesh_forcing_factor(psi, gamma, exponent);
+              enlarged_mesh_forcing_factor(
+                psi, gamma, exponent, enlarged_normalization);
 
             forcing +=
               enlarged_compression * marker_epsilon * psi_factor.value * grad_psi;
@@ -455,7 +455,6 @@ namespace Assembly
         const double compression =
           param.cahn_hilliard.mff_physics_compression_factor *
           sd.chns_compression_multiplier;
-
         for (unsigned int q = 0; q < sd.n_q_points; ++q)
         {
           const double                   phi      = sd.chns_tracer_values[q];
@@ -487,7 +486,8 @@ namespace Assembly
             psi_factor = enlarged_mesh_forcing_factor(
               sd.psi_values[q],
               gamma,
-              param.cahn_hilliard.mff_enlarged_factor_equalization_exponent);
+              param.cahn_hilliard.mff_enlarged_lobe_position_exponent,
+              enlarged_normalization);
           }
 
           const auto &phi_x = sd.phi_x[q];
@@ -547,7 +547,6 @@ namespace Assembly
         // factor keeps its usual sign convention (the whole forcing enters the
         // residual with rhs -=, which flips the compression factor's sign).
         const double transport = -param.cahn_hilliard.mff_transport_factor;
-
         for (unsigned int q = 0; q < sd.n_q_points; ++q)
         {
           const double            phi      = sd.tracer_values[q];
@@ -615,7 +614,8 @@ namespace Assembly
                       sd.psi_values[q],
                       gamma,
                       param.cahn_hilliard
-                        .mff_enlarged_factor_equalization_exponent);
+                        .mff_enlarged_lobe_position_exponent,
+                      enlarged_normalization);
                   forcing_variation += enlarged_compression * marker_epsilon *
                                        psi_factor.value *
                                        transported_grad_marker;
@@ -648,7 +648,8 @@ namespace Assembly
                       sd.psi_values[q],
                       gamma,
                       param.cahn_hilliard
-                        .mff_enlarged_factor_equalization_exponent);
+                        .mff_enlarged_lobe_position_exponent,
+                      enlarged_normalization);
                   const double          shape = sd.shape_psi[q][j];
                   const Tensor<1, dim> &shape_gradient =
                     sd.grad_shape_psi[q][j];

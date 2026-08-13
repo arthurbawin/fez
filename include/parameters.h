@@ -787,9 +787,11 @@ namespace Parameters
     // (enlarged solver). The phi-based physics compression is added on top when
     // mff_physics_compression_factor != 0.
     double mff_enlarged_compression_factor;
-    // Equalization exponent q of the enlarged forcing pre-map sign(psi)*|psi|^q
-    // (q = 1 is the identity, i.e. a no-op).
-    double mff_enlarged_factor_equalization_exponent;
+    // Lobe-position exponent q of the enlarged forcing pre-map
+    // sign(psi)*|psi|^q (q = 1 is the identity). Its amplitude is normalized
+    // automatically so that q moves/reshapes the lobes without changing the
+    // theoretical peak associated with the one-dimensional Helmholtz marker.
+    double mff_enlarged_lobe_position_exponent;
 
     // If true, an elasticity presolver is run first to pre-position the mesh,
     // and its mesh position is injected as the initial mesh of the CHNS solver.

@@ -74,6 +74,99 @@ namespace Assembly
     }
 
     /**
+     * Peak of the dimensionless enlarged-compression lobe associated with the
+     * one-dimensional Helmholtz marker.  Away from the much thinner physical
+     * interface, psi - L^2 psi'' = sign(x) gives
+     *
+     *   L |grad psi| = 1 - |psi|.
+     *
+     * Hence the lobe shape, with s = |psi| in [0,1], is
+     *
+     *   (1-s) |factor(equalize_q(s))|.
+     *
+     * A short, deterministic one-dimensional search is sufficient here.  Its
+     * result is stored by the forcing assembler and reused in all FE loops.
+     */
+    inline double
+    enlarged_mesh_forcing_lobe_peak(const double gamma, const double exponent)
+    {
+      const auto lobe = [gamma, exponent](const double s) {
+        const double equalized =
+          smooth_power_equalized_phase(s, exponent).value;
+        return (1. - s) *
+               std::abs(mesh_forcing_factor(equalized, gamma).value);
+      };
+
+      // First bracket the global maximum.  For positive q the lobe is smooth
+      // and unimodal; the coarse scan also keeps the search robust near very
+      // small exponents and strong regularization.
+      constexpr unsigned int n_intervals = 128;
+      unsigned int           best_index  = 0;
+      double                 best_value  = 0.;
+      for (unsigned int i = 0; i <= n_intervals; ++i)
+      {
+        const double value = lobe(static_cast<double>(i) / n_intervals);
+        if (value > best_value)
+        {
+          best_value = value;
+          best_index = i;
+        }
+      }
+
+      double left = static_cast<double>(best_index == 0 ? 0 : best_index - 1) /
+                    n_intervals;
+      double right =
+        static_cast<double>(std::min(n_intervals, best_index + 1)) / n_intervals;
+
+      constexpr double golden_ratio_conjugate = 0.6180339887498948482;
+      double x_left = right - golden_ratio_conjugate * (right - left);
+      double x_right = left + golden_ratio_conjugate * (right - left);
+      double value_left  = lobe(x_left);
+      double value_right = lobe(x_right);
+      for (unsigned int iteration = 0; iteration < 48; ++iteration)
+      {
+        if (value_left < value_right)
+        {
+          left       = x_left;
+          x_left     = x_right;
+          value_left = value_right;
+          x_right = left + golden_ratio_conjugate * (right - left);
+          value_right = lobe(x_right);
+        }
+        else
+        {
+          right       = x_right;
+          x_right     = x_left;
+          value_right = value_left;
+          x_left = right - golden_ratio_conjugate * (right - left);
+          value_left = lobe(x_left);
+        }
+      }
+
+      return std::max(best_value, std::max(value_left, value_right));
+    }
+
+    /**
+     * Automatic amplitude normalization of the equalized enlarged forcing.
+     * The q=1 lobe is the reference, so changing q primarily moves/reshapes the
+     * lobes without changing their theoretical peak compression.
+     */
+    inline double
+    enlarged_mesh_forcing_normalization(const double gamma,
+                                        const double exponent)
+    {
+      if (std::abs(exponent - 1.) < 1e-14)
+        return 1.;
+
+      const double reference_peak =
+        enlarged_mesh_forcing_lobe_peak(gamma, 1.);
+      const double equalized_peak =
+        enlarged_mesh_forcing_lobe_peak(gamma, exponent);
+
+      return equalized_peak > 1e-14 ? reference_peak / equalized_peak : 1.;
+    }
+
+    /**
      * Regularized compression coefficient for the enlarged marker psi: the
      * equalization map is chained into mesh_forcing_factor, so the returned
      * value is factor(equalize(psi)) and the derivative is the product of the
@@ -82,12 +175,14 @@ namespace Assembly
     inline MeshForcingFactor
     enlarged_mesh_forcing_factor(const double phase_value,
                                  const double gamma,
-                                 const double exponent)
+                                 const double exponent,
+                                 const double normalization)
     {
       const MeshForcingFactor equalized =
         smooth_power_equalized_phase(phase_value, exponent);
       MeshForcingFactor factor = mesh_forcing_factor(equalized.value, gamma);
-      factor.derivative *= equalized.derivative;
+      factor.value *= normalization;
+      factor.derivative *= equalized.derivative * normalization;
       return factor;
     }
 
@@ -259,6 +354,10 @@ namespace Assembly
                                     const ComponentOrdering    &ordering)
         : param(param)
         , ordering(ordering)
+        , enlarged_normalization(enlarged_mesh_forcing_normalization(
+            param.cahn_hilliard.mff_regularization_gamma,
+            param.cahn_hilliard
+              .mff_enlarged_lobe_position_exponent))
       {}
 
       /**
@@ -275,6 +374,7 @@ namespace Assembly
     public:
       const ParameterReader<dim> &param;
       const ComponentOrdering    &ordering;
+      const double                enlarged_normalization;
     };
 
     /**

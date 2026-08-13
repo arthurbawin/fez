@@ -716,7 +716,7 @@ std::string ElasticitySolver<dim>::presolved_mesh_fingerprint() const
               << ";enlarged=" << with_enlarged_psi
               << ";psi_width=" << ch.psi_interface_width_factor
               << ";enl_compression=" << ch.mff_enlarged_compression_factor
-              << ";equal_exp=" << ch.mff_enlarged_factor_equalization_exponent
+              << ";lobe_pos_exp=" << ch.mff_enlarged_lobe_position_exponent
               << ";mult0="
               << param.elasticity.presolver_initial_compression_multiplier
               << ";steps=" << param.elasticity.presolver_continuation_steps

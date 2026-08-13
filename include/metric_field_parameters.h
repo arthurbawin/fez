@@ -39,6 +39,19 @@ namespace Parameters
   public:
     Verbosity verbosity;
 
+    /** Frequency, in time steps, of the optional CHNS mesh-quality output. */
+    unsigned int mesh_quality_output_frequency = 0;
+
+    /** Base name of the mesh-quality field(s) in the volume output. */
+    std::string mesh_quality_output_name = "mesh_quality_phi";
+
+    /** Model used to build the target metric for the mesh-quality audit. */
+    enum class MeshQualityModel
+    {
+      graph,
+      interface_resolution
+    } mesh_quality_model = MeshQualityModel::graph;
+
     // The unique index of this field, in [0, n_metric_fields)
     unsigned int id;
 

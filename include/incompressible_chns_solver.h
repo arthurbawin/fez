@@ -4,6 +4,7 @@
 #include <assembly/assembler.h>
 #include <copy_data.h>
 #include <deal.II/fe/fe_values_extractors.h>
+#include <error_estimation/solution_recovery.h>
 #include <navier_stokes_solver.h>
 #include <scratch_data.h>
 
@@ -158,6 +159,25 @@ protected:
    * diffusion, capillary, viscous, ...) to a CSV when enabled.
    */
   virtual void solver_specific_post_processing() override;
+
+  /** Return whether the optional mesh-quality audit is due this step. */
+  bool should_output_mesh_quality() const;
+
+  /** Add the selected mesh-audit diagnostics to the VTU. */
+  void add_mesh_quality_postprocessing_data();
+
+  /** Add the lightweight, physically scaled interface-resolution audit. */
+  void add_interface_resolution_data(const Mapping<dim> &study_mapping);
+
+  /** Add the historical graph-induced continuous quality field to the VTU. */
+  void add_graph_metric_quality_data(const Mapping<dim> &study_mapping);
+
+  /** Vertexwise physical push-forward F^{-T} for an ALE configuration. */
+  std::vector<Tensor<2, dim>> compute_vertexwise_F_inv_T() const;
+
+  /** Push the reference-mesh recovered phase gradient to the ALE mesh. */
+  void transport_reconstructed_phi_gradient(
+    ErrorEstimation::SolutionRecovery::Scalar<dim> &recovery) const;
 
 protected:
   std::unique_ptr<FESystem<dim>> fe;

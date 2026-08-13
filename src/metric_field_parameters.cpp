@@ -57,6 +57,28 @@ namespace Parameters
     prm.enter_subsection("Metric field " + std::to_string(index));
     {
       DECLARE_VERBOSITY_PARAM(prm, "verbose")
+      prm.declare_entry("mesh quality output frequency",
+                        "0",
+                        Patterns::Integer(0),
+                        "Frequency, in time steps, at which the CHNS solver "
+                        "adds the mesh-quality audit to its volume "
+                        "output. Set to 0 to disable this output.");
+      prm.declare_entry("mesh quality output name",
+                        "mesh_quality_phi",
+                        Patterns::Anything(),
+                        "Base name of the cellwise mesh-quality fields added "
+                        "to the CHNS volume output.");
+      prm.declare_entry(
+        "mesh quality model",
+        "graph",
+        Patterns::Selection("graph|interface resolution"),
+        "Metric used by the CHNS mesh-quality audit. The graph model retains "
+        "the historical metric I + grad(phi) tensor grad(phi). The "
+        "interface-resolution model writes the global equivalent-size "
+        "compression gain sqrt(|K_0|/|K|), the local normal-resolution ratio "
+        "epsilon/(0.64*h_n) on the physical target layer, and the binary "
+        "face-connected resolved band containing phi=0. Normal cuts through "
+        "that band define the poster's w_j and w_mean diagnostics.");
       prm.declare_entry("type",
                         "interpolation error",
                         Patterns::Selection("interpolation error|graph"),
@@ -154,6 +176,17 @@ namespace Parameters
     prm.enter_subsection("Metric field " + std::to_string(index));
     {
       READ_VERBOSITY_PARAM(prm, verbosity)
+      mesh_quality_output_frequency =
+        prm.get_integer("mesh quality output frequency");
+      mesh_quality_output_name = prm.get("mesh quality output name");
+      const std::string parsed_mesh_quality_model =
+        prm.get("mesh quality model");
+      if (parsed_mesh_quality_model == "graph")
+        mesh_quality_model = MeshQualityModel::graph;
+      else if (parsed_mesh_quality_model == "interface resolution")
+        mesh_quality_model = MeshQualityModel::interface_resolution;
+      else
+        DEAL_II_ASSERT_UNREACHABLE();
 
       const std::string parsed_type = prm.get("type");
       if (parsed_type == "interpolation error")

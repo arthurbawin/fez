@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <random>
 
 template <int dim>
@@ -570,6 +571,193 @@ void MetricField<dim>::intersect_with(const MetricField<dim> &other)
 
   // Update FE representation and ghosts
   metrics_to_tensor_solution();
+}
+
+template <int dim>
+double
+MetricField<dim>::compute_cell_measure(const FEValues<dim> &fe_values) const
+{
+  const FEValuesExtractors::SymmetricTensor<2> metric_extractor(0);
+  std::vector<SymmetricTensor<2, dim>> metric_values(
+    fe_values.n_quadrature_points);
+
+  fe_values[metric_extractor].get_function_values(metrics_fe, metric_values);
+
+  double measure = 0.;
+  for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+  {
+    if constexpr (running_in_debug_mode())
+    {
+      const auto &metric = metric_values[q];
+      std::ostringstream oss;
+      oss << metric;
+      Assert(is_positive_definite(metric),
+             ExcInterpolatedNotSPD(oss.str(), determinant(metric)));
+    }
+
+    measure += std::sqrt(determinant(metric_values[q])) * fe_values.JxW(q);
+  }
+
+  return measure;
+}
+
+template <int dim>
+double MetricField<dim>::compute_cell_edge_measure(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  const unsigned int                                    edge_no,
+  const Quadrature<1>                                  &edge_quadrature,
+  const Mapping<dim>                                   &geometry_mapping) const
+{
+  Assert(cell->is_locally_owned(), ExcMessage("Only for owned cells"));
+  Assert(cell->reference_cell().is_simplex(),
+         ExcMessage("Metric edge measure is currently implemented only for "
+                    "simplex cells."));
+  AssertIndexRange(edge_no, cell->n_lines());
+
+  const unsigned int local_v0 =
+    cell->reference_cell().line_to_cell_vertices(edge_no, 0);
+  const unsigned int local_v1 =
+    cell->reference_cell().line_to_cell_vertices(edge_no, 1);
+  const auto v0 = cell->vertex_index(local_v0);
+  const auto v1 = cell->vertex_index(local_v1);
+
+  const auto tria_cell = triangulation->create_cell_iterator(cell->id());
+  const auto vertices  = geometry_mapping.get_vertices(tria_cell);
+  const Tensor<1, dim> edge_vector = vertices[local_v1] - vertices[local_v0];
+
+  const MetricTensor<dim> &M0 = metrics[v0];
+  const MetricTensor<dim> &M1 = metrics[v1];
+
+  double measure = 0.;
+  for (unsigned int q = 0; q < edge_quadrature.size(); ++q)
+  {
+    const double s = edge_quadrature.point(q)[0];
+    const SymmetricTensor<2, dim> interpolated_metric =
+      (1. - s) * static_cast<const SymmetricTensor<2, dim> &>(M0) +
+      s * static_cast<const SymmetricTensor<2, dim> &>(M1);
+
+    if constexpr (running_in_debug_mode())
+    {
+      std::ostringstream oss;
+      oss << interpolated_metric;
+      Assert(is_positive_definite(interpolated_metric),
+             ExcInterpolatedNotSPD(oss.str(),
+                                   determinant(interpolated_metric)));
+    }
+
+    const double metric_norm_sq =
+      edge_vector * interpolated_metric * edge_vector;
+    Assert(metric_norm_sq > 0.,
+           ExcMessage("Interpolated metric produced a nonpositive squared "
+                      "edge length."));
+    measure += std::sqrt(metric_norm_sq) * edge_quadrature.weight(q);
+  }
+
+  return measure;
+}
+
+template <int dim>
+double MetricField<dim>::compute_cell_quality(
+  const typename DoFHandler<dim>::active_cell_iterator &cell,
+  const FEValues<dim>                                  &fe_values,
+  const Quadrature<1>                                  &edge_quadrature,
+  const Mapping<dim>                                   &geometry_mapping) const
+{
+  Assert(cell->is_locally_owned(), ExcMessage("Only for owned cells"));
+  Assert(cell->reference_cell().is_simplex(),
+         ExcMessage("Metric cell quality is currently implemented only for "
+                    "simplex cells."));
+
+  const double cell_measure = compute_cell_measure(fe_values);
+  double       sum_edge_measures_sq = 0.;
+  for (unsigned int edge_no = 0; edge_no < cell->n_lines(); ++edge_no)
+  {
+    const double edge_measure = compute_cell_edge_measure(
+      cell, edge_no, edge_quadrature, geometry_mapping);
+    sum_edge_measures_sq += edge_measure * edge_measure;
+  }
+
+  Assert(sum_edge_measures_sq > 0.,
+         ExcMessage("The sum of squared metric edge measures should be "
+                    "positive."));
+
+  double normalization_constant = 0.;
+  if constexpr (dim == 2)
+    normalization_constant = 4. * std::sqrt(3.);
+  else if constexpr (dim == 3)
+    normalization_constant = 36. / std::cbrt(3.);
+  else
+    DEAL_II_NOT_IMPLEMENTED();
+
+  return normalization_constant *
+         std::pow(cell_measure, 2. / static_cast<double>(dim)) /
+         sum_edge_measures_sq;
+}
+
+template <int dim>
+std::vector<double> MetricField<dim>::compute_vertexwise_cell_quality(
+  const Mapping<dim>    &geometry_mapping,
+  const Quadrature<dim> &cell_quadrature,
+  const Quadrature<1>   &edge_quadrature)
+{
+  // Cell integrals use the FE representation while edge integrals use the
+  // nodal representation. Synchronize both before combining them.
+  metrics_to_tensor_solution();
+  tensor_solution_to_metrics();
+
+  using Contribution = std::pair<Point<dim>, std::pair<double, double>>;
+  std::map<Point<dim>, std::pair<double, double>, PointComparator<dim>>
+    local_sums;
+
+  FEValues<dim> fe_values(geometry_mapping,
+                          *fe,
+                          cell_quadrature,
+                          update_values | update_JxW_values);
+
+  const auto &reference_vertices = triangulation->get_vertices();
+  for (const auto &cell :
+       dof_handler.active_cell_iterators() | IteratorFilters::LocallyOwnedCell())
+  {
+    fe_values.reinit(cell);
+    const double quality = compute_cell_quality(
+      cell, fe_values, edge_quadrature, geometry_mapping);
+
+    double physical_measure = 0.;
+    for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+      physical_measure += fe_values.JxW(q);
+
+    for (const unsigned int v : cell->vertex_indices())
+    {
+      auto &sum = local_sums[reference_vertices[cell->vertex_index(v)]];
+      sum.first += physical_measure * quality;
+      sum.second += physical_measure;
+    }
+  }
+
+  std::vector<Contribution> local_contributions(local_sums.begin(),
+                                                 local_sums.end());
+  const auto gathered_contributions =
+    Utilities::MPI::all_gather(mpi_communicator, local_contributions);
+  std::map<Point<dim>, std::pair<double, double>, PointComparator<dim>> sums;
+  for (const auto &rank_contributions : gathered_contributions)
+    for (const auto &[point, contribution] : rank_contributions)
+    {
+      sums[point].first += contribution.first;
+      sums[point].second += contribution.second;
+    }
+
+  std::vector<double> vertex_quality(n_vertices, 0.);
+  const auto         &used_vertices = triangulation->get_used_vertices();
+  for (types::global_vertex_index v = 0; v < n_vertices; ++v)
+    if (used_vertices[v])
+    {
+      const auto entry = sums.find(reference_vertices[v]);
+      Assert(entry != sums.end(), ExcInternalError());
+      Assert(entry->second.second > 0., ExcInternalError());
+      vertex_quality[v] = entry->second.first / entry->second.second;
+    }
+
+  return vertex_quality;
 }
 
 template <int dim>

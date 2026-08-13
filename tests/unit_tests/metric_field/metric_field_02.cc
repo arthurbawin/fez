@@ -130,6 +130,19 @@ void test()
   metrics.apply_optimal_steady_multiscale_scaling();
   metrics.write_metrics(deallog.get_file_stream());
 
+  // Keep exercising the historical graph-induced metric used by the CHNS
+  // mesh-quality output when "mesh quality model = graph".
+  MetricField<dim> graph_metric(0, param, triangulation);
+  graph_metric.set_induced_metric_from_graph(recovery);
+  const auto graph_quality =
+    graph_metric.compute_vertexwise_cell_quality(mapping,
+                                                 QGaussSimplex<dim>(3),
+                                                 QGauss<1>(3));
+  AssertDimension(graph_quality.size(), triangulation.n_vertices());
+  for (const double quality : graph_quality)
+    AssertThrow(std::isfinite(quality) && quality >= 0. && quality <= 1.,
+                ExcInternalError());
+
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
     deallog << "OK" << std::endl;
 }

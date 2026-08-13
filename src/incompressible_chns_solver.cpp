@@ -15,18 +15,79 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
+#include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
 #include <incompressible_chns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_and_dof_tools.h>
+#include <mesh_forcing_postprocessing.h>
+#include <metric_field.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <queue>
+
+namespace
+{
+  /**
+   * Extent of a (possibly quadratic) triangle in direction n.  The supplied
+   * points are its three vertices followed by its three edge midpoints.  A
+   * scalar quadratic is reconstructed on each edge, so an extremum located
+   * between support points is included rather than missed by sampling.
+   */
+  template <int dim>
+  double projected_triangle_extent(
+    const std::vector<Point<dim>> &points,
+    const Tensor<1, dim>          &direction)
+  {
+    AssertDimension(points.size(), 6);
+
+    double minimum = std::numeric_limits<double>::max();
+    double maximum = std::numeric_limits<double>::lowest();
+    const auto update_extrema = [&minimum, &maximum](const double value) {
+      minimum = std::min(minimum, value);
+      maximum = std::max(maximum, value);
+    };
+
+    const ReferenceCell reference_cell = ReferenceCells::get_simplex<dim>();
+    for (unsigned int line = 0; line < reference_cell.n_lines(); ++line)
+    {
+      const unsigned int v0 = reference_cell.line_to_cell_vertices(line, 0);
+      const unsigned int v1 = reference_cell.line_to_cell_vertices(line, 1);
+      const double p0 = points[v0] * direction;
+      const double p1 = points[v1] * direction;
+      const double pm = points[dim + 1 + line] * direction;
+      update_extrema(p0);
+      update_extrema(p1);
+      update_extrema(pm);
+
+      // p(t) = a*t^2 + b*t + p0, reconstructed from t=0, 1/2 and 1.
+      const double a = 2. * (p0 + p1 - 2. * pm);
+      const double b = p1 - p0 - a;
+      if (std::abs(a) >
+          64. * std::numeric_limits<double>::epsilon() *
+            std::max({std::abs(p0), std::abs(p1), std::abs(pm), 1.}))
+      {
+        const double stationary_point = -b / (2. * a);
+        if (stationary_point > 0. && stationary_point < 1.)
+          update_extrema(a * stationary_point * stationary_point +
+                         b * stationary_point + p0);
+      }
+    }
+
+    return maximum - minimum;
+  }
+} // namespace
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
-CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(const ParameterReader<dim> &param)
+CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
+  const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
 {
   if constexpr (with_enlarged)
@@ -974,6 +1035,499 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
           adaptive_mobility_delta);
         values[q].back() = mobility_evaluation.value;
       }
+      output_field->set_cell_values(cell, values);
+    }
+
+  this->postproc_handler->add_continuous_data_field(std::move(output_field));
+
+  if constexpr (with_moving_mesh)
+  {
+    const unsigned int mesh_forcing_output_degree =
+      std::max({1u,
+                this->param.finite_elements.velocity_degree,
+                this->param.finite_elements.mesh_position_degree,
+                this->param.finite_elements.tracer_degree,
+                this->param.finite_elements.potential_degree});
+
+    MeshForcingPostProcessing::add_continuous_diagnostics<dim, with_enlarged>(
+      *this->moving_mapping,
+      *this->fixed_mapping,
+      *fe,
+      *this->dof_handler,
+      this->velocity_extractor,
+      this->position_extractor,
+      tracer_extractor,
+      psi_extractor,
+      *this->present_solution,
+      *this->previous_solutions,
+      this->time_handler,
+      this->param.cahn_hilliard,
+      mesh_forcing_output_degree,
+      *this->postproc_handler);
+  }
+
+  if (should_output_mesh_quality())
+    add_mesh_quality_postprocessing_data();
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+bool CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::should_output_mesh_quality() const
+{
+  if (this->param.bc_data.n_metric_fields == 0 ||
+      this->param.finite_elements.use_quads)
+    return false;
+
+  const unsigned int output_frequency =
+    this->param.metric_fields[0].mesh_quality_output_frequency;
+  if (output_frequency == 0)
+    return false;
+
+  return this->time_handler.current_time_iteration == 1 ||
+         (this->time_handler.current_time_iteration % output_frequency) == 0;
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+std::vector<Tensor<2, dim>>
+CHNSSolver<dim, with_moving_mesh, with_enlarged>::compute_vertexwise_F_inv_T()
+  const
+{
+  std::vector<Tensor<2, dim>> vertex_F_inv_T(
+    this->triangulation->n_vertices());
+  std::vector<double> vertex_weights(this->triangulation->n_vertices(), 0.);
+  std::vector<bool>   owned_vertices;
+
+  get_owned_mesh_vertices(*this->triangulation,
+                          Utilities::MPI::this_mpi_process(
+                            this->triangulation->get_mpi_communicator()),
+                          owned_vertices);
+
+  const QGaussSimplex<dim> cell_quadrature(2);
+  FEValues<dim>            fe_values(*this->fixed_mapping,
+                          *fe,
+                          cell_quadrature,
+                          update_gradients | update_JxW_values);
+  std::vector<Tensor<2, dim>> position_gradients(cell_quadrature.size());
+
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
+  {
+    if (cell->is_artificial())
+      continue;
+
+    fe_values.reinit(cell);
+    fe_values[this->position_extractor].get_function_gradients(
+      *this->present_solution, position_gradients);
+
+    Tensor<2, dim> averaged_F_inv_T;
+    double         cell_weight = 0.;
+    for (unsigned int q = 0; q < cell_quadrature.size(); ++q)
+    {
+      const double JxW = fe_values.JxW(q);
+      averaged_F_inv_T += transpose(invert(position_gradients[q])) * JxW;
+      cell_weight += JxW;
+    }
+    if (cell_weight > 0.)
+      averaged_F_inv_T /= cell_weight;
+
+    for (const unsigned int v : cell->vertex_indices())
+    {
+      const auto vertex_index = cell->vertex_index(v);
+      if (!owned_vertices[vertex_index])
+        continue;
+      vertex_F_inv_T[vertex_index] += averaged_F_inv_T * cell_weight;
+      vertex_weights[vertex_index] += cell_weight;
+    }
+  }
+
+  for (types::global_vertex_index v = 0;
+       v < this->triangulation->n_vertices();
+       ++v)
+    if (owned_vertices[v] && vertex_weights[v] > 0.)
+      vertex_F_inv_T[v] /= vertex_weights[v];
+
+  return vertex_F_inv_T;
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim,
+                with_moving_mesh,
+                with_enlarged>::transport_reconstructed_phi_gradient(
+  ErrorEstimation::SolutionRecovery::Scalar<dim> &recovery) const
+{
+  if constexpr (!with_moving_mesh)
+    return;
+
+  std::vector<Tensor<1, dim>> transported_gradient =
+    recovery.get_reconstructed_gradient();
+  const auto        vertex_F_inv_T = compute_vertexwise_F_inv_T();
+  std::vector<bool> owned_vertices;
+  get_owned_mesh_vertices(*this->triangulation,
+                          Utilities::MPI::this_mpi_process(
+                            this->triangulation->get_mpi_communicator()),
+                          owned_vertices);
+
+  // The PPR gradient is reconstructed on the fixed mesh, then pushed forward
+  // to the studied ALE configuration with the vertex-averaged F^{-T}.
+  for (types::global_vertex_index v = 0;
+       v < this->triangulation->n_vertices();
+       ++v)
+    if (owned_vertices[v])
+      transported_gradient[v] = vertex_F_inv_T[v] * transported_gradient[v];
+
+  recovery.overwrite_reconstructed_gradient(transported_gradient);
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  add_mesh_quality_postprocessing_data()
+{
+  TimerOutput::Scope timer_scope(this->computing_timer,
+                                 "Compute mesh quality audit");
+
+  AssertThrow(this->param.bc_data.n_metric_fields > 0,
+              ExcMessage("Mesh quality output requires at least one metric "
+                         "field in the parameter file."));
+  AssertThrow(!this->param.finite_elements.use_quads,
+              ExcMessage("Metric quality output is currently implemented "
+                         "only for simplex meshes."));
+
+  const auto &metric_param = this->param.metric_fields[0];
+  AssertThrow(metric_param.variable == SolverInfo::VariableType::phase_tracer &&
+                metric_param.component == 0,
+              ExcMessage("The CHNS mesh-quality audit currently requires "
+                         "'variable = phase_tracer' and 'component = 0'."));
+
+  const Mapping<dim> &study_mapping =
+    with_moving_mesh ? *this->moving_mapping : *this->fixed_mapping;
+  using MeshQualityModel =
+    typename Parameters::MetricField<dim>::MeshQualityModel;
+
+  if (metric_param.mesh_quality_model ==
+      MeshQualityModel::interface_resolution)
+    add_interface_resolution_data(study_mapping);
+  else
+    add_graph_metric_quality_data(study_mapping);
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  add_interface_resolution_data(const Mapping<dim> &study_mapping)
+{
+  AssertThrow(dim == 2,
+              ExcMessage("The interface-resolution mesh audit is currently "
+                         "implemented only in 2D."));
+
+  if constexpr (dim == 2)
+  {
+    // Keep the two poster criteria distinct:
+    //
+    // 1. Local resolution: the reference computation uses epsilon=0.64*h,
+    //    hence a cell is at least as fine when h_n/epsilon <= 1/0.64, or
+    //    equivalently epsilon/(0.64*h_n) >= 1.
+    //
+    // 2. Spatial coverage: for
+    //       phi(xi)=tanh(xi/(sqrt(2)*epsilon)),
+    //    the target band |xi| <= 2*sqrt(2)*epsilon has total width
+    //    4*sqrt(2)*epsilon. The local criterion above must hold throughout
+    //    this band. The width is not divided by h_n: doing so would conflate
+    //    local cell resolution with resolved-band coverage.
+    const double epsilon = this->param.cahn_hilliard.epsilon_interface;
+    AssertThrow(epsilon > 0., ExcInternalError());
+    const double diffuse_phase_limit = std::tanh(2.);
+
+    const ReferenceCell reference_cell = ReferenceCells::get_simplex<dim>();
+    std::vector<Point<dim>> sampling_points(dim + 1);
+    for (unsigned int v = 0; v < dim + 1; ++v)
+      sampling_points[v] = reference_cell.template vertex<dim>(v);
+    for (unsigned int line = 0; line < reference_cell.n_lines(); ++line)
+    {
+      const unsigned int v0 = reference_cell.line_to_cell_vertices(line, 0);
+      const unsigned int v1 = reference_cell.line_to_cell_vertices(line, 1);
+      sampling_points.push_back(0.5 *
+                                (sampling_points[v0] + sampling_points[v1]));
+    }
+    Point<dim> barycenter;
+    for (unsigned int v = 0; v < dim + 1; ++v)
+      barycenter += sampling_points[v];
+    barycenter /= static_cast<double>(dim + 1);
+    sampling_points.push_back(barycenter);
+
+    const Quadrature<dim> sampling_quadrature(sampling_points);
+    FEValues<dim> current_fe_values(study_mapping,
+                                    *fe,
+                                    sampling_quadrature,
+                                    update_quadrature_points | update_values |
+                                      update_gradients);
+    const QGaussSimplex<dim> measure_quadrature(3);
+    FEValues<dim> current_measure_fe_values(study_mapping,
+                                            *fe,
+                                            measure_quadrature,
+                                            update_JxW_values);
+    FEValues<dim> reference_measure_fe_values(*this->fixed_mapping,
+                                              *fe,
+                                              measure_quadrature,
+                                              update_JxW_values);
+
+    const unsigned int n_samples = sampling_points.size();
+    std::vector<double> tracer_values(n_samples);
+    std::vector<Tensor<1, dim>> tracer_gradients(n_samples);
+    Vector<float> compression_gain(this->triangulation->n_active_cells());
+    Vector<float> local_resolution_ratio(
+      this->triangulation->n_active_cells());
+    Vector<float> resolved_band(this->triangulation->n_active_cells());
+
+    using GlobalCellIndex = types::global_cell_index;
+    // Each record stores {global cell id, resolved flag, interface-seed flag}.
+    // Face-adjacency edges are gathered separately so that the connected band
+    // can cross MPI subdomain boundaries.
+    std::vector<std::array<GlobalCellIndex, 3>> local_cell_records;
+    std::vector<std::array<GlobalCellIndex, 2>> local_adjacency_edges;
+    local_cell_records.reserve(this->triangulation->n_locally_owned_active_cells());
+
+    for (const auto &cell : this->dof_handler->active_cell_iterators())
+      if (cell->is_locally_owned())
+      {
+        const GlobalCellIndex global_cell_index =
+          cell->global_active_cell_index();
+        std::array<GlobalCellIndex, 3> cell_record = {
+          {global_cell_index, 0, 0}};
+
+        for (unsigned int face = 0; face < cell->n_faces(); ++face)
+          if (!cell->at_boundary(face))
+          {
+            // The benchmark meshes are conforming. This also handles the
+            // fine-to-coarse side of a hanging face; a refined neighbour on
+            // the other side is deliberately rejected below rather than
+            // constructing an incomplete connectivity graph.
+            const auto neighbour = cell->neighbor(face);
+            AssertThrow(
+              neighbour->is_active(),
+              ExcMessage("The resolved-interface-band output currently "
+                         "requires a conforming mesh without hanging faces."));
+            if (!neighbour->is_artificial())
+              local_adjacency_edges.push_back(
+                {{global_cell_index,
+                  neighbour->global_active_cell_index()}});
+          }
+
+        current_fe_values.reinit(cell);
+        current_measure_fe_values.reinit(cell);
+        reference_measure_fe_values.reinit(cell);
+
+        double current_measure   = 0.;
+        double reference_measure = 0.;
+        for (unsigned int q = 0; q < measure_quadrature.size(); ++q)
+        {
+          current_measure += current_measure_fe_values.JxW(q);
+          reference_measure += reference_measure_fe_values.JxW(q);
+        }
+        AssertThrow(current_measure > 0. && reference_measure > 0.,
+                    ExcMessage("The equivalent-size compression gain requires "
+                               "strictly positive cell measures."));
+        const auto cell_index = cell->active_cell_index();
+        compression_gain[cell_index] = static_cast<float>(
+          std::pow(reference_measure / current_measure, 1. / dim));
+
+        current_fe_values[tracer_extractor].get_function_values(
+          *this->present_solution, tracer_values);
+        current_fe_values[tracer_extractor].get_function_gradients(
+          *this->present_solution, tracer_gradients);
+
+        unsigned int interface_sample = 0;
+        double       minimum_tracer   = tracer_values[0];
+        double       maximum_tracer   = tracer_values[0];
+        for (unsigned int q = 1; q < n_samples; ++q)
+        {
+          if (std::abs(tracer_values[q]) <
+              std::abs(tracer_values[interface_sample]))
+            interface_sample = q;
+          minimum_tracer = std::min(minimum_tracer, tracer_values[q]);
+          maximum_tracer = std::max(maximum_tracer, tracer_values[q]);
+        }
+
+        const double gradient_norm = tracer_gradients[interface_sample].norm();
+        if (gradient_norm <= std::numeric_limits<double>::epsilon())
+        {
+          local_cell_records.push_back(cell_record);
+          continue;
+        }
+        const Tensor<1, dim> normal =
+          tracer_gradients[interface_sample] / gradient_norm;
+
+        const auto &current_quadrature_points =
+          current_fe_values.get_quadrature_points();
+        const std::vector<Point<dim>> current_edge_points(
+          current_quadrature_points.begin(),
+          current_quadrature_points.begin() + 2 * (dim + 1));
+
+        const double current_normal_size =
+          projected_triangle_extent(current_edge_points, normal);
+        if (current_normal_size <=
+            std::numeric_limits<double>::epsilon())
+        {
+          local_cell_records.push_back(cell_record);
+          continue;
+        }
+
+        const double resolution_ratio =
+          epsilon / (0.64 * current_normal_size);
+
+        // The local normal-resolution ratio is restricted to the physical
+        // target layer. The global compression gain above is not restricted,
+        // and the binary field below grows through every face-connected cell
+        // satisfying the local normal-size test.
+        if (std::abs(tracer_values[interface_sample]) <= diffuse_phase_limit)
+          local_resolution_ratio[cell_index] =
+            static_cast<float>(resolution_ratio);
+
+        const bool is_locally_resolved = resolution_ratio >= 1.;
+        const bool intersects_interface =
+          minimum_tracer <= 0. && maximum_tracer >= 0.;
+        cell_record[1] = is_locally_resolved ? 1 : 0;
+        cell_record[2] =
+          (is_locally_resolved && intersects_interface) ? 1 : 0;
+        local_cell_records.push_back(cell_record);
+      }
+
+    const MPI_Comm communicator =
+      this->triangulation->get_mpi_communicator();
+    const auto gathered_cell_records =
+      Utilities::MPI::all_gather(communicator, local_cell_records);
+    const auto gathered_adjacency_edges =
+      Utilities::MPI::all_gather(communicator, local_adjacency_edges);
+
+    const std::size_t n_global_cells =
+      this->triangulation->n_global_active_cells();
+    std::vector<bool> is_resolved(n_global_cells, false);
+    std::vector<bool> is_in_resolved_band(n_global_cells, false);
+    std::vector<std::vector<GlobalCellIndex>> adjacency(n_global_cells);
+    std::queue<GlobalCellIndex> flood_front;
+
+    for (const auto &rank_records : gathered_cell_records)
+      for (const auto &record : rank_records)
+      {
+        const auto id = static_cast<std::size_t>(record[0]);
+        AssertIndexRange(id, n_global_cells);
+        is_resolved[id] = record[1] != 0;
+        if (record[2] != 0)
+        {
+          is_in_resolved_band[id] = true;
+          flood_front.push(record[0]);
+        }
+      }
+
+    for (const auto &rank_edges : gathered_adjacency_edges)
+      for (const auto &edge : rank_edges)
+      {
+        const auto first  = static_cast<std::size_t>(edge[0]);
+        const auto second = static_cast<std::size_t>(edge[1]);
+        AssertIndexRange(first, n_global_cells);
+        AssertIndexRange(second, n_global_cells);
+        adjacency[first].push_back(edge[1]);
+        adjacency[second].push_back(edge[0]);
+      }
+
+    while (!flood_front.empty())
+    {
+      const GlobalCellIndex current = flood_front.front();
+      flood_front.pop();
+      for (const GlobalCellIndex neighbour : adjacency[current])
+        if (is_resolved[neighbour] && !is_in_resolved_band[neighbour])
+        {
+          is_in_resolved_band[neighbour] = true;
+          flood_front.push(neighbour);
+        }
+    }
+
+    for (const auto &cell : this->dof_handler->active_cell_iterators())
+      if (cell->is_locally_owned() &&
+          is_in_resolved_band[cell->global_active_cell_index()])
+        resolved_band[cell->active_cell_index()] = 1.f;
+
+    const std::string &base =
+      this->param.metric_fields[0].mesh_quality_output_name;
+    this->postproc_handler->add_cell_data_vector(compression_gain,
+                                                 "mesh_compression_gain");
+    this->postproc_handler->add_cell_data_vector(
+      local_resolution_ratio, base + "_local_resolution_ratio");
+    this->postproc_handler->add_cell_data_vector(resolved_band,
+                                                 base + "_resolved_band");
+  }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  add_graph_metric_quality_data(const Mapping<dim> &study_mapping)
+{
+  // This is the historical graph-induced metric M = I + grad(phi) x grad(phi).
+  // Its recovery remains on the fixed mesh and the gradient is pushed forward
+  // before the quality is evaluated in the current ALE configuration.
+  ErrorEstimation::PatchHandler<dim> patch_handler(
+    *this->triangulation,
+    *this->fixed_mapping,
+    *this->dof_handler,
+    *this->present_solution,
+    this->param.finite_elements.tracer_degree + 1,
+    tracer_mask);
+  patch_handler.build_patches();
+
+  ErrorEstimation::SolutionRecovery::Scalar<dim> recovery(
+    1,
+    this->param,
+    patch_handler,
+    *this->dof_handler,
+    *this->present_solution,
+    *fe,
+    *this->fixed_mapping,
+    tracer_mask);
+  recovery.reconstruct_fields(*this->present_solution);
+
+  if constexpr (with_moving_mesh)
+    transport_reconstructed_phi_gradient(recovery);
+
+  MetricField<dim> metric_field(0, this->param, *this->triangulation);
+  metric_field.set_induced_metric_from_graph(recovery);
+  metric_field.apply_gradation();
+
+  const std::vector<double> vertex_quality =
+    metric_field.compute_vertexwise_cell_quality(study_mapping,
+                                                 QGaussSimplex<dim>(3),
+                                                 QGauss<1>(3));
+
+  const auto &quality_name =
+    this->param.metric_fields[0].mesh_quality_output_name;
+  auto output_field =
+    std::make_unique<PostProcessingTools::ContinuousDataField<dim>>(
+      *this->triangulation,
+      false,
+      1,
+      std::vector<std::string>{quality_name},
+      std::vector<DataComponentInterpretation::DataComponentInterpretation>{
+        DataComponentInterpretation::component_is_scalar});
+
+  const auto &support_points = output_field->get_unit_support_points();
+  std::vector<unsigned int> support_to_vertex(support_points.size(),
+                                              numbers::invalid_unsigned_int);
+  for (unsigned int q = 0; q < support_points.size(); ++q)
+    for (unsigned int v = 0; v < dim + 1; ++v)
+      if (support_points[q].distance(
+            ReferenceCells::get_simplex<dim>().template vertex<dim>(v)) < 1e-12)
+      {
+        support_to_vertex[q] = v;
+        break;
+      }
+
+  for (const auto vertex : support_to_vertex)
+    Assert(vertex != numbers::invalid_unsigned_int, ExcInternalError());
+
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
+    if (cell->is_locally_owned())
+    {
+      std::vector<std::vector<double>> values(support_points.size(),
+                                              std::vector<double>(1));
+      for (unsigned int q = 0; q < support_points.size(); ++q)
+        values[q][0] = vertex_quality[cell->vertex_index(support_to_vertex[q])];
       output_field->set_cell_values(cell, values);
     }
 

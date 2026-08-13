@@ -201,6 +201,16 @@ public:
   void intersect_with(const MetricField<dim> &other);
 
   /**
+   * Compute the simplex quality with respect to this metric, then project the
+   * cellwise values to mesh vertices with a physical-cell-measure-weighted
+   * average. The returned field is continuous and partition independent.
+   */
+  std::vector<double> compute_vertexwise_cell_quality(
+    const Mapping<dim>    &geometry_mapping,
+    const Quadrature<dim> &cell_quadrature,
+    const Quadrature<1>   &edge_quadrature);
+
+  /**
    * Gather the metrics and their associated mesh vertex to the root process.
    */
   std::vector<std::pair<Point<dim>, MetricTensor<dim>>> gather_metrics() const;
@@ -332,6 +342,23 @@ private:
    * vector of MetricTensor<dim>.
    */
   void tensor_solution_to_metrics();
+
+  /** Compute the Riemannian volume of the current cell. */
+  double compute_cell_measure(const FEValues<dim> &fe_values) const;
+
+  /** Compute the Riemannian length of an edge of a simplex cell. */
+  double compute_cell_edge_measure(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const unsigned int                                    edge_no,
+    const Quadrature<1>                                  &edge_quadrature,
+    const Mapping<dim>                                   &geometry_mapping) const;
+
+  /** Compute the normalized metric quality of one simplex cell. */
+  double compute_cell_quality(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    const FEValues<dim>                                  &fe_values,
+    const Quadrature<1>                                  &edge_quadrature,
+    const Mapping<dim>                                   &geometry_mapping) const;
 
 private:
   ObserverPointer<const ParameterReader<dim>, MetricField<dim>> param;

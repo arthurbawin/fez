@@ -1,0 +1,69 @@
+Number of MPI processes: 6
+
+-- Fluid-structure interaction parameters:
+	 Using zero-mass model:yes
+	     Mass of the solid:1
+	   Damping coefficient:1
+	   Spring  coefficient:1
+	Initial solid velocity:0 0
+	   Rigid-body rotation:yes
+	    Center of rotation:4 8
+Mesh info:
+ dimension: 2
+ no. of cells: 631
+ boundary indicators: 1(7 faces) 2(7 faces) 3(28 faces) 4(27 faces) 
+ID 1 -> Outlet
+ID 2 -> Inlet
+ID 3 -> NoFlux
+ID 4 -> InnerBoundary
+ID 5 -> Domain
+Number of degrees of freedom: 6374
+
+Initial rigid-body rotation angle: 0.785398 (45 degrees)
+
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = -0.000000e+00
+Fy = -0.000000e+00
+
+Mean position (geometric center) on boundary with id 4:
+x = +6.8284271247e+00
+y = +1.0828427125e+01
+
+Rigid-body rotation angle: 0.785398 (45 degrees)
+
+Time step 1 - Advancing to t = 0.1.
+Newton iter.  0:          nonlinear residual = 4.49625923e-01
+Newton iter.  1:          nonlinear residual = 3.87949231e-01	(M)
+Newton iter.  2:          nonlinear residual = 1.32800392e-02	(M)
+Newton iter.  3:          nonlinear residual = 7.27175790e-05	(M)
+Newton iter.  4:          nonlinear residual = 3.15048364e-09	(M)
+Newton iter.  5:          nonlinear residual = 1.26560214e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = +4.861770e+00
+Fy = +4.692124e+00
+
+Mean position (geometric center) on boundary with id 4:
+x = +6.8781970043e+00
+y = +1.0777765650e+01
+
+Rigid-body rotation angle: 7.68e-01 (4.40e+01 degrees)
+
+Time step 2 - Advancing to t = 2.00e-01.
+Newton iter.  0:          nonlinear residual = 1.46577065e+00
+Newton iter.  1:          nonlinear residual = 2.62078065e-01	(M)
+Newton iter.  2:          nonlinear residual = 3.61868826e-04	(M)
+Newton iter.  3:          nonlinear residual = 7.36361141e-08	(M)
+Newton iter.  4:          nonlinear residual = 4.84331601e-13	(M)
+Stopping because residual is below prescribed tolerance (1.00e-12)
+
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = +4.282756e-01
+Fy = +3.989555e-01
+
+Mean position (geometric center) on boundary with id 4:
+x = +6.9268389410e+00
+y = +1.0726465443e+01
+
+Rigid-body rotation angle: 7.50e-01 (4.30e+01 degrees)

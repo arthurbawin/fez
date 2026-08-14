@@ -275,6 +275,12 @@ protected:
    */
   double rotation_angle_dof; // 3 angles in 3D, as for a curltype
 
+  /**
+   * In 2D, the initial angle formed by the rod connecting the center of the
+   * solid to the center of rotation, w.r.t. the horizontal.
+   */
+  double initial_rotation_angle;
+
 public:
   /**
    * Source term.

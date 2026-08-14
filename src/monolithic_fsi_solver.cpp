@@ -1810,6 +1810,49 @@ void FSISolver<dim>::set_solver_specific_initial_conditions()
     }
     this->newton_update.compress(VectorOperation::insert);
   }
+
+  // If rigid-body rotation is enabled, determine the initial angle between the
+  // rigid rod that connects the center of the solid to the center of rotation.
+  if (this->param.fsi.rotation.enable)
+  {
+    // Use *fixed* mapping to get the center of the solid body
+    const Tensor<1, dim> solid_center =
+      PostProcessingTools::compute_vector_mean_value_on_boundary(
+        *this->fixed_mapping,
+        *this->dof_handler,
+        *this->face_quadrature,
+        *this->present_solution,
+        weak_no_slip_boundary_id,
+        this->position_extractor);
+
+    const auto &xc = this->param.fsi.rotation.center;
+
+    if (dim == 2)
+    {
+      initial_rotation_angle =
+        std::atan2(solid_center[1] - xc[1], solid_center[0] - xc[0]);
+      if (this->param.fsi.verbosity == Parameters::Verbosity::verbose)
+      {
+        this->pcout << std::endl;
+        this->pcout << "Initial rigid-body rotation angle: "
+                    << initial_rotation_angle << " ("
+                    << initial_rotation_angle / M_PI * 180. << " degrees)"
+                    << std::endl;
+      }
+    }
+    else
+      // 3D Euler angles
+      DEAL_II_NOT_IMPLEMENTED();
+
+    // Apply initial rotation angle
+    if (has_rotation_angle)
+    {
+      Assert(rotation_angle_dof != numbers::invalid_unsigned_int,
+             ExcInternalError());
+      this->newton_update[rotation_angle_dof] = initial_rotation_angle;
+    }
+    this->newton_update.compress(VectorOperation::insert);
+  }
 }
 
 template <int dim>
@@ -2435,9 +2478,9 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                           ExcInternalError());
 
               Tensor<2, dim> rotation_matrix_derivative;
-              const double   theta             = this->evaluation_point[t_dof];
-              const double   ct                = std::cos(theta);
-              const double   st                = std::sin(theta);
+              const double   theta = this->evaluation_point[t_dof];
+              const double   ct    = std::cos(theta - initial_rotation_angle);
+              const double   st    = std::sin(theta - initial_rotation_angle);
               rotation_matrix_derivative[0][0] = -st;
               rotation_matrix_derivative[0][1] = -ct;
               rotation_matrix_derivative[1][0] = ct;
@@ -2753,13 +2796,14 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_rhs()
         }
 
         // Equation for the position
-        // Enforce x - x_c - M(theta) * (X - X_c) = 0
+        // Enforce x - x_c - M(theta - theta_0) * (X - X_c) = 0
         {
           const double   theta = this->evaluation_point[theta_dof];
           Tensor<2, dim> rotation_matrix;
           if constexpr (dim == 2)
             rotation_matrix =
-              Physics::Transformations::Rotations::rotation_matrix_2d(theta);
+              Physics::Transformations::Rotations::rotation_matrix_2d(
+                theta - initial_rotation_angle);
           else
           {
             DEAL_II_NOT_IMPLEMENTED();
@@ -3060,14 +3104,25 @@ void FSISolver<dim>::compare_forces_and_position_on_obstacle() const
 template <int dim>
 void FSISolver<dim>::check_rigid_body_rotation_angles() const
 {
-  if (has_rotation_angle &&
-      this->param.fsi.verbosity == Parameters::Verbosity::verbose)
+  // Print the current rotation angle.
+  // Root process may not store the rotation angle(s), so gather the angles to
+  // it.
+  if (this->param.fsi.verbosity == Parameters::Verbosity::verbose)
   {
-    const double theta     = (*this->present_solution)[rotation_angle_dof];
-    const double theta_deg = theta / M_PI * 180.;
-    this->pcout << std::endl;
-    this->pcout << "Rigid-body rotation angle: " << theta << " (" << theta_deg
-                << " degrees)" << std::endl;
+    const std::pair<bool, double> theta_pair = {
+      has_rotation_angle,
+      has_rotation_angle ? (*this->present_solution)[rotation_angle_dof] : 0.};
+    const auto gathered_rotation_angles =
+      Utilities::MPI::gather(this->mpi_communicator, theta_pair, 0);
+    for (const auto &[has_angle, angle] : gathered_rotation_angles)
+      if (has_angle)
+      {
+        const double angle_in_degrees = angle / M_PI * 180.;
+        this->pcout << std::endl;
+        this->pcout << "Rigid-body rotation angle: " << angle << " ("
+                    << angle_in_degrees << " degrees)" << std::endl;
+        break;
+      }
   }
 
   // Check that the angles on all partitions (if defined) are identical

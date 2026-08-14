@@ -1,0 +1,198 @@
+
+#
+# Unsteady flow around a massless circular cylinder, attached
+# to an infinitely thin, rigid rod and to a rotation center.
+# The cylinder-rod system undergoes a rigid-body rotation.
+#
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = true
+end
+
+subsection Output
+  set write vtu results = true
+  set output directory  = ./results/
+  set output prefix     = rigid_body_rotation
+end
+
+subsection Postprocessing
+  subsection forces computation
+    set enable             = true
+    set boundary id        = 4          # cylinder
+    set output prefix      = forces
+    set output frequency   = 1
+    set computation method = lagrange multiplier
+  end
+
+  subsection structure position
+    set enable           = true
+    set boundary id      = 4
+    set output prefix    = center
+    set output frequency = 1
+    set precision        = 10
+  end
+end
+
+subsection Mesh
+  set mesh file = ./mesh.msh
+end
+
+subsection Time integration
+  set verbosity        = verbose
+  set dt               = 0.1
+  set t_initial        = 0
+  set t_end            = 25
+  set scheme           = BDF2
+  set bdf start method = BDF1
+
+  #
+  # Time step adaptation based on max CFL number
+  #
+  subsection Adaptation
+    set verbosity = verbose
+    set enable    = true
+
+    set max timestep = 1.
+    set min timestep = 1e-3
+    set max timestep increase = 10
+    set max timestep reduction = 1e-1
+
+    set adaptation strategy = cfl
+    set target cfl number   = 1
+    set reject timestep with large cfl = true
+    set cfl ratio to reject = 2
+  end
+end
+
+subsection Checkpoint Restart
+  set enable checkpoint    = false
+  set restart              = false
+  set checkpoint file      = checkpoint
+  set checkpoint frequency = 10
+end
+
+subsection Nonlinear solver
+  set verbosity            = verbose
+  set tolerance            = 1e-12
+  set divergence_tolerance = 1e+6
+  set max_iterations       = 20
+  set enable_line_search   = true
+
+  subsection reassembly heuristic
+    set decrease tolerance = 0 #0.1
+  end
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
+end
+
+subsection FiniteElements
+  set use quads                  = false
+  set Velocity degree            = 2
+  set Pressure degree            = 1
+  set Mesh position degree       = 1
+  set Lagrange multiplier degree = 2
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 0.005
+  end
+
+  set number of pseudosolids = 1
+  subsection Pseudosolid 0
+    subsection lame lambda
+      set Function expression = 1
+    end
+    subsection lame mu
+      set Function expression = 1
+    end
+  end
+end
+
+subsection FSI
+  set verbosity       = verbose
+  set enable coupling = true
+  set use zero mass model = true
+
+  set cylinder radius = 0.5
+  
+  set force-position coupling = local_position_master_to_lambda_accumulators
+
+  subsection Rigid body rotation
+    set enable             = true
+    set center of rotation = 4, 8
+  end
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 1
+    set name = Outlet
+    set type = outflow
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = Inlet
+    set type = input_function
+
+    subsection u
+      set Function expression = 1
+    end
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = NoFlux
+    set type = slip
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = InnerBoundary
+    set type = weak_no_slip
+  end
+end
+
+subsection Pseudosolid boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 1
+    set name = Outlet
+    set type = fixed
+  end
+  subsection boundary 1
+    set id   = 2
+    set name = Inlet
+    set type = fixed
+  end
+  subsection boundary 2
+    set id   = 3
+    set name = NoFlux
+    set type = fixed
+  end
+  subsection boundary 3
+    set id   = 4
+    set name = InnerBoundary
+    set type = coupled_to_fluid
+  end
+end

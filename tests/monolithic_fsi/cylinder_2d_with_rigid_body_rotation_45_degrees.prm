@@ -10,11 +10,11 @@ subsection Dimension
 end
 
 subsection Timer
-  set enable timer = true
+  set enable timer = false
 end
 
 subsection Output
-  set write vtu results = true
+  set write vtu results = false
   set output directory  = ./results/
   set output prefix     = rigid_body_rotation
 end
@@ -22,6 +22,7 @@ end
 subsection Postprocessing
   subsection forces computation
     set enable             = true
+    set write results      = false
     set boundary id        = 4          # cylinder
     set output prefix      = forces
     set output frequency   = 1
@@ -30,6 +31,7 @@ subsection Postprocessing
 
   subsection structure position
     set enable           = true
+    set write results      = false
     set boundary id      = 4
     set output prefix    = center
     set output frequency = 1
@@ -38,23 +40,23 @@ subsection Postprocessing
 end
 
 subsection Mesh
-  set mesh file = ./cylinder.msh
+  set mesh file = ../../cylinder_2d_45_degrees.msh
+  # set mesh file = ../tests/monolithic_fsi/cylinder_2d_45_degrees.msh
 end
 
 subsection Time integration
   set verbosity        = verbose
   set dt               = 0.1
   set t_initial        = 0
-  set t_end            = 5
-  set scheme           = BDF2
-  set bdf start method = BDF1
+  set t_end            = 0.2
+  set scheme           = BDF1
 
   #
   # Time step adaptation based on max CFL number
   #
   subsection Adaptation
     set verbosity = verbose
-    set enable    = true
+    set enable    = false
 
     set max timestep = 1.
     set min timestep = 1e-3
@@ -78,12 +80,12 @@ end
 subsection Nonlinear solver
   set verbosity            = verbose
   set tolerance            = 1e-12
-  set divergence_tolerance = 1e+4
+  set divergence_tolerance = 1e+6
   set max_iterations       = 20
   set enable_line_search   = false
 
   subsection reassembly heuristic
-    set decrease tolerance = 0 #0.1
+    set decrease tolerance = 0
   end
 end
 
@@ -113,10 +115,25 @@ subsection Physical properties
   set number of pseudosolids = 1
   subsection Pseudosolid 0
     subsection lame lambda
-      set Function expression = 1
+      # Higher on the cylinder, then decreases radially.
+      # Accounts for the initial rotation angle of the cylinder through theta_factor.
+      set Function constants = A=1.0, xc=4.0, yc=8.0, x0=8.0, y0=8.0, a=1.0, b=1.0, theta_factor= 0.25
+      set Function expression = A / ( \
+        (((x-(xc+(x0-xc)*cos(pi*theta_factor)-(y0-yc)*sin(pi*theta_factor)))*cos(pi*theta_factor) + \
+           (y-(yc+(x0-xc)*sin(pi*theta_factor)+(y0-yc)*cos(pi*theta_factor)))*sin(pi*theta_factor))/a)^2 + \
+        ((-(x-(xc+(x0-xc)*cos(pi*theta_factor)-(y0-yc)*sin(pi*theta_factor)))*sin(pi*theta_factor) + \
+           (y-(yc+(x0-xc)*sin(pi*theta_factor)+(y0-yc)*cos(pi*theta_factor)))*cos(pi*theta_factor))/b)^2 \
+      )
     end
     subsection lame mu
-      set Function expression = 1
+      # Same as lambda
+      set Function constants = A=1.0, xc=4.0, yc=8.0, x0=8.0, y0=8.0, a=1.0, b=1.0, theta_factor= 0.25
+      set Function expression = A / ( \
+        (((x-(xc+(x0-xc)*cos(pi*theta_factor)-(y0-yc)*sin(pi*theta_factor)))*cos(pi*theta_factor) + \
+           (y-(yc+(x0-xc)*sin(pi*theta_factor)+(y0-yc)*cos(pi*theta_factor)))*sin(pi*theta_factor))/a)^2 + \
+        ((-(x-(xc+(x0-xc)*cos(pi*theta_factor)-(y0-yc)*sin(pi*theta_factor)))*sin(pi*theta_factor) + \
+           (y-(yc+(x0-xc)*sin(pi*theta_factor)+(y0-yc)*cos(pi*theta_factor)))*cos(pi*theta_factor))/b)^2 \
+      )
     end
   end
 end

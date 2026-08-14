@@ -19,6 +19,8 @@ ID 4 -> InnerBoundary
 ID 5 -> Domain
 Number of degrees of freedom: 1093
 
+Initial rigid-body rotation angle: 0 (0 degrees)
+
 Forces on boundary with id 4 computed with method : lagrange_multiplier
 Fx = -0.0000000000e+00
 Fy = -0.0000000000e+00

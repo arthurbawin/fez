@@ -329,27 +329,33 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
 
       // Skip (do not constrain) this degree of freedom if...
 
-      // ...it is a force accumulator on this partition
+      // ...it is a force accumulator (ghost or owned) on this partition
       bool skip_dof = false;
+
       if (requires_local_lambda_accumulator)
+        for (unsigned int d = 0; d < dim && !skip_dof; ++d)
+          // Don't constrain owned or ghosted accumulator dofs.
+          // They are all stored in all_lambda_accumulators.
+          for (const auto l_dof : all_lambda_accumulators[d])
+            if (l_dof == dof)
+            {
+              skip_dof = true;
+              break;
+            }
+
+      // ...it is used to represent the velocity of the solid
+      if (!this->param.fsi.zero_mass_model)
         for (unsigned int d = 0; d < dim; ++d)
-          if (local_lambda_accumulators[d] == dof)
+          if (local_cylinder_velocity_dofs[d] == dof)
           {
             skip_dof = true;
             break;
           }
 
-      // ...it is used to represent the velocity of the solid
-      for (unsigned int d = 0; d < dim; ++d)
-        if (local_cylinder_velocity_dofs[d] == dof)
-        {
-          skip_dof = true;
-          break;
-        }
-
       // ...it is used to represent a rigid-body rotation angle of the solid
+      // Looping over the Euler angles will be necessary in 3D.
       // for (unsigned int d = 0; d < dim; ++d)
-      if (rotation_angle_dof == dof)
+      if (this->param.fsi.rotation.enable && rotation_angle_dof == dof)
       {
         skip_dof = true;
         // break;
@@ -365,6 +371,7 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
       }
     }
   }
+
   lambda_constraints.close();
 
   if (this->param.debug.verbosity == Parameters::Verbosity::verbose)
@@ -390,6 +397,23 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
       Utilities::MPI::sum(unconstrained_owned_dofs, this->mpi_communicator);
     this->pcout << total_unconstrained_owned_dofs
                 << " unconstrained owned lambda dofs" << std::endl;
+  }
+
+  // Check for consistency for all the *relevant* dofs.
+  // I don't think that it's enough to check the extract_locally_active_dofs
+  // only, since this set doesn't include the manually added ghost dofs.
+  {
+    const bool consistent = lambda_constraints.is_consistent_in_parallel(
+      Utilities::MPI::all_gather(this->mpi_communicator,
+                                 this->locally_owned_dofs),
+      this->locally_relevant_dofs,
+      this->mpi_communicator,
+      true);
+    AssertThrow(consistent,
+                ExcMessage(
+                  "Lagrange multiplier constraints are not consistent! It "
+                  "could be that ghosted lambda dofs were constrained, whereas "
+                  "their owned counterpart is not."));
   }
 }
 
@@ -533,20 +557,49 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
    */
   if (requires_local_position_master)
   {
-    // Set the local_position_master_dofs
-    // Simply take the first owned position dofs on the cylinder
+    // Set the local_position_master_dofs.
+    // Simply take the first owned position dofs on the cylinder.
     // Here it's assumed that local_position_dofs is organized as
-    // x_0, y_0, z_0, x_1, y_1, z_1, ...,
-    // and we take the first dim.
+    // x_0, y_0, z_0, x_1, y_1, z_1, ..., and we take the first dim.
     const auto pos_index_vector = local_position_dofs.get_index_vector();
     if (pos_index_vector.size() > 0)
     {
       has_local_position_master = true;
-      AssertThrow(pos_index_vector.size() >= dim,
-                  ExcMessage(
-                    "This partition has position dofs on the cylinder, but has "
-                    "less than dim position dofs, which should not happen. It "
-                    "should have n * dim position dofs on this boundary."));
+
+      // Perform some safety checks to make sure the assumption above is
+      // satisfied. These are run also in both debug and release, but this
+      // function is called only once when setting up the solver.
+      {
+        // Check that there are at least dim owned position dofs available
+        AssertThrow(
+          pos_index_vector.size() >= dim,
+          ExcMessage(
+            "This partition has position dofs on the cylinder, but has "
+            "less than dim position dofs, which should not happen. It "
+            "should have n * dim position dofs on this boundary."));
+
+        // Check that the support points of the first dim dofs match, i.e., that
+        // they represent the coordinates of the same vertex.
+        std::map<types::global_dof_index, Point<dim>> support_points =
+          DoFTools::map_dofs_to_support_points(*this->fixed_mapping,
+                                               *this->dof_handler);
+        for (unsigned int d = 0; d < dim; ++d)
+        {
+          const auto dof = pos_index_vector[d];
+
+          AssertThrow(support_points.at(pos_index_vector[0]) ==
+                        support_points.at(dof),
+                      ExcInternalError());
+
+          // Check that these dofs have the right component
+          AssertThrow(static_cast<unsigned int>(
+                        this->dofs_to_component[this->locally_relevant_dofs
+                                                  .index_within_set(dof)]) ==
+                        this->ordering->x_lower + d,
+                      ExcInternalError());
+        }
+      }
+
       for (unsigned int d = 0; d < dim; ++d)
       {
         local_position_master_dofs[d] = pos_index_vector[d];
@@ -599,6 +652,15 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
                                 owner_rank,
                                 this->mpi_communicator);
 
+      // All ranks with a local position master need the global position masters
+      // as ghosts
+      if (has_local_position_master)
+      {
+        for (unsigned int d = 0; d < dim; ++d)
+          this->locally_relevant_dofs.add_index(global_position_master_dofs[d]);
+        this->locally_relevant_dofs.compress();
+      }
+
       if constexpr (running_in_debug_mode())
       {
         for (unsigned int d = 0; d < dim; ++d)
@@ -623,6 +685,24 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
     // while being careful not to affect the no-slip constraint.
     // The global dof indices of these dofs are stored in
     // local_lambda_accumulators.
+
+    // Get all the owned lambda dofs on the solid, so that we do not chose the
+    // accumulator from among these dofs.
+    IndexSet lambda_dofs_on_boundary =
+      DoFTools::extract_boundary_dofs(*this->dof_handler,
+                                      this->lambda_mask,
+                                      {weak_no_slip_boundary_id});
+    lambda_dofs_on_boundary =
+      lambda_dofs_on_boundary & this->locally_owned_dofs;
+    {
+      const auto gathered_lambda_bdr_dofs =
+        Utilities::MPI::all_gather(this->mpi_communicator,
+                                   lambda_dofs_on_boundary.get_index_vector());
+      for (const auto &vec : gathered_lambda_bdr_dofs)
+        for (const auto dof : vec)
+          if (this->locally_owned_dofs.is_element(dof))
+            lambda_dofs_on_boundary.add_index(dof);
+    }
 
     // Set the accumulator dofs from among the unused lambda dofs:
     // This rank should have a lambda accumulator if it has at least
@@ -664,13 +744,12 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
       // lambda dofs from a cell adjacent to these boundaries, this will
       // affect the no-slip enforcement. To avoid that we can take lambda dofs
       // from a cell that touches the boundary by a vertex only, and take dofs
-      // which are not shared which a directly adjacent cell to the boundary.
+      // which are not shared with a directly adjacent cell to the boundary.
 
       std::vector<types::global_dof_index> face_dofs(fe->n_dofs_per_face());
       unsigned int                         n_accumulators = 0;
       for (const auto &cell : this->dof_handler->active_cell_iterators())
         if (cell->is_locally_owned())
-        // if (cell_has_lambda(cell))
         {
           bool skip_cell = false;
 
@@ -692,7 +771,7 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
               // Skip face if neighbouring cell through this face touches
               // the target boundary
-              auto neighbor = cell->neighbor(i_face);
+              const auto neighbor = cell->neighbor(i_face);
               if (neighbor->state() == IteratorState::IteratorStates::valid)
                 for (const auto neighbor_i_face : neighbor->face_indices())
                 {
@@ -710,31 +789,26 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
                 face->get_dof_indices(face_dofs);
                 for (unsigned int i = 0; i < face_dofs.size(); ++i)
                 {
-                  types::global_dof_index dof = face_dofs[i];
-                  unsigned int            comp =
+                  const types::global_dof_index dof = face_dofs[i];
+                  const unsigned int            comp =
                     fe->face_system_to_component_index(i, i_face).first;
-                  unsigned int base =
-                    fe->face_system_to_component_index(i, i_face).second;
 
-                  // FIXME:
-                  // Hardcoded to the first P2 dof of the first face whose
-                  // neighbouring cell does not touch the boundary Its shape
-                  // functions index (base) is 2 in 2D (P2 dof on a line)
-                  // and 3 in 3D (P2 dof on triangle). This is for simplices
-                  // only...
-                  AssertThrow(
-                    !this->param.finite_elements.use_quads &&
-                      this->param.finite_elements
-                          .no_slip_lagrange_mult_degree == 2,
-                    ExcMessage(
-                      "This coupling option for the forces-position on the "
-                      "cylinder for now assumes a P2 Lagrange multiplier "
-                      "on simplices only. If this changes, the lambda dofs "
-                      "chosen as accumulators should be generalized "
-                      "accordingly."));
-                  unsigned int target_base = (dim == 2) ? 2 : 3;
-                  if (base == target_base)
-                    if (this->ordering->is_lambda(comp))
+                  /**
+                   * Choose the accumulator dofs as the first dim lambda dofs
+                   * which are not located on the solid boundary, so that they
+                   * do not affect the no-slip enforcement.
+                   *
+                   * Note that in 3D, a non-boundary face can still have edge or
+                   * corner dofs on the solid boundary.
+                   *
+                   * Important: this (and most of the logic of this solver) is
+                   * only true for Lagrange finite elements: in that case,
+                   * the shape functions of the non-boundary lambda nodes are
+                   * identically zero on the boundary, and thus do not affect
+                   * the no-slip condition.
+                   */
+                  if (this->ordering->is_lambda(comp))
+                    if (!lambda_dofs_on_boundary.is_element(dof))
                       /**
                        * The accumulator must be an owned dof. It might not
                        * be possible to assign an accumulator, based on the
@@ -916,13 +990,18 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
       // Global position master couples to global accumulator:
       // - rank with global position master needs global accumulator as ghost
       // - rank with global accumulator needs the local accumulators as ghosts.
+      // - ranks with a local accumulator also need to see the ghost
+      //   accumulators, so that they are not constrained to zero, yielding
+      //   inconsistent constraints.
+
       if (has_global_master_position_dofs)
       {
-        for (unsigned int d = 0; d < dim; ++d)
-          this->locally_relevant_dofs.add_index(global_lambda_accumulators[d]);
+        this->locally_relevant_dofs.add_indices(
+          global_lambda_accumulators.begin(), global_lambda_accumulators.end());
         this->locally_relevant_dofs.compress();
       }
-      if (has_global_accumulator)
+
+      if (has_local_lambda_accumulator)
       {
         for (unsigned int d = 0; d < dim; ++d)
           this->locally_relevant_dofs.add_indices(
@@ -2664,12 +2743,12 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
       if (has_local_position_master)
       {
         // Set x_i - x_local_master = 0 for the other coupled position dofs
-        for (const auto &[pos_dof, d] : coupled_position_dofs)
-          if (this->locally_owned_dofs.is_element(pos_dof) &&
-              pos_dof != local_position_master_dofs[d])
+        for (const auto &[x_dof, d] : coupled_position_dofs)
+          if (this->locally_owned_dofs.is_element(x_dof) &&
+              x_dof != local_position_master_dofs[d])
             constrain_matrix_row(this->system_matrix,
-                                 pos_dof,
-                                 position_rows.at(pos_dof),
+                                 x_dof,
+                                 position_rows.at(x_dof),
                                  local_position_master_dofs[d],
                                  -1.);
 

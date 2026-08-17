@@ -617,7 +617,7 @@ void PostProcessingHandler<dim>::output_skin_fields(
   if (post_proc_param.slices.enable)
   {
     data_out_skin->add_data_vector(slice_indices,
-                                   "slice index",
+                                   "slice_index",
                                    DataOutFaces<dim>::type_cell_data);
   }
   data_out_skin->build_patches(mapping, output_param.n_subdivisions);

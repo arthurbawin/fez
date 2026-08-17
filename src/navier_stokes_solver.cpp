@@ -1386,6 +1386,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::restart()
 
   // Update the time handler
   time_handler.update_parameters_after_restart(param.time_integration);
+
+  // Preserve visualization entries written before the checkpoint. The first
+  // postprocessing call after restart rewrites the checkpoint time and removes
+  // its previous record before appending the new one.
+  postproc_handler->restore_pvd_entries_until_time(time_handler.current_time,
+                                                   prefix_data);
 }
 
 // Explicit instantiation

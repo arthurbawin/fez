@@ -1,5 +1,7 @@
 
+#include <fstream>
 #include <iostream>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -9,6 +11,23 @@
 #include "incompressible_ns_solver.h"
 #include "parameter_reader.h"
 #include "parameters.h"
+
+std::vector<double> read_pvd_times(const std::string &filename)
+{
+  std::ifstream input(filename);
+  AssertThrow(input, ExcMessage("Could not read the PVD file"));
+
+  const std::regex timestep_regex("timestep=\"([^\"]+)\"");
+  std::vector<double> times;
+  std::string         line;
+  while (std::getline(input, line))
+  {
+    std::smatch match;
+    if (std::regex_search(line, match, timestep_regex))
+      times.push_back(std::stod(match[1].str()));
+  }
+  return times;
+}
 
 /**
  * Tests the checkpoint/restart functions with the incompressible N-S solver.
@@ -40,7 +59,7 @@ void test_restart()
 
   // Output
   prm.enter_subsection("Output");
-  prm.set("write vtu results", "false");
+  prm.set("write vtu results", "true");
   /**
    * The checkpoint files will be written in the current test directory
    */
@@ -239,6 +258,17 @@ void test_restart()
     AssertThrow(std::abs(e_p[i + time_steps_shift].second -
                          e_p_restart[i].second) < 1e-12,
                 ExcMessage("Error mismatch"));
+  }
+
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+  {
+    const auto pvd_times =
+      read_pvd_times("solution_convergence_step_0.pvd");
+    AssertThrow(pvd_times.size() == 6,
+                ExcMessage("The restarted PVD history has the wrong size"));
+    for (unsigned int i = 0; i < pvd_times.size(); ++i)
+      AssertThrow(std::abs(pvd_times[i] - 0.1 * i) < 1e-12,
+                  ExcMessage("The restarted PVD history is incorrect"));
   }
   deallog << "OK" << std::endl;
 }

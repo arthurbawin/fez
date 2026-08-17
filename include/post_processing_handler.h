@@ -170,6 +170,18 @@ public:
   void write_pvd(const PrefixData &prefix_data = PrefixData()) const;
 
   /**
+   * Reload entries from existing .pvd files up to @p max_time.
+   *
+   * This is used after a checkpoint restart to preserve the visualization
+   * history written before the checkpoint. Entries produced after the
+   * checkpoint are discarded because they will be recomputed by the restarted
+   * simulation.
+   */
+  void restore_pvd_entries_until_time(
+    double            max_time,
+    const PrefixData &prefix_data = PrefixData());
+
+  /**
    * Compute the hydrodynamic forces on the boundary prescribed in the forces
    * postprocessing parameters at the current time step. Adds these forces
    * to the forces table and write the table to the prescribed file if the time
@@ -430,6 +442,12 @@ private:
   std::vector<std::pair<double, std::string>>
     prerefinements_pseudotimes_and_names_skin;
 
+  /** Remove an existing visualization record at the same time or filename. */
+  void remove_visualization_record(
+    std::vector<std::pair<double, std::string>> &visualization_records,
+    double                                      time,
+    const std::string                          &filename) const;
+
   // Subdomain (partition) IDs
   Vector<float> subdomains;
 
@@ -606,11 +624,14 @@ void PostProcessingHandler<dim>::output_volume_fields(
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
      */
-    visualization_times_and_names.emplace_back(
+    const double visualization_time =
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        current_time,
-      pvtu_file);
+        current_time;
+    remove_visualization_record(visualization_times_and_names,
+                                visualization_time,
+                                pvtu_file);
+    visualization_times_and_names.emplace_back(visualization_time, pvtu_file);
   }
 
   data_out->clear_data_vectors();
@@ -692,11 +713,15 @@ void PostProcessingHandler<dim>::output_skin_fields(
      * If steady, use time step counter as pseudo-time,
      * otherwise use current time.
      */
-    visualization_times_and_names_skin.emplace_back(
+    const double visualization_time =
       time_handler.is_steady() ?
         static_cast<double>(time_handler.current_time_iteration) :
-        current_time,
-      pvtu_file);
+        current_time;
+    remove_visualization_record(visualization_times_and_names_skin,
+                                visualization_time,
+                                pvtu_file);
+    visualization_times_and_names_skin.emplace_back(visualization_time,
+                                                     pvtu_file);
   }
 
   data_out_skin->clear_data_vectors();

@@ -75,6 +75,9 @@ namespace Parameters
     // FIXME: This is not BC related, maybe move this in a dedicated entity
     unsigned int n_metric_fields = 0;
 
+    // FIXME: Also unrelated... Should rename this struct (-:
+    unsigned int n_manifolds = 0;
+
     bool fix_pressure_constant;
     bool enforce_zero_mean_pressure;
 
@@ -242,6 +245,47 @@ namespace Parameters
     void declare_parameters(ParameterHandler &prm, const int dim);
     void read_parameters(ParameterHandler &prm);
   };
+
+  /**
+   * Data required to create a single manifold
+   */
+  struct Manifold
+  {
+    // Supported manifolds from deal.II's library
+    enum class Type
+    {
+      flat,
+      polar,
+      cylindrical, // Only available in 3D
+    } type;
+
+    // Unique identifier, identical to the boundary_id of the boundary to which
+    // this manifold is associated
+    types::manifold_id id;
+
+    // List of parameters used to call the manifolds's constructor (center,
+    // axis, etc.)
+    std::vector<std::string> parameter_list;
+
+    static void declare_parameters(ParameterHandler  &prm,
+                                   const unsigned int index);
+    void        read_parameters(ParameterHandler  &prm,
+                                const unsigned int index,
+                                const int          dim);
+  };
+
+  /**
+   * Declare all the manifold subsections
+   */
+  void declare_manifolds(ParameterHandler &prm, const unsigned int n_manifolds);
+
+  /**
+   * Read all the manifold subsections
+   */
+  void read_manifolds(ParameterHandler      &prm,
+                      const unsigned int     dim,
+                      const unsigned int     n_manifolds,
+                      std::vector<Manifold> &manifolds);
 
   struct Output
   {

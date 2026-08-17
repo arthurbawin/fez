@@ -232,8 +232,9 @@ namespace Parameters
    * Declare all @p n_metric_fields metric fields.
    */
   template <int dim>
-  void declare_metric_fields(ParameterHandler  &prm,
-                             const unsigned int n_metric_fields);
+  void declare_metric_fields(ParameterHandler   &prm,
+                             const unsigned int  n_metric_fields,
+                             const MetricFields &metrics_parameters);
 
   /**
    * Read all @p n_metric_fields metric fields.
@@ -242,8 +243,8 @@ namespace Parameters
   void
   read_metric_fields(ParameterHandler              &prm,
                      const unsigned int             n_metric_fields,
-                     std::vector<MetricField<dim>> &metric_fields_parameters,
-                     unsigned int                  &metric_for_adaptation);
+                     MetricFields                  &metrics_parameters,
+                     std::vector<MetricField<dim>> &metric_fields_parameters);
 } // namespace Parameters
 
 /* ---------------- template and inline functions ----------------- */

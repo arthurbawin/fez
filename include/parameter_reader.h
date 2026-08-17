@@ -42,6 +42,11 @@ public:
   Parameters::Debug                                          debug;
 
   /**
+   * The prescribed manifolds on all mesh boundaries
+   */
+  std::vector<Parameters::Manifold> boundary_manifolds;
+
+  /**
    * Generic parameters for all metric fields
    */
   Parameters::MetricFields metrics;
@@ -122,6 +127,8 @@ public:
     dummy_dimension.declare_parameters(prm);
     timer.declare_parameters(prm);
     mesh.declare_parameters(prm, dim);
+    boundary_manifolds.resize(bc_data.n_manifolds);
+    Parameters::declare_manifolds(prm, bc_data.n_manifolds);
     output.declare_parameters(prm);
     postprocessing.declare_parameters(prm);
     finite_elements.declare_parameters(prm);
@@ -171,6 +178,10 @@ public:
     dummy_dimension.read_parameters(prm);
     timer.read_parameters(prm);
     mesh.read_parameters(prm);
+    Parameters::read_manifolds(prm,
+                               dim,
+                               bc_data.n_manifolds,
+                               boundary_manifolds);
     output.read_parameters(prm);
     postprocessing.read_parameters(prm);
     finite_elements.read_parameters(prm);

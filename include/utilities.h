@@ -218,6 +218,15 @@ read_number_of_boundary_conditions(const std::string &parameter_file,
   }
   prm.leave_subsection();
 
+  prm.enter_subsection("Manifolds");
+  {
+    prm.declare_entry("number",
+                      "0",
+                      Patterns::Integer(0),
+                      "Number of manifolds assigned to mesh boundaries");
+  }
+  prm.leave_subsection();
+
   // Read only these structures from the file
   prm.parse_input(parameter_file, /*last_line=*/"", /*skip_undefined=*/true);
 
@@ -240,6 +249,10 @@ read_number_of_boundary_conditions(const std::string &parameter_file,
 
   prm.enter_subsection("Metric tensor fields");
   bc_data.n_metric_fields = prm.get_integer("number");
+  prm.leave_subsection();
+
+  prm.enter_subsection("Manifolds");
+  bc_data.n_manifolds = prm.get_integer("number");
   prm.leave_subsection();
 }
 

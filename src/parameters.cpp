@@ -329,6 +329,110 @@ namespace Parameters
     prm.leave_subsection();
   }
 
+  void Manifold::declare_parameters(ParameterHandler  &prm,
+                                    const unsigned int index)
+  {
+    prm.enter_subsection("manifold " + std::to_string(index));
+    {
+      prm.declare_entry("type",
+                        "flat",
+                        Patterns::Selection("flat|polar|cylindrical"),
+                        "Type of manifold from within the deal.II library");
+      prm.declare_entry("boundary id",
+                        "0",
+                        Patterns::Integer(0),
+                        "ID of the boundary to which this manifold is "
+                        "associated, also used as ID of the manifold");
+      prm.declare_entry("parameter list",
+                        "",
+                        Patterns::List(Patterns::Double()),
+                        "Parameters used to create the manifold");
+    }
+    prm.leave_subsection();
+  }
+
+  void Manifold::read_parameters(ParameterHandler  &prm,
+                                 const unsigned int index,
+                                 const int          dim)
+  {
+    prm.enter_subsection("manifold " + std::to_string(index));
+    {
+      id = prm.get_integer("boundary id");
+
+      // Parse the parameter list first, then check if it is suitable for
+      // the prescribed manifold type
+      parameter_list =
+        Utilities::split_string_list(prm.get("parameter list"), ",");
+
+      const auto parsed_type = prm.get("type");
+      if (parsed_type == "flat")
+        type = Type::flat;
+      else if (parsed_type == "polar")
+      {
+        AssertThrow(dim == 2,
+                    ExcMessage(
+                      "Polar manifolds are only recommended for 2D uses. In "
+                      "3D, use a spherical manifold instead."));
+        // Polar manifold needs only a center
+        AssertThrow(parameter_list.size() == dim,
+                    ExcMessage(
+                      "When creating a polar manifold, the \"dim\" coordinates "
+                      "of its center should be provided as parameter list, for "
+                      "instance: set parameter list = 1, 2 in two dimensions "
+                      "and set parameter list = 1, 2, 0 in three dimensions."));
+        type = Type::polar;
+      }
+      else if (parsed_type == "cylindrical")
+      {
+        AssertThrow(dim == 3,
+                    ExcMessage(
+                      "Cylindrical manifolds is only available in 3D."));
+        // Constructor for CylindricalManifold takes either the axis index and a
+        // tolerance (2 arguments), or a direction and a point and a tolerance
+        // (2*dim + 1 = 7 arguments, since only defined in 3D).
+        AssertThrow(
+          parameter_list.size() == 2 || parameter_list.size() == 7,
+          ExcMessage(
+            "To create a cylindrical manifold, you can either provide:\n"
+            "- a list of 2 parameters: the axis index (x = 0, y = 1, z = 2), "
+            "  and a tolerance to determine if a point is on the axis;\n"
+            "- a list of 7 parameters: the coordinates of the direction of the "
+            "  axis, a point on this axis, and a tolerance."));
+        type = Type::cylindrical;
+      }
+      else
+        AssertThrow(false, ExcMessage("Unknown manifold type: " + parsed_type));
+    }
+    prm.leave_subsection();
+  }
+
+  void declare_manifolds(ParameterHandler &prm, const unsigned int n_manifolds)
+  {
+    prm.enter_subsection("Manifolds");
+    {
+      prm.declare_entry("number",
+                        "0",
+                        Patterns::Integer(0),
+                        "Number of manifolds assigned to mesh boundaries");
+      for (unsigned int i = 0; i < n_manifolds; ++i)
+        Manifold::declare_parameters(prm, i);
+    }
+    prm.leave_subsection();
+  }
+
+  void read_manifolds(ParameterHandler      &prm,
+                      const unsigned int     dim,
+                      const unsigned int     n_manifolds,
+                      std::vector<Manifold> &manifolds)
+  {
+    prm.enter_subsection("Manifolds");
+    {
+      for (unsigned int i = 0; i < n_manifolds; ++i)
+        manifolds[i].read_parameters(prm, i, dim);
+    }
+    prm.leave_subsection();
+  }
+
   void Output::declare_parameters(ParameterHandler &prm)
   {
     prm.enter_subsection("Output");

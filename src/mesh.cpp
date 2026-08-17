@@ -33,6 +33,100 @@ namespace MeshTools
   }
 
   /**
+   * Assign the prescribed manifolds to the relevant boundaries.
+   */
+  template <int dim>
+  void assign_manifolds(const ParameterReader<dim> &param,
+                        Triangulation<dim>         &serial_triangulation)
+  {
+    if (param.boundary_manifolds.empty())
+      return;
+
+    // Start by assigning the manifold IDs to the relevant faces, lines and
+    // vertices. The function "set_all_manifold_ids_on_boundary" loops over the
+    // number of faces stored in GeometryInfo, and does not use a ReferenceCell,
+    // so it only works for quads/hexes.
+    if (param.finite_elements.use_quads)
+    {
+      for (const auto &manifold : param.boundary_manifolds)
+        // The boundary id is chosen to be identical to the manifold id
+        serial_triangulation.set_all_manifold_ids_on_boundary(manifold.id,
+                                                              manifold.id);
+    }
+    else
+    {
+      // Do here for simplices what is done in set_all_manifold_ids_on_boundary
+      for (const auto &manifold : param.boundary_manifolds)
+        for (const auto &cell : serial_triangulation.active_cell_iterators())
+          for (unsigned int i_face = 0; i_face < cell->n_faces(); ++i_face)
+          {
+            const auto &face = cell->face(i_face);
+            if (face->at_boundary() && face->boundary_id() == manifold.id)
+              // Assign manifold recursively to lower-dimensional entities
+              face->set_all_manifold_ids(manifold.id);
+          }
+    }
+
+    // Then actually create and assign the manifolds to these entities
+    for (const auto &manifold : param.boundary_manifolds)
+      switch (manifold.type)
+      {
+        case Parameters::Manifold::Type::flat:
+          // Default, could also do nothing
+          serial_triangulation.set_manifold(manifold.id, FlatManifold<dim>());
+          break;
+        case Parameters::Manifold::Type::polar:
+        {
+          const auto center_coords =
+            Utilities::string_to_double(manifold.parameter_list);
+          Point<dim> center;
+          for (unsigned int d = 0; d < dim; ++d)
+            center[d] = center_coords[d];
+          PolarManifold<dim> polar_manifold(center);
+          serial_triangulation.set_manifold(manifold.id, polar_manifold);
+          break;
+        }
+        case Parameters::Manifold::Type::cylindrical:
+        {
+          const auto &l = manifold.parameter_list;
+          if (l.size() == 2)
+          {
+            // Direction index and tolerance were provided
+            const unsigned int axis =
+              static_cast<unsigned int>(Utilities::string_to_int(l[0]));
+            AssertThrow(0 <= axis && axis <= dim,
+                        ExcMessage("Axis for cylindrical manifold should be in "
+                                   "the range [0, dim)."));
+            const double             tol = Utilities::string_to_double(l[1]);
+            CylindricalManifold<dim> cylindrical_manifold(axis, tol);
+            serial_triangulation.set_manifold(manifold.id,
+                                              cylindrical_manifold);
+          }
+          else if (l.size() == 2 * dim + 1)
+          {
+            // Axis, point on axis and tolerance were provided
+            Tensor<1, dim> axis;
+            Point<dim>     pt;
+            for (unsigned int d = 0; d < dim; ++d)
+            {
+              axis[d] = Utilities::string_to_double(l[d]);
+              pt[d]   = Utilities::string_to_double(l[dim + d]);
+            }
+            const double tol = Utilities::string_to_double(l[2 * dim]);
+            CylindricalManifold<dim> cylindrical_manifold(axis, pt, tol);
+            serial_triangulation.set_manifold(manifold.id,
+                                              cylindrical_manifold);
+          }
+          else
+            DEAL_II_ASSERT_UNREACHABLE();
+          break;
+        }
+        default:
+          DEAL_II_ASSERT_UNREACHABLE();
+      }
+  }
+
+  /**
    * FIXME: the whole mesh is first read on all processes, then partitioned
    * and distributed. This won't work for really big meshes.
    */
@@ -764,6 +858,9 @@ namespace MeshTools
                                param.mesh.id2name,
                                param.mesh.name2id);
     }
+
+    // Assign manifolds to prescribed boundaries
+    assign_manifolds(param, *tria);
 
     if (dynamic_cast<
           const parallel::fullydistributed::Triangulation<dim, spacedim> *>(

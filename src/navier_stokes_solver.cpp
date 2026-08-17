@@ -59,6 +59,23 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
       if constexpr (with_moving_mesh)
         handler.create_entry("x");
     }
+
+  /**
+   * If using a mesh position variable with a moving mapping, the prescribed
+   * mapping degree should match.
+   */
+  if constexpr (with_moving_mesh)
+    AssertThrow(param.finite_elements.mesh_position_degree ==
+                  param.finite_elements.mapping_degree,
+                ExcMessage(
+                  "The prescribed mapping degree (" +
+                  std::to_string(param.finite_elements.mapping_degree) +
+                  ") is different from the degree of the representation of the "
+                  "mesh position field (" +
+                  std::to_string(param.finite_elements.mesh_position_degree) +
+                  "). These two should be identical to avoid mismatches "
+                  "between the fixed and moving mappings when running "
+                  "simulations with a moving mesh."));
 }
 
 

@@ -2093,7 +2093,7 @@ void FSISolver<dim>::create_sparsity_pattern()
     }
   }
 
-  if (this->param.fsi.rotation.enable)
+  if (this->param.fsi.rotation.enable && has_rotation_angle)
   {
     switch (this->param.fsi.coupling)
     {

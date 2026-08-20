@@ -199,6 +199,17 @@ protected:
 
   virtual bool uses_hp_capabilities() const override { return false; };
 
+private:
+  /**
+   * Find and return @p n_required_dofs owned and unused Lagrange multiplier dofs.
+   * These dofs can then be repurposed as force accumulators, or to store
+   * algebraic equations relative to the movement of the rigid body.
+   *
+   * This is a little hack to avoid dealing with multiple dof_handlers...
+   */
+  std::vector<types::global_dof_index>
+  find_unused_lagrange_multiplier_dofs(const unsigned int n_required_dofs);
+
 protected:
   std::unique_ptr<FESystem<dim>> fe;
 
@@ -220,11 +231,28 @@ protected:
   AffineConstraints<double> lambda_constraints;
 
   /**
-   * Data used to enforce the force-position coupling
+   * Data used to enforce the force-position coupling:
+   *
+   * Force coefficients, such that
+   *  F_d = (int_Gamma (-lambda) ds)_d = sum_j c_dj * lambda_j.
+   *
+   * Stored as [dim][{lambdaDOF_j : c_j}].
+   *
+   * FIXME: Rename as lambda_force_coeffs (or similar) everywhere.
    */
-  // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
   std::vector<std::vector<std::pair<unsigned int, double>>>
-                                                  lambda_integral_coeffs;
+    lambda_integral_coeffs;
+
+  /**
+   * Torque coefficients for the "intrinsic" torque w.r.t. to the body centroid,
+   * such that
+        int_Gamma (X - Xm) x (-lambda) ds = sum_d (sum_j c_dj * lambda_j).
+
+    Stored as [dim][{lambdaDOF_j : c_j}].
+   */
+  std::vector<std::vector<std::pair<unsigned int, double>>>
+    lambda_torque_coeffs;
+
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
 
   bool         has_local_position_master       = false;
@@ -275,11 +303,26 @@ protected:
    */
   double rotation_angle_dof; // 3 angles in 3D, as for a curltype
 
-  /**
-   * In 2D, the initial angle formed by the rod connecting the center of the
-   * solid to the center of rotation, w.r.t. the horizontal.
-   */
-  double initial_rotation_angle;
+  // A small struct to describe the fixed parameters affecting the rotation.
+  struct RigidBodyRotation
+  {
+    /**
+     * In 2D, the initial angle formed by the rod connecting the center of the
+     * solid to the center of rotation, w.r.t. the horizontal.
+     */
+    double initial_rotation_angle;
+
+    /**
+     * Length of the fictitious rod connecting the body's center of mass to the
+     * center of rotation.
+     */
+    double rod_length;
+
+    /**
+     * Center of mass of the solid body.
+     */
+    Point<dim> body_center;
+  } rigid_body_rotation;
 
 public:
   /**

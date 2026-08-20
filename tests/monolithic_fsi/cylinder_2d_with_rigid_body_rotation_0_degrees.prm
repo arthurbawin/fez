@@ -137,7 +137,7 @@ subsection FSI
 
   set cylinder radius = 0.5
   
-  set force-position coupling = local_position_master_to_lambda_accumulators
+  set force-position coupling = all_position_to_all_lambda
 
   subsection Rigid body rotation
     set enable             = true

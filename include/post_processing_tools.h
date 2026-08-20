@@ -72,6 +72,7 @@ namespace PostProcessingTools
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &velocity_extractor,
     const FEValuesExtractors::Scalar &pressure_extractor,
+    const double                      density,
     const double                      dynamic_viscosity,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
@@ -87,6 +88,7 @@ namespace PostProcessingTools
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &velocity_extractor,
     const FEValuesExtractors::Scalar &pressure_extractor,
+    const double                      density,
     const double                      dynamic_viscosity,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
@@ -115,6 +117,7 @@ namespace PostProcessingTools
     const VectorType                 &solution,
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &lambda_extractor,
+    const double                      density,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
   /**
@@ -128,6 +131,7 @@ namespace PostProcessingTools
     const VectorType                 &solution,
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &lambda_extractor,
+    const double                      density,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
   /**
@@ -277,6 +281,7 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &velocity_extractor,
   const FEValuesExtractors::Scalar &pressure_extractor,
+  const double                      density,
   const double                      dynamic_viscosity,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
@@ -323,7 +328,10 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              * This way, -p*n = p*normals[q] is oriented towards the solid.
              */
             const auto &n           = -normals[q];
-            const auto  sigma_dot_n = -p * n + 2. * mu * sym_grad_u * n;
+            // The incompressible solver stores the kinematic pressure p/rho.
+            // Convert it back to physical pressure for the force integral.
+            const auto sigma_dot_n =
+              -density * p * n + 2. * mu * sym_grad_u * n;
             f += sigma_dot_n * fe_face_values.JxW(q);
           }
 
@@ -345,6 +353,7 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &velocity_extractor,
   const FEValuesExtractors::Scalar &pressure_extractor,
+  const double                      density,
   const double                      dynamic_viscosity,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
@@ -398,7 +407,10 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              * This way, -p*n = p*normals[q] is oriented towards the solid.
              */
             const auto &n           = -normals[q];
-            const auto  sigma_dot_n = -p * n + 2. * mu * sym_grad_u * n;
+            // The incompressible solver stores the kinematic pressure p/rho.
+            // Convert it back to physical pressure for the force integral.
+            const auto sigma_dot_n =
+              -density * p * n + 2. * mu * sym_grad_u * n;
             f += sigma_dot_n * fe_face_values.JxW(q);
           }
 
@@ -420,6 +432,7 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
   const VectorType                 &solution,
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &lambda_extractor,
+  const double                      density,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
@@ -450,8 +463,10 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
           f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
+            // Lambda has the same kinematic force units as the momentum
+            // equation, which is divided by density.
             const Tensor<1, dim> increment =
-              lambda_values[q] * fe_face_values.JxW(q);
+              density * lambda_values[q] * fe_face_values.JxW(q);
             lambda_integral_local += increment;
             f -= increment;
           }
@@ -477,6 +492,7 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
   const VectorType                 &solution,
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &lambda_extractor,
+  const double                      density,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
@@ -508,8 +524,10 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
           f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
+            // Lambda has the same kinematic force units as the momentum
+            // equation, which is divided by density.
             const Tensor<1, dim> increment =
-              lambda_values[q] * fe_face_values.JxW(q);
+              density * lambda_values[q] * fe_face_values.JxW(q);
             lambda_integral_local += increment;
             f -= increment;
           }

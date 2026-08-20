@@ -294,15 +294,28 @@ namespace Parameters
       types::boundary_id boundary_id;
     };
 
-    // Hydrodynamic forces on a single boundary
+    // Hydrodynamic forces on one or more boundaries
     struct Forces : public PostProcessingBaseBoundary
     {
+      // Boundaries on which forces are evaluated. If the input list is empty,
+      // the legacy boundary_id parameter is used.
+      std::vector<types::boundary_id> boundary_ids;
+
       // The method used to evaluate the forces on a boundary
       enum class ComputationMethod
       {
         stress_vector,
         lagrange_multiplier
       } method;
+
+      // Select whether results are reported for every boundary, for their
+      // sum, or both.
+      enum class OutputMode
+      {
+        separate,
+        total,
+        both
+      } output_mode;
     } forces;
 
     // For the FSI solver, compute and export the position of the structure's

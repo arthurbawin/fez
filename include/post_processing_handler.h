@@ -308,7 +308,8 @@ private:
     const Tensor<1, dim> &forces,
     const TimeHandler    &time_handler,
     TableHandler         &force_table,
-    const unsigned int    i_slice = numbers::invalid_unsigned_int);
+    const unsigned int    i_slice = numbers::invalid_unsigned_int,
+    const std::string    &boundary = "");
 
   /**
    * Add the computed position of the structure's geometric center to the passed
@@ -628,59 +629,82 @@ void PostProcessingHandler<dim>::compute_forces(
   const auto &forces_param = post_proc_param.forces;
   using Forces             = Parameters::PostProcessing::Forces;
 
-  Tensor<1, dim> forces;
+  Tensor<1, dim> total_forces;
   std::string    method = "";
 
   std::vector<Tensor<1, dim>> force_per_face(
     dof_handler.get_triangulation().n_faces());
 
-  switch (forces_param.method)
-  {
-    case Forces::ComputationMethod::stress_vector:
+  const auto compute_on_boundary = [&](const types::boundary_id boundary_id) {
+    Tensor<1, dim> forces;
+    switch (forces_param.method)
     {
-      method = "stress_vector";
-      const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
-      const FEValuesExtractors::Scalar pressure_extractor(ordering.p_lower);
+      case Forces::ComputationMethod::stress_vector:
+      {
+        method = "stress_vector";
+        const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
+        const FEValuesExtractors::Scalar pressure_extractor(ordering.p_lower);
 
-      // FIXME: take viscosity of the mixture in CHNS
-      const double mu = physical_properties.fluids[0].dynamic_viscosity;
+        // FIXME: take viscosity of the mixture in CHNS
+        const double rho = physical_properties.fluids[0].density;
+        const double mu = physical_properties.fluids[0].dynamic_viscosity;
 
-      forces = PostProcessingTools::compute_forces_on_boundary(
-        dof_handler,
-        mapping,
-        face_quadrature,
-        solution,
-        forces_param.boundary_id,
-        velocity_extractor,
-        pressure_extractor,
-        mu,
-        force_per_face);
-      break;
-    }
-    case Forces::ComputationMethod::lagrange_multiplier:
-    {
-      method = "lagrange_multiplier";
-      AssertThrow(ordering.l_lower != numbers::invalid_unsigned_int,
-                  ExcMessage(
-                    "Cannot compute forces with a Lagrange multiplier "
-                    "because the chosen "
-                    "solver does not have a Lagrange multiplier variable."));
-
-      const FEValuesExtractors::Vector lambda_extractor(ordering.l_lower);
-      forces = PostProcessingTools::
-        compute_forces_on_boundary_with_lagrange_multiplier(
+        forces = PostProcessingTools::compute_forces_on_boundary(
           dof_handler,
           mapping,
           face_quadrature,
           solution,
-          forces_param.boundary_id,
-          lambda_extractor,
+          boundary_id,
+          velocity_extractor,
+          pressure_extractor,
+          rho,
+          mu,
           force_per_face);
-      break;
+        break;
+      }
+      case Forces::ComputationMethod::lagrange_multiplier:
+      {
+        method = "lagrange_multiplier";
+        AssertThrow(ordering.l_lower != numbers::invalid_unsigned_int,
+                    ExcMessage(
+                      "Cannot compute forces with a Lagrange multiplier "
+                      "because the chosen solver does not have a Lagrange "
+                      "multiplier variable."));
+
+        const FEValuesExtractors::Vector lambda_extractor(ordering.l_lower);
+        const double rho = physical_properties.fluids[0].density;
+        forces = PostProcessingTools::
+          compute_forces_on_boundary_with_lagrange_multiplier(
+            dof_handler,
+            mapping,
+            face_quadrature,
+            solution,
+            boundary_id,
+            lambda_extractor,
+            rho,
+            force_per_face);
+        break;
+      }
+      default:
+        DEAL_II_NOT_IMPLEMENTED();
     }
-    default:
-      DEAL_II_NOT_IMPLEMENTED();
+    return forces;
+  };
+
+  std::vector<Tensor<1, dim>> forces_per_boundary;
+  forces_per_boundary.reserve(forces_param.boundary_ids.size());
+  for (const auto boundary_id : forces_param.boundary_ids)
+  {
+    forces_per_boundary.push_back(compute_on_boundary(boundary_id));
+    total_forces += forces_per_boundary.back();
   }
+
+  const bool output_separate =
+    forces_param.output_mode == Forces::OutputMode::separate ||
+    forces_param.output_mode == Forces::OutputMode::both;
+  const bool output_total =
+    forces_param.output_mode == Forces::OutputMode::total ||
+    forces_param.output_mode == Forces::OutputMode::both;
 
   if (forces_param.verbosity == Parameters::Verbosity::verbose && mpi_rank == 0)
   {
@@ -690,18 +714,60 @@ void PostProcessingHandler<dim>::compute_forces(
     std::vector<std::string> dim_str = {"x", "y", "z"};
     std::cout << std::scientific << std::setprecision(forces_param.precision)
               << std::showpos << std::endl;
-    std::cout << "Forces on boundary with id " << forces_param.boundary_id
-              << " computed with method : " << method << std::endl;
-    for (unsigned int d = 0; d < dim; ++d)
-      std::cout << "F" + dim_str[d] << " = " << forces[d] << std::endl;
+    if (output_separate)
+      for (unsigned int i = 0; i < forces_param.boundary_ids.size(); ++i)
+      {
+        std::cout << "Forces on boundary with id "
+                  << forces_param.boundary_ids[i]
+                  << " computed with method : " << method << std::endl;
+        for (unsigned int d = 0; d < dim; ++d)
+          std::cout << "F" + dim_str[d] << " = "
+                    << forces_per_boundary[i][d] << std::endl;
+      }
+    if (output_total && forces_param.boundary_ids.size() > 1)
+    {
+      std::cout << "Total forces on selected boundaries:" << std::endl;
+      for (unsigned int d = 0; d < dim; ++d)
+        std::cout << "F" + dim_str[d] << " = " << total_forces[d]
+                  << std::endl;
+    }
+    else if (output_total && !output_separate)
+    {
+      std::cout << "Forces on boundary with id "
+                << forces_param.boundary_ids.front()
+                << " computed with method : " << method << std::endl;
+      for (unsigned int d = 0; d < dim; ++d)
+        std::cout << "F" + dim_str[d] << " = " << total_forces[d]
+                  << std::endl;
+    }
 
     std::cout.precision(old_precision);
     std::cout.flags(old_flags);
   }
 
-  // Add forces to forces table and write if time step matches frequency
+  // Add requested separate and/or total forces to the output table.
   {
-    add_force_to_table(forces, time_handler, forces_table);
+    const bool add_boundary_column = forces_param.boundary_ids.size() > 1 ||
+                                     forces_param.output_mode ==
+                                       Forces::OutputMode::both;
+
+    if (output_separate)
+      for (unsigned int i = 0; i < forces_param.boundary_ids.size(); ++i)
+        add_force_to_table(
+          forces_per_boundary[i],
+          time_handler,
+          forces_table,
+          numbers::invalid_unsigned_int,
+          add_boundary_column ? std::to_string(forces_param.boundary_ids[i]) :
+                                "");
+
+    if (output_total)
+      add_force_to_table(total_forces,
+                         time_handler,
+                         forces_table,
+                         numbers::invalid_unsigned_int,
+                         add_boundary_column ? "total" : "");
+
     if (mpi_rank == 0 && should_output_forces(time_handler))
     {
       std::ofstream outfile(output_param.output_dir +
@@ -745,7 +811,7 @@ void PostProcessingHandler<dim>::compute_forces(
       std::cout << std::scientific << std::setprecision(forces_param.precision)
                 << std::showpos << std::endl;
       std::cout << "Forces per slice on boundary with id "
-                << forces_param.boundary_id << ":" << std::endl;
+                << slices_param.boundary_id << ":" << std::endl;
       for (unsigned int i = 0; i < slices_param.n_slices; ++i)
       {
         std::cout << "Slice " << i << ": ";
@@ -776,7 +842,18 @@ void PostProcessingHandler<dim>::compute_forces(
       Tensor<1, dim> sum_slices;
       for (const auto &f : forces_per_slice)
         sum_slices += f;
-      AssertThrow((forces - sum_slices).norm_square() < 1e-14,
+
+      const auto sliced_boundary =
+        std::find(forces_param.boundary_ids.begin(),
+                  forces_param.boundary_ids.end(),
+                  slices_param.boundary_id);
+      AssertThrow(sliced_boundary != forces_param.boundary_ids.end(),
+                  ExcMessage("The boundary selected for slicing must also "
+                             "appear in the force boundary ids."));
+      const auto sliced_boundary_index =
+        std::distance(forces_param.boundary_ids.begin(), sliced_boundary);
+      AssertThrow((forces_per_boundary[sliced_boundary_index] - sum_slices)
+                      .norm_square() < 1e-14,
                   ExcMessage("Sum of forces on slices does not match the total "
                              "forces on this boundary"));
     }

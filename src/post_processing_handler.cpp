@@ -185,13 +185,16 @@ void PostProcessingHandler<dim>::add_force_to_table(
   const Tensor<1, dim> &forces,
   const TimeHandler    &time_handler,
   TableHandler         &force_table,
-  const unsigned int    i_slice)
+  const unsigned int    i_slice,
+  const std::string    &boundary)
 {
   // Write forces to table
   std::vector<std::string> dim_str = {"x", "y", "z"};
   force_table.add_value("time", time_handler.current_time);
   if (i_slice != numbers::invalid_unsigned_int)
     force_table.add_value("slice", i_slice);
+  if (!boundary.empty())
+    force_table.add_value("boundary", boundary);
   for (unsigned int d = 0; d < dim; ++d)
   {
     force_table.add_value("F" + dim_str[d], forces[d]);

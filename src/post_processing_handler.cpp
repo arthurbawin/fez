@@ -89,14 +89,10 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
 }
 
 template <int dim>
-void PostProcessingHandler<dim>::write_pvd() const
+void PostProcessingHandler<dim>::write_pvd(const PrefixData &prefix_data) const
 {
   std::string suffix = "";
-  if (mms_param.enable)
-    suffix += "_convergence_step_" + std::to_string(mms_param.current_step);
-  if (!prerefinements_pseudotimes_and_names.empty() ||
-      !prerefinements_pseudotimes_and_names_skin.empty())
-    suffix += "_prerefinement_steps";
+  prefix_data.append_to_prefix_or_suffix(output_param, true, suffix);
   suffix += ".pvd";
 
   if (mpi_rank == 0)

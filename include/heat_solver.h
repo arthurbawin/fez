@@ -208,8 +208,7 @@ public:
   /**
    *
    */
-  virtual void output_results(const bool         is_prerefinement_step = false,
-                              const unsigned int prerefinement_step    = 0);
+  virtual void output_results();
 
   /**
    *
@@ -313,7 +312,8 @@ protected:
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
+  std::unique_ptr<PostProcessingHandler<dim>>     postproc_handler;
+  typename PostProcessingHandler<dim>::PrefixData prefix_data;
 
   std::vector<std::unique_ptr<MetricField<dim>>> metrics;
   std::vector<std::unique_ptr<ErrorEstimation::PatchHandler<dim>>>

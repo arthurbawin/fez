@@ -256,6 +256,27 @@ namespace Parameters
     // Number of cells subdivisions for visualization
     unsigned int n_subdivisions;
 
+    // Output data when using a (steady or unsteady) fixed-point method,
+    // typically when using a riemannian metric to adapt the mesh.
+    struct FixedPointMethod
+    {
+      // Specifies whether a single pvd must be generated.
+      // If true, only a pvd file for the last fixed-point iteration is written.
+      // If false, one pvd file is generated per fixed-point iteration.
+      bool single_pvd;
+
+      // This flag is used only for the unsteady fixed-point method.
+      // If true, then at the junction time between two time sub-intervals, the
+      // solution on both the current and the next mesh are written in the pvd
+      // file, which effectively duplicates these timesteps. If false, only the
+      // solution after transfer on the next mesh will appear.
+      //
+      // In other words, the outputted solutions are for the times [t_i, t_i+1]
+      // if true, and for times [t_i, t_i+1) if false, except for the last
+      // interval, which always includes the final time.
+      bool show_solution_transfer;
+    } fixed_point;
+
     // A "skin" is a codimension 1 boundary on which we wish to extract data
     // for visualization and/or postprocessing
     struct Skin
@@ -814,7 +835,13 @@ namespace Parameters
   {
     Verbosity verbosity;
 
-    bool   enable_coupling;
+    bool enable_coupling;
+
+    // True if using a zero mass evolution equation.
+    // This avoids using arbitrary threshold on the mass of the solid to
+    // determine which model to use.
+    bool zero_mass_model;
+
     double spring_constant;
     double damping;
     double mass;
@@ -823,6 +850,22 @@ namespace Parameters
     double cylinder_length;
 
     Point<dim> cylinder_center;
+
+    // Initial velocity of the solid
+    Tensor<1, dim> initial_velocity;
+
+    /**
+     * Parameters controlling the rigid body rotation of the solid.
+     * Only implemented for the zero-mass model for now.
+     */
+    struct RigidBodyRotation
+    {
+      // Enable rotation around center of rotation
+      bool enable;
+
+      // Fixed center of rotation
+      Point<dim> center;
+    } rotation;
 
     bool fix_z_component;
 

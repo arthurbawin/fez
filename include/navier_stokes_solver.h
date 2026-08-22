@@ -274,6 +274,7 @@ public:
 
   /**
    * Create the additional initial conditions specific to each derived solver.
+   * These initial conditions should be written in the newton_update vector.
    * By default, this function does nothing and must be overriden if needed.
    */
   virtual void set_solver_specific_initial_conditions() {}
@@ -590,7 +591,8 @@ protected:
   SolverControl                                          solver_control;
   std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
+  std::unique_ptr<PostProcessingHandler<dim>>     postproc_handler;
+  typename PostProcessingHandler<dim>::PrefixData prefix_data;
 
   MetricField<dim> *metric_for_adaptation;
 

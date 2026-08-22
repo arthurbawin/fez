@@ -83,7 +83,7 @@ public:
     const std::vector<std::string> &names,
     const std::vector<
       DataComponentInterpretation::DataComponentInterpretation>
-      &custom_data_component_interpretation); 
+      &custom_data_component_interpretation);
 
   template <typename VectorType>
   void add_dof_data_scalar(

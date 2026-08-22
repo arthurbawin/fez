@@ -7,7 +7,6 @@
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/grid/grid_tools.h>
 
-#include <sstream>
 #include <tuple>
 
 #include "mesh_and_dof_tools.h"
@@ -112,30 +111,6 @@ namespace ErrorEstimation
   }
 
   template <int dim>
-  void PatchHandler<dim>::set_unique_neighbours_from_map(
-    Patch<dim> &patch) const
-  {
-    patch.neighbours.clear();
-    patch.neighbours.reserve(patch.neighbours_map.size());
-    for (const auto &[dof, data] : patch.neighbours_map)
-      patch.neighbours.emplace_back(data);
-
-    std::sort(patch.neighbours.begin(),
-              patch.neighbours.end(),
-              [](const auto &a, const auto &b) {
-                PointComparator<dim> comp;
-                return comp(a.pt, b.pt);
-              });
-    auto last = std::unique(patch.neighbours.begin(),
-                            patch.neighbours.end(),
-                            [](const auto &a, const auto &b) {
-                              PointEquality<dim> comp;
-                              return comp(a.pt, b.pt);
-                            });
-    patch.neighbours.erase(last, patch.neighbours.end());
-  }
-
-  template <int dim>
   void PatchHandler<dim>::build_patches(
     const bool         enforce_full_rank_least_squares_matrices,
     const unsigned int n_layers)
@@ -169,45 +144,14 @@ namespace ErrorEstimation
         // layers were added.
         stop = layer + 1 == n_layers;
 
-      // Add a maximum number of layers to avoid loops. Only throw when another
-      // iteration is actually needed: previously the assertion also fired when
-      // the last allowed layer had just made every patch valid.
-      if (!stop && layer >= 5)
-      {
-        std::ostringstream local_diagnostics;
-        for (types::global_vertex_index v = 0; v < n_vertices; ++v)
-          if (owned_vertices[v] &&
-              least_squares_matrices_rank[v] < dim_recovery_basis)
-          {
-            set_unique_neighbours_from_map(patches[v]);
-            local_diagnostics
-              << "\n  rank " << mpi_rank << ", vertex " << v
-              << ", center " << patches[v].center << ": "
-              << patches[v].neighbours.size()
-              << " unique support points, last tested rank "
-              << least_squares_matrices_rank[v] << "/"
-              << dim_recovery_basis;
-          }
-
-        const auto diagnostics_by_rank =
-          Utilities::MPI::all_gather(mpi_communicator,
-                                     local_diagnostics.str());
-        std::ostringstream diagnostics;
-        for (const auto &rank_diagnostics : diagnostics_by_rank)
-          diagnostics << rank_diagnostics;
-
-        AssertThrow(
-          false,
-          ExcMessage(
-            "Polynomial-preserving recovery still has rank-deficient patches "
-            "after 6 cell-layer expansions. The polynomial basis requires " +
-            std::to_string(dim_recovery_basis) +
-            " geometrically independent support points per patch. "
-            "Diagnostics below list the owning MPI rank, local vertex index, "
-            "patch center, number of unique support points, and the rank "
-            "measured before the last expansion:" +
-            diagnostics.str()));
-      }
+      // Add a maximum number of layers to avoid loops.
+      // Unless on bizarre meshes, 1 to 3 layers of elements should be enough.
+      AssertThrow(layer < 5,
+                  ExcMessage(
+                    "The maximum number of cell layers to define a patch for "
+                    "the polynomial-preserving recovery operator is for now "
+                    "capped to 5 layers. If you believe this value is too low "
+                    "based for your specific mesh, this cap can be removed."));
     }
 
     /**
@@ -218,7 +162,26 @@ namespace ErrorEstimation
      * re-written)
      */
     for (auto &patch : patches)
-      set_unique_neighbours_from_map(patch);
+    {
+      patch.neighbours.clear();
+      patch.neighbours.reserve(patch.neighbours_map.size());
+      for (const auto &[dof, data] : patch.neighbours_map)
+        patch.neighbours.emplace_back(data);
+
+      std::sort(patch.neighbours.begin(),
+                patch.neighbours.end(),
+                [](const auto &a, const auto &b) {
+                  PointComparator<dim> comp;
+                  return comp(a.pt, b.pt);
+                });
+      auto last = std::unique(patch.neighbours.begin(),
+                              patch.neighbours.end(),
+                              [](const auto &a, const auto &b) {
+                                PointEquality<dim> comp;
+                                return comp(a.pt, b.pt);
+                              });
+      patch.neighbours.erase(last, patch.neighbours.end());
+    }
 
     compute_scalings_and_local_coordinates();
 
@@ -311,6 +274,10 @@ namespace ErrorEstimation
     // Re-compute least-squares matrices
     // FIXME: For now and by simplicity, assume that the new position will
     // lead to full-rank matrices. Otherwise we need to re-expand some patches.
+    FullMatrix<double> AtA(dim_recovery_basis, dim_recovery_basis);
+    Eigen::MatrixXd    eigenAtA =
+      Eigen::MatrixXd::Zero(dim_recovery_basis, dim_recovery_basis);
+
     for (unsigned int v = 0; v < n_vertices; ++v)
       if (owned_vertices[v])
       {
@@ -318,6 +285,8 @@ namespace ErrorEstimation
           compute_least_squares_matrix(patches[v],
                                        dim_recovery_basis,
                                        *monomials_recovery,
+                                       AtA,
+                                       eigenAtA,
                                        least_squares_matrices[v],
                                        vandermonde_matrices[v]);
         least_squares_matrices_rank[v] = rank;
@@ -359,23 +328,19 @@ namespace ErrorEstimation
   }
 
   /**
-   * Use Eigen to get the rank of a FullMatrix.
-   *
-   * Compute the rank of the Vandermonde matrix directly. Computing it from
-   * A^T*A squares the condition number and can therefore report a false rank
-   * deficiency, especially for cubic recovery patches in 3D.
+   * Use Eigen to get the rank of a FullMatrix
    */
   template <int dim>
-  unsigned int get_rank(const FullMatrix<double> &full_matrix)
+  unsigned int get_rank(const FullMatrix<double> &full_matrix,
+                        Eigen::MatrixXd          &eigen_matrix)
   {
     const unsigned int m = full_matrix.m();
     const unsigned int n = full_matrix.n();
-    Eigen::MatrixXd eigen_matrix(m, n);
     for (unsigned int i = 0; i < m; ++i)
       for (unsigned int j = 0; j < n; ++j)
         eigen_matrix(i, j) = full_matrix(i, j);
-    Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(eigen_matrix);
-    return qr.rank();
+    Eigen::FullPivLU<Eigen::MatrixXd> lu_decomp(eigen_matrix);
+    return lu_decomp.rank();
   }
 
   // Construct (A^T*A)^-1 * A^T
@@ -384,6 +349,8 @@ namespace ErrorEstimation
   compute_least_squares_matrix(Patch<dim>                 &patch,
                                const unsigned int          dim_recovery_basis,
                                const PolynomialSpace<dim> &basis,
+                               FullMatrix<double>         &workspace_AtA,
+                               Eigen::MatrixXd            &workspace_eigenAtA,
                                FullMatrix<double>         &least_squares_mat,
                                FullMatrix<double>         &A_matrix)
   {
@@ -394,7 +361,11 @@ namespace ErrorEstimation
     fill_vandermonde_matrix(patch, dim_recovery_basis, basis, A);
     // std::cout << "A: " << std::endl;
     // A.print_formatted(std::cout, 16, true, 0, 0, 1., -1., " ");
-    const unsigned int rank = get_rank<dim>(A);
+    A.Tmmult(workspace_AtA, A);
+    // std::cout << "AtA: " << std::endl;
+    // workspace_AtA.print_formatted(std::cout, 16, true, 0, 0, 1., -1., " ");
+
+    const unsigned int rank = get_rank<dim>(workspace_AtA, workspace_eigenAtA);
 
     // If A^T * A is full rank, actually compute the least-squares matrix.
     // left_invert() throws in debug if matrix is singular, so we need to check
@@ -464,6 +435,15 @@ namespace ErrorEstimation
 
     std::vector<bool> needs_expansion(n_vertices, false);
 
+    // Workspace matrices to compute least-squares matrices.
+    // The least-squares matrices (A^T*A)^-1 * A^T are of size
+    // dim_recovery_basis x n_adjacent, but n_adjacent varies and can change if
+    // the patch is increased. The matrix A^T * A, however, is
+    // dim_recovery_basis x dim_recovery_basis
+    FullMatrix<double> AtA(dim_recovery_basis, dim_recovery_basis);
+    Eigen::MatrixXd    eigenAtA =
+      Eigen::MatrixXd::Zero(dim_recovery_basis, dim_recovery_basis);
+
     /**
      * For each mesh vertex, check if its patch needs to be enlarged,
      * which is the case if
@@ -477,10 +457,9 @@ namespace ErrorEstimation
      * Adding an additional layer of dofs is done in three steps:
      * - first add the locally available dofs (owned or ghosts) on the cells
      *   containing any of the already stored dofs in the patch.
-     *   Add the dofs on ghost cells of the previous layer to a list of dofs
-     *   whose complete neighbours are not known on this partition and must be
-     *   requested to neighbouring partitions, or even neighbours of neighbours,
-     *   etc.
+     *   Add the ghost dofs of the previous layer to a list of dofs whose
+     *   neighbours are not known on this partition and must be requested to
+     *   neighbouring partitions, or even neighbours of neighbours, etc.
      * - send and receive the neighbours requests to other partitions.
      * - complete the additional layer of dofs with the dofs received from
      *   other partitions.
@@ -496,9 +475,8 @@ namespace ErrorEstimation
         {
           // Expand patch if it does not have enough nodes to compute a
           // least-squares matrix
-          set_unique_neighbours_from_map(patch);
           const bool has_enough_neighbours =
-            patch.neighbours.size() >= n_required_vertices;
+            patch.neighbours_map.size() >= n_required_vertices;
 
           if (!has_enough_neighbours)
           {
@@ -508,6 +486,29 @@ namespace ErrorEstimation
           {
             // If patch has enough neighbours, compute least-squares matrix
             // and check if it is full rank.
+
+            // Convert neighbours map to vector to compute least-squares matrix
+            patch.neighbours.clear();
+            patch.neighbours.reserve(patch.neighbours_map.size());
+            for (const auto &[dof, data] : patch.neighbours_map)
+              patch.neighbours.emplace_back(data);
+
+            std::sort(patch.neighbours.begin(),
+                      patch.neighbours.end(),
+                      [](const DofData &a, const DofData &b) {
+                        PointComparator<dim> comp;
+                        return comp(a.pt, b.pt);
+                      });
+            auto last = std::unique(patch.neighbours.begin(),
+                                    patch.neighbours.end(),
+                                    [](const DofData &a, const DofData &b) {
+                                      PointEquality<dim> comp;
+                                      return comp(a.pt, b.pt);
+                                    });
+            patch.neighbours.erase(last, patch.neighbours.end());
+
+            AssertDimension(patch.neighbours.size(),
+                            patch.neighbours_map.size());
 
             // Compute scaling and local neighbours coordinates
             compute_scaling_and_local_coordinates(patch);
@@ -519,6 +520,8 @@ namespace ErrorEstimation
               compute_least_squares_matrix(patch,
                                            dim_recovery_basis,
                                            *monomials_recovery,
+                                           AtA,
+                                           eigenAtA,
                                            least_squares_matrices[v],
                                            vandermonde_matrices[v]);
             least_squares_matrices_rank[v] = rank;
@@ -619,9 +622,9 @@ namespace ErrorEstimation
 
             /**
              * Prepare the request for the non-local cells touching any of the
-             * stored neighbours. List the patch dofs already added through
-             * ghost cells. Even locally owned dofs may have adjacent cells that
-             * only the ghost-cell owner can see.
+             * stored neighbour. List the patch dofs already added and lying in
+             * the ghost layer. These dofs might not have an adjacent cell in
+             * this partition, and a request will be done to other partitions.
              */
             for (const auto &cell : patch.elements)
               if (cell->is_ghost())
@@ -629,11 +632,12 @@ namespace ErrorEstimation
                 cell->get_dof_indices(local_dofs);
                 for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
                   if (mask[fe.system_to_component_index(i).first])
-                  {
-                    dofs_to_request[cell->subdomain_id()].insert(
-                      local_dofs[i]);
-                    to_add_after_request[local_dofs[i]].insert(v);
-                  }
+                    if (ghost_dofs.is_element(local_dofs[i]))
+                    {
+                      dofs_to_request[cell->subdomain_id()].insert(
+                        local_dofs[i]);
+                      to_add_after_request[local_dofs[i]].insert(v);
+                    }
               }
           }
 
@@ -664,8 +668,8 @@ namespace ErrorEstimation
     }
 
     /**
-     * Request the neighbouring dofs connected through ghost cells, and add
-     * these non-owned, non-ghosted support points to the patch.
+     * Request the neighbouring dof to ghost dofs, and add these non-owned,
+     * non-ghosted support points to the patch.
      */
     if (layer > 0)
     {

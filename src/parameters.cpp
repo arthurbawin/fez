@@ -2029,6 +2029,11 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Enable coupling between fluid and solid obstacle");
+      prm.declare_entry(
+        "use zero mass model",
+        "true",
+        Patterns::Bool(),
+        "Use evolution equation for the solid obstacle assuming zero mass");
       prm.declare_entry("spring constant",
                         "1",
                         Patterns::Double(),
@@ -2047,6 +2052,10 @@ namespace Parameters
                         default_point,
                         Patterns::List(Patterns::Double(), dim, dim, ","),
                         "Center of the cylinder");
+      prm.declare_entry("initial velocity",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Center of the cylinder");
       prm.declare_entry("fix z component", "true", Patterns::Bool(), "");
       prm.declare_entry("compute error on forces",
                         "false",
@@ -2061,6 +2070,20 @@ namespace Parameters
           "lambda_accumulators|global_position_master_to_global_accumulator"),
         "Coupling strategy between force (Lagrange multiplier) "
         "and position dofs");
+
+      prm.enter_subsection("Rigid body rotation");
+      {
+        prm.declare_entry(
+          "enable",
+          "false",
+          Patterns::Bool(),
+          "Enable rigid-body rotation around center of rotation");
+        prm.declare_entry("center of rotation",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Fixed center of rotation");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -2071,14 +2094,16 @@ namespace Parameters
     prm.enter_subsection("FSI");
     {
       READ_VERBOSITY_PARAM(prm, verbosity)
-      enable_coupling = prm.get_bool("enable coupling");
-      spring_constant = prm.get_double("spring constant");
-      damping         = prm.get_double("damping");
-      mass            = prm.get_double("mass");
-      cylinder_radius = prm.get_double("cylinder radius");
-      cylinder_length = prm.get_double("cylinder length");
-      cylinder_center = parse_rank_1_tensor<dim>(prm.get("cylinder center"));
-      fix_z_component = prm.get_bool("fix z component");
+      enable_coupling  = prm.get_bool("enable coupling");
+      zero_mass_model  = prm.get_bool("use zero mass model");
+      spring_constant  = prm.get_double("spring constant");
+      damping          = prm.get_double("damping");
+      mass             = prm.get_double("mass");
+      cylinder_radius  = prm.get_double("cylinder radius");
+      cylinder_length  = prm.get_double("cylinder length");
+      cylinder_center  = parse_rank_1_tensor<dim>(prm.get("cylinder center"));
+      initial_velocity = parse_rank_1_tensor<dim>(prm.get("initial velocity"));
+      fix_z_component  = prm.get_bool("fix z component");
       compute_error_on_forces = prm.get_bool("compute error on forces");
       const std::string parsed_coupling = prm.get("force-position coupling");
       if (parsed_coupling == "all_position_to_all_lambda")
@@ -2098,6 +2123,18 @@ namespace Parameters
       else
         throw std::runtime_error("Unknown force-position coupling: " +
                                  parsed_coupling);
+
+      prm.enter_subsection("Rigid body rotation");
+      {
+        rotation.enable = prm.get_bool("enable");
+        if (rotation.enable)
+          AssertThrow(zero_mass_model,
+                      ExcMessage("Rigid-body rotation is only available for "
+                                 "the zero-mass model."));
+        rotation.center =
+          parse_rank_1_tensor<dim>(prm.get("center of rotation"));
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }

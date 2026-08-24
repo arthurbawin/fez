@@ -3,11 +3,13 @@
 
 template <int dim>
 PostProcessingHandler<dim>::PostProcessingHandler(
+  const ComponentOrdering                                 &ordering,
   const ParameterReader<dim>                              &param,
   const Triangulation<dim>                                &triangulation,
   const DoFHandler<dim>                                   &dof_handler,
   const std::vector<std::pair<std::string, unsigned int>> &fields_description)
-  : post_proc_param(param.postprocessing)
+  : ordering(ordering)
+  , post_proc_param(param.postprocessing)
   , output_param(param.output)
   , physical_properties(param.physical_properties)
   , mms_param(param.mms_param)
@@ -34,6 +36,25 @@ PostProcessingHandler<dim>::PostProcessingHandler(
   }
 
   this->attach_triangulation_and_dof_handler(triangulation, dof_handler);
+
+  // Create the required DataPostProcessors
+  {
+    const auto &pp = param.postprocessing;
+    using PP       = Parameters::PostProcessing;
+
+    postprocessors.clear();
+    if (pp.vorticity.enable and
+        pp.vorticity.method == PP::Vorticity::ComputationMethod::discontinuous)
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::VorticityPostProcessor<dim>>(
+          ordering));
+    if (pp.q_criterion.enable and
+        pp.q_criterion.method ==
+          PP::QCriterion::ComputationMethod::discontinuous)
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::QCriterionPostProcessor<dim>>(
+          ordering));
+  }
 }
 
 template <int dim>
@@ -221,7 +242,7 @@ void PostProcessingHandler<dim>::add_multiphase_data_to_table(
   const std::array<DataType, 2>                        &data_for_phases,
   const TimeHandler                                    &time_handler,
   TableHandler                                         &table,
-  const Parameters::PostProcessing::PostProcessingBase &pp_param)
+  const Parameters::PostProcessing::PostProcessingFile &pp_param)
 {
   if constexpr (std::is_same_v<DataType, Tensor<1, dim>>)
   {
@@ -254,32 +275,32 @@ template void PostProcessingHandler<2>::add_multiphase_data_to_table(
   const std::array<Tensor<1, 2>, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 template void PostProcessingHandler<3>::add_multiphase_data_to_table(
   const std::array<Tensor<1, 3>, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 template void PostProcessingHandler<2>::add_multiphase_data_to_table(
   const std::array<double, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 template void PostProcessingHandler<3>::add_multiphase_data_to_table(
   const std::array<double, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 
 template <int dim>
 void PostProcessingHandler<dim>::write_table(
   std::ostream                                         &out,
   const TableHandler                                   &table,
-  const Parameters::PostProcessing::PostProcessingBase &postproc_base) const
+  const Parameters::PostProcessing::PostProcessingFile &postproc_file) const
 {
   if (mpi_rank == 0)
   {
-    out << std::scientific << std::setprecision(postproc_base.precision);
+    out << std::scientific << std::setprecision(postproc_file.precision);
     table.write_text(out);
   }
 }

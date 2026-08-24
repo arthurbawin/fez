@@ -136,7 +136,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize()
   // Create the post-processing handler once the full list of variables is known
   const auto description = get_variables_description();
   postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
-    param, *triangulation, *dof_handler, description);
+    *ordering, param, *triangulation, *dof_handler, description);
 
   // Set up data to create the names of the visualization files
   prefix_data.is_convergence_step = param.mms_param.enable;
@@ -1113,8 +1113,43 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_riemannian_metric()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim,
+                        with_moving_mesh>::compute_dof_based_postprocessing()
+{
+  if (param.postprocessing.vorticity.enable)
+  {
+    postproc_handler->compute_dof_postprocessing(
+      PostProcessingTools::PostprocessorAtDofTypes::vorticity,
+      computing_timer,
+      param,
+      *present_solution,
+      time_handler,
+      *moving_mapping,
+      *quadrature,
+      with_moving_mesh);
+  }
+
+  if (param.postprocessing.q_criterion.enable)
+  {
+    postproc_handler->compute_dof_postprocessing(
+      PostProcessingTools::PostprocessorAtDofTypes::q_criterion,
+      computing_timer,
+      param,
+      *present_solution,
+      time_handler,
+      *moving_mapping,
+      *quadrature,
+      with_moving_mesh);
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 {
+  // Compute postprocessed fields *before* output_results, as they are added to
+  // the visualization file
+  compute_dof_based_postprocessing();
+
   output_results();
 
   if (param.postprocessing.forces.enable)

@@ -1,6 +1,7 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/grid/tria.h>
+#include <post_processing_handler.h>
 #include <post_processing_tools.h>
 
 namespace PostProcessingTools
@@ -81,4 +82,36 @@ namespace PostProcessingTools
 
   template class DataOutFacesOnBoundary<2>;
   template class DataOutFacesOnBoundary<3>;
+
+  template <int dim>
+  PostprocessorAtDofBase<dim>::PostprocessorAtDofBase(
+    const ComponentOrdering    &ordering,
+    const ParameterReader<dim> &param,
+    const Mapping<dim>         &mapping,
+    const DoFHandler<dim>      &solver_dof_handler,
+    const Quadrature<dim>      &cell_quadrature,
+    const UpdateFlags           flags)
+    : ordering(ordering)
+    , param(param)
+    , mpi_communicator(solver_dof_handler.get_mpi_communicator())
+    , solver_dof_handler(solver_dof_handler)
+    , dof_handler(solver_dof_handler.get_triangulation())
+    , solver_fe_values(mapping,
+                       solver_dof_handler.get_fe(),
+                       cell_quadrature,
+                       flags)
+  {}
+
+  template <int dim>
+  void PostprocessorAtDofBase<dim>::add_data(
+    PostProcessingHandler<dim> &postproc_handler)
+  {
+    postproc_handler.add_data_vector(dof_handler,
+                                     solution,
+                                     data_names,
+                                     data_interpretation);
+  }
+
+  template class PostprocessorAtDofBase<2>;
+  template class PostprocessorAtDofBase<3>;
 } // namespace PostProcessingTools

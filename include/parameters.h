@@ -8,6 +8,12 @@
 #include <parsed_function_symengine.h>
 #include <solver_info.h>
 
+// Forward declaration
+namespace PostProcessingTools
+{
+  enum class PostprocessorAtDofTypes;
+}
+
 #define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
   (prm).declare_entry("verbosity",                                             \
                       std::string(default_verbosity),                          \
@@ -293,8 +299,7 @@ namespace Parameters
 
   struct PostProcessing
   {
-    // A small base struct for postprocessed quantities which can be
-    // outputted to a file
+    // A small base struct for features common to all postprocessings.
     struct PostProcessingBase
     {
       Verbosity verbosity;
@@ -302,21 +307,32 @@ namespace Parameters
       // Enable/disable this postprocessing
       bool enable;
 
-      // Output the results of this postprocessing to a file
-      bool         write_results;
-      std::string  output_prefix;
+      // Output options
       unsigned int output_frequency;
+    };
+
+    // A small base struct for postprocessed quantities which are written to a
+    // file.
+    struct PostProcessingFile : public PostProcessingBase
+    {
+      // Output the results of this postprocessing to a file
+      bool write_results;
+
+      // Name of the file without the extension
+      std::string output_prefix;
+
+      // Number of significant digits to write
       unsigned int precision;
     };
 
     // Derived class for postprocessing on a boundary
-    struct PostProcessingBaseBoundary : public PostProcessingBase
+    struct PostProcessingFileBoundary : public PostProcessingFile
     {
       types::boundary_id boundary_id;
     };
 
     // Hydrodynamic forces on a single boundary
-    struct Forces : public PostProcessingBaseBoundary
+    struct Forces : public PostProcessingFileBoundary
     {
       // The method used to evaluate the forces on a boundary
       enum class ComputationMethod
@@ -328,14 +344,14 @@ namespace Parameters
 
     // For the FSI solver, compute and export the position of the structure's
     // geometric center.
-    struct StructurePosition : public PostProcessingBaseBoundary
+    struct StructurePosition : public PostProcessingFileBoundary
     {
       // No additional members for now
     } structure_position;
 
     // Cut structure into slices and compute forces on each individual slice
     // Used e.g. to measure correlation of forces coefficients along cylinder
-    struct Slices : public PostProcessingBaseBoundary
+    struct Slices : public PostProcessingFileBoundary
     {
       std::string  along_which_axis;
       unsigned int n_slices;
@@ -343,22 +359,81 @@ namespace Parameters
     } slices;
 
     // For the CHNS solver, compute the volume of each phase
-    struct CHNSPhasesVolume : public PostProcessingBase
+    struct CHNSPhasesVolume : public PostProcessingFile
     {
     } chns_volumes;
 
     // For the CHNS solver, compute the center of mass of each phase
-    struct CHNSPhasesCenterOfMass : public PostProcessingBase
+    struct CHNSPhasesCenterOfMass : public PostProcessingFile
     {
     } chns_center_mass;
 
     // For the CHNS solver, compute the average velocity in each phase
-    struct CHNSPhasesAvgVelocity : public PostProcessingBase
+    struct CHNSPhasesAvgVelocity : public PostProcessingFile
     {
     } chns_avg_velocity;
 
-    static void declare_parameters(ParameterHandler &prm);
-    void        read_parameters(ParameterHandler &prm);
+    /**
+     * A base struct for postprocessing tools which produce a field, which is
+     * typically written to the visualization file alongside the solution (e.g.,
+     * vorticity, Q-criterion, mesh velocity, ...).
+     *
+     * This field can either be defined with a DataPostprocessor (outputted at
+     * visualization nodes directly), or with a PostprocessorAtDofBase, in which
+     * case the field is described as the degrees of freedom of some finite
+     * element approximation (e.g., an L2 projection).
+     */
+    struct PostProcessingField : public PostProcessingBase
+    {
+      /**
+       * Available computation methods to compute the field.
+       * Not all methods are implemented for all derived PostProcessingField.
+       */
+      enum class ComputationMethod
+      {
+        /**
+         * Use a class derived from DataPostprocessor to evaluate this field.
+         * The term "discontinuous" is kind of a misnomer, as it is really only
+         * discontinuous if we are postprocessing derivatives of a finite
+         * element approximation (i.e., postprocessing the values of a
+         * continuous field will still yield a continuous field).
+         */
+        discontinuous,
+
+        /**
+         * Compute an L2 projection of the original (usually discontinuous)
+         * field. The resulting field is continuous is using a CG approximation
+         * to represent the projection.
+         */
+        l2_projection,
+
+        /**
+         * Compute a weighted average of the original field. See the individual
+         * implementations for more information about the weights.
+         */
+        weighted_average
+      } method;
+
+      // If using a dof-based representation of the postprocessed field, the
+      // degree of the associated finite element approximation.
+      unsigned int degree;
+    };
+
+    // Vorticity field. As in deal.II, the result is a "curl_type", so a scalar
+    // field in 2D and a vector-valued field in 3D.
+    struct Vorticity : public PostProcessingField
+    {
+    } vorticity;
+
+    // Q-criterion scalar field (second invariant of the velocity gradient).
+    struct QCriterion : public PostProcessingField
+    {
+    } q_criterion;
+
+    static void                declare_parameters(ParameterHandler &prm);
+    void                       read_parameters(ParameterHandler &prm);
+    const PostProcessingField &get_dof_postprocessor_param(
+      const PostProcessingTools::PostprocessorAtDofTypes type) const;
   };
 
   template <int dim>

@@ -79,7 +79,7 @@ namespace ErrorEstimation
       // Polynomial bases of degree "degree + 1"
       std::vector<Polynomials::Monomial<double>> monomials_1d_recovery;
       for (unsigned int i = 0; i <= degree + 1; ++i)
-        monomials_1d_recovery.push_back(Polynomials::Monomial<double>(i));
+        monomials_1d_recovery.emplace_back(i);
 
       monomials_recovery =
         std::make_unique<PolynomialSpace<dim>>(monomials_1d_recovery);
@@ -117,10 +117,12 @@ namespace ErrorEstimation
     template <int dim>
     void Base<dim>::reconstruct_fields(const LA::ParVectorType &solution)
     {
-      // FIXME: add verbosity condition
-      pcout << std::endl;
-      pcout << "-- Reconstructing solution and derivatives of order up to "
-            << highest_recovered_derivative << "..." << std::endl;
+      if (param.recovery.verbosity == Parameters::Verbosity::verbose)
+      {
+        pcout << std::endl;
+        pcout << "-- Reconstructing solution and derivatives of order up to "
+              << highest_recovered_derivative << "..." << std::endl;
+      }
 
       local_solution                  = solution;
       solution_with_additional_ghosts = solution;

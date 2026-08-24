@@ -17,7 +17,7 @@
 class ComponentOrdering
 {
 public:
-  ComponentOrdering() {}
+  ComponentOrdering() = default;
 
   static constexpr unsigned int invalid = dealii::numbers::invalid_unsigned_int;
 
@@ -355,6 +355,22 @@ public:
       psi_lower = dim + 1;
       psi_upper = dim + 2;
     }
+  }
+};
+
+/**
+ * Components ordering for the elasticity solver.
+ */
+template <int dim>
+class ComponentOrderingElasticity : public ComponentOrdering
+{
+public:
+  ComponentOrderingElasticity()
+    : ComponentOrdering()
+  {
+    n_components = dim;
+    x_lower      = 0;
+    x_upper      = dim;
   }
 };
 

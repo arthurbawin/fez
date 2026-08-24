@@ -31,15 +31,13 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   , transient_fixed_point_data(this->param,
                                computing_timer,
                                param.time_integration.n_time_intervals,
-                               mpi_communicator)
+                               mpi_communicator,
+                               triangulation,
+                               dof_handler,
+                               present_solution,
+                               previous_solutions,
+                               metric_for_adaptation)
 {
-  transient_fixed_point_data.set_interval_data(/* interval_index = */ 0,
-                                               triangulation,
-                                               dof_handler,
-                                               present_solution,
-                                               previous_solutions,
-                                               metric_for_adaptation);
-
   create_quadrature_rules(param.finite_elements,
                           quadrature,
                           face_quadrature,
@@ -47,9 +45,11 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                           error_face_quadrature);
 
   if (param.finite_elements.use_quads)
-    fixed_mapping = std::make_unique<MappingQ<dim>>(1);
+    fixed_mapping =
+      std::make_unique<MappingQ<dim>>(param.finite_elements.mapping_degree);
   else
-    fixed_mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+    fixed_mapping = std::make_unique<MappingFE<dim>>(
+      FE_SimplexP<dim>(param.finite_elements.mapping_degree));
 
   if (param.mms_param.enable)
     for (auto &[norm, handler] : error_handlers)
@@ -67,10 +67,10 @@ std::vector<std::pair<std::string, unsigned int>>
 NavierStokesSolver<dim, with_moving_mesh>::get_variables_description() const
 {
   std::vector<std::pair<std::string, unsigned int>> description;
-  description.push_back({"velocity", dim});
-  description.push_back({"pressure", 1});
+  description.emplace_back("velocity", dim);
+  description.emplace_back("pressure", 1);
   if constexpr (with_moving_mesh)
-    description.push_back({"mesh_position", dim});
+    description.emplace_back("mesh_position", dim);
   const auto additional_description = get_additional_variables_description();
   for (const auto &additional : additional_description)
     description.push_back(additional);
@@ -91,20 +91,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::reset()
   if (postproc_handler)
     postproc_handler->clear();
 
-  // Clear mesh(es) and dof handler(s)
-  transient_fixed_point_data.clear();
-
-  dofs_to_component.clear();
+  // Clear mesh(es) and dof handler(s), and reassign immediately the
+  // pointers for the first interval.
+  if (mms_param.current_step > 0)
+    transient_fixed_point_data.reinit(param.time_integration.n_time_intervals,
+                                      triangulation,
+                                      dof_handler,
+                                      present_solution,
+                                      previous_solutions,
+                                      metric_for_adaptation);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);
   this->set_time();
-
-  // Pressure DOF
-  constrained_pressure_dof = numbers::invalid_dof_index;
-
-  // Initial mesh position
-  initial_positions.clear();
 
   reset_solver_specific_data();
 }
@@ -138,6 +137,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize()
   const auto description = get_variables_description();
   postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
     param, *triangulation, *dof_handler, description);
+
+  // Set up data to create the names of the visualization files
+  prefix_data.is_convergence_step = param.mms_param.enable;
+  prefix_data.convergence_step    = param.mms_param.current_step;
+  prefix_data.is_fixed_point_step = param.with_metric_based_adaptation();
+  prefix_data.fixed_point_step =
+    param.mesh.adaptation.metric.current_fixed_point_iteration;
+  // Interval index is set in set_interval_data()
+  prefix_data.is_time_subinterval =
+    param.transient_fixed_point_adaptation_enabled();
 
   // Create the assemblers
   setup_assemblers();
@@ -197,6 +206,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_interval_data(
   mesh_param.filename = param.mesh.filename;
   time_handler.set_time_interval(interval_index);
 
+  // Reset dof to component map
+  dofs_to_component.clear();
+
+  // Reset initial mesh position
+  initial_positions.clear();
+
+  // Reset pressure DOF
+  constrained_pressure_dof = numbers::invalid_dof_index;
+
   if (param.time_integration.n_time_intervals > 1 &&
       param.time_integration.verbosity == Parameters::Verbosity::verbose)
   {
@@ -221,6 +239,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_interval_data(
   // Update the post-processing handler.
   postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
                                                          *dof_handler);
+  prefix_data.interval_index = interval_index;
 
   // Create a direct solver for each interval
   direct_solver_reuse =
@@ -265,12 +284,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
     if (interval_index == 0)
       set_initial_conditions();
     else
-      transient_fixed_point_data.transfer_solution(interval_index,
-                                                   *moving_mapping,
-                                                   *exact_solution,
-                                                   time_handler,
-                                                   locally_relevant_dofs,
-                                                   dofs_to_component);
+      transient_fixed_point_data.transfer_solution_between_intervals(
+        interval_index,
+        *moving_mapping,
+        *exact_solution,
+        time_handler,
+        locally_relevant_dofs,
+        dofs_to_component);
   }
 
   // For unsteady simulations, postprocess either the initial condition, or the
@@ -348,8 +368,24 @@ void NavierStokesSolver<dim, with_moving_mesh>::run()
   for (unsigned int i = 0; i < param.time_integration.n_time_intervals; ++i)
     run_time_subinterval(i);
 
-  adapt_mesh();
   finalize();
+
+  /**
+   * If using a riemannian metric to adapt the mesh(es), perform all the
+   * adaptations at the end of all time intervals (as it requires a global
+   * scaling factor).
+   *
+   * If using tree-based adaptation with a steady-state convergence study,
+   * adapt the mesh here.
+   */
+  if (should_scale_and_grade_riemannian_metric(param, time_handler))
+  {
+    transient_fixed_point_data.scale_metrics(
+      param.metrics.metric_for_adaptation, time_handler);
+    transient_fixed_point_data.apply_gradation_to_metrics();
+  }
+  if (should_adapt_mesh_at_end_of_intervals(time_handler))
+    adapt_mesh();
 }
 
 template <int dim, bool with_moving_mesh>
@@ -429,9 +465,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::setup_mappings()
   {
     // Moving_mapping and fixed_mapping are identical
     if (param.finite_elements.use_quads)
-      moving_mapping = std::make_unique<MappingQ<dim>>(1);
+      moving_mapping =
+        std::make_unique<MappingQ<dim>>(param.finite_elements.mapping_degree);
     else
-      moving_mapping = std::make_unique<MappingFE<dim>>(FE_SimplexP<dim>(1));
+      moving_mapping = std::make_unique<MappingFE<dim>>(
+        FE_SimplexP<dim>(param.finite_elements.mapping_degree));
   }
 }
 
@@ -493,6 +531,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::
 {
   if constexpr (with_moving_mesh)
   {
+    if (!refresh_constraints_on_ale_update())
+      return;
+
     create_nonzero_constraints();
     nonzero_constraints.distribute(local_evaluation_point);
     evaluation_point = local_evaluation_point;
@@ -609,7 +650,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
       }
     }
 
-    AssertDimension(param.bc_data.pressure_reference_point.size(), dim);
+    // The default is written with three components so that it stays valid in
+    // 3D; only the first dim ones are used.
+    AssertThrow(param.bc_data.pressure_reference_point.size() >= dim,
+                ExcMessage("\"pressure reference point\" needs at least " +
+                           std::to_string(dim) + " components in " +
+                           std::to_string(dim) + "D."));
     Point<dim> pressure_reference_point;
     for (unsigned int d = 0; d < dim; ++d)
       pressure_reference_point[d] = param.bc_data.pressure_reference_point[d];
@@ -726,13 +772,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions()
   // Recompute boundary values after the ALE mapping has been initialized.
   // The constraints created during setup used the undeformed mesh position.
   if constexpr (with_moving_mesh)
-    create_nonzero_constraints();
+    if (refresh_constraints_on_ale_update())
+      create_nonzero_constraints();
 
   // Apply non-homogeneous Dirichlet BC and set as current solution
   nonzero_constraints.distribute(newton_update);
   *present_solution = newton_update;
   evaluation_point  = newton_update;
 
+  // FIXME: WHAT ABOUT THIS ROTATION?????????
   time_handler.rotate_solutions(*present_solution, *previous_solutions);
 }
 
@@ -1025,7 +1073,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
   // we should output at this time step or not.
   postproc_handler->output_fields(*moving_mapping,
                                   *present_solution,
-                                  time_handler);
+                                  time_handler,
+                                  prefix_data);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -1127,7 +1176,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_reconstructions()
   {
     Assert(recoveries[i], ExcInternalError());
     recoveries[i]->reconstruct_fields(*present_solution);
-    recoveries[i]->write_pvtu(*moving_mapping, "recovery");
+    // recoveries[i]->write_pvtu(*moving_mapping, "recovery");
   }
 }
 
@@ -1180,16 +1229,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
 {
-  if (param.bc_data.n_metric_fields > 0)
-  {
-    transient_fixed_point_data.scale_metrics(
-      param.metrics.metric_for_adaptation, time_handler);
-    transient_fixed_point_data.apply_gradation_to_metrics();
-  }
-  if (param.mesh.adaptation.enable)
-  {
-    transient_fixed_point_data.adapt_meshes();
-  }
+  Vector<float> cellwise_errors(triangulation->n_active_cells());
+  transient_fixed_point_data.adapt_meshes(cellwise_errors);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -1217,7 +1258,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::finalize()
       param.mesh.adaptation.verbosity == Parameters::Verbosity::verbose)
     transient_fixed_point_data.write_summary(time_handler, std::cout);
 
-  postproc_handler->write_pvd();
+  postproc_handler->write_pvd(prefix_data);
 }
 
 template <int dim, bool with_moving_mesh>

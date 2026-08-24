@@ -1,6 +1,7 @@
 #ifndef INCOMPRESSIBLE_CHNS_SOLVER_H
 #define INCOMPRESSIBLE_CHNS_SOLVER_H
 
+#include <assembly/assembler.h>
 #include <chns_enlarged_ops.h>
 #include <copy_data.h>
 #include <deal.II/fe/fe_values_extractors.h>
@@ -19,7 +20,8 @@ class CHNSSolver : public NavierStokesSolver<dim, with_moving_mesh>
 {
   using ScratchData =
     NavierStokesScratch::ScratchDataCHNS<dim, with_moving_mesh, with_enlarged>;
-  using CopyData = CopyDataBase<1>;
+  using CopyData  = CopyDataBase<1>;
+  using Assembler = Assembly::AssemblerBase<ScratchData, CopyData>;
 
 public:
   static_assert(with_moving_mesh || !with_enlarged,
@@ -34,7 +36,14 @@ public:
   /**
    * Destructor
    */
-  virtual ~CHNSSolver() {}
+  virtual ~CHNSSolver() = default;
+
+  /**
+   * Update parameters in between mesh adaptation fixed point iterations.
+   * This specific function updates the interface thickness.
+   */
+  virtual void update_simulation_parameters(
+    const unsigned int fixed_point_iteration) override;
 
   /**
    * Create the scratch data structure for this solver.
@@ -44,7 +53,7 @@ public:
   /**
    * Create the volume and boundary assemblers for this solver.
    */
-  virtual void setup_assemblers() override {}
+  virtual void setup_assemblers() override;
 
   /**
    * Apply initial condition on the tracer (phase marker)
@@ -122,13 +131,18 @@ public:
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
+  /**
+   * Post-process the additional data specific to this solver.
+   */
+  virtual void solver_specific_post_processing() override;
+
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override
   {
     std::vector<std::pair<std::string, unsigned int>> description;
-    description.push_back({"tracer", 1});
-    description.push_back({"potential", 1});
+    description.emplace_back("tracer", 1);
+    description.emplace_back("potential", 1);
     CHNSEnlargedOps<dim, with_moving_mesh, with_enlarged>::
       extend_additional_variables_description(description);
     return description;
@@ -139,8 +153,6 @@ protected:
   virtual bool uses_hp_capabilities() const override { return false; };
 
   virtual void add_solver_specific_postprocessing_data() override;
-
-  virtual void solver_specific_post_processing() override;
 
   bool should_output_mesh_quality() const;
   void output_mesh_quality_field();
@@ -157,6 +169,8 @@ protected:
     const_ordering = {};
 
   std::unique_ptr<ScratchData> scratch_data;
+
+  std::vector<std::unique_ptr<Assembler>> assemblers;
 
   FEValuesExtractors::Scalar tracer_extractor;
   FEValuesExtractors::Scalar potential_extractor;
@@ -378,6 +392,32 @@ protected:
 
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override;
+
+    /**
+     * Gradient of source term, using finite differences
+     */
+    virtual void
+    vector_gradient(const Point<dim>            &p,
+                    std::vector<Tensor<1, dim>> &gradients) const override
+    {
+      const double h = 1e-8;
+
+      Vector<double> vals_plus(gradients.size()), vals_minus(gradients.size());
+
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        Point<dim> p_plus = p, p_minus = p;
+        p_plus[d] += h;
+        p_minus[d] -= h;
+
+        this->vector_value(p_plus, vals_plus);
+        this->vector_value(p_minus, vals_minus);
+
+        // Centered finite differences
+        for (unsigned int c = 0; c < gradients.size(); ++c)
+          gradients[c][d] = (vals_plus[c] - vals_minus[c]) / (2.0 * h);
+      }
+    }
 
   protected:
     const unsigned int                               n_components;

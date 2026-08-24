@@ -190,8 +190,7 @@ namespace NavierStokesScratch
                 const Quadrature<dim>      &cell_quadrature,
                 const Quadrature<dim - 1>  &face_quadrature,
                 const TimeHandler          &time_handler,
-                const ParameterReader<dim> &param,
-                const bool                  enable_stabilization = false);
+                const ParameterReader<dim> &param);
 
     /**
      * Constructor with hp capabilities
@@ -203,8 +202,7 @@ namespace NavierStokesScratch
                 const hp::QCollection<dim>       &cell_quadrature_collection,
                 const hp::QCollection<dim - 1>   &face_quadrature_collection,
                 const TimeHandler                &time_handler,
-                const ParameterReader<dim>       &param,
-                const bool                        enable_stabilization = false);
+                const ParameterReader<dim>       &param);
 
     /**
      * Copy constructor
@@ -277,11 +275,11 @@ namespace NavierStokesScratch
       // The Stepien (quasi-incompressible) phase equation diffuses a quantity q
       // that depends on the pressure, so its gradient is needed even without
       // stabilization.
-      if (enable_stabilization ||
-          CahnHilliard::is_stepien_model(cahn_hilliard_param))
+      if (enable_stabilization || enable_branch_stabilization ||
+          CahnHilliard::is_stepien_model(param.cahn_hilliard))
         fe_values[pressure].get_function_gradients(current_solution,
                                                    present_pressure_gradients);
-      if (enable_stabilization)
+      if (enable_stabilization || enable_branch_stabilization)
       {
         fe_values[velocity].get_function_laplacians(
           current_solution, present_velocity_laplacians);
@@ -332,11 +330,11 @@ namespace NavierStokesScratch
 
           // The Stepien phase-equation Jacobian (block phi-p) needs the
           // pressure shape-function gradient even without stabilization.
-          if (enable_stabilization ||
-              CahnHilliard::is_stepien_model(cahn_hilliard_param))
+          if (enable_stabilization || enable_branch_stabilization ||
+              CahnHilliard::is_stepien_model(param.cahn_hilliard))
             grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
 
-          if (enable_stabilization)
+          if (enable_stabilization || enable_branch_stabilization)
           {
             auto &lap      = laplacian_phi_u[q][k];
             auto &grad_div = grad_div_phi_u[q][k];
@@ -384,24 +382,28 @@ namespace NavierStokesScratch
           }
         }
 
-        if (enable_stabilization)
-        {
-          // Compute stabilization parameter tau.
-          // Mesh velocity has already been computed, so ALE velocity is well
-          // defined.
-          auto u_conv = present_velocity_values[q];
-          if constexpr (enable_pseudo_solid)
-            u_conv -= present_mesh_velocity_values[q];
+        // When the Cahn-Hilliard part is enabled, u_conv and tau are instead
+        // computed in reinit_cahn_hilliard, where the kinematic viscosity
+        // (which depends on the density, and thus on the tracer) is known.
+        if constexpr (!enable_cahn_hilliard)
+          if (enable_stabilization)
+          {
+            // Compute stabilization parameter tau.
+            // Mesh velocity has already been computed, so ALE velocity is well
+            // defined.
+            auto u_conv = present_velocity_values[q];
+            if constexpr (enable_pseudo_solid)
+              u_conv -= present_mesh_velocity_values[q];
 
-          tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
-            time_handler,
-            dofs_per_cell,
-            cell_diameter,
-            param.finite_elements.velocity_degree,
-            kinematic_viscosity,
-            u_conv,
-            grad_phi_u_first_component);
-        }
+            tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
+              time_handler,
+              dofs_per_cell,
+              cell_diameter,
+              param.finite_elements.velocity_degree,
+              kinematic_viscosity,
+              u_conv,
+              grad_phi_u_first_component);
+          }
       }
     }
 
@@ -655,20 +657,26 @@ namespace NavierStokesScratch
 
         const Point<dim> &q_point = fixed_quadrature_points[q];
         lame_mu[q] =
-          physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
+          param.physical_properties.pseudosolids[0].lame_mu_fun->value(q_point);
         lame_lambda[q] =
-          physical_properties.pseudosolids[0].lame_lambda_fun->value(q_point);
+          param.physical_properties.pseudosolids[0].lame_lambda_fun->value(
+            q_point);
 
         AssertThrow(lame_mu[q] >= 0,
                     ExcMessage("Lamé coefficient mu should be positive"));
-        AssertThrow(lame_lambda[q] >= 0,
-                    ExcMessage("Lamé coefficient lambda should be positive"));
+
+        // Data for hyperelastic models
+        const Tensor<2, dim> &F               = present_position_gradients[q];
+        present_position_J[q]                 = determinant(F);
+        present_position_inverse_gradients[q] = invert(F);
+        present_position_inverse_gradients_T[q] =
+          transpose(present_position_inverse_gradients[q]);
 
         for (int d = 0; d < dim; ++d)
           source_term_position[q][d] = source_term_full_fixed[q](x_lower + d);
 
 #if defined(WITH_GRADIENT_OF_SOURCE_TERMS)
-        // Fill the gradients of the source term (for u-p only)
+        // Fill the gradients of the source term
         // Layout: grad_source_velocity[q] = df_i/dx_j
         for (int di = 0; di < dim; ++di)
         {
@@ -676,6 +684,13 @@ namespace NavierStokesScratch
           for (int dj = 0; dj < dim; ++dj)
             grad_source_velocity[q][di][dj] =
               grad_source_term_full[q][u_lower + di][dj];
+
+          if constexpr (enable_cahn_hilliard)
+          {
+            grad_source_tracer[q][di] = grad_source_term_full[q][phi_lower][di];
+            grad_source_potential[q][di] =
+              grad_source_term_full[q][mu_lower][di];
+          }
         }
 #endif
 
@@ -687,7 +702,7 @@ namespace NavierStokesScratch
           trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
           div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
           grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
-          if (enable_stabilization)
+          if (enable_stabilization || enable_branch_stabilization)
             hessian_phi_x_moving[q][k] =
               fe_values_moving[position].hessian(k, q);
         }
@@ -1043,14 +1058,16 @@ namespace NavierStokesScratch
         if (psi_lower != numbers::invalid_unsigned_int)
         {
           fe_values_moving[psi].get_function_values(current_solution,
-                                                     psi_values);
+                                                    psi_values);
           fe_values_moving[psi].get_function_gradients(current_solution,
-                                                        psi_gradients);
+                                                       psi_gradients);
         }
-      if (enable_stabilization)
+      if (enable_tracer_stabilization)
+        fe_values_moving[potential].get_function_laplacians(
+          current_solution, potential_laplacians);
+      if (enable_branch_stabilization)
         fe_values_moving[potential].get_function_hessians(current_solution,
                                                           potential_hessians);
-
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
         fe_values_moving[tracer].get_function_values(previous_solutions[i],
@@ -1061,17 +1078,22 @@ namespace NavierStokesScratch
 
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
+        // Time derivatives
+        tracer_time_derivatives[q] =
+          time_handler.compute_time_derivative_at_quadrature_node(
+            q, tracer_values[q], previous_tracer_values);
+
         // Physical properties based on tracer, filter if applicable
         const double filtered_phi = tracer_limiter(tracer_values[q]);
         const double filtered_phi_mobility =
           mobility_tracer_limiter(tracer_values[q]);
         mobility_values[q] =
-          mobility_function(cahn_hilliard_param, filtered_phi_mobility);
+          mobility_function(param.cahn_hilliard, filtered_phi_mobility);
         derivative_mobility_wrt_tracer[q] =
-          mobility_derivative_function(cahn_hilliard_param,
+          mobility_derivative_function(param.cahn_hilliard,
                                        filtered_phi_mobility);
         second_derivative_mobility_wrt_tracer[q] =
-          mobility_second_derivative_function(cahn_hilliard_param,
+          mobility_second_derivative_function(param.cahn_hilliard,
                                               filtered_phi_mobility);
         diffusive_flux_factor_values[q] =
           mobility_values[q] * 0.5 * (density1 - density0);
@@ -1102,11 +1124,11 @@ namespace NavierStokesScratch
         Tensor<1, dim> u_conv = present_velocity_values[q];
         if constexpr (enable_pseudo_solid)
           u_conv -= present_mesh_velocity_values[q];
-        present_convective_velocity[q] = u_conv;
 
+        present_convective_velocity[q]  = u_conv;
         velocity_dot_tracer_gradient[q] = u_conv * tracer_gradients[q];
 
-        if (enable_stabilization)
+        if (enable_branch_stabilization)
         {
           potential_laplacians[q] = trace(potential_hessians[q]);
 
@@ -1126,15 +1148,14 @@ namespace NavierStokesScratch
               tracer_gradients[q] * present_velocity_sym_gradients[q];
 
           const Tensor<1, dim> momentum_diffusive_inertia =
-            CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard_param) ?
+            CahnHilliard::use_abels_diffusive_inertia(param.cahn_hilliard) ?
               diffusive_flux[q] :
               Tensor<1, dim>();
           const Tensor<1, dim> momentum_capillary_force =
-            CahnHilliard::use_abels_capillary_phi_grad_mu(
-              cahn_hilliard_param) ?
+            CahnHilliard::use_abels_capillary_phi_grad_mu(param.cahn_hilliard) ?
               tracer_values[q] * potential_gradients[q] :
               -CahnHilliard::ding_horriche_capillary_coefficient(
-                cahn_hilliard_param) *
+                 param.cahn_hilliard) *
                 potential_values[q] * tracer_gradients[q];
 
           strong_residual_momentum[q] =
@@ -1155,6 +1176,22 @@ namespace NavierStokesScratch
             source_term_tracer[q];
         }
 
+        if (enable_stabilization)
+        {
+          Assert(density[q] > 0.,
+                 ExcMessage("The density must be strictly positive to compute "
+                            "the kinematic viscosity for SUPG stabilization."));
+          const double kinematic_viscosity = dynamic_viscosity[q] / density[q];
+          tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
+            time_handler,
+            dofs_per_cell,
+            cell_diameter,
+            param.finite_elements.velocity_degree,
+            kinematic_viscosity,
+            u_conv,
+            grad_phi_u_first_component);
+        }
+
         for (unsigned int k = 0; k < dofs_per_cell; ++k)
         {
           // Shape functions on moving mesh
@@ -1168,6 +1205,9 @@ namespace NavierStokesScratch
               shape_psi[q][k]      = fe_values_moving[psi].value(k, q);
               grad_shape_psi[q][k] = fe_values_moving[psi].gradient(k, q);
             }
+          if (enable_tracer_stabilization || enable_branch_stabilization)
+            laplacian_shape_mu[q][k] =
+              trace(fe_values_moving[potential].hessian(k, q));
 
           // Shape functions on fixed mesh
           if constexpr (enable_pseudo_solid)
@@ -1176,12 +1216,22 @@ namespace NavierStokesScratch
             grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
           }
 
-          if (enable_stabilization)
-            laplacian_shape_mu[q][k] =
-              trace(fe_values_moving[potential].hessian(k, q));
         }
 
-        if (enable_stabilization)
+        if (enable_tracer_stabilization)
+          tau_supg_tracer[q] = StabilizationTools::compute_tau_supg(
+            time_handler,
+            dofs_per_cell,
+            cell_diameter,
+            param.finite_elements.tracer_degree,
+            mobility,
+            u_conv,
+            grad_shape_phi[q]);
+
+        // Same quantities for the stabilization of this branch. Computed here,
+        // after the loop over the dofs, because the shape function gradients
+        // used for the streamline length are filled in that loop.
+        if (enable_branch_stabilization)
         {
           tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
             time_handler,
@@ -1238,7 +1288,8 @@ namespace NavierStokesScratch
 
       bdf_c0 = time_handler.bdf_coefficients[0];
 
-      if (enable_stabilization)
+      if (enable_stabilization || enable_tracer_stabilization ||
+          enable_branch_stabilization)
         cell_diameter = cell->diameter();
 
       /**
@@ -1358,10 +1409,16 @@ namespace NavierStokesScratch
       (update_flags & with_hp_capabilities) != 0;
 
     bool enable_stabilization;
+    bool enable_tracer_stabilization;
 
-  private:
-    Parameters::PhysicalProperties<dim> physical_properties;
-    Parameters::CahnHilliard<dim>       cahn_hilliard_param;
+    /**
+     * Stabilization of this branch, driven by "set stabilization" under the
+     * finite elements subsection. It is independent from the two flags above,
+     * which select the stabilization of the master branch through the
+     * "Stabilization" subsection, and it additionally supports the moving mesh
+     * and the non-Abels CHNS models.
+     */
+    bool enable_branch_stabilization;
 
   public:
     unsigned int active_fe_index;
@@ -1520,6 +1577,7 @@ namespace NavierStokesScratch
     std::vector<std::vector<std::vector<double>>>         phi_T_face;
     std::vector<std::vector<std::vector<Tensor<1, dim>>>> grad_phi_T_face;
     std::vector<std::vector<Tensor<1, dim>>> present_face_temperature_gradients;
+
     /**
      * Pseudo-solid and ALE
      */
@@ -1535,6 +1593,10 @@ namespace NavierStokesScratch
     std::vector<double>                      present_position_J;
     std::vector<Tensor<1, dim>>              present_mesh_velocity_values;
     std::vector<std::vector<Tensor<1, dim>>> previous_position_values;
+
+    // Data for hyperelastic models
+    std::vector<Tensor<2, dim>> present_position_inverse_gradients;   // F^{-1}
+    std::vector<Tensor<2, dim>> present_position_inverse_gradients_T; // F^{-T}
 
     // Current and previous values on faces
     std::vector<std::vector<Tensor<1, dim>>> present_face_position_values;
@@ -1565,6 +1627,12 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<1, dim>>> grad_source_term_full;
     std::vector<Tensor<2, dim>>              grad_source_velocity;
     std::vector<Tensor<1, dim>>              grad_source_pressure;
+    std::vector<Tensor<1, dim>>              grad_source_tracer;
+    std::vector<Tensor<1, dim>>              grad_source_potential;
+
+    // If the elasticity source term is written w.r.t. the current mesh position
+    // x, this is its gradient w.r.t. x. Used in the Jacobian matrix.
+    std::vector<Tensor<2, dim>> grad_source_term_position_current_mesh;
 
     // The reference jacobians partial xsi_dim/partial xsi_(dim-1)
     std::array<Tensor<1, dim>, dim - 1> dxsids_array;
@@ -1622,6 +1690,7 @@ namespace NavierStokesScratch
 
     // Tracer on current and fixed (reference) mesh
     std::vector<double>              tracer_values;
+    std::vector<double>              tracer_time_derivatives;
     std::vector<Tensor<1, dim>>      tracer_gradients;
     std::vector<double>              tracer_values_fixed;
     std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
@@ -1629,13 +1698,20 @@ namespace NavierStokesScratch
     // Potential on current mesh
     std::vector<double>         potential_values;
     std::vector<Tensor<1, dim>> potential_gradients;
-    std::vector<Tensor<2, dim>> potential_hessians;
     std::vector<double>         potential_laplacians;
+
+    // Only filled when enable_branch_stabilization is set; consumed by
+    // Assembly::assemble_chns_{matrix,rhs}_stabilization.
+    std::vector<Tensor<2, dim>> potential_hessians;
+    std::vector<double>         strong_residual_tracer;
+    std::vector<double>         stabilization_nu_eff;
+    std::vector<double>         stabilization_inv_rho;
     // Enlarged phase marker on current mesh
     std::vector<double>         psi_values;
     std::vector<Tensor<1, dim>> psi_gradients;
 
     std::vector<Tensor<1, dim>> diffusive_flux;
+    std::vector<double>         tau_supg_tracer;
     std::vector<double>         velocity_dot_tracer_gradient;
     std::vector<Tensor<1, dim>> present_convective_velocity;
 
@@ -1652,11 +1728,6 @@ namespace NavierStokesScratch
     std::vector<double> source_term_tracer;
     std::vector<double> source_term_potential;
     std::vector<double> source_term_psi;
-
-    std::vector<double> strong_residual_tracer;
-    std::vector<double> tau_supg_tracer;
-    std::vector<double> stabilization_nu_eff;
-    std::vector<double> stabilization_inv_rho;
   };
 } // namespace NavierStokesScratch
 

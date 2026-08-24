@@ -34,9 +34,9 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = true
-  set output directory = ./results/
-  set output prefix    = solution
+  set write vtu results = true
+  set output directory  = ./results/
+  set output prefix     = solution
 end
 
 subsection Mesh

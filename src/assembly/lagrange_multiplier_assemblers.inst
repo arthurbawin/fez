@@ -32,5 +32,5 @@ namespace Assembly
                                        NavierStokesScratch::ScratchDataFSI_hp<3>,
                                        CopyDataBase<2>,
                                        /* with_moving_mesh = */ true>;
-  } // namespace IncompressibleNavierStokes
+  } // namespace LagrangeMultiplier
 } // namespace Assembly

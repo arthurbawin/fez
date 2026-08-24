@@ -45,7 +45,7 @@ public:
   /**
    * Destructor
    */
-  virtual ~CompressibleNSSolver() {}
+  virtual ~CompressibleNSSolver() = default;
 
   /**
    * Create the scratch data structure for this solver.
@@ -131,7 +131,7 @@ protected:
   get_additional_variables_description() const override
   {
     std::vector<std::pair<std::string, unsigned int>> description;
-    description.push_back({"temperature", 1});
+    description.emplace_back("temperature", 1);
     return description;
   }
 

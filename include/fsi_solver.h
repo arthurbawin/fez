@@ -213,7 +213,7 @@ protected:
   get_additional_variables_description() const override
   {
     std::vector<std::pair<std::string, unsigned int>> description;
-    description.push_back({"lambda", dim});
+    description.emplace_back("lambda", dim);
     return description;
   }
 

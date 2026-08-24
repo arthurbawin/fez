@@ -1,0 +1,45 @@
+# Adapted from deal.II's tidy.yml
+
+name: ci-clang-tidy
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{github.event_name == 'pull_request'}}
+
+permissions:
+  contents: read
+
+env:
+  N_JOBS: 1
+
+jobs:
+  tidy:
+    name: clang-tidy
+    runs-on: ubuntu-24.04
+
+    strategy:
+      matrix:
+        dealii_version: [ "master-noble" ]
+
+    container:
+      image: dealii/dealii:${{ matrix.dealii_version }}
+
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install clang and clang-tidy
+      run: |
+        sudo apt-get update
+        sudo apt-get install -yq --no-install-recommends \
+            clang \
+            clang-tidy
+    - name: Build and run clang-tidy
+      run: |
+        mkdir build
+        cd build
+        ../contrib/utilities/run_clang_tidy.sh ..
+

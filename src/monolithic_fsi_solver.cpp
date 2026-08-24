@@ -1,4 +1,5 @@
 
+#include <assembly/elasticity_assemblers.h>
 #include <assembly/incompressible_ns_assemblers.h>
 #include <assembly/lagrange_multiplier_assemblers.h>
 #include <compare_matrix.h>
@@ -164,8 +165,7 @@ FSISolver<dim>::FSISolver(const ParameterReader<dim> &param)
 }
 
 template <int dim>
-FSISolver<dim>::~FSISolver()
-{}
+FSISolver<dim>::~FSISolver() = default;
 
 template <int dim>
 void FSISolver<dim>::create_scratch_data()
@@ -197,6 +197,9 @@ void FSISolver<dim>::setup_assemblers()
   Assembly::LagrangeMultiplier::
     setup_assemblers<dim, ScratchData, CopyData, /* with_moving_mesh = */ true>(
       this->param, *this->ordering, assemblers);
+
+  Assembly::Elasticity::setup_assemblers<dim, ScratchData, CopyData>(
+    this->param, *this->ordering, assemblers);
 }
 
 template <int dim>
@@ -231,11 +234,8 @@ void FSISolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
   // Pseudosolid (mesh position) source term
   // We solve -div(sigma) + f = 0, so no need to put a -1 in front of f
   Tensor<1, dim> f_PS =
-    mms.exact_mesh_position
-      ->divergence_linear_elastic_stress_variable_coefficients(
-        p,
-        physical_properties.pseudosolids[0].lame_mu_fun,
-        physical_properties.pseudosolids[0].lame_lambda_fun);
+    mms.exact_mesh_position->divergence_elastic_stress_tensor(
+      physical_properties.pseudosolids[0], p);
 
   for (unsigned int d = 0; d < dim; ++d)
     values[ordering.x_lower + d] = f_PS[d];
@@ -1917,7 +1917,7 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
             std::vector<std::pair<types::global_dof_index, double>>
               accumulator_coeffs;
             for (auto lambda_accumulator : all_lambda_accumulators[d])
-              accumulator_coeffs.push_back({lambda_accumulator, 1.});
+              accumulator_coeffs.emplace_back(lambda_accumulator, 1.);
             constrain_matrix_row(this->system_matrix,
                                  local_position_master_dofs[d],
                                  master_position_rows.at(
@@ -2022,7 +2022,7 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
 
             for (auto lambda_accumulator : all_lambda_accumulators[d])
               if (lambda_accumulator != global_lambda_accumulators[d])
-                accumulator_coeffs.push_back({lambda_accumulator, 1.});
+                accumulator_coeffs.emplace_back(lambda_accumulator, 1.);
 
             constrain_matrix_row(this->system_matrix,
                                  global_lambda_accumulators[d],

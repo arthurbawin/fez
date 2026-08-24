@@ -33,6 +33,14 @@ using namespace dealii;
 template <int dim>
 class FSISolver : public NavierStokesSolver<dim, true>
 {
+public:
+  /**
+   * This solver keeps the constraint handling of the master branch: the
+   * inhomogeneous constraints are built once during setup and are not rebuilt
+   * when the ALE mapping is updated.
+   */
+  bool refresh_constraints_on_ale_update() const override { return false; }
+
   using ScratchData = NavierStokesScratch::ScratchDataFSI<dim>;
   using CopyData    = CopyDataBase<1>;
   using Assembler   = Assembly::AssemblerBase<ScratchData, CopyData>;
@@ -180,7 +188,7 @@ protected:
   get_additional_variables_description() const override
   {
     std::vector<std::pair<std::string, unsigned int>> description;
-    description.push_back({"lambda", dim});
+    description.emplace_back("lambda", dim);
     return description;
   }
 

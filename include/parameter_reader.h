@@ -38,6 +38,7 @@ public:
   Parameters::CahnHilliard<dim>                              cahn_hilliard;
   Parameters::LinearElasticity                               linear_elasticity;
   Parameters::MMS                                            mms_param;
+  Parameters::SolutionRecovery                               recovery;
   Parameters::Debug                                          debug;
 
   /**
@@ -94,6 +95,22 @@ public:
   make_presolved_mesh_position_fingerprint(ParameterHandler &prm) const;
 
   /**
+   * Return true if mesh adaptation using a Riemannian metric is enabled.
+   */
+  bool with_metric_based_adaptation() const
+  {
+    return mesh.adaptation.with_metric_based_adaptation();
+  }
+
+  /**
+   * Return true if mesh adaptation using deal.II and p4est routines is enabled.
+   */
+  bool with_tree_based_adaptation() const
+  {
+    return mesh.adaptation.with_tree_based_adaptation();
+  }
+
+  /**
    * Return true if the so-called transient fixed-point mesh adaptation method,
    * which converges N solution-mesh pairs on time sub-intervals in a
    * fixed-point loop, is enabled. This requires information from both the mesh
@@ -112,7 +129,7 @@ public:
   {
     dummy_dimension.declare_parameters(prm);
     timer.declare_parameters(prm);
-    mesh.declare_parameters(prm);
+    mesh.declare_parameters(prm, dim);
     output.declare_parameters(prm);
     postprocessing.declare_parameters(prm);
     finite_elements.declare_parameters(prm);
@@ -146,6 +163,7 @@ public:
     source_terms.declare_parameters(prm);
     mms_param.declare_parameters(prm);
     mms.declare_parameters(prm);
+    recovery.declare_parameters(prm);
     debug.declare_parameters(prm);
     metric_fields.resize(bc_data.n_metric_fields);
     Parameters::declare_metric_fields<dim>(prm,
@@ -199,6 +217,7 @@ public:
     source_terms.read_parameters(prm);
     mms_param.read_parameters(prm);
     mms.read_parameters(prm);
+    recovery.read_parameters(prm);
     debug.read_parameters(prm);
     Parameters::read_metric_fields(prm,
                                    bc_data.n_metric_fields,

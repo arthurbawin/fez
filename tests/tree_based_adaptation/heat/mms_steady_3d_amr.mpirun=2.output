@@ -1,0 +1,42 @@
+Number of MPI processes: 2
+Convergence test with manufactured solution:
+Mesh file was changed to 0.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 250
+ boundary indicators: 0(25 faces) 1(25 faces) 2(50 faces) 3(50 faces) 4(50 faces) 5(50 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+ID 4 -> z_min
+ID 5 -> z_max
+Number of degrees of freedom: 396
+Newton iter.  0:          nonlinear residual = 8.60874158e+00
+Newton iter.  1:          nonlinear residual = 1.98106049e-11 (M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+--  Number of cells after adaptation: 782
+Number of degrees of freedom: 1169
+Convergence test with manufactured solution:
+Mesh file was changed to 1.msh
+Number of degrees of freedom: 1169
+Newton iter.  0:          nonlinear residual = 2.68093820e+00
+Newton iter.  1:          nonlinear residual = 6.12743879e-11 (M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+L2_norm
+n_elm n_dof        T        
+  250   396 2.1314e+00    - 
+  782  1169 8.1561e-01 2.53 
+
+Linfty_norm
+n_elm n_dof        T        
+  250   396 3.8307e+00    - 
+  782  1169 1.4088e+00 2.63 
+
+H1_seminorm
+n_elm n_dof        T        
+  250   396 2.3563e+01    - 
+  782  1169 2.0381e+01 0.38 

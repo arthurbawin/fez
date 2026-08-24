@@ -1,4 +1,6 @@
 #include <assembly/ale_geometry.h>
+#include <assembly/elasticity_assemblers.h>
+#include <assembly/incompressible_chns_assemblers.h>
 #include <assembly/moving_mesh_forcing_forms.h>
 #include <assembly/pseudosolid_forms.h>
 #include <assembly/stabilization_forms.h>
@@ -41,8 +43,12 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
   const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
 {
-  this->pcout << "CHNS model: "
-              << CahnHilliard::model_name(param.cahn_hilliard) << std::endl;
+  // The default (Abels) model is not announced, so that runs using it keep the
+  // same output as the master branch, whose reference outputs predate this
+  // diagnostic line.
+  if (!CahnHilliard::is_abels_model(param.cahn_hilliard))
+    this->pcout << "CHNS model: "
+                << CahnHilliard::model_name(param.cahn_hilliard) << std::endl;
 
   if constexpr (with_moving_mesh && !with_enlarged)
     AssertThrow(
@@ -334,11 +340,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   {
     // Pseudosolid (mesh position) source term
     Tensor<1, dim> f_PS =
-      mms.exact_mesh_position
-        ->divergence_linear_elastic_stress_variable_coefficients(
-          p,
-          physical_properties.pseudosolids[0].lame_mu_fun,
-          physical_properties.pseudosolids[0].lame_lambda_fun);
+      mms.exact_mesh_position->divergence_elastic_stress_tensor(
+        physical_properties.pseudosolids[0], p);
 
     for (unsigned int d = 0; d < dim; ++d)
       values[x_lower + d] = f_PS[d];
@@ -388,6 +391,46 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::update_simulation_parameters(
+  const unsigned int fixed_point_iteration)
+{
+  // Don't update anything at the first iteration.
+  if (fixed_point_iteration == 0)
+    return;
+
+  const auto &fpu = this->param.mesh.adaptation.metric.fixed_point_updates;
+
+  // Update the interface thickness
+  {
+    const auto &eps_update_data = fpu.chns_interface_thickness;
+    if (eps_update_data.enable &&
+        fixed_point_iteration % eps_update_data.update_frequency == 0)
+    {
+      auto &ch = this->param.cahn_hilliard;
+
+      if (fpu.verbosity == Parameters::Verbosity::verbose)
+        this->pcout << "-- Updating interface thickness from "
+                    << ch.epsilon_interface << " to "
+                    << ch.epsilon_interface * eps_update_data.factor
+                    << std::endl;
+
+      // Update Cahn-Hilliard parameters
+      ch.epsilon_interface *= eps_update_data.factor;
+
+      // FIXME: Update mobility accordingly?
+
+      // Update initial condition
+      {
+        std::map<std::string, double> new_constants;
+        new_constants[eps_update_data.constant_name] = ch.epsilon_interface;
+        this->param.initial_conditions.initial_chns_tracer->update_constants(
+          new_constants);
+      }
+    }
+  }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim,
                 with_moving_mesh,
                 with_enlarged>::create_scratch_data()
@@ -399,9 +442,40 @@ void CHNSSolver<dim,
                                                *this->quadrature,
                                                *this->face_quadrature,
                                                this->time_handler,
-                                               this->param,
-                                               this->param.finite_elements
-                                                 .stabilization);
+                                               this->param);
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::setup_assemblers()
+{
+  assemblers.clear();
+
+  /**
+   * Assembly::IncompressibleCHNS::VolumeAssembler assembles the base CHNS terms
+   * and the SUPG/PSPG stabilization together, so it can only take over the
+   * whole volume assembly. It is registered exactly when its stabilization is
+   * requested; every other configuration keeps the inline assembly of
+   * assemble_local_matrix() / assemble_local_rhs(), which additionally covers
+   * the Stepien and enlarged models and the degenerate mobility.
+   */
+  if (!this->param.stabilization.enable_supg &&
+      !this->param.stabilization.enable_tracer_supg)
+    return;
+
+  AssertThrow(
+    CahnHilliard::is_abels_model(this->param.cahn_hilliard),
+    ExcMessage("The \"Stabilization\" subsection is only implemented for the "
+               "Abels model. Use \"set stabilization = true\" under the finite "
+               "elements subsection for the other CHNS models."));
+
+  if constexpr (with_enlarged)
+    AssertThrow(false,
+                ExcMessage("The \"Stabilization\" subsection is not implemented "
+                           "for the enlarged CHNS solver."));
+
+  Assembly::IncompressibleCHNS::
+    setup_assemblers<dim, ScratchData, CopyData, with_moving_mesh>(
+      this->param, *this->ordering, this->coupling_table, assemblers);
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
@@ -568,9 +642,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::create_sparsity_pattern()
       if (this->ordering->is_velocity(i))
         coupling_table[i][j] = DoFTools::always;
 
-      // p couples to u , x
+      // p couples to u and x. PSPG also couples p to p, phi and mu through
+      // the strong momentum residual.
       if (this->ordering->is_pressure(i) &&
-          (this->ordering->is_velocity(j) || this->ordering->is_position(j)))
+          (this->ordering->is_velocity(j) || this->ordering->is_position(j) ||
+           this->param.stabilization.enable_supg))
         coupling_table[i][j] = DoFTools::always;
 
       // PSPG: p couples to p, phi and mu
@@ -676,6 +752,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
+  copy_data.cell_is_at_boundary   = cell->at_boundary();
 
   if (!cell->is_locally_owned())
     return;
@@ -686,8 +763,24 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_matrix = copy_data.local_matrix();
-  local_matrix       = 0;
+  auto &local_matrix      = copy_data.local_matrix();
+  auto &local_dof_indices = copy_data.dof_indices();
+  local_matrix            = 0;
+
+  /**
+   * When the stabilization of the master branch is requested, the whole volume
+   * assembly is delegated to its VolumeAssembler, which computes the base terms
+   * and the SUPG/PSPG contributions together. setup_assemblers() only fills the
+   * list in the cases that assembler supports, so the inline assembly below
+   * still handles every other configuration.
+   */
+  if (!assemblers.empty())
+  {
+    for (const auto &assembler : assemblers)
+      assembler->assemble_matrix(scratch_data, copy_data);
+    cell->get_dof_indices(local_dof_indices);
+    return;
+  }
 
   /**
    * Material parameters
@@ -1322,6 +1415,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   CopyData                                             &copy_data)
 {
   copy_data.cell_is_locally_owned = cell->is_locally_owned();
+  copy_data.cell_is_at_boundary   = cell->at_boundary();
 
   if (!cell->is_locally_owned())
     return;
@@ -1332,8 +1426,19 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
                       *this->source_terms,
                       *this->exact_solution);
 
-  auto &local_rhs = copy_data.local_rhs();
-  local_rhs       = 0;
+  auto &local_rhs         = copy_data.local_rhs();
+  auto &local_dof_indices = copy_data.dof_indices();
+  local_rhs               = 0;
+
+  // See assemble_local_matrix(): the master VolumeAssembler takes over the
+  // whole volume assembly when it is registered.
+  if (!assemblers.empty())
+  {
+    for (const auto &assembler : assemblers)
+      assembler->assemble_rhs(scratch_data, copy_data);
+    cell->get_dof_indices(local_dof_indices);
+    return;
+  }
 
   const auto  &body_force = scratch_data.body_force;
   const auto  &cahn_hilliard = this->param.cahn_hilliard;
@@ -1867,6 +1972,17 @@ void CHNSSolver<dim,
     return;
 
   output_mesh_quality_field();
+  {
+    TimerOutput::Scope t(this->computing_timer, "Compute multiphase indicators");
+
+    this->postproc_handler->compute_multiphase_indicators(
+      *this->ordering,
+      *this->dof_handler,
+      *this->moving_mapping,
+      *this->quadrature,
+      *this->present_solution,
+      this->time_handler);
+  }
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>

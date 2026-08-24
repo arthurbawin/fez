@@ -1,4 +1,4 @@
-set(TEST_LIBRARIES project_src)
+set(TEST_LIBRARIES fez)
 set(TEST_TARGET unit_tests)
 
 file(COPY meshes/cylinder.msh DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")

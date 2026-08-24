@@ -5,7 +5,7 @@
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/utilities.h>
-#include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria_base.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
@@ -65,7 +65,7 @@ class NavierStokesSolver : public GenericSolver<LA::ParVectorType>
 public:
   NavierStokesSolver(const ParameterReader<dim> &param);
 
-  virtual ~NavierStokesSolver() {}
+  virtual ~NavierStokesSolver() = default;
 
 public:
   /**
@@ -75,6 +75,15 @@ public:
   virtual void run() override;
 
   virtual void update_constraints_for_evaluation_point() override;
+
+  /**
+   * Whether the inhomogeneous constraints have to be rebuilt every time the ALE
+   * mapping changes. The CHNS-ALE solvers need it, because their boundary
+   * values are evaluated on the deformed mesh. Solvers that keep the behaviour
+   * of the master branch, where the constraints are built once during setup,
+   * return false.
+   */
+  virtual bool refresh_constraints_on_ale_update() const { return true; }
 
   /**
    * Update the mesh file for the current interval, and assigns the pointers to
@@ -593,8 +602,8 @@ protected:
 
   TransientFixedPointData<dim> transient_fixed_point_data;
 
-  parallel::fullydistributed::Triangulation<dim> *triangulation;
-  DoFHandler<dim>                                *dof_handler;
+  parallel::DistributedTriangulationBase<dim> *triangulation;
+  DoFHandler<dim>                             *dof_handler;
 
   std::unique_ptr<Mapping<dim>> fixed_mapping;
   std::unique_ptr<Mapping<dim>> moving_mapping;
@@ -638,7 +647,8 @@ protected:
   SolverControl                                          solver_control;
   std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
+  std::unique_ptr<PostProcessingHandler<dim>>     postproc_handler;
+  typename PostProcessingHandler<dim>::PrefixData prefix_data;
 
   MetricField<dim> *metric_for_adaptation;
 

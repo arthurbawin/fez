@@ -57,35 +57,40 @@ namespace NavierStokesScratch
     const Quadrature<dim>      &cell_quadrature,
     const Quadrature<dim - 1>  &face_quadrature,
     const TimeHandler          &time_handler,
-    const ParameterReader<dim> &param,
-    const bool                  enable_stabilization)
+    const ParameterReader<dim> &param)
     : param(param)
     , use_quads(param.finite_elements.use_quads)
     , ordering(ordering)
     , n_components(ordering.n_components)
-    , enable_stabilization(enable_stabilization)
-    , physical_properties(param.physical_properties)
-    , cahn_hilliard_param(param.cahn_hilliard)
+    , enable_stabilization(param.stabilization.enable_supg)
+    , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
+    , enable_branch_stabilization(param.finite_elements.stabilization)
     , fe_values(std::make_unique<FEValues<dim>>(
         moving_mapping,
         fe,
         cell_quadrature,
-        get_cell_update_flags<update_flags>(enable_stabilization)))
+        get_cell_update_flags<update_flags>(enable_stabilization ||
+                                            enable_tracer_stabilization ||
+                                            enable_branch_stabilization)))
     , fe_values_fixed(std::make_unique<FEValues<dim>>(
         fixed_mapping,
         fe,
         cell_quadrature,
-        get_cell_update_flags<update_flags>(enable_stabilization)))
+        get_cell_update_flags<update_flags>(enable_stabilization ||
+                                            enable_tracer_stabilization ||
+                                            enable_branch_stabilization)))
     , fe_face_values(std::make_unique<FEFaceValues<dim>>(
         moving_mapping,
         fe,
         face_quadrature,
-        get_face_update_flags<update_flags>(enable_stabilization)))
+        get_face_update_flags<update_flags>(enable_stabilization ||
+                                            enable_tracer_stabilization)))
     , fe_face_values_fixed(std::make_unique<FEFaceValues<dim>>(
         fixed_mapping,
         fe,
         face_quadrature,
-        get_face_update_flags<update_flags>(enable_stabilization)))
+        get_face_update_flags<update_flags>(enable_stabilization ||
+                                            enable_tracer_stabilization)))
     , n_q_points(cell_quadrature.size())
     , n_faces(fe.reference_cell().n_faces())
     , n_faces_q_points(face_quadrature.size())
@@ -126,35 +131,40 @@ namespace NavierStokesScratch
     const hp::QCollection<dim>       &cell_quadrature_collection,
     const hp::QCollection<dim - 1>   &face_quadrature_collection,
     const TimeHandler                &time_handler,
-    const ParameterReader<dim>       &param,
-    const bool                        enable_stabilization)
+    const ParameterReader<dim>       &param)
     : param(param)
     , use_quads(param.finite_elements.use_quads)
     , ordering(ordering)
     , n_components(ordering.n_components)
-    , enable_stabilization(enable_stabilization)
-    , physical_properties(param.physical_properties)
-    , cahn_hilliard_param(param.cahn_hilliard)
+    , enable_stabilization(param.stabilization.enable_supg)
+    , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
+    , enable_branch_stabilization(param.finite_elements.stabilization)
     , hp_fe_values(std::make_unique<hp::FEValues<dim>>(
         moving_mapping_collection,
         fe_collection,
         cell_quadrature_collection,
-        get_cell_update_flags<update_flags>(enable_stabilization)))
+        get_cell_update_flags<update_flags>(enable_stabilization ||
+                                            enable_tracer_stabilization ||
+                                            enable_branch_stabilization)))
     , hp_fe_values_fixed(std::make_unique<hp::FEValues<dim>>(
         fixed_mapping_collection,
         fe_collection,
         cell_quadrature_collection,
-        get_cell_update_flags<update_flags>(enable_stabilization)))
+        get_cell_update_flags<update_flags>(enable_stabilization ||
+                                            enable_tracer_stabilization ||
+                                            enable_branch_stabilization)))
     , hp_fe_face_values(std::make_unique<hp::FEFaceValues<dim>>(
         moving_mapping_collection,
         fe_collection,
         face_quadrature_collection,
-        get_face_update_flags<update_flags>(enable_stabilization)))
+        get_face_update_flags<update_flags>(enable_stabilization ||
+                                            enable_tracer_stabilization)))
     , hp_fe_face_values_fixed(std::make_unique<hp::FEFaceValues<dim>>(
         fixed_mapping_collection,
         fe_collection,
         face_quadrature_collection,
-        get_face_update_flags<update_flags>(enable_stabilization)))
+        get_face_update_flags<update_flags>(enable_stabilization ||
+                                            enable_tracer_stabilization)))
     , n_q_points(cell_quadrature_collection[0].size())
     , n_faces(fe_collection[0].reference_cell().n_faces())
     , n_faces_q_points(face_quadrature_collection[0].size())
@@ -221,8 +231,8 @@ namespace NavierStokesScratch
     , ordering(other.ordering)
     , n_components(other.n_components)
     , enable_stabilization(other.enable_stabilization)
-    , physical_properties(other.physical_properties)
-    , cahn_hilliard_param(other.cahn_hilliard_param)
+    , enable_tracer_stabilization(other.enable_tracer_stabilization)
+    , enable_branch_stabilization(other.enable_branch_stabilization)
     , n_q_points(other.n_q_points)
     , n_faces(other.n_faces)
     , n_faces_q_points(other.n_faces_q_points)
@@ -349,7 +359,8 @@ namespace NavierStokesScratch
     velocity.first_vector_component = u_lower = ordering.u_lower;
     pressure.component = p_lower = ordering.p_lower;
 
-    kinematic_viscosity = physical_properties.fluids[0].kinematic_viscosity;
+    kinematic_viscosity =
+      param.physical_properties.fluids[0].kinematic_viscosity;
   }
 
   template <int dim, unsigned int update_flags>
@@ -395,25 +406,28 @@ namespace NavierStokesScratch
     else
       psi_lower = numbers::invalid_unsigned_int;
 
-    density0           = physical_properties.fluids[0].density;
-    density1           = physical_properties.fluids[1].density;
-    const double nu0   = physical_properties.fluids[0].kinematic_viscosity;
-    const double nu1   = physical_properties.fluids[1].kinematic_viscosity;
-    dynamic_viscosity0 = density0 * nu0;
-    dynamic_viscosity1 = density1 * nu1;
-    mobility           = cahn_hilliard_param.mobility;
-    mobility_function  = CahnHilliard::get_mobility_function(cahn_hilliard_param);
+    const auto &pp = param.physical_properties;
+    const auto &ch = param.cahn_hilliard;
+
+    density0              = pp.fluids[0].density;
+    density1              = pp.fluids[1].density;
+    const double nu0      = pp.fluids[0].kinematic_viscosity;
+    const double nu1      = pp.fluids[1].kinematic_viscosity;
+    dynamic_viscosity0    = density0 * nu0;
+    dynamic_viscosity1    = density1 * nu1;
+    mobility              = ch.mobility;
+    mobility_function     = CahnHilliard::get_mobility_function(ch);
     mobility_derivative_function =
-      CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param);
+      CahnHilliard::get_mobility_derivative_function(ch);
     mobility_second_derivative_function =
-      CahnHilliard::get_mobility_second_derivative_function(cahn_hilliard_param);
-    epsilon            = cahn_hilliard_param.epsilon_interface;
-    sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
+      CahnHilliard::get_mobility_second_derivative_function(ch);
+    epsilon               = ch.epsilon_interface;
+    sigma_tilde           = 3. / (2. * sqrt(2.)) * ch.surface_tension;
     diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
-    body_force            = physical_properties.body_force;
-    tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);
+    body_force            = pp.body_force;
+    tracer_limiter        = CahnHilliard::get_limiter_function(ch);
     mobility_tracer_limiter =
-      CahnHilliard::get_mobility_limiter_function(cahn_hilliard_param);
+      CahnHilliard::get_mobility_limiter_function(ch);
   }
 
   template <int dim, unsigned int update_flags>
@@ -427,9 +441,9 @@ namespace NavierStokesScratch
 
     temperature.component = t_lower = ordering.t_lower;
 
-    density_ref     = physical_properties.fluids[0].density;
-    pressure_ref    = physical_properties.fluids[0].pressure_ref;
-    temperature_ref = physical_properties.fluids[0].temperature_ref;
+    density_ref     = param.physical_properties.fluids[0].density;
+    pressure_ref    = param.physical_properties.fluids[0].pressure_ref;
+    temperature_ref = param.physical_properties.fluids[0].temperature_ref;
     alpha_r         = 1.0 / pressure_ref;
     beta_r          = 1.0 / temperature_ref;
   }
@@ -464,8 +478,11 @@ namespace NavierStokesScratch
     present_pressure_gradients.resize(n_q_points);
 
     tau_supg_velocity.resize(n_q_points);
-    if (enable_stabilization)
+    if (enable_stabilization || enable_branch_stabilization)
       strong_residual_momentum.resize(n_q_points);
+    grad_phi_u_first_component.resize(max_dofs_per_cell);
+
+    tau_supg_velocity.resize(n_q_points);
     grad_phi_u_first_component.resize(max_dofs_per_cell);
 
     present_face_velocity_values.resize(
@@ -563,6 +580,10 @@ namespace NavierStokesScratch
       previous_position_values.resize(time_handler.n_previous_solutions,
                                       std::vector<Tensor<1, dim>>(n_q_points));
 
+      present_position_J.resize(n_q_points);
+      present_position_inverse_gradients.resize(n_q_points);
+      present_position_inverse_gradients_T.resize(n_q_points);
+
       present_face_position_values.resize(
         n_faces, std::vector<Tensor<1, dim>>(n_faces_q_points));
       present_face_position_gradient.resize(
@@ -582,7 +603,7 @@ namespace NavierStokesScratch
         n_q_points, std::vector<SymmetricTensor<2, dim>>(max_dofs_per_cell));
       grad_phi_x_moving.resize(n_q_points,
                                std::vector<Tensor<2, dim>>(max_dofs_per_cell));
-      if (enable_stabilization)
+      if (enable_stabilization || enable_branch_stabilization)
         hessian_phi_x_moving.resize(
           n_q_points, std::vector<Tensor<3, dim>>(max_dofs_per_cell));
       div_phi_x.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
@@ -604,6 +625,9 @@ namespace NavierStokesScratch
                                    std::vector<Tensor<1, dim>>(n_components));
       grad_source_velocity.resize(n_q_points);
       grad_source_pressure.resize(n_q_points);
+      grad_source_tracer.resize(n_q_points);
+      grad_source_potential.resize(n_q_points);
+      grad_source_term_position_current_mesh.resize(n_q_points);
 
       delta_dx.resize(n_faces,
                       std::vector<std::vector<double>>(n_faces_q_points,
@@ -636,15 +660,22 @@ namespace NavierStokesScratch
       derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
 
       tracer_values.resize(n_q_points);
+      tracer_time_derivatives.resize(n_q_points);
       tracer_gradients.resize(n_q_points);
       tracer_values_fixed.resize(n_q_points);
       tracer_gradients_fixed.resize(n_q_points);
       potential_values.resize(n_q_points);
       potential_gradients.resize(n_q_points);
-      if (enable_stabilization)
+      if (enable_tracer_stabilization || enable_branch_stabilization)
+        potential_laplacians.resize(n_q_points);
+
+      if (enable_branch_stabilization)
       {
         potential_hessians.resize(n_q_points);
-        potential_laplacians.resize(n_q_points);
+        strong_residual_tracer.resize(n_q_points);
+        stabilization_nu_eff.resize(n_q_points);
+        stabilization_inv_rho.resize(n_q_points);
+        tau_supg_tracer.resize(n_q_points);
       }
       if constexpr (enable_enlarged)
       {
@@ -667,9 +698,9 @@ namespace NavierStokesScratch
       shape_mu.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_mu.resize(n_q_points,
                            std::vector<Tensor<1, dim>>(max_dofs_per_cell));
-      if (enable_stabilization)
-        laplacian_shape_mu.resize(n_q_points,
-                                  std::vector<double>(max_dofs_per_cell));
+      laplacian_shape_mu.resize(n_q_points,
+                                std::vector<double>(max_dofs_per_cell));
+
       if constexpr (enable_enlarged)
       {
         shape_psi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
@@ -677,17 +708,26 @@ namespace NavierStokesScratch
           n_q_points, std::vector<Tensor<1, dim>>(max_dofs_per_cell));
       }
 
+      if (enable_tracer_stabilization)
+      {
+        potential_laplacians.resize(n_q_points);
+        tau_supg_tracer.resize(n_q_points);
+      }
+
+      if (enable_branch_stabilization)
+      {
+        potential_hessians.resize(n_q_points);
+        potential_laplacians.resize(n_q_points);
+        strong_residual_tracer.resize(n_q_points);
+        stabilization_nu_eff.resize(n_q_points);
+        stabilization_inv_rho.resize(n_q_points);
+        tau_supg_tracer.resize(n_q_points);
+      }
+
       source_term_tracer.resize(n_q_points);
       source_term_potential.resize(n_q_points);
       if constexpr (enable_enlarged)
         source_term_psi.resize(n_q_points);
-      if (enable_stabilization)
-      {
-        strong_residual_tracer.resize(n_q_points);
-        tau_supg_tracer.resize(n_q_points);
-        stabilization_nu_eff.resize(n_q_points);
-        stabilization_inv_rho.resize(n_q_points);
-      }
     }
 
     if constexpr (enable_compressible)

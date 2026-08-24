@@ -66,6 +66,7 @@ PostProcessingHandler<dim>::PostProcessingHandler(
   , output_param(param.output)
   , physical_properties(param.physical_properties)
   , mms_param(param.mms_param)
+  , fe_param(param.finite_elements)
   , triangulation(&triangulation, typeid(*this).name())
   , dof_handler(&dof_handler, typeid(*this).name())
   , mpi_communicator(dof_handler.get_mpi_communicator())
@@ -87,22 +88,7 @@ PostProcessingHandler<dim>::PostProcessingHandler(
       }
   }
 
-  if (output_param.write_results)
-  {
-    data_out = std::make_unique<DataOut<dim>>();
-    data_out->attach_dof_handler(dof_handler);
-  }
-
-  if (output_param.skin.write_results)
-  {
-    // build_patches is not (yet) implemented for DataOutFaces in hp context,
-    // but at this point the dof_handler might not yet be initialized.
-    // The check is done in output_skin_fields instead.
-    data_out_skin =
-      std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
-        triangulation, output_param.skin.boundary_id);
-    data_out_skin->attach_dof_handler(dof_handler);
-  }
+  this->attach_triangulation_and_dof_handler(triangulation, dof_handler);
 }
 
 template <int dim>
@@ -119,12 +105,38 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
   this->dof_handler   = &dof_handler;
 
   // Create new DataOuts
-  data_out = std::make_unique<DataOut<dim>>();
-  data_out->attach_dof_handler(dof_handler);
-  data_out_skin =
-    std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
-      triangulation, output_param.skin.boundary_id);
-  data_out_skin->attach_dof_handler(dof_handler);
+  if (output_param.write_results)
+  {
+    data_out = std::make_unique<DataOut<dim>>();
+    data_out->attach_dof_handler(dof_handler);
+
+    // Write high-order elements if needed
+    if (fe_param.mapping_degree > 1)
+    {
+      DataOutBase::VtkFlags flags;
+      flags.write_higher_order_cells = true;
+      data_out->set_flags(flags);
+    }
+  }
+
+  if (output_param.skin.write_results)
+  {
+    // build_patches is not (yet) implemented for DataOutFaces in hp context,
+    // but at this point the dof_handler might not yet be initialized.
+    // The check is done in output_skin_fields instead.
+    data_out_skin =
+      std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
+        triangulation, output_param.skin.boundary_id);
+    data_out_skin->attach_dof_handler(dof_handler);
+
+    // Write high-order elements if needed
+    if (fe_param.mapping_degree > 1)
+    {
+      DataOutBase::VtkFlags flags;
+      flags.write_higher_order_cells = true;
+      data_out_skin->set_flags(flags);
+    }
+  }
 
   // Clear the stored cell-based vectors
   subdomains.reinit(0);
@@ -132,25 +144,41 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
 }
 
 template <int dim>
-void PostProcessingHandler<dim>::write_pvd() const
+void PostProcessingHandler<dim>::write_pvd(const PrefixData &prefix_data) const
 {
-  const std::string suffix =
-    mms_param.enable ?
-      "_convergence_step_" + std::to_string(mms_param.current_step) + ".pvd" :
-      ".pvd";
+  std::string suffix = "";
+  prefix_data.append_to_prefix_or_suffix(output_param, true, suffix);
+  suffix += ".pvd";
 
-  if (mpi_rank == 0 && output_param.write_results)
+  if (mpi_rank == 0)
   {
-    std::ofstream pvd_output(output_param.output_dir +
-                             output_param.output_prefix + suffix);
-    DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
-  }
-  if (mpi_rank == 0 && output_param.skin.write_results)
-  {
-    std::ofstream pvd_output(output_param.output_dir +
-                             output_param.skin.output_prefix + suffix);
-    DataOutBase::write_pvd_record(pvd_output,
-                                  visualization_times_and_names_skin);
+    if (output_param.write_results)
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
+    }
+    if (output_param.skin.write_results)
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.skin.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    visualization_times_and_names_skin);
+    }
+    if (!prerefinements_pseudotimes_and_names.empty())
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    prerefinements_pseudotimes_and_names);
+    }
+    if (!prerefinements_pseudotimes_and_names_skin.empty())
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.skin.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    prerefinements_pseudotimes_and_names_skin);
+    }
   }
 }
 
@@ -282,6 +310,62 @@ void PostProcessingHandler<dim>::add_position_to_table(
     table.set_scientific(dim_str[d], true);
   }
 }
+
+template <int dim>
+template <typename DataType>
+void PostProcessingHandler<dim>::add_multiphase_data_to_table(
+  const std::array<DataType, 2>                        &data_for_phases,
+  const TimeHandler                                    &time_handler,
+  TableHandler                                         &table,
+  const Parameters::PostProcessing::PostProcessingBase &pp_param)
+{
+  if constexpr (std::is_same_v<DataType, Tensor<1, dim>>)
+  {
+    std::vector<std::string> dim_str = {"x", "y", "z"};
+    table.add_value("time", time_handler.current_time);
+    for (unsigned int i = 0; i < 2; ++i)
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        std::string key = "phase" + std::to_string(i) + "_" + dim_str[d];
+        table.add_value(key, data_for_phases[i][d]);
+        table.set_precision(key, pp_param.precision);
+        table.set_scientific(key, true);
+      }
+  }
+  else
+  {
+    table.add_value("time", time_handler.current_time);
+    for (unsigned int i = 0; i < 2; ++i)
+    {
+      std::string key = "phase" + std::to_string(i);
+      table.add_value(key, data_for_phases[i]);
+      table.set_precision(key, pp_param.precision);
+      table.set_scientific(key, true);
+    }
+  }
+}
+
+// Explicit instantiations for dim = 2,3, two phases and double/Tensor<1, dim>
+template void PostProcessingHandler<2>::add_multiphase_data_to_table(
+  const std::array<Tensor<1, 2>, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingBase &);
+template void PostProcessingHandler<3>::add_multiphase_data_to_table(
+  const std::array<Tensor<1, 3>, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingBase &);
+template void PostProcessingHandler<2>::add_multiphase_data_to_table(
+  const std::array<double, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingBase &);
+template void PostProcessingHandler<3>::add_multiphase_data_to_table(
+  const std::array<double, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingBase &);
 
 template <int dim>
 void PostProcessingHandler<dim>::write_table(

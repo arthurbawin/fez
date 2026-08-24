@@ -84,7 +84,7 @@ namespace ErrorEstimation
     // Create the 1d monomials of degree 0 up to "degree"
     std::vector<Polynomials::Monomial<double>> monomials_1d;
     for (unsigned int i = 0; i <= degree; ++i)
-      monomials_1d.push_back(Polynomials::Monomial<double>(i));
+      monomials_1d.emplace_back(i);
 
     // Create the dim-dimensional polynomial space for a fitting
     monomials_recovery = std::make_unique<PolynomialSpace<dim>>(monomials_1d);

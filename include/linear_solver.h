@@ -39,11 +39,13 @@ void solve_linear_system_iterative(
   const IndexSet                   &locally_owned_dofs,
   const AffineConstraints<double>  &zero_constraints);
 
-void solve_linear_system_unpreconditioned_cg(
-  GenericSolver<LA::ParVectorType> *solver,
-  const Parameters::LinearSolver   &linear_solver_param,
-  LA::ParMatrixType                &system_matrix,
-  const IndexSet                   &locally_owned_dofs,
-  const AffineConstraints<double>  &zero_constraints);
+/**
+ * Conjugate Gradient solver with block Jacobi preconditioner.
+ */
+void solve_linear_system_cg(GenericSolver<LA::ParVectorType> *solver,
+                            const Parameters::LinearSolver &linear_solver_param,
+                            LA::ParMatrixType              &system_matrix,
+                            const IndexSet                 &locally_owned_dofs,
+                            const AffineConstraints<double> &zero_constraints);
 
 #endif

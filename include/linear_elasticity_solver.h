@@ -1,6 +1,8 @@
 #ifndef LINEAR_ELASTICITY_SOLVER_H
 #define LINEAR_ELASTICITY_SOLVER_H
 
+#include <assembly/assembler.h>
+#include <components_ordering.h>
 #include <copy_data.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
@@ -65,6 +67,7 @@ class LinearElasticitySolver : public GenericSolver<LA::ParVectorType>
 {
   using ScratchData = ScratchDataLinearElasticity<dim>;
   using CopyData    = CopyDataBase<1>;
+  using Assembler   = Assembly::AssemblerBase<ScratchData, CopyData>;
 
 public:
   enum class PresolvedCHNSFields
@@ -82,7 +85,7 @@ public:
     const PresolvedCHNSFields   presolved_chns_fields =
       PresolvedCHNSFields::none);
 
-  virtual ~LinearElasticitySolver() {}
+  virtual ~LinearElasticitySolver() = default;
 
 public:
   /**
@@ -139,7 +142,12 @@ public:
   unsigned int get_presolved_psi_component() const { return dim + 1; }
   void                   update_boundary_conditions();
 
-  virtual void create_sparsity_pattern();
+  /**
+   * Create the volume and boundary assemblers for this solver.
+   */
+  void setup_assemblers();
+
+  void create_sparsity_pattern();
 
   void set_initial_conditions();
   void set_exact_solution();
@@ -197,6 +205,8 @@ public:
   }
 
 protected:
+  ComponentOrdering ordering;
+
   ParameterReader<dim> param;
 
   std::unique_ptr<FESystem<dim>> fe;
@@ -211,7 +221,8 @@ protected:
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler; // dummy
 
-  std::unique_ptr<ScratchData> scratch_data;
+  std::unique_ptr<ScratchData>            scratch_data;
+  std::vector<std::unique_ptr<Assembler>> assemblers;
 
   FEValuesExtractors::Vector position_extractor;
   FEValuesExtractors::Scalar tracer_extractor;
@@ -240,12 +251,10 @@ protected:
   SolverControl                                          solver_control;
   std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  double source_term_moving_mesh_multiplier;
-  double source_term_fixed_mesh_multiplier;
-
   bool                                 strain_cache_is_valid = false;
   std::vector<SymmetricTensor<2, dim>> cached_strain_tensors;
   Vector<double>                       cached_strain_trace;
+
 
 protected:
   /**

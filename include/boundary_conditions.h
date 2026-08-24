@@ -474,12 +474,14 @@ template <int dim>
 class ScalarFunctionFromComponents : public Function<dim>
 {
 public:
-  const unsigned int                    field_component;
-  const Functions::ParsedFunction<dim> &field_fun;
+  const unsigned int     field_component;
+  const Function<dim>   &field_fun;
 
-  ScalarFunctionFromComponents(const unsigned int field_component,
-                               const unsigned int n_components,
-                               const Functions::ParsedFunction<dim> &field_fun)
+  // Takes the Function base class so that both Functions::ParsedFunction and
+  // ManufacturedSolutions::ParsedFunctionSDBase can be passed.
+  ScalarFunctionFromComponents(const unsigned int   field_component,
+                               const unsigned int   n_components,
+                               const Function<dim> &field_fun)
     : Function<dim>(n_components)
     , field_component(field_component)
     , field_fun(field_fun)

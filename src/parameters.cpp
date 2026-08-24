@@ -70,7 +70,7 @@ namespace Parameters
         "Fix pressure nullspace by enforcing zero-mean pressure");
       prm.declare_entry(
         "pressure reference point",
-        "0,0",
+        "0,0,0",
         Patterns::List(Patterns::Double()),
         "Reference point used to select the pressure DoF pinned when "
         "\"fix pressure constant\" is enabled");
@@ -91,7 +91,43 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void Mesh::declare_parameters(ParameterHandler &prm)
+  void declare_fixed_point_update_base(ParameterHandler &prm)
+  {
+    prm.declare_entry("enable",
+                      "false",
+                      Patterns::Bool(),
+                      "Enable/disable the update of this quantity");
+    prm.declare_entry("update frequency",
+                      "1",
+                      Patterns::Integer(1),
+                      "Update this quantity every n fixed-point iterations");
+    prm.declare_entry("factor",
+                      "1.",
+                      Patterns::Double(0),
+                      "When updated, multiply this quantity by this value");
+    prm.declare_entry("constant name",
+                      "must_provide_constant_name",
+                      Patterns::Anything(),
+                      "Name of this constant in the function handles");
+  }
+
+  void read_fixed_point_update_base(
+    ParameterHandler                                        &prm,
+    Mesh::Adaptation::Metric::FixedPointUpdates::UpdateBase &update_base)
+  {
+    update_base.enable           = prm.get_bool("enable");
+    update_base.update_frequency = prm.get_integer("update frequency");
+    update_base.factor           = prm.get_double("factor");
+    update_base.constant_name    = prm.get("constant name");
+    if (update_base.enable)
+      AssertThrow(update_base.constant_name != "must_provide_constant_name",
+                  ExcMessage(
+                    "A constant name matching the ones in the various function "
+                    "handles must be provided for a quantity that is to be "
+                    "updated in the fixed-point mesh adaptation loop."));
+  }
+
+  void Mesh::declare_parameters(ParameterHandler &prm, const int dim)
   {
     prm.enter_subsection("Mesh");
     {
@@ -104,10 +140,12 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Use cube mesh from deal.II's routines");
-      prm.declare_entry("dealii preset mesh",
-                        "none",
-                        Patterns::Selection("none|cube|rectangle|holed plate"),
-                        "Use dealii meshing routines for specified geometry");
+      prm.declare_entry(
+        "dealii preset mesh",
+        "none",
+        Patterns::Selection(
+          "none|cube|rectangle|holed plate|uniform channel with cylinder"),
+        "Use dealii meshing routines for specified geometry");
       prm.declare_entry("dealii mesh parameters",
                         "2, 2 : 0., 0. : 1., 1. : false");
       prm.declare_entry(
@@ -133,7 +171,8 @@ namespace Parameters
                           "Root extension for the adapted meshes");
         prm.declare_entry("strategy",
                           "riemannian metric",
-                          Patterns::Selection("riemannian metric"),
+                          Patterns::Selection(
+                            "riemannian metric|local refinement"),
                           "Mesh adaptation strategy");
         prm.enter_subsection("Metric");
         {
@@ -157,6 +196,58 @@ namespace Parameters
                             Patterns::Integer(1),
                             "Number of time sub-intervals for the transient "
                             "fixed point method");
+          prm.enter_subsection("Fixed point updates");
+          {
+            DECLARE_VERBOSITY_PARAM(prm, "verbose");
+            prm.enter_subsection("CHNS interface thickness");
+            declare_fixed_point_update_base(prm);
+            prm.leave_subsection();
+          }
+          prm.leave_subsection();
+        }
+        prm.leave_subsection();
+        prm.enter_subsection("Local refinement");
+        {
+          prm.declare_entry("refinement strategy",
+                            "fixed number",
+                            Patterns::Selection("fixed number|fixed fraction"),
+                            "Refinement strategy used by deal.II's "
+                            "refine_and_coarsen routines");
+          prm.declare_entry(
+            "fraction to refine",
+            // As suggested in grid_refinement.h, use as default
+            // the fractions that lead to doubling the number of cells
+            // if no coarsening is applied (1/3 and 1/7).
+            // This is of course only valid for the "fixed number" strategy.
+            dim == 2 ? "0.3333333333" : "0.142857143",
+            Patterns::Double(0., 1.),
+            "Fraction of cells or errors to mark for refinement");
+          prm.declare_entry(
+            "fraction to coarsen",
+            "0.",
+            Patterns::Double(0., 1.),
+            "Fraction of cells or errors to mark for coarsening");
+          prm.declare_entry("min grid level",
+                            "0",
+                            Patterns::Integer(0),
+                            "Minimum level of grid refinement allowed");
+          prm.declare_entry("max grid level",
+                            "8",
+                            Patterns::Integer(0),
+                            "Maximum level of grid refinement allowed");
+          prm.declare_entry("max number of cells",
+                            "1000000",
+                            Patterns::Integer(0),
+                            "Maximum number of mesh cells allowed");
+          prm.declare_entry(
+            "number of prerefinement steps",
+            "0",
+            Patterns::Integer(0),
+            "Number of refinement steps to obtain the initial mesh");
+          prm.declare_entry("adapt frequency",
+                            "1",
+                            Patterns::Integer(1),
+                            "Adapt the mesh every n time steps");
         }
         prm.leave_subsection();
       }
@@ -184,6 +275,8 @@ namespace Parameters
         const std::string parsed_strategy = prm.get("strategy");
         if (parsed_strategy == "riemannian metric")
           adaptation.strategy = Adaptation::Strategy::RiemannianMetric;
+        else if (parsed_strategy == "local refinement")
+          adaptation.strategy = Adaptation::Strategy::LocalRefinement;
         else
           throw std::runtime_error("Unexpected mesh adaptation strategy: " +
                                    parsed_strategy);
@@ -197,6 +290,49 @@ namespace Parameters
             prm.get_integer("mmg verbosity level");
           adaptation.metric.n_time_intervals =
             prm.get_integer("n time intervals");
+          prm.enter_subsection("Fixed point updates");
+          {
+            auto &fpu = adaptation.metric.fixed_point_updates;
+            READ_VERBOSITY_PARAM(prm, fpu.verbosity)
+            prm.enter_subsection("CHNS interface thickness");
+            read_fixed_point_update_base(prm, fpu.chns_interface_thickness);
+            prm.leave_subsection();
+          }
+          prm.leave_subsection();
+        }
+        prm.leave_subsection();
+        prm.enter_subsection("Local refinement");
+        {
+          auto &t = adaptation.tree_amr;
+
+          const std::string parsed_strategy = prm.get("refinement strategy");
+          if (parsed_strategy == "fixed number")
+            t.refinement_strategy =
+              Adaptation::TreeAMR::RefinementStrategy::FixedNumber;
+          else if (parsed_strategy == "fixed fraction")
+            t.refinement_strategy =
+              Adaptation::TreeAMR::RefinementStrategy::FixedFraction;
+          else
+            AssertThrow(false,
+                        ExcMessage(
+                          "Unexpected mesh adaptation refinement strategy: " +
+                          parsed_strategy));
+          t.fraction_to_refine  = prm.get_double("fraction to refine");
+          t.fraction_to_coarsen = prm.get_double("fraction to coarsen");
+          AssertThrow(t.fraction_to_refine + t.fraction_to_coarsen < 1 + 1e-12,
+                      ExcMessage(
+                        "The sum of the fractions of the cells/cellwise errors "
+                        "to refine and coarsen should not exceed 1."));
+          t.min_level = prm.get_integer("min grid level");
+          t.max_level = prm.get_integer("max grid level");
+          AssertThrow(t.max_level >= t.min_level,
+                      ExcMessage(
+                        "The maximum allowed grid refinement level should be "
+                        "greater than or equal to the minimum allowed level."));
+          t.max_n_cells = prm.get_integer("max number of cells");
+          t.n_prerefinement_steps =
+            prm.get_integer("number of prerefinement steps");
+          t.adapt_frequency = prm.get_integer("adapt frequency");
         }
         prm.leave_subsection();
       }
@@ -226,6 +362,32 @@ namespace Parameters
         "1",
         Patterns::Integer(1),
         "Frequency (in time steps) for the standard vtu export.");
+      prm.declare_entry("number of vtu groups",
+                        "1",
+                        Patterns::Integer(0),
+                        "Number of groups of VTU files when writing in "
+                        "parallel (0 means one per MPI process).");
+      prm.declare_entry(
+        "number of subdivisions",
+        "2",
+        Patterns::Integer(0),
+        "Number of subdivisions used to build visualization patches.");
+      prm.enter_subsection("fixed point method");
+      {
+        prm.declare_entry("single pvd file",
+                          "true",
+                          Patterns::Bool(),
+                          "Generate a single pvd file when using a fixed-point "
+                          "mesh adaptation method. If false, one pvd file per "
+                          "fixed-point iteration is generated instead.");
+        prm.declare_entry(
+          "show solution transfer",
+          "false",
+          Patterns::Bool(),
+          "Show the solution transfer between subinterval meshes. This "
+          "duplicates the timesteps at the junction of subintervals.");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("skin");
       {
         prm.declare_entry(
@@ -260,6 +422,15 @@ namespace Parameters
       output_dir           = prm.get("output directory");
       output_prefix        = prm.get("output prefix");
       vtu_output_frequency = prm.get_integer("vtu output frequency");
+      n_vtu_groups         = prm.get_integer("number of vtu groups");
+      n_subdivisions       = prm.get_integer("number of subdivisions");
+      prm.enter_subsection("fixed point method");
+      {
+        fixed_point.single_pvd = prm.get_bool("single pvd file");
+        fixed_point.show_solution_transfer =
+          prm.get_bool("show solution transfer");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("skin");
       {
         skin.write_results    = prm.get_bool("write vtu results");
@@ -284,7 +455,7 @@ namespace Parameters
                       Patterns::Bool(),
                       "Write result of this postprocessing to file");
     prm.declare_entry("output prefix",
-                      "forces",
+                      "postprocessed_data",
                       Patterns::FileName(),
                       "Prefix for the postprocessing output files");
     prm.declare_entry(
@@ -362,6 +533,21 @@ namespace Parameters
                           "Number of points sampled on the line.");
       }
       prm.leave_subsection();
+      prm.enter_subsection("chns phase volume");
+      {
+        declare_postprocessing_base(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase center of mass");
+      {
+        declare_postprocessing_base(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase average velocity");
+      {
+        declare_postprocessing_base(prm);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -420,6 +606,21 @@ namespace Parameters
         line_probe.end = Utilities::string_to_double(
           Utilities::split_string_list(prm.get("end point"), ","));
         line_probe.n_points = prm.get_integer("number of points");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase volume");
+      {
+        read_postprocessing_base(prm, chns_volumes);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase center of mass");
+      {
+        read_postprocessing_base(prm, chns_center_mass);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase average velocity");
+      {
+        read_postprocessing_base(prm, chns_avg_velocity);
       }
       prm.leave_subsection();
     }
@@ -494,6 +695,13 @@ namespace Parameters
                         "1",
                         Patterns::Integer(),
                         "Polynomial degree of the temperature interpolant");
+
+      prm.declare_entry(
+        "mapping degree",
+        "1",
+        Patterns::Selection("isoparametric velocity|1|2|3|4|5"),
+        "Degree of the reference-to-physical mapping, or degree of the "
+        "velocity approximation if set to isoparametric");
 
       prm.enter_subsection("Quadrature rule");
       {
@@ -583,6 +791,18 @@ namespace Parameters
       tracer_degree      = prm.get_integer("Tracer degree");
       potential_degree   = prm.get_integer("Potential degree");
       temperature_degree = prm.get_integer("Temperature degree");
+
+      /**
+       * Set the degree of the geometric mapping.
+       * If the mesh position is a variable of the problem, their degree must
+       * match, but we cannot test it here, as we don't know which solver will
+       * be created.
+       */
+      const std::string parsed_mapping_degree = prm.get("mapping degree");
+      if (parsed_mapping_degree == "isoparametric velocity")
+        mapping_degree = velocity_degree;
+      else
+        mapping_degree = Utilities::string_to_int(parsed_mapping_degree);
 
       prm.enter_subsection("Quadrature rule");
       {
@@ -678,21 +898,21 @@ namespace Parameters
 
     prm.enter_subsection("Pseudosolid " + std::to_string(index));
     {
+      prm.declare_entry("constitutive model",
+                        "linear elasticity",
+                        Patterns::Selection(
+                          "linear elasticity|neo hookean|ogden"),
+                        "Constitutive model for the pseudosolid");
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->declare_parameters(prm);
       prm.leave_subsection();
       prm.enter_subsection("lame mu");
       lame_mu_fun->declare_parameters(prm);
       prm.leave_subsection();
-      prm.declare_entry("constitutive model",
-                        "linear elasticity",
-                        Patterns::Selection(
-                          "linear elasticity|neo hookean|ogden"),
-                        "Constitutive law for the pseudosolid");
       prm.declare_entry("ogden beta",
-                        "1.0",
+                        "1.",
                         Patterns::Double(),
-                        "Volumetric exponent for the Ogden pseudosolid law");
+                        "Volumetric exponent for the Ogden constitutive model");
     }
     prm.leave_subsection();
   }
@@ -703,25 +923,25 @@ namespace Parameters
   {
     prm.enter_subsection("Pseudosolid " + std::to_string(index));
     {
+      const std::string parsed_model = prm.get("constitutive model");
+      if (parsed_model == "linear elasticity")
+        constitutive_model = ConstitutiveModel::linear_elasticity;
+      else if (parsed_model == "neo hookean")
+        constitutive_model = ConstitutiveModel::neo_hookean;
+      else if (parsed_model == "ogden")
+        constitutive_model = ConstitutiveModel::ogden;
+      else
+        AssertThrow(false,
+                    ExcMessage("Unknown pseudosolid constitutive model"));
       prm.enter_subsection("lame lambda");
       lame_lambda_fun->parse_parameters(prm);
       prm.leave_subsection();
       prm.enter_subsection("lame mu");
       lame_mu_fun->parse_parameters(prm);
       prm.leave_subsection();
-
-      const std::string parsed_constitutive = prm.get("constitutive model");
       ogden_beta = prm.get_double("ogden beta");
-
-      if (parsed_constitutive == "linear elasticity")
-        constitutive_model = ConstitutiveModel::linear_elasticity;
-      else if (parsed_constitutive == "neo hookean")
-        constitutive_model = ConstitutiveModel::neo_hookean;
-      else if (parsed_constitutive == "ogden")
-        constitutive_model = ConstitutiveModel::ogden;
-      else
-        AssertThrow(false,
-                    ExcMessage("Unknown pseudosolid constitutive model"));
+      AssertThrow(std::abs(ogden_beta) > 1e-14,
+                  ExcMessage("Ogden model requires a nonzero beta parameter."));
     }
     prm.leave_subsection();
   }
@@ -1145,6 +1365,12 @@ namespace Parameters
                         Patterns::Bool(),
                         "Enable SUPG/PSPG stabilization for the incompressible "
                         "Navier-Stokes equations.");
+      prm.declare_entry("enable tracer supg",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable SUPG stabilization for the tracer equation in "
+                        "the Cahn-Hilliard "
+                        "Navier-Stokes equations.");
     }
     prm.leave_subsection();
   }
@@ -1153,7 +1379,8 @@ namespace Parameters
   {
     prm.enter_subsection("Stabilization");
     {
-      enable_supg = prm.get_bool("enable supg");
+      enable_supg        = prm.get_bool("enable supg");
+      enable_tracer_supg = prm.get_bool("enable tracer supg");
     }
     prm.leave_subsection();
   }
@@ -1687,6 +1914,16 @@ namespace Parameters
           "For a convergence study with metric-based anisotropic mesh "
           "adaptation enabled, the initial target number of vertices in the "
           "adapted mesh. This value is then doubled at each convergence step.");
+        prm.declare_entry("target vertices multiplier between steps",
+                          "2",
+                          Patterns::Integer(1),
+                          "Between two convergence steps, the target number of "
+                          "mesh vertices is multiplied by this value.");
+        prm.declare_entry("time intervals multiplier between steps",
+                          "2",
+                          Patterns::Integer(1),
+                          "Between two convergence steps, the number of time "
+                          "intervals is multiplied by this value.");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1757,6 +1994,10 @@ namespace Parameters
             Patterns::Tools::Convert<VectorTools::NormType>::to_value(s));
         n_target_vertices =
           prm.get_integer("initial target number of vertices");
+        n_target_vertices_multiplier =
+          prm.get_integer("target vertices multiplier between steps");
+        n_time_intervals_multiplier =
+          prm.get_integer("time intervals multiplier between steps");
       }
       prm.leave_subsection();
       prm.enter_subsection("Time convergence");
@@ -1863,6 +2104,18 @@ namespace Parameters
 
   template struct FSI<2>;
   template struct FSI<3>;
+
+  void SolutionRecovery::declare_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Solution recovery");
+    {DECLARE_VERBOSITY_PARAM(prm, "verbose")} prm.leave_subsection();
+  }
+
+  void SolutionRecovery::read_parameters(ParameterHandler &prm)
+  {
+    prm.enter_subsection("Solution recovery");
+    {READ_VERBOSITY_PARAM(prm, verbosity)} prm.leave_subsection();
+  }
 
   void Debug::declare_parameters(ParameterHandler &prm)
   {

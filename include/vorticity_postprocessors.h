@@ -49,8 +49,7 @@ namespace PostProcessingTools
   public:
     using curl_type =
       typename FEValuesViews::Vector<dim>::template solution_curl_type<double>;
-    static constexpr unsigned int n_components =
-      dim == 2 ? 1 : curl_type::n_independent_components;
+    static constexpr unsigned int n_components = dim == 2 ? 1 : 3;
 
     /**
      * Constructor.

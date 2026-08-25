@@ -976,7 +976,7 @@ void PostProcessingHandler<dim>::compute_dof_postprocessing(
 
   // Then postprocess the solution and add data to DataOut
   const auto &ptr = postprocessors_at_dofs.at(type);
-  if (ptr)
+  if (ptr && should_output_volume_fields(time_handler))
   {
     if (should_compute_postprocessing(
           time_handler, param.postprocessing.get_dof_postprocessor_param(type)))

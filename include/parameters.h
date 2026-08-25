@@ -430,11 +430,6 @@ namespace Parameters
     {
     } q_criterion;
 
-    /**
-     * All the PostprocessingField parameters
-     */
-    std::vector<PostProcessingField *> postproc_fields;
-
     static void                declare_parameters(ParameterHandler &prm);
     void                       read_parameters(ParameterHandler &prm);
     const PostProcessingField &get_dof_postprocessor_param(

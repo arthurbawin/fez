@@ -173,6 +173,14 @@ public:
     mesh.read_parameters(prm);
     output.read_parameters(prm);
     postprocessing.read_parameters(prm);
+
+    // The fields postprocessors in postprocessing are meant to be written to
+    // the visualization file, so it's pointless to compute them more often that
+    // the output frequency
+    for (auto &ptr : postprocessing.postproc_fields)
+      ptr->output_frequency =
+        std::max(ptr->output_frequency, output.vtu_output_frequency);
+
     finite_elements.read_parameters(prm);
     physical_properties.read_parameters(prm);
     fsi.read_parameters(prm);

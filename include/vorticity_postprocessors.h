@@ -50,7 +50,7 @@ namespace PostProcessingTools
     using curl_type =
       typename FEValuesViews::Vector<dim>::template solution_curl_type<double>;
     static constexpr unsigned int n_components =
-      curl_type::n_independent_components;
+      dim == 2 ? 1 : curl_type::n_independent_components;
 
     /**
      * Constructor.

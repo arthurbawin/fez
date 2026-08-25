@@ -579,10 +579,16 @@ namespace Parameters
     pp_boundary.boundary_id = prm.get_integer("boundary id");
   }
 
-  void read_postprocessing_field(ParameterHandler                    &prm,
-                                 PostProcessing::PostProcessingField &pp_field)
+  void read_postprocessing_field(
+    ParameterHandler                                   &prm,
+    PostProcessing::PostProcessingField                &pp_field,
+    std::vector<PostProcessing::PostProcessingField *> &pp_fields)
   {
+    // Add it to the vector of all field postprocessors
+    pp_fields.push_back(&pp_field);
+
     read_postprocessing_base(prm, pp_field);
+
     const std::string parsed_method = prm.get("computation method");
     if (parsed_method == "discontinuous")
       pp_field.method =
@@ -644,12 +650,12 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("vorticity");
       {
-        read_postprocessing_field(prm, vorticity);
+        read_postprocessing_field(prm, vorticity, postproc_fields);
       }
       prm.leave_subsection();
       prm.enter_subsection("q_criterion");
       {
-        read_postprocessing_field(prm, q_criterion);
+        read_postprocessing_field(prm, q_criterion, postproc_fields);
       }
       prm.leave_subsection();
     }

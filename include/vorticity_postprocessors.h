@@ -70,6 +70,18 @@ namespace PostProcessingTools
 
   /**
    * Compute the vorticity field with an L2 projection.
+   * The function do_postprocess() solves for u_h the problem:
+   *
+   *   (u_h, v_h)_\Omega = (curl(u), v_h)_\Omega, for all v_h.
+   *
+   * The projected vorticity u_h is scalar in 2D, and vector-valued in 3D.
+   *
+   * When using quads/hexes, the mass matrix is made diagonal by using
+   * Lagrange shape functions defined from Gauss-Lobatto-Legendre (GLL)
+   * quadrature nodes, in which case solving the above system is trivial.
+   *
+   * With simplices, the mass matrix is not diagonal in general, but it is SPD,
+   * so we can use a conjugate gradient solver to solve the system efficiently.
    */
   template <int dim>
   class VorticityL2Projection : public VorticityAtDofBase<dim>
@@ -108,7 +120,7 @@ namespace PostProcessingTools
     void assemble_system(const VectorType &present_solution);
 
     /**
-     * Solve the system with CG.
+     * Solve the system (diagonal solve or CG).
      */
     void solve();
 
@@ -121,6 +133,30 @@ namespace PostProcessingTools
 
   /**
    * Compute the vorticity field using a weighted average.
+   * The function do_postprocess approximates an L2 projection and solves in 2D:
+   *
+   *   (int_\Omega phi_i dx) * u_i = int_\Omega curl(u) * phi_i dx,
+   *
+   * which amounts to the weighted average:
+   *
+   *                int_\Omega curl(u) * phi_i dx
+   *       u_i =   ------------------------------- .
+   *                    int_\Omega (phi_i) dx
+   *
+   * This amounts to lumping the mass matrix by summing all row entries into the
+   * diagonal. For higher-order shape functions, the lumped diagonal can be zero
+   * (e.g., for P2 interpolation at vertex nodes), in which case we simply
+   * weight the average by the elements volume:
+   *
+   *                int_int_{K including i} curl(u) dx
+   *       u_i =   ------------------------------------ .
+   *                  int_int_{K including i} 1 dx
+   *
+   * In 3D, the same simple average is used for for each curl component:
+   *
+   *                int_int_{K including i} curl(u)_comp dx
+   *       u_i =   ----------------------------------------- .
+   *                    int_int_{K including i} 1 dx
    */
   template <int dim>
   class VorticityWeightedAverage : public VorticityAtDofBase<dim>
@@ -181,7 +217,13 @@ namespace PostProcessingTools
   };
 
   /**
-   * Compute the vorticity field using a weighted average.
+   * Compute the Q-criterion field using a weighted average.
+   * Similarly to the vorticity, do_postprocess() computes the simple average
+   * weighted by the elements volume:
+   *
+   *                   int_{K including i} Q dx
+   *          q_i =   -------------------------- .
+   *                   int_{K including i} 1 dx
    */
   template <int dim>
   class QCriterionWeightedAverage : public PostprocessorAtDofBase<dim>

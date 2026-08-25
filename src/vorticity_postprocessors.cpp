@@ -58,12 +58,15 @@ namespace PostProcessingTools
     const Mapping<dim>         &mapping,
     const DoFHandler<dim>      &dof_handler,
     const Quadrature<dim>      &cell_quadrature)
-    : PostprocessorAtDofBase<dim>(ordering,
-                                  param,
-                                  mapping,
-                                  dof_handler,
-                                  cell_quadrature,
-                                  update_gradients)
+    : PostprocessorAtDofBase<dim>(
+        ordering,
+        param,
+        mapping,
+        dof_handler,
+        param.finite_elements.use_quads ?
+          QGaussLobatto<dim>(param.postprocessing.vorticity.degree + 1) :
+          cell_quadrature,
+        update_gradients)
   {
     using DCI = DataComponentInterpretation::DataComponentInterpretation;
 
@@ -74,29 +77,39 @@ namespace PostProcessingTools
     if constexpr (n_components == 1)
     {
       if (param.finite_elements.use_quads)
-        this->fe = std::make_unique<FE_Q<dim>>(degree);
+        this->fe = std::make_unique<FE_Q<dim>>(QGaussLobatto<1>(degree + 1));
       else
         this->fe = std::make_unique<FE_SimplexP<dim>>(degree);
-
       this->data_interpretation = {DCI::component_is_scalar};
     }
     else
     {
       if (param.finite_elements.use_quads)
-        this->fe =
-          std::make_unique<FESystem<dim>>(FE_Q<dim>(degree) ^ n_components);
+        this->fe = std::make_unique<FESystem<dim>>(
+          FE_Q<dim>(QGaussLobatto<1>(degree + 1)) ^ n_components);
       else
         this->fe = std::make_unique<FESystem<dim>>(FE_SimplexP<dim>(degree) ^
                                                    n_components);
-
-
       this->data_interpretation =
         std::vector<DCI>(n_components, DCI::component_is_part_of_vector);
     }
     this->dof_handler.distribute_dofs(*this->fe);
 
-    fe_values_vorticity = std::make_unique<FEValues<dim>>(
-      mapping, *this->fe, cell_quadrature, update_values | update_JxW_values);
+    if (param.finite_elements.use_quads)
+      // Use a dim-dimensional GLL quadrature matching the one used to create
+      // the finite element space, yielding a diagonal mass matrix.
+      //
+      // Important: this quadrature rule has to match the one used in the
+      // initializer list, as it is also used to create the FEValues associated
+      // with the main solver.
+      fe_values_vorticity =
+        std::make_unique<FEValues<dim>>(mapping,
+                                        *this->fe,
+                                        QGaussLobatto<dim>(degree + 1),
+                                        update_values | update_JxW_values);
+    else
+      fe_values_vorticity = std::make_unique<FEValues<dim>>(
+        mapping, *this->fe, cell_quadrature, update_values | update_JxW_values);
   }
 
   template class VorticityAtDofBase<2>;
@@ -149,6 +162,7 @@ namespace PostProcessingTools
     const VectorType &present_solution)
   {
     using shape_type     = std::conditional_t<dim == 2, double, Tensor<1, dim>>;
+    using curl_type      = typename VorticityAtDofBase<dim>::curl_type;
     using extractor_type = std::conditional_t<dim == 2,
                                               FEValuesExtractors::Scalar,
                                               FEValuesExtractors::Vector>;
@@ -159,17 +173,17 @@ namespace PostProcessingTools
     if (assemble_matrix)
       system_matrix = 0;
 
-    const unsigned int dofs_per_cell = this->fe->dofs_per_cell;
-    const unsigned int n_q_points =
-      this->solver_fe_values.get_quadrature().size();
-
-    FullMatrix<double> local_matrix(dofs_per_cell, dofs_per_cell);
-    Vector<double>     local_rhs(dofs_per_cell);
-
+    const unsigned int      dofs_per_cell = this->fe->dofs_per_cell;
+    FullMatrix<double>      local_matrix(dofs_per_cell, dofs_per_cell);
+    Vector<double>          local_rhs(dofs_per_cell);
     std::vector<shape_type> phi_u(dofs_per_cell);
 
-    std::vector<typename VorticityAtDofBase<dim>::curl_type> velocity_curls(
-      n_q_points);
+    const unsigned int n_q_points =
+      this->fe_values_vorticity->get_quadrature().size();
+
+    AssertDimension(n_q_points, this->solver_fe_values.get_quadrature().size());
+
+    std::vector<curl_type> velocity_curls(n_q_points);
 
     const FEValuesExtractors::Vector velocity_extractor(this->ordering.u_lower);
     const extractor_type             vorticity_extractor(0);
@@ -180,7 +194,6 @@ namespace PostProcessingTools
         if (cell->is_locally_owned())
         {
           this->fe_values_vorticity->reinit(cell);
-
           this->solver_fe_values.reinit(
             cell->as_dof_handler_iterator(this->solver_dof_handler));
 
@@ -193,26 +206,46 @@ namespace PostProcessingTools
 
           for (unsigned int q = 0; q < n_q_points; ++q)
           {
+            const double JxW = this->fe_values_vorticity->JxW(q);
+
+// Starting with deal.II v9.8, the curl_type is a scalar in 2D, but
+// in 9.7 it is a Tensor<1, 1>.
+#if DEAL_II_VERSION_GTE(9, 8, 0)
+            const curl_type curl = velocity_curls[q];
+#else
+            // Use shape_type so that we can multiply phi_u[i] * curl in both 2D
+            // and 3D
             shape_type curl;
             if constexpr (dim == 2)
               curl = velocity_curls[q][0];
             else
               curl = velocity_curls[q];
+#endif
 
             for (unsigned int k = 0; k < dofs_per_cell; ++k)
               phi_u[k] =
                 (*this->fe_values_vorticity)[vorticity_extractor].value(k, q);
 
-            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            if (this->param.finite_elements.use_quads)
             {
-              // RHS
-              local_rhs(i) +=
-                (phi_u[i] * curl) * this->fe_values_vorticity->JxW(q);
-
-              // Mass matrix
-              for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                local_matrix(i, j) +=
-                  phi_u[j] * phi_u[i] * this->fe_values_vorticity->JxW(q);
+              for (unsigned int i = 0; i < dofs_per_cell; ++i)
+              {
+                // RHS
+                local_rhs(i) += (phi_u[i] * curl) * JxW;
+                // Diagonal mass matrix
+                local_matrix(i, i) += phi_u[i] * phi_u[i] * JxW;
+              }
+            }
+            else
+            {
+              for (unsigned int i = 0; i < dofs_per_cell; ++i)
+              {
+                // RHS
+                local_rhs(i) += (phi_u[i] * curl) * JxW;
+                // Mass matrix
+                for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                  local_matrix(i, j) += phi_u[j] * phi_u[i] * JxW;
+              }
             }
           }
           cell->distribute_local_to_global(local_matrix,
@@ -222,7 +255,6 @@ namespace PostProcessingTools
         }
       system_matrix.compress(VectorOperation::add);
       system_rhs.compress(VectorOperation::add);
-
       matrix_is_assembled = true;
     }
     else
@@ -240,16 +272,22 @@ namespace PostProcessingTools
 
           for (unsigned int q = 0; q < n_q_points; ++q)
           {
+            const double JxW = this->fe_values_vorticity->JxW(q);
+
+#if DEAL_II_VERSION_GTE(9, 8, 0)
+            const curl_type curl = velocity_curls[q];
+#else
             shape_type curl;
             if constexpr (dim == 2)
               curl = velocity_curls[q][0];
             else
               curl = velocity_curls[q];
+#endif
 
             for (unsigned int i = 0; i < dofs_per_cell; ++i)
               local_rhs(i) +=
                 (*this->fe_values_vorticity)[vorticity_extractor].value(i, q) *
-                curl * this->fe_values_vorticity->JxW(q);
+                curl * JxW;
           }
           cell->distribute_local_to_global(local_rhs, system_rhs);
         }
@@ -265,17 +303,34 @@ namespace PostProcessingTools
   template <int dim>
   void VorticityL2Projection<dim>::solve()
   {
-    // Solve with CG
-    SolverControl                          solver_control(1e5, 1e-7);
-    LA::SolverCG                           cg_solver(solver_control);
-    PETScWrappers::PreconditionBlockJacobi preconditioner(system_matrix);
-    cg_solver.solve(system_matrix, this->solution, system_rhs, preconditioner);
+    if (this->param.finite_elements.use_quads)
+    {
+      // When using quads, the solve is trivial as the mass matrix is diagonal
+      // when using interpolation nodes at the GLL nodes.
+      const unsigned int start = (this->solution.local_range().first),
+                         end   = (this->solution.local_range().second);
+      for (unsigned int i = start; i < end; ++i)
+        this->solution(i) = system_rhs(i) / system_matrix.diag_element(i);
+      this->solution.compress(VectorOperation::insert);
+    }
+    else
+    {
+      // Solve with CG
+      SolverControl                          solver_control(1e5, 1e-7);
+      LA::SolverCG                           cg_solver(solver_control);
+      PETScWrappers::PreconditionBlockJacobi preconditioner(system_matrix);
+      cg_solver.solve(system_matrix,
+                      this->solution,
+                      system_rhs,
+                      preconditioner);
 
-    if (Utilities::MPI::this_mpi_process(this->mpi_communicator) == 0 &&
-        this->param.postprocessing.vorticity.verbosity ==
-          Parameters::Verbosity::verbose)
-      std::cout << "Vorticity L2 projection: " << solver_control.last_step()
-                << " CG iterations needed to obtain convergence." << std::endl;
+      if (Utilities::MPI::this_mpi_process(this->mpi_communicator) == 0 &&
+          this->param.postprocessing.vorticity.verbosity ==
+            Parameters::Verbosity::verbose)
+        std::cout << "Vorticity L2 projection: " << solver_control.last_step()
+                  << " CG iterations needed to obtain convergence."
+                  << std::endl;
+    }
   }
 
   template <int dim>
@@ -320,22 +375,27 @@ namespace PostProcessingTools
   void VorticityWeightedAverage<dim>::do_postprocess(
     const LA::ParVectorType &present_solution)
   {
+    using shape_type     = std::conditional_t<dim == 2, double, Tensor<1, dim>>;
+    using curl_type      = typename VorticityAtDofBase<dim>::curl_type;
+    using extractor_type = std::conditional_t<dim == 2,
+                                              FEValuesExtractors::Scalar,
+                                              FEValuesExtractors::Vector>;
+
     this->solution = 0;
     weights        = 0;
 
+    const unsigned int degree = this->param.postprocessing.vorticity.degree;
     const FEValuesExtractors::Vector velocity_extractor(this->ordering.u_lower);
+    const extractor_type             vorticity_extractor(0);
 
     const unsigned int dofs_per_cell = this->fe->dofs_per_cell;
     Vector<double>     local_rhs(dofs_per_cell), local_weights(dofs_per_cell);
 
     const unsigned int n_q_points =
       this->solver_fe_values.get_quadrature().size();
-
     AssertDimension(n_q_points,
                     this->fe_values_vorticity->get_quadrature().size());
-
-    std::vector<typename VorticityAtDofBase<dim>::curl_type> velocity_curls(
-      n_q_points);
+    std::vector<curl_type> velocity_curls(n_q_points);
 
     for (const auto &cell : this->dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
@@ -352,16 +412,45 @@ namespace PostProcessingTools
 
         for (unsigned int q = 0; q < n_q_points; ++q)
         {
-          const double JxW  = this->fe_values_vorticity->JxW(q);
-          const double curl = velocity_curls[q][0];
+          const double JxW = this->fe_values_vorticity->JxW(q);
+
+#if DEAL_II_VERSION_GTE(9, 8, 0)
+          const curl_type curl = velocity_curls[q];
+#else
+          shape_type curl;
+          if constexpr (dim == 2)
+            curl = velocity_curls[q][0];
+          else
+            curl = velocity_curls[q];
+#endif
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
           {
-            // const double shape = this->fe_values_vorticity->shape_value(i,
-            // q); local_rhs(i) += curl * shape * JxW; local_weights(i) += shape
-            // * JxW;
-            local_rhs(i) += curl * JxW;
-            local_weights(i) += JxW;
+            if constexpr (dim == 2)
+            {
+              if (degree == 1)
+              {
+                const double shape =
+                  this->fe_values_vorticity->shape_value(i, q);
+                local_rhs(i) += curl * shape * JxW;
+                local_weights(i) += shape * JxW;
+              }
+              else
+              {
+                // Simple weighted average of evaluations for P2+
+                local_rhs(i) += curl * JxW;
+                local_weights(i) += JxW;
+              }
+            }
+            else
+            {
+              const unsigned int comp =
+                this->fe->system_to_component_index(i).first;
+
+              // Simple weighted average of each component in 3D
+              local_rhs(i) += curl[comp] * JxW;
+              local_weights(i) += JxW;
+            }
           }
         }
         cell->distribute_local_to_global(local_rhs, this->solution);
@@ -429,7 +518,7 @@ namespace PostProcessingTools
                                   cell_quadrature,
                                   update_gradients)
   {
-    this->data_names          = {"q_criterion_dofs"};
+    this->data_names          = {"q_criterion"};
     this->data_interpretation = {
       DataComponentInterpretation::DataComponentInterpretation::
         component_is_scalar};
@@ -498,9 +587,6 @@ namespace PostProcessingTools
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
           {
-            // const double shape = this->fe_values_vorticity->shape_value(i,
-            // q); local_rhs(i) += curl * shape * JxW; local_weights(i) += shape
-            // * JxW;
             local_rhs(i) += q_criterion * JxW;
             local_weights(i) += JxW;
           }

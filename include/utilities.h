@@ -569,4 +569,60 @@ inline double divided_difference<3>(const std::vector<double> &times,
   return (d123 - d012) / (times[3] - times[0]);
 }
 
+/**
+ * Compute the Q-criterion from the given @p velocity_gradient.
+ * The Q-criterion is defined as the second invariant of grad(u),
+ * which also writes
+ *
+ *  Q = 0.5 * (||\Omega||^2 - ||D||^2),
+ *
+ * where \Omega and D are the anti-symmetric and symmetric parts of grad(u),
+ * respectively, and ||.|| is the Frobenius norm.
+ *
+ * This function is a template over DoubleArrayType, which should be indexable
+ * with two indices, to accomodate both Tensor<2, dim> as well as
+ * std::vector<Vector<double>>, the latter being the input data for the classes
+ * derived from DataPostprocessor.
+ *
+ * @p u_lower should be 0 if velocity_gradient is a Tensor<2, dim>, and should
+ * be the first velocity component if it is a std::vector<Vector<double>>.
+ */
+template <int dim, typename DoubleArrayType>
+inline double compute_q_criterion(const DoubleArrayType &velocity_gradient,
+                                  const unsigned int     u_lower = 0)
+{
+  if constexpr (running_in_debug_mode())
+  {
+    // Some checks
+    if constexpr (std::is_same_v<DoubleArrayType, Tensor<2, dim>>)
+      Assert(u_lower == 0,
+             ExcMessage(
+               "u_lower must be 0 if the input gradient is a Tensor<2, dim>"));
+    else if constexpr (std::is_same_v<DoubleArrayType,
+                                      std::vector<Vector<double>>>)
+      Assert(
+        u_lower + dim < velocity_gradient.size(),
+        ExcMessage(
+          "u_lower + dim exceeds the size of the given velocity gradient"));
+  }
+
+  double norm_sym_squared     = 0;
+  double norm_antisym_squared = 0;
+
+  for (unsigned int i = 0; i < dim; ++i)
+    for (unsigned int j = 0; j < dim; ++j)
+    {
+      const double sym_ij = 0.5 * (velocity_gradient[u_lower + i][j] +
+                                   velocity_gradient[u_lower + j][i]);
+
+      const double antisym_ij = 0.5 * (velocity_gradient[u_lower + i][j] -
+                                       velocity_gradient[u_lower + j][i]);
+
+      norm_sym_squared += sym_ij * sym_ij;
+      norm_antisym_squared += antisym_ij * antisym_ij;
+    }
+
+  return 0.5 * (norm_antisym_squared - norm_sym_squared);
+}
+
 #endif

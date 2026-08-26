@@ -233,7 +233,7 @@ void HeatSolver<dim>::set_interval_data(const unsigned int interval_index)
   {
     const auto description = get_variables_description();
     postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
-      param, *triangulation, *dof_handler, description);
+      *ordering, param, *triangulation, *dof_handler, description);
   }
   else
     postproc_handler->attach_triangulation_and_dof_handler(*triangulation,

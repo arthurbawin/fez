@@ -135,7 +135,7 @@ namespace PostProcessingTools
   template <int dim>
   std::vector<std::string> QCriterionEvaluator<dim>::get_data_names() const
   {
-    return std::vector<std::string>(n_components, "qcriterion_evaluator");
+    return std::vector<std::string>(n_components, "qcriterion");
   }
 
   template <int dim>

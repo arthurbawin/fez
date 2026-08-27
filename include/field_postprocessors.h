@@ -473,17 +473,17 @@ namespace PostProcessingTools
                  const DoFHandler<dim>      &dof_handler,
                  const Quadrature<dim>      &cell_quadrature,
                  const bool                  with_moving_mesh)
-    : PostprocessorAtDofBase<dim>(
-        ordering,
-        param,
-        mapping,
-        dof_handler,
-        param.finite_elements.use_quads ?
-          QGaussLobatto<dim>(param.postprocessing.vorticity.degree + 1) :
-          cell_quadrature,
-        evaluator.get_main_solver_update_flags(),
-        evaluator.get_data_names(),
-        evaluator.get_components_interpretation())
+    : PostprocessorAtDofBase<dim>(ordering,
+                                  param,
+                                  mapping,
+                                  dof_handler,
+                                  param.finite_elements.use_quads ?
+                                    QGaussLobatto<dim>(evaluator.param.degree +
+                                                       1) :
+                                    cell_quadrature,
+                                  evaluator.get_main_solver_update_flags(),
+                                  evaluator.get_data_names(),
+                                  evaluator.get_components_interpretation())
     , evaluator(evaluator)
     , with_moving_mesh(with_moving_mesh)
     , matrix_is_assembled(false)

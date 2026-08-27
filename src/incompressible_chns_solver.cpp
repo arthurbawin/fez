@@ -13,6 +13,7 @@
 #include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
+#include <deal.II/numerics/vector_tools_evaluate.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
 #include <error_estimation/patches.h>
@@ -30,6 +31,7 @@
 #include <array>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <queue>
 
@@ -1535,6 +1537,201 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::output_line_probe()
+{
+  const auto &probe = this->param.postprocessing.line_probe;
+  const bool  due =
+    probe.enable && probe.write_results &&
+    (this->time_handler.current_time_iteration % probe.output_frequency == 0 ||
+     this->time_handler.is_finished());
+  if (!due)
+    return;
+
+  TimerOutput::Scope timer(this->computing_timer, "Write CHNS line probe");
+
+  AssertThrow(probe.start.size() >= dim,
+              ExcMessage("Line-probe start point has too few coordinates."));
+  AssertThrow(probe.end.size() >= dim,
+              ExcMessage("Line-probe end point has too few coordinates."));
+  AssertThrow(probe.n_points >= 2,
+              ExcMessage("Line probe needs at least two points."));
+
+  std::vector<Point<dim>> points(probe.n_points);
+  for (unsigned int i = 0; i < probe.n_points; ++i)
+  {
+    const double s =
+      static_cast<double>(i) / static_cast<double>(probe.n_points - 1);
+    for (unsigned int d = 0; d < dim; ++d)
+      points[i][d] = (1. - s) * probe.start[d] + s * probe.end[d];
+  }
+
+  Utilities::MPI::RemotePointEvaluation<dim, dim> cache;
+  const auto                                      pressure_values =
+    VectorTools::point_values<1>(*this->moving_mapping,
+                                 *this->dof_handler,
+                                 *this->present_solution,
+                                 points,
+                                 cache,
+                                 VectorTools::EvaluationFlags::avg,
+                                 this->ordering->p_lower);
+  AssertThrow(cache.all_points_found(),
+              ExcMessage("At least one line-probe point was not found."));
+
+  const auto tracer_values =
+    VectorTools::point_values<1>(cache,
+                                 *this->dof_handler,
+                                 *this->present_solution,
+                                 VectorTools::EvaluationFlags::avg,
+                                 this->ordering->phi_lower);
+  const auto potential_values =
+    VectorTools::point_values<1>(cache,
+                                 *this->dof_handler,
+                                 *this->present_solution,
+                                 VectorTools::EvaluationFlags::avg,
+                                 this->ordering->mu_lower);
+  const auto velocity_values =
+    VectorTools::point_values<dim>(cache,
+                                   *this->dof_handler,
+                                   *this->present_solution,
+                                   VectorTools::EvaluationFlags::avg,
+                                   this->ordering->u_lower);
+  const auto tracer_gradients =
+    VectorTools::point_gradients<1>(cache,
+                                    *this->dof_handler,
+                                    *this->present_solution,
+                                    VectorTools::EvaluationFlags::avg,
+                                    this->ordering->phi_lower);
+
+  std::vector<double> psi_values;
+  if constexpr (with_enlarged)
+    psi_values = VectorTools::point_values<1>(cache,
+                                              *this->dof_handler,
+                                              *this->present_solution,
+                                              VectorTools::EvaluationFlags::avg,
+                                              this->ordering->psi_lower);
+
+  const auto &chp    = this->param.cahn_hilliard;
+  const auto  marker = CahnHilliard::get_material_phase_function(chp);
+  const auto  marker_d =
+    CahnHilliard::get_material_phase_derivative_function(chp);
+  const auto marker_dd =
+    CahnHilliard::get_material_phase_second_derivative_function(chp);
+  const auto mobility_limiter =
+    CahnHilliard::get_mobility_limiter_function(chp);
+  const auto mobility_evaluator =
+    CahnHilliard::get_mobility_evaluation_function(chp);
+
+  const double epsilon     = chp.epsilon_interface;
+  const double sigma_tilde = 3. / (2. * std::sqrt(2.)) * chp.surface_tension;
+  double       adaptive_coefficient = 0.;
+  double       adaptive_delta       = 0.;
+  if (chp.mobility_model ==
+      Parameters::CahnHilliard<dim>::MobilityModel::adaptive)
+  {
+    adaptive_coefficient = chp.adaptive_mobility_n * std::sqrt(2.) * epsilon *
+                           epsilon * epsilon / sigma_tilde;
+    adaptive_delta = chp.adaptive_mobility_delta;
+  }
+  else if (chp.mobility_model ==
+           Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2)
+  {
+    adaptive_coefficient = chp.adaptive_mobility_2_n * 2. * epsilon * epsilon *
+                           epsilon * epsilon / sigma_tilde;
+    adaptive_delta = chp.adaptive_mobility_2_delta;
+  }
+  else if (chp.mobility_model ==
+           Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_3)
+  {
+    adaptive_coefficient =
+      chp.adaptive_mobility_3_n * epsilon * epsilon / sigma_tilde;
+    adaptive_delta = chp.adaptive_mobility_3_delta;
+  }
+
+  const double double_well_coefficient =
+    CahnHilliard::potential_double_well_coefficient(chp, sigma_tilde);
+  const double gradient_coefficient =
+    CahnHilliard::potential_gradient_coefficient(chp, sigma_tilde);
+  const bool   use_ding_horriche = CahnHilliard::is_ding_horriche_model(chp);
+  const bool   use_abels_nlm     = CahnHilliard::is_abels_nlm_model(chp);
+  const std::string reconstructed_pressure_name =
+    use_ding_horriche ? "pressure_hat" :
+    use_abels_nlm     ? "pressure_sharp" :
+                        "pressure_abels";
+  const double free_energy_prefactor =
+    use_ding_horriche ? CahnHilliard::ding_horriche_capillary_coefficient(chp) :
+                        1.;
+
+  if (this->mpi_rank != 0)
+    return;
+
+  const std::string filename =
+    this->param.output.output_dir + probe.output_prefix + ".csv";
+  const bool first_iteration = this->time_handler.current_time_iteration == 0;
+  const bool write_header = first_iteration || !std::ifstream(filename).good();
+  std::ofstream out(filename,
+                    first_iteration ? std::ios::trunc : std::ios::app);
+  AssertThrow(out,
+              ExcMessage("Could not open line-probe CSV '" + filename + "'."));
+  out << std::setprecision(probe.precision);
+
+  if (write_header)
+  {
+    out << "time,iteration,point_index";
+    for (unsigned int d = 0; d < dim; ++d)
+      out << ",x" << d;
+    out << ",pressure," << reconstructed_pressure_name
+        << ",pressure_yl,pressure_physical"
+        << ",pressure_free_energy,tracer,potential,mobility";
+    for (unsigned int d = 0; d < dim; ++d)
+      out << ",velocity_" << d;
+    out << ",velocity_norm";
+    if constexpr (with_enlarged)
+      out << ",psi";
+    out << '\n';
+  }
+
+  for (unsigned int i = 0; i < probe.n_points; ++i)
+  {
+    const double phi             = tracer_values[i];
+    const double mu              = potential_values[i];
+    const double material_marker = marker(chp, phi);
+    const double reconstructed_pressure =
+      use_ding_horriche ? pressure_values[i] :
+                          pressure_values[i] + material_marker * mu;
+    const double pressure_yl = reconstructed_pressure;
+    const double double_well = .25 * (phi * phi - 1.) * (phi * phi - 1.);
+    const double free_energy =
+      free_energy_prefactor *
+      (double_well_coefficient * double_well +
+       .5 * gradient_coefficient * tracer_gradients[i].norm_square());
+
+    const double mobility_phi = mobility_limiter(phi);
+    const auto   mobility     = mobility_evaluator(chp,
+                                             marker(chp, mobility_phi),
+                                             marker_d(chp, mobility_phi),
+                                             marker_dd(chp, mobility_phi),
+                                             velocity_values[i],
+                                             tracer_gradients[i],
+                                             adaptive_coefficient,
+                                             adaptive_delta);
+
+    out << this->time_handler.current_time << ','
+        << this->time_handler.current_time_iteration << ',' << i;
+    for (unsigned int d = 0; d < dim; ++d)
+      out << ',' << points[i][d];
+    out << ',' << pressure_values[i] << ',' << reconstructed_pressure << ','
+        << pressure_yl << ',' << pressure_yl - free_energy << ',' << free_energy
+        << ',' << phi << ',' << mu << ',' << mobility.value;
+    for (unsigned int d = 0; d < dim; ++d)
+      out << ',' << velocity_values[i][d];
+    out << ',' << velocity_values[i].norm();
+    if constexpr (with_enlarged)
+      out << ',' << psi_values[i];
+    out << '\n';
+  }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   solver_specific_post_processing()
 {
@@ -1550,6 +1747,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
       *this->present_solution,
       this->time_handler);
   }
+
+  output_line_probe();
 
   const auto &ts = this->param.postprocessing.time_scales;
   if (!ts.enable)

@@ -160,6 +160,9 @@ protected:
    */
   virtual void solver_specific_post_processing() override;
 
+  /** Write the optional configurable straight-line CHNS field probe. */
+  void output_line_probe();
+
   /** Return whether the optional mesh-quality audit is due this step. */
   bool should_output_mesh_quality() const;
 

@@ -10,6 +10,7 @@
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
+#include <deal.II/numerics/vector_tools_evaluate.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <errors.h>
 #include <elasticity_solver.h>
@@ -30,8 +31,18 @@
 #include <map>
 #include <sstream>
 
+#if defined(DEAL_II_GMSH_WITH_API)
+#  include <gmsh.h>
+#endif
+
 namespace
 {
+  bool has_msh_extension(const std::string &filename)
+  {
+    return filename.size() >= 4 &&
+           filename.substr(filename.size() - 4) == ".msh";
+  }
+
   // FNV-1a hash of a file's contents, used to detect mesh changes in the
   // presolved-mesh-position cache fingerprint.
   std::string hash_file_contents(const std::string &filename)
@@ -691,6 +702,191 @@ void ElasticitySolver<dim>::move_mesh()
 }
 
 template <int dim>
+void ElasticitySolver<dim>::write_final_msh()
+{
+  if (!param.elasticity.write_final_msh)
+    return;
+
+  AssertThrow(
+    has_msh_extension(param.mesh.filename),
+    ExcMessage("Writing the final deformed mesh requires the input mesh to "
+               "come from a Gmsh .msh file."));
+
+#if defined(DEAL_II_GMSH_WITH_API)
+  const unsigned int rank = Utilities::MPI::this_mpi_process(mpi_communicator);
+
+  std::vector<std::size_t> node_tags;
+  std::vector<double>      node_coordinates;
+  std::vector<Point<dim>>  evaluation_points;
+  bool                     gmsh_initialized_here = false;
+  bool                     gmsh_model_owned      = false;
+
+  const auto cleanup_owned_gmsh_state = [&]() noexcept {
+    if (rank != 0 || !gmsh::isInitialized())
+      return;
+
+    if (gmsh_model_owned)
+      try
+      {
+        gmsh::clear();
+      }
+      catch (...)
+      {}
+
+    if (gmsh_initialized_here)
+      try
+      {
+        gmsh::finalize();
+      }
+      catch (...)
+      {}
+  };
+
+  std::string gmsh_setup_error;
+
+  if (rank == 0)
+  {
+    try
+    {
+      gmsh_initialized_here = !gmsh::isInitialized();
+      if (gmsh_initialized_here)
+        gmsh::initialize();
+
+      // This routine cannot restore an arbitrary caller-owned Gmsh model.
+      // Require an empty model list so that clearing below only removes the
+      // mesh opened here.
+      std::vector<std::string> existing_models;
+      gmsh::model::list(existing_models);
+      AssertThrow(existing_models.empty(),
+                  ExcMessage("Cannot write the final mesh while another Gmsh "
+                             "model is open."));
+
+      gmsh::option::setNumber("General.Verbosity", 2);
+      gmsh_model_owned = true;
+      gmsh::open(param.mesh.filename);
+
+      std::vector<double> parametric_coordinates;
+      gmsh::model::mesh::getNodes(node_tags,
+                                  node_coordinates,
+                                  parametric_coordinates,
+                                  -1,
+                                  -1,
+                                  false,
+                                  false);
+
+      evaluation_points.reserve(node_tags.size());
+      for (unsigned int i = 0; i < node_tags.size(); ++i)
+      {
+        Point<dim> point;
+        for (unsigned int d = 0; d < dim; ++d)
+          point[d] = node_coordinates[3 * i + d];
+        evaluation_points.push_back(point);
+      }
+    }
+    catch (const std::exception &exception)
+    {
+      gmsh_setup_error = exception.what();
+      cleanup_owned_gmsh_state();
+    }
+    catch (const std::string &exception)
+    {
+      gmsh_setup_error = exception;
+      cleanup_owned_gmsh_state();
+    }
+    catch (...)
+    {
+      gmsh_setup_error = "unknown Gmsh error";
+      cleanup_owned_gmsh_state();
+    }
+  }
+
+  gmsh_setup_error =
+    Utilities::MPI::broadcast(mpi_communicator, gmsh_setup_error, 0);
+  AssertThrow(gmsh_setup_error.empty(),
+              ExcMessage("Could not open the Gmsh input mesh: " +
+                         gmsh_setup_error));
+
+  present_solution.update_ghost_values();
+
+  Utilities::MPI::RemotePointEvaluation<dim, dim> cache;
+  const auto deformed_positions = VectorTools::point_values<dim>(
+    *mapping,
+    dof_handler,
+    present_solution,
+    evaluation_points,
+    cache,
+    VectorTools::EvaluationFlags::avg,
+    ordering.x_lower);
+
+  const unsigned int all_points_found = Utilities::MPI::min(
+    cache.all_points_found() ? 1u : 0u, mpi_communicator);
+  if (all_points_found == 0)
+  {
+    cleanup_owned_gmsh_state();
+    AssertThrow(false,
+                ExcMessage(
+                  "Could not evaluate the deformed mesh position at all Gmsh "
+                  "nodes when writing the final .msh file."));
+  }
+
+  std::string output_mesh_filename;
+  std::string gmsh_write_error;
+  if (rank == 0)
+  {
+    try
+    {
+      AssertDimension(deformed_positions.size(), node_tags.size());
+
+      for (unsigned int i = 0; i < node_tags.size(); ++i)
+      {
+        std::vector<double> coordinates(3, 0.0);
+        for (unsigned int d = 0; d < dim; ++d)
+          coordinates[d] = deformed_positions[i][d];
+        if constexpr (dim == 2)
+          coordinates[2] = node_coordinates[3 * i + 2];
+
+        gmsh::model::mesh::setNode(node_tags[i], coordinates, {});
+      }
+
+      output_mesh_filename = param.output.output_dir +
+                             param.output.output_prefix +
+                             "linear_elasticity_final_mesh.msh";
+
+      gmsh::write(output_mesh_filename);
+    }
+    catch (const std::exception &exception)
+    {
+      gmsh_write_error = exception.what();
+    }
+    catch (const std::string &exception)
+    {
+      gmsh_write_error = exception;
+    }
+    catch (...)
+    {
+      gmsh_write_error = "unknown Gmsh error";
+    }
+
+    cleanup_owned_gmsh_state();
+  }
+
+  gmsh_write_error =
+    Utilities::MPI::broadcast(mpi_communicator, gmsh_write_error, 0);
+  AssertThrow(gmsh_write_error.empty(),
+              ExcMessage("Could not write the final Gmsh mesh: " +
+                         gmsh_write_error));
+
+  if (rank == 0)
+    pcout << "Wrote final deformed mesh to " << output_mesh_filename
+          << std::endl;
+#else
+  AssertThrow(false,
+              ExcMessage("Gmsh API support is required to write the final "
+                         "deformed .msh file."));
+#endif
+}
+
+template <int dim>
 std::string ElasticitySolver<dim>::presolved_mesh_fingerprint() const
 {
   const auto        &solid = param.physical_properties.pseudosolids[0];
@@ -913,6 +1109,7 @@ void ElasticitySolver<dim>::postprocess_solution()
   if (param.mms_param.enable)
     compute_errors();
 
+  write_final_msh();
   move_mesh();
   output_results();
 }

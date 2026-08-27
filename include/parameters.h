@@ -342,6 +342,15 @@ namespace Parameters
       bool         compute_forces_on_slices;
     } slices;
 
+    // Sample CHNS fields along a configurable straight segment and write them
+    // to a CSV for validation and diagnostics in any CHNS simulation.
+    struct LineProbe : public PostProcessingBase
+    {
+      std::vector<double> start;
+      std::vector<double> end;
+      unsigned int        n_points;
+    } line_probe;
+
     // CHNS characteristic time scales and dimensionless numbers (advection vs
     // Cahn-Hilliard chemical diffusion, capillary, viscous, ...), written per
     // output step to a CSV. Used to analyse why the nonlinear solve becomes
@@ -803,6 +812,10 @@ namespace Parameters
 
   struct Elasticity
   {
+    // If true, write the final deformed mesh to a Gmsh .msh file at the end
+    // of the elasticity solve. This requires an input mesh in .msh format.
+    bool write_final_msh;
+
     // If true, then the provided position source term is to be evaluated on
     // the current mesh, and not on the reference mesh where the elasticity
     // equation is solved (that is, we evaluate f(x(X)) instead of f(X).

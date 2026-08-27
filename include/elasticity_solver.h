@@ -139,6 +139,12 @@ public:
   void move_mesh();
 
   /**
+   * Write the final deformed mesh in Gmsh format while preserving the entities
+   * and physical groups from the input mesh.
+   */
+  void write_final_msh();
+
+  /**
    * Try to load the presolved mesh position from the disk cache. The cache is
    * keyed by support-point location (so it is reusable with a different number
    * of MPI processes) and guarded by a fingerprint of the presolver-defining

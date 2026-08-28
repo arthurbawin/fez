@@ -130,6 +130,10 @@ public:
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
 protected:
+  /** Compute the adaptive-mobility time number from the current solution. */
+  virtual void
+  compute_solver_specific_timestep_adaptation_criterion() override;
+
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override
   {

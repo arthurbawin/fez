@@ -336,6 +336,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
       }
 
       compute_max_cfl();
+      compute_solver_specific_timestep_adaptation_criterion();
     }
     while (!time_handler.is_timestep_accepted(*present_solution,
                                               *previous_solutions));

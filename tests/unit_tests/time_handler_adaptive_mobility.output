@@ -1,0 +1,4 @@
+
+DEAL::BDF1 rejection, rollback, and prediction OK
+DEAL::BDF2 startup immunity and post-startup rejection OK
+DEAL::Adaptive mobility scaling and time number OK

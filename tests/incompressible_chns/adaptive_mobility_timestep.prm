@@ -1,0 +1,98 @@
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write vtu results = false
+end
+
+subsection Mesh
+  set dealii preset mesh     = rectangle
+  set dealii mesh parameters = 1, 1 : 0., 0. : 1., 1. : true
+end
+
+subsection Time integration
+  set verbosity = verbose
+  set dt        = 0.1
+  set t_initial = 0
+  set t_end     = 0.3
+  set scheme    = BDF1
+
+  subsection Adaptation
+    set enable = true
+    set adaptation strategy = adaptive mobility
+    set target adaptive mobility number = 0.1
+    set reject timestep with large adaptive mobility = false
+    set max timestep = 1
+    set min timestep = 1e-6
+    set max timestep increase = 10
+    set max timestep reduction = 0.01
+  end
+end
+
+subsection FiniteElements
+  set Velocity degree  = 2
+  set Pressure degree  = 1
+  set Tracer degree    = 1
+  set Potential degree = 1
+end
+
+subsection Physical properties
+  set number of fluids = 2
+  subsection Fluid 0
+    set density = 1
+    set kinematic viscosity = 1
+  end
+  subsection Fluid 1
+    set density = 1
+    set kinematic viscosity = 1
+  end
+end
+
+subsection Cahn Hilliard
+  set mobility model = adaptative_mobility_3
+  set adaptive mobility 3 n = 1
+  set adaptive mobility 3 delta = 1e-12
+  set surface tension = 1.8856180831641267
+  set interface thickness = 1
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 2; 0
+  end
+  subsection cahn hilliard tracer
+    set Function expression = x
+  end
+end
+
+subsection Exact solution
+  subsection exact velocity
+    set Function expression = 2; 0
+  end
+  subsection exact pressure
+    set Function expression = 0
+  end
+  subsection exact cahn hilliard tracer
+    set Function expression = x
+  end
+  subsection exact cahn hilliard potential
+    set Function expression = 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 0
+end
+
+subsection CahnHilliard boundary conditions
+  set number = 0
+end
+
+subsection Debug
+  set apply exact solution = true
+end

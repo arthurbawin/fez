@@ -34,6 +34,7 @@ TimeHandler::TimeHandler(const Parameters::TimeIntegration &time_parameters)
   , n_rejected_steps(0)
   , last_nonlinear_solver_converged(true)
   , max_cfl_number(0.)
+  , max_adaptive_mobility_number(0.)
 {
   if (!steady_scheme)
   {
@@ -132,6 +133,20 @@ void TimeHandler::validate_parameters(const ComponentOrdering &ordering) const
         "with a solver which does not solve for the velocity variable. "
         "The alternative is to adapt based on the BDF truncation error, "
         "by setting \"set adaptation strategy = bdf truncation error\"."));
+  else if (time_parameters.adaptation.strategy ==
+           Parameters::TimeIntegration::Adaptation::AdaptationStrategy::
+             AdaptiveMobility)
+  {
+    const bool has_chns_fields =
+      ordering.has_variable(SolverInfo::VariableType::velocity) &&
+      ordering.has_variable(SolverInfo::VariableType::phase_tracer) &&
+      ordering.has_variable(SolverInfo::VariableType::phase_potential);
+    AssertThrow(
+      has_chns_fields,
+      ExcMessage(
+        "Adaptive-mobility time-step adaptation is only available for CHNS "
+        "solvers with velocity, phase tracer, and phase potential fields."));
+  }
 }
 
 bool TimeHandler::is_steady() const
@@ -339,6 +354,20 @@ bool TimeHandler::is_timestep_accepted(
                "CFL\nnumber during the initial steps.\n"
             << std::endl;
     }
+    else if (time_parameters.adaptation.strategy == Strategy::AdaptiveMobility)
+    {
+      const double mobility_ratio =
+        max_adaptive_mobility_number /
+        time_parameters.adaptation.target_adaptive_mobility_number;
+      if (mobility_ratio >
+          time_parameters.adaptation.reject_adaptive_mobility_factor)
+        if (mpi_rank == 0)
+          std::cout
+            << "\nWarning: the adaptive mobility number exceeds the step "
+               "rejection threshold, but this BDF startup step is accepted. "
+               "Consider reducing the initial time step.\n"
+            << std::endl;
+    }
     goto accept_step;
   }
 
@@ -399,6 +428,30 @@ bool TimeHandler::is_timestep_accepted(
     }
   }
 
+  if (time_parameters.adaptation.strategy == Strategy::AdaptiveMobility)
+  {
+    if (time_parameters.adaptation
+          .reject_timestep_with_large_adaptive_mobility)
+    {
+      const double mobility_ratio =
+        max_adaptive_mobility_number /
+        time_parameters.adaptation.target_adaptive_mobility_number;
+
+      if (mobility_ratio >
+          time_parameters.adaptation.reject_adaptive_mobility_factor)
+      {
+        if (mpi_rank == 0)
+          std::cout << "Rejecting time step because adaptive mobility ratio "
+                       "is too large: "
+                    << mobility_ratio << " > "
+                    << time_parameters.adaptation
+                         .reject_adaptive_mobility_factor
+                    << std::endl;
+        goto reject_step;
+      }
+    }
+  }
+
 accept_step:
   // Accepting step : reset counter and update time step
   n_consecutive_rejected_steps = 0;
@@ -444,6 +497,14 @@ unsigned int TimeHandler::get_n_rejected_steps() const
 void TimeHandler::set_max_cfl(const double max_cfl)
 {
   max_cfl_number = max_cfl;
+}
+
+void TimeHandler::set_max_adaptive_mobility_number(const double number)
+{
+  AssertThrow(std::isfinite(number) && number >= 0.,
+              ExcMessage("The adaptive mobility number must be finite and "
+                         "non-negative."));
+  max_adaptive_mobility_number = number;
 }
 
 double clamp_timestep(const double                       current_timestep,
@@ -525,6 +586,16 @@ void TimeHandler::set_next_timestep(const bool step_was_accepted)
       next_timestep =
         current_dt * time_parameters.adaptation.target_cfl / max_cfl_number;
     }
+    if (time_parameters.adaptation.strategy == Strategy::AdaptiveMobility)
+    {
+      if (max_adaptive_mobility_number > 0.)
+        next_timestep =
+          current_dt *
+          time_parameters.adaptation.target_adaptive_mobility_number /
+          max_adaptive_mobility_number;
+      else
+        next_timestep = time_parameters.adaptation.max_timestep;
+    }
 
     // Make sure the last time step is the prescribed end time
     // FIXME: adjust time step to match the end of the current subinterval
@@ -556,6 +627,14 @@ void TimeHandler::set_next_timestep(const bool step_was_accepted)
       // safety factor to avoid multiple rejections in a row.
       next_timestep = reduction_factor * current_dt *
                       time_parameters.adaptation.target_cfl / max_cfl_number;
+    }
+    else if (time_parameters.adaptation.strategy == Strategy::AdaptiveMobility)
+    {
+      // Use the same safety factor and retry policy as CFL adaptation.
+      next_timestep =
+        reduction_factor * current_dt *
+        time_parameters.adaptation.target_adaptive_mobility_number /
+        max_adaptive_mobility_number;
     }
     else
     {

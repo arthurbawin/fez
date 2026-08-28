@@ -643,10 +643,12 @@ namespace Parameters
       // - adapt based on an estimate of the BDF truncation error
       // - adapt based on the maximum CFL number (only for solvers with
       //   a velocity variable)
+      // - adapt based on the maximum adaptive CHNS mobility number
       enum class AdaptationStrategy
       {
         BDFTruncationError,
-        CFL
+        CFL,
+        AdaptiveMobility
       } strategy;
 
       double max_timestep;
@@ -663,6 +665,11 @@ namespace Parameters
       double target_cfl;
       bool   reject_timestep_with_large_cfl;
       double reject_cfl_factor;
+
+      // Parameters for adaptation based on the adaptive CHNS mobility
+      double target_adaptive_mobility_number;
+      bool   reject_timestep_with_large_adaptive_mobility;
+      double reject_adaptive_mobility_factor;
 
       // FIXME: Both parameters below are currently unused:
       // required_times because it is tricky to adjust or merge the time steps

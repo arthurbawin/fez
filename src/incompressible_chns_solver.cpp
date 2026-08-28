@@ -92,6 +92,16 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
   const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
 {
+  using Strategy =
+    Parameters::TimeIntegration::Adaptation::AdaptationStrategy;
+  if (param.time_integration.adaptation.enable &&
+      param.time_integration.adaptation.strategy == Strategy::AdaptiveMobility)
+    AssertThrow(
+      CahnHilliard::is_adaptive_mobility_model(param.cahn_hilliard),
+      ExcMessage("The adaptive-mobility time-adaptation strategy requires "
+                 "adaptative_mobility, adaptative_mobility_2, or "
+                 "adaptative_mobility_3."));
+
   if constexpr (with_enlarged)
   {
     // Enlarged ALE: same layout as the moving-mesh CHNS, with the extra psi
@@ -225,6 +235,79 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
       std::make_shared<CHNSSolver<dim, with_moving_mesh, with_enlarged>::SourceTerm>(
         this->time_handler.current_time, *this->ordering, param.source_terms);
   }
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  compute_solver_specific_timestep_adaptation_criterion()
+{
+  using Strategy =
+    Parameters::TimeIntegration::Adaptation::AdaptationStrategy;
+  if (this->param.time_integration.adaptation.strategy !=
+      Strategy::AdaptiveMobility)
+    return;
+
+  TimerOutput::Scope timer(this->computing_timer,
+                           "Compute adaptive mobility number");
+
+  const auto &chp = this->param.cahn_hilliard;
+  const auto scaling = CahnHilliard::get_adaptive_mobility_scaling(chp);
+  const auto mobility_evaluation =
+    CahnHilliard::get_mobility_evaluation_function(chp);
+  const auto mobility_limiter =
+    CahnHilliard::get_mobility_limiter_function(chp);
+  const auto material_phase = CahnHilliard::get_material_phase_function(chp);
+  const auto material_phase_derivative =
+    CahnHilliard::get_material_phase_derivative_function(chp);
+  const auto material_phase_second_derivative =
+    CahnHilliard::get_material_phase_second_derivative_function(chp);
+
+  FEValues<dim> fe_values(*this->moving_mapping,
+                          *fe,
+                          *this->quadrature,
+                          update_values | update_gradients);
+  std::vector<double> tracer_values(this->quadrature->size());
+  std::vector<Tensor<1, dim>> velocity_values(this->quadrature->size());
+  std::vector<Tensor<1, dim>> tracer_gradients(this->quadrature->size());
+
+  double local_max_mobility = 0.;
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
+    if (cell->is_locally_owned())
+    {
+      fe_values.reinit(cell);
+      fe_values[this->velocity_extractor].get_function_values(
+        *this->present_solution, velocity_values);
+      fe_values[tracer_extractor].get_function_values(*this->present_solution,
+                                                      tracer_values);
+      fe_values[tracer_extractor].get_function_gradients(
+        *this->present_solution, tracer_gradients);
+
+      for (unsigned int q = 0; q < this->quadrature->size(); ++q)
+      {
+        const double phi = mobility_limiter(tracer_values[q]);
+        const auto evaluation = mobility_evaluation(
+          chp,
+          material_phase(chp, phi),
+          material_phase_derivative(chp, phi),
+          material_phase_second_derivative(chp, phi),
+          velocity_values[q],
+          tracer_gradients[q],
+          scaling.coefficient,
+          scaling.delta);
+        AssertThrow(std::isfinite(evaluation.value) && evaluation.value >= 0.,
+                    ExcMessage("Adaptive mobility must be finite and "
+                               "non-negative at every quadrature point."));
+        local_max_mobility =
+          std::max(local_max_mobility, evaluation.value);
+      }
+    }
+
+  const double max_mobility = Utilities::MPI::max(
+    local_max_mobility, this->present_solution->get_mpi_communicator());
+  const double mobility_number =
+    CahnHilliard::compute_adaptive_mobility_number(
+      this->time_handler.get_current_timestep(), chp, max_mobility);
+  this->time_handler.set_max_adaptive_mobility_number(mobility_number);
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>

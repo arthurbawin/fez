@@ -497,6 +497,13 @@ private:
 
 protected:
   /**
+   * Compute a time-adaptation criterion specific to a derived solver.
+   * Called after the common CFL computation and before accepting or rejecting
+   * the current time step.
+   */
+  virtual void compute_solver_specific_timestep_adaptation_criterion() {}
+
+  /**
    * Get the descriptions (name and number of components) of the variables
    * solved for in the derived solvers, aside from velocity, pressure and mesh
    * position.

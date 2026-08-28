@@ -1,0 +1,20 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 2
+ boundary indicators: 0(1 faces) 1(1 faces) 2(1 faces) 3(1 faces)
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 30
+
+Time step 1 - Advancing to t = 0.1 with time step 0.1.
+
+Time step 2 - Advancing to t = 0.15 with time step 0.05.
+
+Time step 3 - Advancing to t = 0.2 with time step 0.05.
+
+Time step 4 - Advancing to t = 0.25 with time step 0.05.
+
+Time step 5 - Advancing to t = 0.3 with time step 0.05.

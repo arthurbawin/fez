@@ -1186,7 +1186,8 @@ namespace Parameters
                           "Enable adaptive time stepping");
         prm.declare_entry("adaptation strategy",
                           "bdf truncation error",
-                          Patterns::Selection("bdf truncation error|cfl"),
+                          Patterns::Selection(
+                            "bdf truncation error|cfl|adaptive mobility"),
                           "Strategy used to drive timestep adaptation");
         // Set the maximum absolute time step to the arbitrary value of 100
         prm.declare_entry("max timestep",
@@ -1254,6 +1255,24 @@ namespace Parameters
                           Patterns::Double(1.),
                           "Time step is rejected if its CFL number exceeds "
                           "this value times the target CFL");
+        prm.declare_entry(
+          "target adaptive mobility number",
+          "1.",
+          Patterns::Double(0., 1.),
+          "Target value of dt*sigma_tilde*M_max/epsilon^3. Values cannot "
+          "exceed one so that dt remains below the mobility time scale.");
+        prm.declare_entry(
+          "reject timestep with large adaptive mobility",
+          "true",
+          Patterns::Bool(),
+          "Reject time steps whose adaptive mobility number exceeds the "
+          "configured rejection threshold.");
+        prm.declare_entry(
+          "adaptive mobility ratio to reject",
+          "1.",
+          Patterns::Double(1.),
+          "Time step is rejected if its adaptive mobility number exceeds "
+          "this value times the target adaptive mobility number.");
       }
       prm.leave_subsection();
     }
@@ -1303,6 +1322,9 @@ namespace Parameters
             Adaptation::AdaptationStrategy::BDFTruncationError;
         else if (parsed_strategy == "cfl")
           adaptation.strategy = Adaptation::AdaptationStrategy::CFL;
+        else if (parsed_strategy == "adaptive mobility")
+          adaptation.strategy =
+            Adaptation::AdaptationStrategy::AdaptiveMobility;
         else
           throw std::runtime_error("Unknown timestep adaptation method : " +
                                    parsed_strategy);
@@ -1343,6 +1365,15 @@ namespace Parameters
         adaptation.reject_timestep_with_large_cfl =
           prm.get_bool("reject timestep with large cfl");
         adaptation.reject_cfl_factor = prm.get_double("cfl ratio to reject");
+        adaptation.target_adaptive_mobility_number =
+          prm.get_double("target adaptive mobility number");
+        AssertThrow(adaptation.target_adaptive_mobility_number > 0.,
+                    ExcMessage("The target adaptive mobility number must be "
+                               "strictly positive."));
+        adaptation.reject_timestep_with_large_adaptive_mobility = prm.get_bool(
+          "reject timestep with large adaptive mobility");
+        adaptation.reject_adaptive_mobility_factor =
+          prm.get_double("adaptive mobility ratio to reject");
       }
       prm.leave_subsection();
     }
@@ -1599,7 +1630,9 @@ namespace Parameters
       prm.leave_subsection();
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
-      if (mobility_model == MobilityModel::adaptive)
+      if (mobility_model == MobilityModel::adaptive ||
+          mobility_model == MobilityModel::adaptive_mobility_2 ||
+          mobility_model == MobilityModel::adaptive_mobility_3)
       {
         AssertThrow(surface_tension > 0.,
                     ExcMessage("adaptative_mobility requires positive surface tension"));

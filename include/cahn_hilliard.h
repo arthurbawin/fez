@@ -371,6 +371,82 @@ namespace CahnHilliard
       return &evaluate_adaptative_mobility<dim>;
   }
 
+  struct AdaptiveMobilityScaling
+  {
+    double coefficient;
+    double delta;
+  };
+
+  template <int dim>
+  inline bool
+  is_adaptive_mobility_model(const Parameters::CahnHilliard<dim> &param)
+  {
+    using MobilityModel =
+      typename Parameters::CahnHilliard<dim>::MobilityModel;
+    return param.mobility_model == MobilityModel::adaptive ||
+           param.mobility_model == MobilityModel::adaptive_mobility_2 ||
+           param.mobility_model == MobilityModel::adaptive_mobility_3;
+  }
+
+  template <int dim>
+  inline AdaptiveMobilityScaling
+  get_adaptive_mobility_scaling(const Parameters::CahnHilliard<dim> &param)
+  {
+    using MobilityModel =
+      typename Parameters::CahnHilliard<dim>::MobilityModel;
+
+    AssertThrow(is_adaptive_mobility_model(param),
+                dealii::ExcMessage("Adaptive-mobility time adaptation requires "
+                                   "an adaptive mobility model."));
+    AssertThrow(param.surface_tension > 0.,
+                dealii::ExcMessage("Adaptive mobility requires positive "
+                                   "surface tension."));
+    AssertThrow(param.epsilon_interface > 0.,
+                dealii::ExcMessage("Adaptive mobility requires positive "
+                                   "interface thickness."));
+
+    const double epsilon = param.epsilon_interface;
+    const double sigma_tilde =
+      3. / (2. * std::sqrt(2.)) * param.surface_tension;
+
+    if (param.mobility_model == MobilityModel::adaptive)
+      return {param.adaptive_mobility_n * std::sqrt(2.) * epsilon * epsilon *
+                epsilon / sigma_tilde,
+              param.adaptive_mobility_delta};
+    if (param.mobility_model == MobilityModel::adaptive_mobility_2)
+      return {param.adaptive_mobility_2_n * 2. * epsilon * epsilon * epsilon *
+                epsilon / sigma_tilde,
+              param.adaptive_mobility_2_delta};
+
+    return {param.adaptive_mobility_3_n * epsilon * epsilon / sigma_tilde,
+            param.adaptive_mobility_3_delta};
+  }
+
+  template <int dim>
+  inline double compute_adaptive_mobility_number(
+    const double                         timestep,
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         max_mobility)
+  {
+    AssertThrow(is_adaptive_mobility_model(param),
+                dealii::ExcMessage("Adaptive-mobility time adaptation requires "
+                                   "an adaptive mobility model."));
+    AssertThrow(std::isfinite(timestep) && timestep > 0.,
+                dealii::ExcMessage("The time step must be finite and positive."));
+    AssertThrow(std::isfinite(max_mobility) && max_mobility >= 0.,
+                dealii::ExcMessage("The maximum mobility must be finite and "
+                                   "non-negative."));
+    AssertThrow(param.surface_tension > 0. && param.epsilon_interface > 0.,
+                dealii::ExcMessage("Adaptive mobility requires positive "
+                                   "surface tension and interface thickness."));
+
+    const double sigma_tilde =
+      3. / (2. * std::sqrt(2.)) * param.surface_tension;
+    const double epsilon = param.epsilon_interface;
+    return timestep * sigma_tilde * max_mobility /
+           (epsilon * epsilon * epsilon);
+  }
+
   // --- Material phase marker m(phi) -----------------------------------------
   // The material properties (density, viscosity) and the transported/conserved
   // variable are affine in a material marker m(phi):

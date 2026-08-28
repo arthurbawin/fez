@@ -419,29 +419,12 @@ namespace NavierStokesScratch
     sigma_tilde = 3. / (2. * sqrt(2.)) * cahn_hilliard_param.surface_tension;
     adaptive_mobility_coefficient = 0.;
     adaptive_mobility_delta       = 0.;
-    if (cahn_hilliard_param.mobility_model ==
-        Parameters::CahnHilliard<dim>::MobilityModel::adaptive)
+    if (CahnHilliard::is_adaptive_mobility_model(cahn_hilliard_param))
     {
-      adaptive_mobility_coefficient =
-        cahn_hilliard_param.adaptive_mobility_n * sqrt(2.) * epsilon *
-        epsilon * epsilon / sigma_tilde;
-      adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_delta;
-    }
-    else if (cahn_hilliard_param.mobility_model ==
-             Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2)
-    {
-      adaptive_mobility_coefficient =
-        cahn_hilliard_param.adaptive_mobility_2_n * 2. * epsilon * epsilon *
-        epsilon * epsilon / sigma_tilde;
-      adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_2_delta;
-    }
-    else if (cahn_hilliard_param.mobility_model ==
-             Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_3)
-    {
-      adaptive_mobility_coefficient =
-        cahn_hilliard_param.adaptive_mobility_3_n * epsilon * epsilon /
-        sigma_tilde;
-      adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_3_delta;
+      const auto scaling =
+        CahnHilliard::get_adaptive_mobility_scaling(cahn_hilliard_param);
+      adaptive_mobility_coefficient = scaling.coefficient;
+      adaptive_mobility_delta       = scaling.delta;
     }
     body_force            = physical_properties.body_force;
     tracer_limiter = CahnHilliard::get_limiter_function(cahn_hilliard_param);

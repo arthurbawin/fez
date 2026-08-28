@@ -174,6 +174,12 @@ public:
   void set_max_cfl(const double max_cfl);
 
   /**
+   * Update the maximum adaptive-mobility number
+   * dt*sigma_tilde*M_max/epsilon^3.
+   */
+  void set_max_adaptive_mobility_number(const double number);
+
+  /**
    * Compute the approximation of the time derivative of the field associated to
    * the index-th dof, e.g. the sum c_i * u^(n - i) where c_i are the BDF
    * coefficients. This only makes sense for nodal finite elements, for which
@@ -354,6 +360,9 @@ public:
 
   // The maximum CFL number computed for the current mesh and solution
   double max_cfl_number;
+
+  // The adaptive-mobility number computed for the current solution
+  double max_adaptive_mobility_number;
 
   // A pointer to the error estimator, used to compute BDF truncation error and
   // provide the next time step based on the error on all fields.

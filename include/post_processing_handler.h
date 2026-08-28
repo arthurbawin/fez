@@ -11,11 +11,11 @@
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/data_postprocessor.h>
+#include <field_postprocessors.h>
 #include <parameter_reader.h>
 #include <parameters.h>
 #include <post_processing_tools.h>
 #include <time_handler.h>
-#include <vorticity_postprocessors.h>
 
 using namespace dealii;
 
@@ -184,7 +184,7 @@ public:
 
   /**
    * Calls the postprocess() function of the dof-based postprocessor stored in
-   * postprocessors_at_dofs and of given @p type, and adds the computed data to
+   * field_postprocessors and of given @p type, and adds the computed data to
    * the underlying DataOut. The postprocessor is created if it does not exist.
    *
    * For example, if @p type is PostProcessingTools::PostprocessorAtDofTypes::vorticity,
@@ -203,15 +203,15 @@ public:
    * matches the prescribed frequency.
    */
   template <typename VectorType>
-  void compute_dof_postprocessing(
-    const PostProcessingTools::PostprocessorAtDofTypes type,
-    TimerOutput                                       &timer,
-    const ParameterReader<dim>                        &param,
-    const VectorType                                  &solution,
-    const TimeHandler                                 &time_handler,
-    const Mapping<dim>                                &mapping,
-    const Quadrature<dim>                             &cell_quadrature,
-    const bool                                         with_moving_mesh);
+  void
+  compute_dof_postprocessing(TimerOutput                   &timer,
+                             const ParameterReader<dim>    &param,
+                             const VectorType              &solution,
+                             const std::vector<VectorType> &previous_solutions,
+                             const TimeHandler             &time_handler,
+                             const Mapping<dim>            &mapping,
+                             const Quadrature<dim>         &cell_quadrature,
+                             const bool                     with_moving_mesh);
 
   /**
    * Compute the hydrodynamic forces on the boundary prescribed in the forces
@@ -362,7 +362,7 @@ private:
    * and the associated parameters in param.postprocessing.
    */
   std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>
-  create_postprocessor_at_dofs(
+  create_field_postprocessor(
     const PostProcessingTools::PostprocessorAtDofTypes type,
     const ParameterReader<dim>                        &param,
     const Mapping<dim>                                &mapping,
@@ -507,11 +507,11 @@ private:
   std::vector<std::unique_ptr<DataPostprocessor<dim>>> postprocessors;
 
   // Postprocessors derived from PostprocessorAtDofBase, which compute a field
-  // defined at the dofs. These dofs are typically different from the  dofs of
+  // defined at the dofs. These dofs are typically different from the dofs of
   // the main solver's dof_handler
   std::map<PostProcessingTools::PostprocessorAtDofTypes,
            std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>>
-    postprocessors_at_dofs;
+    field_postprocessors;
 
   // Forces on the prescribed boundary, and on each slice if enabled
   TableHandler  forces_table;
@@ -958,94 +958,46 @@ void PostProcessingHandler<dim>::compute_forces(
 template <int dim>
 template <typename VectorType>
 void PostProcessingHandler<dim>::compute_dof_postprocessing(
-  const PostProcessingTools::PostprocessorAtDofTypes type,
-  TimerOutput                                       &timer,
-  const ParameterReader<dim>                        &param,
-  const VectorType                                  &solution,
-  const TimeHandler                                 &time_handler,
-  const Mapping<dim>                                &mapping,
-  const Quadrature<dim>                             &cell_quadrature,
-  const bool                                         with_moving_mesh)
+  TimerOutput                   &timer,
+  const ParameterReader<dim>    &param,
+  const VectorType              &solution,
+  const std::vector<VectorType> &previous_solutions,
+  const TimeHandler             &time_handler,
+  const Mapping<dim>            &mapping,
+  const Quadrature<dim>         &cell_quadrature,
+  const bool                     with_moving_mesh)
 {
-  // If postprocessor does not exist, create it
-  if (postprocessors_at_dofs.count(type) == 0)
-    postprocessors_at_dofs.insert(
-      {type,
-       create_postprocessor_at_dofs(
-         type, param, mapping, cell_quadrature, with_moving_mesh)});
-
-  // Then postprocess the solution and add data to DataOut
-  const auto &ptr = postprocessors_at_dofs.at(type);
-  if (ptr && should_output_volume_fields(time_handler))
-  {
-    if (should_compute_postprocessing(
-          time_handler, param.postprocessing.get_dof_postprocessor_param(type)))
+  // Loop over all recorded field postprocessors
+  for (const auto &[type, postprocessor_param_ptr] :
+       param.postprocessing.field_postprocessors)
+    if (postprocessor_param_ptr->enable)
     {
-      TimerOutput::Scope t(timer,
-                           "Compute " + PostProcessingTools::to_string(type));
-      ptr->postprocess(solution);
+      // If postprocessor does not exist, create it
+      if (field_postprocessors.count(type) == 0)
+        field_postprocessors.insert(
+          {type,
+           create_field_postprocessor(
+             type, param, mapping, cell_quadrature, with_moving_mesh)});
+
+      // Then postprocess the solution and add data to DataOut
+      const auto &ptr = field_postprocessors.at(type);
+      if (ptr && should_output_volume_fields(time_handler))
+      {
+        if (should_compute_postprocessing(time_handler,
+                                          *postprocessor_param_ptr))
+        {
+          TimerOutput::Scope t(timer,
+                               "Compute " +
+                                 PostProcessingTools::to_string(type));
+          ptr->postprocess(solution, previous_solutions, time_handler);
+        }
+
+        // Always write the last computed field to the visualization file, to
+        // avoid alternating between frames with and without this field if the
+        // compute frequency is > 1.
+        ptr->add_data(*this);
+      }
     }
-
-    // Always write the last computed field to the visualization file, to avoid
-    // alternating between frames with and without this field if the compute
-    // frequency is > 1.
-    ptr->add_data(*this);
-  }
-}
-
-template <int dim>
-std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>
-PostProcessingHandler<dim>::create_postprocessor_at_dofs(
-  const PostProcessingTools::PostprocessorAtDofTypes type,
-  const ParameterReader<dim>                        &param,
-  const Mapping<dim>                                &mapping,
-  const Quadrature<dim>                             &cell_quadrature,
-  const bool                                         with_moving_mesh)
-{
-  using namespace PostProcessingTools;
-  using Vorticity  = Parameters::PostProcessing::Vorticity;
-  using QCriterion = Parameters::PostProcessing::QCriterion;
-
-  switch (type)
-  {
-    case PostprocessorAtDofTypes::vorticity:
-      switch (param.postprocessing.vorticity.method)
-      {
-        case Vorticity::ComputationMethod::discontinuous:
-          // Nothing to do: the DataPostprocessor was created in the
-          // constructor.
-          return nullptr;
-        case Vorticity::ComputationMethod::l2_projection:
-          return std::make_unique<VorticityL2Projection<dim>>(param,
-                                                              ordering,
-                                                              mapping,
-                                                              *dof_handler,
-                                                              cell_quadrature,
-                                                              with_moving_mesh);
-        case Vorticity::ComputationMethod::weighted_average:
-          return std::make_unique<VorticityWeightedAverage<dim>>(
-            param, ordering, mapping, *dof_handler, cell_quadrature);
-        default:
-          DEAL_II_NOT_IMPLEMENTED();
-      }
-    case PostprocessorAtDofTypes::q_criterion:
-      switch (param.postprocessing.q_criterion.method)
-      {
-        case QCriterion::ComputationMethod::discontinuous:
-          // Nothing to do: the DataPostprocessor was created in the
-          // constructor.
-          return nullptr;
-        case QCriterion::ComputationMethod::weighted_average:
-          return std::make_unique<QCriterionWeightedAverage<dim>>(
-            param, ordering, mapping, *dof_handler, cell_quadrature);
-        default:
-          DEAL_II_NOT_IMPLEMENTED();
-      }
-    default:
-      DEAL_II_NOT_IMPLEMENTED();
-  }
-  DEAL_II_ASSERT_UNREACHABLE();
-  return nullptr;
 }
 
 template <int dim>

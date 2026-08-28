@@ -1,6 +1,6 @@
 
+#include <field_postprocessors.h>
 #include <parameters.h>
-#include <post_processing_tools.h>
 #include <solver_info.h>
 #include <utilities.h>
 
@@ -550,6 +550,11 @@ namespace Parameters
         declare_postprocessing_field(prm);
       }
       prm.leave_subsection();
+      prm.enter_subsection("mesh velocity");
+      {
+        declare_postprocessing_field(prm);
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -579,9 +584,16 @@ namespace Parameters
     pp_boundary.boundary_id = prm.get_integer("boundary id");
   }
 
-  void read_postprocessing_field(ParameterHandler                    &prm,
-                                 PostProcessing::PostProcessingField &pp_field)
+  void read_postprocessing_field(
+    ParameterHandler                                  &prm,
+    PostProcessing::PostProcessingField               &pp_field,
+    const PostProcessingTools::PostprocessorAtDofTypes type,
+    std::map<PostProcessingTools::PostprocessorAtDofTypes,
+             PostProcessing::PostProcessingField *>   &field_postprocessors)
   {
+    // Add this field postprocessor to the map
+    field_postprocessors.insert({type, &pp_field});
+
     read_postprocessing_base(prm, pp_field);
 
     const std::string parsed_method = prm.get("computation method");
@@ -603,6 +615,8 @@ namespace Parameters
 
   void PostProcessing::read_parameters(ParameterHandler &prm)
   {
+    using FieldPP = PostProcessingTools::PostprocessorAtDofTypes;
+
     prm.enter_subsection("Postprocessing");
     {
       prm.enter_subsection("forces computation");
@@ -645,32 +659,30 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("vorticity");
       {
-        read_postprocessing_field(prm, vorticity);
+        read_postprocessing_field(prm,
+                                  vorticity,
+                                  FieldPP::vorticity,
+                                  field_postprocessors);
       }
       prm.leave_subsection();
       prm.enter_subsection("q_criterion");
       {
-        read_postprocessing_field(prm, q_criterion);
+        read_postprocessing_field(prm,
+                                  q_criterion,
+                                  FieldPP::q_criterion,
+                                  field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mesh velocity");
+      {
+        read_postprocessing_field(prm,
+                                  mesh_velocity,
+                                  FieldPP::mesh_velocity,
+                                  field_postprocessors);
       }
       prm.leave_subsection();
     }
     prm.leave_subsection();
-  }
-
-  const PostProcessing::PostProcessingField &
-  PostProcessing::get_dof_postprocessor_param(
-    const PostProcessingTools::PostprocessorAtDofTypes type) const
-  {
-    switch (type)
-    {
-      case PostProcessingTools::PostprocessorAtDofTypes::vorticity:
-        return vorticity;
-      case PostProcessingTools::PostprocessorAtDofTypes::q_criterion:
-        return q_criterion;
-      default:
-        DEAL_II_NOT_IMPLEMENTED();
-    }
-    DEAL_II_ASSERT_UNREACHABLE();
   }
 
   // Declare the parameters for a quadrature rule.

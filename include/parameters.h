@@ -430,10 +430,20 @@ namespace Parameters
     {
     } q_criterion;
 
-    static void                declare_parameters(ParameterHandler &prm);
-    void                       read_parameters(ParameterHandler &prm);
-    const PostProcessingField &get_dof_postprocessor_param(
-      const PostProcessingTools::PostprocessorAtDofTypes type) const;
+    // Mesh velocity.
+    struct MeshVelocity : public PostProcessingField
+    {
+    } mesh_velocity;
+
+    /**
+     * All the PostProcessingField.
+     */
+    std::map<PostProcessingTools::PostprocessorAtDofTypes,
+             PostProcessingField *>
+      field_postprocessors;
+
+    static void declare_parameters(ParameterHandler &prm);
+    void        read_parameters(ParameterHandler &prm);
   };
 
   template <int dim>

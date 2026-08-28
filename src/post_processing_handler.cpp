@@ -1,5 +1,6 @@
 
 #include <post_processing_handler.h>
+#include <postprocessors_and_evaluators.h>
 
 template <int dim>
 PostProcessingHandler<dim>::PostProcessingHandler(
@@ -318,6 +319,90 @@ void PostProcessingHandler<dim>::write_structure_mean_position(
   write_table(out,
               structure_mean_position_table,
               post_proc_param.structure_position);
+}
+
+template <int dim>
+std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>
+PostProcessingHandler<dim>::create_field_postprocessor(
+  const PostProcessingTools::PostprocessorAtDofTypes type,
+  const ParameterReader<dim>                        &param,
+  const Mapping<dim>                                &mapping,
+  const Quadrature<dim>                             &cell_quadrature,
+  const bool                                         with_moving_mesh)
+{
+  using namespace PostProcessingTools;
+  using Vorticity  = Parameters::PostProcessing::Vorticity;
+  using QCriterion = Parameters::PostProcessing::QCriterion;
+
+  switch (type)
+  {
+    case PostprocessorAtDofTypes::vorticity:
+      switch (param.postprocessing.vorticity.method)
+      {
+        case Vorticity::ComputationMethod::discontinuous:
+          // Nothing to do: the DataPostprocessor was created in the
+          // constructor.
+          return nullptr;
+        case Vorticity::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim, VorticityEvaluator, L2Projection>>(
+            param,
+            ordering,
+            mapping,
+            *dof_handler,
+            cell_quadrature,
+            with_moving_mesh);
+        case Vorticity::ComputationMethod::weighted_average:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        VorticityEvaluator,
+                                        WeightedAverage>>(param,
+                                                          ordering,
+                                                          mapping,
+                                                          *dof_handler,
+                                                          cell_quadrature,
+                                                          with_moving_mesh);
+        default:
+          DEAL_II_NOT_IMPLEMENTED();
+      }
+    case PostprocessorAtDofTypes::q_criterion:
+      switch (param.postprocessing.q_criterion.method)
+      {
+        case QCriterion::ComputationMethod::discontinuous:
+          // Nothing to do: the DataPostprocessor was created in the
+          // constructor.
+          return nullptr;
+        case QCriterion::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        QCriterionEvaluator,
+                                        L2Projection>>(param,
+                                                       ordering,
+                                                       mapping,
+                                                       *dof_handler,
+                                                       cell_quadrature,
+                                                       with_moving_mesh);
+        case QCriterion::ComputationMethod::weighted_average:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        QCriterionEvaluator,
+                                        WeightedAverage>>(param,
+                                                          ordering,
+                                                          mapping,
+                                                          *dof_handler,
+                                                          cell_quadrature,
+                                                          with_moving_mesh);
+        default:
+          DEAL_II_NOT_IMPLEMENTED();
+      }
+    case PostprocessorAtDofTypes::mesh_velocity:
+      return std::make_unique<MeshVelocityPostprocessor<dim>>(
+        ordering, param, mapping, *dof_handler, cell_quadrature);
+    default:
+      DEAL_II_NOT_IMPLEMENTED();
+  }
+  DEAL_II_ASSERT_UNREACHABLE();
+  return nullptr;
 }
 
 template class PostProcessingHandler<2>;

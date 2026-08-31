@@ -1135,10 +1135,9 @@ namespace NavierStokesScratch
                                                  dynamic_viscosity1) *
           material_marker_derivative;
 
-        // Mobility M(q) with the chain rule through the marker:
-        // dM/dphi = M'(q) q', d2M/dphi2 = M''(q) q'^2 + M'(q) q''. The mobility
-        // limiter is applied to phi before the marker. Identity marker (q'=1,
-        // q''=0) reproduces the original M(phi) exactly.
+        // Degenerate mobility uses the material marker q and its chain rule;
+        // adaptive mobilities use the transported tracer phi directly. The
+        // independent mobility limiter is applied before selecting that input.
         const double mobility_phi = mobility_tracer_limiter(tracer_values[q]);
         const double mobility_arg =
           material_phase_function(cahn_hilliard_param, mobility_phi);
@@ -1147,11 +1146,18 @@ namespace NavierStokesScratch
         const double mobility_arg_dd =
           material_phase_second_derivative_function(cahn_hilliard_param,
                                                     mobility_phi);
+        const auto mobility_tracer_argument =
+          CahnHilliard::select_mobility_tracer_argument(
+            cahn_hilliard_param,
+            mobility_phi,
+            mobility_arg,
+            mobility_arg_d,
+            mobility_arg_dd);
         const auto mobility_evaluation = mobility_evaluation_function(
           cahn_hilliard_param,
-          mobility_arg,
-          mobility_arg_d,
-          mobility_arg_dd,
+          mobility_tracer_argument.value,
+          mobility_tracer_argument.first_derivative,
+          mobility_tracer_argument.second_derivative,
           present_velocity_values[q],
           tracer_gradients[q],
           adaptive_mobility_coefficient,

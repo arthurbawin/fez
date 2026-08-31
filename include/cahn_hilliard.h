@@ -129,9 +129,9 @@ namespace CahnHilliard
   }
 
   /**
-   * Return a pointer to the tracer limiter used when evaluating the degenerate
-   * mobility M(phi). Optional and independent from the material-property
-   * limiter above.
+   * Return a pointer to the tracer limiter used when evaluating a
+   * tracer-dependent mobility. Optional and independent from the
+   * material-property limiter above.
    */
   using MobilityTracerLimiterFunction = double (*)(double);
 
@@ -242,7 +242,8 @@ namespace CahnHilliard
   }
 
   /** Mobility data at one quadrature point. The adaptive sensitivity is
-   * dM_reg/d(u.grad(phi)); it is zero for the other mobility models. */
+   * dM_reg/d(u.grad(phi)) for gradient-dependent adaptive models and zero for
+   * all other mobility models. */
   template <int dim>
   struct MobilityEvaluation
   {
@@ -251,6 +252,33 @@ namespace CahnHilliard
     double second_derivative_wrt_tracer;
     double adaptive_sensitivity;
   };
+
+  /** Input and chain-rule derivatives used by a mobility evaluator.
+   * Degenerate mobility is a function of the material marker; adaptive
+   * mobilities act on the transported tracer itself. */
+  struct MobilityTracerArgument
+  {
+    double value;
+    double first_derivative;
+    double second_derivative;
+  };
+
+  template <int dim>
+  inline MobilityTracerArgument
+  select_mobility_tracer_argument(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         tracer,
+    const double                         material_marker,
+    const double                         material_marker_derivative,
+    const double                         material_marker_second_derivative)
+  {
+    if (param.mobility_model ==
+        Parameters::CahnHilliard<dim>::MobilityModel::degenerate)
+      return {material_marker,
+              material_marker_derivative,
+              material_marker_second_derivative};
+    return {tracer, 1., 0.};
+  }
 
   template <int dim>
   using MobilityEvaluationFunction = MobilityEvaluation<dim> (*)
@@ -318,21 +346,133 @@ namespace CahnHilliard
     return {value, 0., 0., raw / value * adaptive_coefficient};
   }
 
+  /** Value and first two tracer derivatives of the fixed tail weight used by
+   * adaptative_mobility_2. */
+  struct AdaptiveMobilityTailWeight
+  {
+    double value;
+    double first_derivative;
+    double second_derivative;
+  };
+
+  /** Extend the adaptive-mobility sensor from |phi|=0.9 to |phi|=0.999.
+   *
+   * In the resolved tail, W(phi)=(1-0.9^2)/(1-phi^2), which cancels the
+   * decay of the gradient of an equilibrium tanh profile. Quintic smoothstep
+   * blends make the unit core and bounded outer plateau C2-compatible.
+   */
+  inline AdaptiveMobilityTailWeight
+  evaluate_adaptive_mobility_2_tail_weight(const double phi)
+  {
+    constexpr double phi_ref       = 0.9;
+    constexpr double phi_ref_end   = 0.91;
+    constexpr double phi_cap_start = 0.9989;
+    constexpr double phi_cap       = 0.999;
+    constexpr double r_ref         = phi_ref * phi_ref;
+    constexpr double r_ref_end     = phi_ref_end * phi_ref_end;
+    constexpr double r_cap_start   = phi_cap_start * phi_cap_start;
+    constexpr double r_cap         = phi_cap * phi_cap;
+    constexpr double q_ref         = 1. - r_ref;
+    constexpr double q_cap         = 1. - r_cap;
+    constexpr double weight_max    = q_ref / q_cap;
+
+    const double r = phi * phi;
+    if (r <= r_ref)
+      return {1., 0., 0.};
+    if (r >= r_cap)
+      return {weight_max, 0., 0.};
+
+    const double q                 = 1. - r;
+    const double reciprocal        = q_ref / q;
+    const double reciprocal_d_r    = q_ref / (q * q);
+    const double reciprocal_dd_r2 = 2. * q_ref / (q * q * q);
+    double       weight             = reciprocal;
+    double       weight_d_r         = reciprocal_d_r;
+    double       weight_dd_r2       = reciprocal_dd_r2;
+
+    if (r < r_ref_end)
+    {
+      const double width = r_ref_end - r_ref;
+      const double t     = (r - r_ref) / width;
+      const double t2    = t * t;
+      const double t3    = t2 * t;
+      const double t4    = t3 * t;
+      const double t5    = t4 * t;
+      const double smoothstep = 6. * t5 - 15. * t4 + 10. * t3;
+      const double smoothstep_d_t = 30. * t2 * (t - 1.) * (t - 1.);
+      const double smoothstep_dd_t2 =
+        60. * t * (2. * t2 - 3. * t + 1.);
+      const double smoothstep_d_r = smoothstep_d_t / width;
+      const double smoothstep_dd_r2 =
+        smoothstep_dd_t2 / (width * width);
+
+      weight = 1. + smoothstep * (reciprocal - 1.);
+      weight_d_r = smoothstep_d_r * (reciprocal - 1.) +
+                   smoothstep * reciprocal_d_r;
+      weight_dd_r2 = smoothstep_dd_r2 * (reciprocal - 1.) +
+                     2. * smoothstep_d_r * reciprocal_d_r +
+                     smoothstep * reciprocal_dd_r2;
+    }
+    else if (r > r_cap_start)
+    {
+      const double width = r_cap - r_cap_start;
+      const double t     = (r - r_cap_start) / width;
+      const double t2    = t * t;
+      const double t3    = t2 * t;
+      const double t4    = t3 * t;
+      const double t5    = t4 * t;
+      const double smoothstep = 6. * t5 - 15. * t4 + 10. * t3;
+      const double smoothstep_d_t = 30. * t2 * (t - 1.) * (t - 1.);
+      const double smoothstep_dd_t2 =
+        60. * t * (2. * t2 - 3. * t + 1.);
+      const double smoothstep_d_r = smoothstep_d_t / width;
+      const double smoothstep_dd_r2 =
+        smoothstep_dd_t2 / (width * width);
+
+      weight = (1. - smoothstep) * reciprocal +
+               smoothstep * weight_max;
+      weight_d_r = (1. - smoothstep) * reciprocal_d_r +
+                   smoothstep_d_r * (weight_max - reciprocal);
+      weight_dd_r2 = (1. - smoothstep) * reciprocal_dd_r2 -
+                     2. * smoothstep_d_r * reciprocal_d_r +
+                     smoothstep_dd_r2 * (weight_max - reciprocal);
+    }
+
+    return {weight,
+            2. * phi * weight_d_r,
+            2. * weight_d_r + 4. * r * weight_dd_r2};
+  }
+
   template <int dim>
   inline MobilityEvaluation<dim>
   evaluate_adaptative_mobility_2(const Parameters::CahnHilliard<dim> &,
-                                 const double,
-                                 const double,
-                                 const double,
+                                 const double                         phi,
+                                 const double                         phi_d,
+                                 const double                         phi_dd,
                                  const dealii::Tensor<1, dim> &velocity,
                                  const dealii::Tensor<1, dim> &tracer_gradient,
                                  const double adaptive_coefficient,
                                  const double delta)
   {
-    const double grad_phi_sq = tracer_gradient * tracer_gradient;
-    const double velocity_norm = std::sqrt(velocity * velocity + delta * delta);
-    const double value = adaptive_coefficient * grad_phi_sq * velocity_norm;
-    return {value, 0., 0., 0.};
+    const auto weight = evaluate_adaptive_mobility_2_tail_weight(phi);
+    const double weight_d = weight.first_derivative * phi_d;
+    const double weight_dd = weight.second_derivative * phi_d * phi_d +
+                             weight.first_derivative * phi_dd;
+    const double velocity_dot_gradient = velocity * tracer_gradient;
+    const double raw = adaptive_coefficient * weight.value *
+                       velocity_dot_gradient;
+    const double raw_d = adaptive_coefficient * weight_d *
+                         velocity_dot_gradient;
+    const double raw_dd = adaptive_coefficient * weight_dd *
+                          velocity_dot_gradient;
+    const double value = std::sqrt(raw * raw + delta * delta);
+    const double derivative = raw * raw_d / value;
+    const double second_derivative =
+      (raw_d * raw_d + raw * raw_dd) / value -
+      (raw * raw_d) * (raw * raw_d) / (value * value * value);
+    const double sensitivity =
+      raw / value * adaptive_coefficient * weight.value;
+    return {value, derivative, second_derivative, sensitivity};
   }
 
   template <int dim>
@@ -414,7 +554,7 @@ namespace CahnHilliard
                 epsilon / sigma_tilde,
               param.adaptive_mobility_delta};
     if (param.mobility_model == MobilityModel::adaptive_mobility_2)
-      return {param.adaptive_mobility_2_n * 2. * epsilon * epsilon * epsilon *
+      return {param.adaptive_mobility_2_n * std::sqrt(2.) * epsilon * epsilon *
                 epsilon / sigma_tilde,
               param.adaptive_mobility_2_delta};
 

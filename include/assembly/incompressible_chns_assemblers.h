@@ -389,13 +389,17 @@ namespace Assembly
 
       const bool supg        = param.stabilization.enable_supg;
       const bool tracer_supg = param.stabilization.enable_tracer_supg;
-      const bool adaptive_mobility =
-        param.cahn_hilliard.mobility_model ==
-        Parameters::CahnHilliard<dim>::MobilityModel::adaptive;
-      AssertThrow(!adaptive_mobility || !tracer_supg,
-                  ExcMessage("adaptative_mobility currently requires disabled "
-                             "tracer SUPG, because its mobility depends on "
-                             "velocity and tracer gradients."));
+      const auto mobility_model = param.cahn_hilliard.mobility_model;
+      const bool gradient_dependent_adaptive_mobility =
+        mobility_model ==
+          Parameters::CahnHilliard<dim>::MobilityModel::adaptive ||
+        mobility_model ==
+          Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2;
+      AssertThrow(
+        !gradient_dependent_adaptive_mobility || !tracer_supg,
+        ExcMessage("adaptative_mobility and adaptative_mobility_2 currently "
+                   "require disabled tracer SUPG, because their mobility "
+                   "depends on velocity and tracer gradients."));
       const bool use_ding_horriche =
         CahnHilliard::is_ding_horriche_model(param.cahn_hilliard);
       constexpr unsigned int moving_mesh_flag =

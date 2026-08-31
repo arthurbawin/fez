@@ -163,7 +163,7 @@ namespace
 
     parameters.mobility_model = MobilityModel::adaptive_mobility_2;
     scaling = CahnHilliard::get_adaptive_mobility_scaling(parameters);
-    AssertThrow(std::abs(scaling.coefficient - 64.) < 1e-14,
+    AssertThrow(std::abs(scaling.coefficient - 16. * std::sqrt(2.)) < 1e-14,
                 ExcInternalError());
     AssertThrow(std::abs(scaling.delta - 0.25) < 1e-14,
                 ExcInternalError());
@@ -195,6 +195,129 @@ namespace
 
     deallog << "Adaptive mobility scaling and time number OK" << std::endl;
   }
+
+  void test_adaptive_mobility_2_tail_weight()
+  {
+    const auto core =
+      CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(0.5);
+    AssertThrow(std::abs(core.value - 1.) < 1e-14, ExcInternalError());
+    AssertThrow(std::abs(core.first_derivative) < 1e-14,
+                ExcInternalError());
+    AssertThrow(std::abs(core.second_derivative) < 1e-14,
+                ExcInternalError());
+
+    constexpr double phi_ref = 0.9;
+    constexpr double phi_tail = 0.99;
+    const double q_ref = 1. - phi_ref * phi_ref;
+    const double q_tail = 1. - phi_tail * phi_tail;
+    const double expected_value = q_ref / q_tail;
+    const double expected_first =
+      2. * phi_tail * q_ref / (q_tail * q_tail);
+    const double expected_second =
+      2. * q_ref / (q_tail * q_tail) +
+      8. * phi_tail * phi_tail * q_ref / (q_tail * q_tail * q_tail);
+
+    const auto positive_tail =
+      CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi_tail);
+    const auto negative_tail =
+      CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(-phi_tail);
+    AssertThrow(std::abs(positive_tail.value - expected_value) < 1e-12,
+                ExcInternalError());
+    AssertThrow(std::abs(positive_tail.first_derivative - expected_first) <
+                  1e-9,
+                ExcInternalError());
+    AssertThrow(std::abs(positive_tail.second_derivative - expected_second) <
+                  1e-6,
+                ExcInternalError());
+    AssertThrow(std::abs(negative_tail.value - positive_tail.value) < 1e-12,
+                ExcInternalError());
+    AssertThrow(std::abs(negative_tail.first_derivative +
+                         positive_tail.first_derivative) < 1e-9,
+                ExcInternalError());
+    AssertThrow(std::abs(negative_tail.second_derivative -
+                         positive_tail.second_derivative) < 1e-6,
+                ExcInternalError());
+
+    constexpr double phi_cap = 0.999;
+    const double expected_maximum =
+      q_ref / (1. - phi_cap * phi_cap);
+    for (const double phi : {phi_cap, 1.05, -phi_cap, -1.05})
+    {
+      const auto capped =
+        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi);
+      AssertThrow(std::abs(capped.value - expected_maximum) < 1e-12,
+                  ExcInternalError());
+      AssertThrow(std::abs(capped.first_derivative) < 1e-12,
+                  ExcInternalError());
+      AssertThrow(std::abs(capped.second_derivative) < 1e-9,
+                  ExcInternalError());
+    }
+
+    // These points exercise both fixed C2 transition intervals. A missing or
+    // incorrect analytic derivative must be detected independently from the
+    // value formula used by the implementation.
+    for (const double phi : {0.905, 0.99895})
+    {
+      constexpr double h_first = 1e-7;
+      constexpr double h_second = 2e-6;
+      const auto evaluation =
+        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi);
+      const double value_plus =
+        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi + h_first)
+          .value;
+      const double value_minus =
+        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi - h_first)
+          .value;
+      const double fd_first = (value_plus - value_minus) / (2. * h_first);
+      const double second_plus =
+        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi + h_second)
+          .value;
+      const double second_center = evaluation.value;
+      const double second_minus =
+        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi - h_second)
+          .value;
+      const double fd_second =
+        (second_plus - 2. * second_center + second_minus) /
+        (h_second * h_second);
+      AssertThrow(std::abs(evaluation.first_derivative - fd_first) <
+                    2e-4 * std::max(1., std::abs(fd_first)),
+                  ExcInternalError());
+      AssertThrow(std::abs(evaluation.second_derivative - fd_second) <
+                    2e-3 * std::max(1., std::abs(fd_second)),
+                  ExcInternalError());
+    }
+
+    deallog << "Adaptive mobility 2 tail weight and derivatives OK"
+            << std::endl;
+  }
+
+  void test_mobility_tracer_argument_selection()
+  {
+    Parameters::CahnHilliard<2> parameters;
+    using MobilityModel = Parameters::CahnHilliard<2>::MobilityModel;
+
+    parameters.mobility_model = MobilityModel::adaptive_mobility_2;
+    auto argument = CahnHilliard::select_mobility_tracer_argument(
+      parameters, 0.95, 0.999, 0.1, 0.2);
+    AssertThrow(std::abs(argument.value - 0.95) < 1e-14,
+                ExcInternalError());
+    AssertThrow(std::abs(argument.first_derivative - 1.) < 1e-14,
+                ExcInternalError());
+    AssertThrow(std::abs(argument.second_derivative) < 1e-14,
+                ExcInternalError());
+
+    parameters.mobility_model = MobilityModel::degenerate;
+    argument = CahnHilliard::select_mobility_tracer_argument(
+      parameters, 0.95, 0.999, 0.1, 0.2);
+    AssertThrow(std::abs(argument.value - 0.999) < 1e-14,
+                ExcInternalError());
+    AssertThrow(std::abs(argument.first_derivative - 0.1) < 1e-14,
+                ExcInternalError());
+    AssertThrow(std::abs(argument.second_derivative - 0.2) < 1e-14,
+                ExcInternalError());
+
+    deallog << "Mobility tracer argument selection OK" << std::endl;
+  }
 } // namespace
 
 int main(int argc, char **argv)
@@ -204,4 +327,6 @@ int main(int argc, char **argv)
   test_rejection_and_prediction();
   test_bdf2_startup_is_never_rejected();
   test_adaptive_mobility_scaling();
+  test_adaptive_mobility_2_tail_weight();
+  test_mobility_tracer_argument_selection();
 }

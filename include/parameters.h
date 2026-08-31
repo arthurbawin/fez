@@ -854,11 +854,11 @@ namespace Parameters
     // Additive gradient term coefficient m of the adaptive mobility
     // contribution m*2*epsilon^2*|grad(phi)|^2.
     double adaptive_mobility_m;
-    // Positive multiplier n of the second adaptive mobility model:
-    // n*|grad(phi)|^2*||u||_reg*2*epsilon^4/sigma_tilde.
+    // Positive multiplier n of the tail-aware adaptive mobility model:
+    // n*sqrt(2)*W(phi)*(u.grad(phi))*epsilon^3/sigma_tilde.
     double adaptive_mobility_2_n;
-    // Strictly positive regularization of the velocity norm in the second
-    // adaptive mobility model: ||u||_reg = sqrt(u^2 + delta^2).
+    // Strictly positive mobility floor in the tail-aware adaptive model:
+    // M_reg = sqrt(M_raw^2 + delta^2).
     double adaptive_mobility_2_delta;
     // Positive multiplier n of the third adaptive mobility model:
     // n*||u||_reg*epsilon^2/sigma_tilde.

@@ -433,11 +433,18 @@ namespace PostProcessingTools
       for (unsigned int q = 0; q < computed_values.size(); ++q)
       {
         const double phi = tracer_limiter(tracer_values[q]);
+        const auto mobility_tracer_argument =
+          CahnHilliard::select_mobility_tracer_argument(
+            cahn_hilliard,
+            phi,
+            material_phase(cahn_hilliard, phi),
+            material_phase_derivative(cahn_hilliard, phi),
+            material_phase_second_derivative(cahn_hilliard, phi));
         computed_values[q] =
           mobility_function(cahn_hilliard,
-                            material_phase(cahn_hilliard, phi),
-                            material_phase_derivative(cahn_hilliard, phi),
-                            material_phase_second_derivative(cahn_hilliard, phi),
+                            mobility_tracer_argument.value,
+                            mobility_tracer_argument.first_derivative,
+                            mobility_tracer_argument.second_derivative,
                             velocity_values[q],
                             tracer_gradients[q],
                             adaptive_coefficient,

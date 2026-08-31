@@ -1616,14 +1616,14 @@ namespace Parameters
         "adaptive mobility 2 n",
         "1.",
         Patterns::Double(0.),
-        "Positive multiplier n of adaptative_mobility_2: "
-        "n*|grad(phi)|^2*||u||_reg*2*epsilon^4/sigma_tilde.");
+        "Positive multiplier n of the tail-aware adaptative_mobility_2: "
+        "n*sqrt(2)*W(phi)*(u.grad(phi))*epsilon^3/sigma_tilde.");
       prm.declare_entry(
         "adaptive mobility 2 delta",
         "1e-12",
         Patterns::Double(0.),
-        "Strictly positive regularization delta of adaptative_mobility_2: "
-        "||u||_reg = sqrt(u^2 + delta^2).");
+        "Strictly positive mobility floor delta of "
+        "adaptative_mobility_2: M_reg=sqrt(M_raw^2+delta^2).");
       prm.declare_entry(
         "adaptive mobility 3 n",
         "1.",

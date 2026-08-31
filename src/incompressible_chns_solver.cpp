@@ -284,11 +284,23 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
       for (unsigned int q = 0; q < this->quadrature->size(); ++q)
       {
         const double phi = mobility_limiter(tracer_values[q]);
+        const double material_marker = material_phase(chp, phi);
+        const double material_marker_derivative =
+          material_phase_derivative(chp, phi);
+        const double material_marker_second_derivative =
+          material_phase_second_derivative(chp, phi);
+        const auto mobility_tracer_argument =
+          CahnHilliard::select_mobility_tracer_argument(
+            chp,
+            phi,
+            material_marker,
+            material_marker_derivative,
+            material_marker_second_derivative);
         const auto evaluation = mobility_evaluation(
           chp,
-          material_phase(chp, phi),
-          material_phase_derivative(chp, phi),
-          material_phase_second_derivative(chp, phi),
+          mobility_tracer_argument.value,
+          mobility_tracer_argument.first_derivative,
+          mobility_tracer_argument.second_derivative,
           velocity_values[q],
           tracer_gradients[q],
           scaling.coefficient,
@@ -331,7 +343,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
       cahn_hilliard_param, phi);
   const double rho  = CahnHilliard::linear_mixing(m_marker, rho0, rho1);
   const double eta  = CahnHilliard::linear_mixing(m_marker, eta0, eta1);
-  // Mobility M(q) with the chain rule dM/dphi = M'(q) q'.
+  // Degenerate mobility uses the material marker q; adaptive mobilities use
+  // the transported tracer phi directly.
   const double mobility_phi =
     CahnHilliard::get_mobility_limiter_function(cahn_hilliard_param)(phi);
   const double mobility_arg =
@@ -340,6 +353,15 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   const double mobility_arg_d =
     CahnHilliard::get_material_phase_derivative_function(cahn_hilliard_param)(
       cahn_hilliard_param, mobility_phi);
+  const double mobility_arg_dd =
+    CahnHilliard::get_material_phase_second_derivative_function(
+      cahn_hilliard_param)(cahn_hilliard_param, mobility_phi);
+  const auto mobility_tracer_argument =
+    CahnHilliard::select_mobility_tracer_argument(cahn_hilliard_param,
+                                                  mobility_phi,
+                                                  mobility_arg,
+                                                  mobility_arg_d,
+                                                  mobility_arg_dd);
   // d(eta)/d(phi) = eta_q m' (chain rule through the marker).
   const double detadphi =
     CahnHilliard::linear_mixing_derivative(m_marker, eta0, eta1) * dm_marker;
@@ -360,7 +382,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
            Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2)
   {
     adaptive_mobility_coefficient =
-      cahn_hilliard_param.adaptive_mobility_2_n * 2. * epsilon * epsilon *
+      cahn_hilliard_param.adaptive_mobility_2_n * std::sqrt(2.) * epsilon *
       epsilon * epsilon / sigma_tilde;
     adaptive_mobility_delta = cahn_hilliard_param.adaptive_mobility_2_delta;
   }
@@ -404,9 +426,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   const auto mobility_evaluation =
     CahnHilliard::get_mobility_evaluation_function(cahn_hilliard_param)(
       cahn_hilliard_param,
-      mobility_arg,
-      mobility_arg_d,
-      0.,
+      mobility_tracer_argument.value,
+      mobility_tracer_argument.first_derivative,
+      mobility_tracer_argument.second_derivative,
       u,
       grad_phi,
       adaptive_mobility_coefficient,
@@ -1629,7 +1651,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::output_line_probe()
   else if (chp.mobility_model ==
            Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2)
   {
-    adaptive_coefficient = chp.adaptive_mobility_2_n * 2. * epsilon * epsilon *
+    adaptive_coefficient = chp.adaptive_mobility_2_n * std::sqrt(2.) * epsilon *
                            epsilon * epsilon / sigma_tilde;
     adaptive_delta = chp.adaptive_mobility_2_delta;
   }
@@ -1700,14 +1722,22 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::output_line_probe()
        .5 * gradient_coefficient * tracer_gradients[i].norm_square());
 
     const double mobility_phi = mobility_limiter(phi);
-    const auto   mobility     = mobility_evaluator(chp,
-                                             marker(chp, mobility_phi),
-                                             marker_d(chp, mobility_phi),
-                                             marker_dd(chp, mobility_phi),
-                                             velocity_values[i],
-                                             tracer_gradients[i],
-                                             adaptive_coefficient,
-                                             adaptive_delta);
+    const auto mobility_tracer_argument =
+      CahnHilliard::select_mobility_tracer_argument(
+        chp,
+        mobility_phi,
+        marker(chp, mobility_phi),
+        marker_d(chp, mobility_phi),
+        marker_dd(chp, mobility_phi));
+    const auto mobility =
+      mobility_evaluator(chp,
+                         mobility_tracer_argument.value,
+                         mobility_tracer_argument.first_derivative,
+                         mobility_tracer_argument.second_derivative,
+                         velocity_values[i],
+                         tracer_gradients[i],
+                         adaptive_coefficient,
+                         adaptive_delta);
 
     out << this->time_handler.current_time << ','
         << this->time_handler.current_time_iteration << ',' << i;

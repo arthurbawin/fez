@@ -70,6 +70,48 @@ namespace Assembly
                                    CopyDataBase<>,
                                    stabilization | tracer_stabilization>;
 
+    /**
+     * Stepien model. The Stepien forms are restricted to a fixed mesh, so no
+     * moving-mesh combination is instantiated.
+     */
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   stepien>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   stepien>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   stepien | stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   stepien | stabilization>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   stepien | tracer_stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   stepien | tracer_stabilization>;
+
+    template class VolumeAssembler<2,
+                                   NavierStokesScratch::ScratchDataCHNS<2>,
+                                   CopyDataBase<>,
+                                   stepien | stabilization |
+                                     tracer_stabilization>;
+    template class VolumeAssembler<3,
+                                   NavierStokesScratch::ScratchDataCHNS<3>,
+                                   CopyDataBase<>,
+                                   stepien | stabilization |
+                                     tracer_stabilization>;
+
     // With moving mesh
     template class VolumeAssembler<2,
                                    NavierStokesScratch::ScratchDataCHNS<2>,

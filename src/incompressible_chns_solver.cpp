@@ -463,10 +463,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::setup_assemblers()
     return;
 
   AssertThrow(
-    CahnHilliard::is_abels_model(this->param.cahn_hilliard),
+    CahnHilliard::is_abels_model(this->param.cahn_hilliard) ||
+      CahnHilliard::is_stepien_model(this->param.cahn_hilliard),
     ExcMessage("The \"Stabilization\" subsection is only implemented for the "
-               "Abels model. Use \"set stabilization = true\" under the finite "
-               "elements subsection for the other CHNS models."));
+               "Abels and Stepien models. Use \"set stabilization = true\" "
+               "under the finite elements subsection for the other CHNS "
+               "models."));
 
   if constexpr (with_enlarged)
     AssertThrow(false,

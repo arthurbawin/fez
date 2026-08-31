@@ -3,9 +3,12 @@
 
 #include <assembly/assembler.h>
 #include <boundary_conditions.h>
+#include <cahn_hilliard.h>
 #include <components_ordering.h>
 #include <deal.II/base/table.h>
 #include <parameter_reader.h>
+
+#include <type_traits>
 
 namespace Assembly
 {
@@ -39,7 +42,15 @@ namespace Assembly
       /**
        * Account for moving mesh contributions (ALE).
        */
-      moving_mesh = 1 << 2
+      moving_mesh = 1 << 2,
+
+      /**
+       * Assemble the Stepien quasi-incompressible model instead of the default
+       * Abels model. The two models share the potential (chemical potential)
+       * equation but differ in the momentum, continuity and phase equations;
+       * see the volume assembler for the corresponding weak forms.
+       */
+      stepien = 1 << 3
     };
 
     /**
@@ -80,6 +91,10 @@ namespace Assembly
         (assembly_flags & tracer_stabilization) != 0;
       static constexpr bool with_moving_mesh =
         (assembly_flags & moving_mesh) != 0;
+      static constexpr bool with_stepien = (assembly_flags & stepien) != 0;
+
+      static_assert(!(with_stepien && with_moving_mesh),
+                    "The Stepien forms are only implemented on a fixed mesh.");
 
       const ComponentOrdering &ordering;
     };
@@ -128,6 +143,67 @@ namespace Assembly
 {
   namespace IncompressibleCHNS
   {
+    namespace internal
+    {
+      /**
+       * Emplace the volume assembler matching the runtime SUPG switches
+       * @p supg and @p tracer_supg, on top of the compile-time @p model_flags
+       * which carry the CHNS model and the moving-mesh bit.
+       *
+       * Keeping the model and mesh bits as a template parameter avoids
+       * spelling out one branch per combination of the four flags.
+       */
+      template <int dim,
+                typename ScratchData,
+                typename CopyData,
+                unsigned int model_flags,
+                bool         allow_tracer_stabilization = true>
+      void emplace_volume_assembler(
+        const ComponentOrdering            &ordering,
+        const Table<2, DoFTools::Coupling> &coupling_table,
+        const bool                          supg,
+        const bool                          tracer_supg,
+        std::vector<std::unique_ptr<AssemblerBase<ScratchData, CopyData>>>
+          &assemblers)
+      {
+        const auto emplace = [&](auto flags) {
+          assemblers.emplace_back(
+            std::make_unique<VolumeAssembler<dim,
+                                             ScratchData,
+                                             CopyData,
+                                             decltype(flags)::value>>(
+              ordering, coupling_table));
+        };
+
+        if constexpr (allow_tracer_stabilization)
+        {
+          if (supg && tracer_supg)
+            emplace(std::integral_constant<unsigned int,
+                                           model_flags | stabilization |
+                                             tracer_stabilization>{});
+          else if (tracer_supg)
+            emplace(
+              std::integral_constant<unsigned int,
+                                     model_flags | tracer_stabilization>{});
+          else if (supg)
+            emplace(std::integral_constant<unsigned int,
+                                           model_flags | stabilization>{});
+          else
+            emplace(std::integral_constant<unsigned int, model_flags>{});
+        }
+        else
+        {
+          // The caller guarantees that tracer_supg is false here, so the
+          // corresponding assemblers are never instantiated.
+          if (supg)
+            emplace(std::integral_constant<unsigned int,
+                                           model_flags | stabilization>{});
+          else
+            emplace(std::integral_constant<unsigned int, model_flags>{});
+        }
+      }
+    } // namespace internal
+
     template <int dim,
               typename ScratchData,
               typename CopyData,
@@ -158,43 +234,35 @@ namespace Assembly
           ExcMessage(
             "CHNS stabilization on a moving mesh is not implemented yet."));
 
+      /**
+       * The volume assembler reads the mobility as a single scalar
+       * (ScratchData::mobility) rather than per quadrature point, so a
+       * degenerate mobility would silently be evaluated as the constant one.
+       */
+      AssertThrow(
+        param.cahn_hilliard.mobility_model ==
+          Parameters::CahnHilliard<dim>::MobilityModel::constant,
+        ExcMessage("The \"Stabilization\" subsection is only implemented for a "
+                   "constant mobility."));
+
       // Assign the volume assembler
-      if (supg)
+      if (CahnHilliard::is_stepien_model(param.cahn_hilliard))
       {
-        if (tracer_supg)
-          assemblers.emplace_back(
-            std::make_unique<VolumeAssembler<
-              dim,
-              ScratchData,
-              CopyData,
-              stabilization | tracer_stabilization | moving_mesh_flag>>(
-              ordering, coupling_table));
+        // The Stepien forms are written for a fixed mesh only, so the ALE
+        // instantiations are never requested.
+        if constexpr (with_moving_mesh)
+          AssertThrow(false, ExcMessage("Stepien ALE is not implemented."));
         else
-          assemblers.emplace_back(
-            std::make_unique<VolumeAssembler<dim,
-                                             ScratchData,
-                                             CopyData,
-                                             stabilization | moving_mesh_flag>>(
-              ordering, coupling_table));
+          internal::emplace_volume_assembler<dim, ScratchData, CopyData,
+                                             stepien>(
+            ordering, coupling_table, supg, tracer_supg, assemblers);
       }
       else
-      {
-        if (tracer_supg)
-        {
-          assemblers.emplace_back(
-            std::make_unique<
-              VolumeAssembler<dim,
-                              ScratchData,
-                              CopyData,
-                              tracer_stabilization | moving_mesh_flag>>(
-              ordering, coupling_table));
-        }
-        else
-          assemblers.emplace_back(
-            std::make_unique<
-              VolumeAssembler<dim, ScratchData, CopyData, moving_mesh_flag>>(
-              ordering, coupling_table));
-      }
+        internal::emplace_volume_assembler<dim,
+                                           ScratchData,
+                                           CopyData,
+                                           moving_mesh_flag>(
+          ordering, coupling_table, supg, tracer_supg, assemblers);
 
       // Assign the relevant boundary assemblers
       // ...

@@ -279,6 +279,10 @@ namespace NavierStokesScratch
           CahnHilliard::is_stepien_model(param.cahn_hilliard))
         fe_values[pressure].get_function_gradients(current_solution,
                                                    present_pressure_gradients);
+      // The Stepien tracer residual diffuses q, which depends on the pressure.
+      if (enable_stepien_tracer_stabilization)
+        fe_values[pressure].get_function_laplacians(
+          current_solution, present_pressure_laplacians);
       if (enable_stabilization || enable_branch_stabilization)
       {
         fe_values[velocity].get_function_laplacians(
@@ -333,6 +337,9 @@ namespace NavierStokesScratch
           if (enable_stabilization || enable_branch_stabilization ||
               CahnHilliard::is_stepien_model(param.cahn_hilliard))
             grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
+
+          if (enable_stepien_tracer_stabilization)
+            laplacian_phi_p[q][k] = trace(fe_values[pressure].hessian(k, q));
 
           if (enable_stabilization || enable_branch_stabilization)
           {
@@ -1065,6 +1072,9 @@ namespace NavierStokesScratch
       if (enable_tracer_stabilization)
         fe_values_moving[potential].get_function_laplacians(
           current_solution, potential_laplacians);
+      if (enable_stepien_tracer_stabilization)
+        fe_values_moving[tracer].get_function_laplacians(current_solution,
+                                                         tracer_laplacians);
       if (enable_branch_stabilization)
         fe_values_moving[potential].get_function_hessians(current_solution,
                                                           potential_hessians);
@@ -1209,6 +1219,10 @@ namespace NavierStokesScratch
             laplacian_shape_mu[q][k] =
               trace(fe_values_moving[potential].hessian(k, q));
 
+          if (enable_stepien_tracer_stabilization)
+            laplacian_shape_phi[q][k] =
+              trace(fe_values_moving[tracer].hessian(k, q));
+
           // Shape functions on fixed mesh
           if constexpr (enable_pseudo_solid)
           {
@@ -1219,14 +1233,36 @@ namespace NavierStokesScratch
         }
 
         if (enable_tracer_stabilization)
+        {
+          /**
+           * Characteristic diffusivity of the phase equation. After dividing
+           * the Stepien phase equation by its coefficient A, the diffusive
+           * term reads (B/A) M Delta(q) with B/A = rho / (rho0 rho1), and
+           * Delta(q) itself carries a further 1 / (rho0 rho1), so the
+           * coefficient multiplying Delta(mu) is M (rho / (rho0 rho1))^2.
+           *
+           * Note that tau does not enter the consistency of the stabilization
+           * (the SUPG term vanishes on the exact solution), so this choice
+           * only affects the conditioning of the linear systems.
+           */
+          double tracer_diffusivity = mobility;
+          if (enable_stepien_tracer_stabilization)
+          {
+            const double rho_over_rho_product =
+              density[q] / stepien_rho_product;
+            tracer_diffusivity =
+              mobility * rho_over_rho_product * rho_over_rho_product;
+          }
+
           tau_supg_tracer[q] = StabilizationTools::compute_tau_supg(
             time_handler,
             dofs_per_cell,
             cell_diameter,
             param.finite_elements.tracer_degree,
-            mobility,
+            tracer_diffusivity,
             u_conv,
             grad_shape_phi[q]);
+        }
 
         // Same quantities for the stabilization of this branch. Computed here,
         // after the loop over the dofs, because the shape function gradients
@@ -1410,6 +1446,12 @@ namespace NavierStokesScratch
 
     bool enable_stabilization;
     bool enable_tracer_stabilization;
+    /**
+     * Tracer SUPG for the Stepien model. Its strong residual diffuses the
+     * quantity q, which depends on the pressure, so it needs the Laplacians of
+     * p and phi on top of the Laplacian of mu used by the other models.
+     */
+    bool enable_stepien_tracer_stabilization;
 
     /**
      * Stabilization of this branch, driven by "set stabilization" under the
@@ -1499,6 +1541,7 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<1, dim>>>          grad_div_phi_u;
     std::vector<std::vector<double>>                  phi_p;
     std::vector<std::vector<Tensor<1, dim>>>          grad_phi_p;
+    std::vector<std::vector<double>>                 laplacian_phi_p;
 
     // Shape functions on faces (each face, quad node and dof)
     std::vector<std::vector<std::vector<Tensor<1, dim>>>> phi_u_face;
@@ -1557,6 +1600,7 @@ namespace NavierStokesScratch
 
     std::vector<std::vector<double>> previous_pressure_values;
     std::vector<Tensor<1, dim>>      present_pressure_gradients;
+    std::vector<double>              present_pressure_laplacians;
     std::vector<double>              present_temperature_values;
     std::vector<Tensor<1, dim>>      present_temperature_gradients;
     std::vector<std::vector<double>> previous_temperature_values;
@@ -1681,6 +1725,19 @@ namespace NavierStokesScratch
     double              diffusive_flux_factor;
     Tensor<1, dim>      body_force;
 
+    /**
+     * Constants of the Stepien quasi-incompressible model. They are cell- and
+     * quadrature-independent, so they are computed once when the Cahn-Hilliard
+     * data is initialized.
+     *
+     * stepien_dpr is half the difference of the reference pressures of the two
+     * fluids; it enters the capillary force as (dpr - mu) grad(phi) and the
+     * diffused quantity q of the phase equation.
+     */
+    double stepien_dpr;
+    double stepien_rho_sum;     // rho0 + rho1
+    double stepien_rho_product; // rho0 * rho1
+
     CahnHilliard::TracerLimiterFunction         tracer_limiter;
     CahnHilliard::MobilityTracerLimiterFunction mobility_tracer_limiter;
 
@@ -1692,6 +1749,7 @@ namespace NavierStokesScratch
     std::vector<double>              tracer_values;
     std::vector<double>              tracer_time_derivatives;
     std::vector<Tensor<1, dim>>      tracer_gradients;
+    std::vector<double>              tracer_laplacians;
     std::vector<double>              tracer_values_fixed;
     std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
     std::vector<std::vector<double>> previous_tracer_values;
@@ -1721,6 +1779,7 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_phi_fixed;
     std::vector<std::vector<double>>         shape_mu;
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_mu;
+    std::vector<std::vector<double>>         laplacian_shape_phi;
     std::vector<std::vector<double>>         laplacian_shape_mu;
     std::vector<std::vector<double>>         shape_psi;
     std::vector<std::vector<Tensor<1, dim>>> grad_shape_psi;

@@ -64,6 +64,9 @@ namespace NavierStokesScratch
     , n_components(ordering.n_components)
     , enable_stabilization(param.stabilization.enable_supg)
     , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
+    , enable_stepien_tracer_stabilization(
+        param.stabilization.enable_tracer_supg &&
+        CahnHilliard::is_stepien_model(param.cahn_hilliard))
     , enable_branch_stabilization(param.finite_elements.stabilization)
     , fe_values(std::make_unique<FEValues<dim>>(
         moving_mapping,
@@ -138,6 +141,9 @@ namespace NavierStokesScratch
     , n_components(ordering.n_components)
     , enable_stabilization(param.stabilization.enable_supg)
     , enable_tracer_stabilization(param.stabilization.enable_tracer_supg)
+    , enable_stepien_tracer_stabilization(
+        param.stabilization.enable_tracer_supg &&
+        CahnHilliard::is_stepien_model(param.cahn_hilliard))
     , enable_branch_stabilization(param.finite_elements.stabilization)
     , hp_fe_values(std::make_unique<hp::FEValues<dim>>(
         moving_mapping_collection,
@@ -232,6 +238,8 @@ namespace NavierStokesScratch
     , n_components(other.n_components)
     , enable_stabilization(other.enable_stabilization)
     , enable_tracer_stabilization(other.enable_tracer_stabilization)
+    , enable_stepien_tracer_stabilization(
+        other.enable_stepien_tracer_stabilization)
     , enable_branch_stabilization(other.enable_branch_stabilization)
     , n_q_points(other.n_q_points)
     , n_faces(other.n_faces)
@@ -425,6 +433,11 @@ namespace NavierStokesScratch
     sigma_tilde           = 3. / (2. * sqrt(2.)) * ch.surface_tension;
     diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
     body_force            = pp.body_force;
+
+    stepien_dpr =
+      0.5 * (pp.fluids[0].pressure_ref - pp.fluids[1].pressure_ref);
+    stepien_rho_sum     = density0 + density1;
+    stepien_rho_product = density0 * density1;
     tracer_limiter        = CahnHilliard::get_limiter_function(ch);
     mobility_tracer_limiter =
       CahnHilliard::get_mobility_limiter_function(ch);
@@ -514,6 +527,12 @@ namespace NavierStokesScratch
     phi_p.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
     grad_phi_p.resize(n_q_points,
                       std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+    if (enable_stepien_tracer_stabilization)
+    {
+      present_pressure_laplacians.resize(n_q_points);
+      laplacian_phi_p.resize(n_q_points,
+                             std::vector<double>(max_dofs_per_cell));
+    }
 
     phi_u_face.resize(n_faces,
                       std::vector<std::vector<Tensor<1, dim>>>(
@@ -700,6 +719,12 @@ namespace NavierStokesScratch
                            std::vector<Tensor<1, dim>>(max_dofs_per_cell));
       laplacian_shape_mu.resize(n_q_points,
                                 std::vector<double>(max_dofs_per_cell));
+      if (enable_stepien_tracer_stabilization)
+      {
+        tracer_laplacians.resize(n_q_points);
+        laplacian_shape_phi.resize(n_q_points,
+                                   std::vector<double>(max_dofs_per_cell));
+      }
 
       if constexpr (enable_enlarged)
       {

@@ -17,7 +17,9 @@
 #include <deal.II/numerics/data_component_interpretation.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/data_out_faces.h>
+#include <parameter_reader.h>
 #include <parameters.h>
+#include <types.h>
 
 #include <memory>
 #include <stabilization_tools.h>
@@ -26,11 +28,17 @@
 
 using namespace dealii;
 
+// Forward declaration
+template <int dim>
+class PostProcessingHandler;
+
 /**
  * Collection of utilities for post-processing.
  */
 namespace PostProcessingTools
 {
+  using namespace dealii;
+
   /**
    * Small specialization of deal.II's DataOutFaces to output a single boundary.
    */

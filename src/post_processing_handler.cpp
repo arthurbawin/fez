@@ -1,5 +1,6 @@
 
 #include <post_processing_handler.h>
+#include <postprocessors_and_evaluators.h>
 
 #include <algorithm>
 #include <cmath>
@@ -58,11 +59,13 @@ namespace
 
 template <int dim>
 PostProcessingHandler<dim>::PostProcessingHandler(
+  const ComponentOrdering                                 &ordering,
   const ParameterReader<dim>                              &param,
   const Triangulation<dim>                                &triangulation,
   const DoFHandler<dim>                                   &dof_handler,
   const std::vector<std::pair<std::string, unsigned int>> &fields_description)
-  : post_proc_param(param.postprocessing)
+  : ordering(ordering)
+  , post_proc_param(param.postprocessing)
   , output_param(param.output)
   , physical_properties(param.physical_properties)
   , mms_param(param.mms_param)
@@ -89,6 +92,25 @@ PostProcessingHandler<dim>::PostProcessingHandler(
   }
 
   this->attach_triangulation_and_dof_handler(triangulation, dof_handler);
+
+  // Create the required DataPostProcessors
+  {
+    const auto &pp = param.postprocessing;
+    using PP       = Parameters::PostProcessing;
+
+    postprocessors.clear();
+    if (pp.vorticity.enable and
+        pp.vorticity.method == PP::Vorticity::ComputationMethod::discontinuous)
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::VorticityPostProcessor<dim>>(
+          ordering));
+    if (pp.q_criterion.enable and
+        pp.q_criterion.method ==
+          PP::QCriterion::ComputationMethod::discontinuous)
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::QCriterionPostProcessor<dim>>(
+          ordering));
+  }
 }
 
 template <int dim>
@@ -316,7 +338,7 @@ void PostProcessingHandler<dim>::add_multiphase_data_to_table(
   const std::array<DataType, 2>                        &data_for_phases,
   const TimeHandler                                    &time_handler,
   TableHandler                                         &table,
-  const Parameters::PostProcessing::PostProcessingBase &pp_param)
+  const Parameters::PostProcessing::PostProcessingFile &pp_param)
 {
   if constexpr (std::is_same_v<DataType, Tensor<1, dim>>)
   {
@@ -349,32 +371,32 @@ template void PostProcessingHandler<2>::add_multiphase_data_to_table(
   const std::array<Tensor<1, 2>, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 template void PostProcessingHandler<3>::add_multiphase_data_to_table(
   const std::array<Tensor<1, 3>, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 template void PostProcessingHandler<2>::add_multiphase_data_to_table(
   const std::array<double, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 template void PostProcessingHandler<3>::add_multiphase_data_to_table(
   const std::array<double, 2> &,
   const TimeHandler &,
   TableHandler &,
-  const Parameters::PostProcessing::PostProcessingBase &);
+  const Parameters::PostProcessing::PostProcessingFile &);
 
 template <int dim>
 void PostProcessingHandler<dim>::write_table(
   std::ostream                                         &out,
   const TableHandler                                   &table,
-  const Parameters::PostProcessing::PostProcessingBase &postproc_base) const
+  const Parameters::PostProcessing::PostProcessingFile &postproc_file) const
 {
   if (mpi_rank == 0)
   {
-    out << std::scientific << std::setprecision(postproc_base.precision);
+    out << std::scientific << std::setprecision(postproc_file.precision);
     table.write_text(out);
   }
 }
@@ -392,6 +414,244 @@ void PostProcessingHandler<dim>::write_structure_mean_position(
   write_table(out,
               structure_mean_position_table,
               post_proc_param.structure_position);
+}
+
+template <int dim>
+std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>
+PostProcessingHandler<dim>::create_field_postprocessor(
+  const PostProcessingTools::PostprocessorAtDofTypes type,
+  const ParameterReader<dim>                        &param,
+  const Mapping<dim>                                &mapping,
+  const Quadrature<dim>                             &cell_quadrature,
+  const bool                                         with_moving_mesh)
+{
+  using namespace PostProcessingTools;
+  using Field       = Parameters::PostProcessing::PostProcessingField;
+  using Vorticity   = Parameters::PostProcessing::Vorticity;
+  using QCriterion  = Parameters::PostProcessing::QCriterion;
+
+  switch (type)
+  {
+    case PostprocessorAtDofTypes::vorticity:
+      switch (param.postprocessing.vorticity.method)
+      {
+        case Vorticity::ComputationMethod::discontinuous:
+          // Nothing to do: the DataPostprocessor was created in the
+          // constructor.
+          return nullptr;
+        case Vorticity::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim, VorticityEvaluator, L2Projection>>(
+            param,
+            ordering,
+            mapping,
+            *dof_handler,
+            cell_quadrature,
+            with_moving_mesh);
+        case Vorticity::ComputationMethod::weighted_average:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        VorticityEvaluator,
+                                        WeightedAverage>>(param,
+                                                          ordering,
+                                                          mapping,
+                                                          *dof_handler,
+                                                          cell_quadrature,
+                                                          with_moving_mesh);
+        default:
+          DEAL_II_NOT_IMPLEMENTED();
+      }
+    case PostprocessorAtDofTypes::q_criterion:
+      switch (param.postprocessing.q_criterion.method)
+      {
+        case QCriterion::ComputationMethod::discontinuous:
+          // Nothing to do: the DataPostprocessor was created in the
+          // constructor.
+          return nullptr;
+        case QCriterion::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        QCriterionEvaluator,
+                                        L2Projection>>(param,
+                                                       ordering,
+                                                       mapping,
+                                                       *dof_handler,
+                                                       cell_quadrature,
+                                                       with_moving_mesh);
+        case QCriterion::ComputationMethod::weighted_average:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        QCriterionEvaluator,
+                                        WeightedAverage>>(param,
+                                                          ordering,
+                                                          mapping,
+                                                          *dof_handler,
+                                                          cell_quadrature,
+                                                          with_moving_mesh);
+        default:
+          DEAL_II_NOT_IMPLEMENTED();
+      }
+    case PostprocessorAtDofTypes::mesh_velocity:
+      return std::make_unique<MeshVelocityPostprocessor<dim>>(
+        ordering, param, mapping, *dof_handler, cell_quadrature);
+    case PostprocessorAtDofTypes::density:
+      switch (param.postprocessing.density.method)
+      {
+        case Field::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim, DensityEvaluator, L2Projection>>(
+            param,
+            ordering,
+            mapping,
+            *dof_handler,
+            cell_quadrature,
+            with_moving_mesh);
+        case Field::ComputationMethod::weighted_average:
+          return std::make_unique<FieldPostprocessorGenerator<
+            dim,
+            DensityEvaluator,
+            WeightedAverage>>(param,
+                              ordering,
+                              mapping,
+                              *dof_handler,
+                              cell_quadrature,
+                              with_moving_mesh);
+        case Field::ComputationMethod::discontinuous:
+          AssertThrow(false,
+                      ExcMessage("Density postprocessing supports 'l2 "
+                                 "projection' and 'weighted average'."));
+          return nullptr;
+      }
+      DEAL_II_ASSERT_UNREACHABLE();
+      return nullptr;
+    case PostprocessorAtDofTypes::mobility:
+      switch (param.postprocessing.mobility.method)
+      {
+        case Field::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim, MobilityEvaluator, L2Projection>>(
+            param,
+            ordering,
+            mapping,
+            *dof_handler,
+            cell_quadrature,
+            with_moving_mesh);
+        case Field::ComputationMethod::weighted_average:
+          return std::make_unique<FieldPostprocessorGenerator<
+            dim,
+            MobilityEvaluator,
+            WeightedAverage>>(param,
+                              ordering,
+                              mapping,
+                              *dof_handler,
+                              cell_quadrature,
+                              with_moving_mesh);
+        case Field::ComputationMethod::discontinuous:
+          AssertThrow(false,
+                      ExcMessage("Mobility postprocessing supports 'l2 "
+                                 "projection' and 'weighted average'."));
+          return nullptr;
+      }
+      DEAL_II_ASSERT_UNREACHABLE();
+      return nullptr;
+    case PostprocessorAtDofTypes::mff_physics_compression:
+      switch (param.postprocessing.mff_physics_compression.method)
+      {
+        case Field::ComputationMethod::l2_projection:
+          return std::make_unique<FieldPostprocessorGenerator<
+            dim,
+            MFFPhysicsCompressionEvaluator,
+            L2Projection>>(param,
+                           ordering,
+                           mapping,
+                           *dof_handler,
+                           cell_quadrature,
+                           with_moving_mesh);
+        case Field::ComputationMethod::weighted_average:
+          return std::make_unique<FieldPostprocessorGenerator<
+            dim,
+            MFFPhysicsCompressionEvaluator,
+            WeightedAverage>>(param,
+                              ordering,
+                              mapping,
+                              *dof_handler,
+                              cell_quadrature,
+                              with_moving_mesh);
+        case Field::ComputationMethod::discontinuous:
+          AssertThrow(false,
+                      ExcMessage("Mesh-forcing postprocessing supports 'l2 "
+                                 "projection' and 'weighted average'."));
+          return nullptr;
+      }
+      DEAL_II_ASSERT_UNREACHABLE();
+      return nullptr;
+    case PostprocessorAtDofTypes::mff_enlarged_compression:
+      switch (param.postprocessing.mff_enlarged_compression.method)
+      {
+        case Field::ComputationMethod::l2_projection:
+          return std::make_unique<FieldPostprocessorGenerator<
+            dim,
+            MFFEnlargedCompressionEvaluator,
+            L2Projection>>(param,
+                           ordering,
+                           mapping,
+                           *dof_handler,
+                           cell_quadrature,
+                           with_moving_mesh);
+        case Field::ComputationMethod::weighted_average:
+          return std::make_unique<FieldPostprocessorGenerator<
+            dim,
+            MFFEnlargedCompressionEvaluator,
+            WeightedAverage>>(param,
+                              ordering,
+                              mapping,
+                              *dof_handler,
+                              cell_quadrature,
+                              with_moving_mesh);
+        case Field::ComputationMethod::discontinuous:
+          AssertThrow(false,
+                      ExcMessage("Mesh-forcing postprocessing supports 'l2 "
+                                 "projection' and 'weighted average'."));
+          return nullptr;
+      }
+      DEAL_II_ASSERT_UNREACHABLE();
+      return nullptr;
+    case PostprocessorAtDofTypes::mff_transport:
+      switch (param.postprocessing.mff_transport.method)
+      {
+        case Field::ComputationMethod::l2_projection:
+          return std::make_unique<FieldPostprocessorGenerator<
+            dim,
+            MFFTransportEvaluator,
+            L2Projection>>(param,
+                           ordering,
+                           mapping,
+                           *dof_handler,
+                           cell_quadrature,
+                           with_moving_mesh);
+        case Field::ComputationMethod::weighted_average:
+          return std::make_unique<FieldPostprocessorGenerator<
+            dim,
+            MFFTransportEvaluator,
+            WeightedAverage>>(param,
+                              ordering,
+                              mapping,
+                              *dof_handler,
+                              cell_quadrature,
+                              with_moving_mesh);
+        case Field::ComputationMethod::discontinuous:
+          AssertThrow(false,
+                      ExcMessage("Mesh-forcing postprocessing supports 'l2 "
+                                 "projection' and 'weighted average'."));
+          return nullptr;
+      }
+      DEAL_II_ASSERT_UNREACHABLE();
+      return nullptr;
+    default:
+      DEAL_II_NOT_IMPLEMENTED();
+  }
+  DEAL_II_ASSERT_UNREACHABLE();
+  return nullptr;
 }
 
 template class PostProcessingHandler<2>;

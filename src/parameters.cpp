@@ -1,4 +1,5 @@
 
+#include <field_postprocessors.h>
 #include <parameters.h>
 #include <solver_info.h>
 #include <utilities.h>
@@ -438,6 +439,16 @@ namespace Parameters
                       "false",
                       Patterns::Bool(),
                       "Enable/disable this postprocessing");
+    prm.declare_entry(
+      "output frequency",
+      "1",
+      Patterns::Integer(1),
+      "Frequency (in time steps) for the exportation of postprocessing files");
+  }
+
+  void declare_postprocessing_file(ParameterHandler &prm)
+  {
+    declare_postprocessing_base(prm);
     prm.declare_entry("write results",
                       "true",
                       Patterns::Bool(),
@@ -446,25 +457,37 @@ namespace Parameters
                       "postprocessed_data",
                       Patterns::FileName(),
                       "Prefix for the postprocessing output files");
-    prm.declare_entry(
-      "output frequency",
-      "1",
-      Patterns::Integer(1),
-      "Frequency (in time steps) for the exportation of postprocessing files");
     prm.declare_entry("precision",
                       "6",
                       Patterns::Integer(1),
                       "Number of significant digits to print");
   }
 
-  void declare_postprocessing_boundary(ParameterHandler &prm)
+  void declare_postprocessing_file_boundary(ParameterHandler &prm)
   {
-    declare_postprocessing_base(prm);
+    declare_postprocessing_file(prm);
     prm.declare_entry(
       "boundary id",
       "0",
       Patterns::Integer(0),
       "Boundary id on which this postprocessing should be applied");
+  }
+
+  void declare_postprocessing_field(
+    ParameterHandler  &prm,
+    const std::string &default_method = "discontinuous")
+  {
+    declare_postprocessing_base(prm);
+    prm.declare_entry("computation method",
+                      default_method,
+                      Patterns::Selection(
+                        "discontinuous|l2 projection|weighted average"),
+                      "Computation method");
+    prm.declare_entry(
+      "degree",
+      "1",
+      Patterns::Integer(0),
+      "Degree of the finite element representation of the postprocessed field");
   }
 
   void PostProcessing::declare_parameters(ParameterHandler &prm)
@@ -473,7 +496,7 @@ namespace Parameters
     {
       prm.enter_subsection("forces computation");
       {
-        declare_postprocessing_boundary(prm);
+        declare_postprocessing_file_boundary(prm);
         prm.declare_entry("computation method",
                           "stress vector",
                           Patterns::Selection(
@@ -483,12 +506,12 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("structure position");
       {
-        declare_postprocessing_boundary(prm);
+        declare_postprocessing_file_boundary(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("slicing");
       {
-        declare_postprocessing_boundary(prm);
+        declare_postprocessing_file_boundary(prm);
         prm.declare_entry("along which axis",
                           "z",
                           Patterns::Selection("x|y|z"),
@@ -506,7 +529,7 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("line probe");
       {
-        declare_postprocessing_base(prm);
+        declare_postprocessing_file(prm);
         prm.declare_entry("start point",
                           "0, 0, 0",
                           Patterns::Anything(),
@@ -523,22 +546,62 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("time scales");
       {
-        declare_postprocessing_base(prm);
+        declare_postprocessing_file(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase volume");
       {
-        declare_postprocessing_base(prm);
+        declare_postprocessing_file(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase center of mass");
       {
-        declare_postprocessing_base(prm);
+        declare_postprocessing_file(prm);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase average velocity");
       {
-        declare_postprocessing_base(prm);
+        declare_postprocessing_file(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("vorticity");
+      {
+        declare_postprocessing_field(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("q_criterion");
+      {
+        declare_postprocessing_field(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mesh velocity");
+      {
+        declare_postprocessing_field(prm);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("density");
+      {
+        declare_postprocessing_field(prm, "weighted average");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mobility");
+      {
+        declare_postprocessing_field(prm, "weighted average");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mff physics compression");
+      {
+        declare_postprocessing_field(prm, "weighted average");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mff enlarged compression");
+      {
+        declare_postprocessing_field(prm, "weighted average");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mff transport");
+      {
+        declare_postprocessing_field(prm, "weighted average");
       }
       prm.leave_subsection();
     }
@@ -550,27 +613,66 @@ namespace Parameters
   {
     READ_VERBOSITY_PARAM(prm, pp_base.verbosity)
     pp_base.enable           = prm.get_bool("enable");
-    pp_base.write_results    = prm.get_bool("write results");
-    pp_base.output_prefix    = prm.get("output prefix");
     pp_base.output_frequency = prm.get_integer("output frequency");
-    pp_base.precision        = prm.get_integer("precision");
   }
 
-  void read_postprocessing_boundary(
-    ParameterHandler                           &prm,
-    PostProcessing::PostProcessingBaseBoundary &pp_boundary)
+  void read_postprocessing_file(ParameterHandler                   &prm,
+                                PostProcessing::PostProcessingFile &pp_file)
   {
-    read_postprocessing_base(prm, pp_boundary);
+    read_postprocessing_base(prm, pp_file);
+    pp_file.write_results = prm.get_bool("write results");
+    pp_file.output_prefix = prm.get("output prefix");
+    pp_file.precision     = prm.get_integer("precision");
+  }
+
+  void read_postprocessing_file_boundary(
+    ParameterHandler                           &prm,
+    PostProcessing::PostProcessingFileBoundary &pp_boundary)
+  {
+    read_postprocessing_file(prm, pp_boundary);
     pp_boundary.boundary_id = prm.get_integer("boundary id");
+  }
+
+  void read_postprocessing_field(
+    ParameterHandler                                  &prm,
+    PostProcessing::PostProcessingField               &pp_field,
+    const PostProcessingTools::PostprocessorAtDofTypes type,
+    std::map<PostProcessingTools::PostprocessorAtDofTypes,
+             PostProcessing::PostProcessingField *>   &field_postprocessors)
+  {
+    // Add this field postprocessor to the map
+    field_postprocessors.insert({type, &pp_field});
+
+    read_postprocessing_base(prm, pp_field);
+
+    const std::string parsed_method = prm.get("computation method");
+    if (parsed_method == "discontinuous")
+      pp_field.method =
+        PostProcessing::PostProcessingField::ComputationMethod::discontinuous;
+    else if (parsed_method == "l2 projection")
+      pp_field.method =
+        PostProcessing::PostProcessingField::ComputationMethod::l2_projection;
+    else if (parsed_method == "weighted average")
+      pp_field.method = PostProcessing::PostProcessingField::ComputationMethod::
+        weighted_average;
+    else
+      AssertThrow(false,
+                  ExcMessage("Unknown vorticity computation method: " +
+                             parsed_method));
+    pp_field.degree = prm.get_integer("degree");
   }
 
   void PostProcessing::read_parameters(ParameterHandler &prm)
   {
+    using FieldPP = PostProcessingTools::PostprocessorAtDofTypes;
+
+    field_postprocessors.clear();
+
     prm.enter_subsection("Postprocessing");
     {
       prm.enter_subsection("forces computation");
       {
-        read_postprocessing_boundary(prm, forces);
+        read_postprocessing_file_boundary(prm, forces);
         const std::string parsed_method = prm.get("computation method");
         if (parsed_method == "stress vector")
           forces.method = Forces::ComputationMethod::stress_vector;
@@ -580,12 +682,12 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("structure position");
       {
-        read_postprocessing_boundary(prm, structure_position);
+        read_postprocessing_file_boundary(prm, structure_position);
       }
       prm.leave_subsection();
       prm.enter_subsection("slicing");
       {
-        read_postprocessing_boundary(prm, slices);
+        read_postprocessing_file_boundary(prm, slices);
         slices.along_which_axis         = prm.get("along which axis");
         slices.n_slices                 = prm.get_integer("number of slices");
         slices.compute_forces_on_slices = prm.get_bool("compute forces");
@@ -593,7 +695,7 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("line probe");
       {
-        read_postprocessing_base(prm, line_probe);
+        read_postprocessing_file(prm, line_probe);
         line_probe.start = Utilities::string_to_double(
           Utilities::split_string_list(prm.get("start point"), ","));
         line_probe.end = Utilities::string_to_double(
@@ -603,22 +705,80 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("time scales");
       {
-        read_postprocessing_base(prm, time_scales);
+        read_postprocessing_file(prm, time_scales);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase volume");
       {
-        read_postprocessing_base(prm, chns_volumes);
+        read_postprocessing_file(prm, chns_volumes);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase center of mass");
       {
-        read_postprocessing_base(prm, chns_center_mass);
+        read_postprocessing_file(prm, chns_center_mass);
       }
       prm.leave_subsection();
       prm.enter_subsection("chns phase average velocity");
       {
-        read_postprocessing_base(prm, chns_avg_velocity);
+        read_postprocessing_file(prm, chns_avg_velocity);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("vorticity");
+      {
+        read_postprocessing_field(prm,
+                                  vorticity,
+                                  FieldPP::vorticity,
+                                  field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("q_criterion");
+      {
+        read_postprocessing_field(prm,
+                                  q_criterion,
+                                  FieldPP::q_criterion,
+                                  field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mesh velocity");
+      {
+        read_postprocessing_field(prm,
+                                  mesh_velocity,
+                                  FieldPP::mesh_velocity,
+                                  field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("density");
+      {
+        read_postprocessing_field(
+          prm, density, FieldPP::density, field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mobility");
+      {
+        read_postprocessing_field(
+          prm, mobility, FieldPP::mobility, field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mff physics compression");
+      {
+        read_postprocessing_field(prm,
+                                  mff_physics_compression,
+                                  FieldPP::mff_physics_compression,
+                                  field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mff enlarged compression");
+      {
+        read_postprocessing_field(prm,
+                                  mff_enlarged_compression,
+                                  FieldPP::mff_enlarged_compression,
+                                  field_postprocessors);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("mff transport");
+      {
+        read_postprocessing_field(
+          prm, mff_transport, FieldPP::mff_transport, field_postprocessors);
       }
       prm.leave_subsection();
     }
@@ -2035,6 +2195,11 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Enable coupling between fluid and solid obstacle");
+      prm.declare_entry(
+        "use zero mass model",
+        "true",
+        Patterns::Bool(),
+        "Use evolution equation for the solid obstacle assuming zero mass");
       prm.declare_entry("spring constant",
                         "1",
                         Patterns::Double(),
@@ -2053,6 +2218,10 @@ namespace Parameters
                         default_point,
                         Patterns::List(Patterns::Double(), dim, dim, ","),
                         "Center of the cylinder");
+      prm.declare_entry("initial velocity",
+                        default_point,
+                        Patterns::List(Patterns::Double(), dim, dim, ","),
+                        "Center of the cylinder");
       prm.declare_entry("fix z component", "true", Patterns::Bool(), "");
       prm.declare_entry("compute error on forces",
                         "false",
@@ -2067,6 +2236,20 @@ namespace Parameters
           "lambda_accumulators|global_position_master_to_global_accumulator"),
         "Coupling strategy between force (Lagrange multiplier) "
         "and position dofs");
+
+      prm.enter_subsection("Rigid body rotation");
+      {
+        prm.declare_entry(
+          "enable",
+          "false",
+          Patterns::Bool(),
+          "Enable rigid-body rotation around center of rotation");
+        prm.declare_entry("center of rotation",
+                          default_point,
+                          Patterns::List(Patterns::Double(), dim, dim, ","),
+                          "Fixed center of rotation");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -2077,14 +2260,16 @@ namespace Parameters
     prm.enter_subsection("FSI");
     {
       READ_VERBOSITY_PARAM(prm, verbosity)
-      enable_coupling = prm.get_bool("enable coupling");
-      spring_constant = prm.get_double("spring constant");
-      damping         = prm.get_double("damping");
-      mass            = prm.get_double("mass");
-      cylinder_radius = prm.get_double("cylinder radius");
-      cylinder_length = prm.get_double("cylinder length");
-      cylinder_center = parse_rank_1_tensor<dim>(prm.get("cylinder center"));
-      fix_z_component = prm.get_bool("fix z component");
+      enable_coupling  = prm.get_bool("enable coupling");
+      zero_mass_model  = prm.get_bool("use zero mass model");
+      spring_constant  = prm.get_double("spring constant");
+      damping          = prm.get_double("damping");
+      mass             = prm.get_double("mass");
+      cylinder_radius  = prm.get_double("cylinder radius");
+      cylinder_length  = prm.get_double("cylinder length");
+      cylinder_center  = parse_rank_1_tensor<dim>(prm.get("cylinder center"));
+      initial_velocity = parse_rank_1_tensor<dim>(prm.get("initial velocity"));
+      fix_z_component  = prm.get_bool("fix z component");
       compute_error_on_forces = prm.get_bool("compute error on forces");
       const std::string parsed_coupling = prm.get("force-position coupling");
       if (parsed_coupling == "all_position_to_all_lambda")
@@ -2104,6 +2289,18 @@ namespace Parameters
       else
         throw std::runtime_error("Unknown force-position coupling: " +
                                  parsed_coupling);
+
+      prm.enter_subsection("Rigid body rotation");
+      {
+        rotation.enable = prm.get_bool("enable");
+        if (rotation.enable)
+          AssertThrow(zero_mass_model,
+                      ExcMessage("Rigid-body rotation is only available for "
+                                 "the zero-mass model."));
+        rotation.center =
+          parse_rank_1_tensor<dim>(prm.get("center of rotation"));
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }

@@ -140,7 +140,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize()
   // Create the post-processing handler once the full list of variables is known
   const auto description = get_variables_description();
   postproc_handler       = std::make_unique<PostProcessingHandler<dim>>(
-    param, *triangulation, *dof_handler, description);
+    *ordering, param, *triangulation, *dof_handler, description);
 
   // Set up data to create the names of the visualization files
   prefix_data.is_convergence_step = param.mms_param.enable;
@@ -1039,39 +1039,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
 
-  // Compute mesh velocity and add it to the DataOut of the postproc handler
-  // FIXME: do this without placeholders
-  if constexpr (with_moving_mesh)
-  {
-    if (postproc_handler->should_output_volume_fields(time_handler))
-    {
-      LA::ParVectorType mesh_velocity;
-      mesh_velocity.reinit(locally_owned_dofs, mpi_communicator);
-
-      IndexSet owned_position_dofs =
-        DoFTools::extract_dofs(*dof_handler, position_mask);
-      owned_position_dofs = owned_position_dofs & locally_owned_dofs;
-
-      for (const auto &dof : owned_position_dofs)
-        mesh_velocity[dof] =
-          time_handler.compute_time_derivative(dof,
-                                               *present_solution,
-                                               *previous_solutions);
-      mesh_velocity.compress(VectorOperation::insert);
-
-      auto variable_names = postproc_handler->get_field_names();
-      for (auto &name : variable_names)
-      {
-        if (name == "mesh_position")
-          name = "mesh_velocity";
-        else
-          name = "unused_" + name;
-      }
-
-      postproc_handler->add_dof_data_vector(mesh_velocity, variable_names);
-    }
-  }
-
   // Let the derived solvers add their own relevant cell and/or dof-based
   // data, to output either in the volume or on the prescribed boundary (skin).
   add_solver_specific_postprocessing_data();
@@ -1212,8 +1179,26 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_riemannian_metric()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim,
+                        with_moving_mesh>::compute_dof_based_postprocessing()
+{
+  postproc_handler->compute_dof_postprocessing(computing_timer,
+                                               param,
+                                               *present_solution,
+                                               *previous_solutions,
+                                               time_handler,
+                                               *moving_mapping,
+                                               *quadrature,
+                                               with_moving_mesh);
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 {
+  // Compute postprocessed fields *before* output_results, as they are added to
+  // the visualization file
+  compute_dof_based_postprocessing();
+
   output_results();
 
   if (param.postprocessing.forces.enable)

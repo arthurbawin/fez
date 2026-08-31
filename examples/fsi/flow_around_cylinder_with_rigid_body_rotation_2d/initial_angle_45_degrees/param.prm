@@ -1,6 +1,8 @@
 
 #
-# Unsteady flow around a massless circular cylinder mounted on a spring
+# Unsteady flow around a massless circular cylinder, attached
+# to an infinitely thin, rigid rod and to a rotation center.
+# The cylinder-rod system undergoes a rigid-body rotation.
 #
 
 subsection Dimension
@@ -13,8 +15,8 @@ end
 
 subsection Output
   set write vtu results = true
-  set output directory  = results/
-  set output prefix     = flow_cylinder_spring
+  set output directory  = ./results/
+  set output prefix     = rigid_body_rotation
 end
 
 subsection Postprocessing
@@ -33,29 +35,17 @@ subsection Postprocessing
     set output frequency = 1
     set precision        = 10
   end
-
-  subsection vorticity
-    set enable             = true
-    set output frequency   = 1
-    set computation method = l2 projection
-    set degree             = 1
-  end
-
-  subsection mesh velocity
-    set enable             = true
-    set output frequency   = 1
-  end
 end
 
 subsection Mesh
-  set mesh file = ./cylinder.msh
+  set mesh file = ./mesh.msh
 end
 
 subsection Time integration
   set verbosity        = verbose
   set dt               = 0.1
   set t_initial        = 0
-  set t_end            = 0.5
+  set t_end            = 5
   set scheme           = BDF2
   set bdf start method = BDF1
 
@@ -87,8 +77,8 @@ end
 
 subsection Nonlinear solver
   set verbosity            = verbose
-  set tolerance            = 1e-10
-  set divergence_tolerance = 1e+4
+  set tolerance            = 1e-12
+  set divergence_tolerance = 1e+6
   set max_iterations       = 20
   set enable_line_search   = false
 
@@ -117,16 +107,32 @@ subsection Physical properties
   set number of fluids = 1
   subsection Fluid 0
     set density             = 1
-    set kinematic viscosity = 0.005
+    set kinematic viscosity = 1
   end
 
   set number of pseudosolids = 1
   subsection Pseudosolid 0
     subsection lame lambda
-      set Function expression = 1
+      # Higher on the cylinder, then decreases radially.
+      # This rigidifies the mesh close to the cylinder to avoid inversions.
+      # Accounts for the initial rotation angle of the cylinder through theta_factor.
+      set Function constants = A=1.0, xc=4.0, yc=8.0, x0=8.0, y0=8.0, a=1.0, b=1.0, theta_factor= 0.25
+      set Function expression = A / ( \
+        (((x-(xc+(x0-xc)*cos(pi*theta_factor)-(y0-yc)*sin(pi*theta_factor)))*cos(pi*theta_factor) + \
+           (y-(yc+(x0-xc)*sin(pi*theta_factor)+(y0-yc)*cos(pi*theta_factor)))*sin(pi*theta_factor))/a)^2 + \
+        ((-(x-(xc+(x0-xc)*cos(pi*theta_factor)-(y0-yc)*sin(pi*theta_factor)))*sin(pi*theta_factor) + \
+           (y-(yc+(x0-xc)*sin(pi*theta_factor)+(y0-yc)*cos(pi*theta_factor)))*cos(pi*theta_factor))/b)^2 \
+      )
     end
     subsection lame mu
-      set Function expression = 1
+      # Same as lambda
+      set Function constants = A=1.0, xc=4.0, yc=8.0, x0=8.0, y0=8.0, a=1.0, b=1.0, theta_factor= 0.25
+      set Function expression = A / ( \
+        (((x-(xc+(x0-xc)*cos(pi*theta_factor)-(y0-yc)*sin(pi*theta_factor)))*cos(pi*theta_factor) + \
+           (y-(yc+(x0-xc)*sin(pi*theta_factor)+(y0-yc)*cos(pi*theta_factor)))*sin(pi*theta_factor))/a)^2 + \
+        ((-(x-(xc+(x0-xc)*cos(pi*theta_factor)-(y0-yc)*sin(pi*theta_factor)))*sin(pi*theta_factor) + \
+           (y-(yc+(x0-xc)*sin(pi*theta_factor)+(y0-yc)*cos(pi*theta_factor)))*cos(pi*theta_factor))/b)^2 \
+      )
     end
   end
 end
@@ -134,12 +140,16 @@ end
 subsection FSI
   set verbosity       = verbose
   set enable coupling = true
-  set spring constant = 1
+  set use zero mass model = true
+
   set cylinder radius = 0.5
-  # set cylinder length = 0.5
-  # set fix z component = true
   
-  set force-position coupling = local_position_master_to_lambda_accumulators
+  set force-position coupling = all_position_to_all_lambda
+
+  subsection Rigid body rotation
+    set enable             = true
+    set center of rotation = 4, 8
+  end
 end
 
 subsection Initial conditions
@@ -201,9 +211,4 @@ subsection Pseudosolid boundary conditions
     set name = InnerBoundary
     set type = coupled_to_fluid
   end
-end
-
-subsection Debug
-  set verbosity            = verbose
-  set write partition gmsh = true
 end

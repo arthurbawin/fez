@@ -294,6 +294,7 @@ public:
 
   /**
    * Create the additional initial conditions specific to each derived solver.
+   * These initial conditions should be written in the newton_update vector.
    * By default, this function does nothing and must be overriden if needed.
    */
   virtual void set_solver_specific_initial_conditions() {}
@@ -371,6 +372,15 @@ public:
    * needed.
    */
   virtual void compute_solver_specific_errors() {}
+
+  /**
+   * Postprocess the solution to obtain fields with a dof-based representation,
+   * such as the mesh velocity or an L2 projection of the vorticity.
+   *
+   * These fields are added to the visualization file, so this function must be
+   * called before output_results() for consistency.
+   */
+  void compute_dof_based_postprocessing();
 
   /**
    * Write the results to a vtu/pvtu file for visualization.
@@ -695,8 +705,7 @@ NavierStokesSolver<dim, with_moving_mesh>::get_fixed_mapping_collection() const
 {
   AssertThrow(false, ExcPureFunctionCalled());
   return nullptr;
-};
-
+}
 
 template <int dim, bool with_moving_mesh>
 const hp::MappingCollection<dim> *
@@ -704,8 +713,7 @@ NavierStokesSolver<dim, with_moving_mesh>::get_moving_mapping_collection() const
 {
   AssertThrow(false, ExcPureFunctionCalled());
   return nullptr;
-};
-
+}
 
 template <int dim, bool with_moving_mesh>
 const hp::QCollection<dim> *
@@ -714,8 +722,7 @@ NavierStokesSolver<dim, with_moving_mesh>::get_cell_quadrature_collection()
 {
   AssertThrow(false, ExcPureFunctionCalled());
   return nullptr;
-};
-
+}
 
 template <int dim, bool with_moving_mesh>
 const hp::QCollection<dim - 1> *
@@ -724,6 +731,6 @@ NavierStokesSolver<dim, with_moving_mesh>::get_face_quadrature_collection()
 {
   AssertThrow(false, ExcPureFunctionCalled());
   return nullptr;
-};
+}
 
 #endif

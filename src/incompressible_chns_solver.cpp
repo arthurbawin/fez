@@ -22,7 +22,6 @@
 #include <linear_solver.h>
 #include <mesh.h>
 #include <mesh_and_dof_tools.h>
-#include <mesh_forcing_postprocessing.h>
 #include <metric_field.h>
 #include <scratch_data.h>
 #include <utilities.h>
@@ -978,49 +977,10 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   if (!this->postproc_handler->should_output_volume_fields(this->time_handler))
     return;
 
-  const auto  &chp     = this->param.cahn_hilliard;
-  const auto   marker  = CahnHilliard::get_material_phase_function(chp);
+  const auto  &chp    = this->param.cahn_hilliard;
+  const auto   marker = CahnHilliard::get_material_phase_function(chp);
   const auto   marker_derivative =
     CahnHilliard::get_material_phase_derivative_function(chp);
-  const auto marker_second_derivative =
-    CahnHilliard::get_material_phase_second_derivative_function(chp);
-  const auto tracer_limiter = CahnHilliard::get_limiter_function(chp);
-  const auto mobility_tracer_limiter =
-    CahnHilliard::get_mobility_limiter_function(chp);
-  const auto mobility_evaluation_function =
-    CahnHilliard::get_mobility_evaluation_function(chp);
-  const double density0 = this->param.physical_properties.fluids[0].density;
-  const double density1 = this->param.physical_properties.fluids[1].density;
-  double adaptive_mobility_coefficient = 0.;
-  double adaptive_mobility_delta       = 0.;
-  if (chp.mobility_model == Parameters::CahnHilliard<dim>::MobilityModel::adaptive)
-  {
-    const double epsilon = chp.epsilon_interface;
-    const double sigma_tilde = 3. / (2. * sqrt(2.)) * chp.surface_tension;
-    adaptive_mobility_coefficient =
-      chp.adaptive_mobility_n * sqrt(2.) * epsilon * epsilon * epsilon /
-      sigma_tilde;
-    adaptive_mobility_delta = chp.adaptive_mobility_delta;
-  }
-  else if (chp.mobility_model ==
-           Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2)
-  {
-    const double epsilon = chp.epsilon_interface;
-    const double sigma_tilde = 3. / (2. * sqrt(2.)) * chp.surface_tension;
-    adaptive_mobility_coefficient =
-      chp.adaptive_mobility_2_n * 2. * epsilon * epsilon * epsilon * epsilon /
-      sigma_tilde;
-    adaptive_mobility_delta = chp.adaptive_mobility_2_delta;
-  }
-  else if (chp.mobility_model ==
-           Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_3)
-  {
-    const double epsilon = chp.epsilon_interface;
-    const double sigma_tilde = 3. / (2. * sqrt(2.)) * chp.surface_tension;
-    adaptive_mobility_coefficient =
-      chp.adaptive_mobility_3_n * epsilon * epsilon / sigma_tilde;
-    adaptive_mobility_delta = chp.adaptive_mobility_3_delta;
-  }
 
   // Bulk pressure carrying the Young-Laplace jump, and the exposed potential.
   //  * Abels     : capillary phi*grad(mu) -> pressure_abels = p + phi*mu.
@@ -1035,13 +995,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
     use_ding_horriche ? "pressure_hat" :
     use_abels_nlm     ? "pressure_sharp" :
                         "pressure_abels";
-  std::vector<std::string> component_names{"density", pressure_name};
+  std::vector<std::string> component_names{pressure_name};
   if (use_abels_nlm)
   {
     component_names.push_back("q");
     component_names.push_back("potential_phi");
   }
-  component_names.push_back("mobility");
   const std::vector<DataComponentInterpretation::DataComponentInterpretation>
     component_interpretation(component_names.size(),
                              DataComponentInterpretation::component_is_scalar);
@@ -1065,12 +1024,10 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   FEValues<dim>         fe_values(*this->moving_mapping,
                           *fe,
                           output_points,
-                          update_values | update_gradients);
+                          update_values);
   std::vector<double>   tracer_values(output_points.size());
   std::vector<double>   pressure_values(output_points.size());
   std::vector<double>   potential_values(output_points.size());
-  std::vector<Tensor<1, dim>> velocity_values(output_points.size());
-  std::vector<Tensor<1, dim>> tracer_gradients(output_points.size());
 
   for (const auto &cell : this->dof_handler->active_cell_iterators())
     if (cell->is_locally_owned())
@@ -1082,74 +1039,28 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
         *this->present_solution, pressure_values);
       fe_values[potential_extractor].get_function_values(
         *this->present_solution, potential_values);
-      fe_values[this->velocity_extractor].get_function_values(
-        *this->present_solution, velocity_values);
-      fe_values[tracer_extractor].get_function_gradients(*this->present_solution,
-                                                          tracer_gradients);
 
       std::vector<std::vector<double>> values(
         output_points.size(), std::vector<double>(component_names.size()));
       for (unsigned int q = 0; q < output_points.size(); ++q)
       {
         const double phi = tracer_values[q];
-        // Material marker m = q (abels_nlm) or phi (else); density is affine
-        // in m (identity marker -> the original phi mixing).
-        const double m = marker(chp, tracer_limiter(phi));
-        values[q][0] = CahnHilliard::linear_mixing(m, density0, density1);
         if (use_ding_horriche)
-          values[q][1] = pressure_values[q];
+          values[q][0] = pressure_values[q];
         else if (use_abels_nlm)
         {
           const double q_marker = marker(chp, phi);
-          values[q][1] = pressure_values[q] + q_marker * potential_values[q];
-          values[q][2] = q_marker;
-          values[q][3] = marker_derivative(chp, phi) * potential_values[q];
+          values[q][0] = pressure_values[q] + q_marker * potential_values[q];
+          values[q][1] = q_marker;
+          values[q][2] = marker_derivative(chp, phi) * potential_values[q];
         }
         else
-          values[q][1] = pressure_values[q] + phi * potential_values[q];
-
-        const double mobility_phi = mobility_tracer_limiter(phi);
-        const auto mobility_evaluation = mobility_evaluation_function(
-          chp,
-          marker(chp, mobility_phi),
-          marker_derivative(chp, mobility_phi),
-          marker_second_derivative(chp, mobility_phi),
-          velocity_values[q],
-          tracer_gradients[q],
-          adaptive_mobility_coefficient,
-          adaptive_mobility_delta);
-        values[q].back() = mobility_evaluation.value;
+          values[q][0] = pressure_values[q] + phi * potential_values[q];
       }
       output_field->set_cell_values(cell, values);
     }
 
   this->postproc_handler->add_continuous_data_field(std::move(output_field));
-
-  if constexpr (with_moving_mesh)
-  {
-    const unsigned int mesh_forcing_output_degree =
-      std::max({1u,
-                this->param.finite_elements.velocity_degree,
-                this->param.finite_elements.mesh_position_degree,
-                this->param.finite_elements.tracer_degree,
-                this->param.finite_elements.potential_degree});
-
-    MeshForcingPostProcessing::add_continuous_diagnostics<dim, with_enlarged>(
-      *this->moving_mapping,
-      *this->fixed_mapping,
-      *fe,
-      *this->dof_handler,
-      this->velocity_extractor,
-      this->position_extractor,
-      tracer_extractor,
-      psi_extractor,
-      *this->present_solution,
-      *this->previous_solutions,
-      this->time_handler,
-      this->param.cahn_hilliard,
-      mesh_forcing_output_degree,
-      *this->postproc_handler);
-  }
 
   if (should_output_mesh_quality())
     add_mesh_quality_postprocessing_data();

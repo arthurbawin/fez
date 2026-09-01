@@ -289,6 +289,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
    */
   if (!time_handler.is_steady() && param.with_tree_based_adaptation())
   {
+    prefix_data.is_prerefinement_step = true;
     for (unsigned int step = 0;
          step < param.mesh.adaptation.tree_amr.n_prerefinement_steps;
          ++step)
@@ -296,8 +297,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
       update_boundary_conditions();
       set_initial_conditions(false);
       adapt_mesh();
-      output_results(/* is_prerefinement_step = */ true, step);
+      prefix_data.prerefinement_step = step;
+      output_results();
     }
+    prefix_data.is_prerefinement_step = false;
   }
 
   if (!param.checkpoint_restart.restart)
@@ -996,9 +999,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
 }
 
 template <int dim, bool with_moving_mesh>
-void NavierStokesSolver<dim, with_moving_mesh>::output_results(
-  const bool         is_prerefinement_step,
-  const unsigned int prerefinement_step)
+void NavierStokesSolver<dim, with_moving_mesh>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
 

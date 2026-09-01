@@ -96,8 +96,8 @@ subsection Initial conditions
     set Function expression = 0.1*x*(1-x)*y*(2-y); 0
   end
   subsection cahn hilliard tracer
-    # Span the complete tail band while keeping grad(phi) nonzero, so the
-    # Jacobian exercises both dW/dphi and d(u.grad(phi)).
+    # Span the core, restriction transition and cutoff while keeping grad(phi)
+    # nonzero, so the Jacobian exercises both dchi/dphi and d(u.grad(phi)).
     set Function expression = 0.8 + 0.1995*x
   end
 end

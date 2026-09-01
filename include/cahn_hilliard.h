@@ -346,97 +346,49 @@ namespace CahnHilliard
     return {value, 0., 0., raw / value * adaptive_coefficient};
   }
 
-  /** Value and first two tracer derivatives of the fixed tail weight used by
-   * adaptative_mobility_2. */
-  struct AdaptiveMobilityTailWeight
+  /** Value and first two tracer derivatives of the fixed restriction weight
+   * used by adaptative_mobility_2. */
+  struct AdaptiveMobilityRestrictionWeight
   {
     double value;
     double first_derivative;
     double second_derivative;
   };
 
-  /** Extend the adaptive-mobility sensor from |phi|=0.9 to |phi|=0.999.
+  /** Restrict the adaptive-mobility sensor to the interface core.
    *
-   * In the resolved tail, W(phi)=(1-0.9^2)/(1-phi^2), which cancels the
-   * decay of the gradient of an equilibrium tanh profile. Quintic smoothstep
-   * blends make the unit core and bounded outer plateau C2-compatible.
+   * The weight is one in the core, decreases with a complementary quintic
+   * smoothstep between |phi|=0.5 and |phi|=0.9, and vanishes in the outer
+   * tails. Using phi^2 makes the weight even; the smoothstep makes both joins
+   * C2-compatible.
    */
-  inline AdaptiveMobilityTailWeight
-  evaluate_adaptive_mobility_2_tail_weight(const double phi)
+  inline AdaptiveMobilityRestrictionWeight
+  evaluate_adaptive_mobility_2_restriction_weight(const double phi)
   {
-    constexpr double phi_ref       = 0.9;
-    constexpr double phi_ref_end   = 0.91;
-    constexpr double phi_cap_start = 0.9989;
-    constexpr double phi_cap       = 0.999;
-    constexpr double r_ref         = phi_ref * phi_ref;
-    constexpr double r_ref_end     = phi_ref_end * phi_ref_end;
-    constexpr double r_cap_start   = phi_cap_start * phi_cap_start;
-    constexpr double r_cap         = phi_cap * phi_cap;
-    constexpr double q_ref         = 1. - r_ref;
-    constexpr double q_cap         = 1. - r_cap;
-    constexpr double weight_max    = q_ref / q_cap;
+    constexpr double phi_core   = 0.5;
+    constexpr double phi_cutoff = 0.9;
+    constexpr double r_core     = phi_core * phi_core;
+    constexpr double r_cutoff   = phi_cutoff * phi_cutoff;
 
     const double r = phi * phi;
-    if (r <= r_ref)
+    if (r <= r_core)
       return {1., 0., 0.};
-    if (r >= r_cap)
-      return {weight_max, 0., 0.};
+    if (r >= r_cutoff)
+      return {0., 0., 0.};
 
-    const double q                 = 1. - r;
-    const double reciprocal        = q_ref / q;
-    const double reciprocal_d_r    = q_ref / (q * q);
-    const double reciprocal_dd_r2 = 2. * q_ref / (q * q * q);
-    double       weight             = reciprocal;
-    double       weight_d_r         = reciprocal_d_r;
-    double       weight_dd_r2       = reciprocal_dd_r2;
-
-    if (r < r_ref_end)
-    {
-      const double width = r_ref_end - r_ref;
-      const double t     = (r - r_ref) / width;
-      const double t2    = t * t;
-      const double t3    = t2 * t;
-      const double t4    = t3 * t;
-      const double t5    = t4 * t;
-      const double smoothstep = 6. * t5 - 15. * t4 + 10. * t3;
-      const double smoothstep_d_t = 30. * t2 * (t - 1.) * (t - 1.);
-      const double smoothstep_dd_t2 =
-        60. * t * (2. * t2 - 3. * t + 1.);
-      const double smoothstep_d_r = smoothstep_d_t / width;
-      const double smoothstep_dd_r2 =
-        smoothstep_dd_t2 / (width * width);
-
-      weight = 1. + smoothstep * (reciprocal - 1.);
-      weight_d_r = smoothstep_d_r * (reciprocal - 1.) +
-                   smoothstep * reciprocal_d_r;
-      weight_dd_r2 = smoothstep_dd_r2 * (reciprocal - 1.) +
-                     2. * smoothstep_d_r * reciprocal_d_r +
-                     smoothstep * reciprocal_dd_r2;
-    }
-    else if (r > r_cap_start)
-    {
-      const double width = r_cap - r_cap_start;
-      const double t     = (r - r_cap_start) / width;
-      const double t2    = t * t;
-      const double t3    = t2 * t;
-      const double t4    = t3 * t;
-      const double t5    = t4 * t;
-      const double smoothstep = 6. * t5 - 15. * t4 + 10. * t3;
-      const double smoothstep_d_t = 30. * t2 * (t - 1.) * (t - 1.);
-      const double smoothstep_dd_t2 =
-        60. * t * (2. * t2 - 3. * t + 1.);
-      const double smoothstep_d_r = smoothstep_d_t / width;
-      const double smoothstep_dd_r2 =
-        smoothstep_dd_t2 / (width * width);
-
-      weight = (1. - smoothstep) * reciprocal +
-               smoothstep * weight_max;
-      weight_d_r = (1. - smoothstep) * reciprocal_d_r +
-                   smoothstep_d_r * (weight_max - reciprocal);
-      weight_dd_r2 = (1. - smoothstep) * reciprocal_dd_r2 -
-                     2. * smoothstep_d_r * reciprocal_d_r +
-                     smoothstep_dd_r2 * (weight_max - reciprocal);
-    }
+    const double width = r_cutoff - r_core;
+    const double t     = (r - r_core) / width;
+    const double t2    = t * t;
+    const double t3    = t2 * t;
+    const double t4    = t3 * t;
+    const double t5    = t4 * t;
+    const double smoothstep = 6. * t5 - 15. * t4 + 10. * t3;
+    const double smoothstep_d_t = 30. * t2 * (t - 1.) * (t - 1.);
+    const double smoothstep_dd_t2 =
+      60. * t * (2. * t2 - 3. * t + 1.);
+    const double weight       = 1. - smoothstep;
+    const double weight_d_r   = -smoothstep_d_t / width;
+    const double weight_dd_r2 = -smoothstep_dd_t2 / (width * width);
 
     return {weight,
             2. * phi * weight_d_r,
@@ -454,7 +406,8 @@ namespace CahnHilliard
                                  const double adaptive_coefficient,
                                  const double delta)
   {
-    const auto weight = evaluate_adaptive_mobility_2_tail_weight(phi);
+    const auto weight =
+      evaluate_adaptive_mobility_2_restriction_weight(phi);
     const double weight_d = weight.first_derivative * phi_d;
     const double weight_dd = weight.second_derivative * phi_d * phi_d +
                              weight.first_derivative * phi_dd;
@@ -722,6 +675,7 @@ namespace CahnHilliard
       return &material_phase_tanh_second_derivative<dim>;
     return &material_phase_identity_second_derivative<dim>;
   }
+
 } // namespace CahnHilliard
 
 #endif

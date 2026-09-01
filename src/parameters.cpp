@@ -1616,8 +1616,9 @@ namespace Parameters
         "adaptive mobility 2 n",
         "1.",
         Patterns::Double(0.),
-        "Positive multiplier n of the tail-aware adaptative_mobility_2: "
-        "n*sqrt(2)*W(phi)*(u.grad(phi))*epsilon^3/sigma_tilde.");
+        "Positive multiplier n of the restricted adaptative_mobility_2: "
+        "n*sqrt(2)*chi(phi)*(u.grad(phi))*epsilon^3/sigma_tilde, where "
+        "chi is one for |phi|<=0.5 and zero for |phi|>=0.9.");
       prm.declare_entry(
         "adaptive mobility 2 delta",
         "1e-12",

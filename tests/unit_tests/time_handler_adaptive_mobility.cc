@@ -196,85 +196,78 @@ namespace
     deallog << "Adaptive mobility scaling and time number OK" << std::endl;
   }
 
-  void test_adaptive_mobility_2_tail_weight()
+  void test_adaptive_mobility_2_restriction_weight()
   {
     const auto core =
-      CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(0.5);
+      CahnHilliard::evaluate_adaptive_mobility_2_restriction_weight(0.5);
     AssertThrow(std::abs(core.value - 1.) < 1e-14, ExcInternalError());
     AssertThrow(std::abs(core.first_derivative) < 1e-14,
                 ExcInternalError());
     AssertThrow(std::abs(core.second_derivative) < 1e-14,
                 ExcInternalError());
 
-    constexpr double phi_ref = 0.9;
-    constexpr double phi_tail = 0.99;
-    const double q_ref = 1. - phi_ref * phi_ref;
-    const double q_tail = 1. - phi_tail * phi_tail;
-    const double expected_value = q_ref / q_tail;
-    const double expected_first =
-      2. * phi_tail * q_ref / (q_tail * q_tail);
-    const double expected_second =
-      2. * q_ref / (q_tail * q_tail) +
-      8. * phi_tail * phi_tail * q_ref / (q_tail * q_tail * q_tail);
-
-    const auto positive_tail =
-      CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi_tail);
-    const auto negative_tail =
-      CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(-phi_tail);
-    AssertThrow(std::abs(positive_tail.value - expected_value) < 1e-12,
+    // At the midpoint of the transition in phi^2, the complementary
+    // quintic smoothstep is exactly 1/2. This independently catches the old
+    // reciprocal tail extension, for which the weight was greater than one.
+    constexpr double phi_core = 0.5;
+    constexpr double phi_cutoff = 0.9;
+    const double phi_mid = std::sqrt(
+      0.5 * (phi_core * phi_core + phi_cutoff * phi_cutoff));
+    const auto positive_transition =
+      CahnHilliard::evaluate_adaptive_mobility_2_restriction_weight(phi_mid);
+    const auto negative_transition =
+      CahnHilliard::evaluate_adaptive_mobility_2_restriction_weight(-phi_mid);
+    AssertThrow(std::abs(positive_transition.value - 0.5) < 1e-12,
                 ExcInternalError());
-    AssertThrow(std::abs(positive_tail.first_derivative - expected_first) <
-                  1e-9,
+    AssertThrow(positive_transition.first_derivative < 0.,
                 ExcInternalError());
-    AssertThrow(std::abs(positive_tail.second_derivative - expected_second) <
-                  1e-6,
+    AssertThrow(std::abs(negative_transition.value -
+                         positive_transition.value) < 1e-12,
                 ExcInternalError());
-    AssertThrow(std::abs(negative_tail.value - positive_tail.value) < 1e-12,
+    AssertThrow(std::abs(negative_transition.first_derivative +
+                         positive_transition.first_derivative) < 1e-9,
                 ExcInternalError());
-    AssertThrow(std::abs(negative_tail.first_derivative +
-                         positive_tail.first_derivative) < 1e-9,
-                ExcInternalError());
-    AssertThrow(std::abs(negative_tail.second_derivative -
-                         positive_tail.second_derivative) < 1e-6,
+    AssertThrow(std::abs(negative_transition.second_derivative -
+                         positive_transition.second_derivative) < 1e-6,
                 ExcInternalError());
 
-    constexpr double phi_cap = 0.999;
-    const double expected_maximum =
-      q_ref / (1. - phi_cap * phi_cap);
-    for (const double phi : {phi_cap, 1.05, -phi_cap, -1.05})
+    for (const double phi : {phi_cutoff, 1.05, -phi_cutoff, -1.05})
     {
-      const auto capped =
-        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi);
-      AssertThrow(std::abs(capped.value - expected_maximum) < 1e-12,
+      const auto restricted =
+        CahnHilliard::evaluate_adaptive_mobility_2_restriction_weight(phi);
+      AssertThrow(std::abs(restricted.value) < 1e-12,
                   ExcInternalError());
-      AssertThrow(std::abs(capped.first_derivative) < 1e-12,
+      AssertThrow(std::abs(restricted.first_derivative) < 1e-12,
                   ExcInternalError());
-      AssertThrow(std::abs(capped.second_derivative) < 1e-9,
+      AssertThrow(std::abs(restricted.second_derivative) < 1e-9,
                   ExcInternalError());
     }
 
-    // These points exercise both fixed C2 transition intervals. A missing or
-    // incorrect analytic derivative must be detected independently from the
-    // value formula used by the implementation.
-    for (const double phi : {0.905, 0.99895})
+    // A missing or incorrect analytic derivative must be detected
+    // independently from the value formula used by the implementation.
+    for (const double phi : {0.6, 0.8})
     {
       constexpr double h_first = 1e-7;
       constexpr double h_second = 2e-6;
       const auto evaluation =
-        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi);
+        CahnHilliard::evaluate_adaptive_mobility_2_restriction_weight(phi);
       const double value_plus =
-        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi + h_first)
+        CahnHilliard::evaluate_adaptive_mobility_2_restriction_weight(
+          phi + h_first)
           .value;
       const double value_minus =
-        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi - h_first)
+        CahnHilliard::evaluate_adaptive_mobility_2_restriction_weight(
+          phi - h_first)
           .value;
       const double fd_first = (value_plus - value_minus) / (2. * h_first);
       const double second_plus =
-        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi + h_second)
+        CahnHilliard::evaluate_adaptive_mobility_2_restriction_weight(
+          phi + h_second)
           .value;
       const double second_center = evaluation.value;
       const double second_minus =
-        CahnHilliard::evaluate_adaptive_mobility_2_tail_weight(phi - h_second)
+        CahnHilliard::evaluate_adaptive_mobility_2_restriction_weight(
+          phi - h_second)
           .value;
       const double fd_second =
         (second_plus - 2. * second_center + second_minus) /
@@ -287,7 +280,7 @@ namespace
                   ExcInternalError());
     }
 
-    deallog << "Adaptive mobility 2 tail weight and derivatives OK"
+    deallog << "Adaptive mobility 2 restriction weight and derivatives OK"
             << std::endl;
   }
 
@@ -327,6 +320,6 @@ int main(int argc, char **argv)
   test_rejection_and_prediction();
   test_bdf2_startup_is_never_rejected();
   test_adaptive_mobility_scaling();
-  test_adaptive_mobility_2_tail_weight();
+  test_adaptive_mobility_2_restriction_weight();
   test_mobility_tracer_argument_selection();
 }

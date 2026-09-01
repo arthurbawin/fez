@@ -12,21 +12,21 @@ Number of degrees of freedom: 858
 Time step 1 - Advancing to t = 0.01.
 Max absolute error analytical vs fd matrix is 7.88477e-07
 Newton iter.  0:          nonlinear residual = 1.47927080e+02
-	Line search with alpha = 1.000 : res = 5.49982090e+00
-Newton iter.  1:          nonlinear residual = 5.49982090e+00	(M)
-	Line search with alpha = 1.000 : res = 1.32484323e-03
-Newton iter.  2:          nonlinear residual = 1.32484323e-03	(M)
-	Line search with alpha = 1.000 : res = 6.62698691e-10
-Newton iter.  3:          nonlinear residual = 6.62698691e-10	(M)
-	Line search with alpha = 1.000 : res = 4.48341108e-13
+	Line search with alpha = 1.000 : res = 5.50329084e+00
+Newton iter.  1:          nonlinear residual = 5.50329084e+00	(M)
+	Line search with alpha = 1.000 : res = 1.30996070e-03
+Newton iter.  2:          nonlinear residual = 1.30996070e-03	(M)
+	Line search with alpha = 1.000 : res = 5.95997341e-10
+Newton iter.  3:          nonlinear residual = 5.95997341e-10	(M)
+	Line search with alpha = 1.000 : res = 4.82188027e-13
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 2 - Advancing to t = 2.00e-02.
-Max absolute error analytical vs fd matrix is 1.36e-05
-Newton iter.  0:          nonlinear residual = 1.97537288e+02
-	Line search with alpha = 1.000 : res = 3.14575022e+00
-Newton iter.  1:          nonlinear residual = 3.14575022e+00	(M)
-	Line search with alpha = 1.000 : res = 8.46894050e-06
-Newton iter.  2:          nonlinear residual = 8.46894050e-06	(M)
-	Line search with alpha = 1.000 : res = 2.21139157e-11
+Max absolute error analytical vs fd matrix is 1.37e-05
+Newton iter.  0:          nonlinear residual = 1.97537208e+02
+	Line search with alpha = 1.000 : res = 3.14573825e+00
+Newton iter.  1:          nonlinear residual = 3.14573825e+00	(M)
+	Line search with alpha = 1.000 : res = 8.41698403e-06
+Newton iter.  2:          nonlinear residual = 8.41698403e-06	(M)
+	Line search with alpha = 1.000 : res = 6.30267915e-13
 Stopping because residual is below prescribed tolerance (1.00e-10)

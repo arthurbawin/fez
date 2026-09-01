@@ -2,5 +2,5 @@
 DEAL::BDF1 rejection, rollback, and prediction OK
 DEAL::BDF2 startup immunity and post-startup rejection OK
 DEAL::Adaptive mobility scaling and time number OK
-DEAL::Adaptive mobility 2 tail weight and derivatives OK
+DEAL::Adaptive mobility 2 restriction weight and derivatives OK
 DEAL::Mobility tracer argument selection OK

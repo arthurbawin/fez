@@ -1,194 +1,141 @@
 
 #include <deal.II/base/timer.h>
+#include <deal.II/lac/petsc_compatibility.h>
 #include <generic_solver.h>
 #include <linear_solver.h>
 
-#if defined(FEZ_WITH_PETSC)
+#if defined(DEAL_II_WITH_PETSC)
 #  include <petscmat.h>
 #endif
 
-void solve_linear_system_direct(
-  GenericSolver<LA::ParVectorType> *solver,
-  const Parameters::LinearSolver   &linear_solver_param,
-  LA::ParMatrixType                &system_matrix,
-  const IndexSet                   &locally_owned_dofs,
-  const AffineConstraints<double>  &zero_constraints)
+namespace LinearSolvers
 {
-  TimerOutput::Scope t(solver->computing_timer, "Solve direct");
+  void solve_mumps(GenericSolver<LA::ParVectorType>      *solver,
+                   const Parameters::LinearSolver        &linear_solver_param,
+                   LA::ParMatrixType                     &system_matrix,
+                   const IndexSet                        &locally_owned_dofs,
+                   const AffineConstraints<double>       &zero_constraints,
+                   PETScWrappers::SparseDirectMUMPSReuse *mumps_solver)
+  {
+    TimerOutput::Scope t(solver->computing_timer, "Solve direct");
 
-  const bool verbose =
-    linear_solver_param.verbosity == Parameters::Verbosity::verbose;
+    const bool verbose =
+      linear_solver_param.verbosity == Parameters::Verbosity::verbose;
 
-  if (verbose)
-    solver->pcout << "Entering direct solver" << std::endl;
+    if (verbose)
+      solver->pcout << "Solving with MUMPS..." << std::endl;
 
-  LA::ParVectorType &newton_update = solver->get_newton_update();
-  LA::ParVectorType &system_rhs    = solver->get_system_rhs();
+    LA::ParVectorType &newton_update = solver->get_newton_update();
+    LA::ParVectorType &system_rhs    = solver->get_system_rhs();
 
-  LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
-                                                    solver->mpi_communicator);
+    LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
+                                                      solver->mpi_communicator);
 
-#if defined(FEZ_WITH_PETSC)
-  // Solve with MUMPS
-  SolverControl                    solver_control;
-  PETScWrappers::SparseDirectMUMPS linear_solver(solver_control);
-#elif defined(FEZ_WITH_TRILINOS)
-  // Solve with MUMPS through Amesos
-  TrilinosWrappers::SolverDirect::AdditionalData data(true, "Amesos_Mumps");
-  TrilinosWrappers::SolverDirect                 linear_solver(data);
-#endif
+    if (mumps_solver)
+    {
+      // Use existing solver
+      mumps_solver->solve(system_matrix,
+                          completely_distributed_solution,
+                          system_rhs);
+    }
+    else
+    {
+      // Create a SparseDirectMUMPS solver and solve
+      SolverControl                    solver_control;
+      PETScWrappers::SparseDirectMUMPS linear_solver(solver_control);
+      linear_solver.solve(system_matrix,
+                          completely_distributed_solution,
+                          system_rhs);
+    }
 
-  linear_solver.solve(system_matrix,
-                      completely_distributed_solution,
-                      system_rhs);
+    newton_update = completely_distributed_solution;
+    zero_constraints.distribute(newton_update);
 
-  newton_update = completely_distributed_solution;
-  zero_constraints.distribute(newton_update);
+    if (verbose)
+      solver->pcout << "Done" << std::endl;
+  }
 
-  if (verbose)
-    solver->pcout << "Leaving  direct solver" << std::endl;
-}
+  void
+  solve_cg(GenericSolver<LA::ParVectorType> *solver,
+           const Parameters::LinearSolver   &linear_solver_param,
+           LA::ParMatrixType                &system_matrix,
+           const IndexSet                   &locally_owned_dofs,
+           const AffineConstraints<double>  &zero_constraints,
+           std::unique_ptr<PETScWrappers::PreconditionBase> &preconditioner)
+  {
+    TimerOutput::Scope t(solver->computing_timer, "Solve CG");
 
-void solve_linear_system_direct(
-  GenericSolver<LA::ParVectorType>      *solver,
-  const Parameters::LinearSolver        &linear_solver_param,
-  LA::ParMatrixType                     &system_matrix,
-  const IndexSet                        &locally_owned_dofs,
-  const AffineConstraints<double>       &zero_constraints,
-  PETScWrappers::SparseDirectMUMPSReuse &direct_solver)
-{
-  TimerOutput::Scope t(solver->computing_timer, "Solve direct");
+    const bool verbose =
+      linear_solver_param.verbosity == Parameters::Verbosity::verbose;
 
-  const bool verbose =
-    linear_solver_param.verbosity == Parameters::Verbosity::verbose;
+    if (!preconditioner)
+    {
+      solver->computing_timer.enter_subsection("Set up preconditioner");
+      create_preconditioner(linear_solver_param, system_matrix, preconditioner);
+      solver->computing_timer.leave_subsection();
+    }
 
-  if (verbose)
-    solver->pcout << "Entering direct solver" << std::endl;
+    LA::ParVectorType &newton_update = solver->get_newton_update();
+    LA::ParVectorType &system_rhs    = solver->get_system_rhs();
 
-  LA::ParVectorType &newton_update = solver->get_newton_update();
-  LA::ParVectorType &system_rhs    = solver->get_system_rhs();
+    LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
+                                                      solver->mpi_communicator);
 
-  LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
-                                                    solver->mpi_communicator);
+    SolverControl           solver_control(linear_solver_param.max_iterations,
+                                 linear_solver_param.tolerance);
+    PETScWrappers::SolverCG cg_solver(solver_control);
 
-#if defined(FEZ_WITH_PETSC)
-  direct_solver.solve(system_matrix,
-                      completely_distributed_solution,
-                      system_rhs);
-#elif defined(FEZ_WITH_TRILINOS)
-  // Solve with MUMPS through Amesos
-  TrilinosWrappers::SolverDirect::AdditionalData data(true, "Amesos_Mumps");
-  TrilinosWrappers::SolverDirect                 linear_solver(data);
+    cg_solver.solve(system_matrix,
+                    completely_distributed_solution,
+                    system_rhs,
+                    *preconditioner);
 
-  linear_solver.solve(system_matrix,
-                      completely_distributed_solution,
-                      system_rhs);
-#endif
+    if (verbose)
+      solver->pcout << solver_control.last_step()
+                    << " CG iterations needed to obtain convergence"
+                    << std::endl;
 
-  newton_update = completely_distributed_solution;
-  zero_constraints.distribute(newton_update);
+    newton_update = completely_distributed_solution;
+    zero_constraints.distribute(newton_update);
+  }
 
-  if (verbose)
-    solver->pcout << "Leaving  direct solver" << std::endl;
-}
-
-void solve_linear_system_iterative(
-  GenericSolver<LA::ParVectorType> *solver,
-  const Parameters::LinearSolver   &linear_solver_param,
-  LA::ParMatrixType                &system_matrix,
-  const IndexSet                   &locally_owned_dofs,
-  const AffineConstraints<double>  &zero_constraints)
-{
-  TimerOutput::Scope t(solver->computing_timer, "Solve iterative");
-
-  LA::ParVectorType &newton_update = solver->get_newton_update();
-  LA::ParVectorType &system_rhs    = solver->get_system_rhs();
-
-  LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
-                                                    solver->mpi_communicator);
-
-
-  SolverControl   solver_control(linear_solver_param.max_iterations,
-                               linear_solver_param.tolerance);
-  LA::SolverGMRES linear_solver(solver_control);
-
-#if defined(FEZ_WITH_PETSC)
-  // LA::MPI::PreconditionAMG::AdditionalData data;
-  // AssertThrow(false, ExcMessage("Configure PETSc with Hypre to use
-  // BoomerAMG"));
-
-  LA::MPI::PreconditionILU::AdditionalData data(
-    linear_solver_param.ilu_fill_level);
-  LA::MPI::PreconditionILU preconditioner(system_matrix, data);
-
-  // PETScWrappers::PreconditionBlockJacobi::AdditionalData data;
-  // PETScWrappers::PreconditionBlockJacobi preconditioner(system_matrix, data);
-
-#else
-  const bool         elliptic              = false;
-  const bool         higher_order_elements = true;
-  const unsigned int n_cycles              = 1;
-  const bool         w_cycle               = false;
-  const double       aggregation_threshold = 1e-10;
-
-  LA::MPI::PreconditionAMG::AdditionalData data(
-    elliptic, higher_order_elements, n_cycles, w_cycle, aggregation_threshold);
-
-  LA::MPI::PreconditionAMG preconditioner;
-  preconditioner.initialize(system_matrix, data);
-#endif
-
-  linear_solver.solve(system_matrix,
-                      completely_distributed_solution,
-                      system_rhs,
-                      preconditioner);
-
-  solver->pcout << "   Solved in " << solver_control.last_step()
-                << " iterations." << std::endl;
-
-  newton_update = completely_distributed_solution;
-  zero_constraints.distribute(newton_update);
-}
-
-void solve_linear_system_cg(GenericSolver<LA::ParVectorType> *solver,
-                            const Parameters::LinearSolver &linear_solver_param,
-                            LA::ParMatrixType              &system_matrix,
-                            const IndexSet                 &locally_owned_dofs,
-                            const AffineConstraints<double> &zero_constraints)
-{
-  TimerOutput::Scope t(solver->computing_timer, "Solve CG");
-
-  const bool verbose =
-    linear_solver_param.verbosity == Parameters::Verbosity::verbose;
-
-  LA::ParVectorType &newton_update = solver->get_newton_update();
-  LA::ParVectorType &system_rhs    = solver->get_system_rhs();
-
-  LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
-                                                    solver->mpi_communicator);
-
-
-  SolverControl solver_control(linear_solver_param.max_iterations,
-                               linear_solver_param.tolerance);
-  LA::SolverCG  cg_solver(solver_control);
-
-#if defined(FEZ_WITH_PETSC)
-  PETScWrappers::PreconditionBlockJacobi preconditioner(system_matrix);
-#else
-  // TODO: Implement for Trilinos
-  DEAL_II_NOT_IMPLEMENTED();
-#endif
-
-  cg_solver.solve(system_matrix,
-                  completely_distributed_solution,
-                  system_rhs,
-                  preconditioner);
-
-  if (verbose)
-    solver->pcout << solver_control.last_step()
-                  << " CG iterations needed to obtain convergence."
-                  << std::endl;
-
-  newton_update = completely_distributed_solution;
-  zero_constraints.distribute(newton_update);
-}
+  void create_preconditioner(
+    const Parameters::LinearSolver                   &linear_solver_param,
+    const PETScWrappers::MatrixBase                  &system_matrix,
+    std::unique_ptr<PETScWrappers::PreconditionBase> &preconditioner)
+  {
+    switch (linear_solver_param.preconditioner)
+    {
+      case Parameters::LinearSolver::PreconditionerType::none:
+        preconditioner =
+          std::make_unique<PETScWrappers::PreconditionNone>(system_matrix);
+        break;
+      case Parameters::LinearSolver::PreconditionerType::ilu:
+      {
+        AssertThrow(
+          Utilities::MPI::n_mpi_processes(
+            system_matrix.get_mpi_communicator()) == 1,
+          ExcMessage(
+            "PETSc's ILU preconditioner only has a serial implementation."));
+        PETScWrappers::PreconditionILU::AdditionalData data(
+          linear_solver_param.ilu_fill_level);
+        preconditioner =
+          std::make_unique<PETScWrappers::PreconditionILU>(system_matrix, data);
+      }
+      break;
+      case Parameters::LinearSolver::PreconditionerType::block_jacobi:
+        preconditioner =
+          std::make_unique<PETScWrappers::PreconditionBlockJacobi>(
+            system_matrix);
+        break;
+      case Parameters::LinearSolver::PreconditionerType::amg:
+        // Let each dedicated solver initialize the AMG preconditioner with its
+        // proper parameters
+        AssertThrow(false,
+                    ExcMessage("AMG preconditioner should be initialized in "
+                               "the relevant dedicated solver."));
+      default:
+        DEAL_II_NOT_IMPLEMENTED();
+    }
+  }
+} // namespace LinearSolvers

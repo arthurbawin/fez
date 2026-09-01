@@ -59,9 +59,9 @@ subsection Linear solver
   subsection main physics
     set verbosity      = quiet
     set method         = cg
+    set preconditioner = block_jacobi
     set tolerance      = 1e-10
     set max iterations = 1000
-    set reuse          = false
   end
 end
 

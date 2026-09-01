@@ -1,6 +1,6 @@
 
 subsection Dimension
-  set dimension = 3
+  set dimension = 2
 end
 
 subsection Timer
@@ -16,7 +16,7 @@ end
 subsection Mesh
 
   set dealii preset mesh     = rectangle
-  set dealii mesh parameters = 10, 5, 5 : -2, -1., -1 : 2., 1., 1. : true
+  set dealii mesh parameters = 10, 5 : -2, -1. : 2., 1. : true
   set refinement level       = 1
 
   subsection Adaptation
@@ -32,16 +32,19 @@ subsection Mesh
       set fraction to refine            = 0.3
       set fraction to coarsen           = 0.5
       set min grid level                = 0
-      set max grid level                = 8
+      set max grid level                = 3
       set max number of cells           = 1000000
-      set number of prerefinement steps = 0
+      set number of prerefinement steps = 3
     end
   end
 end
 
 subsection Time integration
   set verbosity = verbose
-  set scheme    = stationary
+  set dt        = 0.05
+  set t_initial = 0
+  set t_end     = 0.15
+  set scheme    = BDF1
 end
 
 subsection Nonlinear solver
@@ -56,9 +59,9 @@ subsection Linear solver
   subsection main physics
     set verbosity      = quiet
     set method         = cg
+    set preconditioner = block_jacobi
     set tolerance      = 1e-10
     set max iterations = 1000
-    set reuse          = false
   end
 end
 
@@ -72,7 +75,7 @@ subsection Initial conditions
 end
 
 subsection Heat boundary conditions
-  set number = 6
+  set number = 4
   subsection boundary 0
     set id   = 0
     set name = x_min
@@ -93,29 +96,29 @@ subsection Heat boundary conditions
     set name = y_max
     set type = dirichlet_mms
   end
-  subsection boundary 4
-    set id   = 4
-    set name = y_min
-    set type = dirichlet_mms
-  end
-  subsection boundary 5
-    set id   = 5
-    set name = y_max
-    set type = dirichlet_mms
-  end
+  #subsection boundary 4
+  #  set id   = 4
+  #  set name = y_min
+  #  set type = dirichlet_mms
+  #end
+  #subsection boundary 5
+  #  set id   = 5
+  #  set name = y_max
+  #  set type = dirichlet_mms
+  #end
 end
 
 subsection Exact solution
   subsection exact temperature
-    set Function constants = c=0, delta=0.1, x_0 = -0.
-    set Function expression = tanh( (2*(x - x_0 - c*t) - sin(5*y) -  sin(pi*z)) / delta)
+    set Function constants = c=1, delta=0.1
+    set Function expression = tanh( (2*(x - c*t) - sin(5*y)) / delta)
   end
 end
 
 subsection Manufactured solution
   set enable                 = true
   set type                   = space
-  set convergence steps      = 2
+  set convergence steps      = 1
 
   subsection Space convergence
     set norms to compute = L2_norm, Linfty_norm, H1_seminorm

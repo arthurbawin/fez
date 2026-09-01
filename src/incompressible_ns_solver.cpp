@@ -132,6 +132,12 @@ void NSSolver<dim>::create_scratch_data()
 }
 
 template <int dim>
+void NSSolver<dim>::reset_solver_specific_data()
+{
+  preconditioner.reset();
+}
+
+template <int dim>
 void NSSolver<dim>::setup_assemblers()
 {
   assemblers.clear();
@@ -360,6 +366,79 @@ void NSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
   this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
                                                     copy_data.dof_indices(),
                                                     this->system_rhs);
+}
+
+template <int dim>
+void NSSolver<dim>::create_preconditioner()
+{
+  if (preconditioner)
+    return;
+
+  const auto &linear_solver_param =
+    this->param.linear_solver.at(this->solver_type);
+
+  if (linear_solver_param.preconditioner ==
+      Parameters::LinearSolver::PreconditionerType::amg)
+  {
+    // Setup AMG preconditioner with ILU smoother
+    TimerOutput::Scope t(this->computing_timer, "Setup AMG preconditioner");
+
+#if defined(DEAL_II_WITH_PETSC)
+#  if !defined(DEAL_II_PETSC_WITH_HYPRE)
+    AssertThrow(false,
+                ExcMessage("PETSc must be configured with hypre to use the "
+                           "BoomerAMG preconditioner"));
+#  endif
+    // Set options not accessible through AdditionnalData
+#  if DEAL_II_PETSC_VERSION_GTE(3, 22, 0)
+    // ILU smoother is available from PETSc 3.22 onward
+    PETScWrappers::set_option_value("-pc_hypre_boomeramg_smooth_type", "ILU");
+    PETScWrappers::set_option_value("-pc_hypre_boomeramg_ilu_level",
+                                    std::to_string(
+                                      linear_solver_param.ilu_fill_level));
+#  else
+    AssertThrow(
+      false,
+      ExcMessage(
+        "PETSc 3.22 onward is required to use BoomerAMG with ILU smoother"));
+#  endif
+#endif
+
+    LA::MPI::PreconditionAMG::AdditionalData data;
+    preconditioner =
+      std::make_unique<LA::MPI::PreconditionAMG>(this->system_matrix, data);
+  }
+  else
+    // Let the common function create other standard types of preconditioner
+    LinearSolvers::create_preconditioner(linear_solver_param,
+                                         this->system_matrix,
+                                         preconditioner);
+}
+
+template <int dim>
+void NSSolver<dim>::solve_linear_system_iterative()
+{
+  const auto &linear_solver_param =
+    this->param.linear_solver.at(this->solver_type);
+
+  // Create preconditioner once?
+  this->create_preconditioner();
+
+  switch (linear_solver_param.method)
+  {
+    case Parameters::LinearSolver::Method::gmres:
+      LinearSolvers::solve_gmres(this,
+                                 linear_solver_param,
+                                 this->system_matrix,
+                                 this->locally_owned_dofs,
+                                 this->zero_constraints,
+                                 preconditioner);
+      break;
+    default:
+      AssertThrow(false,
+                  ExcMessage("Only GMRES is available as iterative solver for "
+                             "the incompressible_ns solver"));
+  }
 }
 
 // Explicit instantiation

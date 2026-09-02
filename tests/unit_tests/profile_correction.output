@@ -1,0 +1,6 @@
+
+DEAL::Regularized profile correction in 2D OK
+DEAL::Flux projection in 2D OK
+DEAL::Complete flux-driver variation in 2D OK
+DEAL::Profile correction parameters and guards OK
+DEAL::Phase diffusion flux-driver modes OK

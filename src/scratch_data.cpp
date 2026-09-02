@@ -701,6 +701,9 @@ namespace NavierStokesScratch
       previous_tracer_values.resize(time_handler.n_previous_solutions,
                                     std::vector<double>(n_q_points));
 
+      if (CahnHilliard::has_interface_profile_correction(
+            cahn_hilliard_param))
+        phase_diffusion_flux_drivers.resize(n_q_points);
       diffusive_flux.resize(n_q_points);
       shape_phi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_phi.resize(n_q_points,

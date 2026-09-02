@@ -1177,9 +1177,25 @@ namespace NavierStokesScratch
         if constexpr (enable_enlarged)
           source_term_psi[q] = source_term_full_moving[q](psi_lower);
 
-        diffusive_flux[q] = diffusive_flux_factor_values[q] *
-                            present_velocity_gradients[q] *
-                            potential_gradients[q];
+        if (CahnHilliard::has_interface_profile_correction(
+              cahn_hilliard_param))
+        {
+          phase_diffusion_flux_drivers[q] =
+            CahnHilliard::phase_diffusion_flux_driver<dim>(
+              cahn_hilliard_param,
+              tracer_values[q],
+              tracer_gradients[q],
+              potential_gradients[q],
+              mobility_values[q]);
+          diffusive_flux[q] =
+            0.5 * (density1 - density0) * present_velocity_gradients[q] *
+            phase_diffusion_flux_drivers[q];
+        }
+        else
+          // Preserve the original operation ordering in the disabled mode.
+          diffusive_flux[q] = diffusive_flux_factor_values[q] *
+                              present_velocity_gradients[q] *
+                              potential_gradients[q];
 
         Tensor<1, dim> u_conv = present_velocity_values[q];
         if constexpr (enable_pseudo_solid)
@@ -1393,6 +1409,12 @@ namespace NavierStokesScratch
 
     bool enable_stabilization;
     bool enable_tracer_stabilization;
+
+    const Parameters::CahnHilliard<dim> &
+    get_cahn_hilliard_parameters() const
+    {
+      return cahn_hilliard_param;
+    }
 
   private:
     Parameters::PhysicalProperties<dim> physical_properties;
@@ -1713,6 +1735,9 @@ namespace NavierStokesScratch
     // Only used for the moving-mesh x-variation of the tracer SUPG residual.
     std::vector<Tensor<2, dim>> potential_hessians;
 
+    // Positive phase-flux driver K_phi=-J_phi. Allocated for the active profile
+    // correction and shared by the tracer and Abels momentum equations.
+    std::vector<Tensor<1, dim>> phase_diffusion_flux_drivers;
     std::vector<Tensor<1, dim>> diffusive_flux;
     std::vector<double>         tau_supg_tracer;
 

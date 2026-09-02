@@ -7,6 +7,42 @@
 
 namespace CahnHilliard
 {
+  /** Regularized diffuse-interface normal grad(phi) /
+   * sqrt(|grad(phi)|^2 + delta_n^2). */
+  template <int dim>
+  inline dealii::Tensor<1, dim>
+  regularized_interface_normal(const dealii::Tensor<1, dim> &tracer_gradient,
+                               const double                   delta_n)
+  {
+    return tracer_gradient /
+           std::sqrt(tracer_gradient.norm_square() + delta_n * delta_n);
+  }
+
+  /** Flux driver grad(phi) - q_eq(phi) n_delta used by profile correction. */
+  template <int dim>
+  inline dealii::Tensor<1, dim>
+  profile_correction_flux_driver(
+    const double                   tracer,
+    const dealii::Tensor<1, dim> &tracer_gradient,
+    const double                   epsilon,
+    const double                   delta_n)
+  {
+    const auto normal =
+      regularized_interface_normal<dim>(tracer_gradient, delta_n);
+    const double equilibrium_gradient =
+      (1. - tracer * tracer) / (std::sqrt(2.) * epsilon);
+    return tracer_gradient - equilibrium_gradient * normal;
+  }
+
+  /** Apply I - n_delta tensor_product n_delta without constructing the tensor. */
+  template <int dim>
+  inline dealii::Tensor<1, dim> project_chemical_potential_gradient(
+    const dealii::Tensor<1, dim> &potential_gradient,
+    const dealii::Tensor<1, dim> &normal)
+  {
+    return potential_gradient - normal * (normal * potential_gradient);
+  }
+
   // --- CHNS model selection -------------------------------------------------
   // Two diffuse-interface models share the same unknowns (u, p, phi, mu) but
   // differ in the potential scaling, the capillary momentum force and the
@@ -22,6 +58,154 @@ namespace CahnHilliard
   inline bool is_abels_model(const Parameters::CahnHilliard<dim> &param)
   {
     return param.chns_model == Parameters::CahnHilliard<dim>::CHNSModel::abels;
+  }
+
+  template <int dim>
+  inline bool
+  has_interface_profile_correction(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    return param.interface_profile_correction !=
+           Parameters::CahnHilliard<dim>::InterfaceProfileCorrection::none;
+  }
+
+  template <int dim>
+  inline bool
+  has_interface_flux_correction(const Parameters::CahnHilliard<dim> &param)
+  {
+    return param.interface_profile_correction ==
+           Parameters::CahnHilliard<dim>::InterfaceProfileCorrection::
+             profile_flux;
+  }
+
+  /** Automatic regularization set to one percent of the equilibrium tanh
+   * gradient at phi=0. */
+  template <int dim>
+  inline double profile_correction_normal_regularization(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    return 0.01 / (std::sqrt(2.) * param.epsilon_interface);
+  }
+
+  /** Automatically scaled profile-correction diffusivity. The scale is the
+   * bulk Cahn-Hilliard diffusivity already used by the solver diagnostics. */
+  template <int dim>
+  inline double profile_correction_coefficient(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         mobility)
+  {
+    const double sigma_tilde =
+      3. / (2. * std::sqrt(2.)) * param.surface_tension;
+    return param.profile_correction_strength * 2. * mobility * sigma_tilde /
+           param.epsilon_interface;
+  }
+
+  /** Enforce the deliberately narrow scope of the first implementation. */
+  template <int dim>
+  inline void validate_interface_profile_correction(
+    const Parameters::CahnHilliard<dim> &param,
+    const bool                           enable_tracer_supg)
+  {
+    if (!has_interface_profile_correction(param))
+      return;
+
+    AssertThrow(is_abels_model(param),
+                dealii::ExcMessage("Interface profile correction is currently "
+                                   "supported only with 'CHNS model = abels'."));
+    AssertThrow(!enable_tracer_supg,
+                dealii::ExcMessage("Interface profile correction requires "
+                                   "'enable tracer supg = false'."));
+  }
+
+  /** Positive flux driver K_phi=-J_phi used by both the tracer equation and the
+   * Abels diffusive mass flux. The none branch is deliberately the original
+   * M*grad(mu) expression. */
+  template <int dim>
+  inline dealii::Tensor<1, dim> phase_diffusion_flux_driver(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         tracer,
+    const dealii::Tensor<1, dim>        &tracer_gradient,
+    const dealii::Tensor<1, dim>        &potential_gradient,
+    const double                         mobility)
+  {
+    if (!has_interface_profile_correction(param))
+      return mobility * potential_gradient;
+
+    const double delta_n = profile_correction_normal_regularization(param);
+    const auto normal =
+      regularized_interface_normal<dim>(tracer_gradient, delta_n);
+    const auto chemical_gradient =
+      has_interface_flux_correction(param) ?
+        project_chemical_potential_gradient<dim>(potential_gradient, normal) :
+        potential_gradient;
+    const auto profile_driver = profile_correction_flux_driver<dim>(
+      tracer,
+      tracer_gradient,
+      param.epsilon_interface,
+      delta_n);
+    return mobility * chemical_gradient +
+           profile_correction_coefficient(param, mobility) * profile_driver;
+  }
+
+  /** Complete directional derivative of K_phi=-J_phi. The regularized normal
+   * and its denominator are supplied by the quadrature-point assembly so they
+   * are computed only once and reused for every trial function. */
+  template <int dim>
+  inline dealii::Tensor<1, dim> phase_diffusion_flux_driver_variation(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         tracer,
+    const double                         tracer_variation,
+    const dealii::Tensor<1, dim>        &tracer_gradient,
+    const dealii::Tensor<1, dim>        &tracer_gradient_variation,
+    const dealii::Tensor<1, dim>        &potential_gradient,
+    const dealii::Tensor<1, dim>        &potential_gradient_variation,
+    const double                         mobility,
+    const double                         mobility_variation,
+    const dealii::Tensor<1, dim>        &normal,
+    const double                         normal_denominator)
+  {
+    if (!has_interface_profile_correction(param))
+      return mobility_variation * potential_gradient +
+             mobility * potential_gradient_variation;
+
+    const auto normal_variation =
+      (tracer_gradient_variation -
+       normal * (normal * tracer_gradient_variation)) /
+      normal_denominator;
+
+    auto chemical_gradient           = potential_gradient;
+    auto chemical_gradient_variation = potential_gradient_variation;
+    if (has_interface_flux_correction(param))
+    {
+      chemical_gradient =
+        project_chemical_potential_gradient<dim>(potential_gradient, normal);
+      chemical_gradient_variation =
+        project_chemical_potential_gradient<dim>(
+          potential_gradient_variation, normal) -
+        normal_variation * (normal * potential_gradient) -
+        normal * (normal_variation * potential_gradient);
+    }
+
+    const double equilibrium_gradient =
+      (1. - tracer * tracer) /
+      (std::sqrt(2.) * param.epsilon_interface);
+    const double equilibrium_gradient_variation =
+      -std::sqrt(2.) * tracer * tracer_variation /
+      param.epsilon_interface;
+    const auto profile_driver_variation =
+      tracer_gradient_variation -
+      equilibrium_gradient_variation * normal -
+      equilibrium_gradient * normal_variation;
+    const auto profile_driver =
+      tracer_gradient - equilibrium_gradient * normal;
+    const double kappa = profile_correction_coefficient(param, mobility);
+    const double kappa_variation =
+      profile_correction_coefficient(param, mobility_variation);
+
+    return mobility_variation * chemical_gradient +
+           mobility * chemical_gradient_variation +
+           kappa_variation * profile_driver +
+           kappa * profile_driver_variation;
   }
 
   template <int dim>

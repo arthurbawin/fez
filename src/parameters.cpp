@@ -1596,6 +1596,20 @@ namespace Parameters
                         Patterns::Selection(
                           "constant|degenerate|adaptative_mobility|adaptative_mobility_2|adaptative_mobility_3"),
                         "Model for the scalar mobility.");
+      prm.declare_entry(
+        "interface profile correction",
+        "none",
+        Patterns::Selection("none|profile|profile_flux"),
+        "Conservative interface-profile correction. 'profile_flux' also "
+        "projects the chemical-potential flux tangentially to the interface. "
+        "The active modes are supported only by the Abels model and require "
+        "disabled tracer SUPG.");
+      prm.declare_entry(
+        "profile correction strength",
+        "0.3",
+        Patterns::Double(0., 1.),
+        "Dimensionless profile-correction strength in [0,1]. The dimensional "
+        "coefficient and normal regularization are computed automatically.");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
@@ -1760,6 +1774,22 @@ namespace Parameters
         mobility_model = MobilityModel::adaptive_mobility_3;
       else
         AssertThrow(false, ExcMessage("Unknown mobility model"));
+      const std::string parsed_profile_correction =
+        prm.get("interface profile correction");
+      if (parsed_profile_correction == "none")
+        interface_profile_correction = InterfaceProfileCorrection::none;
+      else if (parsed_profile_correction == "profile")
+        interface_profile_correction = InterfaceProfileCorrection::profile;
+      else if (parsed_profile_correction == "profile_flux")
+        interface_profile_correction = InterfaceProfileCorrection::profile_flux;
+      else
+        AssertThrow(false, ExcMessage("Unknown interface profile correction"));
+      profile_correction_strength =
+        prm.get_double("profile correction strength");
+      if (interface_profile_correction != InterfaceProfileCorrection::none)
+        AssertThrow(profile_correction_strength > 0.,
+                    ExcMessage("'profile correction strength' must be "
+                               "strictly positive when correction is active"));
       mobility                    = prm.get_double("mobility");
       adaptive_mobility_n         = prm.get_double("adaptive mobility n");
       adaptive_mobility_m         = prm.get_double("adaptive mobility m");
@@ -1791,6 +1821,15 @@ namespace Parameters
       prm.leave_subsection();
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
+      if (interface_profile_correction != InterfaceProfileCorrection::none)
+      {
+        AssertThrow(surface_tension > 0.,
+                    ExcMessage("Interface profile correction requires positive "
+                               "surface tension."));
+        AssertThrow(epsilon_interface > 0.,
+                    ExcMessage("Interface profile correction requires positive "
+                               "interface thickness."));
+      }
       if (mobility_model == MobilityModel::adaptive ||
           mobility_model == MobilityModel::adaptive_mobility_2 ||
           mobility_model == MobilityModel::adaptive_mobility_3)

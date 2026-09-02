@@ -847,6 +847,20 @@ namespace Parameters
       adaptive_mobility_3
     } mobility_model;
 
+    // Optional conservative correction of the diffuse-interface profile. The
+    // profile_flux variant additionally removes the interface-normal component
+    // of the Cahn-Hilliard chemical flux.
+    enum class InterfaceProfileCorrection
+    {
+      none,
+      profile,
+      profile_flux
+    } interface_profile_correction = InterfaceProfileCorrection::none;
+
+    // Dimensionless multiplier of the automatically scaled profile-correction
+    // diffusivity kappa_p = strength * 2*M*sigma_tilde/epsilon.
+    double profile_correction_strength;
+
     double mobility;
     // Positive multiplier n of the adaptive mobility contribution
     // n*sqrt(2)*(u.grad(phi))*epsilon^3/sigma_tilde.

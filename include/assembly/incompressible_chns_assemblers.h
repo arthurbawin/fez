@@ -389,6 +389,8 @@ namespace Assembly
 
       const bool supg        = param.stabilization.enable_supg;
       const bool tracer_supg = param.stabilization.enable_tracer_supg;
+      CahnHilliard::validate_interface_profile_correction(
+        param.cahn_hilliard, tracer_supg);
       const auto mobility_model = param.cahn_hilliard.mobility_model;
       const bool gradient_dependent_adaptive_mobility =
         mobility_model ==

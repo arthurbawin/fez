@@ -317,6 +317,69 @@ namespace MeshTools
   }
 
   template <int dim>
+  void create_backward_facing_step(Triangulation<dim> &tria,
+                                   Parameters::Mesh   &mesh_param,
+                                   const std::string  &parameters,
+                                   const unsigned int  refinement,
+                                   const bool          convert_to_tets = false)
+  {
+    auto blocks = Utilities::split_string_list(parameters, ':');
+
+    AssertThrow(
+      blocks.size() > 1,
+      ExcMessage(
+        "The parsed arguments to create a mesh of a backward facing step do "
+        "not contain any \":\" separator. Please separate the arguments by "
+        "a colon. The parsed parameters are : " +
+        parameters));
+
+    GridGenerator::generate_from_name_and_arguments(tria,
+                                                    "subdivided_hyper_L",
+                                                    parameters);
+
+    // GridGenerator::subdivided_hyper_L does not color the boundary faces,
+    // so do it here (in 2D only for now).
+    if constexpr (dim == 3)
+      DEAL_II_NOT_IMPLEMENTED();
+
+    mesh_param.id2name.insert({0, "inlet"});
+    mesh_param.id2name.insert({1, "outlet"});
+    mesh_param.id2name.insert({2, "walls"});
+    mesh_param.name2id.insert({"inlet", 0});
+    mesh_param.name2id.insert({"outlet", 1});
+    mesh_param.name2id.insert({"walls", 2});
+
+    const auto   bottom_left_str = Utilities::split_string_list(blocks[1], ',');
+    const auto   top_right_str   = Utilities::split_string_list(blocks[2], ',');
+    const double x_bottom_left   = std::stod(bottom_left_str[0]);
+    const double x_top_right     = std::stod(top_right_str[0]);
+
+    const double tol = 1e-10;
+    for (const auto &cell : tria.active_cell_iterators())
+      for (const unsigned int f : cell->face_indices())
+        if (cell->face(f)->at_boundary())
+        {
+          // Discriminate based on the x-coordinate of the face's center
+          const double dx = cell->face(f)->center()[0];
+
+          if (std::abs(dx - x_bottom_left) < tol)
+            cell->face(f)->set_boundary_id(mesh_param.name2id.at("inlet"));
+          else if (std::abs(dx - x_top_right) < tol)
+            cell->face(f)->set_boundary_id(mesh_param.name2id.at("outlet"));
+          else
+            cell->face(f)->set_all_boundary_ids(mesh_param.name2id.at("walls"));
+        }
+
+    tria.refine_global(refinement);
+
+    if (convert_to_tets)
+    {
+      const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
+      GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+    }
+  }
+
+  template <int dim>
   void create_holed_plate(Triangulation<dim> &tria,
                           Parameters::Mesh   &mesh_param,
                           const unsigned int  refinement_level,
@@ -422,6 +485,17 @@ namespace MeshTools
                                            param.mesh.deal_ii_mesh_param,
                                            refinement_level,
                                            convert_to_simplices);
+    }
+    else if (param.mesh.deal_ii_preset_mesh == "backward facing step")
+    {
+      const unsigned int refinement_level = param.mms_param.enable ?
+                                              param.mms_param.mesh_suffix :
+                                              param.mesh.refinement_level;
+      create_backward_facing_step(tria,
+                                  param.mesh,
+                                  param.mesh.deal_ii_mesh_param,
+                                  refinement_level,
+                                  convert_to_simplices);
     }
     else
     {

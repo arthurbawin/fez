@@ -160,6 +160,12 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::initialize_interval(
   const unsigned interval_index)
 {
+  // (Re)create the dof-based postprocessed fields
+  postproc_handler->create_field_postprocessors(param,
+                                                *moving_mapping,
+                                                *quadrature,
+                                                with_moving_mesh);
+
   if (param.bc_data.n_metric_fields > 0)
     metric_for_adaptation->reinit(param.metrics.metric_for_adaptation,
                                   param,
@@ -269,6 +275,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
   }
   else
   {
+    // AMR was not yet tested with restart
+    AssertThrow(!param.with_tree_based_adaptation(),
+                ExcMessage("Simulation restart with adaptive mesh refinement "
+                           "(AMR) it currently not implemented."));
     restart();
   }
 
@@ -1003,6 +1013,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
 
+  // Compute the postprocessed fields added to the visualization file
+  compute_dof_based_postprocessing();
+
   // Let the derived solvers add their own relevant cell and/or dof-based
   // data, to output either in the volume or on the prescribed boundary (skin).
   add_solver_specific_postprocessing_data();
@@ -1124,23 +1137,15 @@ template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim,
                         with_moving_mesh>::compute_dof_based_postprocessing()
 {
-  postproc_handler->compute_dof_postprocessing(computing_timer,
-                                               param,
-                                               *present_solution,
-                                               *previous_solutions,
-                                               time_handler,
-                                               *moving_mapping,
-                                               *quadrature,
-                                               with_moving_mesh);
+  postproc_handler->compute_field_postprocessors(computing_timer,
+                                                 *present_solution,
+                                                 *previous_solutions,
+                                                 time_handler);
 }
 
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 {
-  // Compute postprocessed fields *before* output_results, as they are added to
-  // the visualization file
-  compute_dof_based_postprocessing();
-
   output_results();
 
   if (param.postprocessing.forces.enable)
@@ -1217,6 +1222,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
       std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
     postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
                                                            *dof_handler);
+    postproc_handler->create_field_postprocessors(param,
+                                                  *moving_mapping,
+                                                  *quadrature,
+                                                  with_moving_mesh);
     transient_fixed_point_data.transfer_solution_between_refinements(
       locally_relevant_dofs, nonzero_constraints);
   }

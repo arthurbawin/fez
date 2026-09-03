@@ -129,12 +129,12 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Use cube mesh from deal.II's routines");
-      prm.declare_entry(
-        "dealii preset mesh",
-        "none",
-        Patterns::Selection(
-          "none|cube|rectangle|holed plate|uniform channel with cylinder"),
-        "Use dealii meshing routines for specified geometry");
+      prm.declare_entry("dealii preset mesh",
+                        "none",
+                        Patterns::Selection(
+                          "none|cube|rectangle|holed plate|uniform channel "
+                          "with cylinder|backward facing step"),
+                        "Use dealii meshing routines for specified geometry");
       prm.declare_entry("dealii mesh parameters",
                         "2, 2 : 0., 0. : 1., 1. : false");
       prm.declare_entry(
@@ -322,8 +322,16 @@ namespace Parameters
                                          ",");
           t.variables_for_adaptation.clear();
           for (const auto &var : parsed_variable_list)
+          {
+            AssertThrow(
+              var != "none",
+              ExcMessage(
+                "A specified target variable for mesh adaptation is \"none\". "
+                "Please set a valid (not 'none') variable name from among: " +
+                std::string(SolverInfo::variable_names_for_param)));
             t.variables_for_adaptation.push_back(
               SolverInfo::to_variable_type(var));
+          }
           t.fraction_to_refine  = prm.get_double("fraction to refine");
           t.fraction_to_coarsen = prm.get_double("fraction to coarsen");
           AssertThrow(t.fraction_to_refine + t.fraction_to_coarsen < 1 + 1e-12,
@@ -338,7 +346,9 @@ namespace Parameters
                         "greater than or equal to the minimum allowed level."));
           t.max_n_cells = prm.get_integer("max number of cells");
           t.n_steady_adaptation_steps =
-            prm.get_integer("number of steady adaptation steps");
+            adaptation.with_tree_based_adaptation() ?
+              prm.get_integer("number of steady adaptation steps") :
+              0;
           t.n_prerefinement_steps =
             prm.get_integer("number of prerefinement steps");
           t.adapt_frequency = prm.get_integer("adapt frequency");

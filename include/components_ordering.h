@@ -412,12 +412,15 @@ public:
     using C      = ConstexprComponentOrderingCHNS<dim, with_moving_mesh>;
     n_components = C::n_components;
 
-    u_lower   = C::u_lower;
-    u_upper   = C::u_upper;
-    p_lower   = C::p_lower;
-    p_upper   = C::p_upper;
-    x_lower   = C::x_lower;
-    x_upper   = C::x_upper;
+    u_lower = C::u_lower;
+    u_upper = C::u_upper;
+    p_lower = C::p_lower;
+    p_upper = C::p_upper;
+    if constexpr (with_moving_mesh)
+    {
+      x_lower = C::x_lower;
+      x_upper = C::x_upper;
+    }
     phi_lower = C::phi_lower;
     phi_upper = C::phi_upper;
     mu_lower  = C::mu_lower;

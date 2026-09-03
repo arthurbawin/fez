@@ -1611,6 +1611,13 @@ namespace Parameters
         "Dimensionless profile-correction strength in [0,1]. The dimensional "
         "coefficient and internal profile/flux regularizations are computed "
         "automatically.");
+      prm.declare_entry(
+        "profile correction mobility exponent",
+        "1.0",
+        Patterns::Double(0.),
+        "Exponent p defining the constant profile-correction mobility "
+        "M_const=epsilon^p. It does not modify the Cahn-Hilliard or AGG "
+        "mobility.");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
@@ -1787,6 +1794,8 @@ namespace Parameters
         AssertThrow(false, ExcMessage("Unknown interface profile correction"));
       profile_correction_strength =
         prm.get_double("profile correction strength");
+      profile_correction_mobility_exponent =
+        prm.get_double("profile correction mobility exponent");
       if (interface_profile_correction != InterfaceProfileCorrection::none)
         AssertThrow(profile_correction_strength > 0.,
                     ExcMessage("'profile correction strength' must be "

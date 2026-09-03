@@ -6,7 +6,8 @@ namespace
 {
   Parameters::CahnHilliard<2>
   make_profile_parameters(const std::string &correction,
-                          const std::string &model = "abels")
+                          const std::string &model = "abels",
+                          const std::string &mobility_exponent = "1.0")
   {
     ParameterHandler              prm;
     Parameters::CahnHilliard<2> parameters;
@@ -15,6 +16,7 @@ namespace
     prm.set("CHNS model", model);
     prm.set("interface profile correction", correction);
     prm.set("profile correction strength", "0.3");
+    prm.set("profile correction mobility exponent", mobility_exponent);
     prm.set("surface tension", "2.");
     prm.leave_subsection();
     parameters.read_parameters(prm);
@@ -48,7 +50,10 @@ namespace
     const double beta = 0.05;
     const double c = 1. - std::sqrt(1. + beta * beta) /
                            std::sqrt(0.1 * 0.1 + beta * beta);
-    const double kappa = 0.3 * 2. * 0.8 *
+    const double constant_mobility =
+      std::pow(parameters.epsilon_interface,
+               parameters.profile_correction_mobility_exponent);
+    const double kappa = 0.3 * 2. * constant_mobility *
                          (3. / (2. * std::sqrt(2.)) * 2.) /
                          parameters.epsilon_interface;
     AssertThrow(std::abs(widened_flux[0] - kappa * c * 0.1 * q) < 1e-13,
@@ -191,19 +196,29 @@ namespace
     AssertThrow(std::abs(default_parameters.profile_correction_strength - 0.3) <
                   1e-14,
                 ExcInternalError());
+    AssertThrow(
+      std::abs(default_parameters.profile_correction_mobility_exponent - 1.) <
+        1e-14,
+      ExcInternalError());
 
-    const auto parameters = make_profile_parameters("profile_flux");
+    const auto parameters =
+      make_profile_parameters("profile_flux", "abels", "1.7");
     AssertThrow(parameters.interface_profile_correction ==
                   Correction::profile_flux,
                 ExcInternalError());
     AssertThrow(std::abs(parameters.profile_correction_strength - 0.3) <
                   1e-14,
                 ExcInternalError());
+    AssertThrow(
+      std::abs(parameters.profile_correction_mobility_exponent - 1.7) < 1e-14,
+      ExcInternalError());
     const double sigma_tilde = 3. / (2. * std::sqrt(2.)) * 2.;
     AssertThrow(
-      std::abs(CahnHilliard::profile_correction_coefficient(parameters, 0.8) -
-               0.3 * 2. * 0.8 * sigma_tilde /
-                 parameters.epsilon_interface) < 1e-14,
+      std::abs(CahnHilliard::profile_correction_coefficient(parameters) -
+               0.3 * 2. *
+                 std::pow(parameters.epsilon_interface, 1.7) * sigma_tilde /
+                 parameters.epsilon_interface) <
+        1e-14,
       ExcInternalError());
     CahnHilliard::validate_interface_profile_correction(parameters, false);
 
@@ -263,7 +278,7 @@ namespace
       std::sqrt(25. + beta * beta * q * q);
     const double profile_factor =
       1. - std::sqrt(1. + beta * beta) * q / profile_denominator;
-    const double kappa = 0.3 * 2. * 2. *
+    const double kappa = 0.3 * 2. *
                          (3. / (2. * std::sqrt(2.)) * 2.);
     AssertThrow(std::abs(profile_flux[0] -
                          (10. + kappa * profile_factor * 3.)) <

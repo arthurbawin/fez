@@ -222,13 +222,15 @@ namespace CahnHilliard
    * bulk Cahn-Hilliard diffusivity already used by the solver diagnostics. */
   template <int dim>
   inline double profile_correction_coefficient(
-    const Parameters::CahnHilliard<dim> &param,
-    const double                         mobility)
+    const Parameters::CahnHilliard<dim> &param)
   {
     const double sigma_tilde =
       3. / (2. * std::sqrt(2.)) * param.surface_tension;
-    return param.profile_correction_strength * 2. * mobility * sigma_tilde /
-           param.epsilon_interface;
+    const double constant_mobility =
+      std::pow(param.epsilon_interface,
+               param.profile_correction_mobility_exponent);
+    return param.profile_correction_strength * 2. * constant_mobility *
+           sigma_tilde / param.epsilon_interface;
   }
 
   /** Enforce the deliberately narrow scope of the first implementation. */
@@ -270,7 +272,7 @@ namespace CahnHilliard
     const auto profile_driver = profile_correction_flux_driver<dim>(
       tracer, tracer_gradient, param.epsilon_interface);
     return mobility * chemical_gradient +
-           profile_correction_coefficient(param, mobility) * profile_driver;
+           profile_correction_coefficient(param) * profile_driver;
   }
 
   /** Complete directional derivative of K_phi=-J_phi. The weighted FC normal
@@ -336,8 +338,6 @@ namespace CahnHilliard
         normal * (normal_variation * potential_gradient);
     }
 
-    const auto profile_driver = profile_correction_flux_driver<dim>(
-      tracer, tracer_gradient, param.epsilon_interface);
     const auto profile_driver_variation =
       profile_correction_flux_driver_variation<dim>(
         tracer,
@@ -345,13 +345,10 @@ namespace CahnHilliard
         tracer_gradient,
         tracer_gradient_variation,
         param.epsilon_interface);
-    const double kappa = profile_correction_coefficient(param, mobility);
-    const double kappa_variation =
-      profile_correction_coefficient(param, mobility_variation);
+    const double kappa = profile_correction_coefficient(param);
 
     return mobility_variation * chemical_gradient +
            mobility * chemical_gradient_variation +
-           kappa_variation * profile_driver +
            kappa * profile_driver_variation;
   }
 

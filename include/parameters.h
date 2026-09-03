@@ -858,11 +858,8 @@ namespace Parameters
     } interface_profile_correction = InterfaceProfileCorrection::none;
 
     // Dimensionless multiplier of the automatically scaled profile-correction
-    // diffusivity kappa_p = strength * 2*M_const*sigma_tilde/epsilon.
+    // diffusivity kappa_p = strength * 2*M*sigma_tilde/epsilon.
     double profile_correction_strength;
-    // Exponent p defining the constant correction mobility
-    // M_const = epsilon_interface^p.
-    double profile_correction_mobility_exponent;
 
     double mobility;
     // Positive multiplier n of the adaptive mobility contribution

@@ -320,7 +320,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
       mu * grad_phi;
   // Conservative-form correction (w.v)(drho Dphi/Dt + rho div v).
   const Tensor<1, dim> momentum_conservative_correction =
-    is_stepien ? (drho * Dphi + rho * div_u) * u : Tensor<1, dim>();
+    CahnHilliard::use_stepien_conservative_correction(cahn_hilliard_param) ?
+      (drho * Dphi + rho * div_u) * u :
+      Tensor<1, dim>();
 
   // Navier-Stokes momentum (velocity) source term
   Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu - body_force) +
@@ -806,6 +808,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
 
   // Stepien quasi-incompressible model: cell-constant coefficients.
   const bool   is_stepien = CahnHilliard::is_stepien_model(cahn_hilliard);
+  const bool   use_stepien_conservative_correction =
+    CahnHilliard::use_stepien_conservative_correction(cahn_hilliard);
   const double stepien_cap =
     CahnHilliard::stepien_capillary_coefficient(cahn_hilliard);
   const double rho0 = scratch_data.density0;
@@ -989,7 +993,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
             local_flow_ij +=
               2. * eta * scalar_product(sym_grad_phi_u_i, sym_grad_phi_u_j);
 
-            if (is_stepien)
+            if (use_stepien_conservative_correction)
             {
               // Conservative-correction derivatives w.r.t. v:
               //  (A) (w.dv) S_c   (B) (w.v)[drho(dv.grad phi) + rho div dv]
@@ -1468,6 +1472,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
 
   // Stepien quasi-incompressible model: cell-constant coefficients.
   const bool   is_stepien  = CahnHilliard::is_stepien_model(cahn_hilliard);
+  const bool   use_stepien_conservative_correction =
+    CahnHilliard::use_stepien_conservative_correction(cahn_hilliard);
   const double stepien_cap =
     CahnHilliard::stepien_capillary_coefficient(cahn_hilliard);
   const double rho0     = scratch_data.density0;
@@ -1537,7 +1543,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
         q, tracer_value, scratch_data.previous_tracer_values);
 
     const Tensor<1, dim> stepien_conservative_correction =
-      is_stepien ?
+      use_stepien_conservative_correction ?
         (drhodphi * (dphidt + velocity_dot_tracer_gradient) +
          rho * present_velocity_divergence) *
           present_velocity_values :

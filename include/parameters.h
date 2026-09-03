@@ -964,6 +964,7 @@ namespace Parameters
     Verbosity    verbosity;
     bool         write_dealii_mesh_as_msh;
     bool         write_partition_pos_gmsh;
+    bool         write_linear_system;
     bool         apply_exact_solution;
     bool         fsi_apply_erroneous_coupling;
     bool         fsi_check_mms_on_boundary;

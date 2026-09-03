@@ -16,6 +16,10 @@
 #include <solver_info.h>
 #include <utilities.h>
 
+#if defined(FEZ_WITH_PETSC)
+#  include <petscviewer.h>
+#endif
+
 template <int dim, bool with_moving_mesh>
 NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
   const ParameterReader<dim> &param)
@@ -178,6 +182,77 @@ void NavierStokesSolver<dim, with_moving_mesh>::initialize_interval(
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::write_linear_system(
+  const unsigned interval_index)
+{
+#if defined(FEZ_WITH_PETSC)
+  // The matrix left over from the last Newton iteration may be stale (the
+  // reassembly heuristic skips assembly when the residual decreases fast
+  // enough) and the residual may have been evaluated at a line search trial
+  // point, so reassemble both at the present solution.
+  local_evaluation_point = *present_solution;
+  evaluation_point       = *present_solution;
+  assemble_matrix();
+  assemble_rhs();
+
+  const std::string suffix =
+    "_interval_" + Utilities::int_to_string(interval_index, 2) + "_step_" +
+    Utilities::int_to_string(time_handler.current_time_iteration, 6) + ".m";
+  const std::string matrix_file = param.output.output_dir + "jacobian" + suffix;
+  const std::string rhs_file    = param.output.output_dir + "residual" + suffix;
+
+  PetscViewer viewer;
+
+  PetscErrorCode ierr =
+    PetscViewerASCIIOpen(mpi_communicator, matrix_file.c_str(), &viewer);
+  AssertThrow(ierr == 0, ExcMessage("Could not open " + matrix_file));
+  PetscViewerPushFormat(viewer, PETSC_VIEWER_ASCII_MATLAB);
+  MatView(system_matrix.petsc_matrix(), viewer);
+  PetscViewerPopFormat(viewer);
+  PetscViewerDestroy(&viewer);
+
+  ierr = PetscViewerASCIIOpen(mpi_communicator, rhs_file.c_str(), &viewer);
+  AssertThrow(ierr == 0, ExcMessage("Could not open " + rhs_file));
+  PetscViewerPushFormat(viewer, PETSC_VIEWER_ASCII_MATLAB);
+  VecView(system_rhs.petsc_vector(), viewer);
+  PetscViewerPopFormat(viewer);
+  PetscViewerDestroy(&viewer);
+
+  // Also write the FE component index of each dof, so that the system can be
+  // broken down per physical variable when post-processing. This goes through
+  // a distributed vector rather than a rank-local text file: every rank owns
+  // only part of the dofs, so writing from rank 0 alone would describe just
+  // its own slice of the system.
+  const std::string components_file =
+    param.output.output_dir + "components" + suffix;
+  {
+    LA::ParVectorType component_of_dof(locally_owned_dofs, mpi_communicator);
+    for (const types::global_dof_index g : locally_owned_dofs)
+      component_of_dof[g] = static_cast<double>(
+        dofs_to_component[locally_relevant_dofs.index_within_set(g)]);
+    component_of_dof.compress(VectorOperation::insert);
+
+    ierr =
+      PetscViewerASCIIOpen(mpi_communicator, components_file.c_str(), &viewer);
+    AssertThrow(ierr == 0, ExcMessage("Could not open " + components_file));
+    PetscViewerPushFormat(viewer, PETSC_VIEWER_ASCII_MATLAB);
+    VecView(component_of_dof.petsc_vector(), viewer);
+    PetscViewerPopFormat(viewer);
+    PetscViewerDestroy(&viewer);
+  }
+
+  pcout << "Wrote " << matrix_file << ", " << rhs_file << " and "
+        << components_file
+        << " (residual l2 norm = " << system_rhs.l2_norm() << ")" << std::endl;
+#else
+  (void)interval_index;
+  AssertThrow(false,
+              ExcMessage("Writing the linear system is only implemented for "
+                         "PETSc builds."));
+#endif
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::finalize_interval(
   const unsigned interval_index)
 {
@@ -337,6 +412,12 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
                                               *previous_solutions));
 
     postprocess_solution();
+
+    // Write the system of the last time step, before rotating the solutions:
+    // rotate_solutions() overwrites the BDF history the residual was built on.
+    if (param.debug.write_linear_system && time_handler.is_finished())
+      write_linear_system(interval_index);
+
     time_handler.rotate_solutions(*present_solution, *previous_solutions);
 
     if (param.checkpoint_restart.enable_checkpoint &&

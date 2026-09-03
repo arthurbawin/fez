@@ -157,6 +157,17 @@ public:
   finalize_interval_solver_specific(const unsigned /* interval_index */){};
 
   /**
+   * Reassemble the Jacobian matrix and the residual at the present (converged)
+   * solution and write the full global system to the output directory.
+   *
+   * Reassembling is required because, at the end of the nonlinear solve, the
+   * system matrix may be stale (the reassembly heuristic skips assembly when
+   * the residual decreases fast enough) and the residual may have been
+   * evaluated at a line search trial point rather than at the accepted step.
+   */
+  void write_linear_system(const unsigned interval_index);
+
+  /**
    * Update time in all relevant structures:
    *  - boundary conditions
    *  - source terms

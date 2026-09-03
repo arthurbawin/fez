@@ -93,6 +93,18 @@ namespace Assembly
         (assembly_flags & moving_mesh) != 0;
       static constexpr bool with_stepien = (assembly_flags & stepien) != 0;
 
+      /**
+       * Whether the momentum equation carries the Stepien forcing, i.e. the
+       * capillary force (dpr - mu) grad(phi), the conservative correction
+       * S_c u and the bulk-viscosity stress. It is turned off by the
+       * Stepien-Abels validation mode, which falls back to the Abels momentum
+       * forcing; see CahnHilliard::stepien_abels_validation. The continuity,
+       * phase and potential equations need no such switch: they reduce to the
+       * Abels ones on their own once rho0 = rho1.
+       */
+      static constexpr bool with_stepien_momentum =
+        with_stepien && !CahnHilliard::stepien_abels_validation;
+
       static_assert(!(with_stepien && with_moving_mesh),
                     "The Stepien forms are only implemented on a fixed mesh.");
 

@@ -30,12 +30,33 @@ namespace CahnHilliard
            Parameters::CahnHilliard<dim>::CHNSModel::Stepien;
   }
 
+  /**
+   * Stepien-Abels validation mode (throwaway branch
+   * stepien_abels_validation): force the Stepien momentum equation to use the
+   * Abels forcing, so that both models assemble the very same residual and
+   * Jacobian and the Stepien machinery can be checked term by term.
+   *
+   * This is only meaningful when run with rho0 = rho1, p_ref,0 = p_ref,1 and
+   * lambda = 0. Under those settings drho/dphi, A - 1, B - 1 and q - mu are
+   * exactly zero in floating point, so the continuity, phase and potential
+   * equations already reduce to the Abels ones on their own; only the two
+   * momentum terms below need to be switched:
+   *
+   *   - the capillary force (dpr - mu) grad(phi) becomes phi grad(mu);
+   *   - the conservative correction S_c u is dropped, since div(u) only
+   *     vanishes at the exact solution, not along the Newton iterates.
+   *
+   * Set to false (or drop this branch) to restore the Stepien model.
+   */
+  inline constexpr bool stepien_abels_validation = true;
+
   template <int dim>
   inline bool
   use_abels_diffusive_inertia(
     const Parameters::CahnHilliard<dim> &param)
   {
-    return is_abels_model(param);
+    return is_abels_model(param) ||
+           (stepien_abels_validation && is_stepien_model(param));
   }
 
   template <int dim>
@@ -43,7 +64,20 @@ namespace CahnHilliard
   use_abels_capillary_phi_grad_mu(
     const Parameters::CahnHilliard<dim> &param)
   {
-    return is_abels_model(param);
+    return is_abels_model(param) ||
+           (stepien_abels_validation && is_stepien_model(param));
+  }
+
+  /**
+   * Whether the momentum equation carries the Stepien conservative correction
+   * S_c u, with S_c = drho/dphi Dphi/Dt + rho div(u).
+   */
+  template <int dim>
+  inline bool
+  use_stepien_conservative_correction(
+    const Parameters::CahnHilliard<dim> &param)
+  {
+    return is_stepien_model(param) && !stepien_abels_validation;
   }
 
   template <int dim>

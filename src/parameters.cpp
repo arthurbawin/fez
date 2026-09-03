@@ -2168,6 +2168,14 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Write the mesh partitions as a Gmsh .pos file.");
+      prm.declare_entry(
+        "write linear system",
+        "false",
+        Patterns::Bool(),
+        "At the last time step of each time interval, reassemble the Jacobian "
+        "matrix and the residual at the converged solution and write them to "
+        "the output directory in MATLAB ASCII format "
+        "(jacobian_*.m, residual_*.m).");
       prm.declare_entry("apply exact solution", "false", Patterns::Bool(), "");
       prm.declare_entry("fsi_apply_erroneous_coupling",
                         "false",
@@ -2189,6 +2197,7 @@ namespace Parameters
       READ_VERBOSITY_PARAM(prm, verbosity)
       write_dealii_mesh_as_msh = prm.get_bool("write dealii mesh as msh");
       write_partition_pos_gmsh = prm.get_bool("write partition gmsh");
+      write_linear_system      = prm.get_bool("write linear system");
       apply_exact_solution     = prm.get_bool("apply exact solution");
       fsi_apply_erroneous_coupling =
         prm.get_bool("fsi_apply_erroneous_coupling");

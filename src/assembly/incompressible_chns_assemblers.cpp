@@ -123,16 +123,20 @@ namespace Assembly
           // dbulk_viscosity_dphi =
           //   -2. / 3. * sd.derivative_dynamic_viscosity_wrt_tracer[q];
 
-          // Mass residual S_c of the conservative momentum form.
-          const double stepien_Sc = drhodphi * Dphi + rho * div_u;
-
           stepien_grad_q = (rho * grad_mu - drhodphi * grad_p +
                             drhodphi * (mu - dpr) * grad_phi) /
                            sd.stepien_rho_product;
 
           stepien_continuity_term = (drhodphi / rho) * Dphi;
 
-          momentum_capillary_force = (dpr - mu) * grad_phi + stepien_Sc * u;
+          if constexpr (BaseType::with_stepien_momentum)
+          {
+            // Mass residual S_c of the conservative momentum form.
+            const double stepien_Sc = drhodphi * Dphi + rho * div_u;
+            momentum_capillary_force = (dpr - mu) * grad_phi + stepien_Sc * u;
+          }
+          else
+            momentum_capillary_force = diffusive_flux + phi * grad_mu;
 
           // B / A simplifies to rho / (rho0 rho1).
           stepien_B_over_A = rho / sd.stepien_rho_product;
@@ -191,7 +195,7 @@ namespace Assembly
             2. * detadphi * (sym_grad_u * grad_phi) +
             momentum_capillary_force;
 
-          if constexpr (BaseType::with_stepien)
+          if constexpr (BaseType::with_stepien_momentum)
             // Divergence of the bulk-viscosity stress lambda (div u) I:
             //   div(lambda (div u) I) = lambda grad(div u)
             //                           + dlambda/dphi (div u) grad(phi).
@@ -239,7 +243,7 @@ namespace Assembly
               phi_u[i] * to_mult_by_phi_u_i - div_phi_u[i] * p +
               2. * eta * scalar_product(sym_grad_phi_u[i], sym_grad_u);
 
-            if constexpr (BaseType::with_stepien)
+            if constexpr (BaseType::with_stepien_momentum)
               // Bulk-viscosity stress lambda (div u) I, whose contribution is
               // non-zero because the Stepien velocity field is not solenoidal.
               local_rhs_i -= bulk_viscosity * div_u * div_phi_u[i];
@@ -429,7 +433,7 @@ namespace Assembly
         // is the tracer derivative of the Abels capillary force phi grad(mu);
         // the Stepien capillary force is differentiated separately below.
         const Tensor<1, dim> to_mult_by_phi_u_i_phi_phi_j =
-          BaseType::with_stepien ?
+          BaseType::with_stepien_momentum ?
             drhodphi * (dudt + u_dot_grad_u_ale - body_force) :
             drhodphi * (dudt + u_dot_grad_u_ale - body_force) + grad_mu;
 
@@ -508,7 +512,7 @@ namespace Assembly
           strong_residual_momentum_variation_phi_phi =
             to_mult_by_phi_u_i_phi_phi_j - detadphi * (lap_u + grad_div_u);
 
-          if constexpr (BaseType::with_stepien)
+          if constexpr (BaseType::with_stepien_momentum)
           {
             strong_residual_momentum +=
               (sd.stepien_dpr - mu) * grad_phi + stepien_Sc * u -
@@ -560,7 +564,7 @@ namespace Assembly
             rho *
             (bdf_c0 * phi_u_j + grad_phi_u_j * u_conv + grad_u * phi_u_j);
 
-          if constexpr (BaseType::with_stepien)
+          if constexpr (BaseType::with_stepien_momentum)
             // Stepien carries no diffusive inertia, and its capillary force
             // (dpr - mu) grad(phi) differentiates to -dmu grad(phi).
             to_mult_by_phi_u_i_potential[j] = -phi_mu[j] * grad_phi;
@@ -607,7 +611,7 @@ namespace Assembly
             strong_residual_momentum_variation[j] +=
               to_mult_by_phi_u_i_potential[j];
 
-            if constexpr (BaseType::with_stepien)
+            if constexpr (BaseType::with_stepien_momentum)
             {
               // Conservative correction S_c * u, w.r.t. the velocity in both
               // the S_c factor and the trailing u.
@@ -818,7 +822,7 @@ namespace Assembly
                 if (comp_i == comp_j)
                   local_matrix_ij += eta * gui * guj;
 
-                if constexpr (BaseType::with_stepien)
+                if constexpr (BaseType::with_stepien_momentum)
                 {
                   // Conservative correction (w.u) S_c, differentiated w.r.t.
                   // the velocity in both factors.
@@ -838,7 +842,7 @@ namespace Assembly
                                2. * detadphi *
                                  scalar_product(sym_grad_phi_u_i, sym_grad_u));
 
-                if constexpr (BaseType::with_stepien)
+                if constexpr (BaseType::with_stepien_momentum)
                 {
                   // Capillary force (dpr - mu) grad(phi)
                   local_matrix_ij += (sd.stepien_dpr - mu) *

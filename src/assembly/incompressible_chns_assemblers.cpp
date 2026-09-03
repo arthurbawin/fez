@@ -425,16 +425,14 @@ namespace Assembly
         const auto &laplacian_phi_mu = sd.laplacian_shape_mu[q];
 
         Tensor<1, dim> interface_normal;
-        double         normal_denominator = 1.;
-        if (with_profile_correction)
+        double         gradient_norm = 1.;
+        if (with_profile_correction &&
+            CahnHilliard::has_interface_flux_correction(
+              sd.get_cahn_hilliard_parameters()))
         {
-          const double normal_regularization =
-            CahnHilliard::profile_correction_normal_regularization(
-              sd.get_cahn_hilliard_parameters());
-          normal_denominator =
-            std::sqrt(grad_phi.norm_square() +
-                      normal_regularization * normal_regularization);
-          interface_normal = grad_phi / normal_denominator;
+          gradient_norm = grad_phi.norm();
+          interface_normal = CahnHilliard::flux_correction_normal(
+            sd.get_cahn_hilliard_parameters(), phi, grad_phi);
         }
 
         //
@@ -562,7 +560,7 @@ namespace Assembly
                 mobility,
                 mobility_variation,
                 interface_normal,
-                normal_denominator);
+                gradient_norm);
           }
 
           to_mult_by_phi_u_i_momentum[j] =
@@ -708,7 +706,7 @@ namespace Assembly
                   mobility,
                   mobility_x_variation,
                   interface_normal,
-                  normal_denominator);
+                  gradient_norm);
             }
 
             p_x_tr_G_j[j] = p * trG;

@@ -1609,7 +1609,8 @@ namespace Parameters
         "0.3",
         Patterns::Double(0., 1.),
         "Dimensionless profile-correction strength in [0,1]. The dimensional "
-        "coefficient and normal regularization are computed automatically.");
+        "coefficient and internal profile/flux regularizations are computed "
+        "automatically.");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),

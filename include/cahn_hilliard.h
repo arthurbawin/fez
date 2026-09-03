@@ -7,31 +7,171 @@
 
 namespace CahnHilliard
 {
-  /** Regularized diffuse-interface normal grad(phi) /
-   * sqrt(|grad(phi)|^2 + delta_n^2). */
-  template <int dim>
-  inline dealii::Tensor<1, dim>
-  regularized_interface_normal(const dealii::Tensor<1, dim> &tracer_gradient,
-                               const double                   delta_n)
+  // Internal, dimensionless regularization constants. The activation scales
+  // are derived from the last tanh tail level that the correction must retain;
+  // they are deliberately not user parameters.
+  constexpr double profile_correction_tail_level = 0.999;
+  constexpr double profile_correction_beta       = 0.05;
+
+  inline double quintic_transition(const double value,
+                                   const double lower,
+                                   const double upper)
   {
-    return tracer_gradient /
-           std::sqrt(tracer_gradient.norm_square() + delta_n * delta_n);
+    if (value <= lower)
+      return 0.;
+    if (value >= upper)
+      return 1.;
+
+    const double x = (value - lower) / (upper - lower);
+    return x * x * x * (10. + x * (-15. + 6. * x));
   }
 
-  /** Flux driver grad(phi) - q_eq(phi) n_delta used by profile correction. */
+  inline double quintic_transition_derivative(const double value,
+                                              const double lower,
+                                              const double upper)
+  {
+    if (value <= lower || value >= upper)
+      return 0.;
+
+    const double x = (value - lower) / (upper - lower);
+    return 30. * x * x * (x - 1.) * (x - 1.) / (upper - lower);
+  }
+
+  inline double profile_correction_tail_scale()
+  {
+    return 1. - profile_correction_tail_level *
+                  profile_correction_tail_level;
+  }
+
+  /** Activation declaring that phi still belongs to the retained tanh tail.
+   * It is C2, zero in pure phases and for every overshoot |phi| > 1. */
+  inline double profile_correction_phase_activation(const double tracer)
+  {
+    const double s      = 1. - tracer * tracer;
+    const double s_tail = profile_correction_tail_scale();
+    return quintic_transition(s, 0.25 * s_tail, 0.5 * s_tail);
+  }
+
+  inline double
+  profile_correction_phase_activation_derivative(const double tracer)
+  {
+    const double s      = 1. - tracer * tracer;
+    const double s_tail = profile_correction_tail_scale();
+    return -2. * tracer *
+           quintic_transition_derivative(s, 0.25 * s_tail, 0.5 * s_tail);
+  }
+
+  template <int dim>
+  inline double flux_correction_gradient_activation(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         gradient_norm)
+  {
+    const double g0 =
+      1. / (std::sqrt(2.) * param.epsilon_interface);
+    const double s_tail = profile_correction_tail_scale();
+    return quintic_transition(
+      gradient_norm, g0 * 0.25 * s_tail, g0 * 0.5 * s_tail);
+  }
+
+  template <int dim>
+  inline double flux_correction_gradient_activation_derivative(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         gradient_norm)
+  {
+    const double g0 =
+      1. / (std::sqrt(2.) * param.epsilon_interface);
+    const double s_tail = profile_correction_tail_scale();
+    return quintic_transition_derivative(
+      gradient_norm, g0 * 0.25 * s_tail, g0 * 0.5 * s_tail);
+  }
+
+  /** Li profile driver with a q-relative regularization. beta_PC is purely a
+   * Newton regularization and is not part of the physical Li formulation. */
   template <int dim>
   inline dealii::Tensor<1, dim>
   profile_correction_flux_driver(
     const double                   tracer,
     const dealii::Tensor<1, dim> &tracer_gradient,
-    const double                   epsilon,
-    const double                   delta_n)
+    const double                   epsilon)
   {
-    const auto normal =
-      regularized_interface_normal<dim>(tracer_gradient, delta_n);
-    const double equilibrium_gradient =
+    const double phase_activation =
+      profile_correction_phase_activation(tracer);
+    if (phase_activation == 0.)
+      return {};
+
+    const double q =
       (1. - tracer * tracer) / (std::sqrt(2.) * epsilon);
-    return tracer_gradient - equilibrium_gradient * normal;
+    const double R = std::sqrt(
+      tracer_gradient.norm_square() +
+      profile_correction_beta * profile_correction_beta * q * q);
+    const double Q =
+      std::sqrt(1. + profile_correction_beta * profile_correction_beta) * q;
+    return phase_activation * (1. - Q / R) * tracer_gradient;
+  }
+
+  template <int dim>
+  inline dealii::Tensor<1, dim>
+  profile_correction_flux_driver_variation(
+    const double                   tracer,
+    const double                   tracer_variation,
+    const dealii::Tensor<1, dim> &tracer_gradient,
+    const dealii::Tensor<1, dim> &tracer_gradient_variation,
+    const double                   epsilon)
+  {
+    const double phase_activation =
+      profile_correction_phase_activation(tracer);
+    if (phase_activation == 0.)
+      return {};
+
+    const double phase_activation_variation =
+      profile_correction_phase_activation_derivative(tracer) *
+      tracer_variation;
+    const double q =
+      (1. - tracer * tracer) / (std::sqrt(2.) * epsilon);
+    const double q_variation =
+      -std::sqrt(2.) * tracer * tracer_variation / epsilon;
+    const double beta_squared =
+      profile_correction_beta * profile_correction_beta;
+    const double R = std::sqrt(tracer_gradient.norm_square() +
+                               beta_squared * q * q);
+    const double R_variation =
+      (tracer_gradient * tracer_gradient_variation +
+       beta_squared * q * q_variation) /
+      R;
+    const double sqrt_one_plus_beta_squared =
+      std::sqrt(1. + beta_squared);
+    const double Q           = sqrt_one_plus_beta_squared * q;
+    const double Q_variation = sqrt_one_plus_beta_squared * q_variation;
+    const double factor      = 1. - Q / R;
+    const double factor_variation =
+      -Q_variation / R + Q * R_variation / (R * R);
+
+    return (phase_activation_variation * factor +
+            phase_activation * factor_variation) *
+             tracer_gradient +
+           phase_activation * factor * tracer_gradient_variation;
+  }
+
+  /** Weighted true unit normal used only by the Soligo flux correction. */
+  template <int dim>
+  inline dealii::Tensor<1, dim> flux_correction_normal(
+    const Parameters::CahnHilliard<dim> &param,
+    const double                         tracer,
+    const dealii::Tensor<1, dim>        &tracer_gradient)
+  {
+    const double phase_activation =
+      profile_correction_phase_activation(tracer);
+    if (phase_activation == 0.)
+      return {};
+
+    const double gradient_norm = tracer_gradient.norm();
+    const double gradient_activation =
+      flux_correction_gradient_activation(param, gradient_norm);
+    if (gradient_activation == 0.)
+      return {};
+
+    return phase_activation * gradient_activation * tracer_gradient /
+           gradient_norm;
   }
 
   /** Apply I - n_delta tensor_product n_delta without constructing the tensor. */
@@ -78,15 +218,6 @@ namespace CahnHilliard
              profile_flux;
   }
 
-  /** Automatic regularization set to one percent of the equilibrium tanh
-   * gradient at phi=0. */
-  template <int dim>
-  inline double profile_correction_normal_regularization(
-    const Parameters::CahnHilliard<dim> &param)
-  {
-    return 0.01 / (std::sqrt(2.) * param.epsilon_interface);
-  }
-
   /** Automatically scaled profile-correction diffusivity. The scale is the
    * bulk Cahn-Hilliard diffusivity already used by the solver diagnostics. */
   template <int dim>
@@ -131,25 +262,20 @@ namespace CahnHilliard
     if (!has_interface_profile_correction(param))
       return mobility * potential_gradient;
 
-    const double delta_n = profile_correction_normal_regularization(param);
-    const auto normal =
-      regularized_interface_normal<dim>(tracer_gradient, delta_n);
-    const auto chemical_gradient =
-      has_interface_flux_correction(param) ?
-        project_chemical_potential_gradient<dim>(potential_gradient, normal) :
-        potential_gradient;
+    auto chemical_gradient = potential_gradient;
+    if (has_interface_flux_correction(param))
+      chemical_gradient = project_chemical_potential_gradient<dim>(
+        potential_gradient,
+        flux_correction_normal(param, tracer, tracer_gradient));
     const auto profile_driver = profile_correction_flux_driver<dim>(
-      tracer,
-      tracer_gradient,
-      param.epsilon_interface,
-      delta_n);
+      tracer, tracer_gradient, param.epsilon_interface);
     return mobility * chemical_gradient +
            profile_correction_coefficient(param, mobility) * profile_driver;
   }
 
-  /** Complete directional derivative of K_phi=-J_phi. The regularized normal
-   * and its denominator are supplied by the quadrature-point assembly so they
-   * are computed only once and reused for every trial function. */
+  /** Complete directional derivative of K_phi=-J_phi. The weighted FC normal
+   * and |grad(phi)| are supplied by the quadrature-point assembly so they are
+   * computed only once and reused for every trial function. */
   template <int dim>
   inline dealii::Tensor<1, dim> phase_diffusion_flux_driver_variation(
     const Parameters::CahnHilliard<dim> &param,
@@ -162,21 +288,45 @@ namespace CahnHilliard
     const double                         mobility,
     const double                         mobility_variation,
     const dealii::Tensor<1, dim>        &normal,
-    const double                         normal_denominator)
+    const double                         gradient_norm)
   {
     if (!has_interface_profile_correction(param))
       return mobility_variation * potential_gradient +
              mobility * potential_gradient_variation;
 
-    const auto normal_variation =
-      (tracer_gradient_variation -
-       normal * (normal * tracer_gradient_variation)) /
-      normal_denominator;
-
     auto chemical_gradient           = potential_gradient;
     auto chemical_gradient_variation = potential_gradient_variation;
     if (has_interface_flux_correction(param))
     {
+      dealii::Tensor<1, dim> normal_variation;
+      const double phase_activation =
+        profile_correction_phase_activation(tracer);
+      const double gradient_activation =
+        flux_correction_gradient_activation(param, gradient_norm);
+      if (phase_activation > 0. && gradient_activation > 0.)
+      {
+        const auto unit_normal = tracer_gradient / gradient_norm;
+        const double norm_variation =
+          unit_normal * tracer_gradient_variation;
+        const auto unit_normal_variation =
+          (tracer_gradient_variation -
+           unit_normal * (unit_normal * tracer_gradient_variation)) /
+          gradient_norm;
+        const double phase_activation_variation =
+          profile_correction_phase_activation_derivative(tracer) *
+          tracer_variation;
+        const double gradient_activation_variation =
+          flux_correction_gradient_activation_derivative(
+            param, gradient_norm) *
+          norm_variation;
+        const double weight = phase_activation * gradient_activation;
+        const double weight_variation =
+          gradient_activation * phase_activation_variation +
+          phase_activation * gradient_activation_variation;
+        normal_variation = weight_variation * unit_normal +
+                           weight * unit_normal_variation;
+      }
+
       chemical_gradient =
         project_chemical_potential_gradient<dim>(potential_gradient, normal);
       chemical_gradient_variation =
@@ -186,18 +336,15 @@ namespace CahnHilliard
         normal * (normal_variation * potential_gradient);
     }
 
-    const double equilibrium_gradient =
-      (1. - tracer * tracer) /
-      (std::sqrt(2.) * param.epsilon_interface);
-    const double equilibrium_gradient_variation =
-      -std::sqrt(2.) * tracer * tracer_variation /
-      param.epsilon_interface;
+    const auto profile_driver = profile_correction_flux_driver<dim>(
+      tracer, tracer_gradient, param.epsilon_interface);
     const auto profile_driver_variation =
-      tracer_gradient_variation -
-      equilibrium_gradient_variation * normal -
-      equilibrium_gradient * normal_variation;
-    const auto profile_driver =
-      tracer_gradient - equilibrium_gradient * normal;
+      profile_correction_flux_driver_variation<dim>(
+        tracer,
+        tracer_variation,
+        tracer_gradient,
+        tracer_gradient_variation,
+        param.epsilon_interface);
     const double kappa = profile_correction_coefficient(param, mobility);
     const double kappa_variation =
       profile_correction_coefficient(param, mobility_variation);

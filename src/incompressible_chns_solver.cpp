@@ -294,14 +294,16 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   Tensor<1, dim> J_flux      = diff_flux_factor * grad_mu;
   Tensor<1, dim> div_viscous = (eta * (lap_u + grad_div_u) +
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
-  if (is_stepien)
-  {
-    // Bulk viscosity contribution div(lambda (div u) I), Stokes hypothesis.
-    const double lambda_visc  = -2. / 3. * eta;
-    const double dlambda_dphi = -2. / 3. * detadphi;
-    div_viscous +=
-      lambda_visc * grad_div_u + dlambda_dphi * div_u * grad_phi;
-  }
+  // Bulk viscosity contribution div(lambda (div u) I) temporarily disabled to
+  // compare the Stepien model against Abels, as in the volume assemblers.
+  // Restore the Stokes hypothesis below to reactivate it.
+  // if (is_stepien)
+  // {
+  //   const double lambda_visc  = -2. / 3. * eta;
+  //   const double dlambda_dphi = -2. / 3. * detadphi;
+  //   div_viscous +=
+  //     lambda_visc * grad_div_u + dlambda_dphi * div_u * grad_phi;
+  // }
   const Tensor<1, dim> momentum_diffusive_inertia =
     CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard_param) ?
       J_flux * grad_u :
@@ -903,8 +905,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
          drhodphi * scratch_data.present_pressure_gradients[q] +
          drhodphi * (potential_value - dpr) * tracer_gradient) /
         (rho0 * rho1);
-      lambda       = -2. / 3. * eta; // Stokes hypothesis; adjust if needed
-      dlambda_dphi = -2. / 3. * detadphi;
+      // Bulk-viscosity stress lambda (div u) I temporarily disabled to compare
+      // the Stepien model against Abels, as in the volume assemblers. Restore
+      // the Stokes hypothesis below to reactivate it.
+      // lambda       = -2. / 3. * eta;
+      // dlambda_dphi = -2. / 3. * detadphi;
       // Mass-residual scalar S_c = drho Dphi/Dt + rho div v of the
       // conservative-momentum correction (w.v) S_c.
       stepien_Sc = drhodphi * (dphidt + u_conv * tracer_gradient) +
@@ -1560,7 +1565,10 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
     {
       stepien_A = 2. * rho0 * rho1 / ((rho0 + rho1) * rho);
       stepien_B = 2. / (rho0 + rho1);
-      lambda    = -2. / 3. * eta; // Stokes hypothesis; adjust if needed
+      // Bulk-viscosity stress lambda (div u) I temporarily disabled to compare
+      // the Stepien model against Abels, as in the volume assemblers. Restore
+      // the Stokes hypothesis below to reactivate it.
+      // lambda = -2. / 3. * eta;
       stepien_grad_q =
         (rho * potential_gradient -
          drhodphi * scratch_data.present_pressure_gradients[q] +

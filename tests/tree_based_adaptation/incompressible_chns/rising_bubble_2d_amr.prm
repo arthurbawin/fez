@@ -13,6 +13,17 @@ subsection Output
   set output prefix     = solution
 end
 
+subsection Postprocessing
+  subsection field integral
+    set enable           = true
+    set verbosity        = verbose
+    set output frequency = 1
+    set write results    = false
+    set variable         = phase_tracer
+    set precision        = 8
+  end
+end
+
 subsection Mesh
   set dealii preset mesh     = rectangle
   set dealii mesh parameters = 4, 8 : 0., 0. : 1., 2. : true

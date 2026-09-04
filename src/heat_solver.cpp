@@ -871,6 +871,11 @@ void HeatSolver<dim>::postprocess_solution()
 
   output_results();
 
+  postproc_handler->compute_scalar_field_integral(*mapping,
+                                                  *quadrature,
+                                                  *present_solution,
+                                                  time_handler);
+
   if (should_compute_reconstructions(param, time_handler))
     compute_reconstructions();
 

@@ -225,9 +225,49 @@ namespace PostProcessingTools
     std::array<Tensor<1, dim>, n_phases> &phase_center_of_mass,
     std::array<Tensor<1, dim>, n_phases> &phase_average_velocity);
 
+  /**
+   * Compute the volume integral of the scalar finite element field selected by
+   * @p field_extractor. Contributions are summed over all MPI processes.
+   */
+  template <int dim, typename VectorType>
+  double compute_scalar_field_integral(
+    const DoFHandler<dim>            &dof_handler,
+    const Mapping<dim>               &mapping,
+    const Quadrature<dim>            &quadrature,
+    const VectorType                 &solution,
+    const FEValuesExtractors::Scalar &field_extractor);
+
 } // namespace PostProcessingTools
 
 /* ---------------- Template functions ----------------- */
+
+template <int dim, typename VectorType>
+double PostProcessingTools::compute_scalar_field_integral(
+  const DoFHandler<dim>            &dof_handler,
+  const Mapping<dim>               &mapping,
+  const Quadrature<dim>            &quadrature,
+  const VectorType                 &solution,
+  const FEValuesExtractors::Scalar &field_extractor)
+{
+  FEValues<dim>       fe_values(mapping,
+                          dof_handler.get_fe(),
+                          quadrature,
+                          update_values | update_JxW_values);
+  std::vector<double> values(fe_values.n_quadrature_points);
+  double              local_integral = 0.;
+
+  for (const auto &cell : dof_handler.active_cell_iterators() |
+                            IteratorFilters::LocallyOwnedCell())
+  {
+    fe_values.reinit(cell);
+    fe_values[field_extractor].get_function_values(solution, values);
+    for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+      local_integral += values[q] * fe_values.JxW(q);
+  }
+
+  return Utilities::MPI::sum(local_integral,
+                             dof_handler.get_mpi_communicator());
+}
 
 template <int dim, typename VectorType>
 Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(

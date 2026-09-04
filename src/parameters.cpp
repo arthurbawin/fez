@@ -532,6 +532,17 @@ namespace Parameters
                           "Method used to evaluate the hydrodynamic forces");
       }
       prm.leave_subsection();
+      prm.enter_subsection("field integral");
+      {
+        declare_postprocessing_file(prm);
+        prm.declare_entry(
+          "variable",
+          "none",
+          Patterns::Selection(
+            std::string(SolverInfo::variable_names_for_param)),
+          "Scalar finite element variable to integrate over the domain");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("structure position");
       {
         declare_postprocessing_file_boundary(prm);
@@ -657,6 +668,17 @@ namespace Parameters
           forces.method = Forces::ComputationMethod::stress_vector;
         else if (parsed_method == "lagrange multiplier")
           forces.method = Forces::ComputationMethod::lagrange_multiplier;
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("field integral");
+      {
+        read_postprocessing_file(prm, field_integral);
+        const std::string variable_name = prm.get("variable");
+        AssertThrow(!field_integral.enable || variable_name != "none",
+                    ExcMessage("A variable must be selected when the field "
+                               "integral postprocessing is enabled"));
+        if (variable_name != "none")
+          field_integral.variable = SolverInfo::to_variable_type(variable_name);
       }
       prm.leave_subsection();
       prm.enter_subsection("structure position");

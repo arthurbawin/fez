@@ -28,6 +28,7 @@ Number of degrees of freedom: 6071
 -- Adapting tree-based mesh
 -- 	Number of cells after adaptation: 986
 Number of degrees of freedom: 12560
+Integral of phase_tracer: +1.60641736e+00
 
 Time step 1 - Advancing to t = 0.01.
 Newton iter.  0:          nonlinear residual = 1.32836840e+02
@@ -39,3 +40,4 @@ Newton iter.  2:          nonlinear residual = 1.91383908e-04	(M)
 Newton iter.  3:          nonlinear residual = 3.30973161e-10	(M)
 	Line search with alpha = 1.000 : res = 3.82479569e-13
 Stopping because residual is below prescribed tolerance (1.00e-10)
+Integral of phase_tracer: +1.60641736e+00

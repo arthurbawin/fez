@@ -342,6 +342,19 @@ namespace Parameters
       types::boundary_id boundary_id;
     };
 
+    /**
+     * Compute the volume integral of a scalar finite element variable.
+     *
+     * Vector-valued variables could eventually be integrated component-wise,
+     * but are intentionally not supported for now because the physical meaning
+     * of such an integral depends on the variable (for instance, integrating
+     * velocity is not the same as integrating momentum).
+     */
+    struct FieldIntegral : public PostProcessingFile
+    {
+      SolverInfo::VariableType variable;
+    } field_integral;
+
     // Hydrodynamic forces on a single boundary
     struct Forces : public PostProcessingFileBoundary
     {

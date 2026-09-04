@@ -1148,6 +1148,11 @@ void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 {
   output_results();
 
+  postproc_handler->compute_scalar_field_integral(*moving_mapping,
+                                                  *quadrature,
+                                                  *present_solution,
+                                                  time_handler);
+
   if (param.postprocessing.forces.enable)
     compute_forces();
 

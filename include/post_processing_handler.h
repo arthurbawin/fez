@@ -282,6 +282,16 @@ public:
                                      const TimeHandler       &time_handler);
 
   /**
+   * Compute the volume integral of the scalar finite element variable selected
+   * in the field integral postprocessing parameters.
+   */
+  template <typename VectorType>
+  void compute_scalar_field_integral(const Mapping<dim>    &mapping,
+                                     const Quadrature<dim> &quadrature,
+                                     const VectorType      &solution,
+                                     const TimeHandler     &time_handler);
+
+  /**
    * Reset the underlying data and vectors.
    */
   void clear();
@@ -391,11 +401,11 @@ private:
    * this time step.
    */
   bool should_compute_postprocessing(
-    const TimeHandler                                     &time_handler,
-    const Parameters::PostProcessing::PostProcessingField &postproc_field) const
+    const TimeHandler                                    &time_handler,
+    const Parameters::PostProcessing::PostProcessingBase &postprocessing) const
   {
-    return postproc_field.enable and (time_handler.current_time_iteration %
-                                          postproc_field.output_frequency ==
+    return postprocessing.enable and (time_handler.current_time_iteration %
+                                          postprocessing.output_frequency ==
                                         0 ||
                                       time_handler.is_finished());
   }
@@ -523,6 +533,9 @@ private:
   // The position of the geometric center (average) of the structure,
   // if solving a fluid-structure interaction problem
   TableHandler structure_mean_position_table;
+
+  // Volume integral of the selected scalar finite element variable
+  TableHandler field_integral_table;
 
   // For multiphase flows: volume occupied by each phase
   TableHandler volume_of_phases;
@@ -1049,6 +1062,51 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
     write_table(outfile,
                 structure_mean_position_table,
                 post_proc_param.structure_position);
+  }
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::compute_scalar_field_integral(
+  const Mapping<dim>    &mapping,
+  const Quadrature<dim> &quadrature,
+  const VectorType      &solution,
+  const TimeHandler     &time_handler)
+{
+  const auto &integral_param = post_proc_param.field_integral;
+  if (!should_compute_postprocessing(time_handler, integral_param))
+    return;
+
+  const auto variable_name = SolverInfo::to_string(integral_param.variable);
+  const auto field_extractor =
+    ordering.get_scalar_extractor(integral_param.variable);
+  const double integral = PostProcessingTools::compute_scalar_field_integral(
+    *dof_handler, mapping, quadrature, solution, field_extractor);
+
+  if (mpi_rank == 0)
+  {
+    if (integral_param.verbosity == Parameters::Verbosity::verbose)
+    {
+      const std::ios::fmtflags old_flags     = std::cout.flags();
+      const unsigned int       old_precision = std::cout.precision();
+      std::cout << std::scientific << std::showpos
+                << std::setprecision(integral_param.precision) << "Integral of "
+                << variable_name << ": " << integral << std::endl;
+      std::cout.precision(old_precision);
+      std::cout.flags(old_flags);
+    }
+
+    field_integral_table.add_value("time", time_handler.current_time);
+    field_integral_table.add_value(variable_name, integral);
+    field_integral_table.set_precision(variable_name, integral_param.precision);
+    field_integral_table.set_scientific(variable_name, true);
+
+    if (should_output_postprocessing(time_handler, integral_param))
+    {
+      std::ofstream outfile(output_param.output_dir +
+                            integral_param.output_prefix + ".txt");
+      write_table(outfile, field_integral_table, integral_param);
+    }
   }
 }
 

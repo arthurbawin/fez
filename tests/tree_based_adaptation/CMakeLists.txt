@@ -1,3 +1,5 @@
 if (DEAL_II_WITH_P4EST)
 	add_subdirectory(heat)
+	add_subdirectory(incompressible_ns)
+	add_subdirectory(incompressible_chns)
 endif()

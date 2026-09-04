@@ -405,5 +405,19 @@ PostProcessingHandler<dim>::create_field_postprocessor(
   return nullptr;
 }
 
+template <int dim>
+void PostProcessingHandler<dim>::create_field_postprocessors(
+  const ParameterReader<dim> &param,
+  const Mapping<dim>         &mapping,
+  const Quadrature<dim>      &cell_quadrature,
+  const bool                  with_moving_mesh)
+{
+  for (const auto &[type, postprocessor_param_ptr] :
+       param.postprocessing.field_postprocessors)
+    if (postprocessor_param_ptr->enable)
+      field_postprocessors[type] = create_field_postprocessor(
+        type, param, mapping, cell_quadrature, with_moving_mesh);
+}
+
 template class PostProcessingHandler<2>;
 template class PostProcessingHandler<3>;

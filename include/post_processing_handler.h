@@ -120,6 +120,17 @@ public:
                                        const DoFHandler<dim>    &dof_handler);
 
   /**
+   * (Re-)create the dof-based postprocessors, stored in field_postprocessors.
+   *
+   * As for the function above, this function must be called whenever the mesh
+   * and dof handler changed, i.e., after mesh adaptation.
+   */
+  void create_field_postprocessors(const ParameterReader<dim> &param,
+                                   const Mapping<dim>         &mapping,
+                                   const Quadrature<dim>      &cell_quadrature,
+                                   const bool with_moving_mesh);
+
+  /**
    * Add a cell-based vector of data associated to a field with name "name" to
    * the underlying DataOut object. The vector data should have a size equal to
    * the number of mesh elements on this partitions, e.g., by reinit'ing the
@@ -183,14 +194,9 @@ public:
   void write_pvd(const PrefixData &prefix_data = PrefixData()) const;
 
   /**
-   * Calls the postprocess() function of the dof-based postprocessor stored in
-   * field_postprocessors and of given @p type, and adds the computed data to
-   * the underlying DataOut. The postprocessor is created if it does not exist.
-   *
-   * For example, if @p type is PostProcessingTools::PostprocessorAtDofTypes::vorticity,
-   * this function computes a vorticity field stored at the degrees of freedom,
-   * according to the method specified in param.postprocessing.vorticity.method
-   * (e.g., L2 projection).
+   * Calls the postprocess() function for each of the dof-based postprocessor
+   * stored in field_postprocessors, and adds the computed data to the
+   * underlying DataOut.
    *
    * Some of the fields computed with this function involve a nontrivial compute
    * time (e.g., assemble a mass matrix and rhs, and solve an L2 projection
@@ -203,15 +209,11 @@ public:
    * matches the prescribed frequency.
    */
   template <typename VectorType>
-  void
-  compute_dof_postprocessing(TimerOutput                   &timer,
-                             const ParameterReader<dim>    &param,
-                             const VectorType              &solution,
-                             const std::vector<VectorType> &previous_solutions,
-                             const TimeHandler             &time_handler,
-                             const Mapping<dim>            &mapping,
-                             const Quadrature<dim>         &cell_quadrature,
-                             const bool                     with_moving_mesh);
+  void compute_field_postprocessors(
+    TimerOutput                   &timer,
+    const VectorType              &solution,
+    const std::vector<VectorType> &previous_solutions,
+    const TimeHandler             &time_handler);
 
   /**
    * Compute the hydrodynamic forces on the boundary prescribed in the forces
@@ -957,29 +959,18 @@ void PostProcessingHandler<dim>::compute_forces(
 
 template <int dim>
 template <typename VectorType>
-void PostProcessingHandler<dim>::compute_dof_postprocessing(
+void PostProcessingHandler<dim>::compute_field_postprocessors(
   TimerOutput                   &timer,
-  const ParameterReader<dim>    &param,
   const VectorType              &solution,
   const std::vector<VectorType> &previous_solutions,
-  const TimeHandler             &time_handler,
-  const Mapping<dim>            &mapping,
-  const Quadrature<dim>         &cell_quadrature,
-  const bool                     with_moving_mesh)
+  const TimeHandler             &time_handler)
 {
   // Loop over all recorded field postprocessors
   for (const auto &[type, postprocessor_param_ptr] :
-       param.postprocessing.field_postprocessors)
+       post_proc_param.field_postprocessors)
     if (postprocessor_param_ptr->enable)
     {
-      // If postprocessor does not exist, create it
-      if (field_postprocessors.count(type) == 0)
-        field_postprocessors.insert(
-          {type,
-           create_field_postprocessor(
-             type, param, mapping, cell_quadrature, with_moving_mesh)});
-
-      // Then postprocess the solution and add data to DataOut
+      // Postprocess the solution and add data to DataOut
       const auto &ptr = field_postprocessors.at(type);
       if (ptr && should_output_volume_fields(time_handler))
       {

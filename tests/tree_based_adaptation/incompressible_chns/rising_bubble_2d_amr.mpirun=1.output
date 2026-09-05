@@ -41,3 +41,19 @@ Newton iter.  3:          nonlinear residual = 3.30973161e-10	(M)
 	Line search with alpha = 1.000 : res = 3.82479569e-13
 Stopping because residual is below prescribed tolerance (1.00e-10)
 Integral of phase_tracer: +1.60641736e+00
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 2036
+Number of degrees of freedom: 25205
+
+Time step 2 - Advancing to t = 2.00e-02.
+Newton iter.  0:          nonlinear residual = 7.72064843e+00
+	Line search with alpha = 1.000 : res = 2.31273734e-01
+Newton iter.  1:          nonlinear residual = 2.31273734e-01	(M)
+	Line search with alpha = 1.000 : res = 1.19029572e-03
+Newton iter.  2:          nonlinear residual = 1.19029572e-03	(M)
+	Line search with alpha = 1.000 : res = 3.81746992e-08
+Newton iter.  3:          nonlinear residual = 3.81746992e-08	(M)
+	Line search with alpha = 1.000 : res = 4.13370720e-13
+Stopping because residual is below prescribed tolerance (1.00e-10)
+Integral of phase_tracer: +1.60641736e+00

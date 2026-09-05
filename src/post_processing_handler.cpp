@@ -36,18 +36,6 @@ PostProcessingHandler<dim>::PostProcessingHandler(
       }
   }
 
-  if (post_proc_param.field_integral.enable)
-  {
-    const auto variable = post_proc_param.field_integral.variable;
-    AssertThrow(ordering.has_variable(variable),
-                ExcMessage("Cannot compute the integral of " +
-                           SolverInfo::to_string(variable) +
-                           " because this solver does not have that variable"));
-    AssertThrow(ordering.is_scalar(variable),
-                ExcMessage("Field integral postprocessing currently supports "
-                           "only scalar finite element variables"));
-  }
-
   this->attach_triangulation_and_dof_handler(triangulation, dof_handler);
 
   // Create the required DataPostProcessors

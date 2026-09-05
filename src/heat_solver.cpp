@@ -864,6 +864,15 @@ void HeatSolver<dim>::compute_error_estimate()
 }
 
 template <int dim>
+void HeatSolver<dim>::compute_field_integrals()
+{
+  postproc_handler->compute_field_integrals(*mapping,
+                                            *quadrature,
+                                            *present_solution,
+                                            time_handler);
+}
+
+template <int dim>
 void HeatSolver<dim>::postprocess_solution()
 {
   if (should_compute_errors(time_handler))
@@ -871,10 +880,8 @@ void HeatSolver<dim>::postprocess_solution()
 
   output_results();
 
-  postproc_handler->compute_scalar_field_integral(*mapping,
-                                                  *quadrature,
-                                                  *present_solution,
-                                                  time_handler);
+  if (param.postprocessing.field_integral.enable)
+    compute_field_integrals();
 
   if (should_compute_reconstructions(param, time_handler))
     compute_reconstructions();

@@ -16,6 +16,8 @@
 #include <parameters.h>
 #include <types.h>
 
+#include <type_traits>
+
 // Forward declaration
 template <int dim>
 class PostProcessingHandler;
@@ -226,35 +228,40 @@ namespace PostProcessingTools
     std::array<Tensor<1, dim>, n_phases> &phase_average_velocity);
 
   /**
-   * Compute the volume integral of the scalar finite element field selected by
+   * Compute the volume integral of the scalar or vector field selected by
    * @p field_extractor. Contributions are summed over all MPI processes.
    */
-  template <int dim, typename VectorType>
-  double compute_scalar_field_integral(
-    const DoFHandler<dim>            &dof_handler,
-    const Mapping<dim>               &mapping,
-    const Quadrature<dim>            &quadrature,
-    const VectorType                 &solution,
-    const FEValuesExtractors::Scalar &field_extractor);
+  template <int dim, typename VectorType, typename ExtractorType>
+  auto compute_field_integral(const DoFHandler<dim> &dof_handler,
+                              const Mapping<dim>    &mapping,
+                              const Quadrature<dim> &quadrature,
+                              const VectorType      &solution,
+                              const ExtractorType   &field_extractor);
 
 } // namespace PostProcessingTools
 
 /* ---------------- Template functions ----------------- */
 
-template <int dim, typename VectorType>
-double PostProcessingTools::compute_scalar_field_integral(
-  const DoFHandler<dim>            &dof_handler,
-  const Mapping<dim>               &mapping,
-  const Quadrature<dim>            &quadrature,
-  const VectorType                 &solution,
-  const FEValuesExtractors::Scalar &field_extractor)
+template <int dim, typename VectorType, typename ExtractorType>
+auto PostProcessingTools::compute_field_integral(
+  const DoFHandler<dim> &dof_handler,
+  const Mapping<dim>    &mapping,
+  const Quadrature<dim> &quadrature,
+  const VectorType      &solution,
+  const ExtractorType   &field_extractor)
 {
-  FEValues<dim>       fe_values(mapping,
+  static_assert(std::is_same_v<ExtractorType, FEValuesExtractors::Scalar> ||
+                  std::is_same_v<ExtractorType, FEValuesExtractors::Vector>,
+                "The field extractor must be scalar or vector-valued");
+
+  FEValues<dim> fe_values(mapping,
                           dof_handler.get_fe(),
                           quadrature,
                           update_values | update_JxW_values);
-  std::vector<double> values(fe_values.n_quadrature_points);
-  double              local_integral = 0.;
+  using ValueType =
+    typename std::decay_t<decltype(fe_values[field_extractor])>::value_type;
+  std::vector<ValueType> values(fe_values.n_quadrature_points);
+  ValueType              local_integral{};
 
   for (const auto &cell : dof_handler.active_cell_iterators() |
                             IteratorFilters::LocallyOwnedCell())

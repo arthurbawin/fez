@@ -123,6 +123,8 @@ namespace PostProcessingTools
     shape_type get_quantity(const std::vector<quantity_type> &values,
                             const unsigned int                index) const
     {
+      // deal.II 9.7 uses Tensor<1, 1> for the 2D curl; newer versions use
+      // a scalar. Detect the actual type, including development versions.
       if constexpr (std::is_same_v<curl_type, shape_type>)
         return values[index];
       else

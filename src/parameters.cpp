@@ -536,11 +536,13 @@ namespace Parameters
       {
         declare_postprocessing_file(prm);
         prm.declare_entry(
-          "variable",
-          "none",
-          Patterns::Selection(
-            std::string(SolverInfo::variable_names_for_param)),
-          "Scalar finite element variable to integrate over the domain");
+          "variables",
+          "",
+          Patterns::List(Patterns::Selection(
+            std::string(SolverInfo::variable_names_for_param))),
+          "Comma-separated list of finite element variables to integrate over "
+          "the domain. Each variable is written to <output "
+          "prefix>_<variable>.txt");
       }
       prm.leave_subsection();
       prm.enter_subsection("structure position");
@@ -673,12 +675,24 @@ namespace Parameters
       prm.enter_subsection("field integral");
       {
         read_postprocessing_file(prm, field_integral);
-        const std::string variable_name = prm.get("variable");
-        AssertThrow(!field_integral.enable || variable_name != "none",
-                    ExcMessage("A variable must be selected when the field "
-                               "integral postprocessing is enabled"));
-        if (variable_name != "none")
-          field_integral.variable = SolverInfo::to_variable_type(variable_name);
+        const auto variable_names =
+          Utilities::split_string_list(prm.get("variables"));
+        AssertThrow(!field_integral.enable || !variable_names.empty(),
+                    ExcMessage("At least one variable must be selected when "
+                               "field integral postprocessing is enabled"));
+        field_integral.variables.clear();
+        for (const auto &name : variable_names)
+        {
+          AssertThrow(name != "none",
+                      ExcMessage(
+                        "Field integral variables must not be 'none'"));
+          const auto variable = SolverInfo::to_variable_type(name);
+          AssertThrow(std::find(field_integral.variables.begin(),
+                                field_integral.variables.end(),
+                                variable) == field_integral.variables.end(),
+                      ExcMessage("Duplicate field integral variable: " + name));
+          field_integral.variables.push_back(variable);
+        }
       }
       prm.leave_subsection();
       prm.enter_subsection("structure position");

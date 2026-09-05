@@ -1144,9 +1144,21 @@ void NavierStokesSolver<dim,
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::compute_field_integrals()
+{
+  postproc_handler->compute_field_integrals(*moving_mapping,
+                                            *quadrature,
+                                            *present_solution,
+                                            time_handler);
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 {
   output_results();
+
+  if (param.postprocessing.field_integral.enable)
+    compute_field_integrals();
 
   if (param.postprocessing.forces.enable)
     compute_forces();

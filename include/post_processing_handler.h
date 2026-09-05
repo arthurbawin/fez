@@ -282,6 +282,16 @@ public:
                                      const TimeHandler       &time_handler);
 
   /**
+   * Compute the volume integrals of the finite element variables selected
+   * in the field integral postprocessing parameters.
+   */
+  template <typename VectorType>
+  void compute_field_integrals(const Mapping<dim>    &mapping,
+                               const Quadrature<dim> &quadrature,
+                               const VectorType      &solution,
+                               const TimeHandler     &time_handler);
+
+  /**
    * Reset the underlying data and vectors.
    */
   void clear();
@@ -391,11 +401,11 @@ private:
    * this time step.
    */
   bool should_compute_postprocessing(
-    const TimeHandler                                     &time_handler,
-    const Parameters::PostProcessing::PostProcessingField &postproc_field) const
+    const TimeHandler                                    &time_handler,
+    const Parameters::PostProcessing::PostProcessingBase &postprocessing) const
   {
-    return postproc_field.enable and (time_handler.current_time_iteration %
-                                          postproc_field.output_frequency ==
+    return postprocessing.enable and (time_handler.current_time_iteration %
+                                          postprocessing.output_frequency ==
                                         0 ||
                                       time_handler.is_finished());
   }
@@ -523,6 +533,9 @@ private:
   // The position of the geometric center (average) of the structure,
   // if solving a fluid-structure interaction problem
   TableHandler structure_mean_position_table;
+
+  // Volume integrals of the selected finite element variables
+  std::map<SolverInfo::VariableType, TableHandler> field_integral_tables;
 
   // For multiphase flows: volume occupied by each phase
   TableHandler volume_of_phases;
@@ -1049,6 +1062,79 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
     write_table(outfile,
                 structure_mean_position_table,
                 post_proc_param.structure_position);
+  }
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::compute_field_integrals(
+  const Mapping<dim>    &mapping,
+  const Quadrature<dim> &quadrature,
+  const VectorType      &solution,
+  const TimeHandler     &time_handler)
+{
+  const auto &integral_param = post_proc_param.field_integral;
+  if (!integral_param.enable)
+    return;
+
+  for (const auto variable : integral_param.variables)
+  {
+    const auto variable_name = SolverInfo::to_string(variable);
+    Assert(ordering.has_variable(variable),
+           ExcMessage("Cannot compute the integral of " + variable_name +
+                      " because this solver does not have that variable"));
+
+    const auto compute_and_store = [&](const auto &extractor) {
+      const auto integral = PostProcessingTools::compute_field_integral(
+        *dof_handler, mapping, quadrature, solution, extractor);
+      if (mpi_rank != 0)
+        return;
+
+      if (integral_param.verbosity == Parameters::Verbosity::verbose)
+      {
+        const std::ios::fmtflags old_flags     = std::cout.flags();
+        const auto               old_precision = std::cout.precision();
+        std::cout << std::scientific << std::showpos
+                  << std::setprecision(integral_param.precision)
+                  << "Integral of " << variable_name << ": " << integral
+                  << std::endl;
+        std::cout.precision(old_precision);
+        std::cout.flags(old_flags);
+      }
+
+      auto &table = field_integral_tables[variable];
+      table.add_value("time", time_handler.current_time);
+      const auto add_component = [&](const std::string &name,
+                                     const double       value) {
+        table.add_value(name, value);
+        table.set_precision(name, integral_param.precision);
+        table.set_scientific(name, true);
+      };
+      if constexpr (std::is_same_v<std::decay_t<decltype(integral)>, double>)
+        add_component(variable_name, integral);
+      else
+      {
+        const std::array<std::string, 3> axes = {{"x", "y", "z"}};
+        for (unsigned int d = 0; d < dim; ++d)
+          add_component(variable_name + "_" + axes[d], integral[d]);
+      }
+
+      // Accumulate every time step; the frequency only controls file output.
+      if (should_output_postprocessing(time_handler, integral_param))
+      {
+        std::ofstream outfile(output_param.output_dir +
+                              integral_param.output_prefix + "_" +
+                              variable_name + ".txt");
+        write_table(outfile, table, integral_param);
+      }
+    };
+
+    if (ordering.is_scalar(variable))
+      compute_and_store(ordering.get_scalar_extractor(variable));
+    else if (ordering.is_vector(variable))
+      compute_and_store(ordering.get_vector_extractor(variable));
+    else
+      DEAL_II_NOT_IMPLEMENTED();
   }
 }
 

@@ -342,6 +342,15 @@ namespace Parameters
       types::boundary_id boundary_id;
     };
 
+    /**
+     * Compute the volume integrals of finite element variables.
+     * Vector-valued variables are integrated component-wise.
+     */
+    struct FieldIntegral : public PostProcessingFile
+    {
+      std::vector<SolverInfo::VariableType> variables;
+    } field_integral;
+
     // Hydrodynamic forces on a single boundary
     struct Forces : public PostProcessingFileBoundary
     {

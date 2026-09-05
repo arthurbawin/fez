@@ -13,6 +13,8 @@
 #include <types.h>
 #include <utilities.h>
 
+#include <type_traits>
+
 namespace PostProcessingTools
 {
   using namespace dealii;
@@ -121,22 +123,15 @@ namespace PostProcessingTools
     shape_type get_quantity(const std::vector<quantity_type> &values,
                             const unsigned int                index) const
     {
-      // Starting with deal.II v9.8, the curl_type is a scalar in 2D, but
-      // in 9.7 it is a Tensor<1, 1>.
-#if DEAL_II_VERSION_GTE(9, 8, 0)
-      // curl_type and shape_type match in this case
-      const curl_type curl = values[index];
-#else
-      // Here curl_type in 2D is Tensor<1, 1>, and curl_type and shape_type
-      // differ. Return a shape_type object, which can be multiplied by shape
-      // functions.
-      shape_type curl;
-      if constexpr (dim == 2)
-        curl = values[index][0];
+      // deal.II 9.7 uses Tensor<1, 1> for the 2D curl; newer versions use
+      // a scalar. Detect the actual type, including development versions.
+      if constexpr (std::is_same_v<curl_type, shape_type>)
+        return values[index];
       else
-        curl = values[index];
-#endif
-      return curl;
+      {
+        static_assert(dim == 2);
+        return values[index][0];
+      }
     }
 
   public:

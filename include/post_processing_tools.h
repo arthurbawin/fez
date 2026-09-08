@@ -229,7 +229,7 @@ namespace PostProcessingTools
 
   /**
    * Compute the volume integral of the scalar or vector field selected by
-   * @p field_extractor. Contributions are summed over all MPI processes.
+   * @p field_extractor.
    */
   template <int dim, typename VectorType, typename ExtractorType>
   auto compute_field_integral(const DoFHandler<dim> &dof_handler,
@@ -261,7 +261,8 @@ auto PostProcessingTools::compute_field_integral(
   using ValueType =
     typename std::decay_t<decltype(fe_values[field_extractor])>::value_type;
   std::vector<ValueType> values(fe_values.n_quadrature_points);
-  ValueType              local_integral{};
+  ValueType              local_integral;
+  local_integral = 0;
 
   for (const auto &cell : dof_handler.active_cell_iterators() |
                             IteratorFilters::LocallyOwnedCell())

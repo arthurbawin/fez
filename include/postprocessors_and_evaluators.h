@@ -123,8 +123,11 @@ namespace PostProcessingTools
     shape_type get_quantity(const std::vector<quantity_type> &values,
                             const unsigned int                index) const
     {
-      // deal.II 9.7 uses Tensor<1, 1> for the 2D curl; newer versions use
-      // a scalar. Detect the actual type, including development versions.
+      // Starting with deal.II v9.8, curl_type is a scalar in 2D, but in v9.7 it
+      // is a Tensor<1, 1>. The return type of this function will be multiplied
+      // by shape functions to yield a double, so here we simply return a
+      // shape_type. If both types are the same, simply return the object,
+      // otherwise return the value of the Tensor<1, 1> object in 2D.
       if constexpr (std::is_same_v<curl_type, shape_type>)
         return values[index];
       else

@@ -1074,9 +1074,6 @@ void PostProcessingHandler<dim>::compute_field_integrals(
   const TimeHandler     &time_handler)
 {
   const auto &integral_param = post_proc_param.field_integral;
-  if (!integral_param.enable)
-    return;
-
   for (const auto variable : integral_param.variables)
   {
     const auto variable_name = SolverInfo::to_string(variable);

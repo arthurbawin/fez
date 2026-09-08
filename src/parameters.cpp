@@ -675,24 +675,24 @@ namespace Parameters
       prm.enter_subsection("field integral");
       {
         read_postprocessing_file(prm, field_integral);
-        const auto variable_names =
+        auto variable_names =
           Utilities::split_string_list(prm.get("variables"));
         AssertThrow(!field_integral.enable || !variable_names.empty(),
                     ExcMessage("At least one variable must be selected when "
                                "field integral postprocessing is enabled"));
-        field_integral.variables.clear();
         for (const auto &name : variable_names)
-        {
           AssertThrow(name != "none",
                       ExcMessage(
                         "Field integral variables must not be 'none'"));
-          const auto variable = SolverInfo::to_variable_type(name);
-          AssertThrow(std::find(field_integral.variables.begin(),
-                                field_integral.variables.end(),
-                                variable) == field_integral.variables.end(),
-                      ExcMessage("Duplicate field integral variable: " + name));
-          field_integral.variables.push_back(variable);
-        }
+        std::sort(variable_names.begin(), variable_names.end());
+        variable_names.erase(std::unique(variable_names.begin(),
+                                         variable_names.end()),
+                             variable_names.end());
+        field_integral.variables.resize(variable_names.size());
+        std::transform(variable_names.begin(),
+                       variable_names.end(),
+                       field_integral.variables.begin(),
+                       SolverInfo::to_variable_type);
       }
       prm.leave_subsection();
       prm.enter_subsection("structure position");

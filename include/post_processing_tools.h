@@ -261,7 +261,8 @@ auto PostProcessingTools::compute_field_integral(
   using ValueType =
     typename std::decay_t<decltype(fe_values[field_extractor])>::value_type;
   std::vector<ValueType> values(fe_values.n_quadrature_points);
-  ValueType local_integral = ValueType();
+  ValueType local_integral;
+  local_integral = 0;
 
   for (const auto &cell : dof_handler.active_cell_iterators() |
                             IteratorFilters::LocallyOwnedCell())

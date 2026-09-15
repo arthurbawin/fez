@@ -313,6 +313,11 @@ public:
   void postprocess_solution();
 
   /**
+   * Compute the volume integrals of the selected finite element variables.
+   */
+  void compute_field_integrals();
+
+  /**
    * Post-process the additional data specific to each derived solver. By
    * default, this function does nothing and must be overriden if needed.
    */

@@ -532,6 +532,19 @@ namespace Parameters
                           "Method used to evaluate the hydrodynamic forces");
       }
       prm.leave_subsection();
+      prm.enter_subsection("field integral");
+      {
+        declare_postprocessing_file(prm);
+        prm.declare_entry(
+          "variables",
+          "",
+          Patterns::List(Patterns::Selection(
+            std::string(SolverInfo::variable_names_for_param))),
+          "Comma-separated list of finite element variables to integrate over "
+          "the domain. Each variable is written to <output "
+          "prefix>_<variable>.txt");
+      }
+      prm.leave_subsection();
       prm.enter_subsection("structure position");
       {
         declare_postprocessing_file_boundary(prm);
@@ -657,6 +670,29 @@ namespace Parameters
           forces.method = Forces::ComputationMethod::stress_vector;
         else if (parsed_method == "lagrange multiplier")
           forces.method = Forces::ComputationMethod::lagrange_multiplier;
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("field integral");
+      {
+        read_postprocessing_file(prm, field_integral);
+        auto variable_names =
+          Utilities::split_string_list(prm.get("variables"));
+        AssertThrow(!field_integral.enable || !variable_names.empty(),
+                    ExcMessage("At least one variable must be selected when "
+                               "field integral postprocessing is enabled"));
+        for (const auto &name : variable_names)
+          AssertThrow(name != "none",
+                      ExcMessage(
+                        "Field integral variables must not be 'none'"));
+        std::sort(variable_names.begin(), variable_names.end());
+        variable_names.erase(std::unique(variable_names.begin(),
+                                         variable_names.end()),
+                             variable_names.end());
+        field_integral.variables.resize(variable_names.size());
+        std::transform(variable_names.begin(),
+                       variable_names.end(),
+                       field_integral.variables.begin(),
+                       SolverInfo::to_variable_type);
       }
       prm.leave_subsection();
       prm.enter_subsection("structure position");

@@ -427,10 +427,8 @@ public:
       res[1][2] = parsed_function.value(p, 5);
     }
     if constexpr (running_in_debug_mode())
-    {
-      const double det = determinant(res);
-      Assert(is_positive_definite(res), ExcUserFunNotSPD(p, res, det));
-    }
+      Assert(is_positive_definite(res),
+             ExcUserFunNotSPD(p, res, determinant(res)));
     return res;
   }
 

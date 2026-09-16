@@ -261,7 +261,7 @@ auto PostProcessingTools::compute_field_integral(
   using ValueType =
     typename std::decay_t<decltype(fe_values[field_extractor])>::value_type;
   std::vector<ValueType> values(fe_values.n_quadrature_points);
-  ValueType local_integral;
+  ValueType              local_integral;
   local_integral = 0;
 
   for (const auto &cell : dof_handler.active_cell_iterators() |
@@ -640,8 +640,9 @@ void PostProcessingTools::set_slice_index_on_boundary(
   {
     if (face->at_boundary() && face->boundary_id() == boundary_id)
     {
-      const Point<dim> barry   = face->center();
-      unsigned int     i_slice = floor(barry[axis_id] / delta);
+      const Point<dim> barry = face->center();
+      unsigned int     i_slice =
+        static_cast<unsigned int>(std::floor(barry[axis_id] / delta));
 
       // A point at coord_max will have i_slice = n_slices : decrement it
       if (i_slice == n_slices)

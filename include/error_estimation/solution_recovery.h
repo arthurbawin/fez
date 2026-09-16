@@ -165,6 +165,11 @@ namespace ErrorEstimation
            const bool                  single_reconstruction);
 
       /**
+       * Virtual destructor.
+       */
+      virtual ~Base() = default;
+
+      /**
        * Perform the reconstruction of the solution and derivatives up to
        * the prescribed @p highest_recovered_derivative given in the constructor.
        */

@@ -442,8 +442,10 @@ namespace MeshTools
       const unsigned int refinement_level =
         param.with_tree_based_adaptation() ?
           param.mesh.refinement_level :
-          (param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix + 1) :
-                                    param.mesh.refinement_level);
+          (param.mms_param.enable ?
+             static_cast<unsigned int>(
+               std::pow(2, param.mms_param.mesh_suffix + 1)) :
+             param.mesh.refinement_level);
       create_cube(tria,
                   param.mesh,
                   min_corner,
@@ -456,8 +458,10 @@ namespace MeshTools
       const unsigned int refinement_level =
         param.with_tree_based_adaptation() ?
           param.mesh.refinement_level :
-          (param.mms_param.enable ? pow(2, param.mms_param.mesh_suffix) :
-                                    param.mesh.refinement_level);
+          (param.mms_param.enable ?
+             static_cast<unsigned int>(
+               std::pow(2, param.mms_param.mesh_suffix)) :
+             param.mesh.refinement_level);
       create_rectangle(tria,
                        param.mesh,
                        param.mesh.deal_ii_mesh_param,

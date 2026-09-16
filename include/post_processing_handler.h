@@ -738,10 +738,11 @@ void PostProcessingHandler<dim>::compute_forces(
   Tensor<1, dim> total_forces;
   std::string    method = "";
 
-  std::vector<Tensor<1, dim>> force_per_face(
-    dof_handler.get_triangulation().n_faces());
+  std::vector<Tensor<1, dim>> sliced_boundary_force_per_face;
 
-  const auto compute_on_boundary = [&](const types::boundary_id boundary_id) {
+  const auto compute_on_boundary =
+    [&](const types::boundary_id            boundary_id,
+        std::vector<Tensor<1, dim>>         &force_per_face) {
     Tensor<1, dim> forces;
     switch (forces_param.method)
     {
@@ -801,8 +802,16 @@ void PostProcessingHandler<dim>::compute_forces(
   forces_per_boundary.reserve(forces_param.boundary_ids.size());
   for (const auto boundary_id : forces_param.boundary_ids)
   {
-    forces_per_boundary.push_back(compute_on_boundary(boundary_id));
+    std::vector<Tensor<1, dim>> force_per_face(
+      dof_handler.get_triangulation().n_faces());
+    forces_per_boundary.push_back(compute_on_boundary(
+      boundary_id, force_per_face));
     total_forces += forces_per_boundary.back();
+
+    if (post_proc_param.slices.enable &&
+        post_proc_param.slices.compute_forces_on_slices &&
+        boundary_id == post_proc_param.slices.boundary_id)
+      sliced_boundary_force_per_face = std::move(force_per_face);
   }
 
   const bool output_separate =
@@ -889,11 +898,21 @@ void PostProcessingHandler<dim>::compute_forces(
     std::vector<Tensor<1, dim>> forces_per_slice_local(slices_param.n_slices);
     std::vector<Tensor<1, dim>> forces_per_slice = forces_per_slice_local;
 
+    const auto sliced_boundary =
+      std::find(forces_param.boundary_ids.begin(),
+                forces_param.boundary_ids.end(),
+                slices_param.boundary_id);
+    AssertThrow(sliced_boundary != forces_param.boundary_ids.end(),
+                ExcMessage("The boundary selected for slicing must also "
+                           "appear in the force boundary ids."));
+    const auto sliced_boundary_index =
+      std::distance(forces_param.boundary_ids.begin(), sliced_boundary);
+
     for (const auto &face : triangulation->active_face_iterators())
     {
       if (face->user_index() != numbers::invalid_unsigned_int)
         forces_per_slice_local[face->user_index()] +=
-          force_per_face[face->index()];
+          sliced_boundary_force_per_face[face->index()];
     }
 
     for (unsigned int i = 0; i < slices_param.n_slices; ++i)
@@ -949,15 +968,6 @@ void PostProcessingHandler<dim>::compute_forces(
       for (const auto &f : forces_per_slice)
         sum_slices += f;
 
-      const auto sliced_boundary =
-        std::find(forces_param.boundary_ids.begin(),
-                  forces_param.boundary_ids.end(),
-                  slices_param.boundary_id);
-      AssertThrow(sliced_boundary != forces_param.boundary_ids.end(),
-                  ExcMessage("The boundary selected for slicing must also "
-                             "appear in the force boundary ids."));
-      const auto sliced_boundary_index =
-        std::distance(forces_param.boundary_ids.begin(), sliced_boundary);
       AssertThrow((forces_per_boundary[sliced_boundary_index] - sum_slices)
                       .norm_square() < 1e-14,
                   ExcMessage("Sum of forces on slices does not match the total "

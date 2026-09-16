@@ -288,6 +288,9 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   Tensor<1, dim> forces, forces_local;
   const double   mu = dynamic_viscosity;
 
+  for (auto &f : force_per_face)
+    f = 0;
+
   FEFaceValues<dim> fe_face_values(mapping,
                                    dof_handler.get_fe(),
                                    face_quadrature,
@@ -359,6 +362,9 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
 {
   Tensor<1, dim> forces, forces_local;
   const double   mu = dynamic_viscosity;
+
+  for (auto &f : force_per_face)
+    f = 0;
 
   hp::FEFaceValues<dim> hp_fe_face_values(mapping_collection,
                                           dof_handler.get_fe_collection(),
@@ -496,6 +502,9 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
+
+  for (auto &f : force_per_face)
+    f = 0;
 
   hp::FEFaceValues hp_fe_face_values(mapping_collection,
                                      dof_handler.get_fe_collection(),

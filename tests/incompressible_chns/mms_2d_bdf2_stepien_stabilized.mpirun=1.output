@@ -1,0 +1,39 @@
+Number of MPI processes: 1
+CHNS model: Stepien
+Convergence test with manufactured solution:
+Mesh file was changed to 0.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 64
+ boundary indicators: 0(8 faces) 1(8 faces) 2(4 faces) 3(4 faces)
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 441
+Convergence test with manufactured solution:
+Mesh file was changed to 1.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 256
+ boundary indicators: 0(16 faces) 1(16 faces) 2(8 faces) 3(8 faces)
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 1581
+
+L2_norm
+n_elm n_dof   dt          u               p              phi             mu
+   64   441 0.1000 7.2580e-03    - 9.0458e+00    - 3.0611e-02    - 6.4356e-01    -
+  256  1581 0.0500 2.4489e-03 1.57 2.5424e+00 1.83 7.6850e-03 1.99 2.2258e-01 1.53
+
+Linfty_norm
+n_elm n_dof   dt          u               p              phi             mu
+   64   441 0.1000 8.2518e-03    - 1.1881e+02    - 6.4598e-02    - 1.2422e+00    -
+  256  1581 0.0500 3.1699e-03 1.38 4.1395e+01 1.52 1.6502e-02 1.97 4.8029e-01 1.37
+
+H1_seminorm
+n_elm n_dof   dt          u               p              phi             mu
+   64   441 0.1000 3.7700e-02    - 1.5154e+02    - 6.8301e-01    - 3.1488e+00    -
+  256  1581 0.0500 1.0423e-02 1.85 5.9050e+01 1.36 3.3982e-01 1.01 1.2165e+00 1.37

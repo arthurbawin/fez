@@ -436,7 +436,6 @@ namespace NavierStokesScratch
 
     stepien_dpr =
       0.5 * (pp.fluids[0].pressure_ref - pp.fluids[1].pressure_ref);
-    stepien_rho_sum     = density0 + density1;
     stepien_rho_product = density0 * density1;
     tracer_limiter        = CahnHilliard::get_limiter_function(ch);
     mobility_tracer_limiter =

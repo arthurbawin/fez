@@ -38,12 +38,25 @@ namespace CahnHilliard
     return is_abels_model(param);
   }
 
+  /**
+   * Set to true to make the Stepien momentum equation carry the Abels
+   * capillary force phi grad(mu) instead of its own (dpr - mu) grad(phi).
+   * Used to reduce the Stepien model to Abels one term at a time: the two
+   * forms differ by the pure gradient grad(phi mu) once dpr = 0, so they are
+   * equivalent up to the pressure shift p -> p - phi mu.
+   *
+   * Note that the dpr grad(phi) contribution is dropped along with the
+   * Stepien form, so this is only meaningful when p_ref,0 = p_ref,1.
+   */
+  inline constexpr bool use_abels_capillary_for_stepien = false;
+
   template <int dim>
   inline bool
   use_abels_capillary_phi_grad_mu(
     const Parameters::CahnHilliard<dim> &param)
   {
-    return is_abels_model(param);
+    return is_abels_model(param) ||
+           (use_abels_capillary_for_stepien && is_stepien_model(param));
   }
 
   template <int dim>
@@ -61,6 +74,20 @@ namespace CahnHilliard
   {
     return is_stepien_model(param);
   }
+
+  /**
+   * Ratio lambda / eta of the second viscosity to the dynamic viscosity in the
+   * Stepien viscous stress
+   *
+   *   tau = eta(phi) (grad v + grad v^T) + lambda(phi) (div v) I.
+   *
+   * Unlike the Abels model, the Stepien velocity field is not solenoidal, so
+   * the second term does contribute to the momentum equation. Stokes'
+   * hypothesis (vanishing bulk viscosity kappa = lambda + 2/3 eta) gives
+   * lambda = -2/3 eta; lambda therefore inherits the linear tracer dependence
+   * of the dynamic viscosity, and dlambda/dphi = -2/3 deta/dphi.
+   */
+  inline constexpr double stokes_second_viscosity_ratio = -2. / 3.;
 
   template <int dim>
   inline const char *

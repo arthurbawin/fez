@@ -91,21 +91,19 @@ namespace Assembly
          * identical for both models), but differ in the momentum, continuity
          * and phase equations:
          *
-         *  - momentum: Stepien uses the conservative form, which adds
-         *    S_c * u with S_c = drho/dphi Dphi/Dt + rho div(u), replaces the
-         *    Abels capillary force phi grad(mu) by (dpr - mu) grad(phi), adds
-         *    the bulk-viscosity stress lambda (div u) I, and carries no
-         *    diffusive inertia;
+         *  - momentum: Stepien replaces the Abels capillary force
+         *    phi grad(mu) by (dpr - mu) grad(phi), adds the second-viscosity
+         *    stress lambda (div u) I, and carries no diffusive inertia;
          *  - continuity: div(u) is no longer zero but equals
          *    -(drho/dphi / rho) Dphi/Dt;
-         *  - phase: A Dphi/Dt - B div(M grad(q)) with q depending on p.
+         *  - phase: A Dphi/Dt - div(M grad(q)) with q depending on p.
          */
         Tensor<1, dim> momentum_capillary_force;
         Tensor<1, dim> stepien_grad_q;
-        double         stepien_A = 0., stepien_B = 0., bulk_viscosity = 0.;
-        double         dbulk_viscosity_dphi = 0.;
+        double         stepien_A = 0.;
+        double         lambda_visc = 0., dlambda_visc_dphi = 0.;
         double         stepien_continuity_term = 0.;
-        double         stepien_B_over_A = 0., stepien_lap_q = 0.;
+        double         stepien_inv_A = 0., stepien_lap_q = 0.;
 
         if constexpr (BaseType::with_stepien)
         {
@@ -113,18 +111,13 @@ namespace Assembly
           const double dpr      = sd.stepien_dpr;
           const double Dphi     = dphidt + u_conv * grad_phi;
 
-          stepien_A = 2. * sd.stepien_rho_product / (sd.stepien_rho_sum * rho);
-          stepien_B = 2. / sd.stepien_rho_sum;
+          // Phase equation rho0 rho1 / rho Dphi/Dt - div(M grad(q)) = 0.
+          stepien_A = sd.stepien_rho_product / rho;
 
-          // Bulk-viscosity stress lambda (div u) I temporarily disabled to
-          // compare the Stepien model against Abels. Restore the Stokes
-          // hypothesis below to reactivate it.
-          // bulk_viscosity       = -2. / 3. * eta;
-          // dbulk_viscosity_dphi =
-          //   -2. / 3. * sd.derivative_dynamic_viscosity_wrt_tracer[q];
-
-          // Mass residual S_c of the conservative momentum form.
-          const double stepien_Sc = drhodphi * Dphi + rho * div_u;
+          // Second viscosity of the Stokes hypothesis, lambda = -2/3 eta.
+          lambda_visc = CahnHilliard::stokes_second_viscosity_ratio * eta;
+          dlambda_visc_dphi = CahnHilliard::stokes_second_viscosity_ratio *
+                              sd.derivative_dynamic_viscosity_wrt_tracer[q];
 
           stepien_grad_q = (rho * grad_mu - drhodphi * grad_p +
                             drhodphi * (mu - dpr) * grad_phi) /
@@ -132,10 +125,10 @@ namespace Assembly
 
           stepien_continuity_term = (drhodphi / rho) * Dphi;
 
-          momentum_capillary_force = (dpr - mu) * grad_phi + stepien_Sc * u;
+          momentum_capillary_force = (dpr - mu) * grad_phi;
 
-          // B / A simplifies to rho / (rho0 rho1).
-          stepien_B_over_A = rho / sd.stepien_rho_product;
+          // 1 / A simplifies to rho / (rho0 rho1).
+          stepien_inv_A = rho / sd.stepien_rho_product;
 
           if constexpr (BaseType::with_tracer_stabilization)
             /**
@@ -192,12 +185,11 @@ namespace Assembly
             momentum_capillary_force;
 
           if constexpr (BaseType::with_stepien)
-            // Divergence of the bulk-viscosity stress lambda (div u) I:
+            // Divergence of the second-viscosity stress lambda (div u) I:
             //   div(lambda (div u) I) = lambda grad(div u)
             //                           + dlambda/dphi (div u) grad(phi).
             strong_residual_momentum -=
-              bulk_viscosity * grad_div_u +
-              dbulk_viscosity_dphi * div_u * grad_phi;
+              lambda_visc * grad_div_u + dlambda_visc_dphi * div_u * grad_phi;
         }
 
         if constexpr (BaseType::with_tracer_stabilization)
@@ -206,7 +198,7 @@ namespace Assembly
 
           /**
            * Strong residual of the tracer equation. The Stepien phase equation
-           * is A Dphi/Dt - B div(M grad q) + source = 0; it is normalized by A
+           * is A Dphi/Dt - div(M grad q) + source = 0; it is normalized by A
            * so that its leading term is Dphi/Dt, consistently with the way
            * tau_supg_tracer is built. Note that the source term is not scaled
            * by A in the weak form, hence the division here.
@@ -214,8 +206,7 @@ namespace Assembly
           if constexpr (BaseType::with_stepien)
             strong_residual_tracer =
               dphidt + u_conv * grad_phi -
-              stepien_B_over_A * mobility * stepien_lap_q +
-              source_phi / stepien_A;
+              stepien_inv_A * mobility * stepien_lap_q + source_phi / stepien_A;
           else
             strong_residual_tracer = dphidt + u_conv * grad_phi -
                                      mobility * sd.potential_laplacians[q] +
@@ -240,9 +231,9 @@ namespace Assembly
               2. * eta * scalar_product(sym_grad_phi_u[i], sym_grad_u);
 
             if constexpr (BaseType::with_stepien)
-              // Bulk-viscosity stress lambda (div u) I, whose contribution is
+              // Second-viscosity stress lambda (div u) I, whose contribution is
               // non-zero because the Stepien velocity field is not solenoidal.
-              local_rhs_i -= bulk_viscosity * div_u * div_phi_u[i];
+              local_rhs_i -= lambda_visc * div_u * div_phi_u[i];
 
             if constexpr (BaseType::with_stabilization)
               // SUPG stabilization
@@ -270,8 +261,7 @@ namespace Assembly
 
             if constexpr (BaseType::with_stepien)
               // The Stepien phase equation diffuses q, not mu.
-              local_rhs_i -=
-                stepien_B * mobility * (grad_phi_phi[i] * stepien_grad_q);
+              local_rhs_i -= mobility * (grad_phi_phi[i] * stepien_grad_q);
             else
               local_rhs_i -= mobility * (grad_phi_phi[i] * grad_mu);
 
@@ -445,38 +435,33 @@ namespace Assembly
 
         /**
          * Stepien per-quadrature coefficients, mirroring those of the rhs
-         * assembler. stepien_Sc is the mass residual carried by the
-         * conservative momentum form, and stepien_grad_q is the gradient of
-         * the quantity diffused by the phase equation.
+         * assembler. lambda_visc is the second viscosity of the Stokes
+         * hypothesis, and stepien_grad_q is the gradient of the quantity
+         * diffused by the phase equation.
          */
         Tensor<1, dim> stepien_grad_q;
-        double         stepien_A = 0., stepien_B = 0., stepien_Dphi = 0.;
-        double         stepien_Sc = 0., stepien_inv_rho = 0.;
-        double         bulk_viscosity = 0., dbulk_viscosity_dphi = 0.;
-        double         stepien_B_over_A = 0., stepien_lap_q = 0.;
+        double         stepien_A = 0., stepien_Dphi = 0.;
+        double         stepien_inv_rho = 0.;
+        double         lambda_visc = 0., dlambda_visc_dphi = 0.;
+        double         stepien_inv_A = 0., stepien_lap_q = 0.;
         double         lap_mu = 0., lap_phi = 0.;
 
         if constexpr (BaseType::with_stepien)
         {
           stepien_Dphi    = dphidt + u_conv * grad_phi;
           stepien_inv_rho = 1. / rho;
-          stepien_A = 2. * sd.stepien_rho_product / (sd.stepien_rho_sum * rho);
-          stepien_B = 2. / sd.stepien_rho_sum;
+          stepien_A       = sd.stepien_rho_product / rho;
 
-          // Bulk-viscosity stress lambda (div u) I temporarily disabled to
-          // compare the Stepien model against Abels. Restore the Stokes
-          // hypothesis below to reactivate it.
-          // bulk_viscosity       = -2. / 3. * eta;
-          // dbulk_viscosity_dphi = -2. / 3. * detadphi;
-
-          stepien_Sc = drhodphi * stepien_Dphi + rho * div_u;
+          lambda_visc = CahnHilliard::stokes_second_viscosity_ratio * eta;
+          dlambda_visc_dphi =
+            CahnHilliard::stokes_second_viscosity_ratio * detadphi;
 
           stepien_grad_q = (rho * grad_mu - drhodphi * grad_p +
                             drhodphi * (mu - sd.stepien_dpr) * grad_phi) /
                            sd.stepien_rho_product;
 
-          // B / A simplifies to rho / (rho0 rho1).
-          stepien_B_over_A = rho / sd.stepien_rho_product;
+          // 1 / A simplifies to rho / (rho0 rho1).
+          stepien_inv_A = rho / sd.stepien_rho_product;
 
           if constexpr (BaseType::with_tracer_stabilization)
           {
@@ -510,10 +495,9 @@ namespace Assembly
 
           if constexpr (BaseType::with_stepien)
           {
-            strong_residual_momentum +=
-              (sd.stepien_dpr - mu) * grad_phi + stepien_Sc * u -
-              bulk_viscosity * grad_div_u -
-              dbulk_viscosity_dphi * div_u * grad_phi;
+            strong_residual_momentum += (sd.stepien_dpr - mu) * grad_phi -
+                                        lambda_visc * grad_div_u -
+                                        dlambda_visc_dphi * div_u * grad_phi;
 
             /**
              * Tracer coefficient of the residual variation. Only the terms
@@ -521,12 +505,10 @@ namespace Assembly
              * grad(dphi) are added per shape function below.
              *
              * The dynamic viscosity is linear in the tracer, so the second
-             * derivative of the bulk viscosity vanishes.
+             * derivative of the second viscosity vanishes.
              */
             strong_residual_momentum_variation_phi_phi -=
-              dbulk_viscosity_dphi * grad_div_u;
-            strong_residual_momentum_variation_phi_phi +=
-              drhodphi * (bdf_c0 + div_u) * u;
+              dlambda_visc_dphi * grad_div_u;
           }
           else
             strong_residual_momentum += diffusive_flux + phi * grad_mu;
@@ -541,8 +523,7 @@ namespace Assembly
           if constexpr (BaseType::with_stepien)
             strong_residual_tracer =
               dphidt + u_conv * grad_phi -
-              stepien_B_over_A * mobility * stepien_lap_q +
-              source_phi / stepien_A;
+              stepien_inv_A * mobility * stepien_lap_q + source_phi / stepien_A;
           else
             strong_residual_tracer = dphidt + u_conv * grad_phi -
                                      mobility * sd.potential_laplacians[q] +
@@ -609,23 +590,16 @@ namespace Assembly
 
             if constexpr (BaseType::with_stepien)
             {
-              // Conservative correction S_c * u, w.r.t. the velocity in both
-              // the S_c factor and the trailing u.
-              strong_residual_momentum_variation[j] +=
-                (drhodphi * phi_u_j_x_grad_phi[j] + rho * div_phi_u[j]) * u +
-                stepien_Sc * phi_u_j;
-
-              // Bulk-viscosity divergence, w.r.t. the velocity.
+              // Second-viscosity divergence, w.r.t. the velocity.
               strong_residual_momentum_variation[j] -=
-                bulk_viscosity * grad_div_phi_u[j] +
-                dbulk_viscosity_dphi * div_phi_u[j] * grad_phi;
+                lambda_visc * grad_div_phi_u[j] +
+                dlambda_visc_dphi * div_phi_u[j] * grad_phi;
 
-              // Terms proportional to grad(dphi): capillary force, advective
-              // part of S_c, and bulk-viscosity divergence.
+              // Terms proportional to grad(dphi): capillary force and
+              // second-viscosity divergence.
               strong_residual_momentum_variation[j] +=
-                (sd.stepien_dpr - mu) * grad_phi_phi[j] +
-                drhodphi * (u_conv * grad_phi_phi[j]) * u -
-                dbulk_viscosity_dphi * div_u * grad_phi_phi[j];
+                (sd.stepien_dpr - mu) * grad_phi_phi[j] -
+                dlambda_visc_dphi * div_u * grad_phi_phi[j];
             }
           }
 
@@ -654,18 +628,13 @@ namespace Assembly
                  drhodphi * sd.laplacian_phi_p[q][j]) /
                 sd.stepien_rho_product;
 
-              // d(B/A)/dphi = (drho/dphi) / (rho0 rho1)
-              const double dB_over_A =
+              // 1 / A = rho / (rho0 rho1), so d(1/A)/dphi is (drho/dphi) /
+              // (rho0 rho1).
+              const double dinv_A =
                 drhodphi * phi_phi[j] / sd.stepien_rho_product;
 
-              // d(1/A)/dphi = (rho0 + rho1) (drho/dphi) / (2 rho0 rho1)
-              const double dinv_A = sd.stepien_rho_sum * drhodphi *
-                                    phi_phi[j] /
-                                    (2. * sd.stepien_rho_product);
-
               strong_residual_tracer_variation[j] -=
-                mobility *
-                (stepien_B_over_A * dlap_q + dB_over_A * stepien_lap_q);
+                mobility * (stepien_inv_A * dlap_q + dinv_A * stepien_lap_q);
               strong_residual_tracer_variation[j] += source_phi * dinv_A;
             }
             else
@@ -819,17 +788,8 @@ namespace Assembly
                   local_matrix_ij += eta * gui * guj;
 
                 if constexpr (BaseType::with_stepien)
-                {
-                  // Conservative correction (w.u) S_c, differentiated w.r.t.
-                  // the velocity in both factors.
-                  local_matrix_ij += (phi_u_i * phi_u[j]) * stepien_Sc;
-                  local_matrix_ij +=
-                    (phi_u_i * u) * (drhodphi * phi_u_j_x_grad_phi[j] +
-                                     rho * div_phi_u[j]);
-                  // Bulk-viscosity stress
-                  local_matrix_ij +=
-                    bulk_viscosity * div_phi_u[j] * div_phi_u_i;
-                }
+                  // Second-viscosity stress lambda (div du)(div w)
+                  local_matrix_ij += lambda_visc * div_phi_u[j] * div_phi_u_i;
               }
               else if (j_is_phi)
               {
@@ -843,14 +803,9 @@ namespace Assembly
                   // Capillary force (dpr - mu) grad(phi)
                   local_matrix_ij += (sd.stepien_dpr - mu) *
                                      (phi_u_i * grad_phi_phi[j]);
-                  // Bulk viscosity through eta(phi)
-                  local_matrix_ij += dbulk_viscosity_dphi * phi_phi_j * div_u *
-                                     div_phi_u_i;
-                  // Conservative correction (w.u) S_c w.r.t. the tracer
+                  // Second viscosity through eta(phi)
                   local_matrix_ij +=
-                    (phi_u_i * u) * drhodphi *
-                    (bdf_c0 * phi_phi_j + u_conv * grad_phi_phi[j] +
-                     phi_phi_j * div_u);
+                    dlambda_visc_dphi * phi_phi_j * div_u * div_phi_u_i;
                 }
               }
               else if (j_is_mu)
@@ -982,27 +937,25 @@ namespace Assembly
 
                 if constexpr (BaseType::with_stepien)
                 {
-                  // Tracer part of B M delta(grad q)
+                  // Tracer part of M delta(grad q)
                   const Tensor<1, dim> delta_grad_q_phi_j =
                     (drhodphi * phi_phi[j] * grad_mu +
                      drhodphi * (mu - sd.stepien_dpr) * grad_phi_phi[j]) /
                     sd.stepien_rho_product;
-                  matrix_row[j] += stepien_B * mobility *
-                                   (grad_phi_phi_i * delta_grad_q_phi_j) *
-                                   JxW_moving;
+                  matrix_row[j] +=
+                    mobility * (grad_phi_phi_i * delta_grad_q_phi_j) * JxW_moving;
                 }
               }
               else if (j_is_mu)
               {
                 if constexpr (BaseType::with_stepien)
                 {
-                  // Potential part of B M delta(grad q)
+                  // Potential part of M delta(grad q)
                   const Tensor<1, dim> delta_grad_q_mu_j =
                     (rho * grad_phi_mu_j + drhodphi * phi_mu[j] * grad_phi) /
                     sd.stepien_rho_product;
-                  matrix_row[j] += stepien_B * mobility *
-                                   (grad_phi_phi_i * delta_grad_q_mu_j) *
-                                   JxW_moving;
+                  matrix_row[j] +=
+                    mobility * (grad_phi_phi_i * delta_grad_q_mu_j) * JxW_moving;
                 }
                 else
                   matrix_row[j] +=
@@ -1013,16 +966,15 @@ namespace Assembly
                 if (this->ordering.is_pressure(comp_j))
                 {
                   /**
-                   * Pressure part of B M delta(grad q). This tracer-pressure
+                   * Pressure part of M delta(grad q). This tracer-pressure
                    * block has no counterpart in the Abels model: it exists
                    * only because the Stepien phase equation diffuses a
                    * quantity q that depends on the pressure.
                    */
                   const Tensor<1, dim> delta_grad_q_p_j =
                     -drhodphi * grad_phi_p[j] / sd.stepien_rho_product;
-                  matrix_row[j] += stepien_B * mobility *
-                                   (grad_phi_phi_i * delta_grad_q_p_j) *
-                                   JxW_moving;
+                  matrix_row[j] +=
+                    mobility * (grad_phi_phi_i * delta_grad_q_p_j) * JxW_moving;
                 }
 
               if constexpr (BaseType::with_tracer_stabilization)

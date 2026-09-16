@@ -1735,7 +1735,6 @@ namespace NavierStokesScratch
      * diffused quantity q of the phase equation.
      */
     double stepien_dpr;
-    double stepien_rho_sum;     // rho0 + rho1
     double stepien_rho_product; // rho0 * rho1
 
     CahnHilliard::TracerLimiterFunction         tracer_limiter;

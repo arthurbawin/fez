@@ -213,7 +213,6 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   const double filtered_phi = phi;
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
-  const double rho_sum = rho0 + rho1;
   const double rho_product = rho0 * rho1;
   const double drho        = 0.5 * (rho0 - rho1);
   const double rho  = CahnHilliard::linear_mixing(filtered_phi, rho0, rho1);
@@ -294,16 +293,17 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   Tensor<1, dim> J_flux      = diff_flux_factor * grad_mu;
   Tensor<1, dim> div_viscous = (eta * (lap_u + grad_div_u) +
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
-  // Bulk viscosity contribution div(lambda (div u) I) temporarily disabled to
-  // compare the Stepien model against Abels, as in the volume assemblers.
-  // Restore the Stokes hypothesis below to reactivate it.
-  // if (is_stepien)
-  // {
-  //   const double lambda_visc  = -2. / 3. * eta;
-  //   const double dlambda_dphi = -2. / 3. * detadphi;
-  //   div_viscous +=
-  //     lambda_visc * grad_div_u + dlambda_dphi * div_u * grad_phi;
-  // }
+  // Divergence of the second-viscosity stress lambda (div v) I, which the
+  // Stepien momentum equation carries because div(v) != 0.
+  if (is_stepien)
+  {
+    const double lambda_visc =
+      CahnHilliard::stokes_second_viscosity_ratio * eta;
+    const double dlambda_visc_dphi =
+      CahnHilliard::stokes_second_viscosity_ratio * detadphi;
+    div_viscous +=
+      lambda_visc * grad_div_u + dlambda_visc_dphi * div_u * grad_phi;
+  }
   const Tensor<1, dim> momentum_diffusive_inertia =
     CahnHilliard::use_abels_diffusive_inertia(cahn_hilliard_param) ?
       J_flux * grad_u :
@@ -318,13 +318,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
       -CahnHilliard::ding_horriche_capillary_coefficient(
         cahn_hilliard_param) *
       mu * grad_phi;
-  // Conservative-form correction (w.v)(drho Dphi/Dt + rho div v).
-  const Tensor<1, dim> momentum_conservative_correction =
-    is_stepien ? (drho * Dphi + rho * div_u) * u : Tensor<1, dim>();
-
   // Navier-Stokes momentum (velocity) source term
   Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu - body_force) +
-                       momentum_conservative_correction +
                        momentum_diffusive_inertia + grad_p - div_viscous +
                        momentum_capillary_force);
   for (unsigned int d = 0; d < dim; ++d)
@@ -350,13 +345,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   }
 
   // Tracer source term. The Stepien phase equation is
-  //   A Dphi/Dt - B div(M grad q) + f = 0, with
-  //   A = 2 rho1 rho2 / ((rho1 + rho2) rho) and B = 2 / (rho1 + rho2).
+  //   A Dphi/Dt - div(M grad q) + f = 0, with A = rho1 rho2 / rho.
   if (is_stepien)
   {
-    const double stepien_A = 2. * rho_product / (rho_sum * rho);
-    const double stepien_B = 2. / rho_sum;
-    values[phi_lower] = -(stepien_A * Dphi - stepien_B * div_mobility_grad_q);
+    const double stepien_A = rho_product / rho;
+    values[phi_lower]      = -(stepien_A * Dphi - div_mobility_grad_q);
   }
   else
     values[phi_lower] =
@@ -893,27 +886,22 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
         q, tracer_value, scratch_data.previous_tracer_values);
 
     // Stepien: per-quadrature coefficients (mirror the residual).
-    double stepien_A = 0., stepien_B = 0., lambda = 0., dlambda_dphi = 0.,
-           stepien_Sc = 0.;
+    double         stepien_A = 0.;
+    double         lambda_visc = 0., dlambda_visc_dphi = 0.;
     Tensor<1, dim> stepien_grad_q;
     if (is_stepien)
     {
-      stepien_A = 2. * rho0 * rho1 / ((rho0 + rho1) * rho);
-      stepien_B = 2. / (rho0 + rho1);
+      stepien_A = rho0 * rho1 / rho;
       stepien_grad_q =
         (rho * potential_gradient -
          drhodphi * scratch_data.present_pressure_gradients[q] +
          drhodphi * (potential_value - dpr) * tracer_gradient) /
         (rho0 * rho1);
-      // Bulk-viscosity stress lambda (div u) I temporarily disabled to compare
-      // the Stepien model against Abels, as in the volume assemblers. Restore
-      // the Stokes hypothesis below to reactivate it.
-      // lambda       = -2. / 3. * eta;
-      // dlambda_dphi = -2. / 3. * detadphi;
-      // Mass-residual scalar S_c = drho Dphi/Dt + rho div v of the
-      // conservative-momentum correction (w.v) S_c.
-      stepien_Sc = drhodphi * (dphidt + u_conv * tracer_gradient) +
-                   rho * present_velocity_divergence;
+      // Second viscosity of the Stokes hypothesis, lambda = -2/3 eta. It
+      // contributes because the Stepien velocity field is not solenoidal.
+      lambda_visc = CahnHilliard::stokes_second_viscosity_ratio * eta;
+      dlambda_visc_dphi =
+        CahnHilliard::stokes_second_viscosity_ratio * detadphi;
     }
 
     // Precomputations of shape functions-independent terms
@@ -990,17 +978,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
               2. * eta * scalar_product(sym_grad_phi_u_i, sym_grad_phi_u_j);
 
             if (is_stepien)
-            {
-              // Conservative-correction derivatives w.r.t. v:
-              //  (A) (w.dv) S_c   (B) (w.v)[drho(dv.grad phi) + rho div dv]
-              const double w_i_dot_v = phi_u_i * present_velocity_values;
-              local_flow_ij += (phi_u_i * phi_u_j) * stepien_Sc;
-              local_flow_ij +=
-                w_i_dot_v * (drhodphi * (phi_u_j * tracer_gradient) +
-                             rho * div_phi_u_j);
-              // Bulk viscosity lambda (div dv)(div w)
-              local_flow_ij += lambda * div_phi_u_j * div_phi_u_i;
-            }
+              // Second-viscosity stress lambda (div dv)(div w)
+              local_flow_ij += lambda_visc * div_phi_u_j * div_phi_u_i;
           }
           if (comp_j == const_ordering.p_lower)
           {
@@ -1086,16 +1065,10 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
               // +dpr grad(phi): d/dphi -> (dpr - muhat) w.grad(dphi).
               local_flow_ij += (dpr - stepien_cap * potential_value) *
                                (phi_u_i * grad_phi_phi_j);
-              // Bulk viscosity dlambda/dphi (div v)(div w).
-              local_flow_ij += dlambda_dphi * phi_phi_j *
+              // Second viscosity through eta(phi):
+              //   dlambda/dphi dphi (div v)(div w).
+              local_flow_ij += dlambda_visc_dphi * phi_phi_j *
                                present_velocity_divergence * div_phi_u_i;
-              // Conservative-correction derivatives w.r.t. phi:
-              //   (w.v) drho [c0 dphi + v.grad(dphi) + dphi div v].
-              const double w_i_dot_v = phi_u_i * present_velocity_values;
-              local_flow_ij +=
-                w_i_dot_v * drhodphi *
-                (bdf_c0 * phi_phi_j + u_conv * grad_phi_phi_j +
-                 phi_phi_j * present_velocity_divergence);
             }
             else
               local_flow_ij +=
@@ -1228,16 +1201,15 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
               // term 2: A*(c0 dphi + v.grad dphi)
               local_flow_ij += phi_phi_i * stepien_A *
                                (bdf_c0 * phi_phi_j + u_conv * grad_phi_phi_j);
-              // term 3: dM/dphi in the flux B * M * grad q
-              local_flow_ij += grad_phi_phi_i * dM_dphi * phi_phi_j *
-                               (stepien_B * stepien_grad_q);
-              // term 4: phi-part of B * M * delta(grad q)
+              // term 3: dM/dphi in the flux M * grad q
+              local_flow_ij +=
+                grad_phi_phi_i * dM_dphi * phi_phi_j * stepien_grad_q;
+              // term 4: phi-part of M * delta(grad q)
               const Tensor<1, dim> delta_grad_q_phi_j =
                 (drhodphi * phi_phi_j * potential_gradient +
                  drhodphi * (potential_value - dpr) * grad_phi_phi_j) /
                 (rho0 * rho1);
-              local_flow_ij +=
-                grad_phi_phi_i * stepien_B * mobility * delta_grad_q_phi_j;
+              local_flow_ij += grad_phi_phi_i * mobility * delta_grad_q_phi_j;
             }
             else
             {
@@ -1253,13 +1225,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
           {
             if (is_stepien)
             {
-              // term 4: mu-part of B * M * delta(grad q)
+              // term 4: mu-part of M * delta(grad q)
               const Tensor<1, dim> delta_grad_q_mu_j =
                 (rho * grad_phi_mu_j +
                  drhodphi * phi_mu_j * tracer_gradient) /
                 (rho0 * rho1);
-              local_flow_ij +=
-                grad_phi_phi_i * stepien_B * mobility * delta_grad_q_mu_j;
+              local_flow_ij += grad_phi_phi_i * mobility * delta_grad_q_mu_j;
             }
             else
               // Diffusion
@@ -1267,13 +1238,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
           }
           if (is_stepien && comp_j == const_ordering.p_lower)
           {
-            // term 4: pressure-part of B * M * delta(grad q). This is the new
+            // term 4: pressure-part of M * delta(grad q). This is the new
             // phi-p coupling block enabled in the sparsity pattern.
             const Tensor<1, dim> &grad_phi_p_j = scratch_data.grad_phi_p[q][j];
             const Tensor<1, dim>  delta_grad_q_p_j =
               -drhodphi * grad_phi_p_j / (rho0 * rho1);
-            local_flow_ij +=
-              grad_phi_phi_i * stepien_B * mobility * delta_grad_q_p_j;
+            local_flow_ij += grad_phi_phi_i * mobility * delta_grad_q_p_j;
           }
         }
 
@@ -1536,17 +1506,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, tracer_value, scratch_data.previous_tracer_values);
 
-    const Tensor<1, dim> stepien_conservative_correction =
-      is_stepien ?
-        (drhodphi * (dphidt + velocity_dot_tracer_gradient) +
-         rho * present_velocity_divergence) *
-          present_velocity_values :
-        Tensor<1, dim>();
-
     // Precomputations of shape functions-independent terms
     const auto to_multiply_by_phi_u_i =
-      rho * (dudt + u_dot_grad_u - body_force) +
-      stepien_conservative_correction + momentum_diffusive_inertia +
+      rho * (dudt + u_dot_grad_u - body_force) + momentum_diffusive_inertia +
       momentum_capillary_force + source_term_velocity;
     const auto to_multiply_by_phi_phi_i =
       dphidt + velocity_dot_tracer_gradient + source_term_tracer;
@@ -1556,19 +1518,16 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
       source_term_potential;
 
     // Stepien quasi-incompressible model: per-quadrature coefficients.
-    // Phase eq.:  A * Dphi/Dt - B * div(M grad q) = 0, with
-    //   A = 2 rho1 rho2 / ((rho1 + rho2) rho),  B = 2 / (rho1 + rho2),
+    // Phase eq.:  A * Dphi/Dt - div(M grad q) = 0, with
+    //   A = rho1 rho2 / rho,
     //   q = ( rho * mu - (rho1 - rho2)/2 * (p* + p_r) ) / (rho1 rho2).
-    double         stepien_A = 0., stepien_B = 0., lambda = 0.;
+    // Momentum: second viscosity lambda = -2/3 eta of the Stokes hypothesis.
+    double         stepien_A = 0., lambda_visc = 0.;
     Tensor<1, dim> stepien_grad_q;
     if (is_stepien)
     {
-      stepien_A = 2. * rho0 * rho1 / ((rho0 + rho1) * rho);
-      stepien_B = 2. / (rho0 + rho1);
-      // Bulk-viscosity stress lambda (div u) I temporarily disabled to compare
-      // the Stepien model against Abels, as in the volume assemblers. Restore
-      // the Stokes hypothesis below to reactivate it.
-      // lambda = -2. / 3. * eta;
+      stepien_A   = rho0 * rho1 / rho;
+      lambda_visc = CahnHilliard::stokes_second_viscosity_ratio * eta;
       stepien_grad_q =
         (rho * potential_gradient -
          drhodphi * scratch_data.present_pressure_gradients[q] +
@@ -1602,9 +1561,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
         2. * eta *
           scalar_product(sym_grad_phi_u_i, present_velocity_sym_gradients);
       if (is_stepien)
-        // Bulk-viscosity stress lambda*(div v)*I (div v != 0 for Stepien).
-        local_rhs_flow_i +=
-          lambda * present_velocity_divergence * div_phi_u_i;
+        // Second-viscosity stress lambda (div v) I (div v != 0 for Stepien).
+        local_rhs_flow_i += lambda_visc * present_velocity_divergence *
+                            div_phi_u_i;
 
       // Continuity equation
       local_rhs_flow_i +=
@@ -1620,7 +1579,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
         local_rhs_flow_i +=
           phi_phi_i * (stepien_A * (dphidt + velocity_dot_tracer_gradient) +
                        source_term_tracer) +
-          grad_phi_phi_i * stepien_B * mobility * stepien_grad_q;
+          grad_phi_phi_i * mobility * stepien_grad_q;
       else
         local_rhs_flow_i += phi_phi_i * to_multiply_by_phi_phi_i +
                             grad_phi_phi_i * mobility * potential_gradient;

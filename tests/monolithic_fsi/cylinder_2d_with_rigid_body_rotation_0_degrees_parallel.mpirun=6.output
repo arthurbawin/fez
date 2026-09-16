@@ -32,11 +32,6 @@ y = +8.0000000000e+00
 Rigid-body rotation angle: -4.44089e-16 (-2.54444e-14 degrees)
 
 Time step 1 - Advancing to t = 0.01.
-Newton iter.  0:          nonlinear residual = 7.28360041e-01
-Newton iter.  1:          nonlinear residual = 5.95784779e-01	(M)
-Newton iter.  2:          nonlinear residual = 5.20208526e-05	(M)
-Newton iter.  3:          nonlinear residual = 3.16869190e-12	(M)
-Stopping because residual is below prescribed tolerance (1.00e-08)
 
 Forces on boundary with id 4 computed with method : lagrange_multiplier
 Fx = +1.4822810039e+02
@@ -48,12 +43,7 @@ y = +8.0004483533e+00
 
 Rigid-body rotation angle: 1.12e-04 (6.42e-03 degrees)
 
-Time step 2 - Advancing to t = 1.00e-01.
-Newton iter.  0:          nonlinear residual = 1.14930368e+02
-Newton iter.  1:          nonlinear residual = 4.69683335e-01	(M)
-Newton iter.  2:          nonlinear residual = 4.32301994e-05	(M)
-Newton iter.  3:          nonlinear residual = 7.63109598e-11	(M)
-Stopping because residual is below prescribed tolerance (1.00e-08)
+Time step 2 - Advancing to t = 0.1.
 
 Forces on boundary with id 4 computed with method : lagrange_multiplier
 Fx = -1.3225984416e+02

@@ -829,18 +829,9 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
   {
     // Set the velocity dofs from among the unused lambda dofs:
     // This rank should store solid's velocity dofs if it has at least
-    // one owned face on the cylinder
-    for (const auto &cell : this->dof_handler->active_cell_iterators())
-      if (cell->is_locally_owned())
-        if (cell->at_boundary())
-          for (const auto &face : cell->face_iterators())
-            if (face->at_boundary() &&
-                face->boundary_id() == weak_no_slip_boundary_id)
-            {
-              has_cylinder_velocity_dofs = true;
-              goto reduce_velocity_dofs;
-            }
-  reduce_velocity_dofs:
+    // one owned position dof on the cylinder
+    has_cylinder_velocity_dofs = has_owned_position_dofs_on_boundary;
+
     n_ranks_with_cylinder_velocity_dofs =
       Utilities::MPI::sum(has_cylinder_velocity_dofs ? 1 : 0,
                           this->mpi_communicator);
@@ -867,19 +858,10 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
    */
   if (this->param.fsi.rotation.enable)
   {
-    // Rank should store rotation angle(s) if it has at least one owned face on
-    // the cylinder
-    for (const auto &cell : this->dof_handler->active_cell_iterators())
-      if (cell->is_locally_owned())
-        if (cell->at_boundary())
-          for (const auto &face : cell->face_iterators())
-            if (face->at_boundary() &&
-                face->boundary_id() == weak_no_slip_boundary_id)
-            {
-              has_rotation_angle = true;
-              goto reduce_rotation_dofs;
-            }
-  reduce_rotation_dofs:
+    // Rank should store rotation angle(s) if it has at least one owned position
+    // dof on the cylinder
+    has_rotation_angle = has_owned_position_dofs_on_boundary;
+
     const unsigned int n_ranks_with_rotation_angle =
       Utilities::MPI::sum(has_rotation_angle ? 1 : 0, this->mpi_communicator);
 
@@ -1067,7 +1049,7 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
     {
       // Each local position master couples to each local accumulator,
       // and thus needs these accumulators as ghosts.
-      if (has_local_lambda_accumulator)
+      if (has_local_position_master)
       {
         // Each rank with local accumulator
         for (unsigned int d = 0; d < dim; ++d)
@@ -1930,7 +1912,7 @@ void FSISolver<dim>::create_sparsity_pattern()
   // time evolution and damping), from position (from springs) and from Lagrange
   // multipliers (from fluid forces). They *give* contributions to all position
   // dofs on the partition.
-  if (!this->param.fsi.zero_mass_model)
+  if (!this->param.fsi.zero_mass_model && has_cylinder_velocity_dofs)
   {
     // FIXME: Valid only for couplings involving local position master
     // and local lambda accumulators.
@@ -2243,7 +2225,7 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                         ExcInternalError());
 
             Tensor<2, dim> rotation_matrix_derivative;
-            const double   theta  = this->evaluation_point[t_dof];
+            const double   theta  = this->local_evaluation_point[t_dof];
             const double   theta0 = rigid_body_rotation.initial_rotation_angle;
             const double   ct     = std::cos(theta - theta0);
             const double   st     = std::sin(theta - theta0);
@@ -2275,8 +2257,10 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
               for (const auto &it : theta_rows.at(t_dof))
                 this->system_matrix.set(t_dof, it->column(), 0.0);
 
-              const double sin_theta = std::sin(this->evaluation_point[t_dof]);
-              const double cos_theta = std::cos(this->evaluation_point[t_dof]);
+              const double sin_theta =
+                std::sin(this->local_evaluation_point[t_dof]);
+              const double cos_theta =
+                std::cos(this->local_evaluation_point[t_dof]);
 
               if constexpr (dim == 2)
               {
@@ -2718,7 +2702,7 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_rhs()
             {
               if constexpr (dim == 2)
               {
-                const double theta         = this->evaluation_point[theta_dof];
+                const double theta = this->local_evaluation_point[theta_dof];
                 const double mult_theta[2] = {-std::sin(theta),
                                               std::cos(theta)};
                 const auto  &l_force       = lambda_integral_coeffs;
@@ -2863,8 +2847,9 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_rhs()
           //   val -= coeff * spring_constant / mass *
           //   this->evaluation_point[l_dof];
 
-          // With accumulators: must read from ghosted evaluation point, as all
-          // but one accumulators are ghosts
+          // With accumulators: must read from ghosted evaluation point, as most
+          // (or even all, on partitions with a position master but no force
+          // accumulator) accumulators are ghosts
           for (const auto &l_dof : all_lambda_accumulators[d])
             val -= spring_constant / mass * this->evaluation_point[l_dof];
 
@@ -3071,10 +3056,15 @@ void FSISolver<dim>::check_rigid_body_rotation_angles() const
     for (const auto &[has_angle, angle] : gathered_rotation_angles)
       if (has_angle)
       {
-        const double angle_in_degrees = angle / M_PI * 180.;
+        std::ios::fmtflags old_flags        = std::cout.flags();
+        unsigned int       old_precision    = std::cout.precision();
+        const double       angle_in_degrees = angle / M_PI * 180.;
+        this->pcout << std::scientific << std::setprecision(2) << std::showpos;
         this->pcout << std::endl;
         this->pcout << "Rigid-body rotation angle: " << angle << " ("
                     << angle_in_degrees << " degrees)" << std::endl;
+        std::cout.precision(old_precision);
+        std::cout.flags(old_flags);
         break;
       }
   }
@@ -3254,8 +3244,8 @@ void FSISolver<dim>::check_manufactured_solution_boundary()
   //
   // Check u_MMS
   //
-  Tensor<1, dim> u_MMS, w_MMS;
-  double         max_u_error = -1;
+  // Tensor<1, dim> u_MMS, w_MMS;
+  double max_u_error = -1;
   // for (auto cell : this->dof_handler->active_cell_iterators())
   // {
   //   if (!cell->is_locally_owned())

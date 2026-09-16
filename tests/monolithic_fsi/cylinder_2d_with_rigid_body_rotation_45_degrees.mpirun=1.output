@@ -29,7 +29,7 @@ Mean position (geometric center) on boundary with id 4:
 x = +6.8284271247e+00
 y = +1.0828427125e+01
 
-Rigid-body rotation angle: 0.785398 (45 degrees)
+Rigid-body rotation angle: +7.85e-01 (+4.50e+01 degrees)
 
 Time step 1 - Advancing to t = 0.1.
 Newton iter.  0:          nonlinear residual = 4.49625923e-01

@@ -52,6 +52,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <cstdlib>
+
 #define MG_EIGENV_EPS27 1.e-27
 #define MG_EIGENV_EPS13 1.e-13
 #define MG_EIGENV_EPS10 1.e-10

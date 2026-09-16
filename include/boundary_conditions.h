@@ -84,6 +84,11 @@ namespace BoundaryConditions
   class BoundaryCondition
   {
   public:
+    /**
+     * Virtual destructor.
+     */
+    virtual ~BoundaryCondition() = default;
+
     // Physics associated to this boundary condition (type and string)
     PhysicsType physics_type;
     std::string physics_str;

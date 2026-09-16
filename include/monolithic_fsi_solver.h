@@ -100,6 +100,11 @@ public:
   virtual void create_sparsity_pattern() override;
 
   /**
+   * If solid has nonzero mass, set its initial velocity.
+   */
+  virtual void set_solver_specific_initial_conditions() override;
+
+  /**
    *
    */
   void add_algebraic_position_coupling_to_matrix();
@@ -169,6 +174,12 @@ public:
   void compare_forces_and_position_on_obstacle() const;
 
   /**
+   * If rigid-body rotation is enabled, check that the rotation angles are
+   * identical across processes where it is defined.
+   */
+  void check_rigid_body_rotation_angles() const;
+
+  /**
    *
    */
   void check_velocity_boundary() const;
@@ -187,6 +198,17 @@ protected:
   virtual const FESystem<dim> &get_fe_system() const override { return *fe; }
 
   virtual bool uses_hp_capabilities() const override { return false; };
+
+private:
+  /**
+   * Find and return @p n_required_dofs owned and unused Lagrange multiplier dofs.
+   * These dofs can then be repurposed as force accumulators, or to store
+   * algebraic equations relative to the movement of the rigid body.
+   *
+   * This is a little hack to avoid dealing with multiple dof_handlers...
+   */
+  std::vector<types::global_dof_index>
+  find_unused_lagrange_multiplier_dofs(const unsigned int n_required_dofs);
 
 protected:
   std::unique_ptr<FESystem<dim>> fe;
@@ -209,11 +231,28 @@ protected:
   AffineConstraints<double> lambda_constraints;
 
   /**
-   * Data used to enforce the force-position coupling
+   * Data used to enforce the force-position coupling:
+   *
+   * Force coefficients, such that
+   *  F_d = (int_Gamma (-lambda) ds)_d = sum_j c_dj * lambda_j.
+   *
+   * Stored as [dim][{lambdaDOF_j : c_j}].
+   *
+   * FIXME: Rename as lambda_force_coeffs (or similar) everywhere.
    */
-  // The affine coefficients c_ij: [dim][{lambdaDOF_j : c_ij}]
   std::vector<std::vector<std::pair<unsigned int, double>>>
-                                                  lambda_integral_coeffs;
+    lambda_integral_coeffs;
+
+  /**
+   * Torque coefficients for the "intrinsic" torque w.r.t. to the body centroid,
+   * such that
+        int_Gamma (X - Xm) x (-lambda) ds = sum_d (sum_j c_dj * lambda_j).
+
+    Stored as [dim][{lambdaDOF_j : c_j}].
+   */
+  std::vector<std::vector<std::pair<unsigned int, double>>>
+    lambda_torque_coeffs;
+
   std::map<types::global_dof_index, unsigned int> coupled_position_dofs;
 
   bool         has_local_position_master       = false;
@@ -230,6 +269,60 @@ protected:
   std::array<types::global_dof_index, dim> global_lambda_accumulators;
 
   std::vector<std::vector<types::global_dof_index>> all_lambda_accumulators;
+
+  /**
+   * This flag specifies if this process stores dofs for the solid's velocity.
+   * If it's the case, "dim" unused Lagrange multiplier dofs are repurposed to
+   * represent the velocity of the solid, whose value should be identical on all
+   * partitions.
+   */
+  bool has_cylinder_velocity_dofs = false;
+
+  /**
+   * Number of ranks storing dofs for the solid's velocity (i.e., number of
+   * processes with has_cylinder_velocity_dofs = true)
+   */
+  unsigned int n_ranks_with_cylinder_velocity_dofs;
+
+  /**
+   * Degrees of freedom used to represent the solid's velocity.
+   * Since the solid is assumed to be infinitely rigid, its velocity needs only
+   * be stored at a single point. To limit communications, each process with a
+   * piece of the solid actually stores its own set of velocity dofs.
+   */
+  std::array<types::global_dof_index, dim> local_cylinder_velocity_dofs;
+
+  /**
+   * This flag specifies if this process stores dof(s) to represent a rigid-body
+   * rotation angle.
+   */
+  bool has_rotation_angle = false;
+
+  /**
+   * In 2D, the dof index associated with the unique rigid-body rotation angle.
+   */
+  double rotation_angle_dof; // 3 angles in 3D, as for a curltype
+
+  // A small struct to describe the fixed parameters affecting the rotation.
+  struct RigidBodyRotation
+  {
+    /**
+     * In 2D, the initial angle formed by the rod connecting the center of the
+     * solid to the center of rotation, w.r.t. the horizontal.
+     */
+    double initial_rotation_angle;
+
+    /**
+     * Length of the fictitious rod connecting the body's center of mass to the
+     * center of rotation.
+     */
+    double rod_length;
+
+    /**
+     * Center of mass of the solid body.
+     */
+    Point<dim> body_center;
+  } rigid_body_rotation;
 
 public:
   /**

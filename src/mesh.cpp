@@ -289,34 +289,88 @@ namespace MeshTools
 
     tria.refine_global(refinement);
 
-    // Colorize = true starts counting boundary ids at zero, but physical
-    // entities in Gmsh must have a strictly postiive tag. To be able to check
-    // the entities in Gmsh, increases the boundary ids by 1.
-    for (auto &cell : tria.active_cell_iterators())
-      if (cell->at_boundary())
-        for (auto &face : cell->face_iterators())
-          if (face->at_boundary())
-            face->set_boundary_id(face->boundary_id() + 1);
-
-    // Use the boundary pattern (+1) obtained with "colorize = true" for
+    // Use the boundary pattern obtained with "colorize = true" for
     // uniform_channel_with_cylinder (see also grid_generator.h).
-    mesh_param.id2name.insert({1, "inlet"});
-    mesh_param.id2name.insert({2, "outlet"});
-    mesh_param.id2name.insert({3, "cylinder"});
-    mesh_param.id2name.insert({4, "bottom"});
-    mesh_param.id2name.insert({5, "top"});
-    mesh_param.name2id.insert({"inlet", 1});
-    mesh_param.name2id.insert({"outlet", 2});
-    mesh_param.name2id.insert({"cylinder", 3});
-    mesh_param.name2id.insert({"bottom", 4});
-    mesh_param.name2id.insert({"top", 5});
+    mesh_param.id2name.insert({0, "inlet"});
+    mesh_param.id2name.insert({1, "outlet"});
+    mesh_param.id2name.insert({2, "cylinder"});
+    mesh_param.id2name.insert({3, "bottom"});
+    mesh_param.id2name.insert({4, "top"});
+    mesh_param.name2id.insert({"inlet", 0});
+    mesh_param.name2id.insert({"outlet", 1});
+    mesh_param.name2id.insert({"cylinder", 2});
+    mesh_param.name2id.insert({"bottom", 3});
+    mesh_param.name2id.insert({"top", 4});
     if constexpr (dim == 3)
     {
-      mesh_param.id2name.insert({6, "front"});
-      mesh_param.id2name.insert({7, "back"});
-      mesh_param.name2id.insert({"front", 6});
-      mesh_param.name2id.insert({"back", 7});
+      mesh_param.id2name.insert({5, "front"});
+      mesh_param.id2name.insert({6, "back"});
+      mesh_param.name2id.insert({"front", 5});
+      mesh_param.name2id.insert({"back", 6});
     }
+
+    if (convert_to_tets)
+    {
+      const unsigned int n_divisions = (dim == 2) ? 2u : 6u;
+      GridGenerator::convert_hypercube_to_simplex_mesh(tria, tria, n_divisions);
+    }
+  }
+
+  template <int dim>
+  void create_backward_facing_step(Triangulation<dim> &tria,
+                                   Parameters::Mesh   &mesh_param,
+                                   const std::string  &parameters,
+                                   const unsigned int  refinement,
+                                   const bool          convert_to_tets = false)
+  {
+    auto blocks = Utilities::split_string_list(parameters, ':');
+
+    AssertThrow(
+      blocks.size() > 1,
+      ExcMessage(
+        "The parsed arguments to create a mesh of a backward facing step do "
+        "not contain any \":\" separator. Please separate the arguments by "
+        "a colon. The parsed parameters are : " +
+        parameters));
+
+    GridGenerator::generate_from_name_and_arguments(tria,
+                                                    "subdivided_hyper_L",
+                                                    parameters);
+
+    // GridGenerator::subdivided_hyper_L does not color the boundary faces,
+    // so do it here (in 2D only for now).
+    if constexpr (dim == 3)
+      DEAL_II_NOT_IMPLEMENTED();
+
+    mesh_param.id2name.insert({0, "inlet"});
+    mesh_param.id2name.insert({1, "outlet"});
+    mesh_param.id2name.insert({2, "walls"});
+    mesh_param.name2id.insert({"inlet", 0});
+    mesh_param.name2id.insert({"outlet", 1});
+    mesh_param.name2id.insert({"walls", 2});
+
+    const auto   bottom_left_str = Utilities::split_string_list(blocks[1], ',');
+    const auto   top_right_str   = Utilities::split_string_list(blocks[2], ',');
+    const double x_bottom_left   = std::stod(bottom_left_str[0]);
+    const double x_top_right     = std::stod(top_right_str[0]);
+
+    const double tol = 1e-10;
+    for (const auto &cell : tria.active_cell_iterators())
+      for (const unsigned int f : cell->face_indices())
+        if (cell->face(f)->at_boundary())
+        {
+          // Discriminate based on the x-coordinate of the face's center
+          const double dx = cell->face(f)->center()[0];
+
+          if (std::abs(dx - x_bottom_left) < tol)
+            cell->face(f)->set_boundary_id(mesh_param.name2id.at("inlet"));
+          else if (std::abs(dx - x_top_right) < tol)
+            cell->face(f)->set_boundary_id(mesh_param.name2id.at("outlet"));
+          else
+            cell->face(f)->set_all_boundary_ids(mesh_param.name2id.at("walls"));
+        }
+
+    tria.refine_global(refinement);
 
     if (convert_to_tets)
     {
@@ -431,6 +485,17 @@ namespace MeshTools
                                            param.mesh.deal_ii_mesh_param,
                                            refinement_level,
                                            convert_to_simplices);
+    }
+    else if (param.mesh.deal_ii_preset_mesh == "backward facing step")
+    {
+      const unsigned int refinement_level = param.mms_param.enable ?
+                                              param.mms_param.mesh_suffix :
+                                              param.mesh.refinement_level;
+      create_backward_facing_step(tria,
+                                  param.mesh,
+                                  param.mesh.deal_ii_mesh_param,
+                                  refinement_level,
+                                  convert_to_simplices);
     }
     else
     {
@@ -639,8 +704,8 @@ namespace MeshTools
 
       std::cout << "Mesh info:" << std::endl
                 << " dimension: " << dim << std::endl
-                << " no. of cells: " << serial_triangulation.n_active_cells()
-                << std::endl;
+                << " no. of cells: "
+                << serial_triangulation.n_global_active_cells() << std::endl;
 
       std::cout << " boundary indicators: ";
       for (const auto &[id, count] : boundary_count)

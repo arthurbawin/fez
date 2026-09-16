@@ -295,8 +295,13 @@ bool GenericSolver<VectorType>::should_adapt_tree_based_mesh(
 
   if (time_handler.is_steady())
   {
+    // Do not adapt in the time integration loop for steady convergence studies,
+    // it is done after that loop instead.
     if (mms_param.enable)
       return false;
+
+    // For non-MMS computations, adapt for all but the last solve cycle
+    return !time_handler.is_finished();
   }
   else
   {

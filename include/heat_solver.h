@@ -192,6 +192,11 @@ public:
   void postprocess_solution();
 
   /**
+   * Compute the volume integrals of the selected finite element variables.
+   */
+  void compute_field_integrals();
+
+  /**
    *
    */
   void compute_and_add_errors(const Mapping<dim>  &mapping,

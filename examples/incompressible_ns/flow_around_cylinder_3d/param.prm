@@ -4,7 +4,7 @@ subsection Dimension
 end
 
 subsection Timer
-  set enable timer = false
+  set enable timer = true
 end
 
 subsection Output
@@ -37,6 +37,12 @@ subsection Postprocessing
     set along which axis = z
     set number of slices = 10
     set compute forces   = true
+  end
+  subsection vorticity
+    set enable             = true
+    set output frequency   = 1
+    set computation method = l2 projection
+    set degree             = 1
   end
 end
 

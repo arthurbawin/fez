@@ -8,6 +8,12 @@
 #include <parsed_function_symengine.h>
 #include <solver_info.h>
 
+// Forward declaration
+namespace PostProcessingTools
+{
+  enum class PostprocessorAtDofTypes;
+}
+
 #define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
   (prm).declare_entry("verbosity",                                             \
                       std::string(default_verbosity),                          \
@@ -219,6 +225,9 @@ namespace Parameters
           FixedFraction
         } refinement_strategy;
 
+        // Variables driving mesh refinement/coarsening
+        std::vector<SolverInfo::VariableType> variables_for_adaptation;
+
         // The target fractions of cells or cellwise errors to refine and
         // coarsen, depending on the refinement strategy.
         double fraction_to_refine;
@@ -231,6 +240,14 @@ namespace Parameters
         unsigned int min_level;
         unsigned int max_level;
 
+        // For steady-state computations, the number of times the mesh is
+        // adapted to the solution. One extra solve is performed, to obtain the
+        // solution on the last adapted mesh (i.e., setting this value to 1
+        // yields 2 resolutions).
+        unsigned int n_steady_adaptation_steps;
+
+        // For unsteady computations, the number of refinement steps to adapt
+        // the mesh to the initial condition.
         unsigned int n_prerefinement_steps;
 
         // Frequency (in time steps) at which the mesh is adapted
@@ -293,8 +310,7 @@ namespace Parameters
 
   struct PostProcessing
   {
-    // A small base struct for postprocessed quantities which can be
-    // outputted to a file
+    // A small base struct for features common to all postprocessings.
     struct PostProcessingBase
     {
       Verbosity verbosity;
@@ -302,21 +318,41 @@ namespace Parameters
       // Enable/disable this postprocessing
       bool enable;
 
-      // Output the results of this postprocessing to a file
-      bool         write_results;
-      std::string  output_prefix;
+      // Output options
       unsigned int output_frequency;
+    };
+
+    // A small base struct for postprocessed quantities which are written to a
+    // file.
+    struct PostProcessingFile : public PostProcessingBase
+    {
+      // Output the results of this postprocessing to a file
+      bool write_results;
+
+      // Name of the file without the extension
+      std::string output_prefix;
+
+      // Number of significant digits to write
       unsigned int precision;
     };
 
     // Derived class for postprocessing on a boundary
-    struct PostProcessingBaseBoundary : public PostProcessingBase
+    struct PostProcessingFileBoundary : public PostProcessingFile
     {
       types::boundary_id boundary_id;
     };
 
+    /**
+     * Compute the volume integrals of finite element variables.
+     * Vector-valued variables are integrated component-wise.
+     */
+    struct FieldIntegral : public PostProcessingFile
+    {
+      std::vector<SolverInfo::VariableType> variables;
+    } field_integral;
+
     // Hydrodynamic forces on one or more boundaries
-    struct Forces : public PostProcessingBaseBoundary
+    struct Forces : public PostProcessingFileBoundary
     {
       // Boundaries on which forces are evaluated. If the input list is empty,
       // the legacy boundary_id parameter is used.
@@ -341,14 +377,14 @@ namespace Parameters
 
     // For the FSI solver, compute and export the position of the structure's
     // geometric center.
-    struct StructurePosition : public PostProcessingBaseBoundary
+    struct StructurePosition : public PostProcessingFileBoundary
     {
       // No additional members for now
     } structure_position;
 
     // Cut structure into slices and compute forces on each individual slice
     // Used e.g. to measure correlation of forces coefficients along cylinder
-    struct Slices : public PostProcessingBaseBoundary
+    struct Slices : public PostProcessingFileBoundary
     {
       std::string  along_which_axis;
       unsigned int n_slices;
@@ -356,26 +392,88 @@ namespace Parameters
     } slices;
 
     // For the CHNS solver, compute the volume of each phase
-    struct CHNSPhasesVolume : public PostProcessingBase
+    struct CHNSPhasesVolume : public PostProcessingFile
     {
     } chns_volumes;
 
     // For the CHNS solver, compute the center of mass of each phase
-    struct CHNSPhasesCenterOfMass : public PostProcessingBase
+    struct CHNSPhasesCenterOfMass : public PostProcessingFile
     {
     } chns_center_mass;
 
     // For the CHNS solver, compute the average velocity in each phase
-    struct CHNSPhasesAvgVelocity : public PostProcessingBase
+    struct CHNSPhasesAvgVelocity : public PostProcessingFile
     {
     } chns_avg_velocity;
-    // Generic flow diagnostics exported in the main VTU file.
-    struct FlowDiagnostics
+
+    /**
+     * A base struct for postprocessing tools which produce a field, which is
+     * typically written to the visualization file alongside the solution (e.g.,
+     * vorticity, Q-criterion, mesh velocity, ...).
+     *
+     * This field can either be defined with a DataPostprocessor (outputted at
+     * visualization nodes directly), or with a PostprocessorAtDofBase, in which
+     * case the field is described as the degrees of freedom of some finite
+     * element approximation (e.g., an L2 projection).
+     */
+    struct PostProcessingField : public PostProcessingBase
     {
-      bool enable             = false;
-      bool compute_vorticity  = false;
-      bool compute_qcriterion = false;
-    } flow_diagnostics;
+      /**
+       * Available computation methods to compute the field.
+       * Not all methods are implemented for all derived PostProcessingField.
+       */
+      enum class ComputationMethod
+      {
+        /**
+         * Use a class derived from DataPostprocessor to evaluate this field.
+         * The term "discontinuous" is kind of a misnomer, as it is really only
+         * discontinuous if we are postprocessing derivatives of a finite
+         * element approximation (i.e., postprocessing the values of a
+         * continuous field will still yield a continuous field).
+         */
+        discontinuous,
+
+        /**
+         * Compute an L2 projection of the original (usually discontinuous)
+         * field. The resulting field is continuous is using a CG approximation
+         * to represent the projection.
+         */
+        l2_projection,
+
+        /**
+         * Compute a weighted average of the original field. See the individual
+         * implementations for more information about the weights.
+         */
+        weighted_average
+      } method;
+
+      // If using a dof-based representation of the postprocessed field, the
+      // degree of the associated finite element approximation.
+      unsigned int degree;
+    };
+
+    // Vorticity field. As in deal.II, the result is a "curl_type", so a scalar
+    // field in 2D and a vector-valued field in 3D.
+    struct Vorticity : public PostProcessingField
+    {
+    } vorticity;
+
+    // Q-criterion scalar field (second invariant of the velocity gradient).
+    struct QCriterion : public PostProcessingField
+    {
+    } q_criterion;
+
+    // Mesh velocity.
+    struct MeshVelocity : public PostProcessingField
+    {
+    } mesh_velocity;
+
+    /**
+     * All the PostProcessingField.
+     */
+    std::map<PostProcessingTools::PostprocessorAtDofTypes,
+             PostProcessingField *>
+      field_postprocessors;
 
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
@@ -683,6 +781,7 @@ namespace Parameters
      * split.
      */
     unsigned int n_time_intervals;
+    unsigned int n_steady_adaptation_steps;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -848,7 +947,13 @@ namespace Parameters
   {
     Verbosity verbosity;
 
-    bool   enable_coupling;
+    bool enable_coupling;
+
+    // True if using a zero mass evolution equation.
+    // This avoids using arbitrary threshold on the mass of the solid to
+    // determine which model to use.
+    bool zero_mass_model;
+
     double spring_constant;
     double damping;
     double mass;
@@ -857,6 +962,22 @@ namespace Parameters
     double cylinder_length;
 
     Point<dim> cylinder_center;
+
+    // Initial velocity of the solid
+    Tensor<1, dim> initial_velocity;
+
+    /**
+     * Parameters controlling the rigid body rotation of the solid.
+     * Only implemented for the zero-mass model for now.
+     */
+    struct RigidBodyRotation
+    {
+      // Enable rotation around center of rotation
+      bool enable;
+
+      // Fixed center of rotation
+      Point<dim> center;
+    } rotation;
 
     bool fix_z_component;
 

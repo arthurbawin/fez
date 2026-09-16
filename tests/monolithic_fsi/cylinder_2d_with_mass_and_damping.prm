@@ -1,6 +1,6 @@
 
 #
-# Unsteady flow around a massless circular cylinder mounted on a spring
+# Unsteady flow around a circular cylinder with mass, spring and damper
 #
 
 subsection Dimension
@@ -8,11 +8,11 @@ subsection Dimension
 end
 
 subsection Timer
-  set enable timer = true
+  set enable timer = false
 end
 
 subsection Output
-  set write vtu results = true
+  set write vtu results = false
   set output directory  = results/
   set output prefix     = flow_cylinder_spring
 end
@@ -20,42 +20,34 @@ end
 subsection Postprocessing
   subsection forces computation
     set enable             = true
+    set write results      = false
     set boundary id        = 4          # cylinder
     set output prefix      = forces
     set output frequency   = 1
+    set precision          = 10
     set computation method = lagrange multiplier
   end
 
   subsection structure position
     set enable           = true
+    set write results    = false
     set boundary id      = 4
     set output prefix    = center
     set output frequency = 1
     set precision        = 10
   end
-
-  subsection vorticity
-    set enable             = true
-    set output frequency   = 1
-    set computation method = l2 projection
-    set degree             = 1
-  end
-
-  subsection mesh velocity
-    set enable             = true
-    set output frequency   = 1
-  end
 end
 
 subsection Mesh
-  set mesh file = ./cylinder.msh
+  set mesh file = ../../cylinder_2d_coarse.msh
+  # set mesh file = ../tests/monolithic_fsi/cylinder_2d_coarse.msh
 end
 
 subsection Time integration
   set verbosity        = verbose
   set dt               = 0.1
   set t_initial        = 0
-  set t_end            = 0.5
+  set t_end            = 0.1
   set scheme           = BDF2
   set bdf start method = BDF1
 
@@ -64,7 +56,7 @@ subsection Time integration
   #
   subsection Adaptation
     set verbosity = verbose
-    set enable    = true
+    set enable    = false
 
     set max timestep = 1.
     set min timestep = 1e-3
@@ -87,9 +79,9 @@ end
 
 subsection Nonlinear solver
   set verbosity            = verbose
-  set tolerance            = 1e-10
-  set divergence_tolerance = 1e+4
-  set max_iterations       = 20
+  set tolerance            = 1e-8
+  set divergence_tolerance = 1e+10
+  set max_iterations       = 100
   set enable_line_search   = false
 
   subsection reassembly heuristic
@@ -132,12 +124,16 @@ subsection Physical properties
 end
 
 subsection FSI
-  set verbosity       = verbose
-  set enable coupling = true
+  set verbosity           = verbose
+  set enable coupling     = true
+  set use zero mass model = false
+
   set spring constant = 1
+  set mass            = 1
+  set damping         = 1
   set cylinder radius = 0.5
-  # set cylinder length = 0.5
-  # set fix z component = true
+
+  set initial velocity = 1, 1
   
   set force-position coupling = local_position_master_to_lambda_accumulators
 end
@@ -203,7 +199,6 @@ subsection Pseudosolid boundary conditions
   end
 end
 
-subsection Debug
-  set verbosity            = verbose
-  set write partition gmsh = true
-end
+# subsection Debug
+#   set verbosity = verbose
+# end

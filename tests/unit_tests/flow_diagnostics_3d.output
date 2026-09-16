@@ -1,4 +1,0 @@
-
-DEAL::vorticity 2 -4 2
-DEAL::Qcriterion -130.5
-DEAL::nodal diagnostics solid rotation OK

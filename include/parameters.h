@@ -225,6 +225,9 @@ namespace Parameters
           FixedFraction
         } refinement_strategy;
 
+        // Variables driving mesh refinement/coarsening
+        std::vector<SolverInfo::VariableType> variables_for_adaptation;
+
         // The target fractions of cells or cellwise errors to refine and
         // coarsen, depending on the refinement strategy.
         double fraction_to_refine;
@@ -237,6 +240,14 @@ namespace Parameters
         unsigned int min_level;
         unsigned int max_level;
 
+        // For steady-state computations, the number of times the mesh is
+        // adapted to the solution. One extra solve is performed, to obtain the
+        // solution on the last adapted mesh (i.e., setting this value to 1
+        // yields 2 resolutions).
+        unsigned int n_steady_adaptation_steps;
+
+        // For unsteady computations, the number of refinement steps to adapt
+        // the mesh to the initial condition.
         unsigned int n_prerefinement_steps;
 
         // Frequency (in time steps) at which the mesh is adapted
@@ -330,6 +341,15 @@ namespace Parameters
     {
       types::boundary_id boundary_id;
     };
+
+    /**
+     * Compute the volume integrals of finite element variables.
+     * Vector-valued variables are integrated component-wise.
+     */
+    struct FieldIntegral : public PostProcessingFile
+    {
+      std::vector<SolverInfo::VariableType> variables;
+    } field_integral;
 
     // Hydrodynamic forces on a single boundary
     struct Forces : public PostProcessingFileBoundary
@@ -799,6 +819,7 @@ namespace Parameters
      * split.
      */
     unsigned int n_time_intervals;
+    unsigned int n_steady_adaptation_steps;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

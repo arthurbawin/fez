@@ -284,7 +284,7 @@ public:
    * Initial conditions on additional fields must be set in the solver-specific
    * overload.
    */
-  void set_initial_conditions();
+  void set_initial_conditions(const bool rotate_solutions = true);
 
   /**
    * Overwrite the mesh-position field of the current solution with the
@@ -332,6 +332,11 @@ public:
    * compute errors, forces, etc.
    */
   void postprocess_solution();
+
+  /**
+   * Compute the volume integrals of the selected finite element variables.
+   */
+  void compute_field_integrals();
 
   /**
    * Post-process the additional data specific to each derived solver. By
@@ -442,6 +447,12 @@ public:
   virtual void compute_riemannian_metric();
 
   /**
+   * Compute the cellwise error estimate used as refinement/coarsening
+   * criterion.
+   */
+  void compute_error_estimate();
+
+  /**
    * Adapt the mesh (metric-based remeshing only for now).
    */
   virtual void adapt_mesh() override;
@@ -496,6 +507,13 @@ public:
    * Return the (ghosted) solution vector.
    */
   virtual LA::ParVectorType &get_present_solution() override;
+
+  /**
+   * Return a component mask for the given @p variable.
+   * Throws an error if the solver does not solve for this variable.
+   */
+  ComponentMask
+  get_component_mask(const SolverInfo::VariableType variable) const;
 
 private:
   /**
@@ -639,6 +657,12 @@ protected:
     patch_handlers;
   std::vector<std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>>>
     recoveries;
+
+  /**
+   * Cellwise error used to adapt the mesh when tree-based adaptation is
+   * enabled.
+   */
+  Vector<float> cellwise_refinement_criterion;
 };
 
 /* ---------------- template and inline functions ----------------- */
@@ -689,6 +713,25 @@ LA::ParVectorType &
 NavierStokesSolver<dim, with_moving_mesh>::get_present_solution()
 {
   return *present_solution;
+}
+
+template <int dim, bool with_moving_mesh>
+ComponentMask NavierStokesSolver<dim, with_moving_mesh>::get_component_mask(
+  const SolverInfo::VariableType variable) const
+{
+  Assert(ordering->has_variable(variable),
+         ExcMessage("You are requiring a ComponentMask for the variable \"" +
+                    SolverInfo::to_string(variable) +
+                    "\", but this solver does not store this variable."));
+
+  if (ordering->is_scalar(variable))
+    return this->get_fe_system().component_mask(
+      ordering->get_scalar_extractor(variable));
+  else if (ordering->is_vector(variable))
+    return this->get_fe_system().component_mask(
+      ordering->get_vector_extractor(variable));
+  else
+    DEAL_II_NOT_IMPLEMENTED();
 }
 
 template <int dim, bool with_moving_mesh>

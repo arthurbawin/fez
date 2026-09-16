@@ -1,0 +1,4 @@
+# Mesh adaptation tests for the incompressible CHNS solver
+set(TEST_TARGET incompressible_chns)
+string(TOLOWER ${CMAKE_BUILD_TYPE} _build_type)
+deal_ii_pickup_tests()

@@ -47,6 +47,12 @@ HeatSolver<dim>::HeatSolver(const ParameterReader<dim> &param)
                                previous_solutions,
                                metric_for_adaptation)
 {
+  AssertThrow(!param.with_tree_based_adaptation() ||
+                param.mesh.adaptation.tree_amr.refinement_strategy !=
+                  Parameters::Mesh::Adaptation::TreeAMR::RefinementStrategy::
+                    InterfaceBand,
+              ExcMessage("interface band requires a phase tracer and is not "
+                         "supported by the heat solver"));
   create_quadrature_rules(param.finite_elements,
                           quadrature,
                           face_quadrature,
@@ -898,7 +904,10 @@ void HeatSolver<dim>::adapt_mesh()
 
   // Adapt the mesh(es): either with a riemannian metric, or with the cellwise
   // error criteria.
-  transient_fixed_point_data.adapt_meshes(temperature_error_on_cells);
+  auto *additional_solution = time_handler.get_additional_solution();
+  transient_fixed_point_data.adapt_meshes(temperature_error_on_cells,
+                                          {},
+                                          additional_solution);
 
   // Re-setup up the dof_handler, constraints and linear algebra structures.
   // For steady-state convergence studies, we're doing the work twice, here
@@ -914,7 +923,7 @@ void HeatSolver<dim>::adapt_mesh()
     postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
                                                            *dof_handler);
     transient_fixed_point_data.transfer_solution_between_refinements(
-      locally_relevant_dofs, nonzero_constraints);
+      locally_relevant_dofs, nonzero_constraints, additional_solution);
   }
 }
 

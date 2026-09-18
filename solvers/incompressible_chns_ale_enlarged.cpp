@@ -38,8 +38,9 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      auto elasticity_presolver =
-        create_elasticity_presolver(param, /* with_enlarged_psi = */ true);
+      std::unique_ptr<ElasticitySolver<2>> elasticity_presolver;
+      if (!param.with_tree_based_adaptation())
+        elasticity_presolver = create_elasticity_presolver(param, true);
       CHNSSolver<2, true, true> problem(param);
       if (elasticity_presolver)
         problem.attach_presolver(elasticity_presolver.get());
@@ -57,8 +58,9 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      auto elasticity_presolver =
-        create_elasticity_presolver(param, /* with_enlarged_psi = */ true);
+      std::unique_ptr<ElasticitySolver<3>> elasticity_presolver;
+      if (!param.with_tree_based_adaptation())
+        elasticity_presolver = create_elasticity_presolver(param, true);
       CHNSSolver<3, true, true> problem(param);
       if (elasticity_presolver)
         problem.attach_presolver(elasticity_presolver.get());

@@ -54,6 +54,11 @@ void BDFErrorEstimator::rotate_additional_solution(
   additional_solution = solution;
 }
 
+LA::ParVectorType &BDFErrorEstimator::get_additional_solution()
+{
+  return additional_solution;
+}
+
 void BDFErrorEstimator::compute_error_estimator(
   const TimeHandler                    &time_handler,
   const LA::ParVectorType              &present_solution,

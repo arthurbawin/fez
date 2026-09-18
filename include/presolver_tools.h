@@ -9,19 +9,22 @@
 /**
  * Build and run the elasticity presolver that pre-positions the mesh for a
  * CHNS-ALE simulation. Returns nullptr when the presolver is disabled. The
- * returned solver owns the presolved mesh position, which the CHNS solver then
- * injects as its initial mesh.
+ * returned solver owns the presolved mesh position and optional enlarged psi
+ * field, which the CHNS solver injects into its initial solution.
  */
 template <int dim>
 std::unique_ptr<ElasticitySolver<dim>>
 create_elasticity_presolver(const ParameterReader<dim> &param,
-                            const bool with_enlarged_psi = false)
+                            const bool with_enlarged_psi = false,
+                            parallel::DistributedTriangulationBase<dim>
+                              *reference_triangulation = nullptr)
 {
   if (!param.cahn_hilliard.use_presolver)
     return nullptr;
 
   auto presolver =
-    std::make_unique<ElasticitySolver<dim>>(param, with_enlarged_psi);
+    std::make_unique<ElasticitySolver<dim>>(
+      param, with_enlarged_psi, reference_triangulation);
 
   using Mode      = Parameters::Elasticity::PresolvedMeshPositionMode;
   const auto mode = param.elasticity.presolved_mesh_position_mode;

@@ -599,8 +599,11 @@ void PostProcessingHandler<dim>::PrefixData::append_to_prefix_or_suffix(
       prefix_or_suffix += "_int_" + std::to_string(interval_index);
 
   if (is_prerefinement_step)
-    prefix_or_suffix +=
-      "_prerefinement_step_" + std::to_string(prerefinement_step);
+  {
+    prefix_or_suffix += "_prerefinement";
+    if (!is_for_pvd)
+      prefix_or_suffix += "_step_" + std::to_string(prerefinement_step);
+  }
 }
 
 template <int dim>

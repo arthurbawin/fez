@@ -23,6 +23,7 @@
 #include <mesh.h>
 #include <mesh_and_dof_tools.h>
 #include <metric_field.h>
+#include <presolver_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
@@ -87,10 +88,60 @@ namespace
 } // namespace
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::initialize_solution()
+{
+  if constexpr (with_moving_mesh)
+    if (this->param.with_tree_based_adaptation() &&
+        this->param.cahn_hilliard.use_presolver)
+    {
+      auto initial_presolver = create_elasticity_presolver(this->param,
+                                                           with_enlarged,
+                                                           this->triangulation);
+      this->newton_update    = 0.;
+      this->set_initial_conditions(false, initial_presolver.get());
+
+      // Rebuild pressure constraints on the compressed geometry.
+      this->local_evaluation_point   = *this->present_solution;
+      this->evaluation_point         = *this->present_solution;
+      this->constrained_pressure_dof = numbers::invalid_dof_index;
+      if (this->param.bc_data.enforce_zero_mean_pressure)
+        this->create_zero_mean_pressure_constraints_data();
+      this->create_solver_specific_constraints_data();
+      this->create_zero_constraints();
+      this->create_nonzero_constraints();
+      this->nonzero_constraints.distribute(this->local_evaluation_point);
+      *this->present_solution = this->local_evaluation_point;
+      this->evaluation_point  = *this->present_solution;
+      this->newton_update     = *this->present_solution;
+      this->create_sparsity_pattern();
+
+      for (auto &previous : *this->previous_solutions)
+        previous = *this->present_solution;
+      this->time_handler.rotate_solutions(*this->present_solution,
+                                          *this->previous_solutions);
+      return;
+    }
+
+  NavierStokesSolver<dim, with_moving_mesh>::initialize_solution();
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
 CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
   const ParameterReader<dim> &param)
   : NavierStokesSolver<dim, with_moving_mesh>(param)
 {
+  if constexpr (with_moving_mesh)
+    if (param.with_tree_based_adaptation() && param.cahn_hilliard.use_presolver)
+    {
+      AssertThrow(param.elasticity.presolved_mesh_position_mode ==
+                    Parameters::Elasticity::PresolvedMeshPositionMode::off,
+                  ExcMessage("An AMR presolver requires "
+                             "Elasticity/presolved mesh position/mode = off."));
+      AssertThrow(!param.elasticity.write_final_msh,
+                  ExcMessage("An AMR presolver requires "
+                             "Elasticity/write final msh = false."));
+    }
+
   using Strategy =
     Parameters::TimeIntegration::Adaptation::AdaptationStrategy;
   if (param.time_integration.adaptation.enable &&
@@ -594,6 +645,17 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   set_solver_specific_time()
 {
+  if constexpr (with_moving_mesh)
+    if (this->param.with_tree_based_adaptation() &&
+        this->param.cahn_hilliard.use_presolver &&
+        this->time_handler.current_time == this->time_handler.initial_time)
+    {
+      this->param.initial_conditions.initial_velocity_callback->set_time(
+        this->time_handler.initial_time);
+      this->param.initial_conditions.initial_chns_tracer_callback->set_time(
+        this->time_handler.initial_time);
+    }
+
   for (auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
     (void)id;

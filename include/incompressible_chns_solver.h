@@ -54,6 +54,11 @@ public:
   virtual void setup_assemblers() override;
 
   /**
+   * Compress the refined ALE mesh before initializing the CHNS fields.
+   */
+  virtual void initialize_solution() override;
+
+  /**
    * Apply initial condition on the tracer (phase marker)
    */
   virtual void set_solver_specific_initial_conditions() override;

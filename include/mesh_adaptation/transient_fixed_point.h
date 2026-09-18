@@ -165,12 +165,14 @@ public:
    * and thus expects a single time interval (i.e., a single triangulation) for
    * now.
    *
-   * This functions interpolates the data stored in the SolutionTransfer object,
-   * which must have been previously (re-)initialized in adapt_meshes().
+   * This function interpolates the data stored in the SolutionTransfer object,
+   * which must have been previously (re-)initialized in adapt_meshes(). When
+   * supplied, @p additional_solution is transferred with the BDF history.
    */
   void transfer_solution_between_refinements(
     const IndexSet                  &locally_relevant_dofs,
-    const AffineConstraints<double> &nonzero_constraints);
+    const AffineConstraints<double> &nonzero_constraints,
+    LA::ParVectorType               *additional_solution = nullptr);
 
   /**
    * Apply a local and global scaling to all metric fields.
@@ -184,9 +186,12 @@ public:
   void apply_gradation_to_metrics();
 
   /**
-   * Adapt the meshes on all subintervals.
+   * Adapt the meshes on all subintervals. @p additional_solution optionally
+   * extends the BDF history prepared for tree-based solution transfer.
    */
-  void adapt_meshes(const Vector<float> &criteria);
+  void adapt_meshes(const Vector<float>              &criteria,
+                    const std::vector<Vector<float>> &field_criteria = {},
+                    LA::ParVectorType *additional_solution           = nullptr);
 
   /**
    * Clear the data for each subinterval.
@@ -226,7 +231,10 @@ private:
    * This function assumes a single time interval, and adapts the mesh
    * associated with the first interval.
    */
-  void adapt_mesh_with_dealii_routines(const Vector<float> &criteria);
+  void adapt_mesh_with_dealii_routines(
+    const Vector<float>              &criteria,
+    const std::vector<Vector<float>> &field_criteria,
+    LA::ParVectorType                *additional_solution);
 
 private:
   /**

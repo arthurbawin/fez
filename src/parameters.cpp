@@ -199,15 +199,30 @@ namespace Parameters
         {
           prm.declare_entry("refinement strategy",
                             "fixed number",
-                            Patterns::Selection("fixed number|fixed fraction"),
+                            Patterns::Selection(
+                              "fixed number|fixed fraction|interface band"),
                             "Refinement strategy used by deal.II's "
                             "refine_and_coarsen routines");
+          prm.declare_entry(
+            "interface band half width over epsilon",
+            "10",
+            Patterns::Double(0.),
+            "Physical distance from phi=0, divided by epsilon.");
+          prm.declare_entry(
+            "interface band diameter over epsilon",
+            "5",
+            Patterns::Double(0.),
+            "Maximum cell diameter divided by epsilon. ALE uses the mapped "
+            "diameter; fixed meshes use the reference diameter.");
           prm.declare_entry(
             "variables for adaptation",
             "velocity",
             Patterns::List(Patterns::Selection(
               std::string(SolverInfo::variable_names_for_param))),
-            "Comma-separated list of variables used for mesh adaptation");
+            "Comma-separated list of variables used for mesh adaptation. "
+            "Kelly selects cells independently for each variable. Refine the "
+            "union of selections and coarsen their intersection. An identically "
+            "zero indicator is neutral. Interface band uses only the tracer.");
           prm.declare_entry(
             "fraction to refine",
             // As suggested in grid_refinement.h, use as default
@@ -312,11 +327,24 @@ namespace Parameters
           else if (parsed_strategy == "fixed fraction")
             t.refinement_strategy =
               Adaptation::TreeAMR::RefinementStrategy::FixedFraction;
+          else if (parsed_strategy == "interface band")
+            t.refinement_strategy =
+              Adaptation::TreeAMR::RefinementStrategy::InterfaceBand;
           else
             AssertThrow(false,
                         ExcMessage(
                           "Unexpected mesh adaptation refinement strategy: " +
                           parsed_strategy));
+          t.interface_band_half_width_over_epsilon =
+            prm.get_double("interface band half width over epsilon");
+          t.interface_band_diameter_over_epsilon =
+            prm.get_double("interface band diameter over epsilon");
+          if (t.refinement_strategy ==
+              Adaptation::TreeAMR::RefinementStrategy::InterfaceBand)
+            AssertThrow(t.interface_band_half_width_over_epsilon > 0. &&
+                          t.interface_band_diameter_over_epsilon > 0.,
+                        ExcMessage("interface band requires positive band "
+                                   "width and diameter ratios"));
           const auto parsed_variable_list =
             Utilities::split_string_list(prm.get("variables for adaptation"),
                                          ",");
@@ -334,7 +362,9 @@ namespace Parameters
           }
           t.fraction_to_refine  = prm.get_double("fraction to refine");
           t.fraction_to_coarsen = prm.get_double("fraction to coarsen");
-          AssertThrow(t.fraction_to_refine + t.fraction_to_coarsen < 1 + 1e-12,
+          AssertThrow(t.refinement_strategy ==
+                          Adaptation::TreeAMR::RefinementStrategy::InterfaceBand ||
+                        t.fraction_to_refine + t.fraction_to_coarsen < 1 + 1e-12,
                       ExcMessage(
                         "The sum of the fractions of the cells/cellwise errors "
                         "to refine and coarsen should not exceed 1."));

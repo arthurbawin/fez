@@ -557,7 +557,8 @@ void TransientFixedPointData<dim>::transfer_solution_between_intervals(
 template <int dim>
 void TransientFixedPointData<dim>::transfer_solution_between_refinements(
   const IndexSet                  &locally_relevant_dofs,
-  const AffineConstraints<double> &nonzero_constraints)
+  const AffineConstraints<double> &nonzero_constraints,
+  LA::ParVectorType               *additional_solution)
 {
   TimerOutput::Scope t(timer, "Transfer solution between refinements");
 
@@ -569,7 +570,8 @@ void TransientFixedPointData<dim>::transfer_solution_between_refinements(
   LA::ParVectorType completely_distributed_solution(dh.locally_owned_dofs(),
                                                     mpi_communicator);
 
-  std::vector<LA::ParVectorType> all_out(previous_sols.size() + 1);
+  std::vector<LA::ParVectorType> all_out(previous_sols.size() + 1 +
+                                         (additional_solution != nullptr));
   for (unsigned int i = 0; i < all_out.size(); ++i)
     all_out[i] = completely_distributed_solution;
 
@@ -599,6 +601,15 @@ void TransientFixedPointData<dim>::transfer_solution_between_refinements(
   {
     hanging_node_constraints.distribute(all_out[i + 1]);
     previous_sols[i] = all_out[i + 1];
+  }
+
+  if (additional_solution)
+  {
+    hanging_node_constraints.distribute(all_out.back());
+    additional_solution->reinit(dh.locally_owned_dofs(),
+                                locally_relevant_dofs,
+                                mpi_communicator);
+    *additional_solution = all_out.back();
   }
 }
 
@@ -694,7 +705,10 @@ void TransientFixedPointData<dim>::apply_gradation_to_metrics()
 }
 
 template <int dim>
-void TransientFixedPointData<dim>::adapt_meshes(const Vector<float> &criteria)
+void TransientFixedPointData<dim>::adapt_meshes(
+  const Vector<float>              &criteria,
+  const std::vector<Vector<float>> &field_criteria,
+  LA::ParVectorType                *additional_solution)
 {
   if (!param.mesh.adaptation.enable)
     return;
@@ -715,7 +729,9 @@ void TransientFixedPointData<dim>::adapt_meshes(const Vector<float> &criteria)
       /**
        * Adapt the triangulation with the routines from deal.II.
        */
-      this->adapt_mesh_with_dealii_routines(criteria);
+      this->adapt_mesh_with_dealii_routines(criteria,
+                                            field_criteria,
+                                            additional_solution);
       break;
     }
     default:
@@ -762,7 +778,9 @@ void TransientFixedPointData<dim>::adapt_meshes_with_mmg()
 
 template <int dim>
 void TransientFixedPointData<dim>::adapt_mesh_with_dealii_routines(
-  const Vector<float> &criteria)
+  const Vector<float>              &criteria,
+  const std::vector<Vector<float>> &field_criteria,
+  LA::ParVectorType                *additional_solution)
 {
   const bool verbose =
     Utilities::MPI::this_mpi_process(mpi_communicator) == 0 &&
@@ -784,24 +802,87 @@ void TransientFixedPointData<dim>::adapt_mesh_with_dealii_routines(
 
   const auto &tree_amr = param.mesh.adaptation.tree_amr;
 
-  // Mark cells for refinement and coarsening
+  // Mark cells for refinement and coarsening.
+  if (field_criteria.size() > 1)
+    MeshTools::mark_multifield_adaptation(triangulation,
+                                          field_criteria,
+                                          tree_amr);
   switch (tree_amr.refinement_strategy)
   {
+    case Parameters::Mesh::Adaptation::TreeAMR::RefinementStrategy::
+      InterfaceBand:
+    {
+      std::vector<std::string> local_requests;
+      for (const auto &cell : triangulation.active_cell_iterators())
+        if (cell->is_locally_owned())
+        {
+          cell->clear_refine_flag();
+          cell->clear_coarsen_flag();
+          const float criterion = criteria[cell->active_cell_index()];
+          if (criterion > 0. &&
+              static_cast<unsigned int>(cell->level()) < tree_amr.max_level)
+            local_requests.push_back(cell->id().to_string());
+          else if (criterion < 0. && static_cast<unsigned int>(cell->level()) >
+                                       tree_amr.min_level)
+            cell->set_coarsen_flag();
+        }
+      const auto requests =
+        Utilities::MPI::all_gather(mpi_communicator, local_requests);
+      std::vector<std::string> selected;
+      for (const auto &rank_requests : requests)
+        selected.insert(selected.end(),
+                        rank_requests.begin(),
+                        rank_requests.end());
+      std::sort(selected.begin(), selected.end());
+      const auto count  = triangulation.n_global_active_cells();
+      const auto budget = tree_amr.max_n_cells > count ?
+                            (tree_amr.max_n_cells - count) /
+                              (GeometryInfo<dim>::max_children_per_cell - 1) :
+                            0;
+      if (selected.size() > budget)
+      {
+        if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+          std::cout << "Interface band: cell limit prevents reaching the "
+                       "target diameter."
+                    << std::endl;
+        selected.resize(budget);
+      }
+      unsigned int blocked = 0;
+      for (const auto &cell : triangulation.active_cell_iterators())
+        if (cell->is_locally_owned())
+        {
+          if (std::binary_search(selected.begin(),
+                                 selected.end(),
+                                 cell->id().to_string()))
+            cell->set_refine_flag();
+          if (criteria[cell->active_cell_index()] > 0. &&
+              static_cast<unsigned int>(cell->level()) >= tree_amr.max_level)
+            ++blocked;
+        }
+      if (Utilities::MPI::sum(blocked, mpi_communicator) > 0 &&
+          Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+        std::cout << "Interface band: maximum grid level prevents reaching the "
+                     "target diameter."
+                  << std::endl;
+      break;
+    }
     case Parameters::Mesh::Adaptation::TreeAMR::RefinementStrategy::FixedNumber:
-      parallel::distributed::GridRefinement::refine_and_coarsen_fixed_number(
-        triangulation,
-        criteria,
-        tree_amr.fraction_to_refine,
-        tree_amr.fraction_to_coarsen,
-        tree_amr.max_n_cells);
+      if (field_criteria.size() <= 1)
+        parallel::distributed::GridRefinement::refine_and_coarsen_fixed_number(
+          triangulation,
+          criteria,
+          tree_amr.fraction_to_refine,
+          tree_amr.fraction_to_coarsen,
+          tree_amr.max_n_cells);
       break;
     case Parameters::Mesh::Adaptation::TreeAMR::RefinementStrategy::
       FixedFraction:
-      parallel::distributed::GridRefinement::refine_and_coarsen_fixed_fraction(
-        triangulation,
-        criteria,
-        tree_amr.fraction_to_refine,
-        tree_amr.fraction_to_coarsen);
+      if (field_criteria.size() <= 1)
+        parallel::distributed::GridRefinement::
+          refine_and_coarsen_fixed_fraction(triangulation,
+                                            criteria,
+                                            tree_amr.fraction_to_refine,
+                                            tree_amr.fraction_to_coarsen);
       break;
     default:
       DEAL_II_ASSERT_UNREACHABLE();
@@ -822,10 +903,13 @@ void TransientFixedPointData<dim>::adapt_mesh_with_dealii_routines(
 
   // Create the vector of pointers to give the solution_transfer.
   // Each entry must point to a *ghosted* parallel vector.
-  std::vector<const LA::ParVectorType *> all_in(previous_sols.size() + 1);
+  std::vector<const LA::ParVectorType *> all_in(
+    previous_sols.size() + 1 + (additional_solution != nullptr));
   all_in[0] = &present_solution;
   for (unsigned int i = 0; i < previous_sols.size(); ++i)
     all_in[i + 1] = &previous_sols[i];
+  if (additional_solution)
+    all_in.back() = additional_solution;
 
   for (auto vec : all_in)
   {

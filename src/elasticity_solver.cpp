@@ -96,7 +96,8 @@ namespace
 template <int dim>
 ElasticitySolver<dim>::ElasticitySolver(
   const ParameterReader<dim> &param,
-  const bool                  with_enlarged_psi)
+  const bool                  with_enlarged_psi,
+  parallel::DistributedTriangulationBase<dim> *reference_triangulation)
   : GenericSolver<LA::ParVectorType>(param.output,
                                      param.nonlinear_solver,
                                      param.timer,
@@ -106,11 +107,29 @@ ElasticitySolver<dim>::ElasticitySolver(
                                      SolverInfo::SolverType::elasticity)
   , ordering(ComponentOrderingElasticity<dim>())
   , param(param)
-  , triangulation(mpi_communicator)
+  , owned_triangulation(
+      reference_triangulation ?
+        nullptr :
+        std::make_unique<parallel::fullydistributed::Triangulation<dim>>(
+          mpi_communicator))
+  , triangulation(reference_triangulation ? *reference_triangulation :
+                                            *owned_triangulation)
   , dof_handler(triangulation)
   , time_handler(param.time_integration)
   , with_enlarged_psi(with_enlarged_psi)
 {
+  if (!owned_triangulation)
+  {
+    AssertThrow(
+      param.elasticity.presolved_mesh_position_mode ==
+        Parameters::Elasticity::PresolvedMeshPositionMode::off,
+      ExcMessage("A borrowed presolver mesh requires "
+                 "Elasticity/presolved mesh position/mode = off."));
+    AssertThrow(!param.elasticity.write_final_msh,
+                ExcMessage("A borrowed presolver mesh requires "
+                           "Elasticity/write final msh = false."));
+  }
+
   create_quadrature_rules(param.finite_elements,
                           quadrature,
                           face_quadrature,
@@ -209,8 +228,10 @@ void ElasticitySolver<dim>::reset()
   param.mesh.filename          = mesh_param.filename;
   param.time_integration.dt    = time_param.dt;
 
-  // Mesh
-  triangulation.clear();
+  // Release only this solver's DoFs on a borrowed mesh.
+  dof_handler.clear();
+  if (owned_triangulation)
+    triangulation.clear();
 
   // Direct solver
   direct_solver_reuse =
@@ -221,11 +242,27 @@ void ElasticitySolver<dim>::reset()
 }
 
 template <int dim>
+void ElasticitySolver<dim>::set_time()
+{
+  const double time = time_handler.initial_time;
+  for (auto &[id, bc] : param.pseudosolid_bc)
+    bc.set_time(time);
+  source_terms->set_time(time);
+  exact_solution->set_time(time);
+  param.mms.exact_mesh_position->set_time(time);
+  param.physical_properties.set_time(time);
+  param.initial_conditions.initial_chns_tracer_callback->set_time(time);
+}
+
+template <int dim>
 void ElasticitySolver<dim>::run()
 {
   reset();
+  if (!owned_triangulation)
+    set_time();
   setup_assemblers();
-  MeshTools::read_mesh(triangulation, param);
+  if (owned_triangulation)
+    MeshTools::read_mesh(triangulation, param);
   setup_dofs();
   create_zero_constraints();
   create_nonzero_constraints();
@@ -367,6 +404,7 @@ void ElasticitySolver<dim>::create_base_constraints(
 {
   constraints.clear();
   constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
+  DoFTools::make_hanging_node_constraints(dof_handler, constraints);
 
   BoundaryConditions::apply_mesh_position_boundary_conditions(
     homogeneous,
@@ -645,6 +683,12 @@ void ElasticitySolver<dim>::solve_linear_system()
 template <int dim>
 void ElasticitySolver<dim>::output_results()
 {
+  output_results(*mapping);
+}
+
+template <int dim>
+void ElasticitySolver<dim>::output_results(const Mapping<dim> &output_mapping)
+{
   TimerOutput::Scope t(computing_timer, "Write outputs");
 
   if (param.output.write_results)
@@ -653,8 +697,8 @@ void ElasticitySolver<dim>::output_results()
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
       data_component_interpretation(
         dim, DataComponentInterpretation::component_is_part_of_vector);
-    // Enlarged presolver: also write the reconstructed marker psi (it is only
-    // visualized here, never injected into the CHNS solver).
+    // Enlarged presolver: also write the reconstructed marker psi, which is
+    // handed off with the mesh position to the enlarged CHNS solver.
     if (with_enlarged_psi)
     {
       solution_names.emplace_back("psi");
@@ -675,7 +719,7 @@ void ElasticitySolver<dim>::output_results()
                              "subdomain",
                              DataOut<dim>::type_cell_data);
 
-    data_out.build_patches(*mapping, 2);
+    data_out.build_patches(output_mapping, 2);
     data_out.write_vtu_with_pvtu_record(param.output.output_dir,
                                         param.output.output_prefix +
                                           "elasticity",
@@ -688,11 +732,13 @@ void ElasticitySolver<dim>::output_results()
 template <int dim>
 void ElasticitySolver<dim>::move_mesh()
 {
+  AssertThrow(owned_triangulation,
+              ExcMessage("Cannot move the reference vertices of a borrowed "
+                         "presolver mesh."));
   std::vector<bool> vertex_moved(triangulation.n_vertices(), false);
   for (auto &cell : dof_handler.active_cell_iterators())
     if (cell->is_locally_owned())
       for (const auto v : cell->vertex_indices())
-        // if (owned_vertices[cell->vertex_index(v)])
         if (!vertex_moved[cell->vertex_index(v)])
         {
           vertex_moved[cell->vertex_index(v)] = true;
@@ -704,6 +750,9 @@ void ElasticitySolver<dim>::move_mesh()
 template <int dim>
 void ElasticitySolver<dim>::write_final_msh()
 {
+  AssertThrow(owned_triangulation,
+              ExcMessage("A borrowed presolver mesh requires "
+                         "Elasticity/write final msh = false."));
   if (!param.elasticity.write_final_msh)
     return;
 
@@ -925,6 +974,9 @@ std::string ElasticitySolver<dim>::presolved_mesh_fingerprint() const
 template <int dim>
 void ElasticitySolver<dim>::write_presolved_mesh_cache() const
 {
+  AssertThrow(owned_triangulation,
+              ExcMessage("A borrowed presolver mesh requires "
+                         "Elasticity/presolved mesh position/mode = off."));
   const std::string cache_file =
     param.elasticity.presolved_mesh_position_file;
   const std::string temporary_file = "tmp." + cache_file;
@@ -976,6 +1028,9 @@ void ElasticitySolver<dim>::write_presolved_mesh_cache() const
 template <int dim>
 bool ElasticitySolver<dim>::try_load_presolved_mesh_cache()
 {
+  AssertThrow(owned_triangulation,
+              ExcMessage("A borrowed presolver mesh requires "
+                         "Elasticity/presolved mesh position/mode = off."));
   using Mode      = Parameters::Elasticity::PresolvedMeshPositionMode;
   const auto mode = param.elasticity.presolved_mesh_position_mode;
   AssertThrow(mode == Mode::reuse,
@@ -1105,13 +1160,22 @@ void ElasticitySolver<dim>::compute_errors()
 template <int dim>
 void ElasticitySolver<dim>::postprocess_solution()
 {
-  // Compute error *before* moving mesh for visualization (-:
+  // Evaluate errors on the reference mesh.
   if (param.mms_param.enable)
     compute_errors();
 
-  write_final_msh();
-  move_mesh();
-  output_results();
+  if (owned_triangulation)
+  {
+    write_final_msh();
+    move_mesh();
+    output_results();
+  }
+  else
+  {
+    const MappingFEField<dim, dim, LA::ParVectorType> deformed_mapping(
+      dof_handler, present_solution, position_mask);
+    output_results(deformed_mapping);
+  }
 }
 
 // Explicit instantiation

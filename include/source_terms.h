@@ -29,7 +29,7 @@ namespace Parameters
     {
       fluid_source->set_time(new_time);
       pseudosolid_source->set_time(new_time);
-      // Shouldn't be required as the ElasticitySolver is steady-state
+      // Equilibrium sources can depend on the prescribed evaluation time.
       elasticity_source->set_time(new_time);
       cahnhilliard_source->set_time(new_time);
       temperature_source->set_time(new_time);

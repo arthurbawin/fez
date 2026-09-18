@@ -1,0 +1,40 @@
+Number of MPI processes: 4
+Convergence test with manufactured solution:
+Mesh file was changed to 0.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 8
+ boundary indicators: 0(4 faces) 1(4 faces) 2(2 faces) 3(2 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 165
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 8
+Number of degrees of freedom: 165
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 23
+Number of degrees of freedom: 424
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 47
+Number of degrees of freedom: 815
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 113
+Number of degrees of freedom: 1723
+
+L2_norm
+n_elm n_dof   dt        u            p            x           phi           mu      
+  113  1723 0.1000 1.3777e-04 - 2.4516e-02 - 5.3799e-05 - 2.4496e-03 - 2.5533e-01 - 
+
+Linfty_norm
+n_elm n_dof   dt        u            p            x           phi           mu      
+  113  1723 0.1000 3.0321e-04 - 3.8316e-02 - 1.2627e-04 - 5.9344e-03 - 3.0592e-01 - 
+
+H1_seminorm
+n_elm n_dof   dt        u            p            x           phi           mu      
+  113  1723 0.1000 1.6480e-03 - 1.3574e-01 - 7.5726e-04 - 1.2989e-02 - 1.4945e+00 - 

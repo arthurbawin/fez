@@ -222,8 +222,15 @@ namespace Parameters
         enum class RefinementStrategy
         {
           FixedNumber,
-          FixedFraction
+          FixedFraction,
+          InterfaceBand
         } refinement_strategy;
+
+        // Half width of the physical band around phi=0, divided by epsilon.
+        double interface_band_half_width_over_epsilon;
+
+        // Maximum cell diameter in the band, divided by epsilon.
+        double interface_band_diameter_over_epsilon;
 
         // Variables driving mesh refinement/coarsening
         std::vector<SolverInfo::VariableType> variables_for_adaptation;

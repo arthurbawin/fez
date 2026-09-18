@@ -12,6 +12,7 @@
 #include <errors.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_adaptation_tools.h>
 #include <elasticity_solver.h>
 #include <mesh_and_dof_tools.h>
 #include <navier_stokes_solver.h>
@@ -298,6 +299,22 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
   create_nonzero_constraints();
   create_sparsity_pattern();
 
+  // Fixed-number Kelly and interface-band prerefinement use the geometry
+  // compressed by the presolver. Other strategies retain their existing
+  // initialization order.
+  const auto refinement_strategy =
+    param.mesh.adaptation.tree_amr.refinement_strategy;
+  const bool presolve_before_prerefinement =
+    with_moving_mesh && !time_handler.is_steady() && interval_index == 0 &&
+    !param.checkpoint_restart.restart && param.with_tree_based_adaptation() &&
+    param.cahn_hilliard.use_presolver &&
+    (refinement_strategy ==
+       Parameters::Mesh::Adaptation::TreeAMR::RefinementStrategy::FixedNumber ||
+     refinement_strategy == Parameters::Mesh::Adaptation::TreeAMR::
+                              RefinementStrategy::InterfaceBand);
+  if (presolve_before_prerefinement)
+    initialize_solution();
+
   /**
    * Apply initial refinement.
    */
@@ -309,18 +326,28 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
          ++step)
     {
       update_boundary_conditions();
-      set_initial_conditions(false);
+      if (!presolve_before_prerefinement)
+        set_initial_conditions(false);
       adapt_mesh();
+      if (presolve_before_prerefinement)
+        set_initial_conditions(false, nullptr, true);
       prefix_data.prerefinement_step = step;
       output_results();
     }
     prefix_data.is_prerefinement_step = false;
   }
 
+  if (presolve_before_prerefinement)
+    for (auto &previous : *previous_solutions)
+      previous = *present_solution;
+
   if (!param.checkpoint_restart.restart)
   {
     if (interval_index == 0)
-      set_initial_conditions();
+    {
+      if (!presolve_before_prerefinement)
+        initialize_solution();
+    }
     else
       transient_fixed_point_data.transfer_solution_between_intervals(
         interval_index,
@@ -352,6 +379,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
         if (param.mms_param.enable || param.debug.apply_exact_solution)
           // Convergence study: start with exact solution at first time step
           set_exact_solution();
+        else if (with_moving_mesh && param.with_tree_based_adaptation() &&
+                 param.cahn_hilliard.use_presolver)
+        {
+          // Preserve the compressed initial state and update prescribed values.
+          *present_solution      = previous_solutions->front();
+          evaluation_point       = *present_solution;
+          local_evaluation_point = *present_solution;
+          update_boundary_conditions();
+          newton_update = *present_solution;
+        }
         else
           // Repeat initial condition
           set_initial_conditions();
@@ -741,8 +778,16 @@ void NavierStokesSolver<dim, with_moving_mesh>::create_nonzero_constraints()
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::initialize_solution()
+{
+  set_initial_conditions();
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions(
-  const bool rotate_solutions)
+  const bool             rotate_solutions,
+  ElasticitySolver<dim> *initial_presolver,
+  const bool             preserve_mesh_position)
 {
   /**
    * Mesh position should be evaluated and updated *BEFORE* evaluating fields on
@@ -757,28 +802,39 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions(
 
   if constexpr (with_moving_mesh)
   {
-    FixedMeshPosition<dim> fixed_mesh(ordering->x_lower,
-                                      ordering->n_components);
-
-    const Function<dim> *mesh_fun =
-      param.initial_conditions.set_to_mms ? exact_solution.get() : &fixed_mesh;
-
-    // Set mesh position with fixed mapping
-    VectorTools::interpolate(
-      *fixed_mapping, *dof_handler, *mesh_fun, newton_update, position_mask);
-
-    // Update MappingFEField *BEFORE* interpolating velocity
-    evaluation_point = newton_update;
-
-    // Inject the presolved mesh position (if a presolver is attached) before
-    // interpolating the other fields, so that they are evaluated on the
-    // presolved moving mesh.
-    if (presolver != nullptr)
+    if (preserve_mesh_position)
     {
-      *present_solution = newton_update;
-      overwrite_position_from_presolver(*presolver);
       newton_update    = *present_solution;
       evaluation_point = newton_update;
+    }
+    else
+    {
+      FixedMeshPosition<dim> fixed_mesh(ordering->x_lower,
+                                        ordering->n_components);
+
+      const Function<dim> *mesh_fun = param.initial_conditions.set_to_mms ?
+                                        exact_solution.get() :
+                                        &fixed_mesh;
+
+      // Set mesh position with fixed mapping
+      VectorTools::interpolate(
+        *fixed_mapping, *dof_handler, *mesh_fun, newton_update, position_mask);
+
+      // Update MappingFEField *BEFORE* interpolating velocity
+      evaluation_point = newton_update;
+
+      // Inject the presolved mesh position before
+      // interpolating the other fields, so that they are evaluated on the
+      // presolved moving mesh.
+      auto *position_presolver =
+        initial_presolver ? initial_presolver : presolver;
+      if (position_presolver != nullptr)
+      {
+        *present_solution = newton_update;
+        overwrite_position_from_presolver(*position_presolver);
+        newton_update    = *present_solution;
+        evaluation_point = newton_update;
+      }
     }
   }
 
@@ -806,13 +862,19 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions(
 }
 
 template <int dim, bool with_moving_mesh>
-void NavierStokesSolver<dim, with_moving_mesh>::overwrite_position_from_presolver(
-  ElasticitySolver<dim> &presolver)
+void NavierStokesSolver<dim, with_moving_mesh>::
+  overwrite_position_from_presolver(ElasticitySolver<dim> &presolver)
 {
+  if (param.with_tree_based_adaptation())
+    AssertThrow(&presolver.get_dof_handler().get_triangulation() ==
+                  &dof_handler->get_triangulation(),
+                ExcMessage(
+                  "The AMR presolver must share the CHNS triangulation."));
+
   local_evaluation_point = *present_solution;
 
-  // The presolver solves the elasticity (mesh-position) system alone, whose
-  // components 0..dim-1 map to this solver's mesh-position components.
+  // The presolver's components 0..dim-1 store the mesh position and map to
+  // this solver's mesh-position components.
   std::map<unsigned int, unsigned int> component_map;
   for (unsigned int d = 0; d < dim; ++d)
     component_map[d] = ordering->x_lower + d;
@@ -1281,26 +1343,89 @@ void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::compute_error_estimate()
 {
+  field_refinement_criteria.clear();
+  if (param.mesh.adaptation.tree_amr.refinement_strategy ==
+      Parameters::Mesh::Adaptation::TreeAMR::RefinementStrategy::InterfaceBand)
+  {
+    AssertThrow(ordering->has_variable(SolverInfo::VariableType::phase_tracer),
+                ExcMessage("interface band requires a phase tracer"));
+    if constexpr (dim == 2)
+    {
+      const auto  &amr     = param.mesh.adaptation.tree_amr;
+      const double epsilon = param.cahn_hilliard.epsilon_interface;
+      MeshTools::compute_interface_band_criterion<with_moving_mesh>(
+        *dof_handler,
+        *moving_mapping,
+        *present_solution,
+        ordering->phi_lower,
+        amr.interface_band_half_width_over_epsilon * epsilon,
+        amr.interface_band_diameter_over_epsilon * epsilon,
+        cellwise_refinement_criterion);
+    }
+    else
+      AssertThrow(false, ExcMessage("interface band currently requires 2D"));
+    return;
+  }
+
   TimerOutput::Scope t(computing_timer, "Compute Kelly error estimate");
 
   cellwise_refinement_criterion.reinit(triangulation->n_active_cells());
 
-  // FIXME: Implement adaptation with multiple variables
-  AssertThrow(param.mesh.adaptation.tree_amr.variables_for_adaptation.size() ==
-                1,
-              ExcMessage("Adaptation is limited to a single variable for now"));
+  const auto &variables =
+    param.mesh.adaptation.tree_amr.variables_for_adaptation;
+  AssertThrow(!variables.empty(),
+              ExcMessage("At least one variable is required for adaptation"));
 
-  for (const auto variable :
-       param.mesh.adaptation.tree_amr.variables_for_adaptation)
+  const bool multifield = variables.size() > 1;
+  if (multifield)
+    field_refinement_criteria.resize(
+      variables.size(), Vector<float>(triangulation->n_active_cells()));
+  unsigned int field_index = 0;
+
+  Vector<float> geometry_factors;
+  if constexpr (with_moving_mesh)
   {
+    geometry_factors.reinit(triangulation->n_active_cells());
+    for (const auto &cell : dof_handler->active_cell_iterators())
+      if (cell->is_locally_owned())
+      {
+        // Use the diameter between mapped vertices, also for higher-order
+        // mappings where the curved cell can extend beyond these vertices.
+        const double h_def =
+          MeshTools::mapped_cell_diameter(*moving_mapping, cell);
+        const double h_ref = cell->diameter();
+        AssertThrow(std::isfinite(h_ref) && h_ref > 0. &&
+                      std::isfinite(h_def) && h_def > 0.,
+                    ExcMessage("Invalid cell diameter in ALE error estimate"));
+        geometry_factors[cell->active_cell_index()] = std::sqrt(h_def / h_ref);
+      }
+  }
+
+  for (const auto variable : variables)
+  {
+    AssertThrow(ordering->has_variable(variable),
+                ExcMessage(
+                  "The solver does not store the adaptation variable " +
+                  SolverInfo::to_string(variable)));
+
+    auto &criterion = multifield ? field_refinement_criteria[field_index++] :
+                                   cellwise_refinement_criterion;
     KellyErrorEstimator<dim>::estimate(
       *moving_mapping,
       *dof_handler,
       *error_face_quadrature,
       std::map<types::boundary_id, const Function<dim> *>(),
       *present_solution,
-      cellwise_refinement_criterion,
+      criterion,
       get_component_mask(variable));
+
+    // Kelly's default cell_diameter_over_24 uses the reference diameter.
+    // Correct each field before its independent cell selection.
+    if constexpr (with_moving_mesh)
+      for (const auto &cell : dof_handler->active_cell_iterators())
+        if (cell->is_locally_owned())
+          criterion[cell->active_cell_index()] *=
+            geometry_factors[cell->active_cell_index()];
   }
 }
 
@@ -1312,7 +1437,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
 
   // Adapt the mesh(es): either with a riemannian metric, or with the cellwise
   // error criteria.
-  transient_fixed_point_data.adapt_meshes(cellwise_refinement_criterion);
+  auto *additional_solution = time_handler.get_additional_solution();
+  transient_fixed_point_data.adapt_meshes(cellwise_refinement_criterion,
+                                          field_refinement_criteria,
+                                          additional_solution);
 
   // Re-setup up the dof_handler, constraints and linear algebra structures.
   // For steady-state convergence studies, we're doing the work twice, here
@@ -1321,6 +1449,46 @@ void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
   {
     setup_dofs();
     setup_mappings();
+
+    if constexpr (with_moving_mesh)
+    {
+      // Restore the deformed geometry before evaluating boundary conditions
+      // and pressure constraints on the new mesh. Past mesh positions are
+      // transferred with the other BDF fields, using only hanging-node
+      // constraints so their time-dependent boundary values are preserved.
+      AffineConstraints<double> hanging_node_constraints(locally_owned_dofs,
+                                                         locally_relevant_dofs);
+      DoFTools::make_hanging_node_constraints(*dof_handler,
+                                              hanging_node_constraints);
+      hanging_node_constraints.close();
+      transient_fixed_point_data.transfer_solution_between_refinements(
+        locally_relevant_dofs,
+        hanging_node_constraints,
+        additional_solution);
+      local_evaluation_point = *present_solution;
+
+      // New boundary nodes must satisfy the prescribed position before any
+      // fluid boundary values or pressure weights use the moving mapping.
+      AffineConstraints<double> position_constraints(locally_owned_dofs,
+                                                     locally_relevant_dofs);
+      DoFTools::make_hanging_node_constraints(*dof_handler,
+                                              position_constraints);
+      BoundaryConditions::apply_mesh_position_boundary_conditions(
+        false,
+        ordering->x_lower,
+        ordering->n_components,
+        *dof_handler,
+        *fixed_mapping,
+        param.pseudosolid_bc,
+        *exact_solution,
+        *param.mms.exact_mesh_position,
+        position_constraints);
+      position_constraints.close();
+      position_constraints.distribute(local_evaluation_point);
+      *present_solution      = local_evaluation_point;
+      evaluation_point       = local_evaluation_point;
+    }
+
     create_scratch_data();
     constrained_pressure_dof = numbers::invalid_dof_index;
     if (param.bc_data.enforce_zero_mean_pressure)
@@ -1337,8 +1505,15 @@ void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
                                                   *moving_mapping,
                                                   *quadrature,
                                                   with_moving_mesh);
-    transient_fixed_point_data.transfer_solution_between_refinements(
-      locally_relevant_dofs, nonzero_constraints);
+    if constexpr (with_moving_mesh)
+    {
+      nonzero_constraints.distribute(local_evaluation_point);
+      *present_solution = local_evaluation_point;
+      evaluation_point  = local_evaluation_point;
+    }
+    else
+      transient_fixed_point_data.transfer_solution_between_refinements(
+        locally_relevant_dofs, nonzero_constraints, additional_solution);
   }
 }
 

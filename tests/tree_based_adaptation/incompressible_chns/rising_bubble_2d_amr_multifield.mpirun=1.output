@@ -1,0 +1,59 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 32
+ boundary indicators: 0(8 faces) 1(8 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 441
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 50
+Number of degrees of freedom: 694
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 110
+Number of degrees of freedom: 1492
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 218
+Number of degrees of freedom: 2925
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 464
+Number of degrees of freedom: 6071
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 986
+Number of degrees of freedom: 12560
+Integral of phase_tracer: +1.60641736e+00
+
+Time step 1 - Advancing to t = 0.01.
+Newton iter.  0:          nonlinear residual = 1.32836840e+02
+	Line search with alpha = 1.000 : res = 1.84640896e-01
+Newton iter.  1:          nonlinear residual = 1.84640896e-01	(M)
+	Line search with alpha = 1.000 : res = 1.91383908e-04
+Newton iter.  2:          nonlinear residual = 1.91383908e-04	(M)
+	Line search with alpha = 1.000 : res = 3.30973751e-10
+Newton iter.  3:          nonlinear residual = 3.30973751e-10	(M)
+	Line search with alpha = 1.000 : res = 4.39626068e-13
+Stopping because residual is below prescribed tolerance (1.00e-10)
+Integral of phase_tracer: +1.60641736e+00
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 2234
+Number of degrees of freedom: 27548
+
+Time step 2 - Advancing to t = 2.00e-02.
+Newton iter.  0:          nonlinear residual = 7.71523097e+00
+	Line search with alpha = 1.000 : res = 2.29900893e-01
+Newton iter.  1:          nonlinear residual = 2.29900893e-01	(M)
+	Line search with alpha = 1.000 : res = 1.19249790e-03
+Newton iter.  2:          nonlinear residual = 1.19249790e-03	(M)
+	Line search with alpha = 1.000 : res = 4.08370732e-08
+Newton iter.  3:          nonlinear residual = 4.08370732e-08	(M)
+	Line search with alpha = 1.000 : res = 3.84650734e-13
+Stopping because residual is below prescribed tolerance (1.00e-10)
+Integral of phase_tracer: +1.60641736e+00

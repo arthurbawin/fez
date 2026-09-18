@@ -563,12 +563,13 @@ namespace ErrorEstimation
              * layer is local to the partition.
              */
             for (const auto &cell : dof_handler.active_cell_iterators())
-              for (unsigned int i = 0; i < cell->n_vertices(); ++i)
-                if (cell->vertex_index(i) == v)
-                {
-                  new_cells.insert(cell);
-                  break;
-                }
+              if (!cell->is_artificial())
+                for (unsigned int i = 0; i < cell->n_vertices(); ++i)
+                  if (cell->vertex_index(i) == v)
+                  {
+                    new_cells.insert(cell);
+                    break;
+                  }
 
             // On one of the cells in the first layer, find with which dof(s)
             // the center of the patch is associated, if any (only valid for
@@ -606,19 +607,20 @@ namespace ErrorEstimation
              * points.
              */
             for (const auto &cell : dof_handler.active_cell_iterators())
-            {
-              cell->get_dof_indices(local_dofs);
-              for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
-                if (mask[fe.system_to_component_index(i).first])
-                {
-                  // Add cell if one of its dofs is in current patch
-                  if (patch.neighbours_map.count(local_dofs[i]) > 0)
+              if (!cell->is_artificial())
+              {
+                cell->get_dof_indices(local_dofs);
+                for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
+                  if (mask[fe.system_to_component_index(i).first])
                   {
-                    new_cells.insert(cell);
-                    break;
+                    // Add cell if one of its dofs is in current patch
+                    if (patch.neighbours_map.count(local_dofs[i]) > 0)
+                    {
+                      new_cells.insert(cell);
+                      break;
+                    }
                   }
-                }
-            }
+              }
 
             /**
              * Prepare the request for the non-local cells touching any of the

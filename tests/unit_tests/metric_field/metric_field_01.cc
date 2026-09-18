@@ -1,5 +1,7 @@
 
 #include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria.h>
+#include <deal.II/grid/grid_generator.h>
 
 #include "../../tests.h"
 
@@ -8,6 +10,34 @@
 #include "metric_field.h"
 #include "parameter_reader.h"
 #include "parameters.h"
+
+void test_distributed_mesh_with_artificial_cells()
+{
+  Parameters::BoundaryConditionsData dummy_bc;
+  dummy_bc.n_metric_fields = 1;
+  ParameterHandler    prm;
+  ParameterReader<2>  param(dummy_bc);
+  param.declare(prm);
+  prm.enter_subsection("Metric tensor fields");
+  prm.enter_subsection("Metric field 0");
+  prm.set("variable", "temperature");
+  prm.leave_subsection();
+  prm.leave_subsection();
+  prm.enter_subsection("FiniteElements");
+  prm.set("use quads", "true");
+  prm.leave_subsection();
+  param.read(prm);
+
+  parallel::distributed::Triangulation<2> triangulation(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(triangulation,
+                                            {40, 60},
+                                            Point<2>(),
+                                            Point<2>(1., 2.),
+                                            true);
+
+  MetricField<2> metrics(0, param, triangulation);
+  AssertDimension(metrics.get_metrics().size(), triangulation.n_vertices());
+}
 
 /**
  * Create an optimal metric field for P1 interpolation error control.
@@ -77,6 +107,7 @@ int main(int argc, char **argv)
     initlog();
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
     // MPILogInitAll                    log;
+    test_distributed_mesh_with_artificial_cells();
     test<2>();
     test<3>();
   }

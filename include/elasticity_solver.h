@@ -66,11 +66,15 @@ public:
    * enlarged Cahn-Hilliard marker psi as an extra finite-element field (hybrid
    * mode: analytic phi source, psi FE unknown), so the presolved mesh matches
    * the equilibrium of the enlarged CHNS-ALE solver. The physical tracer phi
-   * stays analytic. psi is reconstructed but NOT injected into the CHNS solver
-   * (only the mesh position is handed off).
+   * stays analytic. The CHNS handoff copies the mesh position and, for the
+   * enlarged solver, the reconstructed psi field.
+   * An optional reference triangulation is borrowed and must outlive the
+   * solver. Its topology and reference vertices are left unchanged.
    */
   ElasticitySolver(const ParameterReader<dim> &param,
-                   const bool                  with_enlarged_psi = false);
+                   const bool                  with_enlarged_psi = false,
+                   parallel::DistributedTriangulationBase<dim>
+                     *reference_triangulation = nullptr);
 
   virtual ~ElasticitySolver() = default;
 
@@ -148,9 +152,9 @@ public:
    * Try to load the presolved mesh position from the disk cache. The cache is
    * keyed by support-point location (so it is reusable with a different number
    * of MPI processes) and guarded by a fingerprint of the presolver-defining
-   * parameters. Returns true on success; on failure it falls back to solving
-   * (unless the cache mode is read_only, which then throws). Reads the mesh and
-   * sets up the DoFs as a side effect.
+   * parameters. In reuse mode, returns true on success and false when the
+   * caller must recompute the presolved fields. Reads the mesh and sets up
+   * the DoFs as a side effect.
    */
   bool try_load_presolved_mesh_cache();
 
@@ -170,6 +174,8 @@ public:
   void compute_errors();
 
   virtual void output_results();
+
+  void output_results(const Mapping<dim> &output_mapping);
 
   /**
    *
@@ -201,10 +207,12 @@ protected:
   std::unique_ptr<Quadrature<dim - 1>> face_quadrature;
   std::unique_ptr<Quadrature<dim - 1>> error_face_quadrature;
 
-  parallel::fullydistributed::Triangulation<dim> triangulation;
+  std::unique_ptr<parallel::fullydistributed::Triangulation<dim>>
+    owned_triangulation;
+  parallel::DistributedTriangulationBase<dim> &triangulation;
   std::unique_ptr<Mapping<dim>>                  mapping;
   DoFHandler<dim>                                dof_handler;
-  TimeHandler                                    time_handler; // dummy
+  TimeHandler                                    time_handler;
 
   std::unique_ptr<ScratchData>            scratch_data;
   std::vector<std::unique_ptr<Assembler>> assemblers;

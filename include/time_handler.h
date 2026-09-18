@@ -103,6 +103,13 @@ public:
                    std::vector<LA::ParVectorType> &previous_solutions) const;
 
   /**
+   * Return the additional BDF solution when it has been initialized, or a null
+   * pointer otherwise. This vector must be transferred with the other BDF
+   * solutions when the mesh changes.
+   */
+  LA::ParVectorType *get_additional_solution();
+
+  /**
    * Return a copy of the current BDF coefficients.
    */
   const std::vector<double> &get_bdf_coefficients() const;

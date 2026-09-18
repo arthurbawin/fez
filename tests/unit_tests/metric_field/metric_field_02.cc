@@ -1,9 +1,13 @@
 
 #include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria.h>
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
+#include <deal.II/fe/mapping_q.h>
 #include <deal.II/fe/mapping_fe.h>
+#include <deal.II/grid/grid_generator.h>
 
 #include "../../tests.h"
 
@@ -14,6 +18,45 @@
 #include "metric_field.h"
 #include "parameter_reader.h"
 #include "parameters.h"
+
+void test_patches_ignore_artificial_cells()
+{
+  Parameters::BoundaryConditionsData dummy_bc;
+  dummy_bc.n_metric_fields = 1;
+  ParameterHandler    prm;
+  ParameterReader<2>  param(dummy_bc);
+  param.declare(prm);
+  prm.enter_subsection("Metric tensor fields");
+  prm.enter_subsection("Metric field 0");
+  prm.set("variable", "temperature");
+  prm.leave_subsection();
+  prm.leave_subsection();
+  prm.enter_subsection("FiniteElements");
+  prm.set("use quads", "true");
+  prm.leave_subsection();
+  param.read(prm);
+
+  parallel::distributed::Triangulation<2> triangulation(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(triangulation,
+                                            {40, 60},
+                                            Point<2>(),
+                                            Point<2>(1., 2.),
+                                            true);
+
+  MappingQ<2>   mapping(1);
+  FESystem<2>   fe(FE_Q<2>(2), 1);
+  DoFHandler<2> dof_handler(triangulation);
+  dof_handler.distribute_dofs(fe);
+  const auto owned    = dof_handler.locally_owned_dofs();
+  const auto relevant = DoFTools::extract_locally_relevant_dofs(dof_handler);
+  LA::ParVectorType solution;
+  solution.reinit(owned, relevant, MPI_COMM_WORLD);
+
+  ErrorEstimation::PatchHandler<2> patches(
+    triangulation, mapping, dof_handler, solution, 3);
+  patches.build_patches();
+  AssertDimension(patches.get_patches().size(), triangulation.n_vertices());
+}
 
 template <int dim>
 class ScalarField : public Function<dim>
@@ -154,6 +197,7 @@ int main(int argc, char **argv)
     initlog();
     Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
     // MPILogInitAll                    log;
+    test_patches_ignore_artificial_cells();
     test<2>();
     test<3>();
   }

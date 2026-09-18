@@ -115,6 +115,9 @@ void MetricField<dim>::reinit(const unsigned int          index,
   // Loop over owned and ghost cells
   for (const auto &cell : dof_handler.active_cell_iterators())
   {
+    if (cell->is_artificial())
+      continue;
+
     cell->get_dof_indices(local_dof_indices);
     for (unsigned int v = 0; v < cell->n_vertices(); ++v)
     {

@@ -68,6 +68,12 @@ public:
   void rotate_additional_solution(const LA::ParVectorType &solution);
 
   /**
+   * Return the additional solution used by the truncation error estimator so
+   * that it can be transferred when the mesh changes.
+   */
+  LA::ParVectorType &get_additional_solution();
+
+  /**
    * Compute the next time step based on the truncation error estimate.
    * The maximum error is computed over all dofs and stored independently for
    * each variable. The next time step is set as the most critical time step

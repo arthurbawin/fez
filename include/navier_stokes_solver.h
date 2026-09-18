@@ -78,9 +78,9 @@ public:
   virtual void update_constraints_for_evaluation_point() override;
 
   /**
-   * Attach an elasticity presolver whose presolved mesh position is injected
-   * as the initial mesh when the initial conditions are created. The presolver
-   * remains owned by the caller.
+   * Attach an elasticity presolver whose mesh position and optional enlarged
+   * psi field are injected when the initial conditions are created. The
+   * presolver remains owned by the caller.
    */
   void attach_presolver(ElasticitySolver<dim> *new_presolver)
   {
@@ -280,15 +280,24 @@ public:
   virtual void create_sparsity_pattern() = 0;
 
   /**
-   * Apply the initial conditions for velocity, pressure and mesh position.
-   * Initial conditions on additional fields must be set in the solver-specific
-   * overload.
+   * Initialize the solution and, when enabled, run the elasticity presolver.
    */
-  void set_initial_conditions(const bool rotate_solutions = true);
+  virtual void initialize_solution();
 
   /**
-   * Overwrite the mesh-position field of the current solution with the
-   * presolved mesh position obtained from the attached elasticity presolver.
+   * Apply the initial conditions for velocity, pressure and mesh position.
+   * Initial conditions on additional fields must be set in the solver-specific
+   * overload. During prerefinement after the presolver, preserve the
+   * transferred mesh positions and refresh only the physical fields.
+   */
+  void
+  set_initial_conditions(const bool             rotate_solutions  = true,
+                         ElasticitySolver<dim> *initial_presolver = nullptr,
+                         const bool             preserve_mesh_position = false);
+
+  /**
+   * Copy the mesh position and, when present in both solvers, the enlarged
+   * psi field from the supplied elasticity presolver into the current solution.
    */
   void overwrite_position_from_presolver(ElasticitySolver<dim> &presolver);
 
@@ -638,7 +647,7 @@ protected:
   std::vector<LA::ParVectorType> *previous_solutions;
 
   // Optional elasticity presolver, owned by the caller, providing the
-  // presolved initial mesh position. Null when no presolver is attached.
+  // presolved initial mesh position and optional psi field. Null when detached.
   ElasticitySolver<dim> *presolver = nullptr;
 
   std::shared_ptr<Function<dim>> source_terms;
@@ -663,6 +672,7 @@ protected:
    * enabled.
    */
   Vector<float> cellwise_refinement_criterion;
+  std::vector<Vector<float>> field_refinement_criteria;
 };
 
 /* ---------------- template and inline functions ----------------- */

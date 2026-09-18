@@ -276,6 +276,14 @@ void TimeHandler::rotate_solutions(
   }
 }
 
+LA::ParVectorType *TimeHandler::get_additional_solution()
+{
+  if (!error_estimator)
+    return nullptr;
+  auto &additional_solution = error_estimator->get_additional_solution();
+  return additional_solution.size() > 0 ? &additional_solution : nullptr;
+}
+
 const std::vector<double> &TimeHandler::get_bdf_coefficients() const
 {
   return bdf_coefficients;

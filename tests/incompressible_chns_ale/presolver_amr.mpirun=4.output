@@ -1,0 +1,99 @@
+Number of MPI processes: 4
+Mesh info:
+ dimension: 2
+ no. of cells: 16
+ boundary indicators: 0(4 faces) 1(4 faces) 2(4 faces) 3(4 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 287
+Number of degrees of freedom: 50
+
+Continuation method - Step 1/4 : chns compression multiplier = 0.1
+
+Newton iter.  0:          nonlinear residual = 2.33529112e-03
+	Line search with alpha = 1.000 : res = 1.69212001e-07
+Newton iter.  1:          nonlinear residual = 1.69212001e-07	(M)
+	Line search with alpha = 1.000 : res = 1.47343735e-15
+Stopping because residual is below prescribed tolerance (1.00e-09)
+
+Continuation method - Step 2/4 : chns compression multiplier = 2.15e-01
+
+Newton iter.  0:          nonlinear residual = 2.69701490e-03
+	Line search with alpha = 1.000 : res = 2.25469595e-07
+Newton iter.  1:          nonlinear residual = 2.25469595e-07	(M)
+	Line search with alpha = 1.000 : res = 2.68726287e-15
+Stopping because residual is below prescribed tolerance (1.00e-09)
+
+Continuation method - Step 3/4 : chns compression multiplier = 4.64e-01
+
+Newton iter.  0:          nonlinear residual = 5.81321368e-03
+	Line search with alpha = 1.000 : res = 1.04677161e-06
+Newton iter.  1:          nonlinear residual = 1.04677161e-06	(M)
+	Line search with alpha = 1.000 : res = 5.32610850e-14
+Stopping because residual is below prescribed tolerance (1.00e-09)
+
+Continuation method - Step 4/4 : chns compression multiplier = 1.00e+00
+
+Newton iter.  0:          nonlinear residual = 1.25365915e-02
+	Line search with alpha = 1.000 : res = 4.87300034e-06
+Newton iter.  1:          nonlinear residual = 4.87300034e-06	(M)
+	Line search with alpha = 1.000 : res = 1.07108284e-12
+Stopping because residual is below prescribed tolerance (1.00e-09)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 28
+Number of degrees of freedom: 513
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 52
+Number of degrees of freedom: 879
+
+Time step 1 - Advancing to t = 1.00e-03.
+Newton iter.  0:          nonlinear residual = 1.57040549e-01
+	Line search with alpha = 1.000 : res = 5.45631113e-03
+Newton iter.  1:          nonlinear residual = 5.45631113e-03	(M)
+	Line search with alpha = 1.000 : res = 6.25226338e-08
+Newton iter.  2:          nonlinear residual = 6.25226338e-08	(M)
+	Line search with alpha = 1.000 : res = 6.10697264e-15
+Stopping because residual is below prescribed tolerance (1.00e-09)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 112
+Number of degrees of freedom: 1851
+
+Time step 2 - Advancing to t = 1.00e-02.
+Newton iter.  0:          nonlinear residual = 1.30919126e+00
+	Line search with alpha = 1.000 : res = 1.18196887e-02
+Newton iter.  1:          nonlinear residual = 1.18196887e-02	(M)
+	Line search with alpha = 1.000 : res = 3.86513975e-07
+Newton iter.  2:          nonlinear residual = 3.86513975e-07	(M)
+	Line search with alpha = 1.000 : res = 3.27360503e-15
+Stopping because residual is below prescribed tolerance (1.00e-09)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 220
+Number of degrees of freedom: 3205
+
+Time step 3 - Advancing to t = 2.00e-02.
+Newton iter.  0:          nonlinear residual = 3.93877727e-01
+	Line search with alpha = 1.000 : res = 1.41841912e-03
+Newton iter.  1:          nonlinear residual = 1.41841912e-03	(M)
+	Line search with alpha = 1.000 : res = 6.77968985e-09
+Newton iter.  2:          nonlinear residual = 6.77968985e-09	(M)
+	Line search with alpha = 1.000 : res = 4.35571614e-15
+Stopping because residual is below prescribed tolerance (1.00e-09)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 496
+Number of degrees of freedom: 7603
+
+Time step 4 - Advancing to t = 3.00e-02.
+Newton iter.  0:          nonlinear residual = 1.42790166e-01
+	Line search with alpha = 1.000 : res = 4.25253714e-04
+Newton iter.  1:          nonlinear residual = 4.25253714e-04	(M)
+	Line search with alpha = 1.000 : res = 3.54676451e-09
+Newton iter.  2:          nonlinear residual = 3.54676451e-09	(M)
+	Line search with alpha = 1.000 : res = 6.83175686e-15
+Stopping because residual is below prescribed tolerance (1.00e-09)

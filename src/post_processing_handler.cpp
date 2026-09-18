@@ -178,28 +178,20 @@ void PostProcessingHandler<dim>::write_pvd(const PrefixData &prefix_data) const
     {
       std::ofstream pvd_output(output_param.output_dir +
                                output_param.output_prefix + suffix);
-      DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    prefix_data.is_prerefinement_step ?
+                                      prerefinements_pseudotimes_and_names :
+                                      visualization_times_and_names);
     }
     if (output_param.skin.write_results)
     {
       std::ofstream pvd_output(output_param.output_dir +
                                output_param.skin.output_prefix + suffix);
-      DataOutBase::write_pvd_record(pvd_output,
-                                    visualization_times_and_names_skin);
-    }
-    if (!prerefinements_pseudotimes_and_names.empty())
-    {
-      std::ofstream pvd_output(output_param.output_dir +
-                               output_param.output_prefix + suffix);
-      DataOutBase::write_pvd_record(pvd_output,
-                                    prerefinements_pseudotimes_and_names);
-    }
-    if (!prerefinements_pseudotimes_and_names_skin.empty())
-    {
-      std::ofstream pvd_output(output_param.output_dir +
-                               output_param.skin.output_prefix + suffix);
-      DataOutBase::write_pvd_record(pvd_output,
-                                    prerefinements_pseudotimes_and_names_skin);
+      DataOutBase::write_pvd_record(
+        pvd_output,
+        prefix_data.is_prerefinement_step ?
+          prerefinements_pseudotimes_and_names_skin :
+          visualization_times_and_names_skin);
     }
   }
 }
@@ -289,6 +281,8 @@ void PostProcessingHandler<dim>::clear()
   auxiliary_continuous_fields.clear();
   visualization_times_and_names.clear();
   visualization_times_and_names_skin.clear();
+  prerefinements_pseudotimes_and_names.clear();
+  prerefinements_pseudotimes_and_names_skin.clear();
   subdomains.reinit(0);
   slice_indices.reinit(0);
 }

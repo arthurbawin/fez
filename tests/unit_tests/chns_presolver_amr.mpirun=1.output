@@ -1,0 +1,2 @@
+
+DEAL::Presolver compression, phase, psi and BDF history survive AMR initialization

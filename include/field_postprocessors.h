@@ -94,6 +94,11 @@ namespace PostProcessingTools
         &component_interpretation);
 
     /**
+     * Virtual destructor.
+     */
+    virtual ~PostprocessorAtDofBase() = default;
+
+    /**
      * Postprocess the @p present_solution vector. This function fills the
      * underlying solution vector.
      *
@@ -219,8 +224,8 @@ namespace PostProcessingTools
    * With simplices, the mass matrix is not diagonal in general, but it is SPD,
    * so we can use a conjugate gradient solver to solve the system efficiently.
    */
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>
@@ -332,8 +337,8 @@ namespace PostProcessingTools
    *                   u_i =   -------------------------------- .
    *                              int_{K including i} 1 dx
    */
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>
@@ -460,8 +465,8 @@ namespace PostProcessingTools
                                      data_interpretation);
   }
 
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>
@@ -529,8 +534,8 @@ namespace PostProcessingTools
     this->evaluator.reinit(*this);
   }
 
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>
@@ -556,8 +561,8 @@ namespace PostProcessingTools
                          this->mpi_communicator);
   }
 
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>
@@ -679,8 +684,8 @@ namespace PostProcessingTools
     }
   }
 
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>
@@ -716,8 +721,8 @@ namespace PostProcessingTools
     }
   }
 
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>
@@ -731,8 +736,8 @@ namespace PostProcessingTools
     this->solve();
   }
 
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>
@@ -782,8 +787,8 @@ namespace PostProcessingTools
     this->evaluator.reinit(*this);
   }
 
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>
@@ -797,8 +802,8 @@ namespace PostProcessingTools
     weights.reinit(locally_owned_dofs, this->mpi_communicator);
   }
 
-  template <int dim,
-            int n_components,
+  template <int          dim,
+            unsigned int n_components,
             typename Evaluator,
             typename QuantityType,
             typename ShapeType>

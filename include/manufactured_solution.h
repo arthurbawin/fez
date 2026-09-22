@@ -248,9 +248,14 @@ namespace ManufacturedSolutions
     }
 
     /**
-     * Vector laplacian.
+     * Vector laplacian. This one returns the laplacian, whereas deal.II's
+     * function take a reference to the result.
      */
-    virtual Tensor<1, dim> vector_laplacian(const Point<dim> &p) const final
+
+    // This avoids -Woverloaded-virtual warnings
+    using Function<dim>::vector_laplacian;
+
+    Tensor<1, dim> vector_laplacian(const Point<dim> &p) const
     {
       Assert(this->n_components == dim,
              ExcMessage(

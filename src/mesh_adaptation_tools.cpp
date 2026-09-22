@@ -352,15 +352,12 @@ namespace MeshTools
             }
           }
 
-          AssertThrow(
-            entity_found, ExcMessage(([&]() {
-              std::ostringstream message;
-              message << "Physical entity with name \"" << name
-                      << "\" and (dimension, gmsh tag) = (" << entity_dim
-                      << ", " << tag
-                      << ") could not be reassigned after mesh adaptation :/";
-              return message.str();
-            })()));
+          std::ostringstream message;
+          message << "Physical entity with name \"" << name
+                  << "\" and (dimension, gmsh tag) = (" << entity_dim << ", "
+                  << tag
+                  << ") could not be reassigned after mesh adaptation :/";
+          AssertThrow(entity_found, ExcMessage(message.str()));
         }
       }
 

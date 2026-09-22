@@ -35,3 +35,6 @@
 build*/*
 data/*
 tmp/*
+
+# MacOS finder file
+.DS_Store

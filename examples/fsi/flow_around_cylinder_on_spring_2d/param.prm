@@ -33,6 +33,18 @@ subsection Postprocessing
     set output frequency = 1
     set precision        = 10
   end
+
+  subsection vorticity
+    set enable             = true
+    set output frequency   = 1
+    set computation method = l2 projection
+    set degree             = 1
+  end
+
+  subsection mesh velocity
+    set enable             = true
+    set output frequency   = 1
+  end
 end
 
 subsection Mesh

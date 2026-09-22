@@ -23,20 +23,20 @@ Number of degrees of freedom: 486
 	Current mesh file                 : ../../../starting_mesh.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 226
+	Number of mesh vertices after adaptation : 209
 
 Convergence test with mesh adaptation - Fixed-point iteration 2/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 416
- boundary indicators: 1(2 faces) 2(2 faces) 3(15 faces) 4(15 faces) 
+ no. of cells: 391
+ boundary indicators: 1(2 faces) 2(2 faces) 3(11 faces) 4(10 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 226
+Number of degrees of freedom: 209
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -49,46 +49,20 @@ Number of degrees of freedom: 226
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 219
+	Number of mesh vertices after adaptation : 201
 
 Convergence test with mesh adaptation - Fixed-point iteration 3/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 405
- boundary indicators: 1(2 faces) 2(2 faces) 3(13 faces) 4(14 faces) 
-ID 1 -> x_min
-ID 2 -> x_max
-ID 3 -> y_min
-ID 4 -> y_max
-ID 5 -> Domain
-Number of degrees of freedom: 219
-
--- Reconstructing solution and derivatives of order up to 2...
-
--- Computing optimal Riemannian metric...
-	Target number of mesh vertices                   : 200
-	Target norm for interpolation error minimization : L2
-	Polynomial degree of the solution                : 1
-
--- Adapting the mesh with Gmsh and MMG...
-	Current mesh file                 : ././adapted_0.msh
-	Target mesh file after adaptation : ././adapted_0.msh
-	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 217
-
-Convergence test with mesh adaptation - Fixed-point iteration 4/5
-Mesh file was changed to ././adapted.msh
-Mesh info:
- dimension: 2
- no. of cells: 400
+ no. of cells: 368
  boundary indicators: 1(3 faces) 2(2 faces) 3(15 faces) 4(12 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 217
+Number of degrees of freedom: 201
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -101,20 +75,20 @@ Number of degrees of freedom: 217
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 222
+	Number of mesh vertices after adaptation : 203
 
-Convergence test with mesh adaptation - Fixed-point iteration 5/5
+Convergence test with mesh adaptation - Fixed-point iteration 4/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 409
- boundary indicators: 1(2 faces) 2(2 faces) 3(15 faces) 4(14 faces) 
+ no. of cells: 376
+ boundary indicators: 1(2 faces) 2(2 faces) 3(12 faces) 4(12 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 222
+Number of degrees of freedom: 203
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -127,7 +101,33 @@ Number of degrees of freedom: 222
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 231
+	Number of mesh vertices after adaptation : 205
+
+Convergence test with mesh adaptation - Fixed-point iteration 5/5
+Mesh file was changed to ././adapted.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 381
+ boundary indicators: 1(2 faces) 2(2 faces) 3(12 faces) 4(11 faces) 
+ID 1 -> x_min
+ID 2 -> x_max
+ID 3 -> y_min
+ID 4 -> y_max
+ID 5 -> Domain
+Number of degrees of freedom: 205
+
+-- Reconstructing solution and derivatives of order up to 2...
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 200
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh
+	Number of mesh vertices after adaptation : 202
 
 Mesh file was changed to ../../../starting_mesh.msh
 Convergence test with mesh adaptation - Fixed-point iteration 1/5
@@ -153,20 +153,20 @@ Number of degrees of freedom: 486
 	Current mesh file                 : ../../../starting_mesh.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 413
+	Number of mesh vertices after adaptation : 361
 
 Convergence test with mesh adaptation - Fixed-point iteration 2/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 780
- boundary indicators: 1(3 faces) 2(3 faces) 3(20 faces) 4(18 faces) 
+ no. of cells: 688
+ boundary indicators: 1(2 faces) 2(2 faces) 3(15 faces) 4(13 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 413
+Number of degrees of freedom: 361
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -179,20 +179,20 @@ Number of degrees of freedom: 413
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 444
+	Number of mesh vertices after adaptation : 392
 
 Convergence test with mesh adaptation - Fixed-point iteration 3/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 843
- boundary indicators: 1(3 faces) 2(3 faces) 3(18 faces) 4(19 faces) 
+ no. of cells: 747
+ boundary indicators: 1(2 faces) 2(2 faces) 3(16 faces) 4(15 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 444
+Number of degrees of freedom: 392
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -205,20 +205,20 @@ Number of degrees of freedom: 444
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 456
+	Number of mesh vertices after adaptation : 393
 
 Convergence test with mesh adaptation - Fixed-point iteration 4/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 863
- boundary indicators: 1(3 faces) 2(3 faces) 3(20 faces) 4(21 faces) 
+ no. of cells: 749
+ boundary indicators: 1(2 faces) 2(2 faces) 3(15 faces) 4(16 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 456
+Number of degrees of freedom: 393
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -231,20 +231,20 @@ Number of degrees of freedom: 456
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 436
+	Number of mesh vertices after adaptation : 393
 
 Convergence test with mesh adaptation - Fixed-point iteration 5/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 826
- boundary indicators: 1(3 faces) 2(3 faces) 3(18 faces) 4(20 faces) 
+ no. of cells: 748
+ boundary indicators: 1(2 faces) 2(2 faces) 3(16 faces) 4(16 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 436
+Number of degrees of freedom: 393
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -257,7 +257,7 @@ Number of degrees of freedom: 436
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 435
+	Number of mesh vertices after adaptation : 406
 
 Mesh file was changed to ../../../starting_mesh.msh
 Convergence test with mesh adaptation - Fixed-point iteration 1/5
@@ -283,20 +283,20 @@ Number of degrees of freedom: 486
 	Current mesh file                 : ../../../starting_mesh.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 773
+	Number of mesh vertices after adaptation : 699
 
 Convergence test with mesh adaptation - Fixed-point iteration 2/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 1487
- boundary indicators: 1(4 faces) 2(4 faces) 3(25 faces) 4(24 faces) 
+ no. of cells: 1354
+ boundary indicators: 1(3 faces) 2(3 faces) 3(19 faces) 4(17 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 773
+Number of degrees of freedom: 699
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -309,20 +309,20 @@ Number of degrees of freedom: 773
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 868
+	Number of mesh vertices after adaptation : 822
 
 Convergence test with mesh adaptation - Fixed-point iteration 3/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 1681
- boundary indicators: 1(4 faces) 2(4 faces) 3(24 faces) 4(21 faces) 
+ no. of cells: 1590
+ boundary indicators: 1(3 faces) 2(3 faces) 3(24 faces) 4(22 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 868
+Number of degrees of freedom: 822
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -335,20 +335,20 @@ Number of degrees of freedom: 868
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 862
+	Number of mesh vertices after adaptation : 831
 
 Convergence test with mesh adaptation - Fixed-point iteration 4/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 1663
- boundary indicators: 1(4 faces) 2(4 faces) 3(26 faces) 4(25 faces) 
+ no. of cells: 1610
+ boundary indicators: 1(3 faces) 2(3 faces) 3(22 faces) 4(22 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 862
+Number of degrees of freedom: 831
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -361,20 +361,20 @@ Number of degrees of freedom: 862
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 866
+	Number of mesh vertices after adaptation : 835
 
 Convergence test with mesh adaptation - Fixed-point iteration 5/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 1671
- boundary indicators: 1(4 faces) 2(4 faces) 3(26 faces) 4(25 faces) 
+ no. of cells: 1616
+ boundary indicators: 1(3 faces) 2(3 faces) 3(23 faces) 4(23 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 866
+Number of degrees of freedom: 835
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -387,7 +387,7 @@ Number of degrees of freedom: 866
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 865
+	Number of mesh vertices after adaptation : 828
 
 Mesh file was changed to ../../../starting_mesh.msh
 Convergence test with mesh adaptation - Fixed-point iteration 1/5
@@ -413,20 +413,20 @@ Number of degrees of freedom: 486
 	Current mesh file                 : ../../../starting_mesh.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 1495
+	Number of mesh vertices after adaptation : 1353
 
 Convergence test with mesh adaptation - Fixed-point iteration 2/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 2903
- boundary indicators: 1(5 faces) 2(5 faces) 3(37 faces) 4(38 faces) 
+ no. of cells: 2642
+ boundary indicators: 1(4 faces) 2(4 faces) 3(27 faces) 4(27 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 1495
+Number of degrees of freedom: 1353
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -439,20 +439,20 @@ Number of degrees of freedom: 1495
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 1744
+	Number of mesh vertices after adaptation : 1676
 
 Convergence test with mesh adaptation - Fixed-point iteration 3/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 3411
- boundary indicators: 1(5 faces) 2(5 faces) 3(31 faces) 4(34 faces) 
+ no. of cells: 3282
+ boundary indicators: 1(4 faces) 2(4 faces) 3(29 faces) 4(31 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 1744
+Number of degrees of freedom: 1676
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -465,20 +465,20 @@ Number of degrees of freedom: 1744
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 1759
+	Number of mesh vertices after adaptation : 1674
 
 Convergence test with mesh adaptation - Fixed-point iteration 4/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 3436
- boundary indicators: 1(5 faces) 2(5 faces) 3(36 faces) 4(34 faces) 
+ no. of cells: 3273
+ boundary indicators: 1(5 faces) 2(5 faces) 3(30 faces) 4(33 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 1759
+Number of degrees of freedom: 1674
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -491,20 +491,20 @@ Number of degrees of freedom: 1759
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 1731
+	Number of mesh vertices after adaptation : 1650
 
 Convergence test with mesh adaptation - Fixed-point iteration 5/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 2
- no. of cells: 3380
- boundary indicators: 1(5 faces) 2(5 faces) 3(36 faces) 4(34 faces) 
+ no. of cells: 3224
+ boundary indicators: 1(5 faces) 2(5 faces) 3(31 faces) 4(33 faces) 
 ID 1 -> x_min
 ID 2 -> x_max
 ID 3 -> y_min
 ID 4 -> y_max
 ID 5 -> Domain
-Number of degrees of freedom: 1731
+Number of degrees of freedom: 1650
 
 -- Reconstructing solution and derivatives of order up to 2...
 
@@ -517,26 +517,26 @@ Number of degrees of freedom: 1731
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh
-	Number of mesh vertices after adaptation : 1728
+	Number of mesh vertices after adaptation : 1682
 
 
 L2_norm
 target_nvrt n_vrt n_elm n_dof        T        
-        200   222   409   222 5.9514e-02    - 
-        400   436   826   436 1.8125e-02 3.52 
-        800   866  1671   866 6.4115e-03 3.03 
-       1600  1731  3380  1731 2.7602e-03 2.43 
+        200   205   381   205 4.5979e-02    - 
+        400   393   748   393 1.8416e-02 2.81 
+        800   835  1616   835 6.5637e-03 2.74 
+       1600  1650  3224  1650 2.9913e-03 2.31 
 
 Linfty_norm
 target_nvrt n_vrt n_elm n_dof        T        
-        200   222   409   222 3.5937e-01    - 
-        400   436   826   436 8.4149e-02 4.30 
-        800   866  1671   866 2.6672e-02 3.35 
-       1600  1731  3380  1731 1.5352e-02 1.60 
+        200   205   381   205 3.0589e-01    - 
+        400   393   748   393 8.3289e-02 4.00 
+        800   835  1616   835 3.5768e-02 2.24 
+       1600  1650  3224  1650 3.2078e-02 0.32 
 
 H1_seminorm
 target_nvrt n_vrt n_elm n_dof        T        
-        200   222   409   222 2.9098e+00    - 
-        400   436   826   436 1.5659e+00 1.84 
-        800   866  1671   866 9.1734e-01 1.56 
-       1600  1731  3380  1731 5.9246e-01 1.26 
+        200   205   381   205 2.4845e+00    - 
+        400   393   748   393 1.4825e+00 1.59 
+        800   835  1616   835 8.9398e-01 1.34 
+       1600  1650  3224  1650 6.0749e-01 1.13 

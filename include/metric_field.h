@@ -351,6 +351,13 @@ private:
   // The polynomial degree of the field used to compute this metric field
   unsigned int solution_polynomial_degree;
 
+  // A flag that specifies if this metric field was scaled to yield a certain
+  // number of mesh vertices
+  bool is_scaled;
+
+  // A flag that specifies if gradation was applied to this metric field
+  bool is_graded;
+
   IndexSet locally_owned_dofs;
   IndexSet locally_relevant_dofs;
 

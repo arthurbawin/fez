@@ -8,6 +8,12 @@
 #include <parsed_function_symengine.h>
 #include <solver_info.h>
 
+// Forward declaration
+namespace PostProcessingTools
+{
+  enum class PostprocessorAtDofTypes;
+}
+
 #define DECLARE_VERBOSITY_PARAM(prm, default_verbosity)                        \
   (prm).declare_entry("verbosity",                                             \
                       std::string(default_verbosity),                          \
@@ -123,8 +129,19 @@ namespace Parameters
        */
       enum class Strategy
       {
-        RiemannianMetric
+        RiemannianMetric,
+        LocalRefinement
       } strategy;
+
+      bool with_metric_based_adaptation() const
+      {
+        return enable && strategy == Strategy::RiemannianMetric;
+      }
+
+      bool with_tree_based_adaptation() const
+      {
+        return enable && strategy == Strategy::LocalRefinement;
+      }
 
       /**
        * Parameters for mesh adaptation with a Riemannian metric
@@ -156,16 +173,90 @@ namespace Parameters
         {
           return current_fixed_point_iteration == n_fixed_point - 1;
         }
+
+        /**
+         * Metric-based mesh adaptation is typically performed within a fixed
+         * point loop, converging the mesh-solution pair together.
+         * These parameters specify how to update the prescribed simulation
+         * parameters in between fixed-point iterations. This allows, for
+         * instance, reducing the interface thickness of a CHNS simulation as
+         * the mesh is refined.
+         */
+        struct FixedPointUpdates
+        {
+          Verbosity verbosity;
+
+          /**
+           * Base struct for quantities updated during fixed point loop.
+           */
+          struct UpdateBase
+          {
+            // Enable/disable this update
+            bool enable;
+
+            // Quantity will be updated according to this frequency
+            unsigned int update_frequency;
+
+            // When updated, quantity will be multiplied by this value
+            double factor;
+
+            // If the quantity must be replaced in function objects, this is
+            // the string that will be replaced.
+            std::string constant_name;
+          };
+
+          // This struct controls the update of the interface thickness in a
+          // Cahn-Hilliard Navier-Stokes simulation.
+          struct CHNSInterfaceThickness : public UpdateBase
+          {
+          } chns_interface_thickness;
+        } fixed_point_updates;
       } metric;
 
-      bool with_metric_based_adaptation() const
+      /**
+       * Parameters for mesh adaptation using deal.II's facilities, using p4est
+       * tree-based meshes.
+       */
+      struct TreeAMR
       {
-        return enable && strategy == Strategy::RiemannianMetric;
-      }
+        enum class RefinementStrategy
+        {
+          FixedNumber,
+          FixedFraction
+        } refinement_strategy;
 
+        // Variables driving mesh refinement/coarsening
+        std::vector<SolverInfo::VariableType> variables_for_adaptation;
+
+        // The target fractions of cells or cellwise errors to refine and
+        // coarsen, depending on the refinement strategy.
+        double fraction_to_refine;
+        double fraction_to_coarsen;
+
+        // Maximum number of cells allowed
+        unsigned int max_n_cells;
+
+        // Minimum and maximum grid levels allowed
+        unsigned int min_level;
+        unsigned int max_level;
+
+        // For steady-state computations, the number of times the mesh is
+        // adapted to the solution. One extra solve is performed, to obtain the
+        // solution on the last adapted mesh (i.e., setting this value to 1
+        // yields 2 resolutions).
+        unsigned int n_steady_adaptation_steps;
+
+        // For unsteady computations, the number of refinement steps to adapt
+        // the mesh to the initial condition.
+        unsigned int n_prerefinement_steps;
+
+        // Frequency (in time steps) at which the mesh is adapted
+        unsigned int adapt_frequency;
+
+      } tree_amr;
     } adaptation;
 
-    void declare_parameters(ParameterHandler &prm);
+    void declare_parameters(ParameterHandler &prm, const int dim);
     void read_parameters(ParameterHandler &prm);
   };
 
@@ -175,6 +266,33 @@ namespace Parameters
     std::string  output_dir;
     std::string  output_prefix;
     unsigned int vtu_output_frequency;
+
+    // Number of VTU files when writing in parallel
+    unsigned int n_vtu_groups;
+
+    // Number of cells subdivisions for visualization
+    unsigned int n_subdivisions;
+
+    // Output data when using a (steady or unsteady) fixed-point method,
+    // typically when using a riemannian metric to adapt the mesh.
+    struct FixedPointMethod
+    {
+      // Specifies whether a single pvd must be generated.
+      // If true, only a pvd file for the last fixed-point iteration is written.
+      // If false, one pvd file is generated per fixed-point iteration.
+      bool single_pvd;
+
+      // This flag is used only for the unsteady fixed-point method.
+      // If true, then at the junction time between two time sub-intervals, the
+      // solution on both the current and the next mesh are written in the pvd
+      // file, which effectively duplicates these timesteps. If false, only the
+      // solution after transfer on the next mesh will appear.
+      //
+      // In other words, the outputted solutions are for the times [t_i, t_i+1]
+      // if true, and for times [t_i, t_i+1) if false, except for the last
+      // interval, which always includes the final time.
+      bool show_solution_transfer;
+    } fixed_point;
 
     // A "skin" is a codimension 1 boundary on which we wish to extract data
     // for visualization and/or postprocessing
@@ -192,8 +310,7 @@ namespace Parameters
 
   struct PostProcessing
   {
-    // A small base struct for postprocessed quantities which can be
-    // outputted to a file
+    // A small base struct for features common to all postprocessings.
     struct PostProcessingBase
     {
       Verbosity verbosity;
@@ -201,21 +318,41 @@ namespace Parameters
       // Enable/disable this postprocessing
       bool enable;
 
-      // Output the results of this postprocessing to a file
-      bool         write_results;
-      std::string  output_prefix;
+      // Output options
       unsigned int output_frequency;
+    };
+
+    // A small base struct for postprocessed quantities which are written to a
+    // file.
+    struct PostProcessingFile : public PostProcessingBase
+    {
+      // Output the results of this postprocessing to a file
+      bool write_results;
+
+      // Name of the file without the extension
+      std::string output_prefix;
+
+      // Number of significant digits to write
       unsigned int precision;
     };
 
     // Derived class for postprocessing on a boundary
-    struct PostProcessingBaseBoundary : public PostProcessingBase
+    struct PostProcessingFileBoundary : public PostProcessingFile
     {
       types::boundary_id boundary_id;
     };
 
+    /**
+     * Compute the volume integrals of finite element variables.
+     * Vector-valued variables are integrated component-wise.
+     */
+    struct FieldIntegral : public PostProcessingFile
+    {
+      std::vector<SolverInfo::VariableType> variables;
+    } field_integral;
+
     // Hydrodynamic forces on a single boundary
-    struct Forces : public PostProcessingBaseBoundary
+    struct Forces : public PostProcessingFileBoundary
     {
       // The method used to evaluate the forces on a boundary
       enum class ComputationMethod
@@ -227,19 +364,103 @@ namespace Parameters
 
     // For the FSI solver, compute and export the position of the structure's
     // geometric center.
-    struct StructurePosition : public PostProcessingBaseBoundary
+    struct StructurePosition : public PostProcessingFileBoundary
     {
       // No additional members for now
     } structure_position;
 
     // Cut structure into slices and compute forces on each individual slice
     // Used e.g. to measure correlation of forces coefficients along cylinder
-    struct Slices : public PostProcessingBaseBoundary
+    struct Slices : public PostProcessingFileBoundary
     {
       std::string  along_which_axis;
       unsigned int n_slices;
       bool         compute_forces_on_slices;
     } slices;
+
+    // For the CHNS solver, compute the volume of each phase
+    struct CHNSPhasesVolume : public PostProcessingFile
+    {
+    } chns_volumes;
+
+    // For the CHNS solver, compute the center of mass of each phase
+    struct CHNSPhasesCenterOfMass : public PostProcessingFile
+    {
+    } chns_center_mass;
+
+    // For the CHNS solver, compute the average velocity in each phase
+    struct CHNSPhasesAvgVelocity : public PostProcessingFile
+    {
+    } chns_avg_velocity;
+
+    /**
+     * A base struct for postprocessing tools which produce a field, which is
+     * typically written to the visualization file alongside the solution (e.g.,
+     * vorticity, Q-criterion, mesh velocity, ...).
+     *
+     * This field can either be defined with a DataPostprocessor (outputted at
+     * visualization nodes directly), or with a PostprocessorAtDofBase, in which
+     * case the field is described as the degrees of freedom of some finite
+     * element approximation (e.g., an L2 projection).
+     */
+    struct PostProcessingField : public PostProcessingBase
+    {
+      /**
+       * Available computation methods to compute the field.
+       * Not all methods are implemented for all derived PostProcessingField.
+       */
+      enum class ComputationMethod
+      {
+        /**
+         * Use a class derived from DataPostprocessor to evaluate this field.
+         * The term "discontinuous" is kind of a misnomer, as it is really only
+         * discontinuous if we are postprocessing derivatives of a finite
+         * element approximation (i.e., postprocessing the values of a
+         * continuous field will still yield a continuous field).
+         */
+        discontinuous,
+
+        /**
+         * Compute an L2 projection of the original (usually discontinuous)
+         * field. The resulting field is continuous is using a CG approximation
+         * to represent the projection.
+         */
+        l2_projection,
+
+        /**
+         * Compute a weighted average of the original field. See the individual
+         * implementations for more information about the weights.
+         */
+        weighted_average
+      } method;
+
+      // If using a dof-based representation of the postprocessed field, the
+      // degree of the associated finite element approximation.
+      unsigned int degree;
+    };
+
+    // Vorticity field. As in deal.II, the result is a "curl_type", so a scalar
+    // field in 2D and a vector-valued field in 3D.
+    struct Vorticity : public PostProcessingField
+    {
+    } vorticity;
+
+    // Q-criterion scalar field (second invariant of the velocity gradient).
+    struct QCriterion : public PostProcessingField
+    {
+    } q_criterion;
+
+    // Mesh velocity.
+    struct MeshVelocity : public PostProcessingField
+    {
+    } mesh_velocity;
+
+    /**
+     * All the PostProcessingField.
+     */
+    std::map<PostProcessingTools::PostprocessorAtDofTypes,
+             PostProcessingField *>
+      field_postprocessors;
 
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
@@ -297,6 +518,9 @@ namespace Parameters
       }
     }
 
+    // Degree of the reference-to-physical mapping(s)
+    unsigned int mapping_degree;
+
     struct QuadratureRule
     {
       enum class Type
@@ -353,10 +577,20 @@ namespace Parameters
   class PseudoSolid
   {
   public:
+    enum class ConstitutiveModel
+    {
+      linear_elasticity,
+      neo_hookean,
+      ogden
+    } constitutive_model;
+
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_lambda_fun;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
       lame_mu_fun;
+
+    // For an Ogden hyperleastic solid, the value of the parameter beta.
+    double ogden_beta;
 
   public:
     void set_time(const double newtime)
@@ -534,6 +768,7 @@ namespace Parameters
      * split.
      */
     unsigned int n_time_intervals;
+    unsigned int n_steady_adaptation_steps;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -544,6 +779,10 @@ namespace Parameters
   {
     // Enable SUPG/PSPG stabilization of the Navier-Stokes equations
     bool enable_supg;
+
+    // Enable SUPG stabilization for the tracer equation of the Cahn-Hilliard
+    // Navier-Stokes systems
+    bool enable_tracer_supg;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -674,6 +913,9 @@ namespace Parameters
     // FIXME: the GenericSolver should use the full parameters and modify the
     // metric field parameters instead of duplicating this information
     unsigned int n_target_vertices;
+    unsigned int n_target_vertices_multiplier;
+
+    unsigned int n_time_intervals_multiplier;
 
     void override_mesh_filename(Mesh &mesh_param, const unsigned int index)
     {
@@ -692,7 +934,13 @@ namespace Parameters
   {
     Verbosity verbosity;
 
-    bool   enable_coupling;
+    bool enable_coupling;
+
+    // True if using a zero mass evolution equation.
+    // This avoids using arbitrary threshold on the mass of the solid to
+    // determine which model to use.
+    bool zero_mass_model;
+
     double spring_constant;
     double damping;
     double mass;
@@ -701,6 +949,22 @@ namespace Parameters
     double cylinder_length;
 
     Point<dim> cylinder_center;
+
+    // Initial velocity of the solid
+    Tensor<1, dim> initial_velocity;
+
+    /**
+     * Parameters controlling the rigid body rotation of the solid.
+     * Only implemented for the zero-mass model for now.
+     */
+    struct RigidBodyRotation
+    {
+      // Enable rotation around center of rotation
+      bool enable;
+
+      // Fixed center of rotation
+      Point<dim> center;
+    } rotation;
 
     bool fix_z_component;
 
@@ -768,6 +1032,17 @@ namespace Parameters
     Band outflow;
 
     bool any_enabled() const { return inflow.enable || outflow.enable; }
+
+    void declare_parameters(ParameterHandler &prm);
+    void read_parameters(ParameterHandler &prm);
+  };
+
+  /**
+   * Solution and derivatives recovery
+   */
+  struct SolutionRecovery
+  {
+    Verbosity verbosity;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);

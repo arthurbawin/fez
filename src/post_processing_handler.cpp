@@ -1,16 +1,20 @@
 
 #include <post_processing_handler.h>
+#include <postprocessors_and_evaluators.h>
 
 template <int dim>
 PostProcessingHandler<dim>::PostProcessingHandler(
+  const ComponentOrdering                                 &ordering,
   const ParameterReader<dim>                              &param,
   const Triangulation<dim>                                &triangulation,
   const DoFHandler<dim>                                   &dof_handler,
   const std::vector<std::pair<std::string, unsigned int>> &fields_description)
-  : post_proc_param(param.postprocessing)
+  : ordering(ordering)
+  , post_proc_param(param.postprocessing)
   , output_param(param.output)
   , physical_properties(param.physical_properties)
   , mms_param(param.mms_param)
+  , fe_param(param.finite_elements)
   , triangulation(&triangulation, typeid(*this).name())
   , dof_handler(&dof_handler, typeid(*this).name())
   , mpi_communicator(dof_handler.get_mpi_communicator())
@@ -32,21 +36,25 @@ PostProcessingHandler<dim>::PostProcessingHandler(
       }
   }
 
-  if (output_param.write_results)
-  {
-    data_out = std::make_unique<DataOut<dim>>();
-    data_out->attach_dof_handler(dof_handler);
-  }
+  this->attach_triangulation_and_dof_handler(triangulation, dof_handler);
 
-  if (output_param.skin.write_results)
+  // Create the required DataPostProcessors
   {
-    // build_patches is not (yet) implemented for DataOutFaces in hp context,
-    // but at this point the dof_handler might not yet be initialized.
-    // The check is done in output_skin_fields instead.
-    data_out_skin =
-      std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
-        triangulation, output_param.skin.boundary_id);
-    data_out_skin->attach_dof_handler(dof_handler);
+    const auto &pp = param.postprocessing;
+    using PP       = Parameters::PostProcessing;
+
+    postprocessors.clear();
+    if (pp.vorticity.enable and
+        pp.vorticity.method == PP::Vorticity::ComputationMethod::discontinuous)
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::VorticityPostProcessor<dim>>(
+          ordering));
+    if (pp.q_criterion.enable and
+        pp.q_criterion.method ==
+          PP::QCriterion::ComputationMethod::discontinuous)
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::QCriterionPostProcessor<dim>>(
+          ordering));
   }
 }
 
@@ -64,12 +72,38 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
   this->dof_handler   = &dof_handler;
 
   // Create new DataOuts
-  data_out = std::make_unique<DataOut<dim>>();
-  data_out->attach_dof_handler(dof_handler);
-  data_out_skin =
-    std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
-      triangulation, output_param.skin.boundary_id);
-  data_out_skin->attach_dof_handler(dof_handler);
+  if (output_param.write_results)
+  {
+    data_out = std::make_unique<DataOut<dim>>();
+    data_out->attach_dof_handler(dof_handler);
+
+    // Write high-order elements if needed
+    if (fe_param.mapping_degree > 1)
+    {
+      DataOutBase::VtkFlags flags;
+      flags.write_higher_order_cells = true;
+      data_out->set_flags(flags);
+    }
+  }
+
+  if (output_param.skin.write_results)
+  {
+    // build_patches is not (yet) implemented for DataOutFaces in hp context,
+    // but at this point the dof_handler might not yet be initialized.
+    // The check is done in output_skin_fields instead.
+    data_out_skin =
+      std::make_unique<PostProcessingTools::DataOutFacesOnBoundary<dim>>(
+        triangulation, output_param.skin.boundary_id);
+    data_out_skin->attach_dof_handler(dof_handler);
+
+    // Write high-order elements if needed
+    if (fe_param.mapping_degree > 1)
+    {
+      DataOutBase::VtkFlags flags;
+      flags.write_higher_order_cells = true;
+      data_out_skin->set_flags(flags);
+    }
+  }
 
   // Clear the stored cell-based vectors
   subdomains.reinit(0);
@@ -77,25 +111,41 @@ void PostProcessingHandler<dim>::attach_triangulation_and_dof_handler(
 }
 
 template <int dim>
-void PostProcessingHandler<dim>::write_pvd() const
+void PostProcessingHandler<dim>::write_pvd(const PrefixData &prefix_data) const
 {
-  const std::string suffix =
-    mms_param.enable ?
-      "_convergence_step_" + std::to_string(mms_param.current_step) + ".pvd" :
-      ".pvd";
+  std::string suffix = "";
+  prefix_data.append_to_prefix_or_suffix(output_param, true, suffix);
+  suffix += ".pvd";
 
-  if (mpi_rank == 0 && output_param.write_results)
+  if (mpi_rank == 0)
   {
-    std::ofstream pvd_output(output_param.output_dir +
-                             output_param.output_prefix + suffix);
-    DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
-  }
-  if (mpi_rank == 0 && output_param.skin.write_results)
-  {
-    std::ofstream pvd_output(output_param.output_dir +
-                             output_param.skin.output_prefix + suffix);
-    DataOutBase::write_pvd_record(pvd_output,
-                                  visualization_times_and_names_skin);
+    if (output_param.write_results)
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output, visualization_times_and_names);
+    }
+    if (output_param.skin.write_results)
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.skin.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    visualization_times_and_names_skin);
+    }
+    if (!prerefinements_pseudotimes_and_names.empty())
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    prerefinements_pseudotimes_and_names);
+    }
+    if (!prerefinements_pseudotimes_and_names_skin.empty())
+    {
+      std::ofstream pvd_output(output_param.output_dir +
+                               output_param.skin.output_prefix + suffix);
+      DataOutBase::write_pvd_record(pvd_output,
+                                    prerefinements_pseudotimes_and_names_skin);
+    }
   }
 }
 
@@ -188,14 +238,70 @@ void PostProcessingHandler<dim>::add_position_to_table(
 }
 
 template <int dim>
+template <typename DataType>
+void PostProcessingHandler<dim>::add_multiphase_data_to_table(
+  const std::array<DataType, 2>                        &data_for_phases,
+  const TimeHandler                                    &time_handler,
+  TableHandler                                         &table,
+  const Parameters::PostProcessing::PostProcessingFile &pp_param)
+{
+  if constexpr (std::is_same_v<DataType, Tensor<1, dim>>)
+  {
+    std::vector<std::string> dim_str = {"x", "y", "z"};
+    table.add_value("time", time_handler.current_time);
+    for (unsigned int i = 0; i < 2; ++i)
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        std::string key = "phase" + std::to_string(i) + "_" + dim_str[d];
+        table.add_value(key, data_for_phases[i][d]);
+        table.set_precision(key, pp_param.precision);
+        table.set_scientific(key, true);
+      }
+  }
+  else
+  {
+    table.add_value("time", time_handler.current_time);
+    for (unsigned int i = 0; i < 2; ++i)
+    {
+      std::string key = "phase" + std::to_string(i);
+      table.add_value(key, data_for_phases[i]);
+      table.set_precision(key, pp_param.precision);
+      table.set_scientific(key, true);
+    }
+  }
+}
+
+// Explicit instantiations for dim = 2,3, two phases and double/Tensor<1, dim>
+template void PostProcessingHandler<2>::add_multiphase_data_to_table(
+  const std::array<Tensor<1, 2>, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingFile &);
+template void PostProcessingHandler<3>::add_multiphase_data_to_table(
+  const std::array<Tensor<1, 3>, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingFile &);
+template void PostProcessingHandler<2>::add_multiphase_data_to_table(
+  const std::array<double, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingFile &);
+template void PostProcessingHandler<3>::add_multiphase_data_to_table(
+  const std::array<double, 2> &,
+  const TimeHandler &,
+  TableHandler &,
+  const Parameters::PostProcessing::PostProcessingFile &);
+
+template <int dim>
 void PostProcessingHandler<dim>::write_table(
   std::ostream                                         &out,
   const TableHandler                                   &table,
-  const Parameters::PostProcessing::PostProcessingBase &postproc_base) const
+  const Parameters::PostProcessing::PostProcessingFile &postproc_file) const
 {
   if (mpi_rank == 0)
   {
-    out << std::scientific << std::setprecision(postproc_base.precision);
+    out << std::scientific << std::setprecision(postproc_file.precision);
     table.write_text(out);
   }
 }
@@ -213,6 +319,104 @@ void PostProcessingHandler<dim>::write_structure_mean_position(
   write_table(out,
               structure_mean_position_table,
               post_proc_param.structure_position);
+}
+
+template <int dim>
+std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>
+PostProcessingHandler<dim>::create_field_postprocessor(
+  const PostProcessingTools::PostprocessorAtDofTypes type,
+  const ParameterReader<dim>                        &param,
+  const Mapping<dim>                                &mapping,
+  const Quadrature<dim>                             &cell_quadrature,
+  const bool                                         with_moving_mesh)
+{
+  using namespace PostProcessingTools;
+  using Vorticity  = Parameters::PostProcessing::Vorticity;
+  using QCriterion = Parameters::PostProcessing::QCriterion;
+
+  switch (type)
+  {
+    case PostprocessorAtDofTypes::vorticity:
+      switch (param.postprocessing.vorticity.method)
+      {
+        case Vorticity::ComputationMethod::discontinuous:
+          // Nothing to do: the DataPostprocessor was created in the
+          // constructor.
+          return nullptr;
+        case Vorticity::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim, VorticityEvaluator, L2Projection>>(
+            param,
+            ordering,
+            mapping,
+            *dof_handler,
+            cell_quadrature,
+            with_moving_mesh);
+        case Vorticity::ComputationMethod::weighted_average:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        VorticityEvaluator,
+                                        WeightedAverage>>(param,
+                                                          ordering,
+                                                          mapping,
+                                                          *dof_handler,
+                                                          cell_quadrature,
+                                                          with_moving_mesh);
+        default:
+          DEAL_II_NOT_IMPLEMENTED();
+      }
+    case PostprocessorAtDofTypes::q_criterion:
+      switch (param.postprocessing.q_criterion.method)
+      {
+        case QCriterion::ComputationMethod::discontinuous:
+          // Nothing to do: the DataPostprocessor was created in the
+          // constructor.
+          return nullptr;
+        case QCriterion::ComputationMethod::l2_projection:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        QCriterionEvaluator,
+                                        L2Projection>>(param,
+                                                       ordering,
+                                                       mapping,
+                                                       *dof_handler,
+                                                       cell_quadrature,
+                                                       with_moving_mesh);
+        case QCriterion::ComputationMethod::weighted_average:
+          return std::make_unique<
+            FieldPostprocessorGenerator<dim,
+                                        QCriterionEvaluator,
+                                        WeightedAverage>>(param,
+                                                          ordering,
+                                                          mapping,
+                                                          *dof_handler,
+                                                          cell_quadrature,
+                                                          with_moving_mesh);
+        default:
+          DEAL_II_NOT_IMPLEMENTED();
+      }
+    case PostprocessorAtDofTypes::mesh_velocity:
+      return std::make_unique<MeshVelocityPostprocessor<dim>>(
+        ordering, param, mapping, *dof_handler, cell_quadrature);
+    default:
+      DEAL_II_NOT_IMPLEMENTED();
+  }
+  DEAL_II_ASSERT_UNREACHABLE();
+  return nullptr;
+}
+
+template <int dim>
+void PostProcessingHandler<dim>::create_field_postprocessors(
+  const ParameterReader<dim> &param,
+  const Mapping<dim>         &mapping,
+  const Quadrature<dim>      &cell_quadrature,
+  const bool                  with_moving_mesh)
+{
+  for (const auto &[type, postprocessor_param_ptr] :
+       param.postprocessing.field_postprocessors)
+    if (postprocessor_param_ptr->enable)
+      field_postprocessors[type] = create_field_postprocessor(
+        type, param, mapping, cell_quadrature, with_moving_mesh);
 }
 
 template class PostProcessingHandler<2>;

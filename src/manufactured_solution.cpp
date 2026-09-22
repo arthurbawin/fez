@@ -1,6 +1,7 @@
 
 #include <deal.II/base/symmetric_tensor.h>
 #include <manufactured_solution.h>
+#include <parameters.h>
 #include <parsed_function_symengine.h>
 #include <preset_mms.h>
 #include <utilities.h>
@@ -443,6 +444,31 @@ namespace ManufacturedSolutions
   template class ManufacturedSolution<3>;
 
   template <int dim>
+  Tensor<1, dim> MMSFunction<dim>::divergence_elastic_stress_tensor(
+    const Parameters::PseudoSolid<dim> &pseudosolid_param,
+    const Point<dim>                   &p) const
+  {
+    switch (pseudosolid_param.constitutive_model)
+    {
+      case Parameters::PseudoSolid<dim>::ConstitutiveModel::linear_elasticity:
+        return this->divergence_linear_elastic_stress_variable_coefficients(
+          p, pseudosolid_param.lame_mu_fun, pseudosolid_param.lame_lambda_fun);
+      case Parameters::PseudoSolid<dim>::ConstitutiveModel::neo_hookean:
+        return this->divergence_neo_hookean_stress_variable_coefficients(
+          p, pseudosolid_param.lame_mu_fun, pseudosolid_param.lame_lambda_fun);
+      case Parameters::PseudoSolid<dim>::ConstitutiveModel::ogden:
+        return this->divergence_ogden_stress_variable_coefficients(
+          p,
+          pseudosolid_param.lame_mu_fun,
+          pseudosolid_param.lame_lambda_fun,
+          pseudosolid_param.ogden_beta);
+      default:
+        DEAL_II_ASSERT_UNREACHABLE();
+    }
+    return Tensor<1, dim>();
+  }
+
+  template <int dim>
   Tensor<1, dim>
   MMSFunction<dim>::divergence_linear_elastic_stress_variable_coefficients(
     const Point<dim>                          &p,
@@ -462,6 +488,114 @@ namespace ManufacturedSolutions
 
     return 2. * (mu * div_strain + grad_mu * strain) + lambda * grad_div_x +
            grad_lambda * trace(strain);
+  }
+
+  template <int dim>
+  Tensor<1, dim>
+  MMSFunction<dim>::divergence_neo_hookean_stress_variable_coefficients(
+    const Point<dim>                          &p,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda) const
+  {
+    const double         mu          = lame_mu->value(p);
+    const double         lambda      = lame_lambda->value(p);
+    const Tensor<1, dim> grad_mu     = lame_mu->gradient(p);
+    const Tensor<1, dim> grad_lambda = lame_lambda->gradient(p);
+
+    const Tensor<2, dim> F = gradient_vi_xj(p);
+    const double         J = determinant(F);
+
+    AssertThrow(J > 0,
+                ExcMessage("Neo-Hookean model requires J = det(F) > 0."));
+
+    const Tensor<2, dim> F_inv   = invert(F);
+    const Tensor<2, dim> F_inv_T = transpose(F_inv);
+    const double         log_J   = std::log(J);
+
+    Tensor<1, dim> div_P;
+
+    // Using uppercase for reference configuration indices,
+    // and lowercase for current configuration indices.
+    for (unsigned int L = 0; L < dim; ++L)
+    {
+      Tensor<2, dim> dF_dXL;
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        const SymmetricTensor<2, dim> hessian_i = this->hessian(p, i);
+        for (unsigned int K = 0; K < dim; ++K)
+          dF_dXL[i][K] = hessian_i[L][K];
+      }
+
+      const double         d_log_J_dXL = trace(F_inv * dF_dXL);
+      const Tensor<2, dim> dF_inv_T_dXL =
+        -F_inv_T * transpose(dF_dXL) * F_inv_T;
+
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        div_P[i] +=
+          grad_mu[L] * (F[i][L] - F_inv_T[i][L]) +
+          mu * (dF_dXL[i][L] - dF_inv_T_dXL[i][L]) +
+          (grad_lambda[L] * log_J + lambda * d_log_J_dXL) * F_inv_T[i][L] +
+          lambda * log_J * dF_inv_T_dXL[i][L];
+      }
+    }
+    return div_P;
+  }
+
+  template <int dim>
+  Tensor<1, dim>
+  MMSFunction<dim>::divergence_ogden_stress_variable_coefficients(
+    const Point<dim>                          &p,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_mu,
+    std::shared_ptr<ParsedFunctionSDBase<dim>> lame_lambda,
+    const double                               beta) const
+  {
+    Assert(std::abs(beta) > 1e-14, ExcInternalError());
+
+    const double         mu          = lame_mu->value(p);
+    const double         lambda      = lame_lambda->value(p);
+    const Tensor<1, dim> grad_mu     = lame_mu->gradient(p);
+    const Tensor<1, dim> grad_lambda = lame_lambda->gradient(p);
+
+    const Tensor<2, dim> F = gradient_vi_xj(p);
+    const double         J = determinant(F);
+
+    AssertThrow(J > 0, ExcMessage("Ogden model requires J = det(F) > 0."));
+
+    const Tensor<2, dim> F_inv             = invert(F);
+    const Tensor<2, dim> F_inv_T           = transpose(F_inv);
+    const double         Jm_beta           = std::pow(J, -beta);
+    const double         volumetric_stress = (1.0 / beta) * (1.0 - Jm_beta);
+
+    Tensor<1, dim> div_P;
+
+    // Using uppercase for reference configuration indices,
+    // and lowercase for current configuration indices.
+    for (unsigned int L = 0; L < dim; ++L)
+    {
+      Tensor<2, dim> dF_dXL;
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        const SymmetricTensor<2, dim> hessian_i = this->hessian(p, i);
+        for (unsigned int K = 0; K < dim; ++K)
+          dF_dXL[i][K] = hessian_i[L][K];
+      }
+
+      const double         d_log_J_dXL             = trace(F_inv * dF_dXL);
+      const double         d_volumetric_stress_dXL = Jm_beta * d_log_J_dXL;
+      const Tensor<2, dim> dF_inv_T_dXL =
+        -F_inv_T * transpose(dF_dXL) * F_inv_T;
+
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        div_P[i] += grad_mu[L] * (F[i][L] - F_inv_T[i][L]) +
+                    mu * (dF_dXL[i][L] - dF_inv_T_dXL[i][L]) +
+                    grad_lambda[L] * volumetric_stress * F_inv_T[i][L] +
+                    lambda * d_volumetric_stress_dXL * F_inv_T[i][L] +
+                    lambda * volumetric_stress * dF_inv_T_dXL[i][L];
+      }
+    }
+    return div_P;
   }
 
   template <int dim>

@@ -1,0 +1,266 @@
+Number of MPI processes: 1
+Mesh file was changed to ../../../rectangular_box.msh
+Convergence test with mesh adaptation - Fixed-point iteration 1/5
+Mesh info:
+ dimension: 3
+ no. of cells: 1366
+ boundary indicators: 2(66 faces) 3(66 faces) 4(128 faces) 5(126 faces) 6(128 faces) 7(128 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 404
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 200
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ../../../rectangular_box.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 443
+Convergence test with mesh adaptation - Fixed-point iteration 2/5
+Mesh file was changed to ././adapted.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 1921
+ boundary indicators: 2(38 faces) 3(37 faces) 4(73 faces) 5(68 faces) 6(88 faces) 7(76 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 443
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 200
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 567
+Convergence test with mesh adaptation - Fixed-point iteration 3/5
+Mesh file was changed to ././adapted.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 2585
+ boundary indicators: 2(39 faces) 3(40 faces) 4(75 faces) 5(70 faces) 6(101 faces) 7(105 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 567
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 200
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 583
+Convergence test with mesh adaptation - Fixed-point iteration 4/5
+Mesh file was changed to ././adapted.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 2677
+ boundary indicators: 2(28 faces) 3(43 faces) 4(82 faces) 5(83 faces) 6(101 faces) 7(117 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 583
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 200
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 655
+Convergence test with mesh adaptation - Fixed-point iteration 5/5
+Mesh file was changed to ././adapted.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 3012
+ boundary indicators: 2(32 faces) 3(41 faces) 4(82 faces) 5(83 faces) 6(119 faces) 7(139 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 655
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 200
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 664
+Mesh file was changed to ../../../rectangular_box.msh
+Convergence test with mesh adaptation - Fixed-point iteration 1/5
+Mesh info:
+ dimension: 3
+ no. of cells: 1366
+ boundary indicators: 2(66 faces) 3(66 faces) 4(128 faces) 5(126 faces) 6(128 faces) 7(128 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 404
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 400
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ../../../rectangular_box.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 682
+Convergence test with mesh adaptation - Fixed-point iteration 2/5
+Mesh file was changed to ././adapted.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 3014
+ boundary indicators: 2(59 faces) 3(64 faces) 4(116 faces) 5(122 faces) 6(112 faces) 7(107 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 682
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 400
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 1013
+Convergence test with mesh adaptation - Fixed-point iteration 3/5
+Mesh file was changed to ././adapted.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 4779
+ boundary indicators: 2(61 faces) 3(67 faces) 4(136 faces) 5(141 faces) 6(172 faces) 7(155 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 1013
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 400
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 1096
+Convergence test with mesh adaptation - Fixed-point iteration 4/5
+Mesh file was changed to ././adapted.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 5269
+ boundary indicators: 2(59 faces) 3(60 faces) 4(120 faces) 5(129 faces) 6(189 faces) 7(197 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 1096
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 400
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 1200
+Convergence test with mesh adaptation - Fixed-point iteration 5/5
+Mesh file was changed to ././adapted.msh
+Mesh info:
+ dimension: 3
+ no. of cells: 5786
+ boundary indicators: 2(65 faces) 3(68 faces) 4(125 faces) 5(131 faces) 6(205 faces) 7(212 faces) 
+ID 1 -> box
+ID 2 -> x_min
+ID 3 -> x_max
+ID 4 -> y_min
+ID 5 -> y_max
+ID 6 -> z_min
+ID 7 -> z_max
+Number of degrees of freedom: 1200
+
+-- Computing optimal Riemannian metric...
+	Target number of mesh vertices                   : 400
+	Target norm for interpolation error minimization : L2
+	Polynomial degree of the solution                : 1
+
+-- Adapting the mesh with Gmsh and MMG...
+	Current mesh file                 : ././adapted_0.msh
+	Target mesh file after adaptation : ././adapted_0.msh
+	Successfully adapted the mesh././adapted_0.msh
+	Number of mesh vertices after adaptation : 1216
+
+L2_norm
+target_nvrt n_vrt n_elm n_dof        T        
+        200   655  3012   655 2.4264e-01    - 
+        400  1200  5786  1200 1.5325e-01 2.28 
+
+Linfty_norm
+target_nvrt n_vrt n_elm n_dof        T        
+        200   655  3012   655 9.2880e-01    - 
+        400  1200  5786  1200 8.8605e-01 0.23 
+
+H1_seminorm
+target_nvrt n_vrt n_elm n_dof        T        
+        200   655  3012   655 1.8208e+01    - 
+        400  1200  5786  1200 4.3244e+00 7.12

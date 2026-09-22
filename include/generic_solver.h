@@ -18,6 +18,9 @@
 #include <time_handler.h>
 #include <types.h>
 
+#include <map>
+#include <memory>
+
 using namespace dealii;
 
 /**
@@ -79,6 +82,16 @@ public:
   void run_fixed_point_loop();
 
   /**
+   * When running a fixed-point adaptation loop, this function updates the
+   * parameters specified in the parameter file, given the current iteration
+   * number.This allows for instance to reduce the interface thickness of a CHNS
+   * simulation as the mesh is refined.
+   */
+  virtual void
+  update_simulation_parameters(const unsigned int /* fixed_point_iteration */)
+  {}
+
+  /**
    * Assemble the Jacobian matrix of the nonlinear problem, that is, its
    * linearization at the current solution. This function is overloaded by each
    * derived solver.
@@ -122,6 +135,40 @@ public:
   virtual void adapt_mesh();
 
   /**
+   * Return true if the triangulation should be (re-)created on this time
+   * interval.
+   */
+  virtual bool should_create_triangulation() const;
+
+  /**
+   * Return true if the triangulation should be refined, i.e., if the simulation
+   * is unsteady and this is a time step matching the prescribed frequency.
+   * Only used to adapt tree-based meshes.
+   */
+  virtual bool
+  should_adapt_tree_based_mesh(const TimeHandler &time_handler) const;
+
+  /**
+   * Return true if the mesh(es) should be adapted, after all time steps have
+   * been computed on all time subintervals.
+   *
+   * With metric-based mesh adaptation, this is always true, as the transient
+   * fixed-point method requires scaling the metrics with a global scaling
+   * factor that can only be computed at the end of a fixed-point iteration
+   * (i.e., the whole simulation time interval).
+   *
+   * With tree-based adaptation, this is true only for steady-state convergence
+   * studies, and if there is another convergence step after this one. Because
+   * the number of mesh cells changes when calling the refinement and coarsening
+   * routines, this function should be called *after* registering the number of
+   * cells/dofs in the error handler (with add_reference_adata(...), which is
+   * typically done in a finalize() function), to provide matching cells/dofs
+   * and measured error norms in the convergence table.
+   */
+  bool
+  should_adapt_mesh_at_end_of_intervals(const TimeHandler &time_handler) const;
+
+  /**
    * Return true if the solver should evaluate error norms. This is typically
    * always true, except when adapting the mesh with a Riemannian metric, in
    * which case a few fixed-point iterations are performed to converge to a
@@ -158,6 +205,16 @@ public:
   template <int dim>
   bool should_compute_riemannian_metric(const ParameterReader<dim> &param,
                                         const TimeHandler &time_handler) const;
+
+  /**
+   * Return true if the Riemannian metric used for mesh adaptation should be
+   * scaled to reach a target number of vertices, and if gradation should be
+   * applied.
+   */
+  template <int dim>
+  bool should_scale_and_grade_riemannian_metric(
+    const ParameterReader<dim> &param,
+    const TimeHandler          &time_handler) const;
 
   /**
    * Return the (ghosted) solution vector.

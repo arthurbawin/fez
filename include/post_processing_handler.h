@@ -3,12 +3,15 @@
 
 #include <components_ordering.h>
 #include <deal.II/base/table_handler.h>
+#include <deal.II/base/timer.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/mapping.h>
 #include <deal.II/hp/fe_collection.h>
 #include <deal.II/hp/mapping_collection.h>
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/data_postprocessor.h>
+#include <field_postprocessors.h>
 #include <parameter_reader.h>
 #include <parameters.h>
 #include <post_processing_tools.h>
@@ -27,6 +30,61 @@ class PostProcessingHandler
 {
 public:
   /**
+   * A struct to set up the prefixes and suffixes of the files to be written.
+   */
+  struct PrefixData
+  {
+    /**
+     * Is this a step of a convergence study with manufactured solutions?
+     */
+    bool is_convergence_step = false;
+
+    /**
+     * Convergence step, if applicable
+     */
+    unsigned int convergence_step = 0;
+
+    /**
+     * Is this a step of a fixed-point mesh adaptation loop?
+     */
+    bool is_fixed_point_step = false;
+
+    /**
+     * Fixed-point step, if applicable
+     */
+    unsigned int fixed_point_step = 0;
+
+    /**
+     * Is this a time subinterval within an unsteady fixed-point mesh adaptation
+     * loop?
+     */
+    bool is_time_subinterval = false;
+
+    /**
+     * Time subinterval index, if applicable
+     */
+    unsigned int interval_index = 0;
+
+    /**
+     * Is this a tree-based prerefinement step in an unsteady problem?
+     */
+    bool is_prerefinement_step = false;
+
+    /**
+     * Prerefinement step, if applicable
+     */
+    unsigned int prerefinement_step = 0;
+
+    /**
+     * Append some additional strings to the given prefix or suffix,
+     * depending on the stored flags and step counters.
+     */
+    void append_to_prefix_or_suffix(const Parameters::Output &output_param,
+                                    const bool                is_for_pvd,
+                                    std::string &prefix_or_suffix) const;
+  };
+
+  /**
    * Constructor.
    *
    * This function accepts an empty mesh and dof_handler, so it can be called
@@ -36,7 +94,8 @@ public:
    * outputting fields. Since deal.II's add_data_vector(...) functions already
    * check that the dof_handler is non-empty, this is not checked here.
    */
-  PostProcessingHandler(const ParameterReader<dim> &param,
+  PostProcessingHandler(const ComponentOrdering    &ordering,
+                        const ParameterReader<dim> &param,
                         const Triangulation<dim>   &triangulation,
                         const DoFHandler<dim>      &dof_handler,
                         const std::vector<std::pair<std::string, unsigned int>>
@@ -61,6 +120,17 @@ public:
                                        const DoFHandler<dim>    &dof_handler);
 
   /**
+   * (Re-)create the dof-based postprocessors, stored in field_postprocessors.
+   *
+   * As for the function above, this function must be called whenever the mesh
+   * and dof handler changed, i.e., after mesh adaptation.
+   */
+  void create_field_postprocessors(const ParameterReader<dim> &param,
+                                   const Mapping<dim>         &mapping,
+                                   const Quadrature<dim>      &cell_quadrature,
+                                   const bool with_moving_mesh);
+
+  /**
    * Add a cell-based vector of data associated to a field with name "name" to
    * the underlying DataOut object. The vector data should have a size equal to
    * the number of mesh elements on this partitions, e.g., by reinit'ing the
@@ -76,6 +146,23 @@ public:
   template <typename VectorType>
   void add_dof_data_vector(const VectorType               &data,
                            const std::vector<std::string> &names);
+
+  /**
+   * Add a dof-based vector of data to the underlying DataOut. Unlike the
+   * function above, here an arbitrary dof_handler can be given, to assign data
+   * associated with a different field as the one described by the dof_handler
+   * associated with this object.
+   *
+   * This function simply forwards the call to the deal.II function with the
+   * same signature.
+   */
+  template <typename VectorType>
+  void add_data_vector(
+    const DoFHandler<dim>          &dof_handler,
+    const VectorType               &data,
+    const std::vector<std::string> &names,
+    const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      &data_component_interpretation);
 
   /**
    * Output the fields stored in solution, both in the volume and on the
@@ -94,7 +181,8 @@ public:
   template <typename VectorType>
   void output_fields(const Mapping<dim> &mapping,
                      const VectorType   &solution,
-                     const TimeHandler  &time_handler);
+                     const TimeHandler  &time_handler,
+                     const PrefixData   &prefix_data = PrefixData());
 
   /**
    * Write the .pvd files (volume and skin, if applicable).
@@ -103,7 +191,29 @@ public:
    * If a convergence study with a manufactured solution is being run,
    * a suffix with the current convergence step is appended to the pvd file.
    */
-  void write_pvd() const;
+  void write_pvd(const PrefixData &prefix_data = PrefixData()) const;
+
+  /**
+   * Calls the postprocess() function for each of the dof-based postprocessor
+   * stored in field_postprocessors, and adds the computed data to the
+   * underlying DataOut.
+   *
+   * Some of the fields computed with this function involve a nontrivial compute
+   * time (e.g., assemble a mass matrix and rhs, and solve an L2 projection
+   * problem). Although they are still much cheaper than the main resolved
+   * physics, you might want to set a compute frequency to avoid computing these
+   * fields at each time step. To avoid writing visualization files where these
+   * fields are present only at the time steps where they were computed,
+   * however, their postprocessed field is exported at each step, i.e., the same
+   * field is written until it has been computed again, at a time step that
+   * matches the prescribed frequency.
+   */
+  template <typename VectorType>
+  void compute_field_postprocessors(
+    TimerOutput                   &timer,
+    const VectorType              &solution,
+    const std::vector<VectorType> &previous_solutions,
+    const TimeHandler             &time_handler);
 
   /**
    * Compute the hydrodynamic forces on the boundary prescribed in the forces
@@ -147,6 +257,39 @@ public:
                                   const FaceQuadratureType &face_quadrature,
                                   const VectorType         &solution,
                                   const TimeHandler        &time_handler);
+
+  /**
+   * Compute indicators for multiphase computations, namely:
+   *
+   * - the total volume occupied by each fluid phase,
+   * - the position of the center of mass of each phase,
+   * - the average velocity in each phase.
+   *
+   * Each of these quantities can be controlled with the dedicated subsections
+   * of the Postprocessing parameters.
+   *
+   * Limited to two phases for now.
+   *
+   * This function calls the function with the same name in PostProcessingTools,
+   * and handles writing the data to tables and outputting then.
+   */
+  template <typename VectorType>
+  void compute_multiphase_indicators(const ComponentOrdering &ordering,
+                                     const DoFHandler<dim>   &dof_handler,
+                                     const Mapping<dim>      &mapping,
+                                     const Quadrature<dim>   &quadrature,
+                                     const VectorType        &solution,
+                                     const TimeHandler       &time_handler);
+
+  /**
+   * Compute the volume integrals of the finite element variables selected
+   * in the field integral postprocessing parameters.
+   */
+  template <typename VectorType>
+  void compute_field_integrals(const Mapping<dim>    &mapping,
+                               const Quadrature<dim> &quadrature,
+                               const VectorType      &solution,
+                               const TimeHandler     &time_handler);
 
   /**
    * Reset the underlying data and vectors.
@@ -225,18 +368,46 @@ public:
 
 private:
   /**
+   * Returns a unique pointer to a newly created object deriving from
+   * PostprocessofAtDofBase.
+   * The exact derived class of the created object is determined by both @p type
+   * and the associated parameters in param.postprocessing.
+   */
+  std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>
+  create_field_postprocessor(
+    const PostProcessingTools::PostprocessorAtDofTypes type,
+    const ParameterReader<dim>                        &param,
+    const Mapping<dim>                                &mapping,
+    const Quadrature<dim>                             &cell_quadrature,
+    const bool                                         with_moving_mesh);
+
+  /**
    * Return true if the passed postprocessing should be output at this time
    * step.
    */
   bool should_output_postprocessing(
     const TimeHandler                                    &time_handler,
-    const Parameters::PostProcessing::PostProcessingBase &postproc_base) const
+    const Parameters::PostProcessing::PostProcessingFile &postproc_file) const
   {
-    return postproc_base.enable && postproc_base.write_results &&
+    return postproc_file.enable && postproc_file.write_results &&
            (time_handler.current_time_iteration %
-                postproc_base.output_frequency ==
+                postproc_file.output_frequency ==
               0 ||
             time_handler.is_finished());
+  }
+
+  /**
+   * Return true if the passed dof-based postprocessing should be computed at
+   * this time step.
+   */
+  bool should_compute_postprocessing(
+    const TimeHandler                                    &time_handler,
+    const Parameters::PostProcessing::PostProcessingBase &postprocessing) const
+  {
+    return postprocessing.enable and (time_handler.current_time_iteration %
+                                          postprocessing.output_frequency ==
+                                        0 ||
+                                      time_handler.is_finished());
   }
 
   /**
@@ -248,7 +419,8 @@ private:
   template <typename VectorType>
   void output_volume_fields(const Mapping<dim> &mapping,
                             const VectorType   &solution,
-                            const TimeHandler  &time_handler);
+                            const TimeHandler  &time_handler,
+                            const PrefixData   &prefix_data);
 
   /**
    * Output the fields defined on the skin for visualization. This includes
@@ -258,7 +430,8 @@ private:
   template <typename VectorType>
   void output_skin_fields(const Mapping<dim> &mapping,
                           const VectorType   &solution,
-                          const TimeHandler  &time_handler);
+                          const TimeHandler  &time_handler,
+                          const PrefixData   &prefix_data);
 
   /**
    * Add the computed forces to the passed table with required formatting.
@@ -278,12 +451,25 @@ private:
                              TableHandler         &position_table);
 
   /**
+   * Add data available for each fluid phase to @p table, according to the
+   * options stored in @p pp_param.
+   *
+   * Only handles two phases.
+   */
+  template <typename DataType>
+  void add_multiphase_data_to_table(
+    const std::array<DataType, 2>                        &data_for_phases,
+    const TimeHandler                                    &time_handler,
+    TableHandler                                         &table,
+    const Parameters::PostProcessing::PostProcessingFile &pp_param);
+
+  /**
    * Write the given table to the out stream.
    */
   void write_table(
     std::ostream                                         &out,
     const TableHandler                                   &table,
-    const Parameters::PostProcessing::PostProcessingBase &postproc_base) const;
+    const Parameters::PostProcessing::PostProcessingFile &postproc_file) const;
 
   /**
    * Assign a slice index to the faces on the sliced boundary.
@@ -291,10 +477,13 @@ private:
   void create_slices();
 
 private:
+  const ComponentOrdering &ordering;
+
   const Parameters::PostProcessing          &post_proc_param;
   const Parameters::Output                  &output_param;
   const Parameters::PhysicalProperties<dim> &physical_properties;
   const Parameters::MMS                     &mms_param;
+  const Parameters::FiniteElements<dim>     &fe_param;
 
   ObserverPointer<const Triangulation<dim>, PostProcessingHandler<dim>>
     triangulation;
@@ -317,9 +506,24 @@ private:
   std::vector<std::pair<double, std::string>> visualization_times_and_names;
   std::vector<std::pair<double, std::string>>
     visualization_times_and_names_skin;
+  std::vector<std::pair<double, std::string>>
+    prerefinements_pseudotimes_and_names;
+  std::vector<std::pair<double, std::string>>
+    prerefinements_pseudotimes_and_names_skin;
 
   // Subdomain (partition) IDs
   Vector<float> subdomains;
+
+  // Postprocessors derived from deal.II's DataPostprocessor,
+  // which evaluate a postprocessed quantity directly at the visualization nodes
+  std::vector<std::unique_ptr<DataPostprocessor<dim>>> postprocessors;
+
+  // Postprocessors derived from PostprocessorAtDofBase, which compute a field
+  // defined at the dofs. These dofs are typically different from the dofs of
+  // the main solver's dof_handler
+  std::map<PostProcessingTools::PostprocessorAtDofTypes,
+           std::unique_ptr<PostProcessingTools::PostprocessorAtDofBase<dim>>>
+    field_postprocessors;
 
   // Forces on the prescribed boundary, and on each slice if enabled
   TableHandler  forces_table;
@@ -329,9 +533,44 @@ private:
   // The position of the geometric center (average) of the structure,
   // if solving a fluid-structure interaction problem
   TableHandler structure_mean_position_table;
+
+  // Volume integrals of the selected finite element variables
+  std::map<SolverInfo::VariableType, TableHandler> field_integral_tables;
+
+  // For multiphase flows: volume occupied by each phase
+  TableHandler volume_of_phases;
+
+  // For multiphase flows: center of mass of each phase
+  TableHandler center_of_mass_phases;
+
+  // For multiphase flows: average velocity in each phase
+  TableHandler average_velocity_phases;
 };
 
 /* ---------------- Template functions ----------------- */
+
+template <int dim>
+void PostProcessingHandler<dim>::PrefixData::append_to_prefix_or_suffix(
+  const Parameters::Output &output_param,
+  const bool                is_for_pvd,
+  std::string              &prefix_or_suffix) const
+{
+  if (is_convergence_step)
+    prefix_or_suffix += "_convergence_step_" + std::to_string(convergence_step);
+
+  if (is_fixed_point_step)
+    if (!output_param.fixed_point.single_pvd)
+      prefix_or_suffix += "_fp_" + std::to_string(fixed_point_step);
+
+  // The interval index should not be written in the name of the pvd file
+  if (!is_for_pvd)
+    if (is_time_subinterval)
+      prefix_or_suffix += "_int_" + std::to_string(interval_index);
+
+  if (is_prerefinement_step)
+    prefix_or_suffix +=
+      "_prerefinement_step_" + std::to_string(prerefinement_step);
+}
 
 template <int dim>
 template <typename VectorType>
@@ -355,9 +594,23 @@ void PostProcessingHandler<dim>::add_dof_data_vector(
 
 template <int dim>
 template <typename VectorType>
+void PostProcessingHandler<dim>::add_data_vector(
+  const DoFHandler<dim>          &dof_handler,
+  const VectorType               &data,
+  const std::vector<std::string> &names,
+  const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    &component_interpretation)
+{
+  // Simply forward the call to the deal.II function
+  data_out->add_data_vector(dof_handler, data, names, component_interpretation);
+}
+
+template <int dim>
+template <typename VectorType>
 void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
                                                const VectorType   &solution,
-                                               const TimeHandler  &time_handler)
+                                               const TimeHandler  &time_handler,
+                                               const PrefixData   &prefix_data)
 {
   // Get the partitions only once
   if (subdomains.size() == 0)
@@ -377,15 +630,15 @@ void PostProcessingHandler<dim>::output_fields(const Mapping<dim> &mapping,
 
   // Export fields in volume
   if (should_output_volume_fields(time_handler))
-    output_volume_fields(mapping, solution, time_handler);
+    output_volume_fields(mapping, solution, time_handler, prefix_data);
 
   // Export fields on prescribed boundary (skin)
   if (should_output_skin_fields(time_handler))
-    output_skin_fields(mapping, solution, time_handler);
+    output_skin_fields(mapping, solution, time_handler, prefix_data);
 
   if (mpi_rank == 0 && (should_output_volume_fields(time_handler) ||
                         should_output_skin_fields(time_handler)))
-    write_pvd();
+    write_pvd(prefix_data);
 }
 
 template <int dim>
@@ -393,27 +646,72 @@ template <typename VectorType>
 void PostProcessingHandler<dim>::output_volume_fields(
   const Mapping<dim> &mapping,
   const VectorType   &solution,
-  const TimeHandler  &time_handler)
+  const TimeHandler  &time_handler,
+  const PrefixData   &prefix_data)
 {
   data_out->add_data_vector(solution,
                             solution_names,
                             DataOut<dim>::type_dof_data,
                             data_component_interpretation);
   data_out->add_data_vector(subdomains, "subdomain");
-  data_out->build_patches(mapping, 2);
+
+  // Output all the DataPostprocessors
+  for (const auto &postprocessor : postprocessors)
+    data_out->add_data_vector(solution, *postprocessor);
+
+  data_out->build_patches(mapping,
+                          output_param.n_subdivisions,
+                          DataOut<dim>::CurvedCellRegion::curved_inner_cells);
 
   std::string prefix = output_param.output_prefix;
-  if (mms_param.enable)
-    prefix += "_convergence_step_" + std::to_string(mms_param.current_step);
+  prefix_data.append_to_prefix_or_suffix(output_param, false, prefix);
 
   const std::string pvtu_file =
     data_out->write_vtu_with_pvtu_record(output_param.output_dir,
                                          prefix,
                                          time_handler.current_time_iteration,
                                          mpi_communicator,
-                                         2);
-  visualization_times_and_names.emplace_back(time_handler.current_time,
-                                             pvtu_file);
+                                         2,
+                                         output_param.n_vtu_groups);
+
+  if (prefix_data.is_prerefinement_step)
+    prerefinements_pseudotimes_and_names.emplace_back(
+      static_cast<double>(prefix_data.prerefinement_step), pvtu_file);
+  else
+  {
+    /**
+     * When using more than one time subinterval, we currently output at the end
+     * of an interval the solution on both the previous and current interval, to
+     * assess the quality of the solution transfer between meshes. These
+     * solutions are associated with the same time, and ParaView does not seem
+     * to show both solutions if the "timestep" in the same in the .pvd file.
+     * The "part" keyword does not seem to help either.
+     *
+     * Instead, the timestep at the beginning of an interval is set to t +
+     * epsilon.
+     */
+    double current_time = time_handler.current_time;
+    if (output_param.fixed_point.show_solution_transfer)
+      if (prefix_data.is_time_subinterval && prefix_data.interval_index > 0 &&
+          time_handler.current_time_iteration_in_interval == 0)
+      {
+        const double eps = 1e-12;
+        // Make sure the time step is greater than this epsilon, just in case
+        Assert(time_handler.get_current_timestep() > eps, ExcInternalError());
+        current_time += eps;
+      }
+
+    /**
+     * If steady, use time step counter as pseudo-time,
+     * otherwise use current time.
+     */
+    visualization_times_and_names.emplace_back(
+      time_handler.is_steady() ?
+        static_cast<double>(time_handler.current_time_iteration) :
+        current_time,
+      pvtu_file);
+  }
+
   data_out->clear_data_vectors();
 }
 
@@ -422,7 +720,8 @@ template <typename VectorType>
 void PostProcessingHandler<dim>::output_skin_fields(
   const Mapping<dim> &mapping,
   const VectorType   &solution,
-  const TimeHandler  &time_handler)
+  const TimeHandler  &time_handler,
+  const PrefixData   &prefix_data)
 {
   // build_patches is not (yet) implemented for DataOutFaces in hp context
   AssertThrow(
@@ -443,24 +742,61 @@ void PostProcessingHandler<dim>::output_skin_fields(
   if (post_proc_param.slices.enable)
   {
     data_out_skin->add_data_vector(slice_indices,
-                                   "slice index",
+                                   "slice_index",
                                    DataOutFaces<dim>::type_cell_data);
   }
-  data_out_skin->build_patches(mapping, 2);
+  data_out_skin->build_patches(mapping, output_param.n_subdivisions);
 
   std::string prefix =
     output_param.output_prefix + "_" + output_param.skin.output_prefix;
-  if (mms_param.enable)
-    prefix += "_convergence_step_" + std::to_string(mms_param.current_step);
+  prefix_data.append_to_prefix_or_suffix(output_param, false, prefix);
 
   const std::string pvtu_file = data_out_skin->write_vtu_with_pvtu_record(
     output_param.output_dir,
     prefix,
     time_handler.current_time_iteration,
     mpi_communicator,
-    2);
-  visualization_times_and_names_skin.emplace_back(time_handler.current_time,
-                                                  pvtu_file);
+    2,
+    output_param.n_vtu_groups);
+
+  if (prefix_data.is_prerefinement_step)
+    prerefinements_pseudotimes_and_names_skin.emplace_back(
+      static_cast<double>(prefix_data.prerefinement_step), pvtu_file);
+  else
+  {
+    /**
+     * When using more than one time subinterval, we currently output at the end
+     * of an interval the solution on both the previous and current interval, to
+     * assess the quality of the solution transfer between meshes. These
+     * solutions are associated with the same time, and ParaView does not seem
+     * to show both solutions if the "timestep" in the same in the .pvd file.
+     * The "part" keyword does not seem to help either.
+     *
+     * Instead, the timestep at the beginning of an interval is set to t +
+     * epsilon.
+     */
+    double current_time = time_handler.current_time;
+    if (output_param.fixed_point.show_solution_transfer)
+      if (prefix_data.is_time_subinterval && prefix_data.interval_index > 0 &&
+          time_handler.current_time_iteration_in_interval == 0)
+      {
+        const double eps = 1e-12;
+        // Make sure the time step is greater than this epsilon, just in case
+        Assert(time_handler.get_current_timestep() > eps, ExcInternalError());
+        current_time += eps;
+      }
+
+    /**
+     * If steady, use time step counter as pseudo-time,
+     * otherwise use current time.
+     */
+    visualization_times_and_names_skin.emplace_back(
+      time_handler.is_steady() ?
+        static_cast<double>(time_handler.current_time_iteration) :
+        current_time,
+      pvtu_file);
+  }
+
   data_out_skin->clear_data_vectors();
 }
 
@@ -647,6 +983,40 @@ void PostProcessingHandler<dim>::compute_forces(
 }
 
 template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::compute_field_postprocessors(
+  TimerOutput                   &timer,
+  const VectorType              &solution,
+  const std::vector<VectorType> &previous_solutions,
+  const TimeHandler             &time_handler)
+{
+  // Loop over all recorded field postprocessors
+  for (const auto &[type, postprocessor_param_ptr] :
+       post_proc_param.field_postprocessors)
+    if (postprocessor_param_ptr->enable)
+    {
+      // Postprocess the solution and add data to DataOut
+      const auto &ptr = field_postprocessors.at(type);
+      if (ptr && should_output_volume_fields(time_handler))
+      {
+        if (should_compute_postprocessing(time_handler,
+                                          *postprocessor_param_ptr))
+        {
+          TimerOutput::Scope t(timer,
+                               "Compute " +
+                                 PostProcessingTools::to_string(type));
+          ptr->postprocess(solution, previous_solutions, time_handler);
+        }
+
+        // Always write the last computed field to the visualization file, to
+        // avoid alternating between frames with and without this field if the
+        // compute frequency is > 1.
+        ptr->add_data(*this);
+      }
+    }
+}
+
+template <int dim>
 template <typename VectorType,
           typename MappingType,
           typename FaceQuadratureType>
@@ -704,6 +1074,162 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
     write_table(outfile,
                 structure_mean_position_table,
                 post_proc_param.structure_position);
+  }
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::compute_field_integrals(
+  const Mapping<dim>    &mapping,
+  const Quadrature<dim> &quadrature,
+  const VectorType      &solution,
+  const TimeHandler     &time_handler)
+{
+  const auto &integral_param = post_proc_param.field_integral;
+  for (const auto variable : integral_param.variables)
+  {
+    const auto variable_name = SolverInfo::to_string(variable);
+    Assert(ordering.has_variable(variable),
+           ExcMessage("Cannot compute the integral of " + variable_name +
+                      " because this solver does not have that variable"));
+
+    const auto compute_and_store = [&](const auto &extractor) {
+      const auto integral = PostProcessingTools::compute_field_integral(
+        *dof_handler, mapping, quadrature, solution, extractor);
+      if (mpi_rank != 0)
+        return;
+
+      if (integral_param.verbosity == Parameters::Verbosity::verbose)
+      {
+        const std::ios::fmtflags old_flags     = std::cout.flags();
+        const auto               old_precision = std::cout.precision();
+        std::cout << std::scientific << std::showpos
+                  << std::setprecision(integral_param.precision)
+                  << "Integral of " << variable_name << ": " << integral
+                  << std::endl;
+        std::cout.precision(old_precision);
+        std::cout.flags(old_flags);
+      }
+
+      auto &table = field_integral_tables[variable];
+      table.add_value("time", time_handler.current_time);
+      const auto add_component = [&](const std::string &name,
+                                     const double       value) {
+        table.add_value(name, value);
+        table.set_precision(name, integral_param.precision);
+        table.set_scientific(name, true);
+      };
+      if constexpr (std::is_same_v<std::decay_t<decltype(integral)>, double>)
+        add_component(variable_name, integral);
+      else
+      {
+        const std::array<std::string, 3> axes = {{"x", "y", "z"}};
+        for (unsigned int d = 0; d < dim; ++d)
+          add_component(variable_name + "_" + axes[d], integral[d]);
+      }
+
+      // Accumulate every time step; the frequency only controls file output.
+      if (should_output_postprocessing(time_handler, integral_param))
+      {
+        std::ofstream outfile(output_param.output_dir +
+                              integral_param.output_prefix + "_" +
+                              variable_name + ".txt");
+        write_table(outfile, table, integral_param);
+      }
+    };
+
+    if (ordering.is_scalar(variable))
+      compute_and_store(ordering.get_scalar_extractor(variable));
+    else if (ordering.is_vector(variable))
+      compute_and_store(ordering.get_vector_extractor(variable));
+    else
+      DEAL_II_NOT_IMPLEMENTED();
+  }
+}
+
+template <int dim>
+template <typename VectorType>
+void PostProcessingHandler<dim>::compute_multiphase_indicators(
+  const ComponentOrdering &ordering,
+  const DoFHandler<dim>   &dof_handler,
+  const Mapping<dim>      &mapping,
+  const Quadrature<dim>   &quadrature,
+  const VectorType        &solution,
+  const TimeHandler       &time_handler)
+{
+  const auto &vol_param = post_proc_param.chns_volumes;
+  const auto &cm_param  = post_proc_param.chns_center_mass;
+  const auto &vel_param = post_proc_param.chns_avg_velocity;
+
+  if (!(vol_param.enable or cm_param.enable or vel_param.enable))
+    return;
+
+  constexpr int                        n_phases = 2;
+  std::array<double, n_phases>         phase_volumes;
+  std::array<Tensor<1, dim>, n_phases> phase_center_of_mass;
+  std::array<Tensor<1, dim>, n_phases> phase_average_velocity;
+
+  PostProcessingTools::compute_multiphase_indicators<dim, n_phases, VectorType>(
+    post_proc_param,
+    ordering,
+    dof_handler,
+    mapping,
+    quadrature,
+    solution,
+    phase_volumes,
+    phase_center_of_mass,
+    phase_average_velocity);
+
+  // Lambda function to announce the computed quantities, add them to table and
+  // write the table to file
+  auto do_postprocessing =
+    [&](const auto &data, const auto &msg, auto &table, const auto &param) {
+      if (!param.enable)
+        return;
+
+      if (param.verbosity == Parameters::Verbosity::verbose)
+      {
+        std::cout << std::setprecision(param.precision);
+        std::cout << msg << " 0:" << data[0] << std::endl;
+        std::cout << msg << " 1:" << data[1] << std::endl;
+      }
+
+      add_multiphase_data_to_table(data, time_handler, table, param);
+
+      if (should_output_postprocessing(time_handler, param))
+      {
+        std::ofstream outfile(output_param.output_dir + param.output_prefix +
+                              ".txt");
+        write_table(outfile, table, param);
+      }
+    };
+
+  // Add to tables and write
+  if (mpi_rank == 0)
+  {
+    // Save std::cout flags
+    std::ios::fmtflags old_flags     = std::cout.flags();
+    unsigned int       old_precision = std::cout.precision();
+    std::cout << std::scientific << std::showpos;
+
+    do_postprocessing(phase_volumes,
+                      "Volume of phase ",
+                      volume_of_phases,
+                      vol_param);
+
+    do_postprocessing(phase_center_of_mass,
+                      "Center of mass of phase ",
+                      center_of_mass_phases,
+                      cm_param);
+
+    do_postprocessing(phase_average_velocity,
+                      "Average velocity in phase ",
+                      average_velocity_phases,
+                      vel_param);
+
+    // Restore flags
+    std::cout.precision(old_precision);
+    std::cout.flags(old_flags);
   }
 }
 

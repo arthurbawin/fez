@@ -150,12 +150,11 @@ void solve_linear_system_iterative(
   zero_constraints.distribute(newton_update);
 }
 
-void solve_linear_system_unpreconditioned_cg(
-  GenericSolver<LA::ParVectorType> *solver,
-  const Parameters::LinearSolver   &linear_solver_param,
-  LA::ParMatrixType                &system_matrix,
-  const IndexSet                   &locally_owned_dofs,
-  const AffineConstraints<double>  &zero_constraints)
+void solve_linear_system_cg(GenericSolver<LA::ParVectorType> *solver,
+                            const Parameters::LinearSolver &linear_solver_param,
+                            LA::ParMatrixType              &system_matrix,
+                            const IndexSet                 &locally_owned_dofs,
+                            const AffineConstraints<double> &zero_constraints)
 {
   TimerOutput::Scope t(solver->computing_timer, "Solve CG");
 
@@ -174,7 +173,7 @@ void solve_linear_system_unpreconditioned_cg(
   LA::SolverCG  cg_solver(solver_control);
 
 #if defined(FEZ_WITH_PETSC)
-  PETScWrappers::PreconditionNone dummy_preconditioner(system_matrix);
+  PETScWrappers::PreconditionBlockJacobi preconditioner(system_matrix);
 #else
   // TODO: Implement for Trilinos
   DEAL_II_NOT_IMPLEMENTED();
@@ -183,7 +182,7 @@ void solve_linear_system_unpreconditioned_cg(
   cg_solver.solve(system_matrix,
                   completely_distributed_solution,
                   system_rhs,
-                  dummy_preconditioner);
+                  preconditioner);
 
   if (verbose)
     solver->pcout << solver_control.last_step()

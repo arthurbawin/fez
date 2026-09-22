@@ -7,12 +7,10 @@
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/table_handler.h>
 #include <deal.II/base/utilities.h>
-#include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria_base.h>
 #include <deal.II/dofs/dof_handler.h>
-#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_fe.h>
-#include <deal.II/fe/mapping_fe_field.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <error_estimation/patches.h>
 #include <error_estimation/solution_recovery.h>
@@ -135,7 +133,7 @@ public:
   /**
    *
    */
-  void set_initial_conditions();
+  void set_initial_conditions(const bool rotate_solutions = true);
 
   /**
    *
@@ -194,6 +192,11 @@ public:
   void postprocess_solution();
 
   /**
+   * Compute the volume integrals of the selected finite element variables.
+   */
+  void compute_field_integrals();
+
+  /**
    *
    */
   void compute_and_add_errors(const Mapping<dim>  &mapping,
@@ -221,6 +224,12 @@ public:
    *
    */
   void compute_riemannian_metric();
+
+  /**
+   * Compute the Kelly error estimator for the temperature field, which
+   * is used as refinement/coarsening criterion.
+   */
+  void compute_error_estimate();
 
   /**
    *
@@ -268,21 +277,21 @@ protected:
 
   ParameterReader<dim> param;
 
-  FESystem<dim> fe;
+  std::unique_ptr<FESystem<dim>> fe;
 
   // Choose another quadrature rule for error computation
-  QSimplex<dim>     quadrature;
-  QSimplex<dim>     error_quadrature;
-  QSimplex<dim - 1> face_quadrature;
-  QSimplex<dim - 1> error_face_quadrature;
+  std::unique_ptr<Quadrature<dim>>     quadrature;
+  std::unique_ptr<Quadrature<dim>>     error_quadrature;
+  std::unique_ptr<Quadrature<dim - 1>> face_quadrature;
+  std::unique_ptr<Quadrature<dim - 1>> error_face_quadrature;
 
   std::unique_ptr<Mapping<dim>> mapping;
   TimeHandler                   time_handler;
 
   TransientFixedPointData<dim> transient_fixed_point_data;
 
-  parallel::fullydistributed::Triangulation<dim> *triangulation;
-  DoFHandler<dim>                                *dof_handler;
+  parallel::DistributedTriangulationBase<dim> *triangulation;
+  DoFHandler<dim>                             *dof_handler;
 
   std::unique_ptr<ScratchData> scratch_data;
 
@@ -308,13 +317,20 @@ protected:
   SolverControl                                          solver_control;
   std::shared_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
 
-  std::unique_ptr<PostProcessingHandler<dim>> postproc_handler;
+  std::unique_ptr<PostProcessingHandler<dim>>     postproc_handler;
+  typename PostProcessingHandler<dim>::PrefixData prefix_data;
 
   std::vector<std::unique_ptr<MetricField<dim>>> metrics;
   std::vector<std::unique_ptr<ErrorEstimation::PatchHandler<dim>>>
     patch_handlers;
   std::vector<std::unique_ptr<ErrorEstimation::SolutionRecovery::Scalar<dim>>>
     recoveries;
+
+  /**
+   * Cellwise error on the temperature field estimated with the Kelly estimator.
+   * Used to adapt the mesh when tree-based adaptation is enabled.
+   */
+  Vector<float> temperature_error_on_cells;
 
   MetricField<dim> *metric_for_adaptation;
 

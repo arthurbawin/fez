@@ -1,0 +1,41 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 2
+ no. of cells: 220
+ boundary indicators: 0(10 faces) 1(10 faces) 2(8 faces) 3(20 faces) 4(20 faces) 
+ID 0 -> inlet
+ID 1 -> outlet
+ID 2 -> cylinder
+ID 3 -> bottom
+ID 4 -> top
+Number of degrees of freedom: 2150
+Newton iter.  0:          nonlinear residual = 2.28044023e+00
+Newton iter.  1:          nonlinear residual = 3.49570655e-01	(M)
+Newton iter.  2:          nonlinear residual = 1.60649450e-02	(M)
+Newton iter.  3:          nonlinear residual = 6.63907441e-05	(M)
+Newton iter.  4:          nonlinear residual = 2.12146791e-09	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 418
+Number of degrees of freedom: 4127
+Newton iter.  0:          nonlinear residual = 1.16946951e-01
+Newton iter.  1:          nonlinear residual = 1.50675265e-03	(M)
+Newton iter.  2:          nonlinear residual = 8.79657077e-07	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 778
+Number of degrees of freedom: 7714
+Newton iter.  0:          nonlinear residual = 3.15507189e-02
+Newton iter.  1:          nonlinear residual = 1.00412233e-04	(M)
+Newton iter.  2:          nonlinear residual = 1.23370386e-09	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 1438
+Number of degrees of freedom: 14597
+Newton iter.  0:          nonlinear residual = 1.72195072e-02
+Newton iter.  1:          nonlinear residual = 1.37579445e-05	(M)
+Newton iter.  2:          nonlinear residual = 7.22624398e-11	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)

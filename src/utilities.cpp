@@ -116,18 +116,19 @@ void fill_dofs_to_component(const DoFHandler<dim>      &dof_handler,
   dofs_to_component.resize(n_relevant_dofs, static_cast<unsigned char>(-1));
   std::vector<types::global_dof_index> dof_indices;
   for (const auto &cell : dof_handler.active_cell_iterators())
-  {
-    dof_indices.resize(cell->get_fe().n_dofs_per_cell());
-    cell->get_dof_indices(dof_indices);
-
-    for (unsigned int i = 0; i < dof_indices.size(); ++i)
+    if (!cell->is_artificial())
     {
-      const types::global_dof_index dof = dof_indices[i];
-      AssertThrow(locally_relevant_dofs.is_element(dof), ExcInternalError());
-      dofs_to_component[locally_relevant_dofs.index_within_set(dof)] =
-        cell->get_fe().system_to_component_index(i).first;
+      dof_indices.resize(cell->get_fe().n_dofs_per_cell());
+      cell->get_dof_indices(dof_indices);
+
+      for (unsigned int i = 0; i < dof_indices.size(); ++i)
+      {
+        const types::global_dof_index dof = dof_indices[i];
+        AssertThrow(locally_relevant_dofs.is_element(dof), ExcInternalError());
+        dofs_to_component[locally_relevant_dofs.index_within_set(dof)] =
+          cell->get_fe().system_to_component_index(i).first;
+      }
     }
-  }
 }
 
 template void fill_dofs_to_component(const DoFHandler<2> &,

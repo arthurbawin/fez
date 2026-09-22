@@ -44,6 +44,8 @@ jobs:
           mkdir build && cd build
           cmake -D CMAKE_BUILD_TYPE=Debug \
                 -D ENABLE_TESTING=1 \
+                -D FEZ_WITH_MMG=ON \
+                -D FEZ_WITH_BUNDLED_MMG=ON \
                 -D DEAL_II_WITH_HP_IDENTITIES_BUG=1 \
                 -D REFERENCE_CELL_WITH_TEMPLATE_PARAMETER=${{ matrix.dealii_version == 'master-noble' && '1' || '0' }} \
                 .. \

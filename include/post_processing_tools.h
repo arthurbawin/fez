@@ -1,6 +1,7 @@
 #ifndef POST_PROCESSING_TOOLS_H
 #define POST_PROCESSING_TOOLS_H
 
+#include <components_ordering.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/base/types.h>
@@ -11,14 +12,23 @@
 #include <deal.II/hp/q_collection.h>
 #include <deal.II/lac/vector.h>
 #include <deal.II/numerics/data_out_faces.h>
+#include <parameter_reader.h>
+#include <parameters.h>
+#include <types.h>
 
-using namespace dealii;
+#include <type_traits>
+
+// Forward declaration
+template <int dim>
+class PostProcessingHandler;
 
 /**
  * Collection of utilities for post-processing.
  */
 namespace PostProcessingTools
 {
+  using namespace dealii;
+
   /**
    * Small specialization of deal.II's DataOutFaces to output a single boundary.
    */
@@ -231,9 +241,74 @@ namespace PostProcessingTools
                                    const unsigned int        n_slices,
                                    const SliceAxis           axis);
 
+  /**
+   * Compute indicators for Cahn-Hilliard Navier-Stokes computations, namely:
+   *
+   * - the total volume occupied by each fluid phase,
+   * - the position of the center of mass of each phase,
+   * - the average velocity in each phase.
+   */
+  template <int dim, int n_phases, typename VectorType>
+  void compute_multiphase_indicators(
+    const Parameters::PostProcessing     &post_proc_param,
+    const ComponentOrdering              &ordering,
+    const DoFHandler<dim>                &dof_handler,
+    const Mapping<dim>                   &mapping,
+    const Quadrature<dim>                &quadrature,
+    const VectorType                     &solution,
+    std::array<double, n_phases>         &phase_volumes,
+    std::array<Tensor<1, dim>, n_phases> &phase_center_of_mass,
+    std::array<Tensor<1, dim>, n_phases> &phase_average_velocity);
+
+  /**
+   * Compute the volume integral of the scalar or vector field selected by
+   * @p field_extractor.
+   */
+  template <int dim, typename VectorType, typename ExtractorType>
+  auto compute_field_integral(const DoFHandler<dim> &dof_handler,
+                              const Mapping<dim>    &mapping,
+                              const Quadrature<dim> &quadrature,
+                              const VectorType      &solution,
+                              const ExtractorType   &field_extractor);
+
 } // namespace PostProcessingTools
 
 /* ---------------- Template functions ----------------- */
+
+template <int dim, typename VectorType, typename ExtractorType>
+auto PostProcessingTools::compute_field_integral(
+  const DoFHandler<dim> &dof_handler,
+  const Mapping<dim>    &mapping,
+  const Quadrature<dim> &quadrature,
+  const VectorType      &solution,
+  const ExtractorType   &field_extractor)
+{
+  static_assert(std::is_same_v<ExtractorType, FEValuesExtractors::Scalar> ||
+                  std::is_same_v<ExtractorType, FEValuesExtractors::Vector>,
+                "The field extractor must be scalar or vector-valued");
+
+  FEValues<dim> fe_values(mapping,
+                          dof_handler.get_fe(),
+                          quadrature,
+                          update_values | update_JxW_values);
+  using ValueType =
+    typename std::decay_t<decltype(fe_values[field_extractor])>::value_type;
+  std::vector<ValueType> values(fe_values.n_quadrature_points);
+  ValueType              local_integral;
+  local_integral = 0;
+
+  for (const auto &cell : dof_handler.active_cell_iterators() |
+                            IteratorFilters::LocallyOwnedCell())
+  {
+    fe_values.reinit(cell);
+    fe_values[field_extractor].get_function_values(solution, values);
+    for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+      local_integral += values[q] * fe_values.JxW(q);
+  }
+
+  return Utilities::MPI::sum(local_integral,
+                             dof_handler.get_mpi_communicator());
+}
 
 template <int dim, typename VectorType>
 Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
@@ -740,8 +815,9 @@ void PostProcessingTools::set_slice_index_on_boundary(
   {
     if (face->at_boundary() && face->boundary_id() == boundary_id)
     {
-      const Point<dim> barry   = face->center();
-      unsigned int     i_slice = floor(barry[axis_id] / delta);
+      const Point<dim> barry = face->center();
+      unsigned int     i_slice =
+        static_cast<unsigned int>(std::floor(barry[axis_id] / delta));
 
       // A point at coord_max will have i_slice = n_slices : decrement it
       if (i_slice == n_slices)
@@ -823,6 +899,98 @@ double PostProcessingTools::compute_max_cfl(
     hp::QCollection<dim>(cell_quadrature),
     solution,
     velocity_extractor);
+}
+
+template <int dim, int n_phases, typename VectorType>
+void PostProcessingTools::compute_multiphase_indicators(
+  const Parameters::PostProcessing     &post_proc_param,
+  const ComponentOrdering              &ordering,
+  const DoFHandler<dim>                &dof_handler,
+  const Mapping<dim>                   &mapping,
+  const Quadrature<dim>                &quadrature,
+  const VectorType                     &solution,
+  std::array<double, n_phases>         &phase_volumes,
+  std::array<Tensor<1, dim>, n_phases> &phase_center_of_mass,
+  std::array<Tensor<1, dim>, n_phases> &phase_average_velocity)
+{
+  AssertThrow(ordering.phi_lower != numbers::invalid_unsigned_int,
+              ExcMessage("Cannot compute CHNS indicators because this "
+                         "solver does not have a phase tracer variable"));
+
+  const auto &cm_param  = post_proc_param.chns_center_mass;
+  const auto &vel_param = post_proc_param.chns_avg_velocity;
+
+  const FEValuesExtractors::Scalar tracer_extractor(ordering.phi_lower);
+  const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
+
+  UpdateFlags flags = update_values | update_JxW_values;
+  if (cm_param.enable)
+    flags |= update_quadrature_points;
+
+  FEValues<dim> fe_values(mapping, dof_handler.get_fe(), quadrature, flags);
+
+  std::vector<double>         tracer_values(fe_values.n_quadrature_points);
+  std::vector<Tensor<1, dim>> velocity_values(fe_values.n_quadrature_points);
+
+  const std::vector<Point<dim>> dummy_quadrature_points(
+    fe_values.n_quadrature_points);
+
+  std::array<double, n_phases>         local_phase_volumes = {{0., 0.}};
+  std::array<Tensor<1, dim>, n_phases> local_phase_center_of_mass;
+  std::array<Tensor<1, dim>, n_phases> local_phase_average_velocity;
+
+  for (const auto &cell : dof_handler.active_cell_iterators() |
+                            IteratorFilters::LocallyOwnedCell())
+  {
+    fe_values.reinit(cell);
+    fe_values[tracer_extractor].get_function_values(solution, tracer_values);
+    if (vel_param.enable)
+      fe_values[velocity_extractor].get_function_values(solution,
+                                                        velocity_values);
+
+    const auto &qpoints = post_proc_param.chns_center_mass.enable ?
+                            fe_values.get_quadrature_points() :
+                            dummy_quadrature_points;
+
+    for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+    {
+      const double JxW = fe_values.JxW(q);
+
+      // Phase 0 is where tracer = +1
+      // Phase 1 is where tracer = -1
+      const int i = tracer_values[q] >= 0 ? 0 : 1;
+      local_phase_volumes[i] += JxW;
+      local_phase_center_of_mass[i] += qpoints[q] * JxW;
+      local_phase_average_velocity[i] += velocity_values[q] * JxW;
+    }
+  }
+
+  const auto &comm = dof_handler.get_mpi_communicator();
+
+  for (unsigned int i = 0; i < n_phases; ++i)
+    phase_volumes[i] = Utilities::MPI::sum(local_phase_volumes[i], comm);
+
+  if (cm_param.enable)
+    for (unsigned int i = 0; i < n_phases; ++i)
+    {
+      Assert(phase_volumes[i] > 0,
+             ExcMessage("Cannot compute volume average because phase " +
+                        std::to_string(i) + " has no volume"));
+      phase_center_of_mass[i] =
+        1. / phase_volumes[i] *
+        Utilities::MPI::sum(local_phase_center_of_mass[i], comm);
+    }
+
+  if (vel_param.enable)
+    for (unsigned int i = 0; i < n_phases; ++i)
+    {
+      Assert(phase_volumes[i] > 0,
+             ExcMessage("Cannot compute volume average because phase " +
+                        std::to_string(i) + " has no volume"));
+      phase_average_velocity[i] =
+        1. / phase_volumes[i] *
+        Utilities::MPI::sum(local_phase_average_velocity[i], comm);
+    }
 }
 
 #endif

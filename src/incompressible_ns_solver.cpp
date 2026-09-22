@@ -121,16 +121,14 @@ void NSSolver<dim>::MMSSourceTerm::vector_value(const Point<dim> &p,
 template <int dim>
 void NSSolver<dim>::create_scratch_data()
 {
-  scratch_data =
-    std::make_unique<ScratchData>(*this->ordering,
-                                  *fe,
-                                  *mapping,
-                                  *mapping,
-                                  *this->quadrature,
-                                  *this->face_quadrature,
-                                  this->time_handler,
-                                  this->param,
-                                  this->param.stabilization.enable_supg);
+  scratch_data = std::make_unique<ScratchData>(*this->ordering,
+                                               *fe,
+                                               *mapping,
+                                               *mapping,
+                                               *this->quadrature,
+                                               *this->face_quadrature,
+                                               this->time_handler,
+                                               this->param);
 }
 
 template <int dim>
@@ -145,10 +143,9 @@ void NSSolver<dim>::setup_assemblers()
       setup_assemblers<dim, ScratchData, CopyData, stabilization>(
         this->param, *this->ordering, this->coupling_table, assemblers);
   else
-    Assembly::IncompressibleNavierStokes::setup_assemblers(this->param,
-                                                           *this->ordering,
-                                                           this->coupling_table,
-                                                           assemblers);
+    Assembly::IncompressibleNavierStokes::
+      setup_assemblers<dim, ScratchData, CopyData, ns_laplace_form>(
+        this->param, *this->ordering, this->coupling_table, assemblers);
 }
 
 template <int dim>
@@ -188,6 +185,7 @@ void NSSolver<dim>::create_sparsity_pattern()
 #if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
   DoFTools::make_sparsity_pattern(*this->dof_handler,
+                                  coupling_table,
                                   dsp,
                                   this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);

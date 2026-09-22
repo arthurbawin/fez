@@ -1,0 +1,56 @@
+Number of MPI processes: 6
+
+-- Fluid-structure interaction parameters:
+	 Using zero-mass model:yes
+	     Mass of the solid:1
+	   Damping coefficient:1
+	   Spring  coefficient:1
+	Initial solid velocity:0 0
+	   Rigid-body rotation:yes
+	    Center of rotation:4 8
+Mesh info:
+ dimension: 2
+ no. of cells: 100
+ boundary indicators: 1(3 faces) 2(3 faces) 3(10 faces) 4(10 faces) 
+ID 1 -> Outlet
+ID 2 -> Inlet
+ID 3 -> NoFlux
+ID 4 -> InnerBoundary
+ID 5 -> Domain
+Number of degrees of freedom: 1093
+
+Initial rigid-body rotation angle: -4.44089e-16 (-2.54444e-14 degrees)
+
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = -0.0000000000e+00
+Fy = -0.0000000000e+00
+
+Mean position (geometric center) on boundary with id 4:
+x = +8.0000000000e+00
+y = +8.0000000000e+00
+
+Rigid-body rotation angle: -4.44089e-16 (-2.54444e-14 degrees)
+
+Time step 1 - Advancing to t = 0.01.
+
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = +1.4822810039e+02
+Fy = -1.5586364409e+00
+
+Mean position (geometric center) on boundary with id 4:
+x = +7.9999999749e+00
+y = +8.0004483533e+00
+
+Rigid-body rotation angle: 1.12e-04 (6.42e-03 degrees)
+
+Time step 2 - Advancing to t = 0.1.
+
+Forces on boundary with id 4 computed with method : lagrange_multiplier
+Fx = -1.3225984416e+02
+Fy = +1.3127950182e+00
+
+Mean position (geometric center) on boundary with id 4:
+x = +7.9999975541e+00
+y = +8.0044235021e+00
+
+Rigid-body rotation angle: 1.11e-03 (6.34e-02 degrees)

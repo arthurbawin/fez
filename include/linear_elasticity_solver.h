@@ -1,6 +1,8 @@
 #ifndef LINEAR_ELASTICITY_SOLVER_H
 #define LINEAR_ELASTICITY_SOLVER_H
 
+#include <assembly/assembler.h>
+#include <components_ordering.h>
 #include <copy_data.h>
 #include <deal.II/base/convergence_table.h>
 #include <deal.II/base/index_set.h>
@@ -56,6 +58,7 @@ class LinearElasticitySolver : public GenericSolver<LA::ParVectorType>
 {
   using ScratchData = ScratchDataLinearElasticity<dim>;
   using CopyData    = CopyDataBase<1>;
+  using Assembler   = Assembly::AssemblerBase<ScratchData, CopyData>;
 
 public:
   /**
@@ -90,7 +93,12 @@ public:
 
   void update_boundary_conditions();
 
-  virtual void create_sparsity_pattern();
+  /**
+   * Create the volume and boundary assemblers for this solver.
+   */
+  void setup_assemblers();
+
+  void create_sparsity_pattern();
 
   void set_initial_conditions();
   void set_exact_solution();
@@ -149,6 +157,8 @@ public:
   }
 
 protected:
+  ComponentOrdering ordering;
+
   ParameterReader<dim> param;
 
   std::unique_ptr<FESystem<dim>> fe;
@@ -163,7 +173,8 @@ protected:
   DoFHandler<dim>                                dof_handler;
   TimeHandler                                    time_handler; // dummy
 
-  std::unique_ptr<ScratchData> scratch_data;
+  std::unique_ptr<ScratchData>            scratch_data;
+  std::vector<std::unique_ptr<Assembler>> assemblers;
 
   FEValuesExtractors::Vector position_extractor;
   ComponentMask              position_mask;
@@ -183,9 +194,6 @@ protected:
 
   SolverControl                                          solver_control;
   std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
-
-  double source_term_moving_mesh_multiplier;
-  double source_term_fixed_mesh_multiplier;
 
 protected:
   /**

@@ -33,7 +33,7 @@ end
 
 subsection Linear solver
   subsection linear elasticity
-    set verbosity      = verbose
+    set verbosity      = quiet
     set method         = cg
     set tolerance      = 1e-12
     set max iterations = 1000

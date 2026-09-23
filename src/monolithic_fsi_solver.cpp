@@ -355,8 +355,12 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
 
       // ...it is used to represent a rigid-body rotation angle of the solid
       if (this->param.fsi.rotation.enable)
+        // for (unsigned int d = 0; d < dim; ++d)
         if (rotation_angle_dof == dof)
+        {
           skip_dof = true;
+          // break;
+        }
 
       if (!skip_dof)
       {

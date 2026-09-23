@@ -283,12 +283,14 @@ void FSISolver<dim>::reset_solver_specific_data()
   has_local_lambda_accumulator    = false;
   has_global_master_position_dofs = false;
   has_global_accumulator          = false;
+  rotation_angle_dof              = numbers::invalid_unsigned_int;
   for (unsigned int d = 0; d < dim; ++d)
   {
-    local_position_master_dofs[d]  = numbers::invalid_unsigned_int;
-    global_position_master_dofs[d] = numbers::invalid_unsigned_int;
-    local_lambda_accumulators[d]   = numbers::invalid_unsigned_int;
-    global_lambda_accumulators[d]  = numbers::invalid_unsigned_int;
+    local_position_master_dofs[d]   = numbers::invalid_unsigned_int;
+    global_position_master_dofs[d]  = numbers::invalid_unsigned_int;
+    local_lambda_accumulators[d]    = numbers::invalid_unsigned_int;
+    global_lambda_accumulators[d]   = numbers::invalid_unsigned_int;
+    local_cylinder_velocity_dofs[d] = numbers::invalid_unsigned_int;
     all_lambda_accumulators[d].clear();
   }
 }

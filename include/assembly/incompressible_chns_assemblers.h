@@ -152,12 +152,6 @@ namespace Assembly
       constexpr unsigned int moving_mesh_flag =
         with_moving_mesh ? moving_mesh : chns;
 
-      if constexpr (with_moving_mesh)
-        AssertThrow(
-          !(supg || tracer_supg),
-          ExcMessage(
-            "CHNS stabilization on a moving mesh is not implemented yet."));
-
       // Assign the volume assembler
       if (supg)
       {

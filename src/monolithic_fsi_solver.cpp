@@ -345,20 +345,18 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
           }
 
       // ...it is used to represent the velocity of the solid
-      for (unsigned int d = 0; d < dim; ++d)
-        if (local_cylinder_velocity_dofs[d] == dof)
-        {
-          skip_dof = true;
-          break;
-        }
+      if (!this->param.fsi.zero_mass_model)
+        for (unsigned int d = 0; d < dim; ++d)
+          if (local_cylinder_velocity_dofs[d] == dof)
+          {
+            skip_dof = true;
+            break;
+          }
 
       // ...it is used to represent a rigid-body rotation angle of the solid
-      // for (unsigned int d = 0; d < dim; ++d)
-      if (rotation_angle_dof == dof)
-      {
-        skip_dof = true;
-        // break;
-      }
+      if (this->param.fsi.rotation.enable)
+        if (rotation_angle_dof == dof)
+          skip_dof = true;
 
       if (!skip_dof)
       {

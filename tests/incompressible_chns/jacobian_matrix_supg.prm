@@ -19,12 +19,12 @@ subsection Mesh
 end
 
 # A few time steps are run. The stabilized Jacobian keeps the SUPG/PSPG
-# parameter tau constant (tau is not differentiated w.r.t. the solution), so the
-# analytical Jacobian is not expected to match the finite-difference one exactly
-# once the convective velocity is non-zero: the missing d(tau)/du contribution
-# shows up as a small, deterministic discrepancy. The test still guards against
-# unintended changes and reveals whether the error is time-dependent. Multi-step
-# robustness of the stabilization is covered by mms_2d_bdf2_stabilized.
+# parameter tau constant (tau is not differentiated w.r.t. the solution), and
+# the finite-difference diagnostic follows the same convention. This tests the
+# implemented linearization even when the convective velocity is non-zero.
+# The test guards against unintended changes and reveals whether the error is
+# time-dependent. Multi-step robustness of the stabilization is covered by
+# mms_2d_bdf2_stabilized.
 subsection Time integration
   set dt        = 0.01
   set t_initial = 0
@@ -40,11 +40,10 @@ subsection Nonlinear solver
   set analytic_jacobian    = true
 
   set compare jacobian matrix with finite differences = true
-  # Loosened on purpose: once u != 0 the constant-tau Jacobian differs from the
-  # finite-difference one by O(1e-3) (the missing d(tau)/du term). The tolerance
-  # only controls the diagnostic dump; the per-step "Max absolute error" value is
-  # still compared against the reference output to catch unintended changes.
-  set analytical_jacobian_absolute_tolerance = 1e-2
+  # Tau is frozen in both matrices. The tolerance only controls the diagnostic
+  # dump; the per-step "Max absolute error" value is still compared against the
+  # reference output to catch unintended changes.
+  set analytical_jacobian_absolute_tolerance = 1e-5
   set analytical_jacobian_relative_tolerance = 1e-5
 end
 

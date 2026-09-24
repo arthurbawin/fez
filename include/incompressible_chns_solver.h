@@ -109,7 +109,9 @@ public:
 
   /**
    * See assemble_local_matrix.
+   * Keep the unperturbed stabilization parameters when @p freeze_tau is true.
    */
+  template <bool freeze_tau = false>
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,
                      ScratchData &scratchData,

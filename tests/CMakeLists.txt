@@ -1,3 +1,9 @@
+# MappingFEField Hessian transformations require deal.II PR #20215, which
+# is not available in the 9.7/9.8 releases. Enable these tests only with a
+# deal.II build containing that correction.
+option(DEAL_II_WITH_MAPPING_FE_FIELD_HESSIANS
+       "Run tests requiring MappingFEField Hessian transformations" OFF)
+
 add_subdirectory(compressible_ns)
 add_subdirectory(incompressible_ns)
 add_subdirectory(incompressible_ns_lambda)

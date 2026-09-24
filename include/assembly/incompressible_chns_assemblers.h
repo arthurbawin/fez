@@ -80,6 +80,8 @@ namespace Assembly
         (assembly_flags & tracer_stabilization) != 0;
       static constexpr bool with_moving_mesh =
         (assembly_flags & moving_mesh) != 0;
+      static constexpr bool with_ale_stabilization =
+        with_moving_mesh && (with_stabilization || with_tracer_stabilization);
 
       const ComponentOrdering &ordering;
     };

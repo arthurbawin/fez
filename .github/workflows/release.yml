@@ -48,6 +48,7 @@ jobs:
                 -D FEZ_WITH_BUNDLED_MMG=ON \
                 -D DEAL_II_WITH_HP_IDENTITIES_BUG=1 \
                 -D REFERENCE_CELL_WITH_TEMPLATE_PARAMETER=${{ matrix.dealii_version == 'master-noble' && '1' || '0' }} \
+                -D DEAL_II_WITH_MAPPING_FE_FIELD_HESSIANS=${{ matrix.dealii_version == 'master-noble' && '1' || '0' }} \
                 .. \
                 -G Ninja
           ninja -j ${{ env.N_JOBS }}

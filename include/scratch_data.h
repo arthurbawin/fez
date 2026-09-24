@@ -262,24 +262,21 @@ namespace NavierStokesScratch
                                               present_pressure_values);
       if (enable_stabilization)
       {
+        fe_values[velocity].get_function_laplacians(
+          current_solution, present_velocity_laplacians);
         fe_values[velocity].get_function_hessians(current_solution,
                                                   present_velocity_hessians);
         fe_values[pressure].get_function_gradients(current_solution,
                                                    present_pressure_gradients);
 
-        // Compute the velocity laplacian and grad(div) from the hessians
+        // Compute grad(div) from the hessians
         for (unsigned int q = 0; q < n_q_points; ++q)
         {
-          present_velocity_laplacians[q] = Tensor<1, dim>();
-          present_velocity_grad_div[q]   = Tensor<1, dim>();
+          present_velocity_grad_div[q] = Tensor<1, dim>();
           for (unsigned int c = 0; c < dim; ++c)
             for (unsigned int d = 0; d < dim; ++d)
-            {
-              present_velocity_laplacians[q][c] +=
-                present_velocity_hessians[q][c][d][d];
               present_velocity_grad_div[q][d] +=
                 present_velocity_hessians[q][c][c][d];
-            }
         }
       }
 
@@ -1032,17 +1029,12 @@ namespace NavierStokesScratch
                                                          potential_gradients);
       if (enable_tracer_stabilization)
       {
+        fe_values_moving[potential].get_function_laplacians(
+          current_solution, potential_laplacians);
         if constexpr (enable_pseudo_solid)
-        {
           // Mesh-position variations of the Laplacian need the full Hessian.
           fe_values_moving[potential].get_function_hessians(current_solution,
                                                             potential_hessians);
-          for (unsigned int q = 0; q < n_q_points; ++q)
-            potential_laplacians[q] = trace(potential_hessians[q]);
-        }
-        else
-          fe_values_moving[potential].get_function_laplacians(
-            current_solution, potential_laplacians);
       }
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)

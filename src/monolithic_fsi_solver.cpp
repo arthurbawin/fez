@@ -283,12 +283,14 @@ void FSISolver<dim>::reset_solver_specific_data()
   has_local_lambda_accumulator    = false;
   has_global_master_position_dofs = false;
   has_global_accumulator          = false;
+  rotation_angle_dof              = numbers::invalid_unsigned_int;
   for (unsigned int d = 0; d < dim; ++d)
   {
-    local_position_master_dofs[d]  = numbers::invalid_unsigned_int;
-    global_position_master_dofs[d] = numbers::invalid_unsigned_int;
-    local_lambda_accumulators[d]   = numbers::invalid_unsigned_int;
-    global_lambda_accumulators[d]  = numbers::invalid_unsigned_int;
+    local_position_master_dofs[d]   = numbers::invalid_unsigned_int;
+    global_position_master_dofs[d]  = numbers::invalid_unsigned_int;
+    local_lambda_accumulators[d]    = numbers::invalid_unsigned_int;
+    global_lambda_accumulators[d]   = numbers::invalid_unsigned_int;
+    local_cylinder_velocity_dofs[d] = numbers::invalid_unsigned_int;
     all_lambda_accumulators[d].clear();
   }
 }
@@ -343,20 +345,22 @@ void FSISolver<dim>::create_lagrange_multiplier_constraints()
           }
 
       // ...it is used to represent the velocity of the solid
-      for (unsigned int d = 0; d < dim; ++d)
-        if (local_cylinder_velocity_dofs[d] == dof)
-        {
-          skip_dof = true;
-          break;
-        }
+      if (!this->param.fsi.zero_mass_model)
+        for (unsigned int d = 0; d < dim; ++d)
+          if (local_cylinder_velocity_dofs[d] == dof)
+          {
+            skip_dof = true;
+            break;
+          }
 
       // ...it is used to represent a rigid-body rotation angle of the solid
-      // for (unsigned int d = 0; d < dim; ++d)
-      if (rotation_angle_dof == dof)
-      {
-        skip_dof = true;
-        // break;
-      }
+      if (this->param.fsi.rotation.enable)
+        // for (unsigned int d = 0; d < dim; ++d)
+        if (rotation_angle_dof == dof)
+        {
+          skip_dof = true;
+          // break;
+        }
 
       if (!skip_dof)
       {

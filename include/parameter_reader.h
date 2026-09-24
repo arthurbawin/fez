@@ -40,6 +40,7 @@ public:
   Parameters::MMS                                            mms_param;
   Parameters::SolutionRecovery                               recovery;
   Parameters::Debug                                          debug;
+  Parameters::SpongeLayer                                    sponge_layer;
 
   /**
    * Generic parameters for all metric fields
@@ -157,6 +158,7 @@ public:
     mms.declare_parameters(prm);
     recovery.declare_parameters(prm);
     debug.declare_parameters(prm);
+    sponge_layer.declare_parameters(prm);
     metric_fields.resize(bc_data.n_metric_fields);
     Parameters::declare_metric_fields<dim>(prm,
                                            bc_data.n_metric_fields,
@@ -211,6 +213,7 @@ public:
     mms.read_parameters(prm);
     recovery.read_parameters(prm);
     debug.read_parameters(prm);
+    sponge_layer.read_parameters(prm);
     Parameters::read_metric_fields(prm,
                                    bc_data.n_metric_fields,
                                    metrics,

@@ -126,6 +126,24 @@ public:
    */
   virtual void compute_solver_specific_errors() override;
 
+  /**
+   * Auto-detects whether the checkpoint was produced by an incompressible NS
+   * solver (by probing the archived vector size). If so, delegates to
+   * restart_from_incompressible_checkpoint(); otherwise falls back to the
+   * base class implementation.
+   */
+  virtual void restart() override;
+
+private:
+  /**
+   * Initialize a compressible NS simulation from a checkpoint written by an
+   * incompressible NS solver. Velocity is transferred directly; pressure and
+   * temperature perturbations are derived from the kinematic pressure via the
+   * linearized ideal-gas EOS at rho = rho_ref. Called automatically by
+   * restart() upon detection.
+   */
+  void restart_from_incompressible_checkpoint();
+
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>
   get_additional_variables_description() const override

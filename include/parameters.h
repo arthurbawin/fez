@@ -336,10 +336,10 @@ namespace Parameters
       unsigned int precision;
     };
 
-    // Derived class for postprocessing on a boundary
+    // Derived class for postprocessing on one or more boundaries
     struct PostProcessingFileBoundary : public PostProcessingFile
     {
-      types::boundary_id boundary_id;
+      std::vector<types::boundary_id> boundary_ids;
     };
 
     /**
@@ -354,25 +354,12 @@ namespace Parameters
     // Hydrodynamic forces on one or more boundaries
     struct Forces : public PostProcessingFileBoundary
     {
-      // Boundaries on which forces are evaluated. If the input list is empty,
-      // the legacy boundary_id parameter is used.
-      std::vector<types::boundary_id> boundary_ids;
-
       // The method used to evaluate the forces on a boundary
       enum class ComputationMethod
       {
         stress_vector,
         lagrange_multiplier
       } method;
-
-      // Select whether results are reported for every boundary, for their
-      // sum, or both.
-      enum class OutputMode
-      {
-        separate,
-        total,
-        both
-      } output_mode;
     } forces;
 
     // For the FSI solver, compute and export the position of the structure's

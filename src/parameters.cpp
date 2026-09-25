@@ -497,10 +497,11 @@ namespace Parameters
   {
     declare_postprocessing_file(prm);
     prm.declare_entry(
-      "boundary id",
+      "boundary ids",
       "0",
-      Patterns::Integer(0),
-      "Boundary id on which this postprocessing should be applied");
+      Patterns::List(Patterns::Integer(0), 1),
+      "Comma-separated boundary ids on which this postprocessing is applied");
+    prm.declare_alias("boundary ids", "boundary id");
   }
 
   void declare_postprocessing_field(ParameterHandler &prm)
@@ -525,17 +526,6 @@ namespace Parameters
       prm.enter_subsection("forces computation");
       {
         declare_postprocessing_file_boundary(prm);
-        prm.declare_entry(
-          "boundary ids",
-          "",
-          Patterns::List(Patterns::Integer(0)),
-          "Comma-separated boundary ids on which forces are computed. An "
-          "empty list uses the legacy 'boundary id' parameter.");
-        prm.declare_entry("output mode",
-                          "total",
-                          Patterns::Selection("separate|total|both"),
-                          "Output forces separately for every boundary, as "
-                          "their total, or both");
         prm.declare_entry("computation method",
                           "stress vector",
                           Patterns::Selection(
@@ -635,7 +625,14 @@ namespace Parameters
     PostProcessing::PostProcessingFileBoundary &pp_boundary)
   {
     read_postprocessing_file(prm, pp_boundary);
-    pp_boundary.boundary_id = prm.get_integer("boundary id");
+    pp_boundary.boundary_ids =
+      Patterns::Tools::Convert<std::vector<types::boundary_id>>::to_value(
+        prm.get("boundary ids"));
+    std::sort(pp_boundary.boundary_ids.begin(), pp_boundary.boundary_ids.end());
+    AssertThrow(std::adjacent_find(pp_boundary.boundary_ids.begin(),
+                                   pp_boundary.boundary_ids.end()) ==
+                  pp_boundary.boundary_ids.end(),
+                ExcMessage("Postprocessing boundary ids must be unique."));
   }
 
   void read_postprocessing_field(
@@ -676,29 +673,6 @@ namespace Parameters
       prm.enter_subsection("forces computation");
       {
         read_postprocessing_file_boundary(prm, forces);
-        const auto parsed_boundary_ids = Utilities::string_to_int(
-          Utilities::split_string_list(prm.get("boundary ids"), ","));
-        forces.boundary_ids.assign(parsed_boundary_ids.begin(),
-                                   parsed_boundary_ids.end());
-        if (forces.boundary_ids.empty())
-          forces.boundary_ids.push_back(forces.boundary_id);
-
-        std::sort(forces.boundary_ids.begin(), forces.boundary_ids.end());
-        const auto duplicate =
-          std::adjacent_find(forces.boundary_ids.begin(),
-                             forces.boundary_ids.end());
-        AssertThrow(duplicate == forces.boundary_ids.end(),
-                    ExcMessage("Boundary ids for forces computation must be "
-                               "unique."));
-
-        const std::string parsed_output_mode = prm.get("output mode");
-        if (parsed_output_mode == "separate")
-          forces.output_mode = Forces::OutputMode::separate;
-        else if (parsed_output_mode == "total")
-          forces.output_mode = Forces::OutputMode::total;
-        else if (parsed_output_mode == "both")
-          forces.output_mode = Forces::OutputMode::both;
-
         const std::string parsed_method = prm.get("computation method");
         if (parsed_method == "stress vector")
           forces.method = Forces::ComputationMethod::stress_vector;

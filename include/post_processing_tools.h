@@ -67,6 +67,8 @@ namespace PostProcessingTools
   /**
    * Compute the hydrodynamic forces on the given boundary by evaluating the
    * integral of the stress tensor t(n) := sigma \cdot n on the boundary.
+   * @p pressure_scale converts the stored pressure to physical units.
+   * Only entries on this boundary in @p force_per_face are updated.
    */
   template <int dim, typename VectorType>
   Tensor<1, dim> compute_forces_on_boundary(
@@ -77,7 +79,7 @@ namespace PostProcessingTools
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &velocity_extractor,
     const FEValuesExtractors::Scalar &pressure_extractor,
-    const double                      density,
+    const double                      pressure_scale,
     const double                      dynamic_viscosity,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
@@ -93,7 +95,7 @@ namespace PostProcessingTools
     const types::boundary_id          boundary_id,
     const FEValuesExtractors::Vector &velocity_extractor,
     const FEValuesExtractors::Scalar &pressure_extractor,
-    const double                      density,
+    const double                      pressure_scale,
     const double                      dynamic_viscosity,
     std::vector<Tensor<1, dim>>      &force_per_face);
 
@@ -265,7 +267,7 @@ auto PostProcessingTools::compute_field_integral(
   using ValueType =
     typename std::decay_t<decltype(fe_values[field_extractor])>::value_type;
   std::vector<ValueType> values(fe_values.n_quadrature_points);
-  ValueType local_integral;
+  ValueType              local_integral;
   local_integral = 0;
 
   for (const auto &cell : dof_handler.active_cell_iterators() |
@@ -290,15 +292,12 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &velocity_extractor,
   const FEValuesExtractors::Scalar &pressure_extractor,
-  const double                      density,
+  const double                      pressure_scale,
   const double                      dynamic_viscosity,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> forces, forces_local;
   const double   mu = dynamic_viscosity;
-
-  for (auto &f : force_per_face)
-    f = 0;
 
   FEFaceValues<dim> fe_face_values(mapping,
                                    dof_handler.get_fe(),
@@ -339,11 +338,10 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              *
              * This way, -p*n = p*normals[q] is oriented towards the solid.
              */
-            const auto &n           = -normals[q];
-            // The incompressible solver stores the kinematic pressure p/rho.
-            // Convert it back to physical pressure for the force integral.
+            const auto &n = -normals[q];
+            // Convert stored pressure using the solver's pressure scale.
             const auto sigma_dot_n =
-              -density * p * n + 2. * mu * sym_grad_u * n;
+              -pressure_scale * p * n + 2. * mu * sym_grad_u * n;
             f += sigma_dot_n * fe_face_values.JxW(q);
           }
 
@@ -365,15 +363,12 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const types::boundary_id          boundary_id,
   const FEValuesExtractors::Vector &velocity_extractor,
   const FEValuesExtractors::Scalar &pressure_extractor,
-  const double                      density,
+  const double                      pressure_scale,
   const double                      dynamic_viscosity,
   std::vector<Tensor<1, dim>>      &force_per_face)
 {
   Tensor<1, dim> forces, forces_local;
   const double   mu = dynamic_viscosity;
-
-  for (auto &f : force_per_face)
-    f = 0;
 
   hp::FEFaceValues<dim> hp_fe_face_values(mapping_collection,
                                           dof_handler.get_fe_collection(),
@@ -421,11 +416,10 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              *
              * This way, -p*n = p*normals[q] is oriented towards the solid.
              */
-            const auto &n           = -normals[q];
-            // The incompressible solver stores the kinematic pressure p/rho.
-            // Convert it back to physical pressure for the force integral.
+            const auto &n = -normals[q];
+            // Convert stored pressure using the solver's pressure scale.
             const auto sigma_dot_n =
-              -density * p * n + 2. * mu * sym_grad_u * n;
+              -pressure_scale * p * n + 2. * mu * sym_grad_u * n;
             f += sigma_dot_n * fe_face_values.JxW(q);
           }
 
@@ -452,9 +446,6 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
 
-  for (auto &f : force_per_face)
-    f = 0;
-
   FEFaceValues<dim> fe_face_values(mapping,
                                    dof_handler.get_fe(),
                                    face_quadrature,
@@ -478,8 +469,7 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
           f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
-            // Lambda has the same kinematic force units as the momentum
-            // equation, which is divided by density.
+            // Lambda is a force density divided by the fluid density.
             const Tensor<1, dim> increment =
               density * lambda_values[q] * fe_face_values.JxW(q);
             lambda_integral_local += increment;
@@ -512,9 +502,6 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
 {
   Tensor<1, dim> lambda_integral, lambda_integral_local;
 
-  for (auto &f : force_per_face)
-    f = 0;
-
   hp::FEFaceValues hp_fe_face_values(mapping_collection,
                                      dof_handler.get_fe_collection(),
                                      face_quadrature_collection,
@@ -542,8 +529,7 @@ PostProcessingTools::compute_forces_on_boundary_with_lagrange_multiplier(
           f       = 0;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
-            // Lambda has the same kinematic force units as the momentum
-            // equation, which is divided by density.
+            // Lambda is a force density divided by the fluid density.
             const Tensor<1, dim> increment =
               density * lambda_values[q] * fe_face_values.JxW(q);
             lambda_integral_local += increment;
@@ -668,7 +654,7 @@ void PostProcessingTools::set_slice_index_on_boundary(
     if (face->at_boundary() && face->boundary_id() == boundary_id)
     {
       const Point<dim> barry   = face->center();
-      unsigned int     i_slice = floor(barry[axis_id] / delta);
+      unsigned int     i_slice = floor((barry[axis_id] - coord_min) / delta);
 
       // A point at coord_max will have i_slice = n_slices : decrement it
       if (i_slice == n_slices)

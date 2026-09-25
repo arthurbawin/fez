@@ -164,11 +164,9 @@ void PostProcessingHandler<dim>::create_slices()
                           dir == "y" ? SliceAxis::y :
                                        SliceAxis::z);
 
-  PostProcessingTools::set_slice_index_on_boundary<dim>(
-    *triangulation,
-    post_proc_param.slices.boundary_id,
-    post_proc_param.slices.n_slices,
-    axis);
+  for (const auto id : post_proc_param.slices.boundary_ids)
+    PostProcessingTools::set_slice_index_on_boundary<dim>(
+      *triangulation, id, post_proc_param.slices.n_slices, axis);
 
   // Store slice indices as cell-based data.
   // If a face is on the sliced boundary, set its cell slice index to the
@@ -178,7 +176,9 @@ void PostProcessingHandler<dim>::create_slices()
     if (cell->is_locally_owned())
       for (const auto &face : cell->face_iterators())
         if (face->at_boundary() &&
-            face->boundary_id() == post_proc_param.slices.boundary_id)
+            std::binary_search(post_proc_param.slices.boundary_ids.begin(),
+                               post_proc_param.slices.boundary_ids.end(),
+                               face->boundary_id()))
         {
           slice_indices[cell->active_cell_index()] = face->user_index();
           break;
@@ -200,16 +200,19 @@ void PostProcessingHandler<dim>::clear()
 
 template <int dim>
 void PostProcessingHandler<dim>::add_force_to_table(
-  const Tensor<1, dim> &forces,
-  const TimeHandler    &time_handler,
-  TableHandler         &force_table,
-  const unsigned int    i_slice)
+  const Tensor<1, dim>    &forces,
+  const TimeHandler       &time_handler,
+  TableHandler            &force_table,
+  const unsigned int       i_slice,
+  const types::boundary_id boundary_id)
 {
   // Write forces to table
   std::vector<std::string> dim_str = {"x", "y", "z"};
   force_table.add_value("time", time_handler.current_time);
   if (i_slice != numbers::invalid_unsigned_int)
     force_table.add_value("slice", i_slice);
+  if (boundary_id != numbers::invalid_boundary_id)
+    force_table.add_value("boundary", boundary_id);
   for (unsigned int d = 0; d < dim; ++d)
   {
     force_table.add_value("F" + dim_str[d], forces[d]);
@@ -221,13 +224,16 @@ void PostProcessingHandler<dim>::add_force_to_table(
 
 template <int dim>
 void PostProcessingHandler<dim>::add_position_to_table(
-  const Tensor<1, dim> &center_position,
-  const TimeHandler    &time_handler,
-  TableHandler         &table)
+  const Tensor<1, dim>    &center_position,
+  const TimeHandler       &time_handler,
+  TableHandler            &table,
+  const types::boundary_id boundary_id)
 {
   // Write position to table
   std::vector<std::string> dim_str = {"x", "y", "z"};
   table.add_value("time", time_handler.current_time);
+  if (boundary_id != numbers::invalid_boundary_id)
+    table.add_value("boundary", boundary_id);
   for (unsigned int d = 0; d < dim; ++d)
   {
     table.add_value(dim_str[d], center_position[d]);

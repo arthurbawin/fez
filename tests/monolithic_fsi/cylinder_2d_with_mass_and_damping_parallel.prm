@@ -146,7 +146,7 @@ subsection FSI
   set cylinder radius = 0.5
 
   set initial velocity = 1, 1
-  
+
   set force-position coupling = local_position_master_to_lambda_accumulators
 end
 

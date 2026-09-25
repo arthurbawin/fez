@@ -148,7 +148,7 @@ subsection FSI
   # set initial velocity = 1, 1
 
   set cylinder radius = 0.5
-  
+
   set force-position coupling = all_position_to_all_lambda
 
   subsection Rigid body rotation

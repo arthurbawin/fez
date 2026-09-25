@@ -497,10 +497,11 @@ namespace Parameters
   {
     declare_postprocessing_file(prm);
     prm.declare_entry(
-      "boundary id",
+      "boundary ids",
       "0",
-      Patterns::Integer(0),
-      "Boundary id on which this postprocessing should be applied");
+      Patterns::List(Patterns::Integer(0), 1),
+      "Comma-separated boundary ids on which this postprocessing is applied");
+    prm.declare_alias("boundary ids", "boundary id");
   }
 
   void declare_postprocessing_field(ParameterHandler &prm)
@@ -624,7 +625,14 @@ namespace Parameters
     PostProcessing::PostProcessingFileBoundary &pp_boundary)
   {
     read_postprocessing_file(prm, pp_boundary);
-    pp_boundary.boundary_id = prm.get_integer("boundary id");
+    pp_boundary.boundary_ids =
+      Patterns::Tools::Convert<std::vector<types::boundary_id>>::to_value(
+        prm.get("boundary ids"));
+    std::sort(pp_boundary.boundary_ids.begin(), pp_boundary.boundary_ids.end());
+    AssertThrow(std::adjacent_find(pp_boundary.boundary_ids.begin(),
+                                   pp_boundary.boundary_ids.end()) ==
+                  pp_boundary.boundary_ids.end(),
+                ExcMessage("Postprocessing boundary ids must be unique."));
   }
 
   void read_postprocessing_field(

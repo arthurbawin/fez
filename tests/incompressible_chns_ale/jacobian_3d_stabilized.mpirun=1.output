@@ -1,0 +1,46 @@
+Number of MPI processes: 1
+Mesh info:
+ dimension: 3
+ no. of cells: 6
+ boundary indicators: 0(2 faces) 1(2 faces) 2(2 faces) 3(2 faces) 4(2 faces) 5(2 faces) 
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+ID 4 -> z_min
+ID 5 -> z_max
+Number of degrees of freedom: 224
+
+Time step 1 - Advancing to t = 0.001.
+Max absolute error analytical vs fd matrix is 9.7785e-08
+Newton iter.  0:          nonlinear residual = 2.52089846e-01
+	Line search with alpha = 1.000 : res = 1.61463925e-04
+Newton iter.  1:          nonlinear residual = 1.61463925e-04	(M)
+	Line search with alpha = 1.000 : res = 1.77202109e-11
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 2 - Advancing to t = 1.00e-02.
+Max absolute error analytical vs fd matrix is 6.89e-08
+Newton iter.  0:          nonlinear residual = 1.23022304e+00
+	Line search with alpha = 1.000 : res = 2.34895167e-03
+Newton iter.  1:          nonlinear residual = 2.34895167e-03	(M)
+	Line search with alpha = 1.000 : res = 2.91550877e-10
+Newton iter.  2:          nonlinear residual = 2.91550877e-10	(M)
+	Line search with alpha = 1.000 : res = 1.00450795e-15
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 3 - Advancing to t = 2.00e-02.
+Max absolute error analytical vs fd matrix is 2.09e-08
+Newton iter.  0:          nonlinear residual = 5.33702977e-01
+	Line search with alpha = 1.000 : res = 3.04512530e-04
+Newton iter.  1:          nonlinear residual = 3.04512530e-04	(M)
+	Line search with alpha = 1.000 : res = 2.29599517e-11
+Stopping because residual is below prescribed tolerance (1.00e-10)
+
+Time step 4 - Advancing to t = 3.00e-02.
+Max absolute error analytical vs fd matrix is 1.92e-08
+Newton iter.  0:          nonlinear residual = 2.18611277e-01
+	Line search with alpha = 1.000 : res = 1.02097177e-04
+Newton iter.  1:          nonlinear residual = 1.02097177e-04	(M)
+	Line search with alpha = 1.000 : res = 2.89971643e-12
+Stopping because residual is below prescribed tolerance (1.00e-10)

@@ -14,37 +14,37 @@ Max absolute error analytical vs fd matrix is 1.93696e-07
 Newton iter.  0:          nonlinear residual = 2.48796620e-01
 	Line search with alpha = 1.000 : res = 4.91822187e-04
 Newton iter.  1:          nonlinear residual = 4.91822187e-04	(M)
-	Line search with alpha = 1.000 : res = 6.43289558e-10
-Newton iter.  2:          nonlinear residual = 6.43289558e-10	(M)
-	Line search with alpha = 1.000 : res = 1.17466646e-14
+	Line search with alpha = 1.000 : res = 6.43289443e-10
+Newton iter.  2:          nonlinear residual = 6.43289443e-10	(M)
+	Line search with alpha = 1.000 : res = 1.17543004e-14
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 2 - Advancing to t = 1.00e-02.
-Max absolute error analytical vs fd matrix is 1.45e-07
+Max absolute error analytical vs fd matrix is 1.40e-07
 Newton iter.  0:          nonlinear residual = 1.50590321e+00
 	Line search with alpha = 1.000 : res = 7.56454925e-03
 Newton iter.  1:          nonlinear residual = 7.56454925e-03	(M)
-	Line search with alpha = 1.000 : res = 3.09893729e-08
-Newton iter.  2:          nonlinear residual = 3.09893729e-08	(M)
-	Line search with alpha = 1.000 : res = 3.39449668e-13
+	Line search with alpha = 1.000 : res = 3.09893731e-08
+Newton iter.  2:          nonlinear residual = 3.09893731e-08	(M)
+	Line search with alpha = 1.000 : res = 3.39549345e-13
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 3 - Advancing to t = 2.00e-02.
-Max absolute error analytical vs fd matrix is 9.25e-08
+Max absolute error analytical vs fd matrix is 9.20e-08
 Newton iter.  0:          nonlinear residual = 9.87838505e-01
 	Line search with alpha = 1.000 : res = 1.14763917e-03
 Newton iter.  1:          nonlinear residual = 1.14763917e-03	(M)
-	Line search with alpha = 1.000 : res = 2.14312079e-09
-Newton iter.  2:          nonlinear residual = 2.14312079e-09	(M)
-	Line search with alpha = 1.000 : res = 1.12016442e-14
+	Line search with alpha = 1.000 : res = 2.14312055e-09
+Newton iter.  2:          nonlinear residual = 2.14312055e-09	(M)
+	Line search with alpha = 1.000 : res = 1.13029028e-14
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 Time step 4 - Advancing to t = 3.00e-02.
-Max absolute error analytical vs fd matrix is 5.04e-08
+Max absolute error analytical vs fd matrix is 5.18e-08
 Newton iter.  0:          nonlinear residual = 2.98915341e-01
 	Line search with alpha = 1.000 : res = 3.47723610e-04
 Newton iter.  1:          nonlinear residual = 3.47723610e-04	(M)
-	Line search with alpha = 1.000 : res = 2.60499360e-10
-Newton iter.  2:          nonlinear residual = 2.60499360e-10	(M)
-	Line search with alpha = 1.000 : res = 2.10037255e-15
+	Line search with alpha = 1.000 : res = 2.60499428e-10
+Newton iter.  2:          nonlinear residual = 2.60499428e-10	(M)
+	Line search with alpha = 1.000 : res = 1.93944210e-15
 Stopping because residual is below prescribed tolerance (1.00e-10)

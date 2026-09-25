@@ -654,7 +654,8 @@ void PostProcessingTools::set_slice_index_on_boundary(
     if (face->at_boundary() && face->boundary_id() == boundary_id)
     {
       const Point<dim> barry   = face->center();
-      unsigned int     i_slice = floor((barry[axis_id] - coord_min) / delta);
+      unsigned int     i_slice = static_cast<unsigned int>(
+        std::floor((barry[axis_id] - coord_min) / delta));
 
       // A point at coord_max will have i_slice = n_slices : decrement it
       if (i_slice == n_slices)

@@ -185,6 +185,7 @@ void NSSolver<dim>::create_sparsity_pattern()
 #if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
   DoFTools::make_sparsity_pattern(*this->dof_handler,
+                                  coupling_table,
                                   dsp,
                                   this->nonzero_constraints,
                                   /* keep_constrained_dofs = */ false);

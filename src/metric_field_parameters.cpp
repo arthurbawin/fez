@@ -274,6 +274,6 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  template struct MetricField<2>;
-  template struct MetricField<3>;
+  template class MetricField<2>;
+  template class MetricField<3>;
 } // namespace Parameters

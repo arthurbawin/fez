@@ -174,6 +174,12 @@ public:
   virtual void set_solver_specific_time() {}
 
   /**
+   * Freeze solver-specific data from the accepted state before starting a
+   * physical time step. Rejected attempts reuse this data.
+   */
+  virtual void prepare_timestep() {}
+
+  /**
    * Distribute (number) the degrees of freedom and allocate the parallel matrix
    * and vectors.
    */

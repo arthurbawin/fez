@@ -43,6 +43,44 @@ namespace CahnHilliard
                   profile_correction_tail_level;
   }
 
+  struct ProfileCorrectionInverse
+  {
+    double value;
+    double derivative;
+    double second_derivative;
+  };
+
+  inline double profile_correction_inverse_cutoff()
+  {
+    return std::sqrt(1. - 0.25 * profile_correction_tail_scale());
+  }
+
+  /** Odd C2 continuation of atanh, exact over the retained activation band.
+   * The positive slope is bounded by 3/(1-a*a), including pure phases and
+   * overshoots. This transforms auxiliary nodal data; it does not clip the
+   * transported phase. Overshooting nodes can still affect active quadrature
+   * points after reconstruction. */
+  inline ProfileCorrectionInverse profile_correction_inverse(const double phi)
+  {
+    const double a = profile_correction_inverse_cutoff();
+    if (std::abs(phi) <= a)
+    {
+      const double denominator = 1. - phi * phi;
+      return {std::atanh(phi), 1. / denominator,
+              2. * phi / (denominator * denominator)};
+    }
+    const double b = 1. / (1. - a * a);
+    const double length = (1. - a * a) / a;
+    const double offset = std::abs(phi) - a;
+    const double exponential = std::exp(-offset / length);
+    const double value = std::atanh(a) +
+                         b * (3. * offset +
+                              2. * length * std::expm1(-offset / length));
+    return {std::copysign(value, phi),
+            b * (3. - 2. * exponential),
+            std::copysign(2. * b / length * exponential, phi)};
+  }
+
   /** Activation declaring that phi still belongs to the retained tanh tail.
    * It is C2, zero in pure phases and for every overshoot |phi| > 1. */
   inline double profile_correction_phase_activation(const double tracer)
@@ -218,16 +256,16 @@ namespace CahnHilliard
              profile_flux;
   }
 
-  /** Automatically scaled profile-correction diffusivity. The scale is the
-   * bulk Cahn-Hilliard diffusivity already used by the solver diagnostics. */
+  /** Profile diffusivity using the global max |M_CH| of the accepted state,
+   * frozen over the timestep. It has no local mobility or Newton variation. */
   template <int dim>
   inline double profile_correction_coefficient(
     const Parameters::CahnHilliard<dim> &param,
-    const double                         mobility)
+    const double                         reference_mobility)
   {
     const double sigma_tilde =
       3. / (2. * std::sqrt(2.)) * param.surface_tension;
-    return param.profile_correction_strength * 2. * mobility * sigma_tilde /
+    return param.profile_correction_strength * 2. * reference_mobility * sigma_tilde /
            param.epsilon_interface;
   }
 
@@ -250,14 +288,16 @@ namespace CahnHilliard
 
   /** Positive flux driver K_phi=-J_phi used by both the tracer equation and the
    * Abels diffusive mass flux. The none branch is deliberately the original
-   * M*grad(mu) expression. */
+   * M*grad(mu) expression. In active modes tracer and tracer_gradient are the
+   * reconstructed fields; mobility is still the local CH value. */
   template <int dim>
   inline dealii::Tensor<1, dim> phase_diffusion_flux_driver(
     const Parameters::CahnHilliard<dim> &param,
     const double                         tracer,
     const dealii::Tensor<1, dim>        &tracer_gradient,
     const dealii::Tensor<1, dim>        &potential_gradient,
-    const double                         mobility)
+    const double                         mobility,
+    const double                         reference_mobility)
   {
     if (!has_interface_profile_correction(param))
       return mobility * potential_gradient;
@@ -270,7 +310,7 @@ namespace CahnHilliard
     const auto profile_driver = profile_correction_flux_driver<dim>(
       tracer, tracer_gradient, param.epsilon_interface);
     return mobility * chemical_gradient +
-           profile_correction_coefficient(param, mobility) * profile_driver;
+           profile_correction_coefficient(param, reference_mobility) * profile_driver;
   }
 
   /** Complete directional derivative of K_phi=-J_phi. The weighted FC normal
@@ -287,6 +327,7 @@ namespace CahnHilliard
     const dealii::Tensor<1, dim>        &potential_gradient_variation,
     const double                         mobility,
     const double                         mobility_variation,
+    const double                         reference_mobility,
     const dealii::Tensor<1, dim>        &normal,
     const double                         gradient_norm)
   {
@@ -336,8 +377,6 @@ namespace CahnHilliard
         normal * (normal_variation * potential_gradient);
     }
 
-    const auto profile_driver = profile_correction_flux_driver<dim>(
-      tracer, tracer_gradient, param.epsilon_interface);
     const auto profile_driver_variation =
       profile_correction_flux_driver_variation<dim>(
         tracer,
@@ -345,13 +384,10 @@ namespace CahnHilliard
         tracer_gradient,
         tracer_gradient_variation,
         param.epsilon_interface);
-    const double kappa = profile_correction_coefficient(param, mobility);
-    const double kappa_variation =
-      profile_correction_coefficient(param, mobility_variation);
+    const double kappa = profile_correction_coefficient(param, reference_mobility);
 
     return mobility_variation * chemical_gradient +
            mobility * chemical_gradient_variation +
-           kappa_variation * profile_driver +
            kappa * profile_driver_variation;
   }
 

@@ -366,6 +366,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
 
   while (!time_handler.is_finished())
   {
+    prepare_timestep();
     do
     {
       time_handler.advance(pcout);

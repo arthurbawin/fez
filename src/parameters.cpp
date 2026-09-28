@@ -1696,8 +1696,9 @@ namespace Parameters
         "interface profile correction",
         "none",
         Patterns::Selection("none|profile|profile_flux"),
-        "Conservative interface-profile correction. 'profile_flux' also "
-        "projects the chemical-potential flux tangentially to the interface. "
+        "Conservative interface-profile correction using a regularized nodal "
+        "distance reconstruction. 'profile_flux' also projects the chemical "
+        "flux using the reconstructed interface normal. "
         "The active modes are supported only by the Abels model and require "
         "disabled tracer SUPG.");
       prm.declare_entry(
@@ -1705,8 +1706,9 @@ namespace Parameters
         "0.3",
         Patterns::Double(0., 1.),
         "Dimensionless profile-correction strength in [0,1]. The dimensional "
-        "coefficient and internal profile/flux regularizations are computed "
-        "automatically.");
+        "coefficient uses the global quadrature maximum of absolute CH mobility "
+        "on the previous accepted state, frozen during the timestep. Chemical "
+        "diffusion retains the local mobility of the chosen model.");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),

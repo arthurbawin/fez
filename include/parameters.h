@@ -877,7 +877,8 @@ namespace Parameters
 
     // Optional conservative correction of the diffuse-interface profile. The
     // profile_flux variant additionally removes the interface-normal component
-    // of the Cahn-Hilliard chemical flux.
+    // of the Cahn-Hilliard chemical flux. Both use the regularized nodal-distance
+    // reconstruction of the current phase, differentiated fully in Newton.
     enum class InterfaceProfileCorrection
     {
       none,
@@ -886,7 +887,9 @@ namespace Parameters
     } interface_profile_correction = InterfaceProfileCorrection::none;
 
     // Dimensionless multiplier of the automatically scaled profile-correction
-    // diffusivity kappa_p = strength * 2*M*sigma_tilde/epsilon.
+    // diffusivity kappa_p = strength * 2*M_ref*sigma_tilde/epsilon, where
+    // M_ref is the global quadrature maximum of |M_CH| on the previous accepted
+    // state, frozen for each timestep (including its rejected retries).
     double profile_correction_strength;
 
     double mobility;

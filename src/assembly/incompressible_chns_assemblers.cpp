@@ -430,9 +430,11 @@ namespace Assembly
             CahnHilliard::has_interface_flux_correction(
               sd.get_cahn_hilliard_parameters()))
         {
-          gradient_norm = grad_phi.norm();
+          gradient_norm = sd.reconstructed_tracer_gradients[q].norm();
           interface_normal = CahnHilliard::flux_correction_normal(
-            sd.get_cahn_hilliard_parameters(), phi, grad_phi);
+            sd.get_cahn_hilliard_parameters(),
+            sd.reconstructed_tracer_values[q],
+            sd.reconstructed_tracer_gradients[q]);
         }
 
         //
@@ -539,8 +541,8 @@ namespace Assembly
                                    (phi_u_j * grad_phi);
             else if (j_is_phi)
             {
-              tracer_variation = phi_phi[j];
-              tracer_gradient_variation = grad_phi_phi[j];
+              tracer_variation = sd.reconstructed_shape_phi[q][j];
+              tracer_gradient_variation = sd.reconstructed_grad_shape_phi[q][j];
               mobility_variation =
                 dmobility_dphi * phi_phi[j] +
                 adaptive_mobility_sensitivity * (u * grad_phi_phi[j]);
@@ -551,14 +553,15 @@ namespace Assembly
             phase_flux_variation[j] =
               CahnHilliard::phase_diffusion_flux_driver_variation<dim>(
                 sd.get_cahn_hilliard_parameters(),
-                phi,
+                sd.reconstructed_tracer_values[q],
                 tracer_variation,
-                grad_phi,
+                sd.reconstructed_tracer_gradients[q],
                 tracer_gradient_variation,
                 grad_mu,
                 potential_gradient_variation,
                 mobility,
                 mobility_variation,
+                sd.profile_correction_reference_mobility,
                 interface_normal,
                 gradient_norm);
           }
@@ -697,14 +700,15 @@ namespace Assembly
               phase_flux_x_variation =
                 CahnHilliard::phase_diffusion_flux_driver_variation<dim>(
                   sd.get_cahn_hilliard_parameters(),
-                  phi,
+                  sd.reconstructed_tracer_values[q],
                   0.,
-                  grad_phi,
-                  dgrad_phi_dx,
+                  sd.reconstructed_tracer_gradients[q],
+                  -(transpose_G * sd.reconstructed_tracer_gradients[q]),
                   grad_mu,
                   dgrad_mu_dx,
                   mobility,
                   mobility_x_variation,
+                  sd.profile_correction_reference_mobility,
                   interface_normal,
                   gradient_norm);
             }

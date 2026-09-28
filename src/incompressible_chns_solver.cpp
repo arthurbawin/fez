@@ -288,6 +288,93 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::prepare_timestep()
+{
+  scratch_data->profile_correction_reference_mobility = 0.;
+  const auto &chp = this->param.cahn_hilliard;
+  if (!CahnHilliard::has_interface_profile_correction(chp))
+    return;
+
+  TimerOutput::Scope timer(this->computing_timer,
+                           "Compute profile reference mobility");
+  const auto &reference = this->previous_solutions->empty() ?
+                            *this->present_solution :
+                            this->previous_solutions->front();
+
+  // The usual moving mapping follows the Newton evaluation point. Bind this
+  // independent mapping to the accepted state so physical gradients use its
+  // geometry, including the first step after a restart or mesh transfer.
+  std::unique_ptr<Mapping<dim>> reference_mapping;
+  if constexpr (with_moving_mesh)
+    reference_mapping =
+      std::make_unique<MappingFEField<dim, dim, LA::ParVectorType>>(
+        *this->dof_handler, reference, this->position_mask);
+  const Mapping<dim> &mapping = with_moving_mesh ? *reference_mapping :
+                                                  *this->fixed_mapping;
+  FEValues<dim> values(mapping,
+                       *fe,
+                       *this->quadrature,
+                       update_values | update_gradients);
+
+  const auto mobility_evaluation =
+    CahnHilliard::get_mobility_evaluation_function(chp);
+  const auto mobility_limiter =
+    CahnHilliard::get_mobility_limiter_function(chp);
+  const auto material_phase = CahnHilliard::get_material_phase_function(chp);
+  const auto material_phase_derivative =
+    CahnHilliard::get_material_phase_derivative_function(chp);
+  const auto material_phase_second_derivative =
+    CahnHilliard::get_material_phase_second_derivative_function(chp);
+  const auto scaling = CahnHilliard::is_adaptive_mobility_model(chp) ?
+                         CahnHilliard::get_adaptive_mobility_scaling(chp) :
+                         CahnHilliard::AdaptiveMobilityScaling{0., 0.};
+  std::vector<double> tracer_values(this->quadrature->size());
+  std::vector<Tensor<1, dim>> velocity_values(this->quadrature->size());
+  std::vector<Tensor<1, dim>> tracer_gradients(this->quadrature->size());
+
+  double local_maximum = 0.;
+  unsigned int invalid_mobility = 0;
+  for (const auto &cell : this->dof_handler->active_cell_iterators())
+    if (cell->is_locally_owned())
+    {
+      values.reinit(cell);
+      values[this->velocity_extractor].get_function_values(reference,
+                                                            velocity_values);
+      values[tracer_extractor].get_function_values(reference, tracer_values);
+      values[tracer_extractor].get_function_gradients(reference,
+                                                      tracer_gradients);
+      for (unsigned int q = 0; q < this->quadrature->size(); ++q)
+      {
+        const double phi = mobility_limiter(tracer_values[q]);
+        const auto argument = CahnHilliard::select_mobility_tracer_argument(
+          chp,
+          phi,
+          material_phase(chp, phi),
+          material_phase_derivative(chp, phi),
+          material_phase_second_derivative(chp, phi));
+        const auto evaluation = mobility_evaluation(chp,
+                                                     argument.value,
+                                                     argument.first_derivative,
+                                                     argument.second_derivative,
+                                                     velocity_values[q],
+                                                     tracer_gradients[q],
+                                                     scaling.coefficient,
+                                                     scaling.delta);
+        if (std::isfinite(evaluation.value))
+          local_maximum = std::max(local_maximum, std::abs(evaluation.value));
+        else
+          invalid_mobility = 1;
+      }
+    }
+
+  AssertThrow(Utilities::MPI::max(invalid_mobility, this->mpi_communicator) == 0,
+              ExcMessage("Profile reference mobility must be finite at "
+                         "every quadrature point."));
+  scratch_data->profile_correction_reference_mobility =
+    Utilities::MPI::max(local_maximum, this->mpi_communicator);
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   compute_solver_specific_timestep_adaptation_criterion()
 {

@@ -8,7 +8,7 @@ namespace
   make_profile_parameters(const std::string &correction,
                           const std::string &model = "abels")
   {
-    ParameterHandler              prm;
+    ParameterHandler            prm;
     Parameters::CahnHilliard<2> parameters;
     parameters.declare_parameters(prm);
     prm.enter_subsection("Cahn Hilliard");
@@ -21,43 +21,117 @@ namespace
     return parameters;
   }
 
+  void test_inverse_profile()
+  {
+    const double a = CahnHilliard::profile_correction_inverse_cutoff();
+    const double maximum_slope = 3. / (1. - a * a);
+    for (double phi : {0., 0.3, -0.8, a, -a, 1., -1., 1.01, -1.2})
+    {
+      const auto inverse  = CahnHilliard::profile_correction_inverse(phi);
+      const auto opposite = CahnHilliard::profile_correction_inverse(-phi);
+      AssertThrow(std::isfinite(inverse.value) &&
+                    std::isfinite(inverse.second_derivative) &&
+                    inverse.derivative > 0. &&
+                    inverse.derivative <= maximum_slope * (1. + 1e-14),
+                  ExcMessage(
+                    "Inverse must be finite, monotone, with bounded slope"));
+      AssertThrow(std::abs(inverse.value + opposite.value) < 1e-13 &&
+                    std::abs(inverse.derivative - opposite.derivative) <
+                      1e-13 &&
+                    std::abs(inverse.second_derivative +
+                             opposite.second_derivative) < 1e-13,
+                  ExcMessage("Incorrect inverse symmetry"));
+      if (std::abs(phi) <= a)
+        AssertThrow(std::abs(inverse.value - std::atanh(phi)) < 1e-14,
+                    ExcMessage("Retained inverse must be exact"));
+      const double h     = std::abs(phi) > 1.001 ? 1e-6 : 1e-9;
+      const auto   plus  = CahnHilliard::profile_correction_inverse(phi + h);
+      const auto   minus = CahnHilliard::profile_correction_inverse(phi - h);
+      AssertThrow(std::abs((plus.value - minus.value) / (2. * h) -
+                           inverse.derivative) < 2e-5 * inverse.derivative,
+                  ExcMessage("Inverse first derivative mismatch"));
+      AssertThrow(std::abs((plus.derivative - minus.derivative) / (2. * h) -
+                           inverse.second_derivative) <
+                    2e-5 * std::max(1., std::abs(inverse.second_derivative)),
+                  ExcMessage("Inverse second derivative mismatch"));
+    }
+    deallog << "Regularized inverse is finite and C2 through pure phases OK"
+            << std::endl;
+  }
+
+  void test_complete_flux_driver_variation_3d()
+  {
+    ParameterHandler            prm;
+    Parameters::CahnHilliard<3> param;
+    param.declare_parameters(prm);
+    prm.enter_subsection("Cahn Hilliard");
+    prm.set("interface profile correction", "profile_flux");
+    prm.leave_subsection();
+    param.read_parameters(prm);
+    Tensor<1, 3> g, dg, mu, dmu;
+    g[0]             = .7;
+    g[1]             = -.4;
+    g[2]             = .6;
+    dg[0]            = .2;
+    dg[1]            = .3;
+    dg[2]            = -.1;
+    mu[0]            = -.6;
+    mu[1]            = .9;
+    mu[2]            = .8;
+    dmu[0]           = .5;
+    dmu[1]           = -.1;
+    dmu[2]           = .4;
+    const double phi = .35, dphi = -.25, m = .8, dm = .17, ref = 1.1, h = 5e-8;
+    const auto   normal = CahnHilliard::flux_correction_normal(param, phi, g);
+    const auto   analytical =
+      CahnHilliard::phase_diffusion_flux_driver_variation<3>(
+        param, phi, dphi, g, dg, mu, dmu, m, dm, ref, normal, g.norm());
+    const auto plus = CahnHilliard::phase_diffusion_flux_driver<3>(
+      param, phi + h * dphi, g + h * dg, mu + h * dmu, m + h * dm, ref);
+    const auto minus = CahnHilliard::phase_diffusion_flux_driver<3>(
+      param, phi - h * dphi, g - h * dg, mu - h * dmu, m - h * dm, ref);
+    AssertThrow((analytical - (plus - minus) / (2. * h)).norm() <
+                  5e-8 * std::max(1., analytical.norm()),
+                ExcInternalError());
+    deallog << "Complete flux-driver variation in 3D OK" << std::endl;
+  }
+
   void test_regularized_profile_correction_2d()
   {
-    auto parameters = make_profile_parameters("profile");
+    auto parameters              = make_profile_parameters("profile");
     parameters.epsilon_interface = 0.6;
 
     Tensor<1, 2> zero;
     for (const double phi : {-0.9, -0.99, -0.999, 0.999})
     {
-      const double q = (1. - phi * phi) /
-                       (std::sqrt(2.) * parameters.epsilon_interface);
+      const double q =
+        (1. - phi * phi) / (std::sqrt(2.) * parameters.epsilon_interface);
       Tensor<1, 2> equilibrium_gradient;
       equilibrium_gradient[0] = q;
-      const auto flux = CahnHilliard::phase_diffusion_flux_driver<2>(
-        parameters, phi, equilibrium_gradient, zero, 0.8);
+      const auto flux         = CahnHilliard::phase_diffusion_flux_driver<2>(
+        parameters, phi, equilibrium_gradient, zero, 0.8, 0.8);
       AssertThrow(flux.norm() < 1e-13, ExcInternalError());
     }
 
     const double phi = -0.999;
-    const double q = (1. - phi * phi) /
-                     (std::sqrt(2.) * parameters.epsilon_interface);
+    const double q =
+      (1. - phi * phi) / (std::sqrt(2.) * parameters.epsilon_interface);
     Tensor<1, 2> widened_gradient;
-    widened_gradient[0] = 0.1 * q;
+    widened_gradient[0]     = 0.1 * q;
     const auto widened_flux = CahnHilliard::phase_diffusion_flux_driver<2>(
-      parameters, phi, widened_gradient, zero, 0.8);
+      parameters, phi, widened_gradient, zero, 0.8, 0.8);
     const double beta = 0.05;
-    const double c = 1. - std::sqrt(1. + beta * beta) /
-                           std::sqrt(0.1 * 0.1 + beta * beta);
-    const double kappa = 0.3 * 2. * 0.8 *
-                         (3. / (2. * std::sqrt(2.)) * 2.) /
+    const double c =
+      1. - std::sqrt(1. + beta * beta) / std::sqrt(0.1 * 0.1 + beta * beta);
+    const double kappa = 0.3 * 2. * 0.8 * (3. / (2. * std::sqrt(2.)) * 2.) /
                          parameters.epsilon_interface;
     AssertThrow(std::abs(widened_flux[0] - kappa * c * 0.1 * q) < 1e-13,
                 ExcInternalError());
 
     Tensor<1, 2> unresolved_gradient;
-    const auto zero_gradient_flux =
+    const auto   zero_gradient_flux =
       CahnHilliard::phase_diffusion_flux_driver<2>(
-        parameters, phi, unresolved_gradient, zero, 0.8);
+        parameters, phi, unresolved_gradient, zero, 0.8, 0.8);
     AssertThrow(zero_gradient_flux.norm_square() == 0., ExcInternalError());
 
     deallog << "Regularized profile correction in 2D OK" << std::endl;
@@ -74,14 +148,29 @@ namespace
 
     const auto projected =
       CahnHilliard::project_chemical_potential_gradient<2>(grad_mu, normal);
-    AssertThrow(std::abs(projected[0] - 3.2) < 1e-14,
-                ExcInternalError());
-    AssertThrow(std::abs(projected[1] + 2.4) < 1e-14,
-                ExcInternalError());
-    AssertThrow(std::abs(projected * normal) < 1e-14,
-                ExcInternalError());
+    AssertThrow(std::abs(projected[0] - 3.2) < 1e-14, ExcInternalError());
+    AssertThrow(std::abs(projected[1] + 2.4) < 1e-14, ExcInternalError());
+    AssertThrow(std::abs(projected * normal) < 1e-14, ExcInternalError());
 
     deallog << "Flux projection in 2D OK" << std::endl;
+  }
+
+  void test_profile_reference_mobility()
+  {
+    auto parameters              = make_profile_parameters("profile");
+    parameters.epsilon_interface = 0.6;
+    Tensor<1, 2> gradient;
+    gradient[0] = 0.4;
+    Tensor<1, 2> zero;
+    const auto   mobile = CahnHilliard::phase_diffusion_flux_driver<2>(
+      parameters, 0.35, gradient, zero, 0.8, 0.8);
+    const auto immobile = CahnHilliard::phase_diffusion_flux_driver<2>(
+      parameters, 0.35, gradient, zero, 0., 0.8);
+    AssertThrow(mobile.norm() > 0., ExcInternalError());
+    AssertThrow((mobile - immobile).norm() < 1e-14,
+                ExcMessage(
+                  "Profile correction must use frozen reference mobility"));
+    deallog << "Frozen reference mobility OK" << std::endl;
   }
 
   void test_complete_flux_driver_variation_2d()
@@ -103,15 +192,14 @@ namespace
 
     for (const std::string mode : {"profile", "profile_flux"})
     {
-      auto parameters = make_profile_parameters(mode);
+      auto parameters              = make_profile_parameters(mode);
       parameters.epsilon_interface = 0.6;
-      const double g0 =
-        1. / (std::sqrt(2.) * parameters.epsilon_interface);
+      const double g0     = 1. / (std::sqrt(2.) * parameters.epsilon_interface);
       const double s_tail = 1. - 0.999 * 0.999;
-      const double transition_s = 0.375 * s_tail;
+      const double transition_s   = 0.375 * s_tail;
       const double transition_phi = -std::sqrt(1. - transition_s);
-      const double tail_phi = -0.999;
-      const double tail_q = g0 * (1. - tail_phi * tail_phi);
+      const double tail_phi       = -0.999;
+      const double tail_q         = g0 * (1. - tail_phi * tail_phi);
 
       struct State
       {
@@ -119,22 +207,23 @@ namespace
         double grad_x;
         double grad_y;
       };
-      const std::vector<State> states = {
-        {0.35, 0.7, -0.4},
-        {tail_phi, 0.1 * tail_q, 0.},
-        {transition_phi, 0.375 * s_tail * g0, 0.},
-        {1.01, 0.7, -0.4}};
+      const std::vector<State> states = {{0.35, 0.7, -0.4},
+                                         {tail_phi, 0.1 * tail_q, 0.},
+                                         {transition_phi,
+                                          0.375 * s_tail * g0,
+                                          0.},
+                                         {1.01, 0.7, -0.4}};
 
       for (unsigned int state_index = 0; state_index < states.size();
            ++state_index)
       {
-        const auto &state = states[state_index];
+        const auto  &state = states[state_index];
         Tensor<1, 2> grad_phi;
-        grad_phi[0] = state.grad_x;
-        grad_phi[1] = state.grad_y;
+        grad_phi[0]                = state.grad_x;
+        grad_phi[1]                = state.grad_y;
         const double gradient_norm = grad_phi.norm();
-        const auto normal = CahnHilliard::flux_correction_normal(
-          parameters, state.phi, grad_phi);
+        const auto   normal =
+          CahnHilliard::flux_correction_normal(parameters, state.phi, grad_phi);
 
         const auto analytical =
           CahnHilliard::phase_diffusion_flux_driver_variation<2>(
@@ -147,6 +236,7 @@ namespace
             grad_mu_variation,
             mobility,
             mobility_variation,
+            mobility,
             normal,
             gradient_norm);
         const auto plus = CahnHilliard::phase_diffusion_flux_driver<2>(
@@ -154,22 +244,24 @@ namespace
           state.phi + step * phi_variation,
           grad_phi + step * grad_phi_variation,
           grad_mu + step * grad_mu_variation,
-          mobility + step * mobility_variation);
+          mobility + step * mobility_variation,
+          mobility);
         const auto minus = CahnHilliard::phase_diffusion_flux_driver<2>(
           parameters,
           state.phi - step * phi_variation,
           grad_phi - step * grad_phi_variation,
           grad_mu - step * grad_mu_variation,
-          mobility - step * mobility_variation);
-        const auto finite_difference = (plus - minus) / (2. * step);
-        const double error = (analytical - finite_difference).norm();
+          mobility - step * mobility_variation,
+          mobility);
+        const auto   finite_difference = (plus - minus) / (2. * step);
+        const double error     = (analytical - finite_difference).norm();
         const double tolerance = 5e-8 * std::max(1., analytical.norm());
-        AssertThrow(error < tolerance,
-                    ExcMessage("Flux Jacobian mismatch in mode " + mode +
-                               ", state " + std::to_string(state_index) +
-                               ", relative error times 1e12 " +
-                               std::to_string(1e12 * error /
-                                              std::max(1., analytical.norm()))));
+        AssertThrow(
+          error < tolerance,
+          ExcMessage(
+            "Flux Jacobian mismatch in mode " + mode + ", state " +
+            std::to_string(state_index) + ", relative error times 1e12 " +
+            std::to_string(1e12 * error / std::max(1., analytical.norm()))));
       }
     }
 
@@ -178,10 +270,9 @@ namespace
 
   void test_profile_correction_parameters_and_guards()
   {
-    using Correction =
-      Parameters::CahnHilliard<2>::InterfaceProfileCorrection;
+    using Correction = Parameters::CahnHilliard<2>::InterfaceProfileCorrection;
 
-    ParameterHandler              default_prm;
+    ParameterHandler            default_prm;
     Parameters::CahnHilliard<2> default_parameters;
     default_parameters.declare_parameters(default_prm);
     default_parameters.read_parameters(default_prm);
@@ -196,22 +287,20 @@ namespace
     AssertThrow(parameters.interface_profile_correction ==
                   Correction::profile_flux,
                 ExcInternalError());
-    AssertThrow(std::abs(parameters.profile_correction_strength - 0.3) <
-                  1e-14,
+    AssertThrow(std::abs(parameters.profile_correction_strength - 0.3) < 1e-14,
                 ExcInternalError());
     const double sigma_tilde = 3. / (2. * std::sqrt(2.)) * 2.;
     AssertThrow(
       std::abs(CahnHilliard::profile_correction_coefficient(parameters, 0.8) -
-               0.3 * 2. * 0.8 * sigma_tilde /
-                 parameters.epsilon_interface) < 1e-14,
+               0.3 * 2. * 0.8 * sigma_tilde / parameters.epsilon_interface) <
+        1e-14,
       ExcInternalError());
     CahnHilliard::validate_interface_profile_correction(parameters, false);
 
     bool rejected_non_abels = false;
     try
     {
-      const auto ding =
-        make_profile_parameters("profile", "ding_horriche");
+      const auto ding = make_profile_parameters("profile", "ding_horriche");
       CahnHilliard::validate_interface_profile_correction(ding, false);
     }
     catch (const ExceptionBase &)
@@ -243,94 +332,87 @@ namespace
     grad_mu[0] = 5.;
     grad_mu[1] = 0.;
 
-    ParameterHandler              default_prm;
+    ParameterHandler            default_prm;
     Parameters::CahnHilliard<2> none;
     none.declare_parameters(default_prm);
     none.read_parameters(default_prm);
     const auto classical = CahnHilliard::phase_diffusion_flux_driver<2>(
-      none, 0., grad_phi, grad_mu, 2.);
-    AssertThrow(std::abs(classical[0] - 10.) < 1e-14,
-                ExcInternalError());
+      none, 0., grad_phi, grad_mu, 2., 2.);
+    AssertThrow(std::abs(classical[0] - 10.) < 1e-14, ExcInternalError());
     AssertThrow(std::abs(classical[1]) < 1e-14, ExcInternalError());
 
-    auto profile = make_profile_parameters("profile");
+    auto profile              = make_profile_parameters("profile");
     profile.epsilon_interface = 1.;
-    const auto profile_flux = CahnHilliard::phase_diffusion_flux_driver<2>(
-      profile, 0., grad_phi, grad_mu, 2.);
-    const double q = 1. / std::sqrt(2.);
-    const double beta = 0.05;
-    const double profile_denominator =
-      std::sqrt(25. + beta * beta * q * q);
+    const auto profile_flux   = CahnHilliard::phase_diffusion_flux_driver<2>(
+      profile, 0., grad_phi, grad_mu, 2., 2.);
+    const double q                   = 1. / std::sqrt(2.);
+    const double beta                = 0.05;
+    const double profile_denominator = std::sqrt(25. + beta * beta * q * q);
     const double profile_factor =
       1. - std::sqrt(1. + beta * beta) * q / profile_denominator;
-    const double kappa = 0.3 * 2. * 2. *
-                         (3. / (2. * std::sqrt(2.)) * 2.);
+    const double kappa = 0.3 * 2. * 2. * (3. / (2. * std::sqrt(2.)) * 2.);
     AssertThrow(std::abs(profile_flux[0] -
-                         (10. + kappa * profile_factor * 3.)) <
-                  1e-14,
+                         (10. + kappa * profile_factor * 3.)) < 1e-14,
                 ExcInternalError());
-    AssertThrow(std::abs(profile_flux[1] -
-                         kappa * profile_factor * 4.) <
-                  1e-14,
+    AssertThrow(std::abs(profile_flux[1] - kappa * profile_factor * 4.) < 1e-14,
                 ExcInternalError());
 
     auto profile_and_flux = make_profile_parameters("profile_flux");
     profile_and_flux.epsilon_interface = 1.;
     const auto corrected = CahnHilliard::phase_diffusion_flux_driver<2>(
-      profile_and_flux, 0., grad_phi, grad_mu, 2.);
-    const double normal_x = 3. / 5.;
-    const double normal_y = 4. / 5.;
+      profile_and_flux, 0., grad_phi, grad_mu, 2., 2.);
+    const double normal_x           = 3. / 5.;
+    const double normal_y           = 4. / 5.;
     const double normal_dot_grad_mu = 5. * normal_x;
     AssertThrow(std::abs(corrected[0] -
                          (2. * (5. - normal_x * normal_dot_grad_mu) +
                           kappa * profile_factor * 3.)) < 1e-14,
                 ExcInternalError());
-    AssertThrow(std::abs(corrected[1] -
-                         (2. * (-normal_y * normal_dot_grad_mu) +
-                          kappa * profile_factor * 4.)) < 1e-14,
+    AssertThrow(std::abs(corrected[1] - (2. * (-normal_y * normal_dot_grad_mu) +
+                                         kappa * profile_factor * 4.)) < 1e-14,
                 ExcInternalError());
 
     const double tail_phi = -0.999;
-    const double tail_q = (1. - tail_phi * tail_phi) / std::sqrt(2.);
+    const double tail_q   = (1. - tail_phi * tail_phi) / std::sqrt(2.);
     Tensor<1, 2> resolved_tail_gradient;
     resolved_tail_gradient[0] = tail_q;
     Tensor<1, 2> normal_chemical_gradient;
     normal_chemical_gradient[0] = 7.;
     const auto resolved_tail_flux =
-      CahnHilliard::phase_diffusion_flux_driver<2>(
-        profile_and_flux,
-        tail_phi,
-        resolved_tail_gradient,
-        normal_chemical_gradient,
-        2.);
+      CahnHilliard::phase_diffusion_flux_driver<2>(profile_and_flux,
+                                                   tail_phi,
+                                                   resolved_tail_gradient,
+                                                   normal_chemical_gradient,
+                                                   2.,
+                                                   2.);
     AssertThrow(resolved_tail_flux.norm() < 1e-13, ExcInternalError());
 
     Tensor<1, 2> unresolved_tail_gradient;
     unresolved_tail_gradient[0] = 0.1 * tail_q;
     const auto unresolved_profile =
-      CahnHilliard::phase_diffusion_flux_driver<2>(
-        profile,
-        tail_phi,
-        unresolved_tail_gradient,
-        normal_chemical_gradient,
-        2.);
+      CahnHilliard::phase_diffusion_flux_driver<2>(profile,
+                                                   tail_phi,
+                                                   unresolved_tail_gradient,
+                                                   normal_chemical_gradient,
+                                                   2.,
+                                                   2.);
     const auto unresolved_profile_flux =
-      CahnHilliard::phase_diffusion_flux_driver<2>(
-        profile_and_flux,
-        tail_phi,
-        unresolved_tail_gradient,
-        normal_chemical_gradient,
-        2.);
+      CahnHilliard::phase_diffusion_flux_driver<2>(profile_and_flux,
+                                                   tail_phi,
+                                                   unresolved_tail_gradient,
+                                                   normal_chemical_gradient,
+                                                   2.,
+                                                   2.);
     AssertThrow((unresolved_profile_flux - unresolved_profile).norm() < 1e-13,
                 ExcInternalError());
 
     for (const double bulk_phi : {1., 1.01, -1.01})
     {
       const auto bulk_profile = CahnHilliard::phase_diffusion_flux_driver<2>(
-        profile, bulk_phi, grad_phi, grad_mu, 2.);
+        profile, bulk_phi, grad_phi, grad_mu, 2., 2.);
       const auto bulk_profile_flux =
         CahnHilliard::phase_diffusion_flux_driver<2>(
-          profile_and_flux, bulk_phi, grad_phi, grad_mu, 2.);
+          profile_and_flux, bulk_phi, grad_phi, grad_mu, 2., 2.);
       AssertThrow((bulk_profile - 2. * grad_mu).norm() < 1e-14,
                   ExcInternalError());
       AssertThrow((bulk_profile_flux - 2. * grad_mu).norm() < 1e-14,
@@ -346,9 +428,12 @@ int main(int argc, char **argv)
   Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
   initlog();
 
+  test_inverse_profile();
   test_regularized_profile_correction_2d();
   test_flux_projection_2d();
+  test_profile_reference_mobility();
   test_complete_flux_driver_variation_2d();
+  test_complete_flux_driver_variation_3d();
   test_profile_correction_parameters_and_guards();
   test_phase_diffusion_flux_driver_modes();
 }

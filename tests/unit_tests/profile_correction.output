@@ -1,6 +1,9 @@
 
+DEAL::Regularized inverse is finite and C2 through pure phases OK
 DEAL::Regularized profile correction in 2D OK
 DEAL::Flux projection in 2D OK
+DEAL::Frozen reference mobility OK
 DEAL::Complete flux-driver variation in 2D OK
+DEAL::Complete flux-driver variation in 3D OK
 DEAL::Profile correction parameters and guards OK
 DEAL::Phase diffusion flux-driver modes OK

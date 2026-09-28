@@ -1032,12 +1032,14 @@ namespace NavierStokesScratch
 
     template <typename VectorType>
     void
-    reinit_cahn_hilliard_cell(const FEValues<dim>           &fe_values_fixed,
-                              const FEValues<dim>           &fe_values_moving,
-                              const VectorType              &current_solution,
-                              const std::vector<VectorType> &previous_solutions,
-                              const Function<dim>           &source_terms,
-                              const Function<dim> & /*exact_solution*/)
+    reinit_cahn_hilliard_cell(
+      const typename DoFHandler<dim>::active_cell_iterator &cell,
+      const FEValues<dim>           &fe_values_fixed,
+      const FEValues<dim>           &fe_values_moving,
+      const VectorType              &current_solution,
+      const std::vector<VectorType> &previous_solutions,
+      const Function<dim>           &source_terms,
+      const Function<dim> & /*exact_solution*/)
     {
       fe_values_moving[tracer].get_function_values(current_solution,
                                                    tracer_values);
@@ -1081,8 +1083,87 @@ namespace NavierStokesScratch
       source_terms.vector_value_list(fe_values_moving.get_quadrature_points(),
                                      source_term_full_moving);
 
+      const bool reconstruct_profile =
+        CahnHilliard::has_interface_profile_correction(cahn_hilliard_param);
+      const double profile_length = std::sqrt(2.) * epsilon;
+      if (reconstruct_profile)
+      {
+        correction_dof_indices.resize(dofs_per_cell);
+        cell->get_dof_indices(correction_dof_indices);
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+          if (components[k] == phi_lower)
+          {
+            const auto inverse = CahnHilliard::profile_correction_inverse(
+              current_solution[correction_dof_indices[k]]);
+            correction_nodal_distance[k] = profile_length * inverse.value;
+            correction_nodal_derivative[k] =
+              profile_length * inverse.derivative;
+          }
+      }
+
       for (unsigned int q = 0; q < n_q_points; ++q)
       {
+        for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        {
+          // Shape functions on moving mesh
+          shape_phi[q][k]      = fe_values_moving[tracer].value(k, q);
+          grad_shape_phi[q][k] = fe_values_moving[tracer].gradient(k, q);
+          shape_mu[q][k]       = fe_values_moving[potential].value(k, q);
+          grad_shape_mu[q][k]  = fe_values_moving[potential].gradient(k, q);
+          if constexpr (enable_enlarged)
+          {
+            shape_psi[q][k]      = fe_values_moving[psi].value(k, q);
+            grad_shape_psi[q][k] = fe_values_moving[psi].gradient(k, q);
+          }
+          if (enable_tracer_stabilization)
+            laplacian_shape_mu[q][k] =
+              trace(fe_values_moving[potential].hessian(k, q));
+
+          // Shape functions on fixed mesh
+          if constexpr (enable_pseudo_solid)
+          {
+            shape_phi_fixed[q][k]      = fe_values_fixed[tracer].value(k, q);
+            grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
+          }
+        }
+
+        if (reconstruct_profile)
+        {
+          // Auxiliary reconstruction is cell-local. On nonconforming meshes,
+          // use the constrained phase nodal values; the distance itself is
+          // not a global FE unknown. Its derivatives are condensed with the
+          // same phase constraints as the rest of the monolithic system.
+          double distance = 0.;
+          Tensor<1, dim> distance_gradient;
+          for (unsigned int k = 0; k < dofs_per_cell; ++k)
+            if (components[k] == phi_lower)
+            {
+              distance += shape_phi[q][k] * correction_nodal_distance[k];
+              distance_gradient +=
+                grad_shape_phi[q][k] * correction_nodal_distance[k];
+            }
+          const double phi_r = std::tanh(distance / profile_length);
+          const double profile_slope = (1. - phi_r * phi_r) / profile_length;
+          reconstructed_tracer_values[q] = phi_r;
+          reconstructed_tracer_gradients[q] =
+            profile_slope * distance_gradient;
+          for (unsigned int k = 0; k < dofs_per_cell; ++k)
+          {
+            reconstructed_shape_phi[q][k] = 0.;
+            reconstructed_grad_shape_phi[q][k] = Tensor<1, dim>();
+            if (components[k] == phi_lower)
+            {
+              const double variation = profile_slope * shape_phi[q][k] *
+                                       correction_nodal_derivative[k];
+              reconstructed_shape_phi[q][k] = variation;
+              reconstructed_grad_shape_phi[q][k] =
+                profile_slope * correction_nodal_derivative[k] *
+                  grad_shape_phi[q][k] -
+                (2. * phi_r / profile_length * variation) * distance_gradient;
+            }
+          }
+        }
+
         // Material marker m(phi) on the raw tracer (= q for abels_nlm, = phi
         // otherwise) with its first two derivatives and gradient. The
         // transported/conserved variable and the capillary marker are m.
@@ -1183,10 +1264,11 @@ namespace NavierStokesScratch
           phase_diffusion_flux_drivers[q] =
             CahnHilliard::phase_diffusion_flux_driver<dim>(
               cahn_hilliard_param,
-              tracer_values[q],
-              tracer_gradients[q],
+              reconstructed_tracer_values[q],
+              reconstructed_tracer_gradients[q],
               potential_gradients[q],
-              mobility_values[q]);
+              mobility_values[q],
+              profile_correction_reference_mobility);
           diffusive_flux[q] =
             0.5 * (density1 - density0) * present_velocity_gradients[q] *
             phase_diffusion_flux_drivers[q];
@@ -1214,30 +1296,6 @@ namespace NavierStokesScratch
             kinematic_viscosity,
             u_conv,
             grad_phi_u_first_component);
-        }
-
-        for (unsigned int k = 0; k < dofs_per_cell; ++k)
-        {
-          // Shape functions on moving mesh
-          shape_phi[q][k]      = fe_values_moving[tracer].value(k, q);
-          grad_shape_phi[q][k] = fe_values_moving[tracer].gradient(k, q);
-          shape_mu[q][k]       = fe_values_moving[potential].value(k, q);
-          grad_shape_mu[q][k]  = fe_values_moving[potential].gradient(k, q);
-          if constexpr (enable_enlarged)
-          {
-            shape_psi[q][k]      = fe_values_moving[psi].value(k, q);
-            grad_shape_psi[q][k] = fe_values_moving[psi].gradient(k, q);
-          }
-          if (enable_tracer_stabilization)
-            laplacian_shape_mu[q][k] =
-              trace(fe_values_moving[potential].hessian(k, q));
-
-          // Shape functions on fixed mesh
-          if constexpr (enable_pseudo_solid)
-          {
-            shape_phi_fixed[q][k]      = fe_values_fixed[tracer].value(k, q);
-            grad_shape_phi_fixed[q][k] = fe_values_fixed[tracer].gradient(k, q);
-          }
         }
 
         if (enable_tracer_stabilization)
@@ -1315,7 +1373,8 @@ namespace NavierStokesScratch
                                  source_terms,
                                  exact_solution);
       if constexpr (enable_cahn_hilliard)
-        reinit_cahn_hilliard_cell(*active_fe_values_fixed,
+        reinit_cahn_hilliard_cell(cell,
+                                  *active_fe_values_fixed,
                                   *active_fe_values,
                                   current_solution,
                                   previous_solutions,
@@ -1737,6 +1796,17 @@ namespace NavierStokesScratch
 
     // Positive phase-flux driver K_phi=-J_phi. Allocated for the active profile
     // correction and shared by the tracer and Abels momentum equations.
+    // Global max |M_CH| on the accepted state, frozen over a timestep and
+    // copied into WorkStream scratch instances. Local CH mobility is unchanged.
+    double profile_correction_reference_mobility = 0.;
+    std::vector<types::global_dof_index> correction_dof_indices;
+    std::vector<double> correction_nodal_distance;
+    std::vector<double> correction_nodal_derivative;
+    std::vector<double> reconstructed_tracer_values;
+    std::vector<Tensor<1, dim>> reconstructed_tracer_gradients;
+    // Derivatives of reconstructed values/gradients w.r.t. raw phase DOFs.
+    std::vector<std::vector<double>> reconstructed_shape_phi;
+    std::vector<std::vector<Tensor<1, dim>>> reconstructed_grad_shape_phi;
     std::vector<Tensor<1, dim>> phase_diffusion_flux_drivers;
     std::vector<Tensor<1, dim>> diffusive_flux;
     std::vector<double>         tau_supg_tracer;

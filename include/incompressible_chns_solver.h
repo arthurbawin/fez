@@ -135,6 +135,9 @@ public:
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
 protected:
+  /** Freeze the global mobility scale on the previous accepted geometry. */
+  virtual void prepare_timestep() override;
+
   /** Compute the adaptive-mobility time number from the current solution. */
   virtual void
   compute_solver_specific_timestep_adaptation_criterion() override;

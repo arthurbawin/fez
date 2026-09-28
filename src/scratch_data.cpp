@@ -299,6 +299,9 @@ namespace NavierStokesScratch
     if constexpr (enable_compressible)
       initialize_compressible();
 
+    profile_correction_reference_mobility =
+      other.profile_correction_reference_mobility;
+
     allocate();
   }
 
@@ -703,7 +706,17 @@ namespace NavierStokesScratch
 
       if (CahnHilliard::has_interface_profile_correction(
             cahn_hilliard_param))
+      {
         phase_diffusion_flux_drivers.resize(n_q_points);
+        correction_nodal_distance.resize(max_dofs_per_cell);
+        correction_nodal_derivative.resize(max_dofs_per_cell);
+        reconstructed_tracer_values.resize(n_q_points);
+        reconstructed_tracer_gradients.resize(n_q_points);
+        reconstructed_shape_phi.resize(
+          n_q_points, std::vector<double>(max_dofs_per_cell));
+        reconstructed_grad_shape_phi.resize(
+          n_q_points, std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+      }
       diffusive_flux.resize(n_q_points);
       shape_phi.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       grad_shape_phi.resize(n_q_points,

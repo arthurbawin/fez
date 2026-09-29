@@ -392,16 +392,13 @@ namespace Assembly
       CahnHilliard::validate_interface_profile_correction(
         param.cahn_hilliard, tracer_supg);
       const auto mobility_model = param.cahn_hilliard.mobility_model;
-      const bool gradient_dependent_adaptive_mobility =
-        mobility_model ==
-          Parameters::CahnHilliard<dim>::MobilityModel::adaptive ||
-        mobility_model ==
-          Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2;
       AssertThrow(
-        !gradient_dependent_adaptive_mobility || !tracer_supg,
-        ExcMessage("adaptative_mobility and adaptative_mobility_2 currently "
-                   "require disabled tracer SUPG, because their mobility "
-                   "depends on velocity and tracer gradients."));
+        mobility_model !=
+            Parameters::CahnHilliard<dim>::MobilityModel::adaptive_mobility_2 ||
+          !tracer_supg,
+        ExcMessage("adaptative_mobility_2 currently requires disabled tracer "
+                   "SUPG because its complete strong diffusion derivative "
+                   "is not implemented."));
       const bool use_ding_horriche =
         CahnHilliard::is_ding_horriche_model(param.cahn_hilliard);
       constexpr unsigned int moving_mesh_flag =

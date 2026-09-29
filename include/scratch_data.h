@@ -2,6 +2,7 @@
 #define SCRATCH_DATA_H
 
 #include <cahn_hilliard.h>
+#include <chns_phase_diffusion.h>
 #include <components_ordering.h>
 #include <deal.II/base/quadrature.h>
 #include <deal.II/fe/fe_simplex_p.h>
@@ -1069,11 +1070,10 @@ namespace NavierStokesScratch
       {
         fe_values_moving[potential].get_function_laplacians(
           current_solution, potential_laplacians);
-        if constexpr (enable_pseudo_solid)
-          // The moving-mesh x-variation of the tracer SUPG residual needs the
-          // full potential hessian, not only its laplacian.
-          fe_values_moving[potential].get_function_hessians(current_solution,
-                                                            potential_hessians);
+        fe_values_moving[potential].get_function_hessians(current_solution,
+                                                          potential_hessians);
+        fe_values_moving[tracer].get_function_hessians(current_solution,
+                                                       tracer_hessians);
       }
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
@@ -1116,8 +1116,12 @@ namespace NavierStokesScratch
             grad_shape_psi[q][k] = fe_values_moving[psi].gradient(k, q);
           }
           if (enable_tracer_stabilization)
-            laplacian_shape_mu[q][k] =
-              trace(fe_values_moving[potential].hessian(k, q));
+          {
+            hess_phi_potential[q][k] =
+              fe_values_moving[potential].hessian(k, q);
+            hess_phi_tracer[q][k]    = fe_values_moving[tracer].hessian(k, q);
+            laplacian_shape_mu[q][k] = trace(hess_phi_potential[q][k]);
+          }
 
           // Shape functions on fixed mesh
           if constexpr (enable_pseudo_solid)
@@ -1135,22 +1139,38 @@ namespace NavierStokesScratch
           // same phase constraints as the rest of the monolithic system.
           double distance = 0.;
           Tensor<1, dim> distance_gradient;
+          Tensor<2, dim> distance_hessian;
           for (unsigned int k = 0; k < dofs_per_cell; ++k)
             if (components[k] == phi_lower)
             {
               distance += shape_phi[q][k] * correction_nodal_distance[k];
               distance_gradient +=
                 grad_shape_phi[q][k] * correction_nodal_distance[k];
+              if (enable_tracer_stabilization)
+                distance_hessian +=
+                  hess_phi_tracer[q][k] * correction_nodal_distance[k];
             }
           const double phi_r = std::tanh(distance / profile_length);
           const double profile_slope = (1. - phi_r * phi_r) / profile_length;
           reconstructed_tracer_values[q] = phi_r;
           reconstructed_tracer_gradients[q] =
             profile_slope * distance_gradient;
+          const double profile_curvature =
+            -2. * phi_r * profile_slope / profile_length;
+          const double profile_third_derivative =
+            -2. * (1. - 3. * phi_r * phi_r) * profile_slope /
+            (profile_length * profile_length);
+          if (enable_tracer_stabilization)
+            reconstructed_tracer_hessians[q] =
+              profile_slope * distance_hessian +
+              profile_curvature *
+                outer_product(distance_gradient, distance_gradient);
           for (unsigned int k = 0; k < dofs_per_cell; ++k)
           {
             reconstructed_shape_phi[q][k] = 0.;
             reconstructed_grad_shape_phi[q][k] = Tensor<1, dim>();
+            if (enable_tracer_stabilization)
+              reconstructed_hess_phi_tracer[q][k] = {};
             if (components[k] == phi_lower)
             {
               const double variation = profile_slope * shape_phi[q][k] *
@@ -1160,6 +1180,22 @@ namespace NavierStokesScratch
                 profile_slope * correction_nodal_derivative[k] *
                   grad_shape_phi[q][k] -
                 (2. * phi_r / profile_length * variation) * distance_gradient;
+              if (enable_tracer_stabilization)
+              {
+                const double delta_distance =
+                  shape_phi[q][k] * correction_nodal_derivative[k];
+                const auto delta_gradient =
+                  grad_shape_phi[q][k] * correction_nodal_derivative[k];
+                reconstructed_hess_phi_tracer[q][k] =
+                  profile_curvature * delta_distance * distance_hessian +
+                  profile_slope * correction_nodal_derivative[k] *
+                    hess_phi_tracer[q][k] +
+                  profile_third_derivative * delta_distance *
+                    outer_product(distance_gradient, distance_gradient) +
+                  profile_curvature *
+                    (outer_product(delta_gradient, distance_gradient) +
+                     outer_product(distance_gradient, delta_gradient));
+              }
             }
           }
         }
@@ -1250,6 +1286,47 @@ namespace NavierStokesScratch
           mobility_evaluation.second_derivative_wrt_tracer;
         adaptive_mobility_sensitivities[q] =
           mobility_evaluation.adaptive_sensitivity;
+        derivative_mobility_wrt_velocity[q] =
+          mobility_evaluation.derivative_wrt_velocity;
+        derivative_mobility_wrt_tracer_gradient[q] =
+          mobility_evaluation.derivative_wrt_tracer_gradient;
+        if (enable_tracer_stabilization)
+        {
+          using Model = typename Parameters::CahnHilliard<dim>::MobilityModel;
+          adaptive_mobility_hessians[q] = {};
+          if (cahn_hilliard_param.mobility_model == Model::adaptive ||
+              cahn_hilliard_param.mobility_model == Model::adaptive_mobility_3)
+            adaptive_mobility_hessians[q] =
+              CahnHilliard::evaluate_adaptive_mobility_hessians(
+                cahn_hilliard_param,
+                present_velocity_values[q],
+                tracer_gradients[q],
+                adaptive_mobility_coefficient,
+                adaptive_mobility_delta);
+          mobility_gradients[q] =
+            derivative_mobility_wrt_tracer[q] * tracer_gradients[q] +
+            transpose(present_velocity_gradients[q]) *
+              derivative_mobility_wrt_velocity[q] +
+            tracer_hessians[q] * derivative_mobility_wrt_tracer_gradient[q];
+          CahnHilliard::PhaseDiffusionPoint<dim> point;
+          point.tracer = reconstruct_profile ? reconstructed_tracer_values[q] :
+                                               tracer_values[q];
+          point.tracer_gradient    = reconstruct_profile ?
+                                       reconstructed_tracer_gradients[q] :
+                                       tracer_gradients[q];
+          point.tracer_hessian     = reconstruct_profile ?
+                                       reconstructed_tracer_hessians[q] :
+                                       tracer_hessians[q];
+          point.potential_gradient = potential_gradients[q];
+          point.potential_hessian  = potential_hessians[q];
+          point.mobility           = mobility_values[q];
+          point.mobility_gradient  = mobility_gradients[q];
+          phase_diffusion_linearizations[q] =
+            CahnHilliard::evaluate_phase_diffusion_divergence(
+              cahn_hilliard_param,
+              point,
+              profile_correction_reference_mobility);
+        }
         diffusive_flux_factor_values[q] =
           mobility_values[q] * 0.5 * (density1 - density0);
 
@@ -1288,6 +1365,9 @@ namespace NavierStokesScratch
                  ExcMessage("The density must be strictly positive to compute "
                             "the kinematic viscosity for SUPG stabilization."));
           const double kinematic_viscosity = dynamic_viscosity[q] / density[q];
+          // The NS scratch loop leaves this buffer at its last quadrature node.
+          for (unsigned int k = 0; k < dofs_per_cell; ++k)
+            grad_phi_u_first_component[k] = grad_phi_u[q][k][0];
           tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
             time_handler,
             dofs_per_cell,
@@ -1763,8 +1843,15 @@ namespace NavierStokesScratch
     // (chain rule through the material marker for abels_nlm), and the diffusive
     // -flux factor 0.5*(rho1 - rho0)*M(q), per node.
     std::vector<double> mobility_values;
-    // dM_reg/d(u.grad(phi)) for adaptative_mobility; zero otherwise.
+    // dM_reg/d(u.grad(phi)) for adaptive models 1 and 2; zero otherwise.
     std::vector<double> adaptive_mobility_sensitivities;
+    std::vector<Tensor<1, dim>> derivative_mobility_wrt_velocity;
+    std::vector<Tensor<1, dim>> derivative_mobility_wrt_tracer_gradient;
+    std::vector<CahnHilliard::AdaptiveMobilityHessians<dim>>
+                                adaptive_mobility_hessians;
+    std::vector<Tensor<1, dim>> mobility_gradients;
+    std::vector<CahnHilliard::PhaseDiffusionLinearization<dim>>
+                        phase_diffusion_linearizations;
     std::vector<double> derivative_mobility_wrt_tracer;
     std::vector<double> second_derivative_mobility_wrt_tracer;
     std::vector<double> diffusive_flux_factor_values;
@@ -1784,6 +1871,9 @@ namespace NavierStokesScratch
     std::vector<double>              tracer_values;
     std::vector<double>              tracer_time_derivatives;
     std::vector<Tensor<1, dim>>      tracer_gradients;
+    std::vector<Tensor<2, dim>>              tracer_hessians;
+    std::vector<std::vector<Tensor<2, dim>>> hess_phi_tracer;
+    std::vector<std::vector<Tensor<2, dim>>> hess_phi_potential;
     std::vector<double>              tracer_values_fixed;
     std::vector<Tensor<1, dim>>      tracer_gradients_fixed;
     std::vector<std::vector<double>> previous_tracer_values;
@@ -1791,7 +1881,7 @@ namespace NavierStokesScratch
     std::vector<double>         potential_values;
     std::vector<Tensor<1, dim>> potential_gradients;
     std::vector<double>         potential_laplacians;
-    // Only used for the moving-mesh x-variation of the tracer SUPG residual.
+    // Full Hessians enter div(K_phi) with the profile flux projection.
     std::vector<Tensor<2, dim>> potential_hessians;
 
     // Positive phase-flux driver K_phi=-J_phi. Allocated for the active profile
@@ -1804,6 +1894,8 @@ namespace NavierStokesScratch
     std::vector<double> correction_nodal_derivative;
     std::vector<double> reconstructed_tracer_values;
     std::vector<Tensor<1, dim>> reconstructed_tracer_gradients;
+    std::vector<Tensor<2, dim>>              reconstructed_tracer_hessians;
+    std::vector<std::vector<Tensor<2, dim>>> reconstructed_hess_phi_tracer;
     // Derivatives of reconstructed values/gradients w.r.t. raw phase DOFs.
     std::vector<std::vector<double>> reconstructed_shape_phi;
     std::vector<std::vector<Tensor<1, dim>>> reconstructed_grad_shape_phi;

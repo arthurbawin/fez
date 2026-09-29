@@ -1,0 +1,138 @@
+# Velocity-dependent mobility must enter both CH diffusion and Abels inertia.
+# The second step has nonzero potential gradients; rebuild at every iteration.
+subsection Dimension
+  set dimension = 2
+end
+subsection Timer
+  set enable timer = false
+end
+subsection Output
+  set write vtu results = false
+end
+subsection Mesh
+  set dealii preset mesh = rectangle
+  set dealii mesh parameters = 4, 4 : 0., 0. : 1., 1. : true
+  set refinement level = 1
+end
+subsection Time integration
+  set dt = 0.001
+  set t_initial = 0
+  set t_end = 0.002
+  set scheme = BDF1
+  set bdf start method = BDF1
+  subsection Adaptation
+    set enable = false
+  end
+end
+subsection Nonlinear solver
+  set tolerance = 1e-10
+  set divergence_tolerance = 1e4
+  set max_iterations = 40
+  set enable_line_search = true
+  set analytic_jacobian = true
+  set compare jacobian matrix with finite differences = false
+  set analytical_jacobian_absolute_tolerance = 1e-5
+  set analytical_jacobian_relative_tolerance = 1e-5
+  subsection reassembly heuristic
+    set decrease tolerance = 0
+  end
+end
+subsection Linear solver
+  subsection main physics
+    set verbosity = quiet
+    set method = direct_mumps
+    set reuse = true
+  end
+end
+subsection Stabilization
+  set enable supg = true
+  set enable tracer supg = true
+end
+subsection FiniteElements
+  set use quads = true
+  set Velocity degree = 2
+  set Pressure degree = 1
+  set Tracer degree = 2
+  set Potential degree = 2
+end
+subsection Physical properties
+  set number of fluids = 2
+  subsection Fluid 0
+    set density = 3
+    set kinematic viscosity = 0.05
+  end
+  subsection Fluid 1
+    set density = 1
+    set kinematic viscosity = 0.05
+  end
+  set body force = 0, -0.2
+end
+subsection Cahn Hilliard
+  set CHNS model = abels
+  set interface profile correction = profile_flux
+  set profile correction strength = 0.2
+  set mobility model = adaptative_mobility
+  set adaptive mobility n = 2
+  set adaptive mobility delta = 0.02
+  set adaptive mobility m = 0.5
+  set surface tension = 1
+  set interface thickness = 0.12
+  set enable tracer limiter = false
+  set enable mobility tracer limiter = false
+end
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 0.2*x*(1-x)*y*(1-y); -0.1*x*(1-x)*y*(1-y)
+  end
+  subsection cahn hilliard tracer
+    set Function expression = -0.8 + 1.6*x + 0.12*x*(1-x)*sin(2*pi*y)
+  end
+end
+subsection Fluid boundary conditions
+  set number = 4
+  set fix pressure constant = true
+  set enforce zero mean pressure = false
+  subsection boundary 0
+    set id = 0
+    set name = x_min
+    set type = no_slip
+  end
+  subsection boundary 1
+    set id = 1
+    set name = x_max
+    set type = no_slip
+  end
+  subsection boundary 2
+    set id = 2
+    set name = y_min
+    set type = no_slip
+  end
+  subsection boundary 3
+    set id = 3
+    set name = y_max
+    set type = no_slip
+  end
+end
+subsection CahnHilliard boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id = 0
+    set name = x_min
+    set type = no_flux
+  end
+  subsection boundary 1
+    set id = 1
+    set name = x_max
+    set type = no_flux
+  end
+  subsection boundary 2
+    set id = 2
+    set name = y_min
+    set type = no_flux
+  end
+  subsection boundary 3
+    set id = 3
+    set name = y_max
+    set type = no_flux
+  end
+end

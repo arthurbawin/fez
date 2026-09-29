@@ -1,0 +1,7 @@
+
+DEAL::Phase diffusion none divergence and all variations in 2D OK
+DEAL::Phase diffusion none divergence and all variations in 3D OK
+DEAL::Phase diffusion profile divergence and all variations in 2D OK
+DEAL::Phase diffusion profile divergence and all variations in 3D OK
+DEAL::Phase diffusion profile_flux divergence and all variations in 2D OK
+DEAL::Phase diffusion profile_flux divergence and all variations in 3D OK

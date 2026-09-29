@@ -421,6 +421,14 @@ protected:
       mms.set_time(new_time);
     }
 
+    // The manufactured source must use the same accepted-state coefficient
+    // as the numerical flux. It stays fixed during Newton and rejected-step
+    // retries, just like the coefficient copied into each scratch object.
+    void set_profile_correction_reference_mobility(const double mobility)
+    {
+      profile_correction_reference_mobility = mobility;
+    }
+
     virtual void vector_value(const Point<dim> &p,
                               Vector<double>   &values) const override;
 
@@ -461,6 +469,7 @@ protected:
     const Parameters::PhysicalProperties<dim>       &physical_properties;
     const Parameters::CahnHilliard<dim>             &cahn_hilliard_param;
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
+    double profile_correction_reference_mobility = 0.;
   };
 };
 

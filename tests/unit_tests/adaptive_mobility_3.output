@@ -1,0 +1,4 @@
+
+DEAL::Adaptive mobility 3 velocity derivatives and Hessian in 2D OK
+DEAL::Adaptive mobility 3 velocity derivatives and Hessian in 3D OK
+DEAL::Existing mobility models retain their velocity derivatives

@@ -682,6 +682,8 @@ namespace NavierStokesScratch
 
       mobility_values.resize(n_q_points);
       adaptive_mobility_sensitivities.assign(n_q_points, 0.);
+      derivative_mobility_wrt_velocity.resize(n_q_points);
+      derivative_mobility_wrt_tracer_gradient.resize(n_q_points);
       derivative_mobility_wrt_tracer.resize(n_q_points);
       second_derivative_mobility_wrt_tracer.resize(n_q_points);
       diffusive_flux_factor_values.resize(n_q_points);
@@ -747,8 +749,21 @@ namespace NavierStokesScratch
       {
         potential_laplacians.resize(n_q_points);
         tau_supg_tracer.resize(n_q_points);
-        if constexpr (enable_pseudo_solid)
-          potential_hessians.resize(n_q_points);
+        potential_hessians.resize(n_q_points);
+        tracer_hessians.resize(n_q_points);
+        hess_phi_tracer.resize(n_q_points,
+                               std::vector<Tensor<2, dim>>(max_dofs_per_cell));
+        hess_phi_potential.resize(
+          n_q_points, std::vector<Tensor<2, dim>>(max_dofs_per_cell));
+        adaptive_mobility_hessians.resize(n_q_points);
+        mobility_gradients.resize(n_q_points);
+        phase_diffusion_linearizations.resize(n_q_points);
+        if (CahnHilliard::has_interface_profile_correction(cahn_hilliard_param))
+        {
+          reconstructed_tracer_hessians.resize(n_q_points);
+          reconstructed_hess_phi_tracer.resize(
+            n_q_points, std::vector<Tensor<2, dim>>(max_dofs_per_cell));
+        }
       }
 
       source_term_tracer.resize(n_q_points);

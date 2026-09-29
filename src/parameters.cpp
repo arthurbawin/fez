@@ -1699,8 +1699,8 @@ namespace Parameters
         "Conservative interface-profile correction using a regularized nodal "
         "distance reconstruction. 'profile_flux' also projects the chemical "
         "flux using the reconstructed interface normal. "
-        "The active modes are supported only by the Abels model and require "
-        "disabled tracer SUPG.");
+        "The active modes are supported only by the Abels model. Tracer SUPG "
+        "uses the complete divergence of this corrected flux.");
       prm.declare_entry(
         "profile correction strength",
         "0.3",
@@ -1722,9 +1722,10 @@ namespace Parameters
       prm.declare_entry(
         "adaptive mobility m",
         "0.",
-        Patterns::Double(),
-        "Coefficient m of the additive gradient term "
-        "m*2*epsilon^2*|grad(phi)|^2 in adaptative_mobility.");
+        Patterns::Double(0.),
+        "Non-negative mobility coefficient m of the additive interfacial "
+        "term m*2*epsilon^2*|grad(phi)|^2 in adaptative_mobility. It remains "
+        "active at rest and has units of mobility; zero disables this term.");
       prm.declare_entry(
         "adaptive mobility 2 n",
         "1.",

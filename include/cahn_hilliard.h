@@ -269,11 +269,11 @@ namespace CahnHilliard
            param.epsilon_interface;
   }
 
-  /** Enforce the deliberately narrow scope of the first implementation. */
+  /** Profile correction uses the Abels diffusive mass-flux convention. */
   template <int dim>
   inline void validate_interface_profile_correction(
     const Parameters::CahnHilliard<dim> &param,
-    const bool                           enable_tracer_supg)
+    const bool /*enable_tracer_supg*/)
   {
     if (!has_interface_profile_correction(param))
       return;
@@ -281,9 +281,6 @@ namespace CahnHilliard
     AssertThrow(is_abels_model(param),
                 dealii::ExcMessage("Interface profile correction is currently "
                                    "supported only with 'CHNS model = abels'."));
-    AssertThrow(!enable_tracer_supg,
-                dealii::ExcMessage("Interface profile correction requires "
-                                   "'enable tracer supg = false'."));
   }
 
   /** Positive flux driver K_phi=-J_phi used by both the tracer equation and the
@@ -610,7 +607,8 @@ namespace CahnHilliard
 
   /** Mobility data at one quadrature point. The adaptive sensitivity is
    * dM_reg/d(u.grad(phi)) for gradient-dependent adaptive models and zero for
-   * all other mobility models. */
+   * all other mobility models. The velocity derivative is the full partial
+   * derivative at fixed tracer and tracer gradient. */
   template <int dim>
   struct MobilityEvaluation
   {
@@ -618,6 +616,8 @@ namespace CahnHilliard
     double derivative_wrt_tracer;
     double second_derivative_wrt_tracer;
     double adaptive_sensitivity;
+    dealii::Tensor<1, dim> derivative_wrt_velocity        = {};
+    dealii::Tensor<1, dim> derivative_wrt_tracer_gradient = {};
   };
 
   /** Input and chain-rule derivatives used by a mobility evaluator.
@@ -708,9 +708,17 @@ namespace CahnHilliard
     const double extra_gradient_term =
       param.adaptive_mobility_m * 2. * param.epsilon_interface *
       param.epsilon_interface * grad_phi_sq;
-    const double value = std::sqrt(raw * raw + delta * delta) +
-                         extra_gradient_term;
-    return {value, 0., 0., raw / value * adaptive_coefficient};
+    const double regularized = std::sqrt(raw * raw + delta * delta);
+    const double value       = regularized + extra_gradient_term;
+    const double sensitivity = raw / regularized * adaptive_coefficient;
+    return {value,
+            0.,
+            0.,
+            sensitivity,
+            sensitivity * tracer_gradient,
+            sensitivity * velocity +
+              4. * param.adaptive_mobility_m * param.epsilon_interface *
+                param.epsilon_interface * tracer_gradient};
   }
 
   /** Value and first two tracer derivatives of the fixed restriction weight
@@ -792,7 +800,12 @@ namespace CahnHilliard
       (raw * raw_d) * (raw * raw_d) / (value * value * value);
     const double sensitivity =
       raw / value * adaptive_coefficient * weight.value;
-    return {value, derivative, second_derivative, sensitivity};
+    return {value,
+            derivative,
+            second_derivative,
+            sensitivity,
+            sensitivity * tracer_gradient,
+            sensitivity * velocity};
   }
 
   template <int dim>
@@ -808,7 +821,82 @@ namespace CahnHilliard
   {
     const double velocity_norm = std::sqrt(velocity * velocity + delta * delta);
     const double value = adaptive_coefficient * velocity_norm;
-    return {value, 0., 0., 0.};
+    return {value, 0., 0., 0., adaptive_coefficient / velocity_norm * velocity};
+  }
+
+  /** Velocity Hessian of M_3 = A sqrt(u.u + delta^2). It is needed when
+   * linearizing grad(M_3) in the strong tracer diffusion residual. Delta is
+   * strictly positive, including at zero fluid velocity. */
+  template <int dim>
+  inline dealii::Tensor<2, dim>
+  adaptive_mobility_3_velocity_hessian(const dealii::Tensor<1, dim> &velocity,
+                                       const double adaptive_coefficient,
+                                       const double delta)
+  {
+    const double norm = std::sqrt(velocity * velocity + delta * delta);
+    const auto   normalized_velocity = velocity / norm;
+    dealii::Tensor<2, dim> result;
+    for (unsigned int i = 0; i < dim; ++i)
+      for (unsigned int j = 0; j < dim; ++j)
+        result[i][j] = adaptive_coefficient / norm *
+                       ((i == j ? 1. : 0.) -
+                        normalized_velocity[i] * normalized_velocity[j]);
+    return result;
+  }
+
+  /** Constitutive Hessian blocks for the SUPG-supported adaptive models.
+   * The mixed block is d(dM/du)/d(grad(phi)); its transpose gives the reverse
+   * mixed derivative. Scalar tracer dependencies are treated separately. */
+  template <int dim>
+  struct AdaptiveMobilityHessians
+  {
+    dealii::Tensor<2, dim> velocity_velocity;
+    dealii::Tensor<2, dim> velocity_gradient;
+    dealii::Tensor<2, dim> gradient_gradient;
+  };
+
+  template <int dim>
+  inline AdaptiveMobilityHessians<dim> evaluate_adaptive_mobility_hessians(
+    const Parameters::CahnHilliard<dim> &param,
+    const dealii::Tensor<1, dim>        &velocity,
+    const dealii::Tensor<1, dim>        &tracer_gradient,
+    const double                         adaptive_coefficient,
+    const double                         delta)
+  {
+    using Model = typename Parameters::CahnHilliard<dim>::MobilityModel;
+    AdaptiveMobilityHessians<dim> result;
+    if (param.mobility_model == Model::adaptive_mobility_3)
+    {
+      result.velocity_velocity =
+        adaptive_mobility_3_velocity_hessian(velocity,
+                                             adaptive_coefficient,
+                                             delta);
+      return result;
+    }
+    AssertThrow(param.mobility_model == Model::adaptive,
+                dealii::ExcMessage("Adaptive mobility Hessians require model "
+                                   "1 or model 3."));
+    const double raw    = adaptive_coefficient * (velocity * tracer_gradient);
+    const double radius = std::sqrt(raw * raw + delta * delta);
+    const double sensitivity = adaptive_coefficient * raw / radius;
+    const double ratio       = delta / radius;
+    const double curvature =
+      adaptive_coefficient * adaptive_coefficient / radius * ratio * ratio;
+    const double gradient_coefficient = 4. * param.adaptive_mobility_m *
+                                        param.epsilon_interface *
+                                        param.epsilon_interface;
+    for (unsigned int i = 0; i < dim; ++i)
+      for (unsigned int j = 0; j < dim; ++j)
+      {
+        result.velocity_velocity[i][j] =
+          curvature * tracer_gradient[i] * tracer_gradient[j];
+        result.velocity_gradient[i][j] =
+          curvature * tracer_gradient[i] * velocity[j] +
+          (i == j ? sensitivity : 0.);
+        result.gradient_gradient[i][j] = curvature * velocity[i] * velocity[j] +
+                                         (i == j ? gradient_coefficient : 0.);
+      }
+    return result;
   }
 
   template <int dim>

@@ -1,6 +1,7 @@
 
 #include <assembly/incompressible_chns_assemblers.h>
 #include <cahn_hilliard.h>
+#include <chns_phase_diffusion.h>
 #include <components_ordering.h>
 #include <copy_data.h>
 #include <parameter_reader.h>
@@ -108,7 +109,6 @@ namespace Assembly
 
         // Mobility M(q) and its derivative (both constant-model trivial).
         const double mobility       = sd.mobility_values[q];
-        const double dmobility_dphi = sd.derivative_mobility_wrt_tracer[q];
 
         // Material marker m(phi) = q (abels_nlm) or phi (else): the
         // transported/conserved variable and the capillary marker are m, and
@@ -171,15 +171,10 @@ namespace Assembly
         if constexpr (BaseType::with_tracer_stabilization)
         {
           tau_tracer          = sd.tau_supg_tracer[q];
-          const double lap_mu = sd.potential_laplacians[q];
-
-          // Strong residual of the transport equation (on the marker m).
-          // div(M(q) grad mu) = M lap(mu) + (dM/dphi) grad(phi).grad(mu); the
-          // second term vanishes when M is constant. Advection is on m
-          // (grad_m = m' grad_phi), diffusion expands with grad_phi.
+          // The phase flux includes local chemical diffusion and any
+          // reconstructed profile/normal corrections.
           strong_residual_tracer = dmdt + u_conv * grad_m -
-                                   mobility * lap_mu -
-                                   dmobility_dphi * (grad_phi * grad_mu) +
+                                   sd.phase_diffusion_linearizations[q].value +
                                    source_phi;
         }
 
@@ -376,8 +371,9 @@ namespace Assembly
         // diffusive-flux factor 0.5*(rho1 - rho0)*M(phi) with its derivative.
         // Every derivative is zero for the constant-mobility model.
         const double mobility         = sd.mobility_values[q];
-        const double adaptive_mobility_sensitivity =
-          sd.adaptive_mobility_sensitivities[q];
+        const auto  &dmobility_dgradphi =
+          sd.derivative_mobility_wrt_tracer_gradient[q];
+        const auto  &dmobility_du     = sd.derivative_mobility_wrt_velocity[q];
         const double dmobility_dphi   = sd.derivative_mobility_wrt_tracer[q];
         const double d2mobility_dphi2 =
           sd.second_derivative_mobility_wrt_tracer[q];
@@ -422,7 +418,6 @@ namespace Assembly
         const auto &grad_phi_phi = sd.grad_shape_phi[q];
         const auto &phi_mu       = sd.shape_mu[q];
         const auto &grad_phi_mu  = sd.grad_shape_mu[q];
-        const auto &laplacian_phi_mu = sd.laplacian_shape_mu[q];
 
         Tensor<1, dim> interface_normal;
         double         gradient_norm = 1.;
@@ -507,17 +502,27 @@ namespace Assembly
         if constexpr (BaseType::with_tracer_stabilization)
         {
           tau_tracer          = sd.tau_supg_tracer[q];
-          const double lap_mu = sd.potential_laplacians[q];
-
-          // Strong residual of the transport equation (on the marker m).
-          // div(M(q) grad mu) = M lap(mu) + (dM/dphi) grad(phi).grad(mu); the
-          // second term vanishes when M is constant. Advection is on m
-          // (grad_m = m' grad_phi), diffusion expands with grad_phi.
+          // The phase flux includes local chemical diffusion and any
+          // reconstructed profile/normal corrections.
           strong_residual_tracer = dmdt + u_conv * grad_m -
-                                   mobility * lap_mu -
-                                   dmobility_dphi * (grad_phi * grad_mu) +
+                                   sd.phase_diffusion_linearizations[q].value +
                                    source_phi;
         }
+
+        const auto mobility_gradient_variation = [&](const double          dphi,
+                                                     const Tensor<1, dim> &du,
+                                                     const Tensor<1, dim> &dg,
+                                                     const Tensor<2, dim> &dU,
+                                                     const Tensor<2, dim> &dH) {
+          const auto &hessians = sd.adaptive_mobility_hessians[q];
+          const auto  dMu =
+            hessians.velocity_velocity * du + hessians.velocity_gradient * dg;
+          const auto dMg = transpose(hessians.velocity_gradient) * du +
+                           hessians.gradient_gradient * dg;
+          return transpose(dU) * dmobility_du + transpose(grad_u) * dMu +
+                 dH * dmobility_dgradphi + sd.tracer_hessians[q] * dMg +
+                 dmobility_dphi * dg + d2mobility_dphi2 * dphi * grad_phi;
+        };
 
         // Precompute quantities depending only on j
         for (unsigned int j = 0; j < sd.dofs_per_cell; ++j)
@@ -529,6 +534,7 @@ namespace Assembly
           const auto &phi_u_j       = phi_u[j];
           const auto &grad_phi_u_j  = grad_phi_u[j];
           const auto &grad_phi_mu_j = grad_phi_mu[j];
+          const double       mobility_u_variation = dmobility_du * phi_u_j;
 
           if (with_profile_correction)
           {
@@ -537,15 +543,13 @@ namespace Assembly
             Tensor<1, dim> tracer_gradient_variation;
             Tensor<1, dim> potential_gradient_variation;
             if (j_is_u)
-              mobility_variation = adaptive_mobility_sensitivity *
-                                   (phi_u_j * grad_phi);
+              mobility_variation = mobility_u_variation;
             else if (j_is_phi)
             {
               tracer_variation = sd.reconstructed_shape_phi[q][j];
               tracer_gradient_variation = sd.reconstructed_grad_shape_phi[q][j];
-              mobility_variation =
-                dmobility_dphi * phi_phi[j] +
-                adaptive_mobility_sensitivity * (u * grad_phi_phi[j]);
+              mobility_variation        = dmobility_dphi * phi_phi[j] +
+                                   (dmobility_dgradphi * grad_phi_phi[j]);
             }
             else if (j_is_mu)
               potential_gradient_variation = grad_phi_mu_j;
@@ -586,8 +590,7 @@ namespace Assembly
             if (!with_profile_correction)
               // This contribution is zero for constant and degenerate mobility.
               to_mult_by_phi_u_i_momentum[j] +=
-                0.5 * (sd.density1 - sd.density0) *
-                adaptive_mobility_sensitivity * (phi_u_j * grad_phi) *
+                0.5 * (sd.density1 - sd.density0) * mobility_u_variation *
                 (grad_u * grad_mu);
 
           // Potential (mu) column of the momentum equation. Abels:
@@ -600,8 +603,13 @@ namespace Assembly
           {
             to_mult_by_phi_u_i_potential[j] = m_marker * grad_phi_mu_j;
             if (with_profile_correction)
-              to_mult_by_phi_u_i_potential[j] +=
-                density_flux_factor * grad_u * phase_flux_variation[j];
+            {
+              // Velocity and tracer flux variations already enter their
+              // respective columns of the strong momentum residual.
+              if (j_is_mu)
+                to_mult_by_phi_u_i_potential[j] +=
+                  density_flux_factor * grad_u * phase_flux_variation[j];
+            }
             else
               to_mult_by_phi_u_i_potential[j] +=
                 diffusive_flux_factor * grad_u * grad_phi_mu_j;
@@ -634,9 +642,15 @@ namespace Assembly
               phi_phi[j] * strong_residual_momentum_variation_phi_phi -
               2. * detadphi * (sym_grad_u * grad_phi_phi[j]);
             if constexpr (!BaseType::with_ding_horriche)
+            {
               if (with_profile_correction && j_is_phi)
                 strong_residual_momentum_variation[j] +=
                   density_flux_factor * grad_u * phase_flux_variation[j];
+              else if (!with_profile_correction)
+                strong_residual_momentum_variation[j] +=
+                  density_flux_factor * (dmobility_dgradphi * grad_phi_phi[j]) *
+                  (grad_u * grad_mu);
+            }
             if constexpr (!BaseType::with_ding_horriche)
               // Non-linear-mixing second-order viscous cross term: the strong
               // residual has -2 eta'(phi)(d.grad phi) with eta'(phi)=eta_q m',
@@ -658,22 +672,32 @@ namespace Assembly
 
           if constexpr (BaseType::with_tracer_stabilization)
           {
-            // Transport dm/dt + u.grad(m) variation: bdf_c0 m' N + phi_u.grad m
-            // + m'(u.grad N) + m'' N (u.grad phi), then the diffusion column.
+            CahnHilliard::PhaseDiffusionPoint<dim> direction;
+            direction.tracer = with_profile_correction ?
+                                 sd.reconstructed_shape_phi[q][j] :
+                                 phi_phi[j];
+            direction.tracer_gradient =
+              with_profile_correction ? sd.reconstructed_grad_shape_phi[q][j] :
+                                        grad_phi_phi[j];
+            direction.tracer_hessian =
+              with_profile_correction ? sd.reconstructed_hess_phi_tracer[q][j] :
+                                        sd.hess_phi_tracer[q][j];
+            direction.potential_gradient = grad_phi_mu_j;
+            direction.potential_hessian  = sd.hess_phi_potential[q][j];
+            direction.mobility           = mobility_u_variation +
+                                 dmobility_dphi * phi_phi[j] +
+                                 dmobility_dgradphi * grad_phi_phi[j];
+            direction.mobility_gradient =
+              mobility_gradient_variation(phi_phi[j],
+                                          phi_u_j,
+                                          grad_phi_phi[j],
+                                          grad_phi_u_j,
+                                          sd.hess_phi_tracer[q][j]);
             strong_residual_tracer_variation[j] =
               bdf_c0 * dm_marker * phi_phi[j] + phi_u_j * grad_m +
               dm_marker * (u_conv * grad_phi_phi[j]) +
               d2m_marker * phi_phi[j] * (u_conv * grad_phi) -
-              mobility * laplacian_phi_mu[j];
-
-            // Degenerate-mobility variations of -M(phi) lap(mu)
-            // - M'(phi) grad(phi).grad(mu) (all zero for a constant mobility).
-            const double lap_mu = sd.potential_laplacians[q];
-            strong_residual_tracer_variation[j] -=
-              dmobility_dphi * phi_phi[j] * lap_mu +
-              d2mobility_dphi2 * phi_phi[j] * (grad_phi * grad_mu) +
-              dmobility_dphi * (grad_phi_phi[j] * grad_mu) +
-              dmobility_dphi * (grad_phi * grad_phi_mu_j);
+              sd.phase_diffusion_linearizations[q].variation(direction);
           }
 
           // Variations w.r.t. mesh position
@@ -693,7 +717,7 @@ namespace Assembly
             const auto dgrad_phi_dx = -(transpose_G * grad_phi);
             const auto dgrad_mu_dx  = -(transpose_G * grad_mu);
             const double mobility_x_variation =
-              adaptive_mobility_sensitivity * (u * dgrad_phi_dx);
+              (dmobility_dgradphi * dgrad_phi_dx);
             Tensor<1, dim> phase_flux_x_variation;
             if (with_profile_correction)
             {
@@ -807,24 +831,39 @@ namespace Assembly
 
               if constexpr (BaseType::with_tracer_stabilization)
               {
-                const auto  &h = sd.potential_hessians[q];
-                const auto  &K = (*hessian_phi_x_moving)[j];
-
-                // d(laplacian mu)/dx_j = trace of the scalar hessian variation.
-                double dlap_mu_dx = 0.;
-                for (unsigned int i = 0; i < dim; ++i)
-                  for (unsigned int a = 0; a < dim; ++a)
-                    dlap_mu_dx -= G[a][i] * h[a][i] + G[a][i] * h[i][a] +
-                                  K[a][i][i] * grad_mu[a];
-
-                // Advection u.grad(m) = m' u.grad(phi): m' is invariant under
-                // the mesh x-variation, so the advection x-variation scales by
-                // m'; the diffusion column is unchanged.
+                const auto &K = (*hessian_phi_x_moving)[j];
+                const auto  hessian_variation =
+                  [&](const Tensor<2, dim> &H, const Tensor<1, dim> &gradient) {
+                    Tensor<2, dim> variation = -transpose_G * H - H * G;
+                    for (unsigned int a = 0; a < dim; ++a)
+                      for (unsigned int b = 0; b < dim; ++b)
+                        for (unsigned int c = 0; c < dim; ++c)
+                          variation[a][b] -= gradient[c] * K[c][a][b];
+                    return variation;
+                  };
+                const auto dH_phi =
+                  hessian_variation(sd.tracer_hessians[q], grad_phi);
+                CahnHilliard::PhaseDiffusionPoint<dim> direction;
+                const auto                            &profile_gradient =
+                  with_profile_correction ?
+                                               sd.reconstructed_tracer_gradients[q] :
+                                               grad_phi;
+                const auto &profile_hessian =
+                  with_profile_correction ?
+                    sd.reconstructed_tracer_hessians[q] :
+                    sd.tracer_hessians[q];
+                direction.tracer_gradient = -(transpose_G * profile_gradient);
+                direction.tracer_hessian =
+                  hessian_variation(profile_hessian, profile_gradient);
+                direction.potential_gradient = dgrad_mu_dx;
+                direction.potential_hessian =
+                  hessian_variation(sd.potential_hessians[q], grad_mu);
+                direction.mobility          = mobility_x_variation;
+                direction.mobility_gradient = mobility_gradient_variation(
+                  0., Tensor<1, dim>(), dgrad_phi_dx, dgrad_u_dx, dH_phi);
                 strong_residual_tracer_x_variation[j] =
                   dm_marker * (du_conv_dx * grad_phi + u_conv * dgrad_phi_dx) -
-                  mobility * dlap_mu_dx -
-                  dmobility_dphi *
-                    (dgrad_phi_dx * grad_mu + grad_phi * dgrad_mu_dx);
+                  sd.phase_diffusion_linearizations[q].variation(direction);
               }
             }
 
@@ -892,6 +931,12 @@ namespace Assembly
               (*grad_source_tracer) * phi_x_j;
             to_mult_by_phi_mu_i_moving_mesh[j] +=
               (*grad_source_potential) * phi_x_j;
+            if constexpr (BaseType::with_stabilization)
+              strong_residual_momentum_x_variation[j] +=
+                (*grad_source_term_velocity) * phi_x_j;
+            if constexpr (BaseType::with_tracer_stabilization)
+              strong_residual_tracer_x_variation[j] +=
+                (*grad_source_tracer) * phi_x_j;
 #endif
           }
         }
@@ -987,9 +1032,9 @@ namespace Assembly
                       (grad_u * phase_flux_variation[j]);
                   else
                     local_matrix_ij +=
-                      phi_u_i *
-                      (density_flux_factor * adaptive_mobility_sensitivity *
-                       (u * grad_phi_phi[j]) * (grad_u * grad_mu));
+                      phi_u_i * (density_flux_factor *
+                                 (dmobility_dgradphi * grad_phi_phi[j]) *
+                                 (grad_u * grad_mu));
               }
               else if (j_is_mu)
                 local_matrix_ij += phi_u_i * to_mult_by_phi_u_i_potential[j];
@@ -1119,9 +1164,8 @@ namespace Assembly
               {
                 matrix_row[j] += phi_phi_i * phi_u_j_x_grad_phi[j] * JxW_moving;
                 if (!with_profile_correction)
-                  matrix_row[j] +=
-                    adaptive_mobility_sensitivity * (phi_u[j] * grad_phi) *
-                    (grad_phi_phi_i * grad_mu) * JxW_moving;
+                  matrix_row[j] += (dmobility_du * phi_u[j]) *
+                                   (grad_phi_phi_i * grad_mu) * JxW_moving;
               }
               else if (j_is_phi)
               {
@@ -1133,9 +1177,8 @@ namespace Assembly
                 {
                   matrix_row[j] += dmobility_dphi * phi_phi[j] *
                                    (grad_phi_phi_i * grad_mu) * JxW_moving;
-                  matrix_row[j] +=
-                    adaptive_mobility_sensitivity * (u * grad_phi_phi[j]) *
-                    (grad_phi_phi_i * grad_mu) * JxW_moving;
+                  matrix_row[j] += (dmobility_dgradphi * grad_phi_phi[j]) *
+                                   (grad_phi_phi_i * grad_mu) * JxW_moving;
                 }
               }
               else if (j_is_mu && !with_profile_correction)

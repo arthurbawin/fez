@@ -1,6 +1,7 @@
 
 #include <assembly/elasticity_assemblers.h>
 #include <assembly/incompressible_chns_assemblers.h>
+#include <chns_phase_diffusion.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
 #include <deal.II/base/work_stream.h>
@@ -15,9 +16,9 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_evaluate.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
-#include <errors.h>
 #include <error_estimation/patches.h>
 #include <error_estimation/solution_recovery.h>
+#include <errors.h>
 #include <incompressible_chns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
@@ -291,6 +292,10 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::prepare_timestep()
 {
   scratch_data->profile_correction_reference_mobility = 0.;
+  const auto manufactured_source =
+    std::dynamic_pointer_cast<MMSSourceTerm>(this->source_terms);
+  if (manufactured_source)
+    manufactured_source->set_profile_correction_reference_mobility(0.);
   const auto &chp = this->param.cahn_hilliard;
   if (!CahnHilliard::has_interface_profile_correction(chp))
     return;
@@ -372,6 +377,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::prepare_timestep()
                          "every quadrature point."));
   scratch_data->profile_correction_reference_mobility =
     Utilities::MPI::max(local_maximum, this->mpi_communicator);
+  if (manufactured_source)
+    manufactured_source->set_profile_correction_reference_mobility(
+      scratch_data->profile_correction_reference_mobility);
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
@@ -561,6 +569,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   const double   mu          = mms.exact_potential->value(p);
   Tensor<1, dim> grad_mu     = mms.exact_potential->gradient(p);
   Tensor<1, dim> grad_phi    = mms.exact_tracer->gradient(p);
+  const auto     hessian_phi = mms.exact_tracer->hessian(p);
   const auto mobility_evaluation =
     CahnHilliard::get_mobility_evaluation_function(cahn_hilliard_param)(
       cahn_hilliard_param,
@@ -574,10 +583,50 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
   const double M = mobility_evaluation.value;
   const Tensor<1, dim> grad_mobility =
     mobility_evaluation.derivative_wrt_tracer * grad_phi +
-    mobility_evaluation.adaptive_sensitivity *
-      (grad_u * grad_phi + mms.exact_tracer->hessian(p) * u);
-  const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
-  Tensor<1, dim> J_flux      = diff_flux_factor * grad_mu;
+    grad_u * mobility_evaluation.derivative_wrt_velocity +
+    hessian_phi * mobility_evaluation.derivative_wrt_tracer_gradient;
+
+  CahnHilliard::PhaseDiffusionPoint<dim> diffusion_point;
+  diffusion_point.tracer             = phi;
+  diffusion_point.tracer_gradient    = grad_phi;
+  diffusion_point.tracer_hessian     = hessian_phi;
+  diffusion_point.potential_gradient = grad_mu;
+  diffusion_point.potential_hessian  = mms.exact_potential->hessian(p);
+  diffusion_point.mobility           = M;
+  diffusion_point.mobility_gradient  = grad_mobility;
+  if (CahnHilliard::has_interface_profile_correction(cahn_hilliard_param))
+  {
+    // Continuous counterpart of the nodal inverse/tanh reconstruction. It
+    // is the identity inside the exact atanh band; the complete chain rule
+    // also covers the regularized continuation through pure phases.
+    const auto   inverse = CahnHilliard::profile_correction_inverse(phi);
+    const double reconstructed_phi = std::tanh(inverse.value);
+    const double tanh_derivative   = 1. - reconstructed_phi * reconstructed_phi;
+    const double first_derivative  = tanh_derivative * inverse.derivative;
+    const double second_derivative =
+      tanh_derivative *
+      (inverse.second_derivative -
+       2. * reconstructed_phi * inverse.derivative * inverse.derivative);
+    diffusion_point.tracer          = reconstructed_phi;
+    diffusion_point.tracer_gradient = first_derivative * grad_phi;
+    diffusion_point.tracer_hessian =
+      first_derivative * hessian_phi +
+      second_derivative * outer_product(grad_phi, grad_phi);
+  }
+  const auto phase_flux = CahnHilliard::phase_diffusion_flux_driver<dim>(
+    cahn_hilliard_param,
+    diffusion_point.tracer,
+    diffusion_point.tracer_gradient,
+    grad_mu,
+    M,
+    profile_correction_reference_mobility);
+  const double phase_flux_divergence =
+    CahnHilliard::evaluate_phase_diffusion_divergence(
+      cahn_hilliard_param,
+      diffusion_point,
+      profile_correction_reference_mobility)
+      .value;
+  Tensor<1, dim> J_flux      = 0.5 * (rho1 - rho0) * phase_flux;
   Tensor<1, dim> div_viscous = (eta * (lap_u + grad_div_u) +
                                 2. * detadphi * grad_phi * symmetrize(grad_u));
 
@@ -616,14 +665,11 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::vector_val
       values[x_lower + d] = f_PS[d];
   }
 
-  // Transport source term (on the marker m). d(m)/dt = m' d(phi)/dt and
-  // grad(m) = m' grad(phi); div(M(q) grad mu) = M lap(mu) + (dM/dphi)
-  // grad(phi).grad(mu). For adaptive_mobility, grad(M) is evaluated directly.
+  // Transport source term (on the raw marker m). Diffusion uses the same
+  // corrected phase flux as the momentum source and the numerical residual.
   const double dphidt = mms.exact_tracer->time_derivative(p);
-  const double lap_mu = mms.exact_potential->laplacian(p);
   values[phi_lower] =
-    -(dm_marker * (dphidt + u * grad_phi) - M * lap_mu -
-      grad_mobility * grad_mu);
+    -(dm_marker * (dphidt + u * grad_phi) - phase_flux_divergence);
 
   // Potential source term. Mass factor m'(phi) mu; the double-well and gradient
   // terms stay in phi.

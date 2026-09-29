@@ -309,16 +309,7 @@ namespace
     }
     AssertThrow(rejected_non_abels, ExcInternalError());
 
-    bool rejected_tracer_supg = false;
-    try
-    {
-      CahnHilliard::validate_interface_profile_correction(parameters, true);
-    }
-    catch (const ExceptionBase &)
-    {
-      rejected_tracer_supg = true;
-    }
-    AssertThrow(rejected_tracer_supg, ExcInternalError());
+    CahnHilliard::validate_interface_profile_correction(parameters, true);
 
     deallog << "Profile correction parameters and guards OK" << std::endl;
   }

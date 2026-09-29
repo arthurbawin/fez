@@ -1,0 +1,10 @@
+
+DEAL::Adaptive mobility velocity derivatives in 2D OK
+DEAL::Adaptive mobility velocity derivatives in 3D OK
+DEAL::Adaptive mobility interfacial contribution in 2D OK
+DEAL::Adaptive mobility interfacial contribution in 3D OK
+DEAL::Negative adaptive mobility m is rejected
+DEAL::Adaptive mobility gradient partials and Hessian blocks in 2D OK
+DEAL::Adaptive mobility gradient partials and Hessian blocks in 3D OK
+DEAL::Adaptive mobility spatial chain rule in 2D OK
+DEAL::Adaptive mobility spatial chain rule in 3D OK

@@ -440,8 +440,8 @@ private:
     const Tensor<1, dim>    &forces,
     const TimeHandler       &time_handler,
     TableHandler            &force_table,
-    const unsigned int       i_slice     = numbers::invalid_unsigned_int,
-    const types::boundary_id boundary_id = numbers::invalid_boundary_id);
+    const types::boundary_id boundary_id,
+    const unsigned int       i_slice = numbers::invalid_unsigned_int);
 
   /**
    * Add the computed position of the structure's geometric center to the passed
@@ -839,7 +839,7 @@ void PostProcessingHandler<dim>::compute_forces(
           // FIXME: take viscosity of the mixture in CHNS
           // FIXME: recover physical pressure from the CHNS modified pressure.
           const double pressure_scale =
-            ordering.phi_lower == numbers::invalid_unsigned_int ?
+            !ordering.has_variable(SolverInfo::VariableType::phase_tracer) ?
               physical_properties.fluids[0].density :
               1.;
           const double mu = physical_properties.fluids[0].dynamic_viscosity;
@@ -910,16 +910,13 @@ void PostProcessingHandler<dim>::compute_forces(
     std::cout.flags(old_flags);
   }
 
-  // Add the individual boundary forces to the output table.
+  // Add forces to forces table and write if time step matches frequency
   {
     for (const auto &[id, force] : forces_per_boundary)
       add_force_to_table(force,
                          time_handler,
                          forces_table,
-                         numbers::invalid_unsigned_int,
-                         forces_per_boundary.size() > 1 ?
-                           id :
-                           numbers::invalid_boundary_id);
+                         id);
 
     if (mpi_rank == 0 && should_output_forces(time_handler))
     {
@@ -959,10 +956,8 @@ void PostProcessingHandler<dim>::compute_forces(
         add_force_to_table(forces_per_slice[i],
                            time_handler,
                            forces_table_per_slice,
-                           i,
-                           slices_param.boundary_ids.size() > 1 ?
-                             id :
-                             numbers::invalid_boundary_id);
+                           id,
+                           i);
       }
 
       if (forces_param.verbosity == Parameters::Verbosity::verbose &&

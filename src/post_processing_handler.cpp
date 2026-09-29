@@ -203,8 +203,8 @@ void PostProcessingHandler<dim>::add_force_to_table(
   const Tensor<1, dim>    &forces,
   const TimeHandler       &time_handler,
   TableHandler            &force_table,
-  const unsigned int       i_slice,
-  const types::boundary_id boundary_id)
+  const types::boundary_id boundary_id,
+  const unsigned int       i_slice)
 {
   // Write forces to table
   std::vector<std::string> dim_str = {"x", "y", "z"};

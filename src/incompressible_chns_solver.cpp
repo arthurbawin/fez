@@ -456,12 +456,9 @@ void CHNSSolver<dim, with_moving_mesh>::
     ScratchData                                          &scratch_data,
     CopyData                                             &copy_data)
 {
+  scratch_data.set_compute_stabilization_flag(true);
   Verification::compute_local_matrix_finite_differences<dim>(
-    cell,
-    *this,
-    &CHNSSolver::template assemble_local_rhs<false>,
-    scratch_data,
-    copy_data);
+    cell, *this, &CHNSSolver::assemble_local_rhs, scratch_data, copy_data);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -476,11 +473,16 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_matrix(
   if (!cell->is_locally_owned())
     return;
 
+  scratch_data.set_compute_stabilization_flag(true);
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
+
+  // Align finite differences with FEZ's frozen-tau stabilization convention.
+  // The Jacobian comparison initializes these values on the unperturbed cell.
+  scratch_data.set_compute_stabilization_flag(false);
 
   auto &local_matrix      = copy_data.local_matrix();
   auto &local_dof_indices = copy_data.dof_indices();
@@ -511,10 +513,11 @@ void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
     &CHNSSolver::assemble_local_matrix,
-    &CHNSSolver::template assemble_local_rhs<true>,
+    &CHNSSolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);
+  scratch_data->set_compute_stabilization_flag(true);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -523,6 +526,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_rhs()
   TimerOutput::Scope t(this->computing_timer, "Assemble RHS");
 
   this->system_rhs = 0;
+  scratch_data->set_compute_stabilization_flag(true);
 
   CopyData copy_data(*fe);
 
@@ -530,7 +534,7 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_rhs()
   WorkStream::run(this->dof_handler->begin_active(),
                   this->dof_handler->end(),
                   *this,
-                  &CHNSSolver::template assemble_local_rhs<false>,
+                  &CHNSSolver::assemble_local_rhs,
                   &CHNSSolver::copy_local_to_global_rhs,
                   *scratch_data,
                   copy_data);
@@ -539,7 +543,6 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_rhs()
 }
 
 template <int dim, bool with_moving_mesh>
-template <bool freeze_tau>
 void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
   const typename DoFHandler<dim>::active_cell_iterator &cell,
   ScratchData                                          &scratch_data,
@@ -551,26 +554,11 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_local_rhs(
   if (!cell->is_locally_owned())
     return;
 
-  // Align finite differences with FEZ's frozen-tau stabilization convention.
-  // The Jacobian comparison initializes these values on the unperturbed cell.
-  std::vector<double> tau, tau_tracer;
-  if constexpr (freeze_tau)
-  {
-    tau        = scratch_data.tau_supg_velocity;
-    tau_tracer = scratch_data.tau_supg_tracer;
-  }
-
   scratch_data.reinit(cell,
                       this->evaluation_point,
                       *this->previous_solutions,
                       *this->source_terms,
                       *this->exact_solution);
-
-  if constexpr (freeze_tau)
-  {
-    scratch_data.tau_supg_velocity.swap(tau);
-    scratch_data.tau_supg_tracer.swap(tau_tracer);
-  }
 
   auto &local_rhs         = copy_data.local_rhs();
   auto &local_dof_indices = copy_data.dof_indices();

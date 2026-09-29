@@ -197,6 +197,16 @@ namespace NavierStokesScratch
      */
     ScratchData(const ScratchData &other);
 
+    /**
+     * Control recomputation of the stabilization parameters during reinit.
+     * When disabled, keep tau from the last reinit on the unperturbed cell;
+     * all other stabilization data are still updated.
+     */
+    void set_compute_stabilization_flag(const bool compute)
+    {
+      compute_stabilization = compute;
+    }
+
   private:
     /**
      * Allocate the class vectors.
@@ -365,7 +375,7 @@ namespace NavierStokesScratch
         // computed in reinit_cahn_hilliard, where the kinematic viscosity
         // (which depends on the density, and thus on the tracer) is known.
         if constexpr (!enable_cahn_hilliard)
-          if (enable_stabilization)
+          if (enable_stabilization && compute_stabilization)
           {
             // Compute stabilization parameter tau.
             // Mesh velocity has already been computed, so ALE velocity is well
@@ -1077,7 +1087,7 @@ namespace NavierStokesScratch
         Tensor<1, dim> u_conv = present_velocity_values[q];
         if constexpr (enable_pseudo_solid)
           u_conv -= present_mesh_velocity_values[q];
-        if (enable_stabilization)
+        if (enable_stabilization && compute_stabilization)
         {
           Assert(density[q] > 0.,
                  ExcMessage("The density must be strictly positive to compute "
@@ -1112,7 +1122,7 @@ namespace NavierStokesScratch
           }
         }
 
-        if (enable_tracer_stabilization)
+        if (enable_tracer_stabilization && compute_stabilization)
           tau_supg_tracer[q] = StabilizationTools::compute_tau_supg(
             time_handler,
             dofs_per_cell,
@@ -1251,6 +1261,8 @@ namespace NavierStokesScratch
     const ParameterReader<dim> &param;
     const bool                  use_quads;
     const ComponentOrdering     ordering;
+
+    bool compute_stabilization = true;
 
     unsigned int n_components;
     unsigned int u_lower;

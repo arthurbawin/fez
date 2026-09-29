@@ -222,7 +222,7 @@ namespace NavierStokesScratch
     : param(other.param)
     , use_quads(other.use_quads)
     , ordering(other.ordering)
-    , compute_stabilization(other.compute_stabilization)
+    , keep_tau_constant(other.keep_tau_constant)
     , n_components(other.n_components)
     , enable_stabilization(other.enable_stabilization)
     , enable_tracer_stabilization(other.enable_tracer_stabilization)

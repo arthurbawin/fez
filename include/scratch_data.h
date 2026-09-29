@@ -198,13 +198,13 @@ namespace NavierStokesScratch
     ScratchData(const ScratchData &other);
 
     /**
-     * Control recomputation of the stabilization parameters during reinit.
-     * When disabled, keep tau from the last reinit on the unperturbed cell;
+     * Control whether the stabilization parameters stay constant during reinit.
+     * When enabled, keep tau from the last reinit on the unperturbed cell;
      * all other stabilization data are still updated.
      */
-    void set_compute_stabilization_flag(const bool compute)
+    void set_keep_tau_constant(const bool keep_constant)
     {
-      compute_stabilization = compute;
+      keep_tau_constant = keep_constant;
     }
 
   private:
@@ -375,7 +375,7 @@ namespace NavierStokesScratch
         // computed in reinit_cahn_hilliard, where the kinematic viscosity
         // (which depends on the density, and thus on the tracer) is known.
         if constexpr (!enable_cahn_hilliard)
-          if (enable_stabilization && compute_stabilization)
+          if (enable_stabilization && !keep_tau_constant)
           {
             // Compute stabilization parameter tau.
             // Mesh velocity has already been computed, so ALE velocity is well
@@ -1087,7 +1087,7 @@ namespace NavierStokesScratch
         Tensor<1, dim> u_conv = present_velocity_values[q];
         if constexpr (enable_pseudo_solid)
           u_conv -= present_mesh_velocity_values[q];
-        if (enable_stabilization && compute_stabilization)
+        if (enable_stabilization && !keep_tau_constant)
         {
           Assert(density[q] > 0.,
                  ExcMessage("The density must be strictly positive to compute "
@@ -1122,7 +1122,7 @@ namespace NavierStokesScratch
           }
         }
 
-        if (enable_tracer_stabilization && compute_stabilization)
+        if (enable_tracer_stabilization && !keep_tau_constant)
           tau_supg_tracer[q] = StabilizationTools::compute_tau_supg(
             time_handler,
             dofs_per_cell,
@@ -1262,7 +1262,7 @@ namespace NavierStokesScratch
     const bool                  use_quads;
     const ComponentOrdering     ordering;
 
-    bool compute_stabilization = true;
+    bool keep_tau_constant = false;
 
     unsigned int n_components;
     unsigned int u_lower;

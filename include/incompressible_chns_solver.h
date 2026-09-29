@@ -109,8 +109,8 @@ public:
 
   /**
    * See assemble_local_matrix.
-   * Keep the unperturbed stabilization parameters when their recomputation
-   * is disabled in @p scratchData.
+   * Keep the unperturbed stabilization parameters when @p scratchData
+   * is configured to keep tau constant.
    */
   void
   assemble_local_rhs(const typename DoFHandler<dim>::active_cell_iterator &cell,

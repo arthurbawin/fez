@@ -25,6 +25,10 @@ namespace Verification
    * fields from a local vector rather than from the full solution vector.
    *
    * This function is intended for prototyping.
+   *
+   * If provided, @p set_keep_tau_constant freezes the stabilization parameters
+   * after the reference residual and restores their recomputation after the
+   * perturbations. Otherwise, each residual recomputes them as usual.
    */
   template <int dim,
             typename MainClass,
@@ -38,7 +42,8 @@ namespace Verification
                                           ScratchData &,
                                           CopyData &),
     ScratchData &scratch_data,
-    CopyData    &copy_data);
+    CopyData    &copy_data,
+    void (ScratchData::*set_keep_tau_constant)(bool) = nullptr);
 
   /**
    * Compute the analytic Jacobian matrix on each mesh element
@@ -48,6 +53,9 @@ namespace Verification
    * The FSI solver has the mesh position as unknown, so it is
    * my understanding that we cannot use automatic differentiation (AD)
    * in that case, although this would be the preferred way.
+   *
+   * The optional @p set_keep_tau_constant method is forwarded to the local
+   * finite-difference computation to match a frozen-tau linearization.
    */
   template <int dim,
             typename MainClass,
@@ -64,7 +72,8 @@ namespace Verification
                                           CopyData &),
     ScratchData &scratch_data,
     CopyData    &copy_data,
-    const bool   print_problematic_elements = false);
+    const bool   print_problematic_elements          = false,
+    void (ScratchData::*set_keep_tau_constant)(bool) = nullptr);
 } // namespace Verification
 
 /* ---------------- Template functions ----------------- */
@@ -83,7 +92,8 @@ namespace Verification
                                           ScratchData &,
                                           CopyData &),
     ScratchData &scratch_data,
-    CopyData    &copy_data)
+    CopyData    &copy_data,
+    void (ScratchData::*set_keep_tau_constant)(bool))
   {
     const auto         comm = cell->get_dof_handler().get_mpi_communicator();
     const unsigned int mpi_size = Utilities::MPI::n_mpi_processes(comm);
@@ -119,6 +129,11 @@ namespace Verification
 
     ref_local_rhs = copy_data.local_rhs(fe_index);
 
+    // Align finite differences with FEZ's frozen-tau stabilization convention.
+    // The reference residual initializes these values on the unperturbed cell.
+    if (set_keep_tau_constant != nullptr)
+      (scratch_data.*set_keep_tau_constant)(true);
+
     for (unsigned int j = 0; j < n; ++j)
     {
       evaluation_point      = local_evaluation_point;
@@ -145,6 +160,9 @@ namespace Verification
       local_evaluation_point.compress(VectorOperation::insert);
       evaluation_point = local_evaluation_point;
     }
+
+    if (set_keep_tau_constant != nullptr)
+      (scratch_data.*set_keep_tau_constant)(false);
   }
 
   template <int dim,
@@ -162,7 +180,8 @@ namespace Verification
                                           CopyData &),
     ScratchData &scratch_data,
     CopyData    &copy_data,
-    const bool   print_problematic_elements)
+    const bool   print_problematic_elements,
+    void (ScratchData::*set_keep_tau_constant)(bool))
   {
     const auto &param       = main_object.get_parameters();
     const auto &dof_handler = main_object.get_dof_handler();
@@ -217,8 +236,12 @@ namespace Verification
 
       {
         // Compute matrix with finite differences
-        compute_local_matrix_finite_differences<dim>(
-          cell, main_object, assemble_local_rhs, scratch_data, copy_data);
+        compute_local_matrix_finite_differences<dim>(cell,
+                                                     main_object,
+                                                     assemble_local_rhs,
+                                                     scratch_data,
+                                                     copy_data,
+                                                     set_keep_tau_constant);
         local_matrix_fd = copy_data.local_matrix(fe_index);
         error_matrix.add(-1.0, local_matrix_fd);
       }

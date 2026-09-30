@@ -22,7 +22,7 @@ end
 subsection Postprocessing
   subsection forces computation
     set enable             = true
-    set boundary id        = 4          # cylinder
+    set boundary ids        = 4          # cylinder
     set output prefix      = forces
     set output frequency   = 1
     set computation method = lagrange multiplier
@@ -30,7 +30,7 @@ subsection Postprocessing
 
   subsection structure position
     set enable           = true
-    set boundary id      = 4
+    set boundary ids      = 4
     set output prefix    = center
     set output frequency = 1
     set precision        = 10

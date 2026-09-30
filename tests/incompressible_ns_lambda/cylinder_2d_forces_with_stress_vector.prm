@@ -90,7 +90,7 @@ end
 subsection Postprocessing
   subsection forces computation
     set enable             = true
-    set boundary id        = 4
+    set boundary ids        = 4
     set write results      = false
     set computation method = stress vector
     set precision          = 12

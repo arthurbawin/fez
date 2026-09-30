@@ -123,7 +123,7 @@ subsection Postprocessing
   subsection forces computation
     set verbosity          = verbose
     set enable             = true
-    set boundary id        = 7
+    set boundary ids        = 7
     set output prefix      = forces
     set output frequency   = 1
     set computation method = lagrange multiplier
@@ -132,7 +132,7 @@ subsection Postprocessing
   subsection slicing
     set verbosity        = verbose
     set enable           = true
-    set boundary id      = 7
+    set boundary ids      = 7
     set output prefix    = slices
     set output frequency = 1
     set along which axis = z

@@ -501,7 +501,6 @@ namespace Parameters
       "0",
       Patterns::List(Patterns::Integer(0), 1),
       "Comma-separated boundary ids on which this postprocessing is applied");
-    prm.declare_alias("boundary ids", "boundary id");
   }
 
   void declare_postprocessing_field(ParameterHandler &prm)

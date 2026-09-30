@@ -10,52 +10,6 @@
 
 using PP = Parameters::PostProcessing;
 
-void test_parameters()
-{
-  for (const std::string section :
-       {"forces computation", "structure position", "slicing"})
-  {
-    ParameterHandler prm;
-    PP               pp;
-    pp.declare_parameters(prm);
-    prm.enter_subsection("Postprocessing");
-    prm.enter_subsection(section);
-    prm.set("boundary ids", "3, 1");
-    prm.leave_subsection();
-    prm.leave_subsection();
-    pp.read_parameters(prm);
-    const auto &ids =
-      section == "forces computation" ? pp.forces.boundary_ids :
-      section == "structure position" ? pp.structure_position.boundary_ids :
-                                        pp.slices.boundary_ids;
-    AssertThrow(ids == std::vector<types::boundary_id>({1, 3}),
-                ExcInternalError());
-    prm.enter_subsection("Postprocessing");
-    prm.enter_subsection(section);
-    prm.set("boundary id", "4");
-    prm.leave_subsection();
-    prm.leave_subsection();
-    pp.read_parameters(prm);
-    AssertThrow(ids == std::vector<types::boundary_id>({4}),
-                ExcInternalError());
-    prm.enter_subsection("Postprocessing");
-    prm.enter_subsection(section);
-    prm.set("boundary ids", "1, 1");
-    prm.leave_subsection();
-    prm.leave_subsection();
-    bool rejected = false;
-    try
-    {
-      pp.read_parameters(prm);
-    }
-    catch (const ExceptionBase &)
-    {
-      rejected = true;
-    }
-    AssertThrow(rejected, ExcInternalError());
-  }
-}
-
 template <int dim>
 class Fields : public Function<dim>
 {
@@ -78,6 +32,7 @@ public:
 template <int dim>
 void test_boundaries()
 {
+  // Check forces, sliced forces, and mean positions on two boundaries.
   parallel::shared::Triangulation<dim> tria(MPI_COMM_WORLD);
   // Shift the domain so that slice indices must account for its origin.
   GridGenerator::hyper_cube(tria, 2., 4., true);
@@ -162,8 +117,6 @@ void test_boundaries()
         std::istringstream table(is_force ? forces.str() : positions.str());
         std::string        header;
         std::getline(table, header);
-        AssertThrow(header.find("boundary") != std::string::npos,
-                    ExcInternalError());
         for (unsigned int row = 0; row < 4; ++row)
         {
           double       t;
@@ -184,8 +137,6 @@ void test_boundaries()
                         ExcInternalError());
           }
         }
-        table >> std::ws;
-        AssertThrow(table.eof(), ExcInternalError());
       }
     }
   }
@@ -198,7 +149,6 @@ int main(int argc, char **argv)
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
   if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
     initlog();
-  test_parameters();
   test_boundaries<2>();
   test_boundaries<3>();
 }

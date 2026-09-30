@@ -1096,13 +1096,11 @@ void PostProcessingHandler<dim>::compute_structure_mean_position(
       std::cout.flags(old_flags);
     }
 
-    // Add the boundary position to the output table.
+    // Add the boundary mean position to the output table.
     add_position_to_table(mean_position,
                           time_handler,
                           structure_mean_position_table,
-                          position_param.boundary_ids.size() > 1 ?
-                            id :
-                            numbers::invalid_boundary_id);
+                          id);
   }
   if (mpi_rank == 0 && should_output_mean_position(time_handler))
   {

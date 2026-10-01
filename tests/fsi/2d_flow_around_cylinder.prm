@@ -142,7 +142,7 @@ subsection Postprocessing
   subsection forces computation
     set verbosity          = verbose
     set enable             = true
-    set boundary id        = 4
+    set boundary ids        = 4
     set write results      = false
     set computation method = lagrange multiplier
     set precision          = 12
@@ -153,7 +153,7 @@ subsection Postprocessing
   #
   subsection structure position
     set enable           = true
-    set boundary id      = 4
+    set boundary ids      = 4
     set write results    = false
     set output prefix    = center
     set output frequency = 1

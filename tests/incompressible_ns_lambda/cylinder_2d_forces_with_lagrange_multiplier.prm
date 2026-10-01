@@ -46,7 +46,7 @@ end
 subsection Physical properties
   set number of fluids = 1
   subsection Fluid 0
-    set density             = 1
+    set density             = 1.234
     set kinematic viscosity = 0.005
   end
 end
@@ -90,7 +90,7 @@ end
 subsection Postprocessing
   subsection forces computation
     set enable             = true
-    set boundary id        = 4
+    set boundary ids        = 4
     set write results      = false
     set computation method = lagrange multiplier
     set precision          = 12

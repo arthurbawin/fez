@@ -27,7 +27,7 @@ end
 subsection Postprocessing
   subsection forces computation
     set enable             = true
-    set boundary id        = 7
+    set boundary ids        = 7
     set write results      = false
     set output prefix      = forces
     set output frequency   = 1
@@ -36,7 +36,7 @@ subsection Postprocessing
 
   subsection slicing
     set enable           = true
-    set boundary id      = 7
+    set boundary ids      = 7
     set write results    = false
     set output prefix    = slices
     set output frequency = 1
@@ -47,7 +47,7 @@ subsection Postprocessing
 
   subsection structure position
     set enable           = true
-    set boundary id      = 7
+    set boundary ids      = 7
     set write results    = false
     set output prefix    = center
     set output frequency = 1

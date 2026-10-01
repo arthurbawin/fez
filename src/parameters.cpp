@@ -497,10 +497,10 @@ namespace Parameters
   {
     declare_postprocessing_file(prm);
     prm.declare_entry(
-      "boundary id",
-      "0",
-      Patterns::Integer(0),
-      "Boundary id on which this postprocessing should be applied");
+      "boundary ids",
+      "",
+      Patterns::List(Patterns::Integer(0)),
+      "Comma-separated boundary ids on which this postprocessing is applied");
   }
 
   void declare_postprocessing_field(ParameterHandler &prm)
@@ -624,7 +624,14 @@ namespace Parameters
     PostProcessing::PostProcessingFileBoundary &pp_boundary)
   {
     read_postprocessing_file(prm, pp_boundary);
-    pp_boundary.boundary_id = prm.get_integer("boundary id");
+    pp_boundary.boundary_ids =
+      Patterns::Tools::Convert<std::vector<types::boundary_id>>::to_value(
+        prm.get("boundary ids"));
+    std::sort(pp_boundary.boundary_ids.begin(), pp_boundary.boundary_ids.end());
+    AssertThrow(std::adjacent_find(pp_boundary.boundary_ids.begin(),
+                                   pp_boundary.boundary_ids.end()) ==
+                  pp_boundary.boundary_ids.end(),
+                ExcMessage("Postprocessing boundary ids must be unique."));
   }
 
   void read_postprocessing_field(
@@ -703,6 +710,12 @@ namespace Parameters
       prm.enter_subsection("slicing");
       {
         read_postprocessing_file_boundary(prm, slices);
+        const auto &v = forces.boundary_ids;
+        for (const auto id : slices.boundary_ids)
+          AssertThrow(std::find(v.begin(), v.end(), id) != v.end(),
+                      ExcMessage(
+                        "Every sliced boundary must also appear in the "
+                        "force boundary ids."));
         slices.along_which_axis         = prm.get("along which axis");
         slices.n_slices                 = prm.get_integer("number of slices");
         slices.compute_forces_on_slices = prm.get_bool("compute forces");

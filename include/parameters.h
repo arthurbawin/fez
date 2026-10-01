@@ -336,10 +336,10 @@ namespace Parameters
       unsigned int precision;
     };
 
-    // Derived class for postprocessing on a boundary
+    // Derived class for postprocessing on one or more boundaries
     struct PostProcessingFileBoundary : public PostProcessingFile
     {
-      types::boundary_id boundary_id;
+      std::vector<types::boundary_id> boundary_ids;
     };
 
     /**
@@ -351,7 +351,7 @@ namespace Parameters
       std::vector<SolverInfo::VariableType> variables;
     } field_integral;
 
-    // Hydrodynamic forces on a single boundary
+    // Hydrodynamic forces on one or more boundaries
     struct Forces : public PostProcessingFileBoundary
     {
       // The method used to evaluate the forces on a boundary

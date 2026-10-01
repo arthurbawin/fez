@@ -26,8 +26,8 @@ namespace Verification
    *
    * This function is intended for prototyping.
    *
-   * Stabilization parameters follow the current ScratchData setting. The
-   * caller controls whether they stay constant during the perturbations.
+   * When assembling a numerical Jacobian for Newton, stabilization parameters
+   * are recomputed for each perturbed solution.
    */
   template <int dim,
             typename MainClass,
@@ -52,9 +52,10 @@ namespace Verification
    * my understanding that we cannot use automatic differentiation (AD)
    * in that case, although this would be the preferred way.
    *
-   * Stabilization parameters stay constant during finite differences to match
-   * FEZ's frozen-tau linearization. The analytic assembly initializes them on
-   * the unperturbed cell.
+   * As in the analytic Jacobian, the stabilization parameters tau are treated
+   * as constants. They are computed from the unperturbed solution and kept
+   * unchanged during the finite differences. This allows the analytic and
+   * numerical Jacobians to be compared using the same assumption about tau.
    */
   template <int dim,
             typename MainClass,
@@ -224,9 +225,7 @@ namespace Verification
 
       {
         // Compute matrix with finite differences
-        // Align finite differences with FEZ's frozen-tau stabilization
-        // convention. The analytic assembly initializes tau on the unperturbed
-        // cell.
+        // Keep tau constant during the finite-difference comparison.
         scratch_data.set_keep_tau_constant(true);
         compute_local_matrix_finite_differences<dim>(
           cell, main_object, assemble_local_rhs, scratch_data, copy_data);

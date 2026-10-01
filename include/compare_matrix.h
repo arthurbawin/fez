@@ -26,12 +26,10 @@ namespace Verification
    *
    * This function is intended for prototyping.
    *
-   * If @p keep_tau_constant is true, freeze the stabilization parameters after
-   * the reference residual and restore their recomputation after the
-   * perturbations. Otherwise, each residual recomputes them as usual.
+   * Stabilization parameters follow the current ScratchData setting. The
+   * caller controls whether they stay constant during the perturbations.
    */
-  template <int  dim,
-            bool keep_tau_constant = false,
+  template <int dim,
             typename MainClass,
             typename Iterator,
             typename ScratchData,
@@ -54,11 +52,11 @@ namespace Verification
    * my understanding that we cannot use automatic differentiation (AD)
    * in that case, although this would be the preferred way.
    *
-   * The @p keep_tau_constant option is forwarded to the local finite-difference
-   * computation to match a frozen-tau linearization.
+   * Stabilization parameters stay constant during finite differences to match
+   * FEZ's frozen-tau linearization. The analytic assembly initializes them on
+   * the unperturbed cell.
    */
-  template <int  dim,
-            bool keep_tau_constant = false,
+  template <int dim,
             typename MainClass,
             typename Iterator,
             typename ScratchData,
@@ -80,8 +78,7 @@ namespace Verification
 
 namespace Verification
 {
-  template <int  dim,
-            bool keep_tau_constant,
+  template <int dim,
             typename MainClass,
             typename Iterator,
             typename ScratchData,
@@ -129,11 +126,6 @@ namespace Verification
 
     ref_local_rhs = copy_data.local_rhs(fe_index);
 
-    // Align finite differences with FEZ's frozen-tau stabilization convention.
-    // The reference residual initializes these values on the unperturbed cell.
-    if constexpr (keep_tau_constant)
-      scratch_data.set_keep_tau_constant(true);
-
     for (unsigned int j = 0; j < n; ++j)
     {
       evaluation_point      = local_evaluation_point;
@@ -160,13 +152,9 @@ namespace Verification
       local_evaluation_point.compress(VectorOperation::insert);
       evaluation_point = local_evaluation_point;
     }
-
-    if constexpr (keep_tau_constant)
-      scratch_data.set_keep_tau_constant(false);
   }
 
-  template <int  dim,
-            bool keep_tau_constant,
+  template <int dim,
             typename MainClass,
             typename Iterator,
             typename ScratchData,
@@ -236,8 +224,13 @@ namespace Verification
 
       {
         // Compute matrix with finite differences
-        compute_local_matrix_finite_differences<dim, keep_tau_constant>(
+        // Align finite differences with FEZ's frozen-tau stabilization
+        // convention. The analytic assembly initializes tau on the unperturbed
+        // cell.
+        scratch_data.set_keep_tau_constant(true);
+        compute_local_matrix_finite_differences<dim>(
           cell, main_object, assemble_local_rhs, scratch_data, copy_data);
+        scratch_data.set_keep_tau_constant(false);
         local_matrix_fd = copy_data.local_matrix(fe_index);
         error_matrix.add(-1.0, local_matrix_fd);
       }

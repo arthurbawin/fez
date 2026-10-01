@@ -29,10 +29,13 @@ public:
   }
 };
 
+/**
+ * Check the computation of forces (on both complete and sliced boundary)
+ * and mean position, on two boundaries.
+ */
 template <int dim>
 void test_boundaries()
 {
-  // Check forces, sliced forces, and mean positions on two boundaries.
   parallel::shared::Triangulation<dim> tria(MPI_COMM_WORLD);
   // Shift the domain so that slice indices must account for its origin.
   GridGenerator::hyper_cube(tria, 2., 4., true);
@@ -82,36 +85,44 @@ void test_boundaries()
   ordering.p_lower = dim;
   ordering.l_lower = dim + 1;
   ordering.x_lower = 2 * dim + 1;
-  TimeHandler time(param.time_integration);
+  TimeHandler time_handler(param.time_integration);
 
   for (const auto method : {PP::Forces::ComputationMethod::stress_vector,
                             PP::Forces::ComputationMethod::lagrange_multiplier})
   {
     pp.forces.method = method;
     PostProcessingHandler<dim> handler(ordering, param, tria, dofs, {});
-    handler.output_fields(mapping, solution, time, {});
+    handler.output_fields(mapping, solution, time_handler, {});
+
+    // Test the force computation for both regular and hp version.
     // Repeating the computation also checks that face forces are reset.
     for (unsigned int step = 0; step < 2; ++step)
     {
       if (step == 0)
         handler.compute_forces(
-          ordering, dofs, mapping, quadrature, solution, time);
+          ordering, dofs, mapping, quadrature, solution, time_handler);
       else
         handler.compute_forces(ordering,
                                dofs,
                                hp::MappingCollection<dim>(mapping),
                                hp::QCollection<dim - 1>(quadrature),
                                solution,
-                               time);
+                               time_handler);
       handler.compute_structure_mean_position(
-        ordering, dofs, mapping, quadrature, solution, time);
+        ordering, dofs, mapping, quadrature, solution, time_handler);
     }
+
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
     {
       std::ostringstream forces, positions;
       handler.write_forces(forces);
       handler.write_structure_mean_position(positions);
-      const double area = std::pow(2., dim - 1);
+
+      const double area    = std::pow(2., dim - 1);
+      const double density = param.physical_properties.fluids[0].density;
+
+      // Compare the content of the force and mean position table
+      // with the expected output.
       for (const bool is_force : {true, false})
       {
         std::istringstream table(is_force ? forces.str() : positions.str());
@@ -125,21 +136,30 @@ void test_boundaries()
           AssertThrow(id == row % 2, ExcInternalError());
           for (unsigned int d = 0; d < dim; ++d)
           {
-            double actual;
-            AssertThrow(bool(table >> actual), ExcInternalError());
-            const double expected =
-              !is_force ? (d == 0 ? 2. + 2. * id : 3.) :
-              method == PP::Forces::ComputationMethod::lagrange_multiplier ?
-                          1.234 * (d + 1.) * area :
-              d == 0 ? (id == 0 ? -1. : 1.) * 2. * 1.234 * area :
-                       0.;
-            AssertThrow(std::abs(actual - expected) < 1e-10,
+            double computed;
+            AssertThrow(bool(table >> computed), ExcInternalError());
+
+            double expected;
+            if (is_force)
+            {
+              // Expected forces on face
+              if (method == PP::Forces::ComputationMethod::lagrange_multiplier)
+                expected = density * (d + 1.) * area;
+              else
+                expected =
+                  d == 0 ? (id == 0 ? -1. : 1.) * 2. * density * area : 0.;
+            }
+            else
+              // Expected mean position
+              expected = (d == 0 ? 2. + 2. * id : 3.);
+            AssertThrow(std::abs(computed - expected) < 1e-10,
                         ExcInternalError());
           }
         }
       }
     }
   }
+
   if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
     deallog << dim << "D boundary forces, slices and positions OK" << std::endl;
 }

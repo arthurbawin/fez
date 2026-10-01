@@ -498,8 +498,8 @@ namespace Parameters
     declare_postprocessing_file(prm);
     prm.declare_entry(
       "boundary ids",
-      "0",
-      Patterns::List(Patterns::Integer(0), 1),
+      "",
+      Patterns::List(Patterns::Integer(0)),
       "Comma-separated boundary ids on which this postprocessing is applied");
   }
 
@@ -710,6 +710,12 @@ namespace Parameters
       prm.enter_subsection("slicing");
       {
         read_postprocessing_file_boundary(prm, slices);
+        const auto &v = forces.boundary_ids;
+        for (const auto id : slices.boundary_ids)
+          AssertThrow(std::find(v.begin(), v.end(), id) != v.end(),
+                      ExcMessage(
+                        "Every sliced boundary must also appear in the "
+                        "force boundary ids."));
         slices.along_which_axis         = prm.get("along which axis");
         slices.n_slices                 = prm.get_integer("number of slices");
         slices.compute_forces_on_slices = prm.get_bool("compute forces");

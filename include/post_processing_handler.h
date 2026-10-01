@@ -447,11 +447,10 @@ private:
    * Add the computed position of the structure's geometric center to the passed
    * table with required formatting.
    */
-  void add_position_to_table(
-    const Tensor<1, dim>    &center_position,
-    const TimeHandler       &time_handler,
-    TableHandler            &position_table,
-    const types::boundary_id boundary_id = numbers::invalid_boundary_id);
+  void add_position_to_table(const Tensor<1, dim>    &center_position,
+                             const TimeHandler       &time_handler,
+                             TableHandler            &position_table,
+                             const types::boundary_id boundary_id);
 
   /**
    * Add data available for each fluid phase to @p table, according to the
@@ -836,12 +835,28 @@ void PostProcessingHandler<dim>::compute_forces(
           const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
           const FEValuesExtractors::Scalar pressure_extractor(ordering.p_lower);
 
-          // FIXME: take viscosity of the mixture in CHNS
-          // FIXME: recover physical pressure from the CHNS modified pressure.
-          const double pressure_scale =
-            !ordering.has_variable(SolverInfo::VariableType::phase_tracer) ?
-              physical_properties.fluids[0].density :
-              1.;
+          /**
+           * Depending on the model solved in each solver, the pressure is
+           * scaled by either the fluid density, or is modified (in the
+           * Cahn-Hilliard solver), and must be postprocessed to recover the
+           * true pressure for force evaluation.
+           *
+           * FIXME1: the pressure scale below currently handles only the NS
+           * solvers. Each solver should provide a routine to recover the true
+           * pressure
+           *
+           * FIXME2: we must take the density and viscosity of the mixture for
+           * CHNS solvers
+           */
+
+          AssertThrow(
+            !ordering.has_variable(SolverInfo::VariableType::phase_tracer),
+            ExcMessage(
+              "Force computation must be modified for the Cahn-Hilliard "
+              "solver. It must recover the true pressure from the computed "
+              "one, and use the density and viscosity of the mixture."));
+
+          const double pressure_scale = physical_properties.fluids[0].density;
           const double mu = physical_properties.fluids[0].dynamic_viscosity;
 
           forces =
@@ -913,10 +928,7 @@ void PostProcessingHandler<dim>::compute_forces(
   // Add forces to forces table and write if time step matches frequency
   {
     for (const auto &[id, force] : forces_per_boundary)
-      add_force_to_table(force,
-                         time_handler,
-                         forces_table,
-                         id);
+      add_force_to_table(force, time_handler, forces_table, id);
 
     if (mpi_rank == 0 && should_output_forces(time_handler))
     {
@@ -932,9 +944,6 @@ void PostProcessingHandler<dim>::compute_forces(
   {
     for (const auto id : slices_param.boundary_ids)
     {
-      AssertThrow(forces_per_boundary.count(id) != 0,
-                  ExcMessage("Every sliced boundary must also appear in the "
-                             "force boundary ids."));
       std::vector<Tensor<1, dim>> forces_per_slice_local(slices_param.n_slices);
       std::vector<Tensor<1, dim>> forces_per_slice(slices_param.n_slices);
 
@@ -953,11 +962,8 @@ void PostProcessingHandler<dim>::compute_forces(
         forces_per_slice[i] =
           Utilities::MPI::sum(forces_per_slice_local[i],
                               dof_handler.get_mpi_communicator());
-        add_force_to_table(forces_per_slice[i],
-                           time_handler,
-                           forces_table_per_slice,
-                           id,
-                           i);
+        add_force_to_table(
+          forces_per_slice[i], time_handler, forces_table_per_slice, id, i);
       }
 
       if (forces_param.verbosity == Parameters::Verbosity::verbose &&

@@ -209,10 +209,9 @@ void PostProcessingHandler<dim>::add_force_to_table(
   // Write forces to table
   std::vector<std::string> dim_str = {"x", "y", "z"};
   force_table.add_value("time", time_handler.current_time);
+  force_table.add_value("boundary", boundary_id);
   if (i_slice != numbers::invalid_unsigned_int)
     force_table.add_value("slice", i_slice);
-  if (boundary_id != numbers::invalid_boundary_id)
-    force_table.add_value("boundary", boundary_id);
   for (unsigned int d = 0; d < dim; ++d)
   {
     force_table.add_value("F" + dim_str[d], forces[d]);
@@ -232,8 +231,7 @@ void PostProcessingHandler<dim>::add_position_to_table(
   // Write position to table
   std::vector<std::string> dim_str = {"x", "y", "z"};
   table.add_value("time", time_handler.current_time);
-  if (boundary_id != numbers::invalid_boundary_id)
-    table.add_value("boundary", boundary_id);
+  table.add_value("boundary", boundary_id);
   for (unsigned int d = 0; d < dim; ++d)
   {
     table.add_value(dim_str[d], center_position[d]);

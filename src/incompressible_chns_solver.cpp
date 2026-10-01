@@ -504,14 +504,13 @@ template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
 {
   CopyData copy_data(*fe);
-  Verification::compare_analytical_matrix_with_fd<dim>(
+  Verification::compare_analytical_matrix_with_fd<dim, true>(
     *this,
     &CHNSSolver::assemble_local_matrix,
     &CHNSSolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
-    this->param.nonlinear_solver.write_problematic_elements,
-    &ScratchData::set_keep_tau_constant);
+    this->param.nonlinear_solver.write_problematic_elements);
 }
 
 template <int dim, bool with_moving_mesh>

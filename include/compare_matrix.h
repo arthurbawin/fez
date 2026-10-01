@@ -26,11 +26,12 @@ namespace Verification
    *
    * This function is intended for prototyping.
    *
-   * If provided, @p set_keep_tau_constant freezes the stabilization parameters
-   * after the reference residual and restores their recomputation after the
+   * If @p keep_tau_constant is true, freeze the stabilization parameters after
+   * the reference residual and restore their recomputation after the
    * perturbations. Otherwise, each residual recomputes them as usual.
    */
-  template <int dim,
+  template <int  dim,
+            bool keep_tau_constant = false,
             typename MainClass,
             typename Iterator,
             typename ScratchData,
@@ -42,8 +43,7 @@ namespace Verification
                                           ScratchData &,
                                           CopyData &),
     ScratchData &scratch_data,
-    CopyData    &copy_data,
-    void (ScratchData::*set_keep_tau_constant)(bool) = nullptr);
+    CopyData    &copy_data);
 
   /**
    * Compute the analytic Jacobian matrix on each mesh element
@@ -54,10 +54,11 @@ namespace Verification
    * my understanding that we cannot use automatic differentiation (AD)
    * in that case, although this would be the preferred way.
    *
-   * The optional @p set_keep_tau_constant method is forwarded to the local
-   * finite-difference computation to match a frozen-tau linearization.
+   * The @p keep_tau_constant option is forwarded to the local finite-difference
+   * computation to match a frozen-tau linearization.
    */
-  template <int dim,
+  template <int  dim,
+            bool keep_tau_constant = false,
             typename MainClass,
             typename Iterator,
             typename ScratchData,
@@ -72,15 +73,15 @@ namespace Verification
                                           CopyData &),
     ScratchData &scratch_data,
     CopyData    &copy_data,
-    const bool   print_problematic_elements          = false,
-    void (ScratchData::*set_keep_tau_constant)(bool) = nullptr);
+    const bool   print_problematic_elements = false);
 } // namespace Verification
 
 /* ---------------- Template functions ----------------- */
 
 namespace Verification
 {
-  template <int dim,
+  template <int  dim,
+            bool keep_tau_constant,
             typename MainClass,
             typename Iterator,
             typename ScratchData,
@@ -92,8 +93,7 @@ namespace Verification
                                           ScratchData &,
                                           CopyData &),
     ScratchData &scratch_data,
-    CopyData    &copy_data,
-    void (ScratchData::*set_keep_tau_constant)(bool))
+    CopyData    &copy_data)
   {
     const auto         comm = cell->get_dof_handler().get_mpi_communicator();
     const unsigned int mpi_size = Utilities::MPI::n_mpi_processes(comm);
@@ -131,8 +131,8 @@ namespace Verification
 
     // Align finite differences with FEZ's frozen-tau stabilization convention.
     // The reference residual initializes these values on the unperturbed cell.
-    if (set_keep_tau_constant != nullptr)
-      (scratch_data.*set_keep_tau_constant)(true);
+    if constexpr (keep_tau_constant)
+      scratch_data.set_keep_tau_constant(true);
 
     for (unsigned int j = 0; j < n; ++j)
     {
@@ -161,11 +161,12 @@ namespace Verification
       evaluation_point = local_evaluation_point;
     }
 
-    if (set_keep_tau_constant != nullptr)
-      (scratch_data.*set_keep_tau_constant)(false);
+    if constexpr (keep_tau_constant)
+      scratch_data.set_keep_tau_constant(false);
   }
 
-  template <int dim,
+  template <int  dim,
+            bool keep_tau_constant,
             typename MainClass,
             typename Iterator,
             typename ScratchData,
@@ -180,8 +181,7 @@ namespace Verification
                                           CopyData &),
     ScratchData &scratch_data,
     CopyData    &copy_data,
-    const bool   print_problematic_elements,
-    void (ScratchData::*set_keep_tau_constant)(bool))
+    const bool   print_problematic_elements)
   {
     const auto &param       = main_object.get_parameters();
     const auto &dof_handler = main_object.get_dof_handler();
@@ -236,12 +236,8 @@ namespace Verification
 
       {
         // Compute matrix with finite differences
-        compute_local_matrix_finite_differences<dim>(cell,
-                                                     main_object,
-                                                     assemble_local_rhs,
-                                                     scratch_data,
-                                                     copy_data,
-                                                     set_keep_tau_constant);
+        compute_local_matrix_finite_differences<dim, keep_tau_constant>(
+          cell, main_object, assemble_local_rhs, scratch_data, copy_data);
         local_matrix_fd = copy_data.local_matrix(fe_index);
         error_matrix.add(-1.0, local_matrix_fd);
       }

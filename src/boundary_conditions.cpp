@@ -7,6 +7,99 @@
 
 namespace BoundaryConditions
 {
+  namespace
+  {
+    // Different walls can select the same constrained component. Eliminate
+    // existing relations before adding the next wall, retaining each
+    // independent normal equation instead of dropping a duplicate pivot.
+    void add_independent_flux_constraints(
+      const AffineConstraints<double> &boundary_constraints,
+      AffineConstraints<double>       &flux_constraints)
+    {
+      // Ignore negligible coefficients and scale the RHS compatibility check.
+      constexpr double zero_tolerance = 1e-12;
+      // Follow deal.II's tie-breaking tolerance for nearly equal pivots.
+      constexpr double pivot_tolerance = 1e-10;
+
+      // These short equations involve only the components at a support point.
+      // Reuse contiguous storage instead of allocating map nodes for each row.
+      std::vector<std::pair<types::global_dof_index, double>> coefficients,
+        pending;
+      for (const auto &line : boundary_constraints.get_lines())
+      {
+        coefficients.clear();
+        pending.clear();
+        pending.emplace_back(line.index, 1.);
+        for (const auto &[index, weight] : line.entries)
+          pending.emplace_back(index, -weight);
+        double rhs   = line.inhomogeneity;
+        double scale = 1. + std::abs(rhs);
+        while (!pending.empty())
+        {
+          const auto [index, weight] = pending.back();
+          pending.pop_back();
+          if (flux_constraints.is_constrained(index))
+          {
+            const double shift =
+              weight * flux_constraints.get_inhomogeneity(index);
+            rhs -= shift;
+            scale += std::abs(shift);
+            for (const auto &[other, coefficient] :
+                 *flux_constraints.get_constraint_entries(index))
+              pending.emplace_back(other, weight * coefficient);
+          }
+          else
+          {
+            const auto existing = std::find_if(coefficients.begin(),
+                                               coefficients.end(),
+                                               [index](const auto &entry) {
+                                                 return entry.first == index;
+                                               });
+            if (existing == coefficients.end())
+              coefficients.emplace_back(index, weight);
+            else
+              existing->second += weight;
+          }
+        }
+        std::sort(coefficients.begin(), coefficients.end());
+        auto pivot = coefficients.end();
+        for (auto it = coefficients.begin(); it != coefficients.end(); ++it)
+          if (std::abs(it->second) > zero_tolerance &&
+              (pivot == coefficients.end() ||
+               std::abs(it->second) >
+                 std::abs(pivot->second) + pivot_tolerance))
+            pivot = it;
+        if (pivot == coefficients.end())
+        {
+          AssertThrow(
+            std::abs(rhs) < zero_tolerance * scale,
+            ExcMessage(
+              "Incompatible flux conditions at a boundary intersection."));
+          continue;
+        }
+        // Preserve deal.II's original pivot when it is still a largest entry.
+        // Elimination can make a previously good pivot arbitrarily small.
+        const auto original = std::find_if(coefficients.begin(),
+                                           coefficients.end(),
+                                           [&line](const auto &entry) {
+                                             return entry.first == line.index;
+                                           });
+        if (original != coefficients.end() &&
+            std::abs(original->second) > zero_tolerance &&
+            std::abs(original->second) >=
+              std::abs(pivot->second) - pivot_tolerance)
+          pivot = original;
+        flux_constraints.add_line(pivot->first);
+        flux_constraints.set_inhomogeneity(pivot->first, rhs / pivot->second);
+        for (const auto &[index, coefficient] : coefficients)
+          if (index != pivot->first && std::abs(coefficient) > zero_tolerance)
+            flux_constraints.add_entry(pivot->first,
+                                       index,
+                                       -coefficient / pivot->second);
+      }
+    }
+  } // namespace
+
   void BoundaryCondition::declare_parameters(ParameterHandler &prm)
   {
     prm.declare_entry(
@@ -397,20 +490,46 @@ namespace BoundaryConditions
     }
 
     // Add no velocity flux constraints
-    VectorTools::compute_no_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      no_flux_boundaries,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
-    VectorTools::compute_normal_flux_constraints(
-      dof_handler,
-      u_lower,
-      no_tangential_flow_boundaries,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
+    // deal.II averages normals from different cells within a single call.
+    // Calling once per boundary id preserves the independent normal conditions
+    // at corners and edges where distinct slip boundaries meet.
+    AffineConstraints<double> flux_constraints;
+    flux_constraints.reinit(constraints.get_locally_owned_indices(),
+                            constraints.get_local_lines());
+    for (const auto boundary_id : no_flux_boundaries)
+    {
+      AffineConstraints<double> boundary_constraints;
+      boundary_constraints.reinit(constraints.get_locally_owned_indices(),
+                                  constraints.get_local_lines());
+      VectorTools::compute_no_normal_flux_constraints(
+        dof_handler,
+        u_lower,
+        {boundary_id},
+        boundary_constraints,
+        mapping,
+        /*use_manifold_for_normal=*/false);
+      add_independent_flux_constraints(boundary_constraints, flux_constraints);
+    }
+
+    for (const auto boundary_id : no_tangential_flow_boundaries)
+    {
+      AffineConstraints<double> boundary_constraints;
+      boundary_constraints.reinit(constraints.get_locally_owned_indices(),
+                                  constraints.get_local_lines());
+      VectorTools::compute_normal_flux_constraints(
+        dof_handler,
+        u_lower,
+        {boundary_id},
+        boundary_constraints,
+        mapping,
+        /*use_manifold_for_normal=*/false);
+      add_independent_flux_constraints(boundary_constraints, flux_constraints);
+    }
+
+    // Keep the existing precedence of strong Dirichlet constraints.
+    if (flux_constraints.n_constraints() > 0)
+      constraints.merge(flux_constraints,
+                        AffineConstraints<double>::left_object_wins);
 
     VectorTools::compute_nonzero_normal_flux_constraints(
       dof_handler,
@@ -553,26 +672,49 @@ namespace BoundaryConditions
       // FIXME: Error if BC not handled?
     }
 
-    // Add position nonzero flux constraints (tangential movement)
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dof_handler,
-      x_lower,
-      normal_flux_boundaries,
-      position_flux_functions,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
+    // Add position nonzero flux constraints (tangential movement free, normal
+    // displacement prescribed). As for the velocity flux constraints, apply
+    // one boundary id at a time so deal.II does not average normals across
+    // cells of distinct slip boundaries and lose the corner conditions.
+    AffineConstraints<double> flux_constraints;
+    flux_constraints.reinit(constraints.get_locally_owned_indices(),
+                            constraints.get_local_lines());
+    for (const auto boundary_id : normal_flux_boundaries)
+    {
+      AffineConstraints<double> boundary_constraints;
+      boundary_constraints.reinit(constraints.get_locally_owned_indices(),
+                                  constraints.get_local_lines());
+      VectorTools::compute_nonzero_normal_flux_constraints(
+        dof_handler,
+        x_lower,
+        {boundary_id},
+        {{boundary_id, position_flux_functions.at(boundary_id)}},
+        boundary_constraints,
+        mapping,
+        /*use_manifold_for_normal=*/false);
+      add_independent_flux_constraints(boundary_constraints, flux_constraints);
+    }
 
     // Add position nonzero flux constraints from manufactured solution
     // (tangential movement)
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dof_handler,
-      x_lower,
-      mms_normal_flux_boundaries,
-      mms_position_flux_functions,
-      constraints,
-      mapping,
-      /*use_manifold_for_normal=*/false);
+    for (const auto boundary_id : mms_normal_flux_boundaries)
+    {
+      AffineConstraints<double> boundary_constraints;
+      boundary_constraints.reinit(constraints.get_locally_owned_indices(),
+                                  constraints.get_local_lines());
+      VectorTools::compute_nonzero_normal_flux_constraints(
+        dof_handler,
+        x_lower,
+        {boundary_id},
+        {{boundary_id, mms_position_flux_functions.at(boundary_id)}},
+        boundary_constraints,
+        mapping,
+        /*use_manifold_for_normal=*/false);
+      add_independent_flux_constraints(boundary_constraints, flux_constraints);
+    }
+    if (flux_constraints.n_constraints() > 0)
+      constraints.merge(flux_constraints,
+                        AffineConstraints<double>::left_object_wins);
   }
 
   template <int dim>

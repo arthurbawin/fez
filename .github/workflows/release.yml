@@ -28,6 +28,11 @@ jobs:
       fail-fast: false
       matrix:
         dealii_version: ["master-noble", "v9.7.1-noble"]
+        include:
+        - dealii_version: master-noble
+          ctest_exclude: "^$"
+        - dealii_version: v9.7.1-noble
+          ctest_exclude: "^incompressible_chns_ale/.*stabilized.*$"
 
     container:
       image: dealii/dealii:${{ matrix.dealii_version }}
@@ -42,6 +47,8 @@ jobs:
       # version releases, as we'll be able to test on the version number.
         run: |
           mkdir build && cd build
+          # Enable MappingFEField Hessian tests for master only after the CI
+          # image includes deal.II #20215; the current images lack the correction.
           cmake -D CMAKE_BUILD_TYPE=Release \
                 -D ENABLE_TESTING=1 \
                 -D FEZ_WITH_MMG=ON \
@@ -56,12 +63,17 @@ jobs:
       - name: Run serial tests in release
         run: |
           cd build
-          ctest -V --output-on-failure -E "(mpirun=[2-9])" -j ${{ env.N_JOBS }}
+          ctest -V --output-on-failure \
+                -E "(mpirun=[2-9])|(${{ matrix.ctest_exclude }})" \
+                -j ${{ env.N_JOBS }}
 
       # Run the parallel tests one at a time 
       - name: Run parallel tests in release
         run: |
           cd build
-          # incompressible_ns_lambda/steady_cylinder_3d fails on 6 procs with a MUMPS -9 error,
-          # possibly due to insufficient memory on the github runner
-          ctest -V --output-on-failure -R "mpirun=[2-9]" -E "incompressible_ns_lambda/steady_cylinder_3d" -j 1
+          # These tests may time out or require too much memory, and are not run:
+          # incompressible_ns_lambda/steady_cylinder_3d.mpirun=6
+          ctest -V --output-on-failure \
+                -R "mpirun=[2-9]" \
+                -E "incompressible_ns_lambda/steady_cylinder_3d|(${{ matrix.ctest_exclude }})" \
+                -j 1

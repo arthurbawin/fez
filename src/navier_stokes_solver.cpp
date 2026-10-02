@@ -39,6 +39,16 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                                previous_solutions,
                                metric_for_adaptation)
 {
+#if !DEAL_II_VERSION_GTE(9, 9, 0)
+  if constexpr (with_moving_mesh)
+    AssertThrow(
+      !param.stabilization.enable_supg &&
+        !param.stabilization.enable_tracer_supg,
+      ExcMessage(
+        "SUPG stabilization on moving meshes requires MappingFEField Hessian "
+        "transformations, available in deal.II v9.9 onward."));
+#endif
+
   create_quadrature_rules(param.finite_elements,
                           quadrature,
                           face_quadrature,

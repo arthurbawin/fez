@@ -80,6 +80,8 @@ namespace Assembly
         (assembly_flags & tracer_stabilization) != 0;
       static constexpr bool with_moving_mesh =
         (assembly_flags & moving_mesh) != 0;
+      static constexpr bool with_ale_stabilization =
+        with_moving_mesh && (with_stabilization || with_tracer_stabilization);
 
       const ComponentOrdering &ordering;
     };
@@ -151,12 +153,6 @@ namespace Assembly
       const bool tracer_supg = param.stabilization.enable_tracer_supg;
       constexpr unsigned int moving_mesh_flag =
         with_moving_mesh ? moving_mesh : chns;
-
-      if constexpr (with_moving_mesh)
-        AssertThrow(
-          !(supg || tracer_supg),
-          ExcMessage(
-            "CHNS stabilization on a moving mesh is not implemented yet."));
 
       // Assign the volume assembler
       if (supg)

@@ -197,6 +197,16 @@ namespace NavierStokesScratch
      */
     ScratchData(const ScratchData &other);
 
+    /**
+     * Control whether the stabilization parameters stay constant during reinit.
+     * When enabled, keep tau from the last reinit on the unperturbed cell;
+     * all other stabilization data are still updated.
+     */
+    void set_keep_tau_constant(const bool keep_constant)
+    {
+      keep_tau_constant = keep_constant;
+    }
+
   private:
     /**
      * Allocate the class vectors.
@@ -269,7 +279,7 @@ namespace NavierStokesScratch
         fe_values[pressure].get_function_gradients(current_solution,
                                                    present_pressure_gradients);
 
-        // Compute grad(div)
+        // Compute grad(div) from the hessians
         for (unsigned int q = 0; q < n_q_points; ++q)
         {
           present_velocity_grad_div[q] = Tensor<1, dim>();
@@ -365,7 +375,7 @@ namespace NavierStokesScratch
         // computed in reinit_cahn_hilliard, where the kinematic viscosity
         // (which depends on the density, and thus on the tracer) is known.
         if constexpr (!enable_cahn_hilliard)
-          if (enable_stabilization)
+          if (enable_stabilization && !keep_tau_constant)
           {
             // Compute stabilization parameter tau.
             // Mesh velocity has already been computed, so ALE velocity is well
@@ -675,6 +685,9 @@ namespace NavierStokesScratch
           trace_grad_phi_x[q][k]  = trace(grad_phi_x[q][k]);
           div_phi_x[q][k]         = fe_values_fixed[position].divergence(k, q);
           grad_phi_x_moving[q][k] = fe_values_moving[position].gradient(k, q);
+          if (enable_stabilization || enable_tracer_stabilization)
+            hessian_phi_x_moving[q][k] =
+              fe_values_moving[position].hessian(k, q);
         }
       }
     }
@@ -1025,8 +1038,14 @@ namespace NavierStokesScratch
       fe_values_moving[potential].get_function_gradients(current_solution,
                                                          potential_gradients);
       if (enable_tracer_stabilization)
+      {
         fe_values_moving[potential].get_function_laplacians(
           current_solution, potential_laplacians);
+        if constexpr (enable_pseudo_solid)
+          // Mesh-position variations of the Laplacian need the full Hessian.
+          fe_values_moving[potential].get_function_hessians(current_solution,
+                                                            potential_hessians);
+      }
       // Previous solutions
       for (unsigned int i = 0; i < previous_solutions.size(); ++i)
         fe_values_moving[tracer].get_function_values(previous_solutions[i],
@@ -1068,7 +1087,7 @@ namespace NavierStokesScratch
         Tensor<1, dim> u_conv = present_velocity_values[q];
         if constexpr (enable_pseudo_solid)
           u_conv -= present_mesh_velocity_values[q];
-        if (enable_stabilization)
+        if (enable_stabilization && !keep_tau_constant)
         {
           Assert(density[q] > 0.,
                  ExcMessage("The density must be strictly positive to compute "
@@ -1103,7 +1122,7 @@ namespace NavierStokesScratch
           }
         }
 
-        if (enable_tracer_stabilization)
+        if (enable_tracer_stabilization && !keep_tau_constant)
           tau_supg_tracer[q] = StabilizationTools::compute_tau_supg(
             time_handler,
             dofs_per_cell,
@@ -1242,6 +1261,8 @@ namespace NavierStokesScratch
     const ParameterReader<dim> &param;
     const bool                  use_quads;
     const ComponentOrdering     ordering;
+
+    bool keep_tau_constant = false;
 
     unsigned int n_components;
     unsigned int u_lower;
@@ -1455,6 +1476,7 @@ namespace NavierStokesScratch
     std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x;
     std::vector<std::vector<SymmetricTensor<2, dim>>> sym_grad_phi_x;
     std::vector<std::vector<Tensor<2, dim>>>          grad_phi_x_moving;
+    std::vector<std::vector<Tensor<3, dim>>>          hessian_phi_x_moving;
     std::vector<std::vector<double>>                  div_phi_x;
     std::vector<std::vector<double>>                  trace_grad_phi_x;
 
@@ -1533,6 +1555,8 @@ namespace NavierStokesScratch
     std::vector<double>         potential_values;
     std::vector<Tensor<1, dim>> potential_gradients;
     std::vector<double>         potential_laplacians;
+    // Only used for the moving-mesh x-variation of the tracer SUPG residual.
+    std::vector<Tensor<2, dim>> potential_hessians;
 
     std::vector<Tensor<1, dim>> diffusive_flux;
     std::vector<double>         tau_supg_tracer;

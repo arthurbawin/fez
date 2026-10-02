@@ -222,6 +222,7 @@ namespace NavierStokesScratch
     : param(other.param)
     , use_quads(other.use_quads)
     , ordering(other.ordering)
+    , keep_tau_constant(other.keep_tau_constant)
     , n_components(other.n_components)
     , enable_stabilization(other.enable_stabilization)
     , enable_tracer_stabilization(other.enable_tracer_stabilization)
@@ -579,6 +580,9 @@ namespace NavierStokesScratch
         n_q_points, std::vector<SymmetricTensor<2, dim>>(max_dofs_per_cell));
       grad_phi_x_moving.resize(n_q_points,
                                std::vector<Tensor<2, dim>>(max_dofs_per_cell));
+      if (enable_stabilization || enable_tracer_stabilization)
+        hessian_phi_x_moving.resize(
+          n_q_points, std::vector<Tensor<3, dim>>(max_dofs_per_cell));
       div_phi_x.resize(n_q_points, std::vector<double>(max_dofs_per_cell));
       trace_grad_phi_x.resize(n_q_points,
                               std::vector<double>(max_dofs_per_cell));
@@ -656,6 +660,8 @@ namespace NavierStokesScratch
       {
         potential_laplacians.resize(n_q_points);
         tau_supg_tracer.resize(n_q_points);
+        if constexpr (enable_pseudo_solid)
+          potential_hessians.resize(n_q_points);
       }
 
       source_term_tracer.resize(n_q_points);

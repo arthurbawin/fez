@@ -25,6 +25,9 @@ namespace Verification
    * fields from a local vector rather than from the full solution vector.
    *
    * This function is intended for prototyping.
+   *
+   * When assembling a numerical Jacobian for Newton, stabilization parameters
+   * are recomputed for each perturbed solution.
    */
   template <int dim,
             typename MainClass,
@@ -48,6 +51,11 @@ namespace Verification
    * The FSI solver has the mesh position as unknown, so it is
    * my understanding that we cannot use automatic differentiation (AD)
    * in that case, although this would be the preferred way.
+   *
+   * As in the analytic Jacobian, the stabilization parameters tau are treated
+   * as constants. They are computed from the unperturbed solution and kept
+   * unchanged during the finite differences. This allows the analytic and
+   * numerical Jacobians to be compared using the same assumption about tau.
    */
   template <int dim,
             typename MainClass,
@@ -217,8 +225,11 @@ namespace Verification
 
       {
         // Compute matrix with finite differences
+        // Keep tau constant during the finite-difference comparison.
+        scratch_data.set_keep_tau_constant(true);
         compute_local_matrix_finite_differences<dim>(
           cell, main_object, assemble_local_rhs, scratch_data, copy_data);
+        scratch_data.set_keep_tau_constant(false);
         local_matrix_fd = copy_data.local_matrix(fe_index);
         error_matrix.add(-1.0, local_matrix_fd);
       }

@@ -24,12 +24,6 @@ option(LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM "" OFF)
 # version to discriminate.
 option(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER "" OFF)
 
-# MappingFEField Hessian transformations require deal.II PR #20215, which
-# is not available in the 9.7/9.8 releases. Enable this option only with a
-# deal.II build containing that correction.
-option(DEAL_II_WITH_MAPPING_FE_FIELD_HESSIANS
-       "Enable features requiring MappingFEField Hessian transformations" OFF)
-
 # Find deal.II
 find_package(deal.II 9.5.0 REQUIRED HINTS ${DEAL_II_DIR} CONFIG)
 deal_ii_initialize_cached_variables()
@@ -64,10 +58,6 @@ endif()
 
 if(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
   add_compile_definitions(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
-endif()
-
-if(DEAL_II_WITH_MAPPING_FE_FIELD_HESSIANS)
-  add_compile_definitions(DEAL_II_WITH_MAPPING_FE_FIELD_HESSIANS)
 endif()
 
 # Macro to add a bundled library to the project sources
@@ -121,7 +111,6 @@ message(STATUS "\tFEZ_WITH_BUNDLED_MMG                   = ${FEZ_WITH_BUNDLED_MM
 message(STATUS "\tDEAL_II_WITH_HP_IDENTITIES_BUG         = ${DEAL_II_WITH_HP_IDENTITIES_BUG}")
 message(STATUS "\tLAGRANGE_MULTIPLIER_WITH_SOURCE_TERM   = ${LAGRANGE_MULTIPLIER_WITH_SOURCE_TERM}")
 message(STATUS "\tREFERENCE_CELL_WITH_TEMPLATE_PARAMETER = ${REFERENCE_CELL_WITH_TEMPLATE_PARAMETER}")
-message(STATUS "\tDEAL_II_WITH_MAPPING_FE_FIELD_HESSIANS  = ${DEAL_II_WITH_MAPPING_FE_FIELD_HESSIANS}")
 message(STATUS "\tENABLE_TESTING                         = ${ENABLE_TESTING}")
 message(STATUS)
 

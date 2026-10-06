@@ -72,6 +72,8 @@ public:
    */
   virtual void run() override;
 
+  virtual void update_constraints_for_evaluation_point() override;
+
   /**
    * Update the mesh file for the current interval, and assigns the pointers to
    * the triangulation, dof_handler, solutions and metric field for this time
@@ -270,6 +272,13 @@ public:
    * overload.
    */
   void set_initial_conditions(const bool rotate_solutions = true);
+
+  /**
+   * Set a solver-specific initial mesh position in newton_update, before
+   * interpolating physical fields. Return true if geometric constraints and
+   * initial position histories must be rebuilt for this position.
+   */
+  virtual bool set_solver_specific_initial_mesh_position() { return false; }
 
   /**
    * Create the additional initial conditions specific to each derived solver.

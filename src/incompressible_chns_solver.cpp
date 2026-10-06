@@ -1,4 +1,3 @@
-
 #include <assembly/elasticity_assemblers.h>
 #include <assembly/incompressible_chns_assemblers.h>
 #include <compare_matrix.h>
@@ -14,12 +13,64 @@
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <elasticity_solver.h>
 #include <errors.h>
 #include <incompressible_chns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
+#include <mesh_and_dof_tools.h>
 #include <scratch_data.h>
 #include <utilities.h>
+
+template <int dim, bool with_moving_mesh>
+bool CHNSSolver<dim,
+                with_moving_mesh>::set_solver_specific_initial_mesh_position()
+{
+  if constexpr (!with_moving_mesh)
+    return false;
+  else
+  {
+    if (!this->param.cahn_hilliard.use_presolver)
+      return false;
+
+    AssertThrow(
+      !this->param.with_tree_based_adaptation() &&
+        !this->param.with_metric_based_adaptation(),
+      ExcMessage(
+        "The CHNS-ALE presolver currently requires a fixed reference mesh."));
+
+    if (this->time_handler.current_time_iteration == 0)
+    {
+      auto presolver_param = this->param;
+      // Presolving is stationary: failure must prevent the CHNS handoff, even
+      // when the main simulation allows adaptive time-step rejection.
+      presolver_param.time_integration.scheme =
+        Parameters::TimeIntegration::Scheme::stationary;
+      ElasticitySolver<dim> presolver(presolver_param, this->triangulation);
+      presolver.run();
+      std::map<unsigned int, unsigned int> components;
+      for (unsigned int d = 0; d < dim; ++d)
+        components[d] = this->ordering->x_lower + d;
+      extract_subsolution<dim>(presolver.get_dof_handler(),
+                               *this->dof_handler,
+                               presolver.get_present_solution(),
+                               this->newton_update,
+                               components);
+    }
+    else
+    {
+      // Repeating the initial condition for BDF startup keeps its mesh
+      // position.
+      for (const auto i : this->locally_owned_dofs)
+        if (this->ordering->is_position(
+              this->dofs_to_component[this->locally_relevant_dofs
+                                        .index_within_set(i)]))
+          this->newton_update[i] = (*this->present_solution)[i];
+    }
+    this->newton_update.compress(VectorOperation::insert);
+    return true;
+  }
+}
 
 template <int dim, bool with_moving_mesh>
 CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
@@ -273,6 +324,13 @@ void CHNSSolver<dim, with_moving_mesh>::setup_assemblers()
 }
 
 template <int dim, bool with_moving_mesh>
+void CHNSSolver<dim, with_moving_mesh>::set_solver_specific_time()
+{
+  for (auto &[id, bc] : this->param.cahn_hilliard_bc)
+    bc.set_time(this->time_handler.current_time);
+}
+
+template <int dim, bool with_moving_mesh>
 void CHNSSolver<dim,
                 with_moving_mesh>::create_solver_specific_zero_constraints()
 {
@@ -298,6 +356,14 @@ void CHNSSolver<dim,
                                                this->zero_constraints,
                                                potential_mask);
     }
+    if (bc.type == BoundaryConditions::Type::input_function)
+      VectorTools::interpolate_boundary_values(*this->moving_mapping,
+                                               *this->dof_handler,
+                                               id,
+                                               Functions::ZeroFunction<dim>(
+                                                 this->ordering->n_components),
+                                               this->zero_constraints,
+                                               tracer_mask);
   }
 }
 
@@ -325,6 +391,16 @@ void CHNSSolver<dim,
                                                this->nonzero_constraints,
                                                potential_mask);
     }
+    if (bc.type == BoundaryConditions::Type::input_function)
+      VectorTools::interpolate_boundary_values(
+        *this->moving_mapping,
+        *this->dof_handler,
+        id,
+        ScalarFunctionFromComponents<dim>(this->ordering->phi_lower,
+                                          this->ordering->n_components,
+                                          *bc.tracer),
+        this->nonzero_constraints,
+        tracer_mask);
   }
 }
 

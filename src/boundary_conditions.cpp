@@ -43,6 +43,23 @@ namespace BoundaryConditions
         "no_tangential_flow|no_tangential_flow_with_weak_pressure"),
       "Type of fluid boundary condition");
 
+    // Select which velocity components an input_function boundary constrains
+    // strongly. A component left unconstrained can instead be handled by a no
+    // normal flux added on the same boundary.
+    prm.declare_entry("constrain_u",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain x-velocity component on this boundary");
+    prm.declare_entry("constrain_v",
+                      "true",
+                      Patterns::Bool(),
+                      "Constrain y-velocity component on this boundary");
+    prm.declare_entry(
+      "constrain_w",
+      "true",
+      Patterns::Bool(),
+      "Constrain z-velocity component on this boundary (3D only)");
+
     // Imposed functions, if any
     prm.enter_subsection("u");
     u->declare_parameters(prm);
@@ -126,6 +143,18 @@ namespace BoundaryConditions
         "prescribed fluid boundary conditions is smaller than "
         "the specified \"number\" field.");
 
+    constrain_u = prm.get_bool("constrain_u");
+    constrain_v = prm.get_bool("constrain_v");
+    constrain_w = prm.get_bool("constrain_w");
+
+    if constexpr (dim == 2)
+      constrain_w = false;
+
+    AssertThrow(
+      type != Type::input_function || constrain_u || constrain_v || constrain_w,
+      ExcMessage("Fluid BC " + std::to_string(this->id) +
+                 ": at least one velocity component must be constrained."));
+
     prm.enter_subsection("u");
     u->parse_parameters(prm);
     prm.leave_subsection();
@@ -168,17 +197,26 @@ namespace BoundaryConditions
                       "Type of pseudosolid boundary condition");
 
     // Input component functions, same pattern as FluidBC u/v/w
-    prm.enter_subsection("x");
-    x->declare_parameters(prm);
-    prm.leave_subsection();
+    // For an input_function boundary, each component
+    // subsection may additionally set "type = no_flux" to leave that component
+    // free (handled by the pseudosolid solver) instead of constraining it to
+    // its function. The default "input_function" constrains the component.
+    const auto declare_component = [&](const std::string              &name,
+                                       Functions::ParsedFunction<dim> &fun) {
+      prm.enter_subsection(name);
+      fun.declare_parameters(prm);
+      prm.declare_entry(
+        "type",
+        "input_function",
+        Patterns::Selection("input_function|no_flux"),
+        "Per-component constraint: input_function constrains "
+        "this component to its function; no_flux leaves it free");
+      prm.leave_subsection();
+    };
 
-    prm.enter_subsection("y");
-    y->declare_parameters(prm);
-    prm.leave_subsection();
-
-    prm.enter_subsection("z");
-    z->declare_parameters(prm);
-    prm.leave_subsection();
+    declare_component("x", *x);
+    declare_component("y", *y);
+    declare_component("z", *z);
   }
 
   template <int dim>
@@ -210,17 +248,30 @@ namespace BoundaryConditions
         "prescribed pseudosolid boundary conditions is smaller than "
         "the specified \"number\" field.");
 
-    prm.enter_subsection("x");
-    x->parse_parameters(prm);
-    prm.leave_subsection();
+    // Parse each component function and its optional per-component type. A
+    // component whose type is "no_flux" is left free (not constrained to its
+    // function); the default "input_function" constrains it.
+    const auto parse_component = [&](const std::string              &name,
+                                     Functions::ParsedFunction<dim> &fun,
+                                     bool &constrain) {
+      prm.enter_subsection(name);
+      fun.parse_parameters(prm);
+      constrain = (prm.get("type") == "input_function");
+      prm.leave_subsection();
+    };
 
-    prm.enter_subsection("y");
-    y->parse_parameters(prm);
-    prm.leave_subsection();
+    parse_component("x", *x, constrain_x);
+    parse_component("y", *y, constrain_y);
+    parse_component("z", *z, constrain_z);
 
-    prm.enter_subsection("z");
-    z->parse_parameters(prm);
-    prm.leave_subsection();
+    if constexpr (dim < 3)
+      constrain_z = false;
+
+    if (type == Type::input_function)
+      AssertThrow(constrain_x || constrain_y || constrain_z,
+                  ExcMessage("Pseudosolid BC " + std::to_string(this->id) +
+                             ": at least one position component must be "
+                             "constrained."));
   }
 
   template <int dim>
@@ -229,8 +280,12 @@ namespace BoundaryConditions
     BoundaryCondition::declare_parameters(prm);
     prm.declare_entry("type",
                       "none",
-                      Patterns::Selection("none|no_flux|dirichlet_mms"),
+                      Patterns::Selection(
+                        "none|no_flux|dirichlet_mms|input_function"),
                       "Type of Cahn-Hilliard boundary condition");
+    prm.enter_subsection("tracer");
+    tracer->declare_parameters(prm);
+    prm.leave_subsection();
   }
 
   template <int dim>
@@ -244,6 +299,11 @@ namespace BoundaryConditions
       type = Type::no_flux;
     if (parsed_type == "dirichlet_mms")
       type = Type::dirichlet_mms;
+    if (parsed_type == "input_function")
+      type = Type::input_function;
+    prm.enter_subsection("tracer");
+    tracer->parse_parameters(prm);
+    prm.leave_subsection();
     if (parsed_type == "none")
       throw std::runtime_error(
         "Cahn-Hilliard boundary condition for boundary " +
@@ -496,6 +556,23 @@ namespace BoundaryConditions
     const ComponentMask              velocity_mask =
       dof_handler.get_fe().component_mask(velocity);
 
+    // Build the component mask of the velocity components an input_function
+    // boundary constrains strongly. Components left out can be handled by a no
+    // normal flux added on the same boundary.
+    const auto make_partial_velocity_mask =
+      [&](const BoundaryConditions::FluidBC<dim> &bc) -> ComponentMask {
+      std::vector<bool> mask(n_components, false);
+      if (bc.constrain_u)
+        mask[u_lower + 0] = true;
+      if constexpr (dim >= 2)
+        if (bc.constrain_v)
+          mask[u_lower + 1] = true;
+      if constexpr (dim == 3)
+        if (bc.constrain_w)
+          mask[u_lower + 2] = true;
+      return ComponentMask(mask);
+    };
+
     std::set<types::boundary_id> no_flux_boundaries;
     std::set<types::boundary_id> no_tangential_flow_boundaries;
     std::map<types::boundary_id, const Function<dim> *>
@@ -518,6 +595,7 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
+        const ComponentMask partial_mask = make_partial_velocity_mask(bc);
         if (homogeneous)
           VectorTools::interpolate_boundary_values(mapping,
                                                    dof_handler,
@@ -525,7 +603,7 @@ namespace BoundaryConditions
                                                    Functions::ZeroFunction<dim>(
                                                      n_components),
                                                    constraints,
-                                                   velocity_mask);
+                                                   partial_mask);
         else
           VectorTools::interpolate_boundary_values(
             mapping,
@@ -534,7 +612,7 @@ namespace BoundaryConditions
             VectorFunctionFromComponents<dim>(
               u_lower, n_components, *bc.u, *bc.v, *bc.w),
             constraints,
-            velocity_mask);
+            partial_mask);
       }
       if (bc.type == BoundaryConditions::Type::velocity_mms)
       {
@@ -718,6 +796,24 @@ namespace BoundaryConditions
     std::map<types::boundary_id, const Function<dim> *> position_flux_functions;
     std::map<types::boundary_id, const Function<dim> *>
       mms_position_flux_functions;
+
+    // Build the component mask of the position components an input_function
+    // boundary constrains strongly. A component left out (type = no_flux in its
+    // subsection) is determined by the pseudosolid solver instead.
+    const auto make_partial_position_mask =
+      [&](const BoundaryConditions::PseudosolidBC<dim> &bc) -> ComponentMask {
+      std::vector<bool> mask(n_components, false);
+      if (bc.constrain_x)
+        mask[x_lower + 0] = true;
+      if constexpr (dim >= 2)
+        if (bc.constrain_y)
+          mask[x_lower + 1] = true;
+      if constexpr (dim == 3)
+        if (bc.constrain_z)
+          mask[x_lower + 2] = true;
+      return ComponentMask(mask);
+    };
+
     for (const auto &[id, bc] : pseudosolid_bc)
     {
       if (bc.type == BoundaryConditions::Type::fixed)
@@ -731,9 +827,10 @@ namespace BoundaryConditions
       }
       if (bc.type == BoundaryConditions::Type::input_function)
       {
+        const ComponentMask partial_mask = make_partial_position_mask(bc);
         if (homogeneous)
           VectorTools::interpolate_boundary_values(
-            mapping, dof_handler, bc.id, zero_fun, constraints, position_mask);
+            mapping, dof_handler, bc.id, zero_fun, constraints, partial_mask);
         else
           VectorTools::interpolate_boundary_values(
             mapping,
@@ -742,7 +839,7 @@ namespace BoundaryConditions
             VectorFunctionFromComponents<dim>(
               x_lower, n_components, *bc.x, *bc.y, *bc.z),
             constraints,
-            position_mask);
+            partial_mask);
       }
       if (bc.type == BoundaryConditions::Type::position_mms)
       {

@@ -1,5 +1,5 @@
 
-#include <linear_elasticity_solver.h>
+#include <elasticity_solver.h>
 #include <parameter_reader.h>
 #include <utilities.h>
 
@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      LinearElasticitySolver<2> problem(param);
+      ElasticitySolver<2> problem(param);
       if (param.mms_param.enable)
         problem.run_convergence_loop<2>();
       else
@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
       prm.parse_input(parameter_file);
       param.read(prm);
 
-      LinearElasticitySolver<3> problem(param);
+      ElasticitySolver<3> problem(param);
       if (param.mms_param.enable)
         problem.run_convergence_loop<3>();
       else

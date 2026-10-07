@@ -2164,11 +2164,10 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Apply constraints to matrix");
 
-  auto position_coupling_coeffs = lambda_integral_coeffs;
-  if (this->param.fsi.zero_mass_model && !this->param.fsi.rotation.enable)
-    for (auto &coeffs : position_coupling_coeffs)
-      for (auto &entry : coeffs)
-        entry.second /= this->param.fsi.spring_constant;
+  const double position_coupling_multiplier =
+    this->param.fsi.zero_mass_model && !this->param.fsi.rotation.enable ?
+      1. / this->param.fsi.spring_constant :
+      1.;
 
   //
   // Add algebraic constraints position-lambda
@@ -2351,7 +2350,8 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
               constrain_matrix_row(this->system_matrix,
                                    pos_dof,
                                    position_rows.at(pos_dof),
-                                   position_coupling_coeffs[d]);
+                                   lambda_integral_coeffs[d],
+                                   position_coupling_multiplier);
         }
       }
       break;
@@ -2368,7 +2368,8 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                                local_position_master_dofs[d],
                                master_position_rows.at(
                                  local_position_master_dofs[d]),
-                               position_coupling_coeffs[d]);
+                               lambda_integral_coeffs[d],
+                               position_coupling_multiplier);
 
         // Set x_i - x_master = 0 for the other coupled position dofs
         for (const auto &[pos_dof, d] : coupled_position_dofs)
@@ -2397,7 +2398,8 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                                  global_position_master_dofs[d],
                                  master_position_rows.at(
                                    global_position_master_dofs[d]),
-                                 position_coupling_coeffs[d]);
+                                 lambda_integral_coeffs[d],
+                                 position_coupling_multiplier);
         }
         else
         {

@@ -490,17 +490,20 @@ constrain_matrix_row(LA::ParMatrixType                          &matrix,
 }
 
 /**
- * Same as abovem but here dof_index is coupled to a vector of entries.
+ * Same as above, but here dof_index is coupled to a vector of entries. The
+ * coupling coefficients are multiplied by coupling_multiplier.
  *
  * FIXME, maybe
  * Important : it is assumed here that the coupling coefficients are given
  * to represent as in deal.II the affine constraint :
  *
- * dof_index = sum_i coupling_coefficients_i * coupled_entry_i,
+ * dof_index = coupling_multiplier *
+ *             sum_i coupling_coefficients_i * coupled_entry_i,
  *
  * and not
  *
- * dof_index + sum_i coupling_coefficients_i * coupled_entry_i = 0.
+ * dof_index + coupling_multiplier *
+ *             sum_i coupling_coefficients_i * coupled_entry_i = 0.
  *
  * Thus, the entry (i,j) receives -coupling_coefficients_i, contrary to the
  * function above.
@@ -510,7 +513,8 @@ inline void constrain_matrix_row(
   const types::global_dof_index               dof_index,
   const std::vector<LA::ConstMatrixIterator> &row_indices,
   const std::vector<std::pair<types::global_dof_index, double>>
-    &coupling_coefficients)
+    &coupling_coefficients,
+  const double coupling_multiplier = 1.)
 {
   // Set all column entries (i,j) to zero
   for (const auto &it : row_indices)
@@ -521,7 +525,7 @@ inline void constrain_matrix_row(
 
   // Set relevant (i,j) to prescribed coefficients
   for (const auto &[coupled_entry, coeff] : coupling_coefficients)
-    matrix.set(dof_index, coupled_entry, -coeff);
+    matrix.set(dof_index, coupled_entry, -coupling_multiplier * coeff);
 }
 
 /**

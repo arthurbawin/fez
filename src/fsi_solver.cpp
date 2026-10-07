@@ -732,20 +732,20 @@ void FSISolverLessLambda<dim>::create_hp_line_dof_identities()
 /**
  * On the cylinder, we have
  *
- * x = X - int_Gamma lambda dx,
+ * x = X - 1/k int_Gamma lambda dx,
  *
  * yielding the affine constraints
  *
- * x_i = X_i + sum_j c_ij * lambda_j, with c_ij = - int_Gamma phi_global_j dx.
+ * x_i = X_i + 1/k sum_j c_ij * lambda_j,
+ * with c_ij = - int_Gamma phi_global_j dx.
  *
  * Each position DoF is linked to all lambda DoF on the cylinder, which may
  * not be owned of even ghosts of the current process.
  *
  * This function does the following:
  *
- * - It computes the coefficients c_ij of the coupling x_i = X_i + c_ij *
- * lambda_j, which are the integral of the global shape functions associated to
- * lambda_j.
+ * - It computes the coefficients c_ij of the force integral, which are the
+ * integral of the global shape functions associated to lambda_j.
  *
  * - It creates the DOF pairings (x_i, vector of lambda_j), which specify to
  * which lambda DOFs a position DOF on the cylinder is constrained (all of them
@@ -1266,8 +1266,7 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
                 active_fe.face_to_cell_index(i_dof, i_face);
               const double phi_i =
                 fe_face_values_fixed.shape_value(i_cell_dof, q);
-              coeffs[d][lambda_dof] +=
-                -phi_i * JxW / this->param.fsi.spring_constant;
+              coeffs[d][lambda_dof] += -phi_i * JxW;
 
               if constexpr (dim == 3)
                 if (d == 2 && this->param.fsi.fix_z_component)
@@ -1312,21 +1311,19 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
 
   /**
    * Sanity check on the weights
-   * Expected sum is -1/k * |Cylinder|
+   * Expected sum is -|Cylinder|
    */
   {
-    const double k                    = this->param.fsi.spring_constant;
     const double r                    = this->param.fsi.cylinder_radius;
-    double       expected_weights_sum = -1 / k * 2. * M_PI * r;
+    double       expected_weights_sum = -2. * M_PI * r;
     if constexpr (dim == 3)
       expected_weights_sum *= this->param.fsi.cylinder_length;
 
     const double expected_discrete_weights_sum =
-      -1. / k *
-      compute_boundary_volume(*this->dof_handler,
-                              moving_mapping_collection,
-                              face_quadrature_collection,
-                              weak_no_slip_boundary_id);
+      -compute_boundary_volume(*this->dof_handler,
+                               moving_mapping_collection,
+                               face_quadrature_collection,
+                               weak_no_slip_boundary_id);
 
     for (unsigned int d = 0; d < dim; ++d)
     {
@@ -1354,7 +1351,7 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
         std::abs(weights_sum - expected_discrete_weights_sum) < 1e-10,
         ExcMessage(
           "The sum of weights for component " + std::to_string(d) +
-          " of lambda coupling should be -1/k * |Cylinder|, but it's not."));
+          " of lambda coupling should be -|Cylinder|, but it's not."));
     }
   }
 
@@ -1997,6 +1994,11 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Apply constraints to matrix");
 
+  auto position_coupling_coeffs = lambda_integral_coeffs;
+  for (auto &coeffs : position_coupling_coeffs)
+    for (auto &entry : coeffs)
+      entry.second /= this->param.fsi.spring_constant;
+
   //
   // Add algebraic constraints position-lambda
   //
@@ -2031,7 +2033,7 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
           constrain_matrix_row(this->system_matrix,
                                pos_dof,
                                position_rows.at(pos_dof),
-                               lambda_integral_coeffs[d]);
+                               position_coupling_coeffs[d]);
       break;
     }
     case 1:
@@ -2046,7 +2048,7 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
                                local_position_master_dofs[d],
                                master_position_rows.at(
                                  local_position_master_dofs[d]),
-                               lambda_integral_coeffs[d]);
+                               position_coupling_coeffs[d]);
 
         // Set x_i - x_master = 0 for the other coupled position dofs
         for (const auto &[pos_dof, d] : coupled_position_dofs)
@@ -2075,7 +2077,7 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
                                  global_position_master_dofs[d],
                                  master_position_rows.at(
                                    global_position_master_dofs[d]),
-                                 lambda_integral_coeffs[d]);
+                                 position_coupling_coeffs[d]);
         }
         else
         {
@@ -2145,7 +2147,9 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
             std::vector<std::pair<types::global_dof_index, double>>
               accumulator_coeffs;
             for (auto lambda_accumulator : all_lambda_accumulators[d])
-              accumulator_coeffs.emplace_back(lambda_accumulator, 1.);
+              accumulator_coeffs.emplace_back(
+                lambda_accumulator,
+                1. / this->param.fsi.spring_constant);
             constrain_matrix_row(this->system_matrix,
                                  local_position_master_dofs[d],
                                  master_position_rows.at(

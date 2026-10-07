@@ -2164,11 +2164,6 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Apply constraints to matrix");
 
-  const double position_coupling_multiplier =
-    this->param.fsi.zero_mass_model && !this->param.fsi.rotation.enable ?
-      1. / this->param.fsi.spring_constant :
-      1.;
-
   //
   // Add algebraic constraints position-lambda
   //
@@ -2351,7 +2346,7 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                                    pos_dof,
                                    position_rows.at(pos_dof),
                                    lambda_integral_coeffs[d],
-                                   position_coupling_multiplier);
+                                   1. / this->param.fsi.spring_constant);
         }
       }
       break;
@@ -2369,7 +2364,7 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                                master_position_rows.at(
                                  local_position_master_dofs[d]),
                                lambda_integral_coeffs[d],
-                               position_coupling_multiplier);
+                               1. / this->param.fsi.spring_constant);
 
         // Set x_i - x_master = 0 for the other coupled position dofs
         for (const auto &[pos_dof, d] : coupled_position_dofs)
@@ -2399,7 +2394,7 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                                  master_position_rows.at(
                                    global_position_master_dofs[d]),
                                  lambda_integral_coeffs[d],
-                                 position_coupling_multiplier);
+                                 1. / this->param.fsi.spring_constant);
         }
         else
         {

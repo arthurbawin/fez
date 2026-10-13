@@ -535,14 +535,21 @@ namespace Parameters
 
   void declare_postprocessing_field(
     ParameterHandler  &prm,
-    const std::string &default_method = "discontinuous")
+    const std::string &default_method = "discontinuous",
+    const bool         allow_direct = false)
   {
     declare_postprocessing_base(prm);
     prm.declare_entry("computation method",
                       default_method,
-                      Patterns::Selection(
+                      Patterns::Selection(allow_direct ?
+                        "direct|discontinuous|l2 projection|weighted average" :
                         "discontinuous|l2 projection|weighted average"),
-                      "Computation method");
+                      allow_direct ?
+                        "Computation method. 'direct' (alias 'discontinuous') "
+                        "evaluates the current tracer's density at visualization "
+                        "points on every volume output; degree and postprocessing "
+                        "output frequency do not apply." :
+                        "Computation method");
     prm.declare_entry(
       "degree",
       "1",
@@ -654,7 +661,7 @@ namespace Parameters
       prm.leave_subsection();
       prm.enter_subsection("density");
       {
-        declare_postprocessing_field(prm, "weighted average");
+        declare_postprocessing_field(prm, "weighted average", true);
       }
       prm.leave_subsection();
       prm.enter_subsection("mobility");
@@ -719,7 +726,7 @@ namespace Parameters
     read_postprocessing_base(prm, pp_field);
 
     const std::string parsed_method = prm.get("computation method");
-    if (parsed_method == "discontinuous")
+    if (parsed_method == "discontinuous" || parsed_method == "direct")
       pp_field.method =
         PostProcessing::PostProcessingField::ComputationMethod::discontinuous;
     else if (parsed_method == "l2 projection")
@@ -730,7 +737,7 @@ namespace Parameters
         weighted_average;
     else
       AssertThrow(false,
-                  ExcMessage("Unknown vorticity computation method: " +
+                  ExcMessage("Unknown postprocessing computation method: " +
                              parsed_method));
     pp_field.degree = prm.get_integer("degree");
   }

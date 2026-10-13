@@ -58,7 +58,8 @@ namespace
   public:
     using CHNSSolver<2, moving, enlarged>::CHNSSolver;
 
-    void check(const std::string &label)
+    void check(const std::string &label,
+               const bool         check_mass_transport = false)
     {
       this->initialize();
       GridGenerator::hyper_cube(*this->triangulation);
@@ -78,6 +79,27 @@ namespace
       *this->present_solution = this->local_evaluation_point;
       for (auto &previous : *this->previous_solutions)
         previous = this->local_evaluation_point;
+      if constexpr (moving)
+        if (check_mass_transport)
+        {
+          // Use nonzero mesh velocity as well as a curved mapping, so using
+          // u+J/rho instead of u-w+J/rho also fails the transport checks.
+          LA::ParVectorType mesh_direction(this->locally_owned_dofs,
+                                           this->mpi_communicator);
+          LA::ParVectorType old_state(this->locally_owned_dofs,
+                                      this->mpi_communicator);
+          old_state = this->local_evaluation_point;
+          for (const unsigned int component : {3u, 4u})
+          {
+            VectorTools::interpolate(*this->fixed_mapping,
+                                     *this->dof_handler,
+                                     State<moving>(n_components, component),
+                                     mesh_direction);
+            old_state.add(-0.03, mesh_direction);
+          }
+          for (auto &previous : *this->previous_solutions)
+            previous = old_state;
+        }
       ConditionalOStream quiet(std::cout, false);
       this->time_handler.advance(quiet);
       this->set_time();
@@ -105,6 +127,91 @@ namespace
       const auto     tau_u   = scratch.tau_supg_velocity;
       const auto     tau_phi = scratch.tau_supg_tracer;
       CopyDataBase<> copy(fe);
+      if (check_mass_transport)
+      {
+        // Correcting the SUPG test must not silently change the shared
+        // SUPG/PSPG coefficient: its directional viscous length also controls
+        // the pressure approximation. Check the residual independently of
+        // its Jacobian so a missing J/rho cannot pass both checks.
+        copy.local_rhs() = 0.;
+        volume.assemble_rhs(scratch, copy);
+        Vector<double> stabilization(copy.local_rhs());
+        std::fill(scratch.tau_supg_velocity.begin(),
+                  scratch.tau_supg_velocity.end(),
+                  0.);
+        copy.local_rhs() = 0.;
+        volume.assemble_rhs(scratch, copy);
+        stabilization -= copy.local_rhs();
+        scratch.tau_supg_velocity = tau_u;
+        Vector<double> expected(fe.n_dofs_per_cell());
+        const auto    &ch   = scratch.get_cahn_hilliard_parameters();
+        const bool     ding = ch.chns_model ==
+                          Parameters::CahnHilliard<2>::CHNSModel::ding_horriche;
+        for (unsigned int q = 0; q < scratch.n_q_points; ++q)
+        {
+          const double rho = scratch.density[q];
+          auto         a   = scratch.present_velocity_values[q];
+          if constexpr (moving)
+            a -= scratch.present_mesh_velocity_values[q];
+          const auto tau_velocity = a;
+          Tensor<1, 2> J;
+          if (!ding)
+            J = 0.5 * (scratch.density1 - scratch.density0) *
+                (CahnHilliard::has_interface_profile_correction(ch) ?
+                   scratch.phase_diffusion_flux_drivers[q] :
+                   scratch.mobility_values[q] * scratch.potential_gradients[q]);
+          a += J / rho;
+          std::vector<Tensor<1, 2>> gradients(fe.n_dofs_per_cell());
+          for (unsigned int k = 0; k < gradients.size(); ++k)
+            gradients[k] = scratch.grad_phi_u[q][k][0];
+          const double expected_tau = StabilizationTools::compute_tau_supg(
+            this->time_handler,
+            fe.n_dofs_per_cell(),
+            scratch.cell_diameter,
+            this->param.finite_elements.velocity_degree,
+            scratch.dynamic_viscosity[q] / rho,
+            tau_velocity,
+            gradients);
+          AssertThrow(std::abs(tau_u[q] - expected_tau) < 1e-12 * expected_tau,
+                      ExcMessage(label +
+                                 ": momentum tau changed while correcting the SUPG test"));
+          Tensor<1, 2> capillary;
+          if (ding)
+            capillary = -scratch.sigma_tilde / scratch.epsilon *
+                        scratch.potential_values[q] *
+                        scratch.tracer_gradients[q];
+          else
+            capillary =
+              scratch.material_phase_values[q] * scratch.potential_gradients[q];
+          const auto residual =
+            rho *
+              (scratch.present_velocity_time_derivatives[q] +
+               scratch.present_velocity_gradients[q] * a - scratch.body_force) +
+            capillary + scratch.present_pressure_gradients[q] +
+            scratch.source_term_velocity[q] -
+            scratch.dynamic_viscosity[q] *
+              (scratch.present_velocity_laplacians[q] +
+               scratch.present_velocity_grad_div[q]) -
+            2. * scratch.derivative_dynamic_viscosity_wrt_tracer[q] *
+              (scratch.present_velocity_sym_gradients[q] *
+               scratch.tracer_gradients[q]);
+          for (unsigned int i = 0; i < expected.size(); ++i)
+          {
+            const auto component = scratch.components[i];
+            if (this->ordering->is_velocity(component))
+              expected[i] -= tau_u[q] * residual *
+                             (scratch.grad_phi_u[q][i] * a) *
+                             scratch.JxW_moving[q];
+            else if (this->ordering->is_pressure(component))
+              expected[i] += tau_u[q] / rho * residual *
+                             scratch.grad_phi_p[q][i] * scratch.JxW_moving[q];
+          }
+        }
+        stabilization -= expected;
+        AssertThrow(stabilization.l2_norm() <
+                      1e-11 * std::max(1., expected.l2_norm()),
+                    ExcMessage(label + ": SUPG test omits mass transport"));
+      }
       copy.local_matrix() = 0.;
       volume.assemble_matrix(scratch, copy);
       const FullMatrix<double>             matrix(copy.local_matrix());
@@ -190,7 +297,8 @@ namespace
                 const bool         momentum_supg,
                 const bool         tracer_supg,
                 const std::string &mobility_model = "adaptative_mobility_3",
-                const double       gradient_coefficient = 0.)
+                const double       gradient_coefficient = 0.,
+                const bool         check_mass_transport = false)
   {
     Parameters::BoundaryConditionsData bc;
     ParameterHandler                   prm;
@@ -271,6 +379,7 @@ subsection Cahn Hilliard
         label :
         mobility_model + "/m=" + std::to_string(gradient_coefficient) + "/" +
           label;
-    TestSolver<moving, enlarged>(param).check(mobility_label);
+    TestSolver<moving, enlarged>(param).check(mobility_label,
+                                              check_mass_transport);
   }
 } // namespace

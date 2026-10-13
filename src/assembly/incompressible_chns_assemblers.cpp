@@ -92,6 +92,11 @@ namespace Assembly
           u_conv -= dxdt;
         }
 
+        auto momentum_supg_velocity = u_conv;
+        if constexpr (BaseType::with_stabilization &&
+                      !BaseType::with_ding_horriche)
+          momentum_supg_velocity += sd.get_momentum_mass_flux(q) / rho;
+
         const auto &p = sd.present_pressure_values[q];
         const auto &grad_p   = sd.present_pressure_gradients[q];
         const auto &source_p = sd.source_term_pressure[q];
@@ -160,7 +165,8 @@ namespace Assembly
 
           // Compute strong residual of the momentum equation, in force units
           // (i.e. multiplied by the density). The consistent SUPG and PSPG test
-          // operators are then (u_conv . grad(v)) and grad(q) / rho.
+          // operators are then ((u_conv + J/rho) . grad(v)) and grad(q) / rho
+          // for Abels; Ding-Horriche has J=0.
           strong_residual_momentum =
             rho * (dudt + grad_u * u_conv - body_force) +
             momentum_diffusive_inertia + momentum_capillary + grad_p +
@@ -197,8 +203,8 @@ namespace Assembly
 
             if constexpr (BaseType::with_stabilization)
               // SUPG stabilization
-              local_rhs_i -=
-                tau * (strong_residual_momentum * (grad_phi_u[i] * u_conv));
+              local_rhs_i -= tau * (strong_residual_momentum *
+                                    (grad_phi_u[i] * momentum_supg_velocity));
           }
 
           // Continuity equation
@@ -278,6 +284,12 @@ namespace Assembly
       std::vector<double> phi_u_j_x_grad_phi(sd.dofs_per_cell);
       std::vector<double> to_mult_by_phi_phi_i(sd.dofs_per_cell);
       std::vector<Tensor<1, dim>> phase_flux_variation(sd.dofs_per_cell);
+      std::vector<Tensor<1, dim>> momentum_supg_velocity_variation(
+        BaseType::with_stabilization ? sd.dofs_per_cell : 0);
+      std::vector<Tensor<1, dim>> momentum_supg_velocity_x_variation(
+        BaseType::with_stabilization && BaseType::with_moving_mesh ?
+          sd.dofs_per_cell :
+          0);
       std::vector<Tensor<1, dim>> strong_residual_momentum_variation(
         sd.dofs_per_cell);
       std::vector<double> strong_residual_tracer_variation(sd.dofs_per_cell);
@@ -351,6 +363,11 @@ namespace Assembly
           u_conv -= dxdt;
         }
         const auto u_dot_grad_u_ale = grad_u * u_conv;
+
+        auto momentum_supg_velocity = u_conv;
+        if constexpr (BaseType::with_stabilization &&
+                      !BaseType::with_ding_horriche)
+          momentum_supg_velocity += sd.get_momentum_mass_flux(q) / rho;
 
         const auto &p = sd.present_pressure_values[q];
         const auto  &grad_p   = sd.present_pressure_gradients[q];
@@ -570,6 +587,30 @@ namespace Assembly
                 gradient_norm);
           }
 
+          if constexpr (BaseType::with_stabilization)
+          {
+            // d(u + J/rho), including the mobility dependence on u and
+            // grad(phi), and the density denominator. Tau stays frozen.
+            momentum_supg_velocity_variation[j] = phi_u_j;
+            if constexpr (!BaseType::with_ding_horriche)
+            {
+              Tensor<1, dim> dJ;
+              if (with_profile_correction)
+                dJ = density_flux_factor * phase_flux_variation[j];
+              else
+              {
+                const double dM = mobility_u_variation +
+                                  dmobility_dphi * phi_phi[j] +
+                                  dmobility_dgradphi * grad_phi_phi[j];
+                dJ = density_flux_factor *
+                     (dM * grad_mu + mobility * grad_phi_mu_j);
+              }
+              momentum_supg_velocity_variation[j] +=
+                inv_rho * dJ +
+                dinvrho_dphi * phi_phi[j] * sd.get_momentum_mass_flux(q);
+            }
+          }
+
           to_mult_by_phi_u_i_momentum[j] =
             rho *
             (bdf_c0 * phi_u_j + grad_phi_u_j * u_conv + grad_u * phi_u_j);
@@ -771,6 +812,20 @@ namespace Assembly
 
               if constexpr (BaseType::with_stabilization)
               {
+                // At fixed reference coordinates rho is unchanged by a mesh
+                // variation, while the phase/potential gradients entering J
+                // transform with the inverse mapping.
+                momentum_supg_velocity_x_variation[j] = du_conv_dx;
+                if constexpr (!BaseType::with_ding_horriche)
+                {
+                  const Tensor<1, dim> dJ =
+                    density_flux_factor *
+                    (with_profile_correction ?
+                       phase_flux_x_variation :
+                       mobility_x_variation * grad_mu + mobility * dgrad_mu_dx);
+                  momentum_supg_velocity_x_variation[j] += inv_rho * dJ;
+                }
+
                 const auto &H = sd.present_velocity_hessians[q];
                 const auto &K = (*hessian_phi_x_moving)[j];
                 const auto  dgrad_p_dx = -(transpose_G * grad_p);
@@ -979,7 +1034,7 @@ namespace Assembly
           {
             if constexpr (BaseType::with_stabilization)
             {
-              u_conv_dot_grad_phi_u_i = grad_phi_u_i * u_conv;
+              u_conv_dot_grad_phi_u_i = grad_phi_u_i * momentum_supg_velocity;
               residual_dot_grad_phi_u_i =
                 strong_residual_momentum * grad_phi_u_i;
             }
@@ -1041,11 +1096,12 @@ namespace Assembly
 
               if constexpr (BaseType::with_stabilization)
               {
-                // SUPG stabilization : variation w.r.t. u and p
+                // SUPG stabilization: all field variations (frozen tau).
                 local_matrix_ij +=
                   tau * (strong_residual_momentum_variation[j] *
                            u_conv_dot_grad_phi_u_i +
-                         residual_dot_grad_phi_u_i * phi_u[j]);
+                         residual_dot_grad_phi_u_i *
+                           momentum_supg_velocity_variation[j]);
               }
 
               if constexpr (BaseType::with_moving_mesh)
@@ -1072,8 +1128,8 @@ namespace Assembly
                   {
                     const auto &G = sd.grad_phi_x_moving[q][j];
                     const auto  d_supg_test_dx =
-                      -(grad_phi_u_i * G) * u_conv +
-                      grad_phi_u_i * mesh_velocity_x_variation[j];
+                      -(grad_phi_u_i * G) * momentum_supg_velocity +
+                      grad_phi_u_i * momentum_supg_velocity_x_variation[j];
                     local_matrix_ij +=
                       tau *
                       (u_conv_dot_grad_phi_u_i *

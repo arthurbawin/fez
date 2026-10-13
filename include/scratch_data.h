@@ -1234,8 +1234,16 @@ namespace NavierStokesScratch
         const double filtered_phi = tracer_limiter(tracer_values[q]);
         const double material_marker =
           material_phase_function(cahn_hilliard_param, filtered_phi);
+        // Chain rule through the clamp. At phi = +/-1 choose the
+        // saturated-side generalized derivative (zero).
+        const double limiter_derivative =
+          !cahn_hilliard_param.with_tracer_limiter ||
+              (tracer_values[q] > -1. && tracer_values[q] < 1.) ?
+            1. :
+            0.;
         const double material_marker_derivative =
-          material_phase_derivative_function(cahn_hilliard_param, filtered_phi);
+          material_phase_derivative_function(cahn_hilliard_param, filtered_phi) *
+          limiter_derivative;
         density[q] =
           CahnHilliard::linear_mixing(material_marker, density0, density1);
         dynamic_viscosity[q] = CahnHilliard::linear_mixing(material_marker,
@@ -1263,13 +1271,21 @@ namespace NavierStokesScratch
         const double mobility_arg_dd =
           material_phase_second_derivative_function(cahn_hilliard_param,
                                                     mobility_phi);
-        const auto mobility_tracer_argument =
+        auto mobility_tracer_argument =
           CahnHilliard::select_mobility_tracer_argument(
             cahn_hilliard_param,
             mobility_phi,
             mobility_arg,
             mobility_arg_d,
             mobility_arg_dd);
+        // Chain rule through the independent mobility clamp. Choose the
+        // saturated-side generalized derivatives at phi = +/-1, as for rho.
+        if (cahn_hilliard_param.mobility_tracer_limiter &&
+            (tracer_values[q] <= -1. || tracer_values[q] >= 1.))
+        {
+          mobility_tracer_argument.first_derivative = 0.;
+          mobility_tracer_argument.second_derivative = 0.;
+        }
         const auto mobility_evaluation = mobility_evaluation_function(
           cahn_hilliard_param,
           mobility_tracer_argument.value,
@@ -1368,6 +1384,10 @@ namespace NavierStokesScratch
           // The NS scratch loop leaves this buffer at its last quadrature node.
           for (unsigned int k = 0; k < dofs_per_cell; ++k)
             grad_phi_u_first_component[k] = grad_phi_u[q][k][0];
+          // Preserve the established SUPG/PSPG coefficient when correcting
+          // the momentum test direction. Its viscous length also depends on
+          // this velocity; replacing it by u_conv + J/rho changes the pressure
+          // stabilization, even in the diffusion-dominated limit.
           tau_supg_velocity[q] = StabilizationTools::compute_tau_supg(
             time_handler,
             dofs_per_cell,
@@ -1553,6 +1573,21 @@ namespace NavierStokesScratch
     get_cahn_hilliard_parameters() const
     {
       return cahn_hilliard_param;
+    }
+
+    /**
+     * Diffusive mass flux J entering the Abels momentum transport. Reuse the
+     * complete phase flux, including profile/normal corrections when enabled.
+     * Ding-Horriche has no diffusive mass transport in its momentum equation.
+     */
+    Tensor<1, dim> get_momentum_mass_flux(const unsigned int q) const
+    {
+      if (cahn_hilliard_param.chns_model ==
+          Parameters::CahnHilliard<dim>::CHNSModel::ding_horriche)
+        return {};
+      if (CahnHilliard::has_interface_profile_correction(cahn_hilliard_param))
+        return 0.5 * (density1 - density0) * phase_diffusion_flux_drivers[q];
+      return diffusive_flux_factor_values[q] * potential_gradients[q];
     }
 
   private:

@@ -99,6 +99,11 @@ PostProcessingHandler<dim>::PostProcessingHandler(
     using PP       = Parameters::PostProcessing;
 
     postprocessors.clear();
+    if (pp.density.enable &&
+        pp.density.method == PP::Density::ComputationMethod::discontinuous)
+      postprocessors.emplace_back(
+        std::make_unique<PostProcessingTools::DensityPostProcessor<dim>>(
+          ordering, param));
     if (pp.vorticity.enable and
         pp.vorticity.method == PP::Vorticity::ComputationMethod::discontinuous)
       postprocessors.emplace_back(
@@ -511,9 +516,8 @@ PostProcessingHandler<dim>::create_field_postprocessor(
                               cell_quadrature,
                               with_moving_mesh);
         case Field::ComputationMethod::discontinuous:
-          AssertThrow(false,
-                      ExcMessage("Density postprocessing supports 'l2 "
-                                 "projection' and 'weighted average'."));
+          // Direct visualization is handled by the DataPostprocessor created
+          // in the constructor; no projected field is needed.
           return nullptr;
       }
       DEAL_II_ASSERT_UNREACHABLE();

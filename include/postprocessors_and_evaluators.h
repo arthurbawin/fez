@@ -326,12 +326,15 @@ namespace PostProcessingTools
       AssertDimension(computed_values.size(), tracer_values.size());
       fe_values[tracer_extractor].get_function_values(solution, tracer_values);
       for (unsigned int q = 0; q < computed_values.size(); ++q)
-      {
-        const double marker =
-          material_phase(cahn_hilliard, tracer_limiter(tracer_values[q]));
-        computed_values[q] =
-          CahnHilliard::linear_mixing(marker, density_0, density_1);
-      }
+        computed_values[q] = evaluate_density(tracer_values[q]);
+    }
+
+    /** Same material law for quadrature and direct visualization output. */
+    double evaluate_density(const double tracer) const
+    {
+      const double marker =
+        material_phase(cahn_hilliard, tracer_limiter(tracer));
+      return CahnHilliard::linear_mixing(marker, density_0, density_1);
     }
 
     shape_type get_quantity(const std::vector<quantity_type> &values,
@@ -350,6 +353,38 @@ namespace PostProcessingTools
     CahnHilliard::TracerLimiterFunction  tracer_limiter;
     CahnHilliard::MaterialPhaseFunction<dim> material_phase;
     std::vector<double>                       tracer_values;
+  };
+
+  /** Evaluate density directly from the tracer at visualization points. */
+  template <int dim>
+  class DensityPostProcessor : public DataPostprocessorScalar<dim>
+  {
+  public:
+    DensityPostProcessor(const ComponentOrdering    &ordering,
+                         const ParameterReader<dim> &parameters)
+      : DataPostprocessorScalar<dim>("density", update_values)
+      , phi_lower(ordering.phi_lower)
+      , evaluator(ordering, parameters)
+    {}
+
+    void evaluate_vector_field(
+      const DataPostprocessorInputs::Vector<dim> &input_data,
+      std::vector<Vector<double>> &computed_quantities) const override
+    {
+      AssertDimension(input_data.solution_values.size(),
+                      computed_quantities.size());
+      for (unsigned int p = 0; p < computed_quantities.size(); ++p)
+      {
+        AssertIndexRange(phi_lower, input_data.solution_values[p].size());
+        AssertDimension(computed_quantities[p].size(), 1);
+        computed_quantities[p][0] =
+          evaluator.evaluate_density(input_data.solution_values[p][phi_lower]);
+      }
+    }
+
+  private:
+    const unsigned int phi_lower;
+    const DensityEvaluator<dim> evaluator;
   };
 
   /** Evaluate the selected Cahn-Hilliard mobility model. */

@@ -1181,8 +1181,7 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
                 fe_face_values_fixed.shape_value(i_cell_dof, q);
 
               // Force coefficients
-              force_coeffs[d][lambda_dof] +=
-                -phi_i * JxW;
+              force_coeffs[d][lambda_dof] += -phi_i * JxW;
 
               if constexpr (dim == 3)
                 if (d == 2 && this->param.fsi.fix_z_component)
@@ -1284,9 +1283,9 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
       AssertThrow(
         std::abs(weights_sum - expected_discrete_weights_sum) < 1e-10,
-        ExcMessage(
-          "The sum of force weights for component " + std::to_string(d) +
-          " of lambda coupling should be -|Cylinder|, but it's not."));
+        ExcMessage("The sum of force weights for component " +
+                   std::to_string(d) +
+                   " of lambda coupling should be -|Cylinder|, but it's not."));
     }
   }
 
@@ -2015,27 +2014,15 @@ void FSISolver<dim>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
 
-  this->system_matrix = 0;
-
   CopyData copy_data(*fe);
 
-#if defined(FEZ_WITH_PETSC)
-  AssertThrow(
-    MultithreadInfo::n_threads() == 1,
-    ExcMessage(
-      "Assembly is running with more than 1 thread, but uses PETSc wrappers "
-      "for parallel matrix and vectors, which are not thread safe."));
-#endif
-
-  // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler->begin_active(),
-                  this->dof_handler->end(),
-                  *this,
-                  &FSISolver::assemble_local_matrix,
-                  &FSISolver::copy_local_to_global_matrix,
-                  *scratch_data,
-                  copy_data);
-
+  this->system_matrix = 0;
+  this->do_matrix_assembly(*this,
+                           this->dof_handler->begin_active(),
+                           this->dof_handler->end(),
+                           *scratch_data,
+                           copy_data,
+                           this->param.nonlinear_solver.analytic_jacobian);
   this->system_matrix.compress(VectorOperation::add);
 
   if (this->param.fsi.enable_coupling)
@@ -2088,8 +2075,6 @@ void FSISolver<dim>::compare_analytical_matrix_with_fd()
   CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
-    &FSISolver::assemble_local_matrix,
-    &FSISolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);
@@ -2490,8 +2475,7 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                   accumulator_coeffs;
                 for (auto lambda_accumulator : all_lambda_accumulators[d])
                   accumulator_coeffs.emplace_back(
-                    lambda_accumulator,
-                    1. / this->param.fsi.spring_constant);
+                    lambda_accumulator, 1. / this->param.fsi.spring_constant);
                 constrain_matrix_row(this->system_matrix,
                                      local_position_master_dofs[d],
                                      master_position_rows.at(

@@ -513,7 +513,7 @@ inline void constrain_matrix_row(
   const types::global_dof_index               dof_index,
   const std::vector<LA::ConstMatrixIterator> &row_indices,
   const std::vector<std::pair<types::global_dof_index, double>>
-    &coupling_coefficients,
+              &coupling_coefficients,
   const double coupling_multiplier = 1.)
 {
   // Set all column entries (i,j) to zero

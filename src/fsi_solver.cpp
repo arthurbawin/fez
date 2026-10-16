@@ -1349,9 +1349,8 @@ void FSISolverLessLambda<dim>::create_position_lagrange_mult_coupling_data()
 
       AssertThrow(
         std::abs(weights_sum - expected_discrete_weights_sum) < 1e-10,
-        ExcMessage(
-          "The sum of weights for component " + std::to_string(d) +
-          " of lambda coupling should be -|Cylinder|, but it's not."));
+        ExcMessage("The sum of weights for component " + std::to_string(d) +
+                   " of lambda coupling should be -|Cylinder|, but it's not."));
     }
   }
 
@@ -1914,8 +1913,6 @@ void FSISolverLessLambda<dim>::compare_analytical_matrix_with_fd()
   CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
-    &FSISolverLessLambda::assemble_local_matrix,
-    &FSISolverLessLambda::assemble_local_rhs,
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);
@@ -2146,8 +2143,7 @@ void FSISolverLessLambda<dim>::add_algebraic_position_coupling_to_matrix()
               accumulator_coeffs;
             for (auto lambda_accumulator : all_lambda_accumulators[d])
               accumulator_coeffs.emplace_back(
-                lambda_accumulator,
-                1. / this->param.fsi.spring_constant);
+                lambda_accumulator, 1. / this->param.fsi.spring_constant);
             constrain_matrix_row(this->system_matrix,
                                  local_position_master_dofs[d],
                                  master_position_rows.at(

@@ -112,11 +112,6 @@ public:
     ScratchData                                          &scratchData,
     CopyData                                             &copy_data);
 
-  void assemble_local_matrix_finite_differences(
-    const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchData                                          &scratchData,
-    CopyData                                             &copy_data);
-
   void copy_local_to_global_matrix(const CopyData &copy_data);
 
   void compare_analytical_matrix_with_fd();

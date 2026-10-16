@@ -138,7 +138,7 @@ namespace Verification
     const unsigned int n = local_matrix.m();
     local_matrix         = 0;
 
-    const double sqrt_eps = std::sqrt(std::numeric_limits<double>::epsilon());
+    const double h = 1e-8;
 
     // Compute non-perturbed RHS
     assemble_local_rhs(cell, scratch_data, copy_data);
@@ -150,10 +150,7 @@ namespace Verification
     {
       const auto   gj  = local_dof_indices[j];
       const double u_0 = evaluation_point[gj]; // reading ghosts is fine
-
-      const double h   = sqrt_eps * std::max(1.0, std::abs(u_0));
       const double u_p = u_0 + h;
-      const double dh  = u_p - u_0;
 
       set_local_entry(evaluation_point, gj, u_p);
 
@@ -161,7 +158,7 @@ namespace Verification
       const auto &perturbed_local_rhs = copy_data.local_rhs(fe_index);
 
       for (unsigned int i = 0; i < n; ++i)
-        local_matrix(i, j) = -(perturbed_local_rhs(i) - ref_local_rhs(i)) / dh;
+        local_matrix(i, j) = -(perturbed_local_rhs(i) - ref_local_rhs(i)) / h;
 
       set_local_entry(evaluation_point, gj, u_0); // exact restore
     }

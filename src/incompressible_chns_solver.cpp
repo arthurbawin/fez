@@ -422,42 +422,16 @@ void CHNSSolver<dim, with_moving_mesh>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
 
-  this->system_matrix = 0;
-
   CopyData copy_data(*fe);
 
-#if defined(FEZ_WITH_PETSC)
-  AssertThrow(
-    MultithreadInfo::n_threads() == 1,
-    ExcMessage(
-      "Assembly is running with more than 1 thread, but uses PETSc wrappers "
-      "for parallel matrix and vectors, which are not thread safe."));
-#endif
-  auto assembly_ptr = this->param.nonlinear_solver.analytic_jacobian ?
-                      &CHNSSolver::assemble_local_matrix :
-                      &CHNSSolver::assemble_local_matrix_finite_differences;
-
-  // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler->begin_active(),
-                  this->dof_handler->end(),
-                  *this,
-                  assembly_ptr,
-                  &CHNSSolver::copy_local_to_global_matrix,
-                  *scratch_data,
-                  copy_data);
-
+  this->system_matrix = 0;
+  this->do_matrix_assembly(*this,
+                           this->dof_handler->begin_active(),
+                           this->dof_handler->end(),
+                           *scratch_data,
+                           copy_data,
+                           this->param.nonlinear_solver.analytic_jacobian);
   this->system_matrix.compress(VectorOperation::add);
-}
-
-template <int dim, bool with_moving_mesh>
-void CHNSSolver<dim, with_moving_mesh>::
-  assemble_local_matrix_finite_differences(
-    const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchData                                          &scratch_data,
-    CopyData                                             &copy_data)
-{
-  Verification::compute_local_matrix_finite_differences<dim>(
-    cell, *this, &CHNSSolver::assemble_local_rhs, scratch_data, copy_data);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -506,8 +480,6 @@ void CHNSSolver<dim, with_moving_mesh>::compare_analytical_matrix_with_fd()
   CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
-    &CHNSSolver::assemble_local_matrix,
-    &CHNSSolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);

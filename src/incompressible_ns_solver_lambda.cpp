@@ -904,8 +904,6 @@ void NSSolverLambda<dim>::compare_analytical_matrix_with_fd()
   CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
-    &NSSolverLambda::assemble_local_matrix,
-    &NSSolverLambda::assemble_local_rhs,
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);

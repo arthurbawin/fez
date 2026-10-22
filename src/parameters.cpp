@@ -133,7 +133,7 @@ namespace Parameters
                         "none",
                         Patterns::Selection(
                           "none|cube|rectangle|holed plate|uniform channel "
-                          "with cylinder|backward facing step"),
+                          "with cylinder|backward facing step|lgpi"),
                         "Use dealii meshing routines for specified geometry");
       prm.declare_entry("dealii mesh parameters",
                         "2, 2 : 0., 0. : 1., 1. : false");

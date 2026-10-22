@@ -8,23 +8,41 @@ subsection Timer
 end
 
 subsection Output
-  set write results    = true
-  set output directory = results/
-  set output prefix    = Benchmark1
+  set write vtu results = true
+  set output directory  = results/
+  set output prefix     = solution
 end
 
 subsection Mesh
-  #set mesh file=../maillage/bubble_asc_refined.msh
   set dealii preset mesh     = rectangle
-  set dealii mesh parameters = 64, 64 : 0., 0. : 1., 2. : true
-  set refinement level       = 2
+  set dealii mesh parameters = 4, 8 : 0., 0. : 1., 2. : true
+  set refinement level       = 1
+
+  subsection Adaptation
+    set verbosity = verbose
+    set enable    = true
+    set strategy  = local refinement
+
+    # Set fractions to refine and coarsen so as to roughly
+    # maintain the same number of mesh cells throughout adaptations.
+    subsection Local refinement
+      set variables for adaptation      = phase_tracer
+      set adapt frequency               = 3
+      set refinement strategy           = fixed number
+      set fraction to refine            = 0.125
+      set fraction to coarsen           = 0.5
+      set max number of cells           = 10000
+      set max grid level                = 6
+      set number of prerefinement steps = 10
+    end
+  end
 end
 
 
 subsection Time integration
   set dt               = 0.01
   set t_initial        = 0
-  set t_end            = 3
+  set t_end            = 0.05
   set scheme           = BDF2
   set bdf start method = BDF1
 end
@@ -38,12 +56,15 @@ subsection Nonlinear solver
 end
 
 subsection Linear solver
-  set verbosity      = quiet
-  set method         = direct_mumps
-  set reuse          = true
+  subsection main physics
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = true
+  end
 end
 
 subsection FiniteElements
+  set use quads         = true
   set Velocity degree   = 2
   set Pressure degree   = 1
   set Tracer degree     = 1
@@ -162,12 +183,4 @@ subsection CahnHilliard boundary conditions
     set name = y_max
     set type = no_flux
   end
-end
-
-subsection Debug
-  set verbosity                              = verbose
-  set apply exact solution                   = false
-  set compare jacobian matrix with fd        = false
-  set analytical_jacobian_absolute_tolerance = 1e-3
-  set analytical_jacobian_relative_tolerance = 1e-3
 end

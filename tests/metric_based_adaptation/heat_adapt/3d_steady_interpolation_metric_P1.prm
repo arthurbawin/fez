@@ -123,12 +123,12 @@ subsection Heat boundary conditions
   end
   subsection boundary 4
     set id   = 6
-    set name = y_min
+    set name = z_min
     set type = dirichlet_mms
   end
   subsection boundary 5
     set id   = 7
-    set name = y_max
+    set name = z_max
     set type = dirichlet_mms
   end
 end

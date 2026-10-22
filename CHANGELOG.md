@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
  
+## [0.0.0] 2026-10-22
+ 
+### Added
+Added the "lgpi" deal.II preset mesh (2D only) for the large gas pocket impact benchmark: a rectangular box minus a quarter ellipse in the bottom left corner.
+
 ## [0.0.0] 2026-06-04
  
 ### Changed

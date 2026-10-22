@@ -342,6 +342,7 @@ public:
 
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       source_terms.set_time(new_time);
     }
 

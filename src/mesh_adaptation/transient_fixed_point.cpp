@@ -202,40 +202,40 @@ std::string TransientFixedPointData<dim>::get_meshfile_name(
 }
 
 template <int dim>
-unsigned int TransientFixedPointData<dim>::get_sum_of_active_cells() const
+std::uint64_t TransientFixedPointData<dim>::get_sum_of_active_cells() const
 {
-  unsigned int sum = 0;
+  std::uint64_t sum = 0;
   for (const auto &tria_ptr : triangulations)
     sum += tria_ptr->n_global_active_cells();
   return sum;
 }
 
 template <int dim>
-unsigned int TransientFixedPointData<dim>::get_sum_of_vertices() const
+std::uint64_t TransientFixedPointData<dim>::get_sum_of_vertices() const
 {
-  unsigned int sum = 0;
+  std::uint64_t sum = 0;
   for (const auto &metric_ptr : metrics_for_adaptation)
     sum += metric_ptr->get_n_owned_vertices();
   return Utilities::MPI::sum(sum, mpi_communicator);
 }
 
 template <int dim>
-unsigned int TransientFixedPointData<dim>::get_sum_of_dofs() const
+std::uint64_t TransientFixedPointData<dim>::get_sum_of_dofs() const
 {
-  unsigned int sum = 0;
+  std::uint64_t sum = 0;
   for (const auto &dh_ptr : dof_handlers)
     sum += dh_ptr->n_dofs();
   return sum;
 }
 
 template <int dim>
-unsigned int TransientFixedPointData<dim>::get_effective_space_time_complexity(
+std::uint64_t TransientFixedPointData<dim>::get_effective_space_time_complexity(
   const TimeHandler &time_handler) const
 {
-  unsigned int sum = 0;
+  std::uint64_t sum = 0;
   for (unsigned int i = 0; i < n_time_intervals; ++i)
   {
-    const auto n_vertices_i =
+    const std::uint64_t n_vertices_i =
       Utilities::MPI::sum(metrics_for_adaptation[i]->get_n_owned_vertices(),
                           mpi_communicator);
     sum += n_vertices_i * time_handler.n_steps_on_each_interval[i];
@@ -414,10 +414,28 @@ void TransientFixedPointData<dim>::do_solution_transfer(
                              distributed_solution);
     present_solution = distributed_solution;
 
-    // Interpolate previous solutions, at previous times
-    for (unsigned int k = 0; k < this_previous_solutions.size(); ++k)
+    /**
+     * Interpolate previous solutions, at previous times.
+     *
+     * Important: this function is called at the beginning of the interval,
+     * after time_handler.rotate() was called. After this call, the first
+     * previous solution and the current solution match. For instance, for two
+     * intervals of [0,1] and dt = 0.1, after time_handler.rotate() was called
+     * at the end of the first interval [0, 0.5], the stored solutions are:
+     *
+     * present_solution     : sol at t = 0.5
+     * previous_solution[0] : sol at t = 0.5 <--
+     * previous_solution[1] : sol at t = 0.4
+     * previous_solution[2] : sol at t = 0.3 etc.
+     *
+     * Thus, the first previous solution is the present solution, and the
+     * subsequent previous ones are interpolated from the exact solution at
+     * previous times starting from t - dt (and not starting from t - 2*dt).
+     */
+    this_previous_solutions[0] = present_solution;
+    for (unsigned int k = 1; k < this_previous_solutions.size(); ++k)
     {
-      exact_solution.set_time(time_handler.simulation_times[1 + k]);
+      exact_solution.set_time(time_handler.simulation_times[k]);
       VectorTools::interpolate(mapping,
                                dof_handler,
                                exact_solution,
@@ -807,14 +825,17 @@ void TransientFixedPointData<dim>::adapt_mesh_with_dealii_routines(
       DEAL_II_ASSERT_UNREACHABLE();
   }
 
-  // Bound refinement according to prescribed min and max allowed levels
-  if (triangulation.n_levels() > tree_amr.max_level)
-    for (const auto &cell :
-         triangulation.active_cell_iterators_on_level(tree_amr.max_level))
+  // Bound refinement according to prescribed min and max allowed levels.
+  // Loop over all active cells rather than over given levels, which may not
+  // exist yet, and also prevent coarsening cells below the minimum level.
+  for (const auto &cell : triangulation.active_cell_iterators())
+  {
+    const unsigned int level = cell->level();
+    if (level >= tree_amr.max_level)
       cell->clear_refine_flag();
-  for (const auto &cell :
-       triangulation.active_cell_iterators_on_level(tree_amr.min_level))
-    cell->clear_coarsen_flag();
+    if (level <= tree_amr.min_level)
+      cell->clear_coarsen_flag();
+  }
 
   // (Re-)initialize the solution transfer object, and adapt the mesh
   solution_transfer =
@@ -888,7 +909,7 @@ void TransientFixedPointData<dim>::write_summary(
 
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
   {
-    std::cout << "Summary of all time sub-intervals" << std::endl;
+    out << "Summary of all time sub-intervals" << std::endl;
     intervals_summary.write_text(
       out, TableHandler::TextOutputFormat::org_mode_table);
   }

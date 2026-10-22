@@ -70,6 +70,7 @@ Added the "lgpi" deal.II preset mesh (2D only) for the large gas pocket impact b
 
 ### Fixed
 Fixed bugs found while reviewing the solvers, assemblers and mesh adaptation tools [#100](https://github.com/arthurbawin/fez/pull/100):
+
  - Linear elasticity: the ScratchData `components` vector was sized with the number of quadrature points instead of the number of dofs per cell, causing out-of-bounds writes.
  - NS with Lagrange multiplier: the time error estimator was never attached (crash with adaptive time stepping), and the hp line identities loops now skip artificial cells.
  - Monolithic FSI: owned boundary dofs only seen as boundary dofs by other ranks (3D) were missed when exchanging boundary dofs; the Lagrange multiplier error now uses the kinematic viscosity, consistent with the solved equations; fixed an MPI operator leak and made the rigid-body displacement check two-sided and across ranks; rigid-body rotation now throws at setup for unsupported coupling schemes.

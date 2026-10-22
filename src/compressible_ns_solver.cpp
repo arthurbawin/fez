@@ -8,7 +8,6 @@
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
-#include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
@@ -79,6 +78,10 @@ CompressibleNSSolver<dim>::CompressibleNSSolver(
     {
       // Use the provided source term instead of the source term computed from
       // symbolic differentiation.
+      // FIXME: fluid_source only has dim+1 components (velocity and pressure),
+      // but this solver has dim+2 (with temperature), so the scratch data
+      // evaluates it with a vector of the wrong size, and the temperature
+      // source is never set. Wrap the parameters in a SourceTerm instead.
       this->source_terms = param.source_terms.fluid_source;
     }
     else
@@ -654,6 +657,11 @@ void CompressibleNSSolver<dim>::assemble_local_matrix(
                      2.0 / 3.0 * mu * div_phi_u_face[j] * n * phi_u_face[i]);
                 }
 
+                // FIXME: The residual on these faces uses the prescribed
+                // pressure_bc, not the pressure unknown, so its derivative
+                // w.r.t. p is zero. This term makes the Jacobian inconsistent
+                // with the residual (the volume -p div(phi_u) term is already
+                // linearized in the u-p block), and should be removed.
                 if (i_is_u && j_is_p)
                 {
                   assemble = true;

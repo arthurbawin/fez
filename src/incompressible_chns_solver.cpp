@@ -10,7 +10,6 @@
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
-#include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
@@ -108,7 +107,7 @@ CHNSSolver<dim, with_moving_mesh>::CHNSSolver(const ParameterReader<dim> &param)
     // Create the MMS source term function and override source terms
     this->source_terms =
       std::make_shared<CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm>(
-        this->time_handler.current_time, *this->ordering, param);
+        this->time_handler.current_time, *this->ordering, this->param);
 
     // Create entry in error handler for tracer and potential
     for (auto &[norm, handler] : this->error_handlers)
@@ -130,8 +129,9 @@ void CHNSSolver<dim, with_moving_mesh>::MMSSourceTerm::vector_value(
   const Point<dim> &p,
   Vector<double>   &values) const
 {
-  const double phi          = mms.exact_tracer->value(p);
-  const double filtered_phi = phi;
+  const double phi = mms.exact_tracer->value(p);
+  // Filter the tracer as in the scratch data, if applicable
+  const double filtered_phi = tracer_limiter(phi);
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
   const double rho  = CahnHilliard::linear_mixing(filtered_phi, rho0, rho1);

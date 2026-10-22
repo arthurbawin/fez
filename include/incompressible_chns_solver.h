@@ -161,6 +161,7 @@ protected:
 
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       source_terms.set_time(new_time);
     }
 
@@ -210,6 +211,7 @@ protected:
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 
@@ -235,6 +237,7 @@ protected:
         return mms.exact_potential->value(p);
       else
         DEAL_II_ASSERT_UNREACHABLE();
+      return 0.;
     }
 
     virtual void vector_value(const Point<dim> &p,
@@ -275,6 +278,7 @@ protected:
         return mms.exact_potential->gradient(p);
       else
         DEAL_II_ASSERT_UNREACHABLE();
+      return Tensor<1, dim>();
     }
 
     virtual void
@@ -325,12 +329,14 @@ protected:
       , mu_lower(ordering.mu_lower)
       , physical_properties(param.physical_properties)
       , cahn_hilliard_param(param.cahn_hilliard)
+      , tracer_limiter(CahnHilliard::get_limiter_function(param.cahn_hilliard))
       , mms(param.mms)
     {}
 
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 
@@ -372,6 +378,7 @@ protected:
     const unsigned int                               mu_lower;
     const Parameters::PhysicalProperties<dim>       &physical_properties;
     const Parameters::CahnHilliard<dim>             &cahn_hilliard_param;
+    const CahnHilliard::TracerLimiterFunction        tracer_limiter;
     ManufacturedSolutions::ManufacturedSolution<dim> mms;
   };
 };

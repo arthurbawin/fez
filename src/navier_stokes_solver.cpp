@@ -328,6 +328,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
     if (interval_index == 0)
       set_initial_conditions();
     else
+      // FIXME: For moving-mesh solvers, moving_mapping is a MappingFEField
+      // built on the dof handler and evaluation point of the *current*
+      // interval, but the transfer also uses it to evaluate the solution on
+      // the *previous* interval's dof handler (another triangulation), which
+      // is invalid. Either use the fixed mapping for the previous interval
+      // (if the transfer is meant to be done in the reference configuration),
+      // or forbid transfer_solution with a moving mesh and several intervals.
       transient_fixed_point_data.transfer_solution_between_intervals(
         interval_index,
         *moving_mapping,

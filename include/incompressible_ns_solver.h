@@ -168,6 +168,7 @@ protected:
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 
@@ -175,10 +176,10 @@ protected:
                          const unsigned int component = 0) const override
     {
       Assert(component < n_components, ExcMessage("Component mismatch"));
-      if (component < dim)
-        return mms.exact_velocity->value(p, component);
-      else
-        return mms.exact_pressure->value(p);
+      if (component >= u_lower && component < u_lower + dim)
+        return mms.exact_velocity->value(p, component - u_lower);
+      Assert(component == p_lower, ExcMessage("Component mismatch"));
+      return mms.exact_pressure->value(p);
     }
 
     virtual void vector_value(const Point<dim> &p,
@@ -195,10 +196,10 @@ protected:
              const unsigned int component = 0) const override
     {
       Assert(component < n_components, ExcMessage("Component mismatch"));
-      if (component < dim)
-        return mms.exact_velocity->gradient(p, component);
-      else
-        return mms.exact_pressure->gradient(p);
+      if (component >= u_lower && component < u_lower + dim)
+        return mms.exact_velocity->gradient(p, component - u_lower);
+      Assert(component == p_lower, ExcMessage("Component mismatch"));
+      return mms.exact_pressure->gradient(p);
     }
 
   protected:
@@ -233,6 +234,7 @@ protected:
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 

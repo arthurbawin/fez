@@ -353,8 +353,8 @@ namespace Assembly
                   // 2. * nu * scalar_product(sym_grad_phi_u[j],
                   // sym_grad_phi_u_i), explicited for the symmetric gradient of
                   // Lagrange shape functions
-                  const auto &gui = grad_phi_u_i[comp_i];
-                  const auto &guj = grad_phi_u[j][comp_j];
+                  const auto &gui = grad_phi_u_i[comp_i - u_lower];
+                  const auto &guj = grad_phi_u[j][comp_j - u_lower];
                   local_matrix_ij +=
                     nu * (gui[comp_j - u_lower] * guj[comp_i - u_lower]);
                   if (comp_i == comp_j)

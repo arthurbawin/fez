@@ -27,6 +27,9 @@
 template <int dim>
 NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param)
+  , bdf_c0_at_preconditioner_setup(0.)
+  , n_iterations_after_preconditioner_setup(0)
+  , last_solve_info({0, true})
 {
   if (param.finite_elements.use_quads)
     fe = std::make_unique<FESystem<dim>>(
@@ -224,7 +227,7 @@ void NSSolver<dim>::create_sparsity_pattern()
       linear_solver_param.preconditioner ==
         Parameters::LinearSolver::PreconditionerType::amg &&
       this->param.finite_elements.velocity_degree == 1 &&
-        this->param.finite_elements.pressure_degree == 1)
+      this->param.finite_elements.pressure_degree == 1)
   {
     const PetscErrorCode ierr =
       MatSetBlockSize(this->system_matrix, n_components);
@@ -252,10 +255,6 @@ void NSSolver<dim>::assemble_matrix()
                            copy_data,
                            this->param.nonlinear_solver.analytic_jacobian);
   this->system_matrix.compress(VectorOperation::add);
-
-  // Jacobian matrix has changed: rebuild the preconditioner at the next solve
-  // FIXME: use a reassembly heuristic
-  this->should_assemble_preconditioner = true;
 }
 
 template <int dim>
@@ -369,7 +368,11 @@ void NSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 template <int dim>
 void NSSolver<dim>::create_preconditioner()
 {
-  this->should_assemble_preconditioner = false;
+  // Update heuristic indicators
+  this->should_assemble_preconditioner       = false;
+  this->preconditioner_rebuilt_at_last_solve = true;
+  this->bdf_c0_at_preconditioner_setup = this->time_handler.bdf_coefficients[0];
+  this->n_iterations_after_preconditioner_setup = 0;
 
   const auto &linear_solver_param =
     this->param.linear_solver.at(this->solver_type);
@@ -415,28 +418,122 @@ void NSSolver<dim>::create_preconditioner()
 }
 
 template <int dim>
+bool NSSolver<dim>::should_rebuild_preconditioner() const
+{
+  const bool verbose =
+    this->param.linear_solver.at(this->solver_type).verbosity ==
+    Parameters::Verbosity::verbose;
+
+  // Preconditioner not created yet
+  if (!preconditioner)
+  {
+    if (verbose)
+      this->pcout << "Building initial preconditioner" << std::endl;
+    return true;
+  }
+
+  // Preconditioner invalidated by a change of mesh, dof umbering or time
+  // interval
+  // FIXME: could connect to triangulation's signals instead
+  if (this->should_assemble_preconditioner)
+  {
+    if (verbose)
+      this->pcout << "Rebuilding preconditioner after mesh update" << std::endl;
+    return true;
+  }
+
+  // Steady problems: always rebuild, as Jacobian matrix may change
+  // significantly between Newton iterations
+  if (this->time_handler.is_steady())
+    return true;
+
+  // The mass matrix contribution to the Jacobian scales with the leading BDF
+  // coefficient, which changes with the time step or the BDF order
+  const double bdf_c0 = this->time_handler.bdf_coefficients[0];
+  if (std::abs(bdf_c0 - bdf_c0_at_preconditioner_setup) >
+      1e-10 * std::abs(bdf_c0))
+  {
+    if (verbose)
+      this->pcout << "Rebuilding preconditioner: BDF coefficient changed"
+                  << std::endl;
+    return true;
+  }
+
+  // The remaining criteria are based on the last solve performed with the
+  // current preconditioner, if any
+  const unsigned int n_ref = n_iterations_after_preconditioner_setup;
+  if (n_ref == 0)
+    return false;
+
+  if (!last_solve_info.converged)
+  {
+    if (verbose)
+      this->pcout << "Rebuilding preconditioner: GMRES did not converge"
+                  << std::endl;
+    return true;
+  }
+
+  // Rebuild if the GMRES iterations exceed both this factor times, and this
+  // increment above, the iterations of the first solve performed with the
+  // current preconditioner
+  constexpr double       max_iterations_ratio     = 1.5;
+  constexpr unsigned int max_iterations_increment = 5;
+  if (last_solve_info.n_iterations > max_iterations_ratio * n_ref &&
+      last_solve_info.n_iterations > n_ref + max_iterations_increment)
+  {
+    if (verbose)
+      this->pcout << "Rebuilding preconditioner: "
+                  << last_solve_info.n_iterations
+                  << " GMRES iterations, compared to " << n_ref
+                  << " after its last setup" << std::endl;
+    return true;
+  }
+
+  return false;
+}
+
+template <int dim>
 void NSSolver<dim>::solve_linear_system_iterative()
 {
   const auto &linear_solver_param =
     this->param.linear_solver.at(this->solver_type);
 
-  if (this->should_assemble_preconditioner)
-    this->create_preconditioner();
+  AssertThrow(linear_solver_param.method ==
+                Parameters::LinearSolver::Method::gmres,
+              ExcMessage("Only GMRES is available as iterative solver for "
+                         "the incompressible_ns solver"));
 
-  switch (linear_solver_param.method)
+  const auto solve = [&]() {
+    last_solve_info = LinearSolvers::solve_gmres(this,
+                                                 linear_solver_param,
+                                                 this->system_matrix,
+                                                 this->locally_owned_dofs,
+                                                 this->zero_constraints,
+                                                 preconditioner);
+    // Store the iterations of the first solve with this preconditioner
+    if (n_iterations_after_preconditioner_setup == 0)
+      n_iterations_after_preconditioner_setup =
+        std::max(last_solve_info.n_iterations, 1u);
+  };
+
+  // Set to true by create_preconditioner() if called during this solve
+  this->preconditioner_rebuilt_at_last_solve = false;
+
+  const bool rebuild = should_rebuild_preconditioner();
+  if (rebuild)
+    create_preconditioner();
+  solve();
+
+  // GMRES solver may not have converged if the preconditioner was reused.
+  // If so, rebuild the preconditioner and solve again once
+  if (!rebuild && !last_solve_info.converged)
   {
-    case Parameters::LinearSolver::Method::gmres:
-      LinearSolvers::solve_gmres(this,
-                                 linear_solver_param,
-                                 this->system_matrix,
-                                 this->locally_owned_dofs,
-                                 this->zero_constraints,
-                                 preconditioner);
-      break;
-    default:
-      AssertThrow(false,
-                  ExcMessage("Only GMRES is available as iterative solver for "
-                             "the incompressible_ns solver"));
+    if (linear_solver_param.verbosity == Parameters::Verbosity::verbose)
+      this->pcout << "Rebuilding preconditioner and solving again: GMRES did "
+                     "not converge"
+                  << std::endl;
+    create_preconditioner();
+    solve();
   }
 }
 

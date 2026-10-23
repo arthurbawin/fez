@@ -21,6 +21,7 @@ GenericSolver<VectorType>::GenericSolver(
                     TimerOutput::summary,
                     TimerOutput::wall_times)
   , solver_type(solver_type)
+  , preconditioner_rebuilt_at_last_solve(false)
   , output_param(output_param)
   , mesh_param(mesh_param)
   , time_param(time_param)

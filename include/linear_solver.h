@@ -36,6 +36,15 @@ namespace LinearSolvers
               PETScWrappers::SparseDirectMUMPSReuse *mumps_solver = nullptr);
 
   /**
+   * Summary of an iterative linear solve, used to determine if the preconditioner should be rebuilt.
+   */
+  struct IterativeSolveInfo
+  {
+    unsigned int n_iterations;
+    bool         converged;
+  };
+
+  /**
    * Solve the linear system using GMRES.
    * If VectorType is a PETSc parallel vector, then PETSc's implementation of
    * GMRES is used. If VectorType is a parallel block vector, deal.II's
@@ -45,16 +54,20 @@ namespace LinearSolvers
    * that are either derived from PETScWrappers::PreconditionBase, or
    * provided by custom class templates or linear operators, such as block Schur
    * complement preconditioners (see deal.II's step-31.cc).
+   *
+   * Return the number of iterations and whether GMRES converged. If it did not,
+   * the last iterate is still used as the Newton update.
    */
   template <typename VectorType,
             typename MatrixType,
             typename PreconditionerType>
-  void solve_gmres(GenericSolver<VectorType>           *solver,
-                   const Parameters::LinearSolver      &linear_solver_param,
-                   MatrixType                          &system_matrix,
-                   const IndexSet                      &locally_owned_dofs,
-                   const AffineConstraints<double>     &zero_constraints,
-                   std::unique_ptr<PreconditionerType> &preconditioner);
+  IterativeSolveInfo
+  solve_gmres(GenericSolver<VectorType>           *solver,
+              const Parameters::LinearSolver      &linear_solver_param,
+              MatrixType                          &system_matrix,
+              const IndexSet                      &locally_owned_dofs,
+              const AffineConstraints<double>     &zero_constraints,
+              std::unique_ptr<PreconditionerType> &preconditioner);
 
   /**
    * Solve the linear system using the conjugate gradient method.
@@ -86,12 +99,13 @@ namespace LinearSolvers
   template <typename VectorType,
             typename MatrixType,
             typename PreconditionerType>
-  void solve_gmres(GenericSolver<VectorType>           *solver,
-                   const Parameters::LinearSolver      &linear_solver_param,
-                   MatrixType                          &system_matrix,
-                   const IndexSet                      &locally_owned_dofs,
-                   const AffineConstraints<double>     &zero_constraints,
-                   std::unique_ptr<PreconditionerType> &preconditioner)
+  IterativeSolveInfo
+  solve_gmres(GenericSolver<VectorType>           *solver,
+              const Parameters::LinearSolver      &linear_solver_param,
+              MatrixType                          &system_matrix,
+              const IndexSet                      &locally_owned_dofs,
+              const AffineConstraints<double>     &zero_constraints,
+              std::unique_ptr<PreconditionerType> &preconditioner)
   {
     if (!preconditioner)
     {
@@ -126,6 +140,8 @@ namespace LinearSolvers
                                     linear_solver_param.absolute_tolerance,
                                     linear_solver_param.relative_tolerance);
 
+    bool converged = true;
+
     solver->computing_timer.enter_subsection("Solve GMRES");
     try
     {
@@ -135,7 +151,8 @@ namespace LinearSolvers
         PETScWrappers::SolverGMRES gmres_solver(
           solver_control,
           PETScWrappers::SolverGMRES::AdditionalData(
-            linear_solver_param.max_krylov_vectors, linear_solver_param.right_preconditioning));
+            linear_solver_param.max_krylov_vectors,
+            linear_solver_param.right_preconditioning));
         gmres_solver.solve(system_matrix,
                            completely_distributed_solution,
                            system_rhs,
@@ -148,7 +165,8 @@ namespace LinearSolvers
         SolverGMRES<VectorType> gmres_solver(
           solver_control,
           typename SolverGMRES<VectorType>::AdditionalData(
-            linear_solver_param.max_krylov_vectors, linear_solver_param.right_preconditioning));
+            linear_solver_param.max_krylov_vectors,
+            linear_solver_param.right_preconditioning));
         gmres_solver.solve(system_matrix,
                            completely_distributed_solution,
                            system_rhs,
@@ -157,6 +175,8 @@ namespace LinearSolvers
     }
     catch (const SolverControl::NoConvergence &e)
     {
+      converged = false;
+
       // Use the last iterate as an inexact Newton update, and let the
       // nonlinear solver decide whether to stop.
       solver->pcout << "Warning: GMRES did not converge after " << e.last_step
@@ -172,6 +192,8 @@ namespace LinearSolvers
 
     newton_update = completely_distributed_solution;
     zero_constraints.distribute(newton_update);
+
+    return {solver_control.last_step(), converged};
   }
 } // namespace LinearSolvers
 

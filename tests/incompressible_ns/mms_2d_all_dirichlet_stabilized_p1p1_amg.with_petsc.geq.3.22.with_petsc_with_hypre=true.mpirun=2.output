@@ -1,22 +1,22 @@
 Number of MPI processes: 2
 Number of degrees of freedom: 27
 Newton iter.  0:          nonlinear residual = 6.07851413e-01
-Newton iter.  1:          nonlinear residual = 1.79827399e-01   (M)
-Newton iter.  2:          nonlinear residual = 4.25325477e-02   (M)
-Newton iter.  3:          nonlinear residual = 7.85784680e-03   (M)
-Newton iter.  4:          nonlinear residual = 1.54524025e-03   (M)
-Newton iter.  5:          nonlinear residual = 3.00320658e-04   (M)
-Newton iter.  6:          nonlinear residual = 5.85017354e-05   (M)
-Newton iter.  7:          nonlinear residual = 1.13909177e-05   (M)
-Newton iter.  8:          nonlinear residual = 2.21812682e-06   (M)
-Newton iter.  9:          nonlinear residual = 4.39551180e-07   (M)
+Newton iter.  1:          nonlinear residual = 1.79827399e-01   (MP)
+Newton iter.  2:          nonlinear residual = 4.25325477e-02   (MP)
+Newton iter.  3:          nonlinear residual = 7.85784680e-03   (MP)
+Newton iter.  4:          nonlinear residual = 1.54524025e-03   (MP)
+Newton iter.  5:          nonlinear residual = 3.00320658e-04   (MP)
+Newton iter.  6:          nonlinear residual = 5.85017354e-05   (MP)
+Newton iter.  7:          nonlinear residual = 1.13909177e-05   (MP)
+Newton iter.  8:          nonlinear residual = 2.21812682e-06   (MP)
+Newton iter.  9:          nonlinear residual = 4.39551180e-07   (MP)
 Stopping because residual is below prescribed tolerance (1.00e-06)
 Number of degrees of freedom: 75
 Newton iter.  0:          nonlinear residual = 2.97550224e+01
-Newton iter.  1:          nonlinear residual = 8.53411341e-02   (M)
-Newton iter.  2:          nonlinear residual = 4.33371652e-03   (M)
-Newton iter.  3:          nonlinear residual = 4.84960412e-05   (M)
-Newton iter.  4:          nonlinear residual = 3.24446516e-07   (M)
+Newton iter.  1:          nonlinear residual = 8.53411341e-02   (MP)
+Newton iter.  2:          nonlinear residual = 4.33371652e-03   (MP)
+Newton iter.  3:          nonlinear residual = 4.84960412e-05   (MP)
+Newton iter.  4:          nonlinear residual = 3.24446516e-07   (MP)
 Stopping because residual is below prescribed tolerance (1.00e-06)
 
 L2_norm

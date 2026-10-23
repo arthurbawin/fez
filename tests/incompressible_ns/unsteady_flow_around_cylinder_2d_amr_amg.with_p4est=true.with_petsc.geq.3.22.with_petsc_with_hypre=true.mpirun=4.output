@@ -1,0 +1,55 @@
+Number of MPI processes: 4
+Mesh info:
+ dimension: 2
+ no. of cells: 880
+ boundary indicators: 0(17 faces) 1(10 faces) 2(16 faces) 3(20 faces) 4(29 faces) 
+ID 0 -> inlet
+ID 1 -> outlet
+ID 2 -> cylinder
+ID 3 -> bottom
+ID 4 -> top
+Number of degrees of freedom: 2844
+
+Time step 1 - Advancing to t = 0.05.
+Newton iter.  0:          nonlinear residual = 3.10724610e+00
+Newton iter.  1:          nonlinear residual = 4.37121176e-01	(MP)
+Newton iter.  2:          nonlinear residual = 2.19891773e-02	(M)
+Newton iter.  3:          nonlinear residual = 7.37668678e-03	(MP)
+Newton iter.  4:          nonlinear residual = 2.43343198e-03	(M)
+Newton iter.  5:          nonlinear residual = 7.83200320e-04	(M)
+Newton iter.  6:          nonlinear residual = 2.44540122e-04	(M)
+Newton iter.  7:          nonlinear residual = 7.37459294e-05	(M)
+Newton iter.  8:          nonlinear residual = 2.16682842e-05	(M)
+Newton iter.  9:          nonlinear residual = 6.18653816e-06	(M)
+Newton iter. 10:          nonlinear residual = 1.73541100e-06	(M)
+Newton iter. 11:          nonlinear residual = 4.80094746e-07	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 904
+Number of degrees of freedom: 2955
+
+Time step 2 - Advancing to t = 1.00e-01.
+Newton iter.  0:          nonlinear residual = 5.82146019e+00
+Newton iter.  1:          nonlinear residual = 1.62551594e-02	(MP)
+Newton iter.  2:          nonlinear residual = 5.69686425e-04	(M)
+Newton iter.  3:          nonlinear residual = 1.49478408e-04	(MP)
+Newton iter.  4:          nonlinear residual = 3.89536431e-05	(M)
+Newton iter.  5:          nonlinear residual = 1.07854806e-05	(M)
+Newton iter.  6:          nonlinear residual = 2.98532301e-06	(M)
+Newton iter.  7:          nonlinear residual = 8.29559668e-07	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 1015
+Number of degrees of freedom: 3384
+
+Time step 3 - Advancing to t = 2.00e-01.
+Newton iter.  0:          nonlinear residual = 6.92104334e-01
+Newton iter.  1:          nonlinear residual = 5.00149702e-03	(MP)
+Newton iter.  2:          nonlinear residual = 4.02328931e-05	(M)
+Newton iter.  3:          nonlinear residual = 1.03770606e-05	(M)
+Newton iter.  4:          nonlinear residual = 3.86347893e-06	(M)
+Newton iter.  5:          nonlinear residual = 1.41631428e-06	(M)
+Newton iter.  6:          nonlinear residual = 4.57462418e-07	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)

@@ -461,8 +461,8 @@ namespace MeshTools
       const auto pair = Utilities::split_string_list(block, ',');
       AssertThrow(pair.size() == 2,
                   ExcMessage("Expected two comma-separated values in \"" +
-                             block + "\". The parsed parameters are : " +
-                             parameters));
+                             block +
+                             "\". The parsed parameters are : " + parameters));
       return pair;
     };
     const auto length_height = split_pair(blocks[0]);

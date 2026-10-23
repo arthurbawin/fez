@@ -4,6 +4,7 @@
 #include <assembly/assembler.h>
 #include <copy_data.h>
 #include <deal.II/fe/fe_values_extractors.h>
+#include <linear_solver.h>
 #include <navier_stokes_solver.h>
 #include <scratch_data.h>
 
@@ -58,6 +59,11 @@ public:
    * Destructor
    */
   virtual ~NSSolver() = default;
+
+  /**
+   * Reset data specific to this solver (e.g., the preconditioner).
+   */
+  virtual void reset_solver_specific_data() override;
 
   /**
    * Create the scratch data structure for this solver.
@@ -116,6 +122,35 @@ public:
    */
   void copy_local_to_global_rhs(const CopyData &copy_data);
 
+  /**
+   * Create and initialize the chosen preconditioner.
+   */
+  void create_preconditioner();
+
+  /**
+   * Preconditioner update heuristic, returns true if the preconditioner should
+   * be (re)built before the next linear solve. The preconditioner is rebuilt
+   * - if it does not exist yet, or if the mesh or dof numbering has changed,
+   * - for steady problems, at each linear solve, as the Jacobian matrix may
+   *   change significantly between Newton iterations,
+   * - for unsteady problems, the preconditioner is reused across Newton
+   * iterations and time steps, unless:
+   *   - the leading BDF coefficient changed (time step or BDF order),
+   *   - the last GMRES solve did not converge,
+   *   - the number of GMRES iterations of the last solve has grown too much
+   *     compared to the first solve with the current preconditioner.
+   */
+  bool should_rebuild_preconditioner() const;
+
+  /**
+   * Solve the linear system for a single nonlinear solver iteration.
+   * GMRES is currently the only iterative solver supported for this solver.
+   * The preconditioner is rebuilt according to should_rebuild_preconditioner().
+   * If GMRES does not converge with a reused preconditioner, the preconditioner
+   * is rebuilt and the system is solved again once.
+   */
+  virtual void solve_linear_system_iterative() override;
+
 protected:
   /**
    * Get the descriptions (name and number of components) of the variables
@@ -149,6 +184,21 @@ protected:
   std::vector<std::unique_ptr<Assembler>> assemblers;
 
   /**
+   * PETSc-based preconditioner (e.g. ILU or AMG through BoomerAMG)
+   */
+  std::unique_ptr<PETScWrappers::PreconditionBase> preconditioner;
+
+  /**
+   * Data used by should_rebuild_preconditioner(): the leading BDF coefficient
+   * when the preconditioner was last created, the number of GMRES iterations
+   * of the first solve with this preconditioner (0 if no solve was performed
+   * yet), and the outcome of the last solve.
+   */
+  double                            bdf_c0_at_preconditioner_setup;
+  unsigned int                      n_iterations_after_preconditioner_setup;
+  LinearSolvers::IterativeSolveInfo last_solve_info;
+
+  /**
    * Exact solution when performing a convergence study with a manufactured
    * solution.
    */
@@ -168,6 +218,7 @@ protected:
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 
@@ -175,10 +226,10 @@ protected:
                          const unsigned int component = 0) const override
     {
       Assert(component < n_components, ExcMessage("Component mismatch"));
-      if (component < dim)
-        return mms.exact_velocity->value(p, component);
-      else
-        return mms.exact_pressure->value(p);
+      if (component >= u_lower && component < u_lower + dim)
+        return mms.exact_velocity->value(p, component - u_lower);
+      Assert(component == p_lower, ExcMessage("Component mismatch"));
+      return mms.exact_pressure->value(p);
     }
 
     virtual void vector_value(const Point<dim> &p,
@@ -195,10 +246,10 @@ protected:
              const unsigned int component = 0) const override
     {
       Assert(component < n_components, ExcMessage("Component mismatch"));
-      if (component < dim)
-        return mms.exact_velocity->gradient(p, component);
-      else
-        return mms.exact_pressure->gradient(p);
+      if (component >= u_lower && component < u_lower + dim)
+        return mms.exact_velocity->gradient(p, component - u_lower);
+      Assert(component == p_lower, ExcMessage("Component mismatch"));
+      return mms.exact_pressure->gradient(p);
     }
 
   protected:
@@ -233,6 +284,7 @@ protected:
     // Update time in the mms functions
     virtual void set_time(const double new_time) override
     {
+      FunctionTime<double>::set_time(new_time);
       mms.set_time(new_time);
     }
 

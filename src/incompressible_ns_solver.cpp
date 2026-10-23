@@ -20,6 +20,10 @@
 #include <scratch_data.h>
 #include <utilities.h>
 
+#if defined(DEAL_II_WITH_PETSC)
+#  include <petscmat.h>
+#endif
+
 template <int dim>
 NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param)
@@ -134,6 +138,7 @@ template <int dim>
 void NSSolver<dim>::reset_solver_specific_data()
 {
   preconditioner.reset();
+  this->should_assemble_preconditioner = true;
 }
 
 template <int dim>
@@ -201,6 +206,35 @@ void NSSolver<dim>::create_sparsity_pattern()
                              this->locally_owned_dofs,
                              dsp,
                              this->mpi_communicator);
+
+#if defined(DEAL_II_WITH_PETSC)
+  // For P1-P1 or Q1-Q1 elements, all dofs are located at the vertices, and the
+  // (u, p) dofs of each vertex are numbered consecutively, in component order.
+  // The matrix thus has a point block structure of size n_components. Expose
+  // this structure to PETSc by setting the block size of the matrix, which
+  // BoomerAMG then uses as its number of functions. Combined with the nodal
+  // coarsening option set in create_preconditioner(), BoomerAMG coarsens the
+  // vertices (nodes) rather than the individual dofs, using the Frobenius norm
+  // of each nodal block of the matrix as connection strength, so that all
+  // components of a node are kept or discarded together on the coarse levels.
+  const auto &linear_solver_param =
+    this->param.linear_solver.at(this->solver_type);
+  if (linear_solver_param.method !=
+        Parameters::LinearSolver::Method::direct_mumps &&
+      linear_solver_param.preconditioner ==
+        Parameters::LinearSolver::PreconditionerType::amg &&
+      this->param.finite_elements.velocity_degree == 1 &&
+        this->param.finite_elements.pressure_degree == 1)
+  {
+    const PetscErrorCode ierr =
+      MatSetBlockSize(this->system_matrix, n_components);
+    AssertThrow(ierr == 0,
+                ExcMessage("PETSc could not set the block size of the system "
+                           "matrix to " +
+                           std::to_string(this->ordering->n_components) +
+                           " (error code " + std::to_string(ierr) + ")"));
+  }
+#endif
 }
 
 template <int dim>
@@ -218,6 +252,10 @@ void NSSolver<dim>::assemble_matrix()
                            copy_data,
                            this->param.nonlinear_solver.analytic_jacobian);
   this->system_matrix.compress(VectorOperation::add);
+
+  // Jacobian matrix has changed: rebuild the preconditioner at the next solve
+  // FIXME: use a reassembly heuristic
+  this->should_assemble_preconditioner = true;
 }
 
 template <int dim>
@@ -331,8 +369,7 @@ void NSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
 template <int dim>
 void NSSolver<dim>::create_preconditioner()
 {
-  if (preconditioner)
-    return;
+  this->should_assemble_preconditioner = false;
 
   const auto &linear_solver_param =
     this->param.linear_solver.at(this->solver_type);
@@ -347,11 +384,13 @@ void NSSolver<dim>::create_preconditioner()
 #  if !defined(DEAL_II_PETSC_WITH_HYPRE)
     AssertThrow(false,
                 ExcMessage("PETSc must be configured with hypre to use the "
-                           "BoomerAMG preconditioner"));
+                           "BoomerAMG preconditioner, and PETSc 3.22 onward is "
+                           "required to use BoomerAMG with ILU smoother"));
 #  endif
     // Set options not accessible through AdditionnalData
 #  if DEAL_II_PETSC_VERSION_GTE(3, 22, 0)
     // ILU smoother is available from PETSc 3.22 onward
+    PETScWrappers::set_option_value("-pc_hypre_boomeramg_nodal_coarsen", "1");
     PETScWrappers::set_option_value("-pc_hypre_boomeramg_smooth_type", "ILU");
     PETScWrappers::set_option_value("-pc_hypre_boomeramg_ilu_level",
                                     std::to_string(
@@ -381,8 +420,8 @@ void NSSolver<dim>::solve_linear_system_iterative()
   const auto &linear_solver_param =
     this->param.linear_solver.at(this->solver_type);
 
-  // Create preconditioner once?
-  this->create_preconditioner();
+  if (this->should_assemble_preconditioner)
+    this->create_preconditioner();
 
   switch (linear_solver_param.method)
   {

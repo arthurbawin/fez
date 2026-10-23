@@ -36,7 +36,8 @@ subsection Linear solver
     set verbosity      = quiet
     set method         = cg
     set preconditioner = block_jacobi
-    set tolerance      = 1e-12
+    set absolute tolerance = 1e-12
+    set relative tolerance = 0
     set max iterations = 1000
   end
 end

@@ -81,8 +81,9 @@ namespace LinearSolvers
     LA::ParVectorType completely_distributed_solution(locally_owned_dofs,
                                                       solver->mpi_communicator);
 
-    SolverControl           solver_control(linear_solver_param.max_iterations,
-                                 linear_solver_param.tolerance);
+    ReductionControl        solver_control(linear_solver_param.max_iterations,
+                                    linear_solver_param.absolute_tolerance,
+                                    linear_solver_param.relative_tolerance);
     PETScWrappers::SolverCG cg_solver(solver_control);
 
     cg_solver.solve(system_matrix,

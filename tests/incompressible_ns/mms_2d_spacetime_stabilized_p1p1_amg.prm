@@ -27,7 +27,7 @@ end
 
 subsection Nonlinear solver
   set verbosity            = quiet
-  set tolerance            = 1e-8
+  set tolerance            = 1e-6
   set divergence_tolerance = 1e+4
   set max_iterations       = 50
   set enable_line_search   = false

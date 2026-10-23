@@ -118,29 +118,50 @@ namespace LinearSolvers
     VectorType completely_distributed_solution(locally_owned_dofs,
                                                solver->mpi_communicator);
 
-
-    SolverControl solver_control(linear_solver_param.max_iterations,
-                                 linear_solver_param.tolerance);
+    // Stop when residual is below the absolute tolerance, or below the
+    // relative tolerance times the initial residual. Since the initial guess is
+    // zero, the initial residual is the right-hand side (preconditioned, if
+    // left preconditioning is used).
+    ReductionControl solver_control(linear_solver_param.max_iterations,
+                                    linear_solver_param.absolute_tolerance,
+                                    linear_solver_param.relative_tolerance);
 
     solver->computing_timer.enter_subsection("Solve GMRES");
-    if constexpr (std::is_same_v<VectorType, LA::ParVectorType>)
+    try
     {
-      // PETSc's GMRES:
-      PETScWrappers::SolverGMRES gmres_solver(solver_control);
-      gmres_solver.solve(system_matrix,
-                         completely_distributed_solution,
-                         system_rhs,
-                         *preconditioner);
+      if constexpr (std::is_same_v<VectorType, LA::ParVectorType>)
+      {
+        // PETSc's GMRES:
+        PETScWrappers::SolverGMRES gmres_solver(
+          solver_control,
+          PETScWrappers::SolverGMRES::AdditionalData(
+            linear_solver_param.max_krylov_vectors, linear_solver_param.right_preconditioning));
+        gmres_solver.solve(system_matrix,
+                           completely_distributed_solution,
+                           system_rhs,
+                           *preconditioner);
+      }
+      else
+      {
+        // deal.II's GMRES, to handle e.g. block vectors/matrix with a block
+        // Schur complement (TODO)
+        SolverGMRES<VectorType> gmres_solver(
+          solver_control,
+          typename SolverGMRES<VectorType>::AdditionalData(
+            linear_solver_param.max_krylov_vectors, linear_solver_param.right_preconditioning));
+        gmres_solver.solve(system_matrix,
+                           completely_distributed_solution,
+                           system_rhs,
+                           *preconditioner);
+      }
     }
-    else
+    catch (const SolverControl::NoConvergence &e)
     {
-      // deal.II's GMRES, to handle e.g. block vectors/matrix with a block Schur
-      // complement (TODO)
-      SolverGMRES<VectorType> gmres_solver(solver_control);
-      gmres_solver.solve(system_matrix,
-                         completely_distributed_solution,
-                         system_rhs,
-                         *preconditioner);
+      // Use the last iterate as an inexact Newton update, and let the
+      // nonlinear solver decide whether to stop.
+      solver->pcout << "Warning: GMRES did not converge after " << e.last_step
+                    << " iterations (residual = " << e.last_residual << ")"
+                    << std::endl;
     }
     solver->computing_timer.leave_subsection("Solve GMRES");
 

@@ -1246,14 +1246,37 @@ namespace Parameters
                         "none",
                         Patterns::Selection("none|ilu|block_jacobi|amg"),
                         "Method");
-      prm.declare_entry("tolerance",
+      prm.declare_entry("absolute tolerance",
+                        "1e-12",
+                        Patterns::Double(0.),
+                        "Absolute tolerance for iterative solver. The solver "
+                        "stops when the residual norm is below this value, or "
+                        "below the relative tolerance times the initial "
+                        "residual norm.");
+      prm.declare_entry("relative tolerance",
                         "1e-6",
-                        Patterns::Double(),
-                        "Tolerance for iterative solver");
+                        Patterns::Double(0.),
+                        "Relative tolerance for iterative solver, with respect "
+                        "to the initial residual norm (the norm of the "
+                        "right-hand side, since the initial guess is zero). "
+                        "Set to 0 to use only the absolute tolerance.");
       prm.declare_entry("max iterations",
                         "100",
                         Patterns::Integer(),
                         "Max number of outer iterations for iterative solver");
+      prm.declare_entry("max krylov vectors",
+                        "100",
+                        Patterns::Integer(1),
+                        "Number of Krylov vectors stored before restarting "
+                        "GMRES (restart length). Unused by CG.");
+      prm.declare_entry("right preconditioning",
+                        "true",
+                        Patterns::Bool(),
+                        "Use right preconditioning for GMRES, so that the "
+                        "tolerances apply to the true (unpreconditioned) "
+                        "residual. If false, left preconditioning is used and "
+                        "the tolerances apply to the preconditioned residual. "
+                        "Unused by CG.");
       prm.declare_entry("ilu fill level",
                         "0",
                         Patterns::Integer(),
@@ -1294,10 +1317,13 @@ namespace Parameters
                       ExcMessage("Unknown preconditioner type: " +
                                  parsed_prec));
 
-        tolerance      = prm.get_double("tolerance");
-        max_iterations = prm.get_integer("max iterations");
-        ilu_fill_level = prm.get_integer("ilu fill level");
-        reuse          = prm.get_bool("reuse");
+        absolute_tolerance    = prm.get_double("absolute tolerance");
+        relative_tolerance    = prm.get_double("relative tolerance");
+        max_iterations        = prm.get_integer("max iterations");
+        max_krylov_vectors    = prm.get_integer("max krylov vectors");
+        right_preconditioning = prm.get_bool("right preconditioning");
+        ilu_fill_level        = prm.get_integer("ilu fill level");
+        reuse                 = prm.get_bool("reuse");
         READ_VERBOSITY_PARAM(prm, verbosity)
       }
       prm.leave_subsection();

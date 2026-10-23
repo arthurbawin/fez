@@ -165,7 +165,7 @@ protected:
   std::vector<std::unique_ptr<Assembler>> assemblers;
 
   /**
-   * PETSc-based preconditioner, which can be ILU, AMG (BoomerAMG), ...
+   * PETSc-based preconditioner (e.g. ILU or AMG through BoomerAMG)
    */
   std::unique_ptr<PETScWrappers::PreconditionBase> preconditioner;
 

@@ -255,6 +255,10 @@ void NSSolver<dim>::assemble_matrix()
                            copy_data,
                            this->param.nonlinear_solver.analytic_jacobian);
   this->system_matrix.compress(VectorOperation::add);
+
+  // Jacobian matrix has changed: rebuild the preconditioner at the next solve
+  // FIXME: use a reassembly heuristic
+  this->should_assemble_preconditioner = true;
 }
 
 template <int dim>

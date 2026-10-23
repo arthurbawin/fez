@@ -1,0 +1,52 @@
+Number of MPI processes: 4
+Mesh info:
+ dimension: 2
+ no. of cells: 880
+ boundary indicators: 0(17 faces) 1(10 faces) 2(16 faces) 3(20 faces) 4(29 faces) 
+ID 0 -> inlet
+ID 1 -> outlet
+ID 2 -> cylinder
+ID 3 -> bottom
+ID 4 -> top
+Number of degrees of freedom: 2844
+Newton iter.  0:          nonlinear residual = 1.60732302e+00
+Newton iter.  1:          nonlinear residual = 6.47141503e-01	(M)
+Newton iter.  2:          nonlinear residual = 1.82098841e-02	(M)
+Newton iter.  3:          nonlinear residual = 3.67596790e-03	(M)
+Newton iter.  4:          nonlinear residual = 9.58382374e-04	(M)
+Newton iter.  5:          nonlinear residual = 4.01598755e-04	(M)
+Newton iter.  6:          nonlinear residual = 1.63792638e-04	(M)
+Newton iter.  7:          nonlinear residual = 6.90082261e-05	(M)
+Newton iter.  8:          nonlinear residual = 2.84294762e-05	(M)
+Newton iter.  9:          nonlinear residual = 1.17263582e-05	(M)
+Newton iter. 10:          nonlinear residual = 4.78223012e-06	(M)
+Newton iter. 11:          nonlinear residual = 1.93651812e-06	(M)
+Newton iter. 12:          nonlinear residual = 7.76897831e-07	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 1522
+Number of degrees of freedom: 4950
+Newton iter.  0:          nonlinear residual = 1.02998396e-01
+Newton iter.  1:          nonlinear residual = 2.28992734e-03	(M)
+Newton iter.  2:          nonlinear residual = 4.32706648e-04	(M)
+Newton iter.  3:          nonlinear residual = 1.51439333e-04	(M)
+Newton iter.  4:          nonlinear residual = 4.73487034e-05	(M)
+Newton iter.  5:          nonlinear residual = 1.44592733e-05	(M)
+Newton iter.  6:          nonlinear residual = 4.37159270e-06	(M)
+Newton iter.  7:          nonlinear residual = 1.32952573e-06	(M)
+Newton iter.  8:          nonlinear residual = 4.79421189e-07	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 2722
+Number of degrees of freedom: 8838
+Newton iter.  0:          nonlinear residual = 4.86597123e-02
+Newton iter.  1:          nonlinear residual = 3.77158246e-04	(M)
+Newton iter.  2:          nonlinear residual = 9.90013571e-05	(M)
+Newton iter.  3:          nonlinear residual = 3.21537654e-05	(M)
+Newton iter.  4:          nonlinear residual = 1.03067174e-05	(M)
+Newton iter.  5:          nonlinear residual = 3.23797871e-06	(M)
+Newton iter.  6:          nonlinear residual = 1.02870022e-06	(M)
+Newton iter.  7:          nonlinear residual = 3.33379564e-07	(M)
+Stopping because residual is below prescribed tolerance (1.00e-06)

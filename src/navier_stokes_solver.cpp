@@ -38,6 +38,7 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                                present_solution,
                                previous_solutions,
                                metric_for_adaptation)
+  , should_assemble_preconditioner(true)
 {
 #if !DEAL_II_VERSION_GTE(9, 9, 0)
   if constexpr (with_moving_mesh)
@@ -1242,6 +1243,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
     transient_fixed_point_data.transfer_solution_between_refinements(
       locally_relevant_dofs, nonzero_constraints);
   }
+
+  // Preconditioner should be assembled again since mesh has changed
+  should_assemble_preconditioner = true;
 }
 
 template <int dim, bool with_moving_mesh>

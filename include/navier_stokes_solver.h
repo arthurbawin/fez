@@ -625,6 +625,7 @@ protected:
 
   SolverControl                                          solver_control;
   std::unique_ptr<PETScWrappers::SparseDirectMUMPSReuse> direct_solver_reuse;
+  bool should_assemble_preconditioner;
 
   std::unique_ptr<PostProcessingHandler<dim>>     postproc_handler;
   typename PostProcessingHandler<dim>::PrefixData prefix_data;

@@ -674,9 +674,18 @@ namespace Parameters
       amg
     } preconditioner;
 
-    // Tolerance and max number of iterations for iterative solvers
-    double       tolerance;
+    // Absolute and relative tolerances and max number of iterations for
+    // iterative solvers. The solver stops when the residual norm is below
+    // max(absolute_tolerance, relative_tolerance * initial residual norm).
+    double       absolute_tolerance;
+    double       relative_tolerance;
     unsigned int max_iterations;
+
+    // Number of Krylov vectors stored before restarting GMRES
+    unsigned int max_krylov_vectors;
+
+    // Use right preconditioning for GMRES (left if false)
+    bool right_preconditioning;
 
     // Fill-in levels for ILU preconditioner
     unsigned int ilu_fill_level;

@@ -39,7 +39,9 @@ subsection Linear solver
     set verbosity      = quiet
     set method         = gmres
     set preconditioner = amg 
-    set tolerance      = 1e-9
+    set absolute tolerance = 1e-9
+    set relative tolerance = 0
+    set right preconditioning = false
     set max iterations = 1000
   end
 end

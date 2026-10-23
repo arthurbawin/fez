@@ -1,9 +1,12 @@
 #ifndef COMPARE_MATRIX_H
 #define COMPARE_MATRIX_H
 
+#include <petscvec.h>
+
 #include <copy_data.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/mapping_fe_field.h>
+#include <deal.II/lac/petsc_vector.h>
 #include <parameter_reader.h>
 #include <types.h>
 #include <utilities.h>
@@ -16,32 +19,35 @@ using namespace dealii;
 namespace Verification
 {
   /**
-   * Compute the local matrix on the given cell using first-order forward finite
-   * differences. This function does not currently work in parallel, possibly
-   * due to the exchanges of ghosts inside the dof loop.
+   * Compute the local matrix (stored in @p copy_data) on the given @p cell,
+   * using first-order forward finite differences. This function evaluates
+   * n_dofs_per_cell + 1 Newton residuals to compute the system matrix, and is
+   * thus typically slower than a direct matrix computation. It is intended for
+   * prototyping.
    *
-   * An alternative would be to work with local copies of the solution vector,
-   * which requires adding a reinit function for the ScratchData to interpolate
-   * fields from a local vector rather than from the full solution vector.
+   * Because the modifications of the solution vector are only applied locally,
+   * this function is allowed to modify both owned and ghosted dof
+   * entries stored in the @p evaluation_point, which is usually read-only.
+   * Thus, the partitions will temporarily disagree on the stored values of
+   * ghost dofs, but the original value is restored straightaway.
    *
-   * This function is intended for prototyping.
-   *
-   * When assembling a numerical Jacobian for Newton, stabilization parameters
-   * are recomputed for each perturbed solution.
+   * Note: If the solver calling this function uses SUPG stabilization, no
+   * additional treatment is applied, and the stabilization parameters are
+   * recomputed for each perturbed solution. This contrasts with the analytical
+   * computation, in which these stabilization parameters are typically kept
+   * constant.
    */
-  template <int dim,
-            typename MainClass,
-            typename Iterator,
+  template <typename CellIterator,
+            typename VectorType,
+            typename LocalRhsFunction,
             typename ScratchData,
             typename CopyData>
   void compute_local_matrix_finite_differences(
-    const typename DoFHandler<dim>::active_cell_iterator &cell,
-    MainClass                                            &main_object,
-    void (MainClass::*assemble_local_rhs)(const Iterator &,
-                                          ScratchData &,
-                                          CopyData &),
-    ScratchData &scratch_data,
-    CopyData    &copy_data);
+    const CellIterator     &cell,
+    VectorType             &evaluation_point,
+    const LocalRhsFunction &assemble_local_rhs,
+    ScratchData            &scratch_data,
+    CopyData               &copy_data);
 
   /**
    * Compute the analytic Jacobian matrix on each mesh element
@@ -57,19 +63,9 @@ namespace Verification
    * unchanged during the finite differences. This allows the analytic and
    * numerical Jacobians to be compared using the same assumption about tau.
    */
-  template <int dim,
-            typename MainClass,
-            typename Iterator,
-            typename ScratchData,
-            typename CopyData>
+  template <int dim, typename Solver, typename ScratchData, typename CopyData>
   void compare_analytical_matrix_with_fd(
-    MainClass &main_object,
-    void (MainClass::*assemble_local_matrix)(const Iterator &,
-                                             ScratchData &,
-                                             CopyData &),
-    void (MainClass::*assemble_local_rhs)(const Iterator &,
-                                          ScratchData &,
-                                          CopyData &),
+    Solver      &solver,
     ScratchData &scratch_data,
     CopyData    &copy_data,
     const bool   print_problematic_elements = false);
@@ -79,101 +75,105 @@ namespace Verification
 
 namespace Verification
 {
-  template <int dim,
-            typename MainClass,
-            typename Iterator,
+  // Write an owned *or ghost* entry of a ghosted PETSc vector, locally,
+  // without any communication. Returns the previous value.
+  inline double set_local_entry(PETScWrappers::MPI::Vector   &v,
+                                const types::global_dof_index i,
+                                const double                  value)
+  {
+    Assert(v.has_ghost_elements(), ExcMessage("Expected a ghosted vector."));
+
+    // Position of i in the local form: [owned entries | ghost entries]
+    const auto [begin, end] = v.local_range();
+    PetscInt local_index;
+    if (i >= begin && i < end)
+      local_index = static_cast<PetscInt>(i - begin);
+    else
+    {
+      const IndexSet &ghosts = v.ghost_elements();
+      Assert(ghosts.is_element(i), ExcMessage("DoF is not locally relevant."));
+      local_index =
+        static_cast<PetscInt>((end - begin) + ghosts.index_within_set(i));
+    }
+
+    Vec            local_form;
+    PetscScalar   *array;
+    PetscErrorCode ierr = VecGhostGetLocalForm(v, &local_form);
+    AssertThrow(ierr == 0, ExcPETScError(ierr));
+    ierr = VecGetArray(local_form, &array);
+    AssertThrow(ierr == 0, ExcPETScError(ierr));
+
+    const double old_value = PetscRealPart(array[local_index]);
+    array[local_index]     = value;
+
+    ierr = VecRestoreArray(local_form, &array);
+    AssertThrow(ierr == 0, ExcPETScError(ierr));
+    ierr = VecGhostRestoreLocalForm(v, &local_form);
+    AssertThrow(ierr == 0, ExcPETScError(ierr));
+
+    return old_value;
+  }
+
+  template <typename CellIterator,
+            typename VectorType,
+            typename LocalRhsFunction,
             typename ScratchData,
             typename CopyData>
   void compute_local_matrix_finite_differences(
-    const typename DoFHandler<dim>::active_cell_iterator &cell,
-    MainClass                                            &main_object,
-    void (MainClass::*assemble_local_rhs)(const Iterator &,
-                                          ScratchData &,
-                                          CopyData &),
-    ScratchData &scratch_data,
-    CopyData    &copy_data)
+    const CellIterator     &cell,
+    VectorType             &evaluation_point,
+    const LocalRhsFunction &assemble_local_rhs,
+    ScratchData            &scratch_data,
+    CopyData               &copy_data)
   {
-    const auto         comm = cell->get_dof_handler().get_mpi_communicator();
-    const unsigned int mpi_size = Utilities::MPI::n_mpi_processes(comm);
-    AssertThrow(mpi_size == 1,
-                ExcMessage("Matrix assembly with finite differences is for now "
-                           "restricted to sequential runs (1 MPI rank)."));
-
     copy_data.cell_is_locally_owned = cell->is_locally_owned();
-
     if (!cell->is_locally_owned())
       return;
 
-    auto &local_evaluation_point = main_object.get_local_evaluation_point();
-    auto &evaluation_point       = main_object.get_evaluation_point();
+    const auto fe_index          = cell->active_fe_index();
+    auto      &local_matrix      = copy_data.local_matrix(fe_index);
+    auto      &local_dof_indices = copy_data.dof_indices(fe_index);
+    cell->get_dof_indices(local_dof_indices);
 
-    FullMatrix<double>                   *local_matrix;
-    std::vector<types::global_dof_index> *local_dof_indices;
+    const unsigned int n = local_matrix.m();
+    local_matrix         = 0;
 
-    const auto fe_index = cell->active_fe_index();
-    local_matrix        = &copy_data.local_matrix(fe_index);
-    local_dof_indices   = &copy_data.dof_indices(fe_index);
-
-    *local_matrix = 0;
-
-    const unsigned int n = local_matrix->m();
-    Vector<double>     ref_local_rhs(n), perturbed_local_rhs(n);
-
-    cell->get_dof_indices(*local_dof_indices);
-    const double h = 1.e-8;
+    const double h = 1e-8;
 
     // Compute non-perturbed RHS
-    (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
+    assemble_local_rhs(cell, scratch_data, copy_data);
 
-    ref_local_rhs = copy_data.local_rhs(fe_index);
+    const Vector<double> ref_local_rhs = copy_data.local_rhs(fe_index);
 
+    // Now perturb each dof one at a time and recompute residual
     for (unsigned int j = 0; j < n; ++j)
     {
-      evaluation_point      = local_evaluation_point;
-      const double og_value = evaluation_point[(*local_dof_indices)[j]];
+      const auto   gj  = local_dof_indices[j];
+      const double u_0 = evaluation_point[gj]; // reading ghosts is fine
+      const double u_p = u_0 + h;
 
-      local_evaluation_point[(*local_dof_indices)[j]] += h;
-      local_evaluation_point.compress(VectorOperation::add);
-      evaluation_point = local_evaluation_point;
+      set_local_entry(evaluation_point, gj, u_p);
 
-      // Compute perturbed RHS
-      (main_object.*assemble_local_rhs)(cell, scratch_data, copy_data);
+      assemble_local_rhs(cell, scratch_data, copy_data);
+      const auto &perturbed_local_rhs = copy_data.local_rhs(fe_index);
 
-      perturbed_local_rhs = copy_data.local_rhs(fe_index);
-
-      // Finite differences (with sign change as residual is -NL(u))
       for (unsigned int i = 0; i < n; ++i)
-      {
-        (*local_matrix)(i, j) =
-          -(perturbed_local_rhs(i) - ref_local_rhs(i)) / h;
-      }
+        local_matrix(i, j) = -(perturbed_local_rhs(i) - ref_local_rhs(i)) / h;
 
-      // Restore solution
-      local_evaluation_point[(*local_dof_indices)[j]] = og_value;
-      local_evaluation_point.compress(VectorOperation::insert);
-      evaluation_point = local_evaluation_point;
+      set_local_entry(evaluation_point, gj, u_0); // exact restore
     }
+
+    copy_data.local_rhs(fe_index) = ref_local_rhs;
   }
 
-  template <int dim,
-            typename MainClass,
-            typename Iterator,
-            typename ScratchData,
-            typename CopyData>
-  void compare_analytical_matrix_with_fd(
-    MainClass &main_object,
-    void (MainClass::*assemble_local_matrix)(const Iterator &,
-                                             ScratchData &,
-                                             CopyData &),
-    void (MainClass::*assemble_local_rhs)(const Iterator &,
-                                          ScratchData &,
-                                          CopyData &),
-    ScratchData &scratch_data,
-    CopyData    &copy_data,
-    const bool   print_problematic_elements)
+  template <int dim, typename Solver, typename ScratchData, typename CopyData>
+  void compare_analytical_matrix_with_fd(Solver      &solver,
+                                         ScratchData &scratch_data,
+                                         CopyData    &copy_data,
+                                         const bool print_problematic_elements)
   {
-    const auto &param       = main_object.get_parameters();
-    const auto &dof_handler = main_object.get_dof_handler();
+    const auto &param       = solver.get_parameters();
+    const auto &dof_handler = solver.get_dof_handler();
 
     std::vector<types::global_dof_index> local_dof_indices;
     FullMatrix<double> local_matrix, local_matrix_fd, error_matrix;
@@ -187,9 +187,8 @@ namespace Verification
       *outfile << "View \"elements_with_mismatched_matrix\"{" << std::endl;
     }
 
-    main_object.get_local_evaluation_point() =
-      main_object.get_present_solution();
-    main_object.get_evaluation_point() = main_object.get_present_solution();
+    solver.get_local_evaluation_point() = solver.get_present_solution();
+    solver.get_evaluation_point()       = solver.get_present_solution();
 
     const double abs_tol =
       param.nonlinear_solver.analytical_jacobian_absolute_tolerance;
@@ -218,17 +217,27 @@ namespace Verification
 
       {
         // Compute analytic matrix
-        (main_object.*assemble_local_matrix)(cell, scratch_data, copy_data);
+        solver.assemble_local_matrix(cell, scratch_data, copy_data);
         local_matrix = copy_data.local_matrix(fe_index);
         error_matrix.equ(1.0, local_matrix);
       }
+
+      const auto assemble_local_rhs =
+        [&solver](const typename DoFHandler<dim>::active_cell_iterator &cell,
+                  ScratchData &scratch_data,
+                  CopyData    &copy_data) {
+          solver.assemble_local_rhs(cell, scratch_data, copy_data);
+        };
 
       {
         // Compute matrix with finite differences
         // Keep tau constant during the finite-difference comparison.
         scratch_data.set_keep_tau_constant(true);
-        compute_local_matrix_finite_differences<dim>(
-          cell, main_object, assemble_local_rhs, scratch_data, copy_data);
+        compute_local_matrix_finite_differences(cell,
+                                                solver.get_evaluation_point(),
+                                                assemble_local_rhs,
+                                                scratch_data,
+                                                copy_data);
         scratch_data.set_keep_tau_constant(false);
         local_matrix_fd = copy_data.local_matrix(fe_index);
         error_matrix.add(-1.0, local_matrix_fd);
@@ -306,10 +315,10 @@ namespace Verification
 
     max_absolute_error_over_all_elements =
       Utilities::MPI::max(max_absolute_error_over_all_elements,
-                          main_object.mpi_communicator);
+                          solver.mpi_communicator);
     max_relative_error_over_all_elements =
       Utilities::MPI::max(max_relative_error_over_all_elements,
-                          main_object.mpi_communicator);
+                          solver.mpi_communicator);
 
     if (print_problematic_elements)
     {
@@ -317,7 +326,7 @@ namespace Verification
       outfile->close();
     }
 
-    if (main_object.mpi_rank == 0)
+    if (solver.mpi_rank == 0)
     {
       std::cout << "Max absolute error analytical vs fd matrix is "
                 << max_absolute_error_over_all_elements << std::endl;

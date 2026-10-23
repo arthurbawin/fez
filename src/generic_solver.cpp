@@ -272,7 +272,7 @@ bool GenericSolver<VectorType>::should_create_triangulation() const
    * coarsenings are performed on the same triangulation object, and no new mesh
    * is created.
    */
-  if (mesh_param.adaptation.with_tree_based_adaptation())
+  if (mms_param.enable && mesh_param.adaptation.with_tree_based_adaptation())
   {
     // If starting the convergence study at a later step, create the mesh only
     // for that step

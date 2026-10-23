@@ -559,20 +559,20 @@ all_dofs_found:
 /**
  * On the cylinder, we have
  *
- * x = X - int_Gamma lambda dx,
+ * x = X - 1/k int_Gamma lambda dx,
  *
  * yielding the affine constraints
  *
- * x_i = X_i + sum_j c_ij * lambda_j, with c_ij = - int_Gamma phi_global_j dx.
+ * x_i = X_i + 1/k sum_j c_ij * lambda_j,
+ * with c_ij = - int_Gamma phi_global_j dx.
  *
  * Each position DoF is linked to all lambda DoF on the cylinder, which may
  * not be owned of even ghosts of the current process.
  *
  * This function does the following:
  *
- * - It computes the coefficients c_ij of the coupling x_i = X_i + c_ij *
- * lambda_j, which are the integral of the global shape functions associated to
- * lambda_j.
+ * - It computes the coefficients c_ij of the force integral, which are the
+ * integral of the global shape functions associated to lambda_j.
  *
  * - It creates the DOF pairings (x_i, vector of lambda_j), which specify to
  * which lambda DOFs a position DOF on the cylinder is constrained (all of them
@@ -1181,8 +1181,7 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
                 fe_face_values_fixed.shape_value(i_cell_dof, q);
 
               // Force coefficients
-              force_coeffs[d][lambda_dof] +=
-                -phi_i * JxW / this->param.fsi.spring_constant;
+              force_coeffs[d][lambda_dof] += -phi_i * JxW;
 
               if constexpr (dim == 3)
                 if (d == 2 && this->param.fsi.fix_z_component)
@@ -1248,21 +1247,19 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
   /**
    * Sanity check on the force weights
-   * Expected sum is -1/k * |Cylinder|
+   * Expected sum is -|Cylinder|
    */
   {
-    const double k                    = this->param.fsi.spring_constant;
     const double r                    = this->param.fsi.cylinder_radius;
-    double       expected_weights_sum = -1 / k * 2. * M_PI * r;
+    double       expected_weights_sum = -2. * M_PI * r;
     if constexpr (dim == 3)
       expected_weights_sum *= this->param.fsi.cylinder_length;
 
     const double expected_discrete_weights_sum =
-      -1. / k *
-      compute_boundary_volume(*this->dof_handler,
-                              *this->moving_mapping,
-                              *this->face_quadrature,
-                              weak_no_slip_boundary_id);
+      -compute_boundary_volume(*this->dof_handler,
+                               *this->moving_mapping,
+                               *this->face_quadrature,
+                               weak_no_slip_boundary_id);
 
     for (unsigned int d = 0; d < dim; ++d)
     {
@@ -1286,9 +1283,9 @@ void FSISolver<dim>::create_position_lagrange_mult_coupling_data()
 
       AssertThrow(
         std::abs(weights_sum - expected_discrete_weights_sum) < 1e-10,
-        ExcMessage(
-          "The sum of force weights for component " + std::to_string(d) +
-          " of lambda coupling should be -1/k * |Cylinder|, but it's not."));
+        ExcMessage("The sum of force weights for component " +
+                   std::to_string(d) +
+                   " of lambda coupling should be -|Cylinder|, but it's not."));
     }
   }
 
@@ -2017,27 +2014,15 @@ void FSISolver<dim>::assemble_matrix()
 {
   TimerOutput::Scope t(this->computing_timer, "Assemble matrix");
 
-  this->system_matrix = 0;
-
   CopyData copy_data(*fe);
 
-#if defined(FEZ_WITH_PETSC)
-  AssertThrow(
-    MultithreadInfo::n_threads() == 1,
-    ExcMessage(
-      "Assembly is running with more than 1 thread, but uses PETSc wrappers "
-      "for parallel matrix and vectors, which are not thread safe."));
-#endif
-
-  // Assemble matrix (multithreaded if supported)
-  WorkStream::run(this->dof_handler->begin_active(),
-                  this->dof_handler->end(),
-                  *this,
-                  &FSISolver::assemble_local_matrix,
-                  &FSISolver::copy_local_to_global_matrix,
-                  *scratch_data,
-                  copy_data);
-
+  this->system_matrix = 0;
+  this->do_matrix_assembly(*this,
+                           this->dof_handler->begin_active(),
+                           this->dof_handler->end(),
+                           *scratch_data,
+                           copy_data,
+                           this->param.nonlinear_solver.analytic_jacobian);
   this->system_matrix.compress(VectorOperation::add);
 
   if (this->param.fsi.enable_coupling)
@@ -2090,8 +2075,6 @@ void FSISolver<dim>::compare_analytical_matrix_with_fd()
   CopyData copy_data(*fe);
   Verification::compare_analytical_matrix_with_fd<dim>(
     *this,
-    &FSISolver::assemble_local_matrix,
-    &FSISolver::assemble_local_rhs,
     *scratch_data,
     copy_data,
     this->param.nonlinear_solver.write_problematic_elements);
@@ -2347,7 +2330,8 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
               constrain_matrix_row(this->system_matrix,
                                    pos_dof,
                                    position_rows.at(pos_dof),
-                                   lambda_integral_coeffs[d]);
+                                   lambda_integral_coeffs[d],
+                                   1. / this->param.fsi.spring_constant);
         }
       }
       break;
@@ -2364,7 +2348,8 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                                local_position_master_dofs[d],
                                master_position_rows.at(
                                  local_position_master_dofs[d]),
-                               lambda_integral_coeffs[d]);
+                               lambda_integral_coeffs[d],
+                               1. / this->param.fsi.spring_constant);
 
         // Set x_i - x_master = 0 for the other coupled position dofs
         for (const auto &[pos_dof, d] : coupled_position_dofs)
@@ -2393,7 +2378,8 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                                  global_position_master_dofs[d],
                                  master_position_rows.at(
                                    global_position_master_dofs[d]),
-                                 lambda_integral_coeffs[d]);
+                                 lambda_integral_coeffs[d],
+                                 1. / this->param.fsi.spring_constant);
         }
         else
         {
@@ -2488,7 +2474,8 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
                 std::vector<std::pair<types::global_dof_index, double>>
                   accumulator_coeffs;
                 for (auto lambda_accumulator : all_lambda_accumulators[d])
-                  accumulator_coeffs.emplace_back(lambda_accumulator, 1.);
+                  accumulator_coeffs.emplace_back(
+                    lambda_accumulator, 1. / this->param.fsi.spring_constant);
                 constrain_matrix_row(this->system_matrix,
                                      local_position_master_dofs[d],
                                      master_position_rows.at(
@@ -2546,12 +2533,11 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
               // Coupling with lambda^{n+1}
               // Without accumulators
               // for (const auto &[l_dof, coeff] : lambda_integral_coeffs[d])
-              // this->system_matrix.set(v_dof, l_dof, - coeff * spring_constant
-              // / mass);
+              // this->system_matrix.set(v_dof, l_dof, -coeff / mass);
 
               // With accumulators
               for (const auto l_dof : all_lambda_accumulators[d])
-                this->system_matrix.set(v_dof, l_dof, -spring_constant / mass);
+                this->system_matrix.set(v_dof, l_dof, -1. / mass);
             }
           }
         }
@@ -2595,14 +2581,14 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_matrix()
         if (has_global_master_position_dofs)
         {
           // Couple global position master to global accumulator
-          // Constrain: x_global - c * F_global = 0
+          // Constrain: x_global - 1/k * F_global = 0
           for (unsigned int d = 0; d < dim; ++d)
             constrain_matrix_row(this->system_matrix,
                                  global_position_master_dofs[d],
                                  master_position_rows.at(
                                    global_position_master_dofs[d]),
                                  global_lambda_accumulators[d],
-                                 -1.);
+                                 -1. / this->param.fsi.spring_constant);
         }
         else
         {
@@ -2848,14 +2834,13 @@ void FSISolver<dim>::add_algebraic_position_coupling_to_rhs()
 
           // Without accumulators
           // for (const auto &[l_dof, coeff] : lambda_integral_coeffs[d])
-          //   val -= coeff * spring_constant / mass *
-          //   this->evaluation_point[l_dof];
+          //   val -= coeff / mass * this->evaluation_point[l_dof];
 
           // With accumulators: must read from ghosted evaluation point, as most
           // (or even all, on partitions with a position master but no force
           // accumulator) accumulators are ghosts
           for (const auto &l_dof : all_lambda_accumulators[d])
-            val -= spring_constant / mass * this->evaluation_point[l_dof];
+            val -= 1. / mass * this->evaluation_point[l_dof];
 
           this->system_rhs(v_dof) = -val;
         }

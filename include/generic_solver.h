@@ -5,9 +5,12 @@
  * This structure is borrowed from the Lethe project.
  */
 
+#include <compare_matrix.h>
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/observer_pointer.h>
+#include <deal.II/base/std_cxx20/type_traits.h>
 #include <deal.II/base/timer.h>
+#include <deal.II/base/work_stream.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/numerics/vector_tools_common.h>
 #include <error_handler.h>
@@ -98,6 +101,28 @@ public:
    */
   virtual void assemble_matrix() = 0;
 
+protected:
+  /**
+   * Actually perform the matrix assembly. If @p analytic_jacobian is true,
+   * this function computes the analytical Jacobian matrix for Newton's method,
+   * by calling WorkStream::run() with the @p solver's own
+   * assemble_local_matrix() routine. If @p analytic_jacobian is false, it calls
+   * instead compute_local_matrix_finite_differences() which computes a finite
+   * difference approximation of the matrix using the @p solver's
+   * assemble_local_rhs() routine.
+   */
+  template <typename Solver,
+            typename Iterator,
+            typename ScratchData,
+            typename CopyData>
+  void do_matrix_assembly(Solver                                     &solver,
+                          const Iterator                             &begin,
+                          const std_cxx20::type_identity_t<Iterator> &end,
+                          const ScratchData &sample_scratch_data,
+                          const CopyData    &sample_copy_data,
+                          const bool         analytic_jacobian);
+
+public:
   /**
    * Assemble the (negative of the) nonlinear residual -NL(U), evaluated at the
    * current solution. This function is overloaded by each derived solver.
@@ -348,6 +373,67 @@ template <typename VectorType>
 VectorType &GenericSolver<VectorType>::get_system_rhs()
 {
   return system_rhs;
+}
+
+template <typename VectorType>
+template <typename Solver,
+          typename Iterator,
+          typename ScratchData,
+          typename CopyData>
+void GenericSolver<VectorType>::do_matrix_assembly(
+  Solver                                     &solver,
+  const Iterator                             &begin,
+  const std_cxx20::type_identity_t<Iterator> &end,
+  const ScratchData                          &sample_scratch_data,
+  const CopyData                             &sample_copy_data,
+  const bool                                  analytic_jacobian)
+{
+#if defined(FEZ_WITH_PETSC)
+  AssertThrow(
+    MultithreadInfo::n_threads() == 1,
+    ExcMessage(
+      "Assembly is running with more than 1 thread, but uses PETSc wrappers "
+      "for parallel matrix and vectors, which are not thread safe."));
+#endif
+
+  const auto copier = [&solver](const CopyData &copy_data) {
+    solver.copy_local_to_global_matrix(copy_data);
+  };
+
+  if (analytic_jacobian)
+  {
+    const auto worker = [&solver](const Iterator &cell,
+                                  ScratchData    &scratch_data,
+                                  CopyData       &copy_data) {
+      solver.assemble_local_matrix(cell, scratch_data, copy_data);
+    };
+
+    WorkStream::run(
+      begin, end, worker, copier, sample_scratch_data, sample_copy_data);
+  }
+  else
+  {
+    const auto assemble_local_rhs = [&solver](const Iterator &cell,
+                                              ScratchData    &scratch_data,
+                                              CopyData       &copy_data) {
+      solver.assemble_local_rhs(cell, scratch_data, copy_data);
+    };
+
+    // Serial loop: the FD worker perturbs the shared ghosted vector
+    // in place, so concurrent threads would race on shared DoFs.
+    ScratchData scratch_data = sample_scratch_data;
+    CopyData    copy_data    = sample_copy_data;
+    for (Iterator cell = begin; cell != end; ++cell)
+    {
+      Verification::compute_local_matrix_finite_differences(
+        cell,
+        solver.get_evaluation_point(),
+        assemble_local_rhs,
+        scratch_data,
+        copy_data);
+      copier(copy_data);
+    }
+  }
 }
 
 #endif

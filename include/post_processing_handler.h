@@ -571,7 +571,8 @@ void PostProcessingHandler<dim>::PrefixData::append_to_prefix_or_suffix(
 
   if (is_prerefinement_step)
     prefix_or_suffix +=
-      "_prerefinement_step_" + std::to_string(prerefinement_step);
+      is_for_pvd ? "_prerefinement_steps" :
+                   "_prerefinement_step_" + std::to_string(prerefinement_step);
 }
 
 template <int dim>

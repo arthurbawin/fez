@@ -483,6 +483,10 @@ void MetricField<dim>::apply_gradation_deterministic()
   for (unsigned int i = 0; i < n_vertices; ++i)
     if (owned_vertices[i])
       metrics[i] = local_metrics[indices[i]].second;
+
+  // Update the FE representation and the ghosted metrics
+  metrics_to_tensor_solution();
+  tensor_solution_to_metrics();
 }
 
 template <int dim>
@@ -505,6 +509,15 @@ void MetricField<dim>::apply_gradation_non_deterministic()
   }
 
   const std::vector<Point<dim>> &vertices = triangulation->get_vertices();
+
+  const bool verbose = param->metric_fields[index].gradation.verbosity ==
+                       Parameters::Verbosity::verbose;
+
+  // The metrics are computed and scaled on owned vertices only, so update the
+  // ghosted metrics before the first sweep, which uses edges with ghost
+  // vertices.
+  metrics_to_tensor_solution();
+  tensor_solution_to_metrics();
 
   unsigned int iter = 0;
 
@@ -540,8 +553,10 @@ void MetricField<dim>::apply_gradation_non_deterministic()
         };
       }
       local_n_corrected_with_ghosts += n_corrected;
-      std::cout << "Rank " << mpi_rank << " - Metric gradation: Sweep " << iter
-                << " - Number of modified edges: " << n_corrected << std::endl;
+      if (verbose)
+        std::cout << "Rank " << mpi_rank << " - Metric gradation: Sweep "
+                  << iter << " - Number of modified edges: " << n_corrected
+                  << std::endl;
     }
 
     const auto n_corrected_with_ghosts =
@@ -550,7 +565,7 @@ void MetricField<dim>::apply_gradation_non_deterministic()
       break;
 
     // Update ghosts
-    if (mpi_rank == 0)
+    if (verbose && mpi_rank == 0)
       std::cout << "Updating ghosts" << std::endl;
     metrics_to_tensor_solution();
     tensor_solution_to_metrics();

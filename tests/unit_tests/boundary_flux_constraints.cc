@@ -9,13 +9,135 @@
 
 #include <array>
 #include <cmath>
-#include <iostream>
+#include <functional>
+#include <iomanip>
 #include <map>
+#include <set>
+#include <sstream>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "../tests.h"
+
+// Note: this test was mostly AI-generated, but was reviewed, edited and tested.
+
+// This test compares three ways of building the normal flux constraints at the
+// corners and edges where slip (velocity) or no_flux (mesh position) walls
+// meet:
+//
+//  - all walls: a single deal.II call with all wall ids (behaviour before the
+//               fix). deal.II averages the normals of walls that belong to
+//               different cells. At the interface of e.g. two slip conditions,
+//               this yields a relation on the vector components
+//               instead of setting these to zero.
+//
+//  - per wall:  one deal.II call per wall into the same constraints. deal.II
+//               skips a line whose pivot is already constrained, so a second
+//               slip constraint will be silently ignored.
+//
+//  - fix:       The current implementation of
+//  BoundaryConditions::apply_*_boundary_conditions.
+//               When adding a flux condition, the function looks for existing
+//               constraints and substitute the new one into it, resolving
+//               chains if needed. It never creates any cycle, as the pivot
+//               is chosen among free DoFs.
+//
+// For each corner or edge node, the table reports the number of free vector
+// components, the largest residual of the exact wall equations n_k.(u - g_k)
+// after distributing a constant vector, and the largest constraint weight.
+//
+// Debug and release give the same table: none of deal.II's debug-only checks
+// fire on these geometries, and cycles in the constraints are detected here
+// (see has_cycle) rather than in close(), which checks them only in debug.
+
+// All geometries start from the reference L-shaped domain of hyper_L, then
+// apply q = A p + t (see linear_map). The drawings omit the translation t.
+// Normals n are outward, i.e. they point into the removed region, and
+// "pivot" is the component deal.II picks when it treats each wall on its own.
+//
+// Reference, 2D:
+//
+//        y
+//      1 +-------+
+//        |       |
+//        |       | 10       removed
+//        |       |
+//      0 |       *-------+
+//        |          11   |
+//        |               |
+//     -1 +---------------+ x
+//       -1       0       1
+//
+//   Wall 10 (x = 0) and wall 11 (y = 0) are faces of two different cells, so
+//   a single deal.II call averages their normals at the corner *.
+//   reverse_order swaps the two ids.
+//
+// Reference, 3D, looking into the corner from the removed octant [0,1]^3:
+//
+//                   z
+//                   |
+//                   + (0,0,1): edge node, checked with two walls
+//         11        |        10
+//       (y = 0)     |      (x = 0)
+//                   |
+//                   * (0,0,0): corner node
+//                 /   \
+//               /  12   \
+//             /  (z = 0)  \
+//            x             y
+//
+//   With two walls only 10 and 11 are slip, and they share the edge along z.
+//   With three walls, 12 is also slip and all three meet at the corner.
+//
+// orthogonal: A = I. The drawings above, as is.
+//   n10 = (1, 0, 0) pivot x, n11 = (0, 1, 0) pivot y, n12 = (0, 0, 1) pivot z.
+//   Distinct pivots, so the per-wall calls do not conflict.
+//
+// oblique: x' = x + y, y' = .2 x + .6 y (z unchanged in 3D). In 2D, and in
+// every z = const section in 3D:
+//
+//                       (1, .6)
+//                      /
+//                 10  /
+//                    /    removed       ___ (1, .2)
+//      domain       /          ___---'''
+//                  /   ___---'''   11
+//                 *---'
+//                       domain
+//
+//   The removed wedge is about 20 degrees wide; the domain wraps around it.
+//   n10 ~ (.6, -1) pivot y,  n11 ~ (-.2, 1) pivot y,  n12 = (0, 0, 1) pivot z.
+//   Walls 10 and 11 pick the same pivot, so the per-wall calls drop one.
+//
+// nearly_parallel (2D only): x' = x + y, y' = 5e-13 y. The whole domain is
+// flattened to a height of about 1e-12 and both walls run along +x:
+//
+//                    10: (0, 0) -> (1, 5e-13)
+//            ____________________________
+//   domain  *____________________________   removed sliver (angle 5e-13 rad,
+//                                            exaggerated here)
+//                    11: (0, 0) -> (1, 0)
+//
+//   n10 ~ (5e-13, -1) pivot y,  n11 = (0, 1) pivot y. The outward normals are
+//   nearly opposite, so their average is close to zero. The two conditions
+//   are still independent and must fix both components at the corner.
+//
+// changing_pivot (3D, two walls): the edge along z becomes the direction
+// (1 - delta/2, -delta, 1), with delta = 1e-8. Section normal to the edge,
+// with u = (1, 0, -1)/sqrt(2) and y in the plane of the page:
+//
+//                 y
+//           10    ^    11
+//             \   |   /
+//              \  |  /     removed wedge, about 39 degrees
+//               \ | /
+//                \|/
+//      domain     *      domain
+//
+//   n10 = (1, .5, -(1 - delta)) pivot x, since |x| beats |z| by delta.
+//   n11 = (-1, .5, 1) pivot z, since x and z tie.
+//   Substituting wall 10 into wall 11 leaves y + delta z = 0, which must use
+//   pivot y. Keeping pivot z would give z = -y / delta.
 
 enum class Geometry
 {
@@ -25,14 +147,171 @@ enum class Geometry
   nearly_parallel
 };
 
-// Each inner wall of the L-shaped mesh belongs to a different cell. Their
-// normals must remain independent at the shared corner and, in 3D, edge.
+enum class Method
+{
+  all_walls,
+  per_wall,
+  fix
+};
+
+const char *method_name(const Method method)
+{
+  switch (method)
+  {
+    case Method::all_walls:
+      return "all walls";
+    case Method::per_wall:
+      return "per wall ";
+    default:
+      return "fix      ";
+  }
+}
+
+std::string format(const double value, const double scale = 1.)
+{
+  std::ostringstream stream;
+  stream << std::scientific << std::setprecision(1)
+         << (std::abs(value) < 1e-10 * scale ? 0. : value);
+  return stream.str();
+}
+
+// Affine maps to transform the mesh, written as q = A*p + t.
 template <int dim>
-bool check_flux_constraints(const Geometry     geometry,
-                            const bool         position,
-                            const unsigned int n_walls,
-                            const std::string &case_name,
-                            const bool         reverse_order)
+Tensor<2, dim> linear_map(const Geometry geometry)
+{
+  const double   delta = 1e-8;
+  Tensor<2, dim> A;
+  for (unsigned int d = 0; d < dim; ++d)
+    A[d][d] = 1.;
+  if (geometry == Geometry::oblique)
+  {
+    A[0][0] = 1.;
+    A[0][1] = 1.;
+    A[1][0] = .2;
+    A[1][1] = .6;
+  }
+  if (geometry == Geometry::nearly_parallel)
+  {
+    A[0][0] = 1.;
+    A[0][1] = 1.;
+    A[1][0] = 0.;
+    A[1][1] = 5e-13;
+  }
+  if constexpr (dim == 3)
+    if (geometry == Geometry::changing_pivot)
+    {
+      A[0][0] = .5;
+      A[0][1] = -.5;
+      A[0][2] = 1. - delta / 2.;
+      A[1][0] = 1.;
+      A[1][1] = 1.;
+      A[1][2] = -delta;
+    }
+  return A;
+}
+
+template <int dim>
+void apply_flux_constraints(const Method                        method,
+                            const bool                          position,
+                            const std::set<types::boundary_id> &walls,
+                            const DoFHandler<dim>              &dofs,
+                            const Mapping<dim>                 &mapping,
+                            AffineConstraints<double>          &constraints)
+{
+  Functions::ZeroFunction<dim> zero(dim);
+  if (method == Method::fix)
+  {
+    if (position)
+    {
+      std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<dim>> bcs;
+      for (const auto id : walls)
+      {
+        bcs[id].id   = id;
+        bcs[id].type = BoundaryConditions::Type::no_flux;
+      }
+      BoundaryConditions::apply_mesh_position_boundary_conditions<dim>(
+        false, 0, dim, dofs, mapping, bcs, zero, zero, constraints);
+    }
+    else
+    {
+      std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>> bcs;
+      for (const auto id : walls)
+      {
+        bcs[id].id   = id;
+        bcs[id].type = BoundaryConditions::Type::slip;
+      }
+      BoundaryConditions::apply_velocity_boundary_conditions<dim>(
+        false, 0, dim, dofs, mapping, bcs, zero, zero, constraints);
+    }
+    return;
+  }
+
+  FixedMeshPosition<dim> fixed_mesh(0, dim);
+
+  /**
+   * Add to @p constraints the flux constraints associated with the boundary/ies
+   * stored in @p ids
+   */
+  const auto add = [&](const std::set<types::boundary_id> &ids) {
+    if (position)
+    {
+      std::map<types::boundary_id, const Function<dim> *> functions;
+      for (const auto id : ids)
+        functions[id] = &fixed_mesh;
+      VectorTools::compute_nonzero_normal_flux_constraints(
+        dofs, 0, ids, functions, constraints, mapping, false);
+    }
+    else
+      VectorTools::compute_no_normal_flux_constraints(
+        dofs, 0, ids, constraints, mapping, false);
+  };
+
+  if (method == Method::all_walls)
+    add(walls);
+  else
+    for (const auto id : walls)
+      add({id});
+}
+
+// deal.II detects cycles in the constraints only in debug mode. In release
+// mode, close() keeps substituting them forever. Check beforehand, so that
+// both modes report the same thing.
+bool has_cycle(const AffineConstraints<double> &constraints)
+{
+  // 1: on the current path, 2: no cycle reachable from this line.
+  std::map<types::global_dof_index, unsigned int>    state;
+  const std::function<bool(types::global_dof_index)> visit =
+    [&](const types::global_dof_index index) {
+      unsigned int &index_state = state[index];
+      if (index_state != 0)
+        return index_state == 1;
+      index_state = 1;
+      for (const auto &[other, weight] :
+           *constraints.get_constraint_entries(index))
+      {
+        (void)weight;
+        if (constraints.is_constrained(other) && visit(other))
+          return true;
+      }
+      state[index] = 2;
+      return false;
+    };
+  for (const auto &line : constraints.get_lines())
+    if (visit(line.index))
+      return true;
+  return false;
+}
+
+/**
+ * Tests the application of the flux constraints for each geometry and each
+ * method, and writes a summary.
+ */
+template <int dim>
+void compare_geometry(const Geometry     geometry,
+                      const bool         position,
+                      const unsigned int n_walls,
+                      const std::string &case_name,
+                      const bool         reverse_order)
 {
   Triangulation<dim> tria;
   GridGenerator::hyper_L(tria, -1., 1., false);
@@ -59,140 +338,113 @@ bool check_flux_constraints(const Geometry     geometry,
       components[indices[i]] = fe.system_to_component_index(i).first;
   }
 
-  const std::array<double, 3> translation = {
+  const std::array<double, 3> translation_values = {
     {.4, geometry == Geometry::nearly_parallel ? 0. : .2, .3}};
-  const double delta = 1e-8;
+  const Tensor<2, dim> A = linear_map<dim>(geometry);
+  Tensor<1, dim>       translation;
+  for (unsigned int d = 0; d < dim; ++d)
+    translation[d] = translation_values[d];
   GridTools::transform(
-    [&](const Point<dim> &p) {
-      auto q = p;
-      if (geometry == Geometry::oblique)
+    [&](const Point<dim> &p) { return Point<dim>(A * p + translation); }, tria);
+
+  // Exact unit normal of the reference plane p_k = 0 after the map: row k of
+  // A^{-1}, normalized. The sign does not matter for the residuals.
+  const Tensor<2, dim>        A_inverse = invert(A);
+  std::vector<Tensor<1, dim>> normals(n_walls);
+  for (unsigned int k = 0; k < n_walls; ++k)
+  {
+    for (unsigned int j = 0; j < dim; ++j)
+      normals[k][j] = A_inverse[k][j];
+    normals[k] /= normals[k].norm();
+  }
+
+  // Corner, and in 3D with two walls, the far end of the shared edge.
+  std::vector<std::pair<std::string, Point<dim>>> nodes = {
+    {"corner", Point<dim>()}};
+  if constexpr (dim == 3)
+    if (n_walls == 2)
+      nodes.emplace_back("edge  ", Point<dim>(0., 0., 1.));
+
+  std::set<types::boundary_id> walls;
+  for (unsigned int d = 0; d < n_walls; ++d)
+    walls.insert(10 + d);
+
+  deallog << case_name << std::endl;
+  for (const Method method : {Method::all_walls, Method::per_wall, Method::fix})
+  {
+    AffineConstraints<double> constraints;
+    try
+    {
+      apply_flux_constraints<dim>(
+        method, position, walls, dofs, mapping, constraints);
+      if (has_cycle(constraints))
       {
-        // Both wall normals select the y component as their initial pivot.
-        q[0] = p[0] + p[1];
-        q[1] = .2 * p[0] + .6 * p[1];
+        for (const auto &[node_name, node] : nodes)
+          deallog << "  " << method_name(method) << " " << node_name
+                  << " cycle in constraints" << std::endl;
+        continue;
       }
-      if (geometry == Geometry::nearly_parallel)
-      {
-        // The two walls differ by a small, nonzero slope. Both conditions
-        // must still fix the corner, even though their normals nearly agree.
-        q[0] = p[0] + p[1];
-        q[1] = 5e-13 * p[1];
-      }
-      if constexpr (dim == 3)
-        if (geometry == Geometry::changing_pivot)
+      constraints.close();
+    }
+    catch (const ExceptionBase &e)
+    {
+      for (const auto &[node_name, node] : nodes)
+        deallog << "  " << method_name(method) << " " << node_name << " throws "
+                << e.get_exc_name() << std::endl;
+      continue;
+    }
+
+    Vector<double> values(dofs.n_dofs());
+    values = 7.;
+    constraints.distribute(values);
+
+    for (const auto &[node_name, node] : nodes)
+    {
+      Tensor<1, dim> u;
+      unsigned int   n_found        = 0;
+      unsigned int   n_free         = 0;
+      double         largest_weight = 0.;
+      for (unsigned int i = 0; i < values.size(); ++i)
+        if ((reference_points.at(i) - node).norm_square() < 1e-24)
         {
-          // The normals (1,.5,-(1-delta)) and (-1,.5,1) initially
-          // select x and z. Elimination must switch the second pivot to y:
-          // y + delta*z = 0, rather than z = -y/delta.
-          q[0] = .5 * p[0] - .5 * p[1] + (1. - delta / 2.) * p[2];
-          q[1] = p[0] + p[1] - delta * p[2];
+          ++n_found;
+          u[components[i]] = values[i];
+          if (!constraints.is_constrained(i))
+            ++n_free;
+          else
+            for (const auto &[index, weight] :
+                 *constraints.get_constraint_entries(i))
+            {
+              (void)index;
+              largest_weight = std::max(largest_weight, std::abs(weight));
+            }
         }
-      for (unsigned int d = 0; d < dim; ++d)
-        q[d] += translation[d];
-      return q;
-    },
-    tria);
+      // Position no_flux keeps the node on its wall: g is the node position.
+      const Tensor<1, dim> g =
+        position ? Tensor<1, dim>(A * node + translation) : Tensor<1, dim>();
+      double largest_residual = 0.;
+      for (const auto &normal : normals)
+        largest_residual =
+          std::max(largest_residual, std::abs(normal * (u - g)));
 
-  Functions::ZeroFunction<dim> zero(dim);
-  AffineConstraints<double>    constraints;
-  if (position)
-  {
-    std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<dim>> bcs;
-    for (unsigned int d = 0; d < n_walls; ++d)
-    {
-      auto &bc = bcs[10 + d];
-      bc.id    = 10 + d;
-      bc.type  = BoundaryConditions::Type::no_flux;
-    }
-    BoundaryConditions::apply_mesh_position_boundary_conditions<dim>(
-      false, 0, dim, dofs, mapping, bcs, zero, zero, constraints);
-  }
-  else
-  {
-    std::map<types::boundary_id, BoundaryConditions::FluidBC<dim>> bcs;
-    for (unsigned int d = 0; d < n_walls; ++d)
-    {
-      auto &bc = bcs[10 + d];
-      bc.id    = 10 + d;
-      bc.type  = BoundaryConditions::Type::slip;
-    }
-    BoundaryConditions::apply_velocity_boundary_conditions<dim>(
-      false, 0, dim, dofs, mapping, bcs, zero, zero, constraints);
-  }
-  constraints.close();
-
-  Vector<double> values(dofs.n_dofs());
-  values = 7.;
-  if (geometry == Geometry::changing_pivot)
-    // Start from the same tangent coordinate whether x or z is left free.
-    // The y component still violates the walls before distributing constraints.
-    for (unsigned int i = 0; i < values.size(); ++i)
-      if (components[i] == 0)
-        values[i] = (position ? translation[0] : 0.) +
-                    (1. - delta / 2.) * (7. - (position ? translation[2] : 0.));
-  constraints.distribute(values);
-
-  bool success = true;
-  if (geometry == Geometry::changing_pivot)
-  {
-    double largest_coefficient = 0.;
-    for (const auto &line : constraints.get_lines())
-      for (const auto &[index, weight] : line.entries)
+      // Otherwise u = 0 would look like a correct fluid result.
+      if (n_found != dim)
       {
-        (void)index;
-        if (std::abs(weight) > largest_coefficient)
-          largest_coefficient = std::abs(weight);
+        deallog << "  " << method_name(method) << " " << node_name << " found "
+                << n_found << " of " << dim << " DoFs" << std::endl;
+        continue;
       }
-    if (!(largest_coefficient <= 2.))
-    {
-      std::cerr << case_name << ": coefficient " << largest_coefficient
-                << " amplifies roundoff despite independent wall normals"
-                << std::endl;
-      success = false;
+      deallog << "  " << method_name(method) << " " << node_name
+              << " free=" << n_free << " (expected " << dim - n_walls
+              << ") residual=" << format(largest_residual)
+              << " weight=" << format(largest_weight) << std::endl;
     }
   }
-  unsigned int checked_dofs = 0;
-  for (unsigned int i = 0; i < values.size(); ++i)
-  {
-    const auto &p      = reference_points.at(i);
-    const bool  corner = p.norm_square() < 1e-24;
-    bool        edge   = false;
-    if constexpr (dim == 3)
-      edge = n_walls == 2 && (p - Point<dim>(0., 0., 1.)).norm_square() < 1e-24;
-    if (corner || edge)
-    {
-      ++checked_dofs;
-      const auto component = components[i];
-      // In the first two geometries, two normals leave the z tangent free;
-      // three normals fix the corner.
-      // Position no_flux preserves the nonzero reference position.
-      double expected =
-        component >= n_walls ? 7. : (position ? translation[component] : 0.);
-      if (geometry == Geometry::changing_pivot && component < 2)
-      {
-        // These values satisfy both original normal equations, including
-        // their nonzero position data, while leaving the edge tangent free.
-        const double free_position = 7. - (position ? translation[2] : 0.);
-        expected += (component == 0 ? 1. - delta / 2. : -delta) * free_position;
-      }
-      if (!(std::abs(values[i] - expected) <= 1e-12))
-      {
-        std::cerr << case_name << ": " << (corner ? "corner" : "edge")
-                  << " component " << component << " expected " << expected
-                  << ", got " << values[i] << std::endl;
-        success = false;
-      }
-    }
-  }
-  AssertThrow(checked_dofs == dim * (dim == 3 && n_walls == 2 ? 2 : 1),
-              ExcMessage("Missing corner or edge support points"));
-  return success;
 }
 
 template <int dim>
-bool check_dimension()
+void compare_dimension()
 {
-  bool                                                   success    = true;
   const std::array<std::pair<Geometry, const char *>, 4> geometries = {{
     {Geometry::orthogonal, "orthogonal"},
     {Geometry::oblique, "oblique"},
@@ -212,25 +464,12 @@ bool check_dimension()
             std::to_string(dim) + "D " + geometry_name + " " +
             (position ? "position " : "fluid ") + std::to_string(n_walls) +
             " walls" + (reverse_order ? " reversed" : "");
-          try
-          {
-            if (!check_flux_constraints<dim>(
-                  geometry, position, n_walls, case_name, reverse_order))
-              success = false;
-          }
-          catch (const std::exception &e)
-          {
-            std::cerr << case_name << ": " << e.what() << std::endl;
-            success = false;
-          }
+          compare_geometry<dim>(
+            geometry, position, n_walls, case_name, reverse_order);
         }
-  if (success)
-    deallog << dim << "D boundary flux constraints OK" << std::endl;
-  return success;
 }
 
-// Two adjacent faces on a straight wall prescribe the same normal position.
-// Shifting only one prescription must be rejected at their shared vertex.
+// Mesh position shifted by `shift` along y, used as the position_flux_mms data.
 class ShiftedPosition : public Function<2>
 {
 public:
@@ -247,18 +486,59 @@ private:
   const double shift;
 };
 
-bool check_redundant_conditions()
+// Two boundary ids that impose the same wall equation at a shared node. The
+// equation must be accepted when it is redundant and rejected when it
+// contradicts the first one.
+//
+// Reference, before (x, y) -> length (x + shift_x, slope x + y + shift_y):
+//
+//   (-1, 1) +-------+-------+ (1, 1)
+//           |       |       |
+//           |       |       |
+//   (-1, 0) +-------*-------+ (1, 0)
+//              10       11
+//           no_flux   position_flux_mms
+//
+// After the map, both faces lie on one straight line of slope `slope`, with
+// normal n ~ (-slope, 1), and * lands at vertex = length (shift_x, shift_y).
+// At *, both walls constrain the same normal direction and pick pivot y:
+//
+//   10: n.(x - p) = 0              p is the node position (FixedMeshPosition)
+//   11: n.(x - p - (0, shift)) = 0 (ShiftedPosition)
+//
+// The equations coincide when shift = 0 and contradict each other otherwise.
+// The 12 cases combine:
+//  - length in {1e-6, 1e3, 1e6}: the tolerance must scale with the problem.
+//  - translated: * lies on the line of slope `slope` through the origin, so
+//    n.vertex is zero but is computed as the difference of two terms of size
+//    ~.45 length. The roundoff left over must not be taken as a
+//    contradiction. This case needs prescribed_value_scale.
+//  - incompatible: shift = 1e-7 length, far above roundoff at every scale.
+//
+// Two methods are compared:
+//  - per wall: one deal.II call for {10}, then one for {11}, exactly as
+//    the code did before the fix. The second call finds y already
+//    constrained and silently skips its line.
+//  - fix: apply_mesh_position_boundary_conditions. Wall 11 reduces to an
+//    equation without coefficients after substituting wall 10, so it is
+//    skipped if its right-hand side is within roundoff. Otherwise the call
+//    throws "Incompatible flux conditions".
+//
+// Each case logs either the exception, or the residuals of both equations at
+// * divided by length, after distributing a constant vector.
+// Expected: compatible cases give zero residuals for both methods. In
+// incompatible cases, per wall leaves mms ~ -n_y 1e-7, i.e. wall 11 is
+// ignored, while fix throws.
+void compare_redundant_conditions()
 {
-  bool success = true;
   for (const double length : {1e-6, 1e3, 1e6})
     for (const bool translated : {false, true})
       for (const bool incompatible : {false, true})
       {
-        // These translated coordinates reproduce cancellation in normal dot
-        // position before the equations reach the constraint-combining helper.
         const double     slope   = translated ? .2931265934486439 : .3;
         const double     shift_x = translated ? 1.5253538488765903 : 0.;
         const double     shift_y = translated ? slope * shift_x : .2;
+        const double     shift   = incompatible ? length * 1e-7 : 0.;
         Triangulation<2> tria;
         GridGenerator::subdivided_hyper_rectangle(tria,
                                                   std::vector<unsigned int>{2,
@@ -269,82 +549,110 @@ bool check_redundant_conditions()
           for (const auto &face : cell->face_iterators())
             if (face->at_boundary() && face->center()[1] == 0.)
               face->set_boundary_id(face->center()[0] < 0. ? 10 : 11);
+        FESystem<2>   fe(FE_Q<2>(1), 2);
+        DoFHandler<2> dofs(tria);
+        dofs.distribute_dofs(fe);
+        MappingQ1<2> mapping;
+        const auto   reference_points =
+          DoFTools::map_dofs_to_support_points(mapping, dofs);
+        std::vector<unsigned int>            components(dofs.n_dofs());
+        std::vector<types::global_dof_index> indices(fe.dofs_per_cell);
+        for (const auto &cell : dofs.active_cell_iterators())
+        {
+          cell->get_dof_indices(indices);
+          for (unsigned int i = 0; i < indices.size(); ++i)
+            components[indices[i]] = fe.system_to_component_index(i).first;
+        }
         GridTools::transform(
           [=](const Point<2> &p) {
             return Point<2>(length * (p[0] + shift_x),
                             length * (slope * p[0] + p[1] + shift_y));
           },
           tria);
-        FESystem<2>   fe(FE_Q<2>(1), 2);
-        DoFHandler<2> dofs(tria);
-        dofs.distribute_dofs(fe);
-        MappingQ1<2>               mapping;
-        Functions::ZeroFunction<2> zero(2);
-        ShiftedPosition            position(incompatible ? length * 1e-7 : 0.);
-        std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<2>> bcs;
-        bcs[10].id   = 10;
-        bcs[10].type = BoundaryConditions::Type::no_flux;
-        bcs[11].id   = 11;
-        bcs[11].type = BoundaryConditions::Type::position_flux_mms;
-        AffineConstraints<double> constraints;
-        try
+
+        const Point<2> vertex(length * shift_x, length * shift_y);
+        Tensor<1, 2>   normal;
+        normal[0] = -slope;
+        normal[1] = 1.;
+        normal /= normal.norm();
+        Tensor<1, 2> shifted_vertex = vertex;
+        shifted_vertex[1] += shift;
+
+        deallog << "redundant scale " << format(length)
+                << (translated ? " translated" : "")
+                << (incompatible ? " incompatible" : " compatible")
+                << std::endl;
+        for (const Method method : {Method::per_wall, Method::fix})
         {
-          BoundaryConditions::apply_mesh_position_boundary_conditions<2>(
-            false, 0, 2, dofs, mapping, bcs, zero, position, constraints);
-          constraints.close();
-          if (incompatible)
+          Functions::ZeroFunction<2> zero(2);
+          ShiftedPosition            position(shift);
+          AffineConstraints<double>  constraints;
+          try
           {
-            std::cerr << "Contradictory normal positions accepted at scale "
-                      << length << std::endl;
-            success = false;
-          }
-          else
-          {
-            Vector<double> values(dofs.n_dofs());
-            values = length;
-            constraints.distribute(values);
-            const auto points =
-              DoFTools::map_dofs_to_support_points(mapping, dofs);
-            std::vector<types::global_dof_index> indices(fe.dofs_per_cell);
-            unsigned int                         checked = 0;
-            for (const auto &cell : dofs.active_cell_iterators())
+            if (method == Method::fix)
             {
-              cell->get_dof_indices(indices);
-              for (unsigned int i = 0; i < indices.size(); ++i)
-                if (points.at(indices[i])
-                      .distance(Point<2>(shift_x * length, shift_y * length)) <
-                    1e-12 * length)
-                {
-                  ++checked;
-                  const double expected =
-                    fe.system_to_component_index(i).first == 0 ?
-                      length :
-                      (slope + shift_y - slope * shift_x) * length;
-                  if (std::abs(values[indices[i]] - expected) > 1e-12 * length)
-                  {
-                    std::cerr << "Incorrect redundant constraint at scale "
-                              << length << std::endl;
-                    success = false;
-                  }
-                }
+              std::map<types::boundary_id, BoundaryConditions::PseudosolidBC<2>>
+                bcs;
+              bcs[10].id   = 10;
+              bcs[10].type = BoundaryConditions::Type::no_flux;
+              bcs[11].id   = 11;
+              bcs[11].type = BoundaryConditions::Type::position_flux_mms;
+              BoundaryConditions::apply_mesh_position_boundary_conditions<2>(
+                false, 0, 2, dofs, mapping, bcs, zero, position, constraints);
             }
-            AssertThrow(checked == 4, ExcMessage("Missing shared wall vertex"));
+            else
+            {
+              FixedMeshPosition<2> fixed_mesh(0, 2);
+              VectorTools::compute_nonzero_normal_flux_constraints(
+                dofs,
+                0,
+                {10},
+                {{10, &fixed_mesh}},
+                constraints,
+                mapping,
+                false);
+              VectorTools::compute_nonzero_normal_flux_constraints(
+                dofs, 0, {11}, {{11, &position}}, constraints, mapping, false);
+            }
+            if (has_cycle(constraints))
+            {
+              deallog << "  " << method_name(method)
+                      << " vertex cycle in constraints" << std::endl;
+              continue;
+            }
+            constraints.close();
           }
-        }
-        catch (const ExceptionBase &e)
-        {
-          if (!incompatible ||
-              std::string(e.what()).find("Incompatible flux conditions") ==
-                std::string::npos)
+          catch (const ExceptionBase &e)
           {
-            std::cerr << "Redundant conditions at scale " << length
-                      << (translated ? " translated: " : ": ") << e.what()
-                      << std::endl;
-            success = false;
+            deallog << "  " << method_name(method) << " vertex throws "
+                    << e.get_exc_name() << std::endl;
+            continue;
           }
+
+          Vector<double> values(dofs.n_dofs());
+          values = length;
+          constraints.distribute(values);
+          Tensor<1, 2> u;
+          unsigned int n_found = 0;
+          for (unsigned int i = 0; i < values.size(); ++i)
+            if (reference_points.at(i).norm_square() < 1e-24)
+            {
+              ++n_found;
+              u[components[i]] = values[i];
+            }
+          if (n_found != 2)
+          {
+            deallog << "  " << method_name(method) << " vertex found "
+                    << n_found << " of 2 DoFs" << std::endl;
+            continue;
+          }
+          // Residuals of the no_flux and of the shifted mms wall equations.
+          deallog << "  " << method_name(method) << " vertex residual no_flux="
+                  << format(normal * (u - vertex) / length)
+                  << " mms=" << format(normal * (u - shifted_vertex) / length)
+                  << std::endl;
         }
       }
-  return success;
 }
 
 int main(int argc, char **argv)
@@ -352,8 +660,8 @@ int main(int argc, char **argv)
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
   deal_II_exceptions::disable_abort_on_exception();
   initlog();
-  const bool success_2d = check_dimension<2>();
-  const bool success_3d = check_dimension<3>();
-  const bool redundant  = check_redundant_conditions();
-  return success_2d && success_3d && redundant ? 0 : 1;
+  compare_dimension<2>();
+  compare_dimension<3>();
+  compare_redundant_conditions();
+  return 0;
 }

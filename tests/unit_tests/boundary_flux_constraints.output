@@ -1,0 +1,201 @@
+
+DEAL::2D orthogonal fluid 2 walls
+DEAL::  all walls corner free=1 (expected 0) residual=7.0e+00 weight=1.0e+00
+DEAL::  per wall  corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D orthogonal fluid 2 walls reversed
+DEAL::  all walls corner free=1 (expected 0) residual=7.0e+00 weight=1.0e+00
+DEAL::  per wall  corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D orthogonal position 2 walls
+DEAL::  all walls corner free=1 (expected 0) residual=6.6e+00 weight=1.0e+00
+DEAL::  per wall  corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D orthogonal position 2 walls reversed
+DEAL::  all walls corner free=1 (expected 0) residual=6.6e+00 weight=1.0e+00
+DEAL::  per wall  corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D oblique fluid 2 walls
+DEAL::  all walls corner free=1 (expected 0) residual=7.4e+00 weight=3.9e-01
+DEAL::  per wall  corner free=1 (expected 0) residual=2.7e+00 weight=6.0e-01
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D oblique fluid 2 walls reversed
+DEAL::  all walls corner free=1 (expected 0) residual=7.4e+00 weight=3.9e-01
+DEAL::  per wall  corner free=1 (expected 0) residual=2.4e+00 weight=2.0e-01
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D oblique position 2 walls
+DEAL::  all walls corner free=1 (expected 0) residual=7.2e+00 weight=3.9e-01
+DEAL::  per wall  corner free=1 (expected 0) residual=2.6e+00 weight=6.0e-01
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D oblique position 2 walls reversed
+DEAL::  all walls corner free=1 (expected 0) residual=7.2e+00 weight=3.9e-01
+DEAL::  per wall  corner free=1 (expected 0) residual=2.3e+00 weight=2.0e-01
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D nearly parallel fluid 2 walls
+DEAL::  all walls corner free=1 (expected 0) residual=7.0e+00 weight=0.0e+00
+DEAL::  per wall  corner free=1 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D nearly parallel fluid 2 walls reversed
+DEAL::  all walls corner free=1 (expected 0) residual=7.0e+00 weight=0.0e+00
+DEAL::  per wall  corner free=1 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D nearly parallel position 2 walls
+DEAL::  all walls corner free=1 (expected 0) residual=7.0e+00 weight=0.0e+00
+DEAL::  per wall  corner free=1 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::2D nearly parallel position 2 walls reversed
+DEAL::  all walls corner free=1 (expected 0) residual=7.0e+00 weight=0.0e+00
+DEAL::  per wall  corner free=1 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::3D orthogonal fluid 2 walls
+DEAL::  all walls corner free=2 (expected 1) residual=7.0e+00 weight=1.0e+00
+DEAL::  all walls edge   free=2 (expected 1) residual=7.0e+00 weight=1.0e+00
+DEAL::  per wall  corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  per wall  edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::3D orthogonal fluid 2 walls reversed
+DEAL::  all walls corner free=2 (expected 1) residual=7.0e+00 weight=1.0e+00
+DEAL::  all walls edge   free=2 (expected 1) residual=7.0e+00 weight=1.0e+00
+DEAL::  per wall  corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  per wall  edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::3D orthogonal fluid 3 walls
+DEAL::  all walls corner free=2 (expected 0) residual=1.4e+01 weight=1.0e+00
+DEAL::  per wall  corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::3D orthogonal fluid 3 walls reversed
+DEAL::  all walls corner free=2 (expected 0) residual=1.4e+01 weight=1.0e+00
+DEAL::  per wall  corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::3D orthogonal position 2 walls
+DEAL::  all walls corner free=2 (expected 1) residual=6.6e+00 weight=1.0e+00
+DEAL::  all walls edge   free=2 (expected 1) residual=6.6e+00 weight=1.0e+00
+DEAL::  per wall  corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  per wall  edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::3D orthogonal position 2 walls reversed
+DEAL::  all walls corner free=2 (expected 1) residual=6.6e+00 weight=1.0e+00
+DEAL::  all walls edge   free=2 (expected 1) residual=6.6e+00 weight=1.0e+00
+DEAL::  per wall  corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  per wall  edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::3D orthogonal position 3 walls
+DEAL::  all walls corner free=2 (expected 0) residual=1.3e+01 weight=1.0e+00
+DEAL::  per wall  corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::3D orthogonal position 3 walls reversed
+DEAL::  all walls corner free=2 (expected 0) residual=1.3e+01 weight=1.0e+00
+DEAL::  per wall  corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::3D oblique fluid 2 walls
+DEAL::  all walls corner free=2 (expected 1) residual=7.4e+00 weight=3.9e-01
+DEAL::  all walls edge   free=2 (expected 1) residual=7.4e+00 weight=3.9e-01
+DEAL::  per wall  corner free=2 (expected 1) residual=2.7e+00 weight=6.0e-01
+DEAL::  per wall  edge   free=2 (expected 1) residual=2.7e+00 weight=6.0e-01
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::3D oblique fluid 2 walls reversed
+DEAL::  all walls corner free=2 (expected 1) residual=7.4e+00 weight=3.9e-01
+DEAL::  all walls edge   free=2 (expected 1) residual=7.4e+00 weight=3.9e-01
+DEAL::  per wall  corner free=2 (expected 1) residual=2.4e+00 weight=2.0e-01
+DEAL::  per wall  edge   free=2 (expected 1) residual=2.4e+00 weight=2.0e-01
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::3D oblique fluid 3 walls
+DEAL::  all walls corner free=2 (expected 0) residual=5.5e+00 weight=3.2e-01
+DEAL::  per wall  corner free=1 (expected 0) residual=2.7e+00 weight=6.0e-01
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::3D oblique fluid 3 walls reversed
+DEAL::  all walls corner free=2 (expected 0) residual=5.5e+00 weight=3.2e-01
+DEAL::  per wall  corner free=1 (expected 0) residual=2.4e+00 weight=2.0e-01
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::3D oblique position 2 walls
+DEAL::  all walls corner free=2 (expected 1) residual=7.2e+00 weight=3.9e-01
+DEAL::  all walls edge   free=2 (expected 1) residual=7.2e+00 weight=3.9e-01
+DEAL::  per wall  corner free=2 (expected 1) residual=2.6e+00 weight=6.0e-01
+DEAL::  per wall  edge   free=2 (expected 1) residual=2.6e+00 weight=6.0e-01
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::3D oblique position 2 walls reversed
+DEAL::  all walls corner free=2 (expected 1) residual=7.2e+00 weight=3.9e-01
+DEAL::  all walls edge   free=2 (expected 1) residual=7.2e+00 weight=3.9e-01
+DEAL::  per wall  corner free=2 (expected 1) residual=2.3e+00 weight=2.0e-01
+DEAL::  per wall  edge   free=2 (expected 1) residual=2.3e+00 weight=2.0e-01
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=0.0e+00
+DEAL::3D oblique position 3 walls
+DEAL::  all walls corner free=2 (expected 0) residual=5.4e+00 weight=3.2e-01
+DEAL::  per wall  corner free=1 (expected 0) residual=2.6e+00 weight=6.0e-01
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::3D oblique position 3 walls reversed
+DEAL::  all walls corner free=2 (expected 0) residual=5.4e+00 weight=3.2e-01
+DEAL::  per wall  corner free=1 (expected 0) residual=2.3e+00 weight=2.0e-01
+DEAL::  fix       corner free=0 (expected 0) residual=0.0e+00 weight=0.0e+00
+DEAL::3D changing pivot fluid 2 walls
+DEAL::  all walls corner free=2 (expected 1) residual=2.3e-08 weight=5.6e-09
+DEAL::  all walls edge   free=2 (expected 1) residual=2.3e-08 weight=5.6e-09
+DEAL::  per wall  corner cycle in constraints
+DEAL::  per wall  edge   cycle in constraints
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=1.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=1.0e+00
+DEAL::3D changing pivot fluid 2 walls reversed
+DEAL::  all walls corner free=2 (expected 1) residual=2.3e-08 weight=5.6e-09
+DEAL::  all walls edge   free=2 (expected 1) residual=2.3e-08 weight=5.6e-09
+DEAL::  per wall  corner cycle in constraints
+DEAL::  per wall  edge   cycle in constraints
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=1.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=1.0e+00
+DEAL::3D changing pivot position 2 walls
+DEAL::  all walls corner free=2 (expected 1) residual=6.7e-02 weight=5.6e-09
+DEAL::  all walls edge   free=2 (expected 1) residual=6.7e-02 weight=5.6e-09
+DEAL::  per wall  corner cycle in constraints
+DEAL::  per wall  edge   cycle in constraints
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=1.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=1.0e+00
+DEAL::3D changing pivot position 2 walls reversed
+DEAL::  all walls corner free=2 (expected 1) residual=6.7e-02 weight=5.6e-09
+DEAL::  all walls edge   free=2 (expected 1) residual=6.7e-02 weight=5.6e-09
+DEAL::  per wall  corner cycle in constraints
+DEAL::  per wall  edge   cycle in constraints
+DEAL::  fix       corner free=1 (expected 1) residual=0.0e+00 weight=1.0e+00
+DEAL::  fix       edge   free=1 (expected 1) residual=0.0e+00 weight=1.0e+00
+DEAL::redundant scale 1.0e-06 compatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::  fix       vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::redundant scale 1.0e-06 incompatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=-9.6e-08
+DEAL::  fix       vertex throws ExcMessage( "Incompatible flux conditions at a boundary intersection.")
+DEAL::redundant scale 1.0e-06 translated compatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::  fix       vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::redundant scale 1.0e-06 translated incompatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=-9.6e-08
+DEAL::  fix       vertex throws ExcMessage( "Incompatible flux conditions at a boundary intersection.")
+DEAL::redundant scale 1.0e+03 compatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::  fix       vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::redundant scale 1.0e+03 incompatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=-9.6e-08
+DEAL::  fix       vertex throws ExcMessage( "Incompatible flux conditions at a boundary intersection.")
+DEAL::redundant scale 1.0e+03 translated compatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::  fix       vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::redundant scale 1.0e+03 translated incompatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=-9.6e-08
+DEAL::  fix       vertex throws ExcMessage( "Incompatible flux conditions at a boundary intersection.")
+DEAL::redundant scale 1.0e+06 compatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::  fix       vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::redundant scale 1.0e+06 incompatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=-9.6e-08
+DEAL::  fix       vertex throws ExcMessage( "Incompatible flux conditions at a boundary intersection.")
+DEAL::redundant scale 1.0e+06 translated compatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::  fix       vertex residual no_flux=0.0e+00 mms=0.0e+00
+DEAL::redundant scale 1.0e+06 translated incompatible
+DEAL::  per wall  vertex residual no_flux=0.0e+00 mms=-9.6e-08
+DEAL::  fix       vertex throws ExcMessage( "Incompatible flux conditions at a boundary intersection.")

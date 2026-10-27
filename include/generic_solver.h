@@ -330,6 +330,12 @@ protected:
   std::unique_ptr<NonLinearSolver<VectorType>> nonlinear_solver;
 
   /**
+   * True if the preconditioner was (re)built for the last linear solve. Set by
+   * the solvers using an iterative linear solver, and only used for output.
+   */
+  bool preconditioner_rebuilt_at_last_solve;
+
+  /**
    * Data to perform a space and/or time convergence study
    * Some must be modified during the convergence loop, so store a copy
    */

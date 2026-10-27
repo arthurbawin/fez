@@ -5,7 +5,6 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/lac/sparsity_tools.h>
-#include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/vector_tools.h>
@@ -260,23 +259,6 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
   create_nonzero_constraints();
   create_sparsity_pattern();
 
-  if (interval_index == 0)
-    set_initial_conditions();
-  else
-    transient_fixed_point_data.transfer_solution_between_intervals(
-      interval_index,
-      *mapping,
-      *exact_solution,
-      time_handler,
-      locally_relevant_dofs,
-      dofs_to_component);
-
-  // For unsteady simulations, postprocess either the initial condition, or the
-  // initial solution on this time interval. For unsteady simulations with mesh
-  // adaptation with a Riemannian metric, this is needed to obtain an adapted
-  // mesh that includes the initial condition.
-  postprocess_solution();
-
   /**
    * Apply initial refinement.
    */
@@ -295,6 +277,23 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
     }
     prefix_data.is_prerefinement_step = false;
   }
+
+  if (interval_index == 0)
+    set_initial_conditions();
+  else
+    transient_fixed_point_data.transfer_solution_between_intervals(
+      interval_index,
+      *mapping,
+      *exact_solution,
+      time_handler,
+      locally_relevant_dofs,
+      dofs_to_component);
+
+  // For unsteady simulations, postprocess either the initial condition, or the
+  // initial solution on this time interval. For unsteady simulations with mesh
+  // adaptation with a Riemannian metric, this is needed to obtain an adapted
+  // mesh that includes the initial condition.
+  postprocess_solution();
 
   while (!time_handler.is_finished())
   {
@@ -476,7 +475,6 @@ void HeatSolver<dim>::create_nonzero_constraints()
 template <int dim>
 void HeatSolver<dim>::create_sparsity_pattern()
 {
-#if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(locally_relevant_dofs);
   DoFTools::make_sparsity_pattern(*dof_handler,
                                   dsp,
@@ -490,15 +488,6 @@ void HeatSolver<dim>::create_sparsity_pattern()
                        locally_owned_dofs,
                        dsp,
                        mpi_communicator);
-#else
-  TrilinosWrappers::SparsityPattern dsp(locally_owned_dofs,
-                                        locally_owned_dofs,
-                                        locally_relevant_dofs,
-                                        mpi_communicator);
-  DoFTools::make_sparsity_pattern(*dof_handler, dsp, nonzero_constraints);
-  dsp.compress();
-  system_matrix.reinit(dsp);
-#endif
 }
 
 template <int dim>
@@ -532,6 +521,8 @@ void HeatSolver<dim>::set_exact_solution()
                            *exact_solution,
                            local_evaluation_point,
                            temperature_mask);
+  // Apply the constraints (e.g., hanging nodes) to the interpolated solution
+  nonzero_constraints.distribute(local_evaluation_point);
   evaluation_point  = local_evaluation_point;
   *present_solution = local_evaluation_point;
 }
@@ -717,45 +708,36 @@ void HeatSolver<dim>::solve_linear_system()
 {
   const auto &linear_solver_param = param.linear_solver.at(this->solver_type);
 
-  if (linear_solver_param.method ==
-      Parameters::LinearSolver::Method::direct_mumps)
+  switch (linear_solver_param.method)
   {
-    if (linear_solver_param.reuse)
-    {
-      solve_linear_system_direct(this,
+    case Parameters::LinearSolver::Method::direct_mumps:
+      LinearSolvers::solve_mumps(this,
                                  linear_solver_param,
                                  system_matrix,
                                  locally_owned_dofs,
                                  zero_constraints,
-                                 *direct_solver_reuse);
+                                 linear_solver_param.reuse ?
+                                   direct_solver_reuse.get() :
+                                   nullptr);
+      break;
+    case Parameters::LinearSolver::Method::cg:
+    {
+      // FIXME: the preconditioner is re-created each time in the solver
+      std::unique_ptr<PETScWrappers::PreconditionBase> preconditioner;
+      LinearSolvers::solve_cg(this,
+                              linear_solver_param,
+                              system_matrix,
+                              locally_owned_dofs,
+                              zero_constraints,
+                              preconditioner);
     }
-    else
-      solve_linear_system_direct(this,
-                                 linear_solver_param,
-                                 system_matrix,
-                                 locally_owned_dofs,
-                                 zero_constraints);
-  }
-  else if (linear_solver_param.method == Parameters::LinearSolver::Method::cg)
-  {
-    solve_linear_system_cg(this,
-                           linear_solver_param,
-                           system_matrix,
-                           locally_owned_dofs,
-                           zero_constraints);
-  }
-  else if (linear_solver_param.method ==
-           Parameters::LinearSolver::Method::gmres)
-  {
-    solve_linear_system_iterative(this,
-                                  linear_solver_param,
-                                  system_matrix,
-                                  locally_owned_dofs,
-                                  zero_constraints);
-  }
-  else
-  {
-    AssertThrow(false, ExcMessage("No known resolution method"));
+    break;
+    default:
+      AssertThrow(
+        false,
+        ExcMessage(
+          "The chosen linear solver is not implemented for the HeatSolver. The "
+          "only solvers currently available are Mumps and CG."));
   }
 }
 
@@ -820,7 +802,9 @@ void HeatSolver<dim>::compute_reconstructions()
   {
     Assert(recoveries[i], ExcInternalError());
     recoveries[i]->reconstruct_fields(*present_solution);
-    recoveries[i]->write_pvtu(*mapping, "recovery_heat");
+    // Writing the reconstructed fields is for debugging only
+    if (param.debug.verbosity == Parameters::Verbosity::verbose)
+      recoveries[i]->write_pvtu(*mapping, "recovery_heat");
   }
 }
 

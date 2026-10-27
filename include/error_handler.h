@@ -54,7 +54,7 @@ public:
    * Add an integer reference value (number of mesh elements or dof).
    * These values won't be printed in scientific notation.
    */
-  void add_reference_data(const std::string &name, const unsigned int value);
+  void add_reference_data(const std::string &name, const std::uint64_t value);
 
   /**
    * Add the (constant) time step used for this step of convergence study.

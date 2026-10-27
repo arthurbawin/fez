@@ -16,7 +16,7 @@ end
 subsection Mesh
 
   set dealii preset mesh     = rectangle
-  set dealii mesh parameters = 10, 5, 5 : -2, -1., -1 : 2., 1., 1. : true
+  set dealii mesh parameters = 10, 5, 5 : -2, -1., -1. : 2., 1., 1. : true
   set refinement level       = 1
 
   subsection Adaptation
@@ -32,16 +32,19 @@ subsection Mesh
       set fraction to refine            = 0.3
       set fraction to coarsen           = 0.5
       set min grid level                = 0
-      set max grid level                = 8
-      set max number of cells           = 1000000
-      set number of prerefinement steps = 0
+      set max grid level                = 3
+      set max number of cells           = 2000
+      set number of prerefinement steps = 2
     end
   end
 end
 
 subsection Time integration
   set verbosity = verbose
-  set scheme    = stationary
+  set dt        = 0.05
+  set t_initial = 0
+  set t_end     = 0.15
+  set scheme    = BDF1
 end
 
 subsection Nonlinear solver
@@ -56,9 +59,10 @@ subsection Linear solver
   subsection main physics
     set verbosity      = quiet
     set method         = cg
-    set tolerance      = 1e-10
+    set preconditioner = block_jacobi
+    set absolute tolerance = 1e-10
+    set relative tolerance = 0
     set max iterations = 1000
-    set reuse          = false
   end
 end
 
@@ -115,7 +119,7 @@ end
 subsection Manufactured solution
   set enable                 = true
   set type                   = space
-  set convergence steps      = 2
+  set convergence steps      = 1
 
   subsection Space convergence
     set norms to compute = L2_norm, Linfty_norm, H1_seminorm

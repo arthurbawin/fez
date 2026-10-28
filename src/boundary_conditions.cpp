@@ -6,6 +6,8 @@
 #include <deal.II/grid/grid_tools_geometry.h>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace BoundaryConditions
 {
@@ -897,7 +899,7 @@ namespace BoundaryConditions
     {
       std::vector<std::pair<types::global_dof_index, double>> coeffs_vec(
         coeffs.begin(), coeffs.end());
-      std::vector<std::vector<std::pair<unsigned int, double>>> gathered =
+      const auto gathered =
         Utilities::MPI::all_gather(dof_handler.get_mpi_communicator(),
                                    coeffs_vec);
 
@@ -920,19 +922,44 @@ namespace BoundaryConditions
         "be equal to the domain's volume, but it's not: sum of weights = " +
         std::to_string(sum) + " and domain volume = " + std::to_string(vol)));
 
-    // First global pressure dof will be constrained, on the procs
-    // for which it is owned or ghosted
-    std::vector<std::pair<types::global_dof_index, double>> coeffs_vec(
-      coeffs.begin(), coeffs.end());
-    constrained_pressure_dof = coeffs_vec[0].first;
-    const double a_0         = coeffs_vec[0].second;
+    AssertThrow(!coeffs.empty(),
+                ExcMessage("No pressure weights available for the zero-mean "
+                           "pressure constraint."));
+    const auto largest =
+      std::max_element(coeffs.begin(),
+                       coeffs.end(),
+                       [](const auto &left, const auto &right) {
+                         return std::abs(left.second) < std::abs(right.second);
+                       });
+    const double largest_weight = std::abs(largest->second);
+    AssertThrow(std::isfinite(largest_weight) && largest_weight > 0.,
+                ExcMessage("The zero-mean pressure constraint requires a "
+                           "finite, nonzero pressure weight."));
+    const double minimum_weight =
+      std::sqrt(std::numeric_limits<double>::epsilon()) * largest_weight;
 
-    coeffs_vec.erase(coeffs_vec.begin());
+    // P2 vertex basis functions on affine triangles have zero integral.
+    // Keep the legacy first pressure DoF when it is a safe pivot; otherwise
+    // use the largest weight. During ALE updates retain the selected DoF:
+    // changing it would also change the constraint's sparsity pattern.
+    auto pivot = coeffs.begin();
+    if (constrained_pressure_dof != numbers::invalid_dof_index)
+      pivot = coeffs.find(constrained_pressure_dof);
+    else if (std::abs(pivot->second) <= minimum_weight)
+      pivot = largest;
 
-    for (auto &[p_dof, val] : coeffs_vec)
-      val /= -a_0;
-
-    constraint_weights = coeffs_vec;
+    AssertThrow(pivot != coeffs.end() && std::isfinite(pivot->second) &&
+                  std::abs(pivot->second) > minimum_weight,
+                ExcMessage("The selected zero-mean pressure DoF has a "
+                           "vanishing integration weight. Rebuild the "
+                           "pressure constraint for this mesh."));
+    constrained_pressure_dof = pivot->first;
+    const double a_0         = pivot->second;
+    constraint_weights.clear();
+    constraint_weights.reserve(coeffs.size() - 1);
+    for (const auto &[p_dof, val] : coeffs)
+      if (p_dof != constrained_pressure_dof)
+        constraint_weights.emplace_back(p_dof, -val / a_0);
   }
 
   template <int dim>

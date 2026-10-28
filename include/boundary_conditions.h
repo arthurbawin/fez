@@ -364,8 +364,12 @@ namespace BoundaryConditions
    *  p_0 = - sum_{j != 0} a_j/a_0 * p_j := sum_{j != 0} c_j * p_j.
    *
    * This function computes the weights c_j and sets the pressure dof to
-   * constrain "constrained_pressure_dof", which is simply the (globally) first
-   * pressure DoF.
+   * constrain "constrained_pressure_dof". The first global pressure DoF is
+   * used if its integration weight is sufficiently large; otherwise the DoF
+   * with the largest absolute weight is selected. This avoids a zero pivot
+   * for quadratic vertex basis functions on affine triangles. Initialize
+   * constrained_pressure_dof to numbers::invalid_dof_index when creating a
+   * new constraint; subsequent mapping updates retain the selected DoF.
    *
    * Important: since this is a global constraint, this pressure dof will be
    * coupled to *all* other pressure dofs (on MPI processes which have this dof

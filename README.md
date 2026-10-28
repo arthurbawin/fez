@@ -40,6 +40,19 @@ If deal.II was compiled with SymEngine and CMake was run with -DENABLE_TESTING=1
 
     $ ctest
 
+Quasi-incompressible CHNS
+------------------------
+
+The `chns_brunk_ten_eikelder_energy_stable` branch contains the
+quasi-incompressible reformulation of the Stepien model, with an energy-stable
+BDF1 discretization and a BDF2 extension. Start with the
+[model and postprocessing guide](examples/incompressible_chns/quasi_incompressible/README.md)
+for the equations, implementation map, runnable examples, and definitions of
+the energy, mass, phase, and bubble-area diagnostics. The
+[validation record](examples/incompressible_chns/quasi_incompressible/VALIDATION.md)
+separates code checks from physical benchmark validation and states the limits
+of the BDF2 energy diagnostics.
+
 License:
 --------
 

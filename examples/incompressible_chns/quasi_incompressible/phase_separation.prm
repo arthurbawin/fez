@@ -1,0 +1,117 @@
+# Article, section 4.1. beta=gamma=10^(-3/2), eta0=eta1=0.01.
+# Q2/Q1 periodic box; the spatial choice is covered by Remark 5.
+subsection Dimension
+  set dimension = 2
+end
+subsection Timer
+  set enable timer = false
+end
+subsection Output
+  set write vtu results = true
+  set output directory = results/phase_separation/
+  set output prefix = phase_separation
+end
+subsection Mesh
+  set dealii preset mesh = rectangle
+  set dealii mesh parameters = 64, 64 : 0., 0. : 1., 1. : true
+  set refinement level = 1
+end
+subsection Time integration
+  set scheme = BDF1
+  # Select BDF2 here to use the second-order extension.
+  set bdf start method = BDF1
+  set bdf start step ratio = 0.5
+  set dt = 0.0001
+  set t_initial = 0
+  set t_end = 1
+end
+subsection Nonlinear solver
+  set tolerance = 1e-10
+  set max_iterations = 40
+  set enable_line_search = true
+  set analytic_jacobian = true
+end
+subsection Linear solver
+  subsection main physics
+    set method = direct_mumps
+    set reuse = true
+  end
+end
+subsection FiniteElements
+  set use quads = true
+  set Velocity degree = 2
+  set Pressure degree = 1
+  set Tracer degree = 1
+  set Potential degree = 1
+end
+subsection Physical properties
+  set number of fluids = 2
+  subsection Fluid 0
+    set density = 1
+    set kinematic viscosity = 0.01
+  end
+  subsection Fluid 1
+    set density = 1000
+    set kinematic viscosity = 0.00001
+  end
+  set body force = 0, 0
+end
+subsection Cahn Hilliard
+  set CHNS model = quasi_incompressible
+  set mobility model = degenerate
+  set enable density mobility compensation = false
+  set enable mobility tracer limiter = false
+  set surface tension = 0.9428090415820634
+  set interface thickness = 0.03162277660168379
+  set write quasi incompressible diagnostics = true
+  set quasi incompressible periodic box = true
+  subsection degenerate mobility
+    set Function expression = 0.01*(1-x*x)^2
+  end
+end
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 0; 0
+  end
+  subsection cahn hilliard tracer
+    set Function constants = eps=0.03162277660168379
+    set Function expression = 0.2*sin(4*pi*x)*sin(4*pi*y)
+  end
+end
+subsection Fluid boundary conditions
+  set number = 0
+  set fix pressure constant = true
+  set enforce zero mean pressure = false
+  set pressure reference point = 0.5, 0.5, 0
+end
+subsection CahnHilliard boundary conditions
+  set number = 0
+end
+
+# Domain integrals are independent of VTU output and mesh-quality diagnostics.
+subsection Postprocessing
+  subsection chns conservation
+    set enable = true
+    set write results = true
+    set output prefix = chns_conservation
+    set output frequency = 1
+    set precision = 16
+    set verbosity = quiet
+  end
+  subsection chns energy
+    set enable = true
+    set write results = true
+    set output prefix = chns_energy
+    set output frequency = 1
+    set precision = 16
+    set verbosity = quiet
+  end
+  subsection chns phase energy
+    set enable = true
+    set write results = true
+    set output prefix = chns_phase_energy
+    set output frequency = 1
+    set precision = 16
+    set verbosity = quiet
+  end
+end

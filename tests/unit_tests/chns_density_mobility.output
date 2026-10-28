@@ -1,0 +1,11 @@
+
+DEAL::dim 2: default constant mobility OK
+DEAL::dim 2: compensated constant mobility OK
+DEAL::dim 2: compensated degenerate mobility OK
+DEAL::dim 2: limiter chain rules OK
+DEAL::dim 2: unsupported model rejected OK
+DEAL::dim 3: default constant mobility OK
+DEAL::dim 3: compensated constant mobility OK
+DEAL::dim 3: compensated degenerate mobility OK
+DEAL::dim 3: limiter chain rules OK
+DEAL::dim 3: unsupported model rejected OK

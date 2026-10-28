@@ -1,0 +1,12 @@
+
+DEAL::BDF2 startup/restart coefficients and accepted-step history OK
+DEAL::dim 2: BDF1/BDF2 constant/variable-step Jacobians, three mobility laws, equal/unequal densities and extensions OK
+DEAL::dim 2: discrete energy identity OK
+DEAL::dim 2: exact potential divided difference OK
+DEAL::dim 2: BDF2 kinetic identity and temporal energy test OK
+DEAL::dim 2: density-independent mobility, pure phases and prefactor OK
+DEAL::dim 3: BDF1/BDF2 constant/variable-step Jacobians, three mobility laws, equal/unequal densities and extensions OK
+DEAL::dim 3: discrete energy identity OK
+DEAL::dim 3: exact potential divided difference OK
+DEAL::dim 3: BDF2 kinetic identity and temporal energy test OK
+DEAL::dim 3: density-independent mobility, pure phases and prefactor OK

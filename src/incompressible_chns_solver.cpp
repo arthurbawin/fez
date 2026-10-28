@@ -7,6 +7,7 @@
 #include <cahn_hilliard.h>
 #include <compare_matrix.h>
 #include <deal.II/base/multithread_info.h>
+#include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/dofs/dof_renumbering.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -19,21 +20,21 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_evaluate.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <error_estimation/patches.h>
+#include <error_estimation/solution_recovery.h>
 #include <errors.h>
 #include <incompressible_chns_solver.h>
 #include <linear_solver.h>
 #include <mesh.h>
 #include <mesh_and_dof_tools.h>
 #include <mesh_forcing_postprocessing.h>
+#include <metric_field.h>
 #include <scratch_data.h>
 #include <utilities.h>
 
-#include <deal.II/base/quadrature_lib.h>
-#include <error_estimation/patches.h>
-#include <error_estimation/solution_recovery.h>
-#include <metric_field.h>
-
+#include <array>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -50,6 +51,145 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
     this->pcout << "CHNS model: "
                 << CahnHilliard::model_name(param.cahn_hilliard) << std::endl;
 
+  AssertThrow(!param.postprocessing.chns_conservation.enable ||
+                CahnHilliard::is_quasi_incompressible_model(
+                  param.cahn_hilliard),
+              ExcMessage("CHNS conservation postprocessing currently "
+                         "requires CHNS model = quasi_incompressible."));
+  AssertThrow(
+    !param.postprocessing.chns_energy.enable ||
+      CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard) ||
+      CahnHilliard::is_stepien_model(param.cahn_hilliard),
+    ExcMessage("CHNS energy postprocessing requires CHNS model = stepien "
+               "or quasi_incompressible."));
+  AssertThrow(
+    !param.postprocessing.chns_phase_energy.enable ||
+      CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard) ||
+      CahnHilliard::is_stepien_model(param.cahn_hilliard),
+    ExcMessage("CHNS phase energy postprocessing requires CHNS model = stepien "
+               "or quasi_incompressible."));
+
+  if (CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard))
+  {
+    AssertThrow(!with_moving_mesh && !with_enlarged,
+                ExcMessage(
+                  "Quasi-incompressible CHNS is implemented on a fixed mesh."));
+    AssertThrow(param.time_integration.scheme ==
+                    Parameters::TimeIntegration::Scheme::BDF1 ||
+                  param.time_integration.scheme ==
+                    Parameters::TimeIntegration::Scheme::BDF2,
+                ExcMessage(
+                  "Quasi-incompressible CHNS requires scheme = BDF1 or BDF2."));
+    AssertThrow(param.time_integration.scheme !=
+                    Parameters::TimeIntegration::Scheme::BDF2 ||
+                  param.time_integration.bdfstart ==
+                    Parameters::TimeIntegration::BDFStart::BDF1,
+                ExcMessage(
+                  "Quasi-incompressible BDF2 requires bdf start method = BDF1 "
+                  "to construct a consistent second history state."));
+    AssertThrow(
+      param.time_integration.scheme !=
+          Parameters::TimeIntegration::Scheme::BDF2 ||
+        (param.time_integration.bdf_starting_step_ratio > 0. &&
+         param.time_integration.bdf_starting_step_ratio < 1.),
+      ExcMessage(
+        "Quasi-incompressible BDF2 requires 0 < bdf start step ratio < 1."));
+    AssertThrow(!param.finite_elements.stabilization &&
+                  !param.stabilization.enable_supg &&
+                  !param.stabilization.enable_tracer_supg,
+                ExcMessage("Disable all stabilization options for the "
+                           "Quasi-incompressible CHNS Galerkin scheme."));
+    AssertThrow(param.finite_elements.tracer_degree >= 1 &&
+                  param.finite_elements.tracer_degree ==
+                    param.finite_elements.potential_degree &&
+                  param.finite_elements.pressure_degree >= 1 &&
+                  param.finite_elements.velocity_degree ==
+                    param.finite_elements.pressure_degree + 1,
+                ExcMessage(
+                  "Quasi-incompressible CHNS requires equal phase/potential "
+                  "degrees >= 1 and a Taylor-Hood velocity/pressure "
+                  "pair (e.g. 2/1)."));
+    AssertThrow(param.cahn_hilliard.epsilon_interface > 0. &&
+                  param.cahn_hilliard.surface_tension > 0.,
+                ExcMessage("Interface thickness and surface tension must be "
+                           "strictly positive."));
+    AssertThrow(param.physical_properties.fluids.size() == 2,
+                ExcMessage(
+                  "Quasi-incompressible CHNS requires exactly two fluids."));
+    for (const auto &fluid : param.physical_properties.fluids)
+      AssertThrow(fluid.density > 0. && fluid.kinematic_viscosity >= 0.,
+                  ExcMessage(
+                    "Quasi-incompressible CHNS requires positive densities "
+                    "and non-negative viscosities."));
+    AssertThrow(!param.with_tree_based_adaptation() &&
+                  !param.with_metric_based_adaptation(),
+                ExcMessage(
+                  "Quasi-incompressible CHNS currently requires a fixed "
+                  "mesh; disable mesh adaptation."));
+    AssertThrow(param.bc_data.fix_pressure_constant !=
+                  param.bc_data.enforce_zero_mean_pressure,
+                ExcMessage(
+                  "Quasi-incompressible CHNS requires exactly one pressure "
+                  "gauge: fix pressure constant or enforce zero "
+                  "mean pressure."));
+    // No open-boundary momentum or phase flux terms are assembled. Prescribed
+    // manufactured traces remain available; their energy includes external
+    // work.
+    for (const auto &[id, bc] : param.fluid_bc)
+      AssertThrow(bc.type == BoundaryConditions::Type::no_slip ||
+                    bc.type == BoundaryConditions::Type::slip ||
+                    (param.mms_param.enable &&
+                     bc.type == BoundaryConditions::Type::velocity_mms),
+                  ExcMessage(
+                    "Quasi-incompressible CHNS supports no_slip/slip fluid "
+                    "boundaries and manufactured velocity traces; "
+                    "unsupported boundary id " +
+                    std::to_string(id)));
+    for (const auto &[id, bc] : param.cahn_hilliard_bc)
+      AssertThrow(bc.type == BoundaryConditions::Type::no_flux ||
+                    (param.mms_param.enable &&
+                     bc.type == BoundaryConditions::Type::dirichlet_mms),
+                  ExcMessage(
+                    "Quasi-incompressible CHNS supports natural no_flux "
+                    "Cahn-Hilliard boundaries and manufactured "
+                    "traces; unsupported boundary id " +
+                    std::to_string(id)));
+    if (param.cahn_hilliard.quasi_incompressible_periodic_box)
+    {
+      AssertThrow(param.physical_properties.body_force.norm_square() == 0.,
+                  ExcMessage(
+                    "The Quasi-incompressible CHNS periodic box requires "
+                    "zero body force: a nonzero constant gravity "
+                    "potential is not periodic."));
+      AssertThrow(param.finite_elements.use_quads &&
+                    param.mesh.deal_ii_preset_mesh == "rectangle",
+                  ExcMessage("The periodic box requires use quads = true "
+                             "and dealii preset mesh = rectangle."));
+      AssertThrow(param.bc_data.fix_pressure_constant &&
+                    !param.bc_data.enforce_zero_mean_pressure,
+                  ExcMessage("For a periodic box, pin the pressure at an "
+                             "interior support point and disable the zero "
+                             "mean pressure constraint."));
+      AssertThrow(param.fluid_bc.empty() && param.cahn_hilliard_bc.empty(),
+                  ExcMessage("For a periodic box, set number = 0 in both "
+                             "fluid and CahnHilliard boundary conditions; "
+                             "periodicity applies to every field."));
+    }
+    // Initial VTU output precedes the diagnostics hook. Prepare the directory
+    // here so a fresh run works even before the first diagnostics CSV exists.
+    unsigned int output_directory_ready = 1;
+    if (this->mpi_rank == 0)
+    {
+      std::error_code error;
+      std::filesystem::create_directories(param.output.output_dir, error);
+      output_directory_ready = error ? 0 : 1;
+    }
+    AssertThrow(
+      Utilities::MPI::min(output_directory_ready, this->mpi_communicator) == 1,
+      ExcMessage("Cannot create Quasi-incompressible CHNS output directory " +
+                 param.output.output_dir));
+  }
+
   if constexpr (with_moving_mesh && !with_enlarged)
     AssertThrow(
       std::abs(param.cahn_hilliard.mff_enlarged_compression_factor) < 1e-14,
@@ -64,6 +204,13 @@ CHNSSolver<dim, with_moving_mesh, with_enlarged>::CHNSSolver(
                 ExcMessage("Stepien ALE is not implemented."));
     AssertThrow(!param.finite_elements.stabilization,
                 ExcMessage("Stepien stabilization is not implemented."));
+    AssertThrow(!(param.cahn_hilliard.stepien_conservative_transport ||
+                  param.cahn_hilliard.stepien_skew_symmetric_inertia) ||
+                  (!param.stabilization.enable_supg &&
+                   !param.stabilization.enable_tracer_supg),
+                ExcMessage(
+                  "The experimental Stepien article forms require "
+                  "enable supg = false and enable tracer supg = false."));
   }
 
   if constexpr (with_moving_mesh)
@@ -210,7 +357,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
 {
   const double phi          = mms.exact_tracer->value(p);
   const double psi          = mms.exact_psi->value(p);
-  const double filtered_phi = phi;
+  const double filtered_phi =
+    CahnHilliard::get_limiter_function(cahn_hilliard_param)(phi);
+  const double property_phi_derivative =
+    CahnHilliard::tracer_limiter_derivative(
+      phi,
+      cahn_hilliard_param.with_tracer_limiter ||
+        CahnHilliard::is_quasi_incompressible_model(cahn_hilliard_param));
   const double rho0         = physical_properties.fluids[0].density;
   const double rho1         = physical_properties.fluids[1].density;
   const double rho_product = rho0 * rho1;
@@ -224,19 +377,17 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   const double pr1 =
     physical_properties.fluids[1].pressure_ref;
   const double dpr = 0.5 * (pr0 - pr1);
-  const auto   mobility_function =
-    CahnHilliard::get_mobility_function(cahn_hilliard_param);
-  const auto mobility_derivative_function =
-    CahnHilliard::get_mobility_derivative_function(cahn_hilliard_param);
-  const double M = mobility_function(cahn_hilliard_param, filtered_phi);
-  const double dM_dphi =
-    mobility_derivative_function(cahn_hilliard_param, filtered_phi);
+  const auto   evaluated_mobility =
+    CahnHilliard::evaluate_mobility(cahn_hilliard_param, phi, rho0, rho1);
+  const double M       = evaluated_mobility.value;
+  const double dM_dphi = evaluated_mobility.first_derivative;
 
   const double diff_flux_factor = M * 0.5 * (rho1 - rho0);
   // const double drhodphi =
   //   CahnHilliard::linear_mixing_derivative(filtered_phi, rho0, rho1);
   const double detadphi =
-    CahnHilliard::linear_mixing_derivative(filtered_phi, eta0, eta1);
+    CahnHilliard::linear_mixing_derivative(filtered_phi, eta0, eta1) *
+    property_phi_derivative;
   const double epsilon = cahn_hilliard_param.epsilon_interface;
   const double sigma_tilde =
     CahnHilliard::sigma_tilde_from_surface_tension(cahn_hilliard_param);
@@ -273,6 +424,35 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   const double   dphidt      = mms.exact_tracer->time_derivative(p);
   const double   Dphi        = dphidt + u * grad_phi;
 
+  if (CahnHilliard::is_quasi_incompressible_model(cahn_hilliard_param))
+  {
+    // Continuous strong form (10), with positive extensions only in the
+    // kinetic inertia and viscosity. See equations.md. MMS forces the
+    // continuous PDE, independently of the selected temporal discretization.
+    const double rho_affine = CahnHilliard::linear_mixing(phi, rho0, rho1);
+    const double alpha      = (rho1 - rho0) / (rho0 + rho1);
+    const auto   grad_w     = grad_mu + alpha * grad_p;
+    const double div_flux =
+      M * (lap_mu + alpha * lap_p) + dM_dphi * (grad_phi * grad_w);
+    const double lambda     = -2. / dim;
+    const auto   div_stress = eta * (lap_u + (1. + lambda) * grad_div_u) +
+                            2. * detadphi * (grad_phi * symmetrize(grad_u)) +
+                            lambda * detadphi * div_u * grad_phi;
+    const double div_mass_flux = drho * (u * grad_phi) + rho_affine * div_u;
+    const auto   momentum =
+      rho * dudt_eulerian + rho_affine * uDotGradu +
+      0.5 * u * (drho * property_phi_derivative * dphidt + div_mass_flux) -
+      div_stress + grad_p + phi * grad_mu - rho_affine * body_force;
+    for (unsigned int d = 0; d < dim; ++d)
+      values[u_lower + d] = -momentum[d];
+    values[p_lower]   = div_u - alpha * div_flux;
+    values[phi_lower] = -(Dphi + phi * div_u - div_flux);
+    values[mu_lower] =
+      -(mu + potential_gradient_coefficient * lap_phi -
+        potential_double_well_coefficient * phi * (phi * phi - 1.));
+    return;
+  }
+
   const Tensor<1, dim> grad_q =(rho * grad_mu -
                                drho * grad_p +
                                drho * (mu - dpr) * grad_phi) /
@@ -280,11 +460,10 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
 
   const double lap_q =
     (rho * lap_mu +
-     2.0 * drho * (grad_phi * grad_mu) +
-     drho * (mu - dpr) * lap_phi -
-     drho * lap_p) /
+     drho * (1. + property_phi_derivative) * (grad_phi * grad_mu) +
+     drho * (mu - dpr) * lap_phi - drho * lap_p) /
     rho_product;
-    
+
   const double div_mobility_grad_q =
     M * lap_q + dM_dphi * (grad_phi * grad_q);
 
@@ -322,13 +501,21 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
   Tensor<1, dim> f = -(rho * (dudt_eulerian + uDotGradu - body_force) +
                        momentum_diffusive_inertia + grad_p - div_viscous +
                        momentum_capillary_force);
+  if (cahn_hilliard_param.stepien_skew_symmetric_inertia)
+    f -= 0.5 * u * (drho * property_phi_derivative * Dphi + rho * div_u);
   for (unsigned int d = 0; d < dim; ++d)
     values[u_lower + d] = f[d];
 
   // Mass conservation (pressure) source term,
   // for - div(u) + f = 0 -> f = div(u_mms). The Stepien model adds the
   // quasi-incompressible term -(drho/rho) Dphi/Dt to the residual.
-  if (is_stepien)
+  if (cahn_hilliard_param.stepien_conservative_transport)
+  {
+    const double alpha           = (rho1 - rho0) / (rho0 + rho1);
+    const double flux_conversion = (rho0 + rho1) / (2. * rho_product);
+    values[p_lower] = div_u - alpha * flux_conversion * div_mobility_grad_q;
+  }
+  else if (is_stepien)
     values[p_lower] = div_u + (drho / rho) * Dphi;
   else
     values[p_lower] = div_u;
@@ -346,7 +533,13 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
 
   // Tracer source term. The Stepien phase equation is
   //   A Dphi/Dt - div(M grad q) + f = 0, with A = rho1 rho2 / rho.
-  if (is_stepien)
+  if (cahn_hilliard_param.stepien_conservative_transport)
+  {
+    const double flux_conversion = (rho0 + rho1) / (2. * rho_product);
+    values[phi_lower] =
+      -(Dphi + phi * div_u - flux_conversion * div_mobility_grad_q);
+  }
+  else if (is_stepien)
   {
     const double stepien_A = rho_product / rho;
     values[phi_lower]      = -(stepien_A * Dphi - div_mobility_grad_q);
@@ -446,20 +639,19 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::setup_assemblers()
   assemblers.clear();
 
   /**
-   * Assembly::IncompressibleCHNS::VolumeAssembler assembles the base CHNS terms
-   * and the SUPG/PSPG stabilization together, so it can only take over the
-   * whole volume assembly. It is registered exactly when its stabilization is
-   * requested; every other configuration keeps the inline assembly of
-   * assemble_local_matrix() / assemble_local_rhs(), which additionally covers
-   * the Stepien and enlarged models and the degenerate mobility.
+   * Register the energy-stable quasi-incompressible assembler or a stabilized
+   * CHNS assembler through the common factory. Other configurations retain
+   * the inline volume assembly, including the legacy Stepien and ALE models.
    */
-  if (!this->param.stabilization.enable_supg &&
+  if (!CahnHilliard::is_quasi_incompressible_model(this->param.cahn_hilliard) &&
+      !this->param.stabilization.enable_supg &&
       !this->param.stabilization.enable_tracer_supg)
     return;
 
   AssertThrow(
     CahnHilliard::is_abels_model(this->param.cahn_hilliard) ||
-      CahnHilliard::is_stepien_model(this->param.cahn_hilliard),
+      CahnHilliard::is_stepien_model(this->param.cahn_hilliard) ||
+      CahnHilliard::is_quasi_incompressible_model(this->param.cahn_hilliard),
     ExcMessage("The \"Stabilization\" subsection is only implemented for the "
                "Abels and Stepien models. Use \"set stabilization = true\" "
                "under the finite elements subsection for the other CHNS "
@@ -480,6 +672,39 @@ void CHNSSolver<dim,
                 with_moving_mesh,
                 with_enlarged>::create_solver_specific_zero_constraints()
 {
+  if (CahnHilliard::is_quasi_incompressible_model(this->param.cahn_hilliard) &&
+      !this->param.cahn_hilliard.quasi_incompressible_periodic_box)
+  {
+    // An omitted velocity boundary would otherwise become an open natural
+    // boundary. Validate the actual mesh, including distributed ownership.
+    unsigned int closed = 1;
+    for (const auto &cell : this->dof_handler->active_cell_iterators())
+      if (cell->is_locally_owned())
+        for (const auto face : cell->face_indices())
+          if (cell->face(face)->at_boundary() &&
+              this->param.fluid_bc.count(cell->face(face)->boundary_id()) == 0)
+            closed = 0;
+    AssertThrow(Utilities::MPI::min(closed, this->mpi_communicator) == 1,
+                ExcMessage("Every non-periodic Quasi-incompressible CHNS mesh "
+                           "boundary needs an explicit fluid boundary "
+                           "condition; open boundaries are not implemented."));
+  }
+  if (this->param.cahn_hilliard.quasi_incompressible_periodic_box)
+  {
+    const auto pressure_mask =
+      fe->component_mask(FEValuesExtractors::Scalar(this->ordering->p_lower));
+    const auto boundary_dofs =
+      DoFTools::extract_boundary_dofs(*this->dof_handler, pressure_mask);
+    const unsigned int boundary_pin =
+      boundary_dofs.is_element(this->constrained_pressure_dof) ? 1 : 0;
+    AssertThrow(Utilities::MPI::max(boundary_pin, this->mpi_communicator) == 0,
+                ExcMessage("The periodic pressure reference must select an "
+                           "interior pressure support point."));
+    for (unsigned int d = 0; d < dim; ++d)
+      DoFTools::make_periodicity_constraints(
+        *this->dof_handler, 2 * d + 1, 2 * d, d, this->zero_constraints);
+  }
+
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
     /**
@@ -526,6 +751,11 @@ template <int dim, bool with_moving_mesh, bool with_enlarged>
 void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
   create_solver_specific_nonzero_constraints()
 {
+  if (this->param.cahn_hilliard.quasi_incompressible_periodic_box)
+    for (unsigned int d = 0; d < dim; ++d)
+      DoFTools::make_periodicity_constraints(
+        *this->dof_handler, 2 * d + 1, 2 * d, d, this->nonzero_constraints);
+
   for (const auto &[id, bc] : this->param.cahn_hilliard_bc)
   {
     /**
@@ -635,6 +865,17 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::create_sparsity_pattern()
     {
       coupling_table[i][j] = DoFTools::none;
 
+      if (CahnHilliard::is_quasi_incompressible_model(
+            this->param.cahn_hilliard))
+      {
+        // Both diffusion rows couple to phi, mu and p; the skew momentum
+        // and conservative phase rows couple to all four unknowns.
+        if (!this->ordering->is_potential(i) || this->ordering->is_tracer(j) ||
+            this->ordering->is_potential(j))
+          coupling_table[i][j] = DoFTools::always;
+        continue;
+      }
+
       // u couples to all variables
       if (this->ordering->is_velocity(i))
         coupling_table[i][j] = DoFTools::always;
@@ -657,6 +898,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::create_sparsity_pattern()
       // term, so pressure couples to the tracer.
       if (this->ordering->is_pressure(i) && this->ordering->is_tracer(j) &&
           CahnHilliard::is_stepien_model(this->param.cahn_hilliard))
+        coupling_table[i][j] = DoFTools::always;
+
+      // The conservative divergence constraint contains the same diffusive
+      // flux as the phase equation, including its pressure and mu dependence.
+      if (this->ordering->is_pressure(i) &&
+          this->param.cahn_hilliard.stepien_conservative_transport)
         coupling_table[i][j] = DoFTools::always;
 
       // x couples x,phi,u
@@ -801,6 +1048,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
   const bool   is_stepien = CahnHilliard::is_stepien_model(cahn_hilliard);
   const double stepien_cap =
     CahnHilliard::stepien_capillary_coefficient(cahn_hilliard);
+  const bool   conservative = cahn_hilliard.stepien_conservative_transport;
+  const bool   skew_inertia = cahn_hilliard.stepien_skew_symmetric_inertia;
   const double rho0 = scratch_data.density0;
   const double rho1 = scratch_data.density1;
   const double dpr =
@@ -829,9 +1078,17 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
 
     const double rho      = scratch_data.density[q];
     const double eta      = scratch_data.dynamic_viscosity[q];
+    // drhodphi is the constant density contrast in the Stepien flux and
+    // continuity equation. The actual derivative of rho can differ when
+    // the property limiter is active; only Jacobian variations use it.
     const double drhodphi = scratch_data.derivative_density_wrt_tracer[q];
+    const double property_phi_derivative =
+      CahnHilliard::tracer_limiter_derivative(
+        scratch_data.tracer_values[q], cahn_hilliard.with_tracer_limiter);
+    const double density_derivative = drhodphi * property_phi_derivative;
     const double detadphi =
-      scratch_data.derivative_dynamic_viscosity_wrt_tracer[q];
+      scratch_data.derivative_dynamic_viscosity_wrt_tracer[q] *
+      property_phi_derivative;
 
     const auto  &phi_u          = scratch_data.phi_u[q];
     const auto  &grad_phi_u     = scratch_data.grad_phi_u[q];
@@ -885,6 +1142,20 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
       this->time_handler.compute_time_derivative_at_quadrature_node(
         q, tracer_value, scratch_data.previous_tracer_values);
 
+    const double density_bdf = skew_inertia ?
+                                 CahnHilliard::bdf_density_derivative(
+                                   cahn_hilliard,
+                                   rho0,
+                                   rho1,
+                                   rho,
+                                   this->time_handler.bdf_coefficients,
+                                   scratch_data.previous_tracer_values,
+                                   q) :
+                                 0.;
+    const double flux_conversion =
+      conservative ? (rho0 + rho1) / (2. * rho0 * rho1) : 0.;
+    const double alpha = (rho1 - rho0) / (rho0 + rho1);
+
     // Stepien: per-quadrature coefficients (mirror the residual).
     double         stepien_A = 0.;
     double         lambda_visc = 0., dlambda_visc_dphi = 0.;
@@ -906,7 +1177,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
 
     // Precomputations of shape functions-independent terms
     const auto density_derivative_momentum =
-      drhodphi * (dudt + u_dot_grad_u - body_force);
+      density_derivative * (dudt + u_dot_grad_u - body_force);
 
     if constexpr (with_moving_mesh)
     {
@@ -955,6 +1226,28 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
         }
 
         double local_flow_ij = 0.;
+        Tensor<1, dim> delta_article_flux;
+        if (conservative && (comp_i == const_ordering.p_lower ||
+                             comp_i == const_ordering.phi_lower))
+        {
+          if (comp_j == const_ordering.phi_lower)
+            delta_article_flux =
+              flux_conversion *
+              (dM_dphi * phi_phi_j * stepien_grad_q +
+               mobility *
+                 (density_derivative * phi_phi_j * potential_gradient +
+                  drhodphi * (potential_value - dpr) * grad_phi_phi_j) /
+                 (rho0 * rho1));
+          else if (comp_j == const_ordering.mu_lower)
+            delta_article_flux =
+              flux_conversion * mobility *
+              (rho * grad_phi_mu_j + drhodphi * phi_mu_j * tracer_gradient) /
+              (rho0 * rho1);
+          else if (comp_j == const_ordering.p_lower)
+            delta_article_flux = -flux_conversion * mobility * drhodphi *
+                                 scratch_data.grad_phi_p[q][j] / (rho0 * rho1);
+        }
+
 
         /**
          * Momentum equation
@@ -968,6 +1261,15 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
               phi_u_i *
               (rho * (bdf_c0 * phi_u_j + grad_phi_u_j * u_conv +
                       present_velocity_gradients * phi_u_j));
+
+            if (skew_inertia)
+              local_flow_ij +=
+                0.5 * density_bdf * (phi_u_i * phi_u_j) -
+                0.5 * rho *
+                  (phi_u_i * (grad_phi_u_j * u_conv +
+                              present_velocity_gradients * phi_u_j) +
+                   present_velocity_values * (grad_phi_u_i * phi_u_j) +
+                   phi_u_j * (grad_phi_u_i * u_conv));
 
             if (use_abels_diffusive_inertia)
               local_flow_ij +=
@@ -1053,6 +1355,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
           {
             local_flow_ij +=
               phi_u_i * phi_phi_j * density_derivative_momentum;
+            if (skew_inertia)
+                local_flow_ij +=
+                  0.5 * density_derivative * phi_phi_j *
+                  (bdf_c0 * (phi_u_i * present_velocity_values) -
+                   phi_u_i * u_dot_grad_u -
+                   present_velocity_values * (grad_phi_u_i * u_conv));
             local_flow_ij +=
               2. * detadphi * phi_phi_j *
               scalar_product(sym_grad_phi_u_i, present_velocity_sym_gradients);
@@ -1105,44 +1413,53 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
          */
         if (comp_i == const_ordering.p_lower)
         {
-          if (const_ordering.u_lower <= comp_j &&
-              comp_j < const_ordering.u_upper)
+          if (conservative)
           {
-            // Continuity : variation w.r.t. u
-            local_flow_ij += -phi_p_i * div_phi_u_j;
-            if (is_stepien)
-              // d/du of the quasi-incompressible term
-              //   -q (drho/rho) (v.grad phi)
-              local_flow_ij +=
-                -phi_p_i * (drhodphi / rho) * (phi_u_j * tracer_gradient);
+            local_flow_ij -= phi_p_i * div_phi_u_j;
+            local_flow_ij -=
+              alpha * (scratch_data.grad_phi_p[q][i] * delta_article_flux);
           }
-
-          if (is_stepien && comp_j == const_ordering.phi_lower)
+          else
           {
-            // Continuity vs phi (Stepien): derivative of
-            //   -q (drho/rho) (dphi/dt + v.grad phi).
-            // d(1/rho)/dphi gives +drho^2/rho^2; d(Dphi/Dt)/dphi gives
-            // c0 phi_phi_j + v.grad(phi_phi_j).
-            local_flow_ij +=
-              phi_p_i * (drhodphi * drhodphi / (rho * rho)) * phi_phi_j *
-                (dphidt + u_conv * tracer_gradient) -
-              phi_p_i * (drhodphi / rho) *
-                (bdf_c0 * phi_phi_j + u_conv * grad_phi_phi_j);
-          }
-
-          if constexpr (with_moving_mesh)
-          {
-            if (const_ordering.x_lower <= comp_j &&
-                comp_j < const_ordering.x_upper)
+            if (const_ordering.u_lower <= comp_j &&
+                comp_j < const_ordering.u_upper)
             {
-              // Continuity : variation w.r.t. x
-              const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = Assembly::ALE::jacobian_trace(G);
+              // Continuity : variation w.r.t. u
+              local_flow_ij += -phi_p_i * div_phi_u_j;
+              if (is_stepien)
+                  // d/du of the quasi-incompressible term
+                  //   -q (drho/rho) (v.grad phi)
+                  local_flow_ij +=
+                    -phi_p_i * (drhodphi / rho) * (phi_u_j * tracer_gradient);
+            }
 
+            if (is_stepien && comp_j == const_ordering.phi_lower)
+            {
+              // Continuity vs phi (Stepien): derivative of
+              //   -q (drho/rho) (dphi/dt + v.grad phi).
+              // d(1/rho)/dphi gives +drho^2/rho^2; d(Dphi/Dt)/dphi gives
+              // c0 phi_phi_j + v.grad(phi_phi_j).
               local_flow_ij +=
-                phi_p_i * (source_term_pressure * trG +
-                           (trace(present_velocity_gradients * G) -
-                            present_velocity_divergence * trG));
+                phi_p_i * (drhodphi * density_derivative / (rho * rho)) *
+                  phi_phi_j * (dphidt + u_conv * tracer_gradient) -
+                phi_p_i * (drhodphi / rho) *
+                  (bdf_c0 * phi_phi_j + u_conv * grad_phi_phi_j);
+            }
+
+            if constexpr (with_moving_mesh)
+            {
+              if (const_ordering.x_lower <= comp_j &&
+                  comp_j < const_ordering.x_upper)
+              {
+                  // Continuity : variation w.r.t. x
+                  const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
+                  const double          trG = Assembly::ALE::jacobian_trace(G);
+
+                  local_flow_ij +=
+                    phi_p_i * (source_term_pressure * trG +
+                               (trace(present_velocity_gradients * G) -
+                                present_velocity_divergence * trG));
+              }
             }
           }
         }
@@ -1152,98 +1469,118 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_matrix(
          */
         if (comp_i == const_ordering.phi_lower)
         {
-          if (const_ordering.u_lower <= comp_j &&
-              comp_j < const_ordering.u_upper)
+          if (conservative)
           {
-            // Advection (Stepien scales it by the coefficient A)
-            if (is_stepien)
-              local_flow_ij +=
-                stepien_A * phi_phi_i * (phi_u_j * tracer_gradient);
-            else
-              local_flow_ij += phi_phi_i * phi_u_j * tracer_gradient;
+            local_flow_ij += grad_phi_phi_i * delta_article_flux;
+            if (const_ordering.u_lower <= comp_j &&
+                comp_j < const_ordering.u_upper)
+              local_flow_ij -= tracer_value * (grad_phi_phi_i * phi_u_j);
+            if (comp_j == const_ordering.phi_lower)
+              local_flow_ij += phi_phi_i * bdf_c0 * phi_phi_j -
+                               phi_phi_j * (grad_phi_phi_i * u_conv);
           }
-          if constexpr (with_moving_mesh)
+          else
           {
-            // Variation of tracer equation w.r.t. x
-            if (const_ordering.x_lower <= comp_j &&
-                comp_j < const_ordering.x_upper)
+            if (const_ordering.u_lower <= comp_j &&
+                comp_j < const_ordering.u_upper)
             {
-              const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
-              const double          trG = Assembly::ALE::jacobian_trace(G);
+              // Advection (Stepien scales it by the coefficient A)
+              if (is_stepien)
+                  local_flow_ij +=
+                    stepien_A * phi_phi_i * (phi_u_j * tracer_gradient);
+              else
+                  local_flow_ij += phi_phi_i * phi_u_j * tracer_gradient;
+            }
+            if constexpr (with_moving_mesh)
+            {
+              // Variation of tracer equation w.r.t. x
+              if (const_ordering.x_lower <= comp_j &&
+                  comp_j < const_ordering.x_upper)
+              {
+                  const Tensor<2, dim> &G   = (*grad_phi_x_moving)[j];
+                  const double          trG = Assembly::ALE::jacobian_trace(G);
 
-              local_flow_ij += phi_phi_i * to_multipliy_by_phi_phi_i_tr_G * trG;
+                  local_flow_ij +=
+                    phi_phi_i * to_multipliy_by_phi_phi_i_tr_G * trG;
 
-              // ALE (advection) term
-              local_flow_ij +=
-                phi_phi_i *
-                (Assembly::ALE::mesh_velocity_variation(bdf_c0, *phi_x_j) *
-                   tracer_gradient +
-                 u_conv *
-                   Assembly::ALE::gradient_variation(tracer_gradient, G));
-              // Laplacian term
-              local_flow_ij +=
-                mobility *
-                (Assembly::ALE::gradient_variation(grad_phi_phi_i, G) *
-                   potential_gradient +
-                 grad_phi_phi_i *
-                   Assembly::ALE::gradient_variation(potential_gradient, G) +
-                 (grad_phi_phi_i * potential_gradient) * trG);
+                  // ALE (advection) term
+                  local_flow_ij +=
+                    phi_phi_i *
+                    (Assembly::ALE::mesh_velocity_variation(bdf_c0, *phi_x_j) *
+                       tracer_gradient +
+                     u_conv *
+                       Assembly::ALE::gradient_variation(tracer_gradient, G));
+                  // Laplacian term
+                  local_flow_ij +=
+                    mobility *
+                    (Assembly::ALE::gradient_variation(grad_phi_phi_i, G) *
+                       potential_gradient +
+                     grad_phi_phi_i *
+                       Assembly::ALE::gradient_variation(potential_gradient,
+                                                         G) +
+                     (grad_phi_phi_i * potential_gradient) * trG);
+              }
             }
-          }
-          if (comp_j == const_ordering.phi_lower)
-          {
-            if (is_stepien)
+            if (comp_j == const_ordering.phi_lower)
             {
-              // term 1: dA/dphi * (dphi/dt + v.grad phi), dA/dphi = -A drho/rho
-              local_flow_ij += phi_phi_i * (-stepien_A * drhodphi / rho) *
-                               phi_phi_j *
-                               (dphidt + u_conv * tracer_gradient);
-              // term 2: A*(c0 dphi + v.grad dphi)
-              local_flow_ij += phi_phi_i * stepien_A *
-                               (bdf_c0 * phi_phi_j + u_conv * grad_phi_phi_j);
-              // term 3: dM/dphi in the flux M * grad q
-              local_flow_ij +=
-                grad_phi_phi_i * dM_dphi * phi_phi_j * stepien_grad_q;
-              // term 4: phi-part of M * delta(grad q)
-              const Tensor<1, dim> delta_grad_q_phi_j =
-                (drhodphi * phi_phi_j * potential_gradient +
-                 drhodphi * (potential_value - dpr) * grad_phi_phi_j) /
-                (rho0 * rho1);
-              local_flow_ij += grad_phi_phi_i * mobility * delta_grad_q_phi_j;
+              if (is_stepien)
+              {
+                  // term 1: dA/dphi * (dphi/dt + v.grad phi), dA/dphi = -A
+                  // drho/rho
+                  local_flow_ij +=
+                    phi_phi_i * (-stepien_A * density_derivative / rho) *
+                    phi_phi_j * (dphidt + u_conv * tracer_gradient);
+                  // term 2: A*(c0 dphi + v.grad dphi)
+                  local_flow_ij +=
+                    phi_phi_i * stepien_A *
+                    (bdf_c0 * phi_phi_j + u_conv * grad_phi_phi_j);
+                  // term 3: dM/dphi in the flux M * grad q
+                  local_flow_ij +=
+                    grad_phi_phi_i * dM_dphi * phi_phi_j * stepien_grad_q;
+                  // term 4: phi-part of M * delta(grad q)
+                  const Tensor<1, dim> delta_grad_q_phi_j =
+                    (density_derivative * phi_phi_j * potential_gradient +
+                     drhodphi * (potential_value - dpr) * grad_phi_phi_j) /
+                    (rho0 * rho1);
+                  local_flow_ij +=
+                    grad_phi_phi_i * mobility * delta_grad_q_phi_j;
+              }
+              else
+              {
+                  // Transient
+                  local_flow_ij += phi_phi_i * bdf_c0 * phi_phi_j;
+                  // Advection
+                  local_flow_ij += phi_phi_i * u_conv * grad_phi_phi_j;
+                  local_flow_ij +=
+                    dM_dphi * phi_phi_j * (grad_phi_phi_i * potential_gradient);
+              }
             }
-            else
+            if (comp_j == const_ordering.mu_lower)
             {
-              // Transient
-              local_flow_ij += phi_phi_i * bdf_c0 * phi_phi_j;
-              // Advection
-              local_flow_ij += phi_phi_i * u_conv * grad_phi_phi_j;
-              local_flow_ij +=
-                dM_dphi * phi_phi_j * (grad_phi_phi_i * potential_gradient);
+              if (is_stepien)
+              {
+                  // term 4: mu-part of M * delta(grad q)
+                  const Tensor<1, dim> delta_grad_q_mu_j =
+                    (rho * grad_phi_mu_j +
+                     drhodphi * phi_mu_j * tracer_gradient) /
+                    (rho0 * rho1);
+                  local_flow_ij +=
+                    grad_phi_phi_i * mobility * delta_grad_q_mu_j;
+              }
+              else
+                  // Diffusion
+                  local_flow_ij += mobility * grad_phi_mu_j * grad_phi_phi_i;
             }
-          }
-          if (comp_j == const_ordering.mu_lower)
-          {
-            if (is_stepien)
+            if (is_stepien && comp_j == const_ordering.p_lower)
             {
-              // term 4: mu-part of M * delta(grad q)
-              const Tensor<1, dim> delta_grad_q_mu_j =
-                (rho * grad_phi_mu_j +
-                 drhodphi * phi_mu_j * tracer_gradient) /
-                (rho0 * rho1);
-              local_flow_ij += grad_phi_phi_i * mobility * delta_grad_q_mu_j;
+              // term 4: pressure-part of M * delta(grad q). This is the new
+              // phi-p coupling block enabled in the sparsity pattern.
+              const Tensor<1, dim> &grad_phi_p_j =
+                scratch_data.grad_phi_p[q][j];
+              const Tensor<1, dim> delta_grad_q_p_j =
+                -drhodphi * grad_phi_p_j / (rho0 * rho1);
+              local_flow_ij += grad_phi_phi_i * mobility * delta_grad_q_p_j;
             }
-            else
-              // Diffusion
-              local_flow_ij += mobility * grad_phi_mu_j * grad_phi_phi_i;
-          }
-          if (is_stepien && comp_j == const_ordering.p_lower)
-          {
-            // term 4: pressure-part of M * delta(grad q). This is the new
-            // phi-p coupling block enabled in the sparsity pattern.
-            const Tensor<1, dim> &grad_phi_p_j = scratch_data.grad_phi_p[q][j];
-            const Tensor<1, dim>  delta_grad_q_p_j =
-              -drhodphi * grad_phi_p_j / (rho0 * rho1);
-            local_flow_ij += grad_phi_phi_i * mobility * delta_grad_q_p_j;
           }
         }
 
@@ -1440,6 +1777,8 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
   const bool   is_stepien  = CahnHilliard::is_stepien_model(cahn_hilliard);
   const double stepien_cap =
     CahnHilliard::stepien_capillary_coefficient(cahn_hilliard);
+  const bool   conservative = cahn_hilliard.stepien_conservative_transport;
+  const bool   skew_inertia = cahn_hilliard.stepien_skew_symmetric_inertia;
   const double rho0     = scratch_data.density0;
   const double rho1     = scratch_data.density1;
   const double drhodphi = 0.5 * (rho0 - rho1); // = (rho1 - rho2)/2
@@ -1517,6 +1856,20 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
       potential_double_well_coefficient * phi_cube_minus_phi +
       source_term_potential;
 
+    const double density_bdf = skew_inertia ?
+                                 CahnHilliard::bdf_density_derivative(
+                                   cahn_hilliard,
+                                   rho0,
+                                   rho1,
+                                   rho,
+                                   this->time_handler.bdf_coefficients,
+                                   scratch_data.previous_tracer_values,
+                                   q) :
+                                 0.;
+    const double flux_conversion =
+      conservative ? (rho0 + rho1) / (2. * rho0 * rho1) : 0.;
+    const double alpha = (rho1 - rho0) / (rho0 + rho1);
+
     // Stepien quasi-incompressible model: per-quadrature coefficients.
     // Phase eq.:  A * Dphi/Dt - div(M grad q) = 0, with
     //   A = rho1 rho2 / rho,
@@ -1565,17 +1918,33 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::assemble_local_rhs(
         local_rhs_flow_i += lambda_visc * present_velocity_divergence *
                             div_phi_u_i;
 
-      // Continuity equation
+      if (skew_inertia)
+        local_rhs_flow_i +=
+          0.5 * density_bdf * (phi_u_i * present_velocity_values) -
+          0.5 * rho *
+            (phi_u_i * u_dot_grad_u +
+             present_velocity_values *
+               (scratch_data.grad_phi_u[q][i] * u_conv));
+
+      // Continuity equation. J_A = (b/R) M_F grad(xi_F).
       local_rhs_flow_i +=
         phi_p_i * (-present_velocity_divergence + source_term_pressure);
-      if (is_stepien)
+      if (conservative)
+        local_rhs_flow_i -= alpha * flux_conversion * mobility *
+                            (scratch_data.grad_phi_p[q][i] * stepien_grad_q);
+      else if (is_stepien)
         // Quasi-incompressible source: div v = -(rho1-rho2)/(2 rho) Dphi/Dt.
         local_rhs_flow_i +=
           -phi_p_i * (drhodphi / rho) *
           (dphidt + velocity_dot_tracer_gradient);
 
       // Tracer equation
-      if (is_stepien)
+      if (conservative)
+        local_rhs_flow_i +=
+          phi_phi_i * (dphidt + source_term_tracer) -
+          tracer_value * (grad_phi_phi_i * u_conv) +
+          flux_conversion * mobility * (grad_phi_phi_i * stepien_grad_q);
+      else if (is_stepien)
         local_rhs_flow_i +=
           phi_phi_i * (stepien_A * (dphidt + velocity_dot_tracer_gradient) +
                        source_term_tracer) +
@@ -1673,6 +2042,18 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
       std::vector<DataComponentInterpretation::DataComponentInterpretation>{
         DataComponentInterpretation::component_is_scalar});
 
+  // Keep the existing positive density output and expose the affine density
+  // separately: kinetic regularization must not hide physical undershoots.
+  std::unique_ptr<PostProcessingTools::DG0DataField<dim>> affine_density_field;
+  if (CahnHilliard::is_quasi_incompressible_model(this->param.cahn_hilliard))
+    affine_density_field =
+      std::make_unique<PostProcessingTools::DG0DataField<dim>>(
+        *this->triangulation,
+        fe->reference_cell().is_hyper_cube(),
+        std::vector<std::string>{"density_affine"},
+        std::vector<DataComponentInterpretation::DataComponentInterpretation>{
+          DataComponentInterpretation::component_is_scalar});
+
   FEValues<dim> fe_values(*this->moving_mapping,
                           *fe,
                           *this->quadrature,
@@ -1687,6 +2068,7 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
                                                        tracer_values);
 
       double density_average = 0.0;
+      double affine_density_average = 0.0;
       double cell_measure    = 0.0;
       for (unsigned int q = 0; q < this->quadrature->size(); ++q)
       {
@@ -1694,14 +2076,24 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
         const double phi = tracer_limiter(tracer_values[q]);
         density_average +=
           CahnHilliard::linear_mixing(phi, density0, density1) * JxW;
+        if (affine_density_field)
+          affine_density_average +=
+            CahnHilliard::linear_mixing(tracer_values[q], density0, density1) *
+            JxW;
         cell_measure += JxW;
       }
 
       density_field->set_cell_values(
         cell, std::vector<double>{density_average / cell_measure});
+      if (affine_density_field)
+        affine_density_field->set_cell_values(
+          cell, std::vector<double>{affine_density_average / cell_measure});
     }
 
   this->postproc_handler->add_cell_dg0_data_field(std::move(density_field));
+  if (affine_density_field)
+    this->postproc_handler->add_cell_dg0_data_field(
+      std::move(affine_density_field));
 
   if constexpr (with_moving_mesh)
   {
@@ -1724,10 +2116,212 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>
-void CHNSSolver<dim,
-                with_moving_mesh,
-                with_enlarged>::solver_specific_post_processing()
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  write_stepien_diagnostics(
+    const PostProcessingTools::CHNSIntegralData &data) const
 {
+  using I       = PostProcessingTools::CHNSIntegralData;
+  const auto &v = data.sums;
+  if (this->mpi_rank != 0)
+    return;
+  std::filesystem::create_directories(this->param.output.output_dir);
+  const std::string filename =
+    this->param.output.output_dir + "stepien_diagnostics.csv";
+  const bool    first  = this->time_handler.current_time_iteration == 0;
+  const bool    header = first || !std::ifstream(filename).good();
+  std::ofstream out(filename, first ? std::ios::trunc : std::ios::app);
+  AssertThrow(out.good(), ExcMessage("Cannot write " + filename));
+  if (header)
+    out << "time,iteration,phase_integral,mass_affine,mass_used,bubble_area,"
+           "center_y,rise_velocity,weighted_bubble_area,weighted_center_y,"
+           "weighted_rise_velocity,kinetic_energy,interfacial_energy,"
+           "gravitational_energy,total_energy,viscous_dissipation,"
+           "diffusive_dissipation,phi_min_q,phi_max_q\n";
+  const double nan   = std::numeric_limits<double>::quiet_NaN();
+  const auto average = [&](const I::Integral moment, const I::Integral volume) {
+    return v[volume] > 0. ? v[moment] / v[volume] : nan;
+  };
+  out << std::setprecision(16) << this->time_handler.current_time << ','
+      << this->time_handler.current_time_iteration;
+  for (const auto k :
+       {I::PhaseIntegral, I::AffineMass, I::PositiveMass, I::BubbleVolume})
+    out << ',' << v[k];
+  out << ',' << average(I::BubbleHeightMoment, I::BubbleVolume) << ','
+      << average(I::BubbleVelocityMoment, I::BubbleVolume) << ','
+      << v[I::WeightedBubbleVolume] << ','
+      << average(I::WeightedBubbleHeightMoment, I::WeightedBubbleVolume) << ','
+      << average(I::WeightedBubbleVelocityMoment, I::WeightedBubbleVolume);
+  for (const auto k :
+       {I::KineticEnergy, I::InterfacialEnergy, I::GravitationalEnergy})
+    out << ',' << v[k];
+  out << ',' << data.total_energy() << ',' << v[I::ViscousDissipation] << ','
+      << v[I::DiffusiveDissipation] << ',' << data.phi_min << ','
+      << data.phi_max << '\n';
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  write_quasi_incompressible_diagnostics(
+    const PostProcessingTools::CHNSIntegralData &data) const
+{
+  using I           = PostProcessingTools::CHNSIntegralData;
+  const auto  &pp   = this->param.physical_properties;
+  const double rho0 = pp.fluids[0].density, rho1 = pp.fluids[1].density;
+  const bool   initial = this->time_handler.current_time_iteration == 0;
+  const double dt = initial ? 0. : this->time_handler.get_current_timestep();
+  const std::vector<double> coefficients =
+    initial ? std::vector<double>{0., 0.} :
+              this->time_handler.get_bdf_coefficients();
+  const bool bdf2          = coefficients.size() == 3 && coefficients[2] != 0.;
+  const bool constant_bdf2 = bdf2 &&
+                             std::abs(dt * coefficients[0] - 1.5) < 1.e-12 &&
+                             std::abs(dt * coefficients[1] + 2.) < 1.e-12 &&
+                             std::abs(dt * coefficients[2] - 0.5) < 1.e-12;
+  const auto  &sums    = data.sums;
+  const double phi_min = data.phi_min, phi_max = data.phi_max;
+  const double density_at_min_phi =
+    CahnHilliard::linear_mixing(phi_min, rho0, rho1);
+  const double density_at_max_phi =
+    CahnHilliard::linear_mixing(phi_max, rho0, rho1);
+  if (this->mpi_rank != 0)
+    return;
+  std::filesystem::create_directories(this->param.output.output_dir);
+  const auto filename =
+    this->param.output.output_dir + "quasi_incompressible_diagnostics.csv";
+  const bool    header = initial || !std::ifstream(filename).good();
+  std::ofstream out(filename, initial ? std::ios::trunc : std::ios::app);
+  AssertThrow(out.good(), ExcMessage("Cannot write " + filename));
+  if (header)
+    out
+      << "time,iteration,dt,phase_integral,mass_affine,mass_positive,"
+         "kinetic_energy,interfacial_energy,gravitational_energy,total_energy,"
+         "viscous_dissipation,diffusive_dissipation,numerical_energy_loss,"
+         "energy_inequality_residual,energy_balance_residual,phase_change,"
+         "mass_change,bubble_area,center_y,rise_velocity,phi_min_q,phi_max_q,"
+         "numerical_kinetic_energy_loss,numerical_interfacial_energy_loss,"
+         "density_affine_min_q,density_affine_max_q,negative_density_volume_q,"
+         "phase_overshoot_volume_q,density_extension_l1,velocity_l2,"
+         "velocity_divergence_l2,diffusive_flux_l2,domain_volume,"
+         "effective_bdf_order,bdf_c0,bdf_c1,bdf_c2,"
+         "physical_energy_increment_plus_dissipation,"
+         "phase_time_derivative_integral,mass_time_derivative_integral,"
+         "kinetic_temporal_power,bulk_temporal_power,gradient_temporal_power,"
+         "gravitational_temporal_power,temporal_energy_balance_residual,"
+         "bdf2_constant_step,bdf2_modified_kinetic_energy,"
+         "bdf2_modified_gradient_energy,bdf2_kinetic_remainder,"
+         "bdf2_gradient_remainder,bdf2_kinetic_identity_residual,"
+         "bdf2_gradient_identity_residual\n";
+  const double energy = sums[I::KineticEnergy] + sums[I::InterfacialEnergy] +
+                        sums[I::GravitationalEnergy];
+  const double defect =
+    energy - sums[I::OldEnergy] +
+    dt * (sums[I::ViscousDissipation] + sums[I::DiffusiveDissipation]);
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  const double temporal_balance =
+    sums[I::KineticTemporalPower] + sums[I::BulkTemporalPower] +
+    sums[I::GradientTemporalPower] + sums[I::GravitationalTemporalPower] +
+    (initial ? 0. :
+               sums[I::ViscousDissipation] + sums[I::DiffusiveDissipation]);
+  out << std::setprecision(16) << this->time_handler.current_time << ','
+      << this->time_handler.current_time_iteration << ',' << dt;
+  for (unsigned int k = I::PhaseIntegral; k <= I::GravitationalEnergy; ++k)
+    out << ',' << sums[k];
+  out << ',' << energy << ',' << sums[I::ViscousDissipation] << ','
+      << sums[I::DiffusiveDissipation] << ','
+      << (bdf2 ? nan : sums[I::NumericalEnergyLoss]) << ','
+      << (bdf2 ? nan : defect) << ','
+      << (bdf2 ? nan : defect + sums[I::NumericalEnergyLoss]) << ','
+      << sums[I::PhaseIntegral] - sums[I::OldPhaseIntegral] << ','
+      << sums[I::AffineMass] - sums[I::OldAffineMass] << ','
+      << sums[I::BubbleVolume] << ','
+      << (sums[I::BubbleVolume] > 0. ?
+            sums[I::BubbleHeightMoment] / sums[I::BubbleVolume] :
+            nan)
+      << ','
+      << (sums[I::BubbleVolume] > 0. ?
+            sums[I::BubbleVelocityMoment] / sums[I::BubbleVolume] :
+            nan)
+      << ',' << phi_min << ',' << phi_max << ','
+      << (bdf2 ? nan : sums[I::NumericalKineticLoss]) << ','
+      << (bdf2 ? nan : sums[I::NumericalInterfacialLoss]) << ','
+      << std::min(density_at_min_phi, density_at_max_phi) << ','
+      << std::max(density_at_min_phi, density_at_max_phi) << ','
+      << sums[I::NegativeDensityVolume] << ',' << sums[I::PhaseOvershootVolume]
+      << ',' << sums[I::DensityExtensionL1] << ','
+      << std::sqrt(sums[I::VelocityNormSquared]) << ','
+      << std::sqrt(sums[I::DivergenceNormSquared]) << ','
+      << std::sqrt(sums[I::DiffusiveFluxNormSquared]) << ',' << sums[I::Volume]
+      << ',' << (initial ? 0 : (bdf2 ? 2 : 1)) << ',' << coefficients[0] << ','
+      << coefficients[1] << ','
+      << (coefficients.size() == 3 ? coefficients[2] : 0.) << ',' << defect
+      << ',' << sums[I::PhaseRate] << ',' << sums[I::MassRate] << ','
+      << sums[I::KineticTemporalPower] << ',' << sums[I::BulkTemporalPower]
+      << ',' << sums[I::GradientTemporalPower] << ','
+      << sums[I::GravitationalTemporalPower] << ',' << temporal_balance << ','
+      << (constant_bdf2 ? 1 : 0) << ','
+      << (bdf2 ? sums[I::ModifiedKineticEnergy] : nan) << ','
+      << (bdf2 ? sums[I::ModifiedGradientEnergy] : nan) << ','
+      << (constant_bdf2 ? sums[I::BDF2KineticRemainder] : nan) << ','
+      << (constant_bdf2 ? sums[I::BDF2GradientRemainder] : nan) << ','
+      << (constant_bdf2 ? sums[I::BDF2KineticIdentityResidual] : nan) << ','
+      << (constant_bdf2 ? sums[I::BDF2GradientIdentityResidual] : nan) << '\n';
+}
+
+template <int dim, bool with_moving_mesh, bool with_enlarged>
+void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
+  solver_specific_post_processing()
+{
+  const bool restart_snapshot =
+    this->param.checkpoint_restart.restart &&
+    this->time_handler.current_time_iteration != 0 &&
+    this->time_handler.current_time_iteration ==
+      this->time_handler.time_iteration_at_last_restart;
+  const bool stepien =
+    CahnHilliard::is_stepien_model(this->param.cahn_hilliard);
+  const bool detailed =
+    stepien ? this->param.cahn_hilliard.write_stepien_diagnostics :
+              this->param.cahn_hilliard.write_quasi_incompressible_diagnostics;
+  const bool domain_monitoring =
+    this->param.postprocessing.chns_conservation.enable ||
+    this->param.postprocessing.chns_energy.enable ||
+    this->param.postprocessing.chns_phase_energy.enable;
+  if ((detailed || domain_monitoring) &&
+      !(restart_snapshot && this->postproc_handler->has_chns_reference() &&
+        !this->postproc_handler->needs_chns_phase_energy(this->time_handler)))
+  {
+    TimerOutput::Scope timer(this->computing_timer,
+                             "Compute CHNS domain integrals");
+    const auto data = stepien ? PostProcessingTools::compute_stepien_integrals(
+                                  this->param.cahn_hilliard,
+                                  this->param.physical_properties,
+                                  *this->ordering,
+                                  *this->dof_handler,
+                                  *this->moving_mapping,
+                                  *this->quadrature,
+                                  *this->present_solution) :
+                                PostProcessingTools::compute_chns_integrals(
+                                  this->param.cahn_hilliard,
+                                  this->param.physical_properties,
+                                  *this->ordering,
+                                  *this->dof_handler,
+                                  *this->moving_mapping,
+                                  *this->quadrature,
+                                  *this->present_solution,
+                                  *this->previous_solutions,
+                                  this->time_handler);
+    // A Stepien CSV alone has no standard table reference to checkpoint.
+    // If monitoring is enabled only on restart, start its reference there.
+    if (!stepien || domain_monitoring)
+      this->postproc_handler->process_chns_integrals(data, this->time_handler);
+    if (detailed && !restart_snapshot)
+    {
+      if (stepien)
+        write_stepien_diagnostics(data);
+      else
+        write_quasi_incompressible_diagnostics(data);
+    }
+  }
+
   const auto &line_probe = this->param.postprocessing.line_probe;
   if (line_probe.enable && line_probe.write_results &&
       (this->time_handler.current_time_iteration %
@@ -1753,46 +2347,46 @@ void CHNSSolver<dim,
     }
 
     Utilities::MPI::RemotePointEvaluation<dim, dim> cache;
-    const auto pressure_values = VectorTools::point_values<1>(
-      *this->moving_mapping,
-      *this->dof_handler,
-      *this->present_solution,
-      probe_points,
-      cache,
-      VectorTools::EvaluationFlags::avg,
-      this->ordering->p_lower);
+    const auto                                      pressure_values =
+      VectorTools::point_values<1>(*this->moving_mapping,
+                                   *this->dof_handler,
+                                   *this->present_solution,
+                                   probe_points,
+                                   cache,
+                                   VectorTools::EvaluationFlags::avg,
+                                   this->ordering->p_lower);
     AssertThrow(cache.all_points_found(),
                 ExcMessage("At least one line probe point was not found."));
 
-    const auto tracer_values = VectorTools::point_values<1>(
-      cache,
-      *this->dof_handler,
-      *this->present_solution,
-      VectorTools::EvaluationFlags::avg,
-      this->ordering->phi_lower);
-    const auto potential_values = VectorTools::point_values<1>(
-      cache,
-      *this->dof_handler,
-      *this->present_solution,
-      VectorTools::EvaluationFlags::avg,
-      this->ordering->mu_lower);
+    const auto tracer_values =
+      VectorTools::point_values<1>(cache,
+                                   *this->dof_handler,
+                                   *this->present_solution,
+                                   VectorTools::EvaluationFlags::avg,
+                                   this->ordering->phi_lower);
+    const auto potential_values =
+      VectorTools::point_values<1>(cache,
+                                   *this->dof_handler,
+                                   *this->present_solution,
+                                   VectorTools::EvaluationFlags::avg,
+                                   this->ordering->mu_lower);
     // Tracer gradients are needed to reconstruct the thermodynamic pressure
     // (free energy density contribution, see 'pressure_physical' below).
-    const auto tracer_gradients = VectorTools::point_gradients<1>(
-      cache,
-      *this->dof_handler,
-      *this->present_solution,
-      VectorTools::EvaluationFlags::avg,
-      this->ordering->phi_lower);
+    const auto tracer_gradients =
+      VectorTools::point_gradients<1>(cache,
+                                      *this->dof_handler,
+                                      *this->present_solution,
+                                      VectorTools::EvaluationFlags::avg,
+                                      this->ordering->phi_lower);
 
     std::vector<double> psi_values;
     if constexpr (with_enlarged)
-      psi_values = VectorTools::point_values<1>(
-        cache,
-        *this->dof_handler,
-        *this->present_solution,
-        VectorTools::EvaluationFlags::avg,
-        this->ordering->psi_lower);
+      psi_values =
+        VectorTools::point_values<1>(cache,
+                                     *this->dof_handler,
+                                     *this->present_solution,
+                                     VectorTools::EvaluationFlags::avg,
+                                     this->ordering->psi_lower);
 
     if (this->mpi_rank == 0)
     {
@@ -1806,7 +2400,7 @@ void CHNSSolver<dim,
       const bool write_header =
         is_first_iteration || !std::ifstream(filename).good();
       std::ofstream out(filename,
-                         is_first_iteration ? std::ios::trunc : std::ios::app);
+                        is_first_iteration ? std::ios::trunc : std::ios::app);
       out << std::setprecision(line_probe.precision);
 
       const auto &cahn_hilliard = this->param.cahn_hilliard;
@@ -1937,12 +2531,9 @@ void CHNSSolver<dim,
     }
   }
 
-  if (!should_output_mesh_quality())
-    return;
-
-  output_mesh_quality_field();
   {
-    TimerOutput::Scope t(this->computing_timer, "Compute multiphase indicators");
+    TimerOutput::Scope t(this->computing_timer,
+                         "Compute multiphase indicators");
 
     this->postproc_handler->compute_multiphase_indicators(
       *this->ordering,
@@ -1952,6 +2543,8 @@ void CHNSSolver<dim,
       *this->present_solution,
       this->time_handler);
   }
+  if (should_output_mesh_quality())
+    output_mesh_quality_field();
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>

@@ -276,7 +276,8 @@ namespace NavierStokesScratch
       // that depends on the pressure, so its gradient is needed even without
       // stabilization.
       if (enable_stabilization || enable_branch_stabilization ||
-          CahnHilliard::is_stepien_model(param.cahn_hilliard))
+          CahnHilliard::is_stepien_model(param.cahn_hilliard) ||
+          CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard))
         fe_values[pressure].get_function_gradients(current_solution,
                                                    present_pressure_gradients);
       // The Stepien tracer residual diffuses q, which depends on the pressure.
@@ -335,7 +336,8 @@ namespace NavierStokesScratch
           // The Stepien phase-equation Jacobian (block phi-p) needs the
           // pressure shape-function gradient even without stabilization.
           if (enable_stabilization || enable_branch_stabilization ||
-              CahnHilliard::is_stepien_model(param.cahn_hilliard))
+              CahnHilliard::is_stepien_model(param.cahn_hilliard) ||
+              CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard))
             grad_phi_p[q][k] = fe_values[pressure].gradient(k, q);
 
           if (enable_stepien_tracer_stabilization)
@@ -1095,16 +1097,12 @@ namespace NavierStokesScratch
 
         // Physical properties based on tracer, filter if applicable
         const double filtered_phi = tracer_limiter(tracer_values[q]);
-        const double filtered_phi_mobility =
-          mobility_tracer_limiter(tracer_values[q]);
-        mobility_values[q] =
-          mobility_function(param.cahn_hilliard, filtered_phi_mobility);
-        derivative_mobility_wrt_tracer[q] =
-          mobility_derivative_function(param.cahn_hilliard,
-                                       filtered_phi_mobility);
+        const auto   evaluated_mobility = CahnHilliard::evaluate_mobility(
+          param.cahn_hilliard, tracer_values[q], density0, density1);
+        mobility_values[q]                = evaluated_mobility.value;
+        derivative_mobility_wrt_tracer[q] = evaluated_mobility.first_derivative;
         second_derivative_mobility_wrt_tracer[q] =
-          mobility_second_derivative_function(param.cahn_hilliard,
-                                              filtered_phi_mobility);
+          evaluated_mobility.second_derivative;
         diffusive_flux_factor_values[q] =
           mobility_values[q] * 0.5 * (density1 - density0);
         density[q] =
@@ -1712,9 +1710,6 @@ namespace NavierStokesScratch
     double                              dynamic_viscosity0;
     double                              dynamic_viscosity1;
     double                              mobility;
-    CahnHilliard::MobilityFunction<dim> mobility_function;
-    CahnHilliard::MobilityFunction<dim> mobility_derivative_function;
-    CahnHilliard::MobilityFunction<dim> mobility_second_derivative_function;
 
     std::vector<double> mobility_values;
     std::vector<double> derivative_mobility_wrt_tracer;
@@ -1737,8 +1732,7 @@ namespace NavierStokesScratch
     double stepien_dpr;
     double stepien_rho_product; // rho0 * rho1
 
-    CahnHilliard::TracerLimiterFunction         tracer_limiter;
-    CahnHilliard::MobilityTracerLimiterFunction mobility_tracer_limiter;
+    CahnHilliard::TracerLimiterFunction tracer_limiter;
 
     std::vector<double> derivative_density_wrt_tracer;
     std::vector<double> dynamic_viscosity;

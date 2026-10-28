@@ -245,6 +245,28 @@ public:
    */
   void clear();
 
+  /** Add domain conservation and energy data to the standard output tables. */
+  void process_chns_integrals(const PostProcessingTools::CHNSIntegralData &data,
+                              const TimeHandler &time_handler);
+
+  bool has_chns_reference() const { return chns_reference_initialized; }
+
+  /** Whether the phase-energy table needs a sample at this iteration.
+   * This also permits enabling the output at a checkpoint restart without
+   * adding the restart snapshot twice to the existing domain tables.
+   */
+  bool needs_chns_phase_energy(const TimeHandler &time_handler) const
+  {
+    return post_proc_param.chns_phase_energy.enable &&
+           chns_phase_energy_last_iteration !=
+             time_handler.current_time_iteration;
+  }
+
+  // Optional sidecar preserves monitoring references and tables without
+  // changing the existing solution/checkpoint archive format.
+  void save_checkpoint_state(const std::string &checkpoint_prefix) const;
+  void load_checkpoint_state(const std::string &checkpoint_prefix);
+
   /**
    * Return true if the volume fields should be output at this time step.
    */
@@ -458,6 +480,15 @@ private:
 
   // For multiphase flows: average velocity in each phase
   TableHandler average_velocity_phases;
+
+  TableHandler chns_conservation_table, chns_energy_table,
+    chns_phase_energy_table;
+  bool   chns_reference_initialized = false;
+  double chns_reference_time = 0., chns_initial_mass = 0.,
+         chns_initial_phase = 0., chns_initial_volume = 0.,
+         chns_initial_energy                    = 0.;
+  unsigned int chns_last_iteration              = numbers::invalid_unsigned_int;
+  unsigned int chns_phase_energy_last_iteration = numbers::invalid_unsigned_int;
 };
 
 /* ---------------- Template functions ----------------- */

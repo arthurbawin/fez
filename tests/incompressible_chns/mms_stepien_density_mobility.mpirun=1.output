@@ -1,0 +1,27 @@
+Number of MPI processes: 1
+CHNS model: Stepien
+Convergence test with manufactured solution:
+Mesh file was changed to 0.msh
+Mesh info:
+ dimension: 2
+ no. of cells: 8
+ boundary indicators: 0(2 faces) 1(2 faces) 2(2 faces) 3(2 faces)
+ID 0 -> x_min
+ID 1 -> x_max
+ID 2 -> y_min
+ID 3 -> y_max
+Number of degrees of freedom: 77
+Max absolute error analytical vs fd matrix is 5.7798e-07
+Max absolute error analytical vs fd matrix is 5.33098e-07
+
+L2_norm
+n_elm n_dof   dt        u            p           phi           mu
+    8    77 0.0100 2.0477e-04 - 4.2954e+00 - 1.8360e-03 - 4.9606e-03 -
+
+Linfty_norm
+n_elm n_dof   dt        u            p           phi           mu
+    8    77 0.0100 3.4044e-04 - 1.2821e+01 - 3.0535e-03 - 1.2592e-02 -
+
+H1_seminorm
+n_elm n_dof   dt        u            p           phi           mu
+    8    77 0.0100 1.5021e-03 - 1.5911e+01 - 1.6478e-02 - 5.1258e-02 -

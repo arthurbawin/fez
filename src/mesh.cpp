@@ -765,6 +765,19 @@ namespace MeshTools
                                param.mesh.name2id);
     }
 
+    if (param.cahn_hilliard.quasi_incompressible_periodic_box)
+    {
+      // Register periodic neighbors before partitioning, so the fully
+      // distributed mesh contains the ghost cells needed across the seam.
+      std::vector<
+        GridTools::PeriodicFacePair<typename Triangulation<dim>::cell_iterator>>
+        periodic_faces;
+      for (unsigned int d = 0; d < dim; ++d)
+        GridTools::collect_periodic_faces(
+          *tria, 2 * d + 1, 2 * d, d, periodic_faces);
+      tria->add_periodicity(periodic_faces);
+    }
+
     if (dynamic_cast<
           const parallel::fullydistributed::Triangulation<dim, spacedim> *>(
           &triangulation))

@@ -424,11 +424,6 @@ namespace NavierStokesScratch
     dynamic_viscosity0    = density0 * nu0;
     dynamic_viscosity1    = density1 * nu1;
     mobility              = ch.mobility;
-    mobility_function     = CahnHilliard::get_mobility_function(ch);
-    mobility_derivative_function =
-      CahnHilliard::get_mobility_derivative_function(ch);
-    mobility_second_derivative_function =
-      CahnHilliard::get_mobility_second_derivative_function(ch);
     epsilon               = ch.epsilon_interface;
     sigma_tilde           = 3. / (2. * sqrt(2.)) * ch.surface_tension;
     diffusive_flux_factor = mobility * 0.5 * (density1 - density0);
@@ -437,9 +432,7 @@ namespace NavierStokesScratch
     stepien_dpr =
       0.5 * (pp.fluids[0].pressure_ref - pp.fluids[1].pressure_ref);
     stepien_rho_product = density0 * density1;
-    tracer_limiter        = CahnHilliard::get_limiter_function(ch);
-    mobility_tracer_limiter =
-      CahnHilliard::get_mobility_limiter_function(ch);
+    tracer_limiter      = CahnHilliard::get_limiter_function(ch);
   }
 
   template <int dim, unsigned int update_flags>

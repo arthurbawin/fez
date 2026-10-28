@@ -365,6 +365,22 @@ namespace Parameters
     {
     } chns_avg_velocity;
 
+    // Domain integrals and changes from the initial monitored state.
+    struct CHNSConservation : public PostProcessingBase
+    {
+    } chns_conservation;
+
+    // Physical energy components for Stepien and quasi-incompressible CHNS.
+    // Temporal energy diagnostics are specific to the latter formulation.
+    struct CHNSEnergy : public PostProcessingBase
+    {
+    } chns_energy;
+
+    // Physical energy components integrated over each tracer-sign region.
+    struct CHNSPhaseEnergy : public PostProcessingBase
+    {
+    } chns_phase_energy;
+
     static void declare_parameters(ParameterHandler &prm);
     void        read_parameters(ParameterHandler &prm);
   };
@@ -703,16 +719,28 @@ namespace Parameters
     {
       Abels,
       DingHorriche,
-      Stepien
+      Stepien,
+      QuasiIncompressible
     } chns_model = CHNSModel::Abels;
 
     enum class MobilityModel
     {
       constant,
-      degenerate
+      degenerate,
+      degenerate_absolute
     } mobility_model;
 
     double mobility;
+    // m(phi) = prefactor * epsilon^2 * |1-phi^2| in article variables.
+    double degenerate_absolute_mobility_prefactor = 0.1;
+    // Multiply the base mobility by (rho0*rho1/rho(phi))^2 for Stepien.
+    bool enable_density_mobility_compensation = false;
+    // Experimental fixed-mesh Stepien variants; retain the existing BDF scheme.
+    bool stepien_conservative_transport         = false;
+    bool stepien_skew_symmetric_inertia         = false;
+    bool write_stepien_diagnostics              = false;
+    bool write_quasi_incompressible_diagnostics = false;
+    bool quasi_incompressible_periodic_box      = false;
     std::shared_ptr<ManufacturedSolutions::ParsedFunctionSDBase<dim>>
            degenerate_mobility;
     bool   mobility_tracer_limiter;

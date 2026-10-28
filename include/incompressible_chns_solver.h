@@ -13,7 +13,10 @@ using namespace dealii;
 
 /**
  * Quasi-incompressible Cahn-Hilliard Navier-Stokes solver.
- * TODO: Add equations.
+ * The mass-averaged, energy-stable formulation is documented in
+ * examples/incompressible_chns/quasi_incompressible/equations.md; its local
+ * residual and Jacobian are in assembly/incompressible_chns_assemblers.h
+ * (EnergyStable namespace).
  */
 template <int dim, bool with_moving_mesh = false, bool with_enlarged = false>
 class CHNSSolver : public NavierStokesSolver<dim, with_moving_mesh>
@@ -135,6 +138,11 @@ public:
    * Post-process the additional data specific to this solver.
    */
   virtual void solver_specific_post_processing() override;
+
+  void write_stepien_diagnostics(
+    const PostProcessingTools::CHNSIntegralData &data) const;
+  void write_quasi_incompressible_diagnostics(
+    const PostProcessingTools::CHNSIntegralData &data) const;
 
 protected:
   virtual std::vector<std::pair<std::string, unsigned int>>

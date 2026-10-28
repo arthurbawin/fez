@@ -443,7 +443,9 @@ namespace Parameters
     prm.leave_subsection();
   }
 
-  void declare_postprocessing_base(ParameterHandler &prm)
+  void declare_postprocessing_base(
+    ParameterHandler  &prm,
+    const std::string &default_prefix = "postprocessed_data")
   {
     DECLARE_VERBOSITY_PARAM(prm, "verbose")
     prm.declare_entry("enable",
@@ -455,7 +457,7 @@ namespace Parameters
                       Patterns::Bool(),
                       "Write result of this postprocessing to file");
     prm.declare_entry("output prefix",
-                      "postprocessed_data",
+                      default_prefix,
                       Patterns::FileName(),
                       "Prefix for the postprocessing output files");
     prm.declare_entry(
@@ -548,6 +550,21 @@ namespace Parameters
         declare_postprocessing_base(prm);
       }
       prm.leave_subsection();
+      prm.enter_subsection("chns conservation");
+      {
+        declare_postprocessing_base(prm, "chns_conservation");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns energy");
+      {
+        declare_postprocessing_base(prm, "chns_energy");
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase energy");
+      {
+        declare_postprocessing_base(prm, "chns_phase_energy");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
@@ -621,6 +638,21 @@ namespace Parameters
       prm.enter_subsection("chns phase average velocity");
       {
         read_postprocessing_base(prm, chns_avg_velocity);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns conservation");
+      {
+        read_postprocessing_base(prm, chns_conservation);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns energy");
+      {
+        read_postprocessing_base(prm, chns_energy);
+      }
+      prm.leave_subsection();
+      prm.enter_subsection("chns phase energy");
+      {
+        read_postprocessing_base(prm, chns_phase_energy);
       }
       prm.leave_subsection();
     }
@@ -1395,19 +1427,69 @@ namespace Parameters
     {
       prm.declare_entry("CHNS model",
                         "abels",
-                        Patterns::Selection("abels|ding_horriche|stepien"),
+                        Patterns::Selection(
+                          "abels|ding_horriche|stepien|quasi_incompressible"),
                         "CHNS model: current Abels-type model or the "
                         "Ding/Horriche final CADYF model. Abels uses FEZ's "
                         "scaled chemical potential; Ding/Horriche uses the "
-                        "unscaled mu_hat from Horriche (3.22).");
+                        "unscaled mu_hat from Horriche (3.22). "
+                        "quasi_incompressible uses the mass-averaged velocity "
+                        "and the energy-stable scheme (38)-(41).");
       prm.declare_entry("mobility model",
                         "constant",
-                        Patterns::Selection("constant|degenerate"),
+                        Patterns::Selection(
+                          "constant|degenerate|degenerate_absolute"),
                         "Model for the mobility tensor");
+      prm.declare_entry(
+        "quasi incompressible periodic box",
+        "false",
+        Patterns::Bool(),
+        "Identify opposite boundaries 2*d and 2*d+1 in all directions for "
+        "the fixed, colorized rectangular Quasi-incompressible CHNS box.");
+      prm.declare_entry(
+        "write quasi incompressible diagnostics",
+        "false",
+        Patterns::Bool(),
+        "Write quasi_incompressible_diagnostics.csv, including the initial "
+        "energy, mass and dissipation, using the assembly quadrature.");
+      prm.declare_entry(
+        "stepien conservative transport",
+        "false",
+        Patterns::Bool(),
+        "Use the conservative phase equation and flux-based divergence "
+        "constraint for Stepien on a fixed mesh.");
+      prm.declare_entry(
+        "stepien skew symmetric inertia",
+        "false",
+        Patterns::Bool(),
+        "Use skew-symmetric convection and one half u times the BDF density "
+        "derivative. Experimental: no unconditional BDF2 energy guarantee.");
+      prm.declare_entry(
+        "write stepien diagnostics",
+        "false",
+        Patterns::Bool(),
+        "Write stepien_diagnostics.csv with phase, mass, bubble and energy "
+        "integrals at every time step, including the initial state.");
       prm.declare_entry("mobility",
                         "1.",
                         Patterns::Double(),
                         "Mobility value if constant");
+      prm.declare_entry(
+        "degenerate absolute mobility prefactor",
+        "0.1",
+        Patterns::Double(0.),
+        "Non-negative coefficient c in m(phi)=c*epsilon^2*abs(1-phi^2) "
+        "for mobility model = degenerate_absolute. The default reproduces the "
+        "rising-bubble law. Stepien applies the constant potential/flux "
+        "conversion k^2; the Quasi-incompressible CHNS model uses m directly.");
+      prm.declare_entry(
+        "enable density mobility compensation",
+        "false",
+        Patterns::Bool(),
+        "Stepien only: multiply the constant or degenerate base mobility "
+        "by (rho0*rho1/rho(phi))^2, using the fluid densities. With constant "
+        "base mobility M0, this gives M(phi)=M0*(rho0*rho1)^2/rho(phi)^2. "
+        "Not supported by the Stabilization subsection.");
       prm.declare_entry(
         "enable mobility tracer limiter",
         "false",
@@ -1498,20 +1580,69 @@ namespace Parameters
         chns_model = CHNSModel::DingHorriche;
       else if (parsed_chns_model == "stepien")
         chns_model = CHNSModel::Stepien;
+      else if (parsed_chns_model == "quasi_incompressible")
+        chns_model = CHNSModel::QuasiIncompressible;
       else
         AssertThrow(false,
                     ExcMessage("Unknown CHNS model '" + parsed_chns_model +
                                "'. Accepted values are 'abels', "
-                               "'ding_horriche' and 'stepien'."));
+                               "'ding_horriche', 'stepien' and "
+                               "'quasi_incompressible'."));
 
       const std::string parsed_mobility_model = prm.get("mobility model");
       if (parsed_mobility_model == "constant")
         mobility_model = MobilityModel::constant;
       else if (parsed_mobility_model == "degenerate")
         mobility_model = MobilityModel::degenerate;
+      else if (parsed_mobility_model == "degenerate_absolute")
+        mobility_model = MobilityModel::degenerate_absolute;
       else
         AssertThrow(false, ExcMessage("Unknown mobility model"));
       mobility                = prm.get_double("mobility");
+      degenerate_absolute_mobility_prefactor =
+        prm.get_double("degenerate absolute mobility prefactor");
+      enable_density_mobility_compensation =
+        prm.get_bool("enable density mobility compensation");
+      stepien_conservative_transport =
+        prm.get_bool("stepien conservative transport");
+      stepien_skew_symmetric_inertia =
+        prm.get_bool("stepien skew symmetric inertia");
+      write_stepien_diagnostics = prm.get_bool("write stepien diagnostics");
+      write_quasi_incompressible_diagnostics =
+        prm.get_bool("write quasi incompressible diagnostics");
+      quasi_incompressible_periodic_box =
+        prm.get_bool("quasi incompressible periodic box");
+      AssertThrow(
+        !(stepien_conservative_transport || stepien_skew_symmetric_inertia ||
+          write_stepien_diagnostics) ||
+          chns_model == CHNSModel::Stepien,
+        ExcMessage("The Stepien options require CHNS model = stepien."));
+      AssertThrow(mobility_model != MobilityModel::degenerate_absolute ||
+                    chns_model == CHNSModel::Stepien ||
+                    chns_model == CHNSModel::QuasiIncompressible,
+                  ExcMessage(
+                    "degenerate_absolute mobility requires CHNS model = "
+                    "stepien or quasi_incompressible."));
+      AssertThrow(!(write_quasi_incompressible_diagnostics ||
+                    quasi_incompressible_periodic_box) ||
+                    chns_model == CHNSModel::QuasiIncompressible,
+                  ExcMessage(
+                    "Quasi-incompressible CHNS diagnostics require CHNS "
+                    "model = quasi_incompressible."));
+      AssertThrow(mobility_model != MobilityModel::degenerate_absolute ||
+                    !enable_density_mobility_compensation,
+                  ExcMessage(
+                    "degenerate_absolute mobility already converts the "
+                    "article mobility to Stepien units. Disable "
+                    "density mobility compensation."));
+      AssertThrow(!enable_density_mobility_compensation ||
+                    chns_model == CHNSModel::Stepien,
+                  ExcMessage("Density mobility compensation is only "
+                             "implemented for CHNS model = stepien."));
+      AssertThrow(!enable_density_mobility_compensation ||
+                    mobility_model != MobilityModel::constant || mobility >= 0.,
+                  ExcMessage("The base mobility must be non-negative when "
+                             "density mobility compensation is enabled."));
       mobility_tracer_limiter = prm.get_bool("enable mobility tracer limiter");
       prm.enter_subsection("degenerate mobility");
       {

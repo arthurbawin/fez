@@ -19,7 +19,9 @@
 #include <deal.II/numerics/data_out_faces.h>
 #include <parameters.h>
 #include <stabilization_utils.h>
+#include <time_handler.h>
 
+#include <array>
 #include <limits>
 #include <memory>
 
@@ -30,6 +32,118 @@ using namespace dealii;
  */
 namespace PostProcessingTools
 {
+  /** Physical energy components, integrated over a domain or a phase. */
+  struct CHNSEnergyComponents
+  {
+    enum Component : unsigned int
+    {
+      Kinetic,
+      Bulk,
+      Gradient,
+      Gravitational,
+      ComponentCount
+    };
+    std::array<double, ComponentCount> values{};
+
+    double interfacial_energy() const
+    {
+      return values[Bulk] + values[Gradient];
+    }
+
+    double total_energy() const
+    {
+      return values[Kinetic] + interfacial_energy() + values[Gravitational];
+    }
+  };
+
+  /** Domain integrals shared by CHNS monitoring and detailed diagnostics.
+   * Indices preserve the existing diagnostics. Kinetic energy uses the model's
+   * property density, while conserved mass and gravity use the affine density.
+   */
+  struct CHNSIntegralData
+  {
+    enum Integral : unsigned int
+    {
+      PhaseIntegral,
+      AffineMass,
+      PositiveMass,
+      KineticEnergy,
+      InterfacialEnergy,
+      GravitationalEnergy,
+      ViscousDissipation,
+      DiffusiveDissipation,
+      NumericalEnergyLoss,
+      OldEnergy,
+      OldPhaseIntegral,
+      OldAffineMass,
+      BubbleVolume,
+      BubbleHeightMoment,
+      BubbleVelocityMoment,
+      Volume,
+      NumericalKineticLoss,
+      NumericalInterfacialLoss,
+      NegativeDensityVolume,
+      PhaseOvershootVolume,
+      DensityExtensionL1,
+      VelocityNormSquared,
+      DivergenceNormSquared,
+      DiffusiveFluxNormSquared,
+      PhaseRate,
+      MassRate,
+      KineticTemporalPower,
+      BulkTemporalPower,
+      GradientTemporalPower,
+      GravitationalTemporalPower,
+      ModifiedKineticEnergy,
+      ModifiedGradientEnergy,
+      BDF2KineticRemainder,
+      BDF2GradientRemainder,
+      BDF2KineticIdentityResidual,
+      BDF2GradientIdentityResidual,
+      BulkEnergy,
+      GradientEnergy,
+      WeightedBubbleVolume,
+      WeightedBubbleHeightMoment,
+      WeightedBubbleVelocityMoment,
+      IntegralCount
+    };
+    std::array<double, IntegralCount> sums{};
+    // fluid[0]: phi >= 0; fluid[1]: phi < 0, including interfacial energy.
+    std::array<CHNSEnergyComponents, 2> phase_energy{};
+    bool                                has_temporal_energy_diagnostics = false;
+    double                              phi_min = 0., phi_max = 0.;
+
+    double total_energy() const
+    {
+      return sums[KineticEnergy] + sums[InterfacialEnergy] +
+             sums[GravitationalEnergy];
+    }
+  };
+
+  template <int dim, typename VectorType>
+  CHNSIntegralData compute_chns_integrals(
+    const Parameters::CahnHilliard<dim>       &ch,
+    const Parameters::PhysicalProperties<dim> &physical_properties,
+    const ComponentOrdering                   &ordering,
+    const DoFHandler<dim>                     &dof_handler,
+    const Mapping<dim>                        &mapping,
+    const Quadrature<dim>                     &quadrature,
+    const VectorType                          &solution,
+    const std::vector<VectorType>             &previous_solutions,
+    const TimeHandler                         &time_handler);
+
+  /** Stepien physical integrals, without model-specific BDF energy identities.
+   */
+  template <int dim, typename VectorType>
+  CHNSIntegralData compute_stepien_integrals(
+    const Parameters::CahnHilliard<dim>       &ch,
+    const Parameters::PhysicalProperties<dim> &physical_properties,
+    const ComponentOrdering                   &ordering,
+    const DoFHandler<dim>                     &dof_handler,
+    const Mapping<dim>                        &mapping,
+    const Quadrature<dim>                     &quadrature,
+    const VectorType                          &solution);
+
   /**
    * Small specialization of deal.II's DataOutFaces to output a single boundary.
    */

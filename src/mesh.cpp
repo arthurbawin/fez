@@ -1,6 +1,7 @@
 
 #include <boundary_conditions.h>
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/patterns.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
@@ -430,7 +431,49 @@ namespace MeshTools
   /**
    * Create a mesh for the large gas pocket impact (LGPI) multiphase benchmark,
    * which is a rectangular box minus a quarter of ellipse in the bottom left
-   * corner. Only implemented in 2D.
+   * corner. The coarse mesh is a Cartesian grid whose vertical line x = a
+   * starts at the end (a, 0) of the ellipse, and whose lowest horizontal line
+   * above the bottom is y = d > b. Left of x = a, the cells of the bottom row
+   * start on the ellipse. The cell left of (a, 0) is nearly invalid, since
+   * the ellipse is tangent to x = a there. Only implemented in 2D.
+   *
+   * Parameters: "L, H : a, b : d : n_col, n_pad_x, n_pad_y : colorize :
+   * vertical_lines", with L x H the box, a and b the semi-axes of the ellipse,
+   * and n_col, n_pad_x, n_pad_y the numbers of columns over the ellipse,
+   * columns right of it and rows above d. n_pad_x = 0 or n_pad_y = 0 makes the
+   * cells roughly square, of width a/n_col. Below with n_col = 4, n_pad_x = 3,
+   * n_pad_y = 2 (the vertices on the ellipse are marked with *):
+   *
+   * @verbatim
+   * 
+   *     |<----- n_col ----->|<--- n_pad_x --->|
+   * 
+   *  H  +----+----+----+----+-----+-----+-----+
+   *     |    |    |    |    |     |     |     | ^
+   *     +----+----+----+----+-----+-----+-----+ | n_pad_y
+   *     |    |    |    |    |     |     |     | v
+   *  d  +----+----+----+----+-----+-----+-----+
+   *     |    |    |    |    |     |     |     |
+   *  b  *....*..  |    |    |     |     |     |
+   *             ..*..  |    |     |     |     |
+   *                  ..*.   |     |     |     |
+   *                       . |     |     |     |
+   *       ellipse          .|     |     |     |
+   *  0                      *-----+-----+-----+
+   *     0                   a                 L
+   *
+   * @endverbatim
+   *
+   * The refinement of the bottom row left of x = a depends on vertical_lines:
+   * - false: the cells use a transfinite interpolation and the ellipse an
+   *   EllipticalManifold. New vertices on the ellipse are equally spaced in
+   *   elliptic angle, so the cells right above it are sheared.
+   * - true: all cells left of x = a use the chart (theta, y) ->
+   *   (a cos(theta), y) above y = d, and (a cos(theta), y_e + (d - y_e) y / d)
+   *   below, with y_e = b sin(theta) on the ellipse. New vertices are equally
+   *   spaced in elliptic angle, as with the EllipticalManifold, and the new
+   *   vertical grid lines remain vertical from the top down to the ellipse.
+   *   Below d, the new horizontal lines follow the ellipse.
    */
   template <int dim>
   void create_lgpi_geometry(Triangulation<dim> &tria,
@@ -446,239 +489,164 @@ namespace MeshTools
                             const unsigned int refinement,
                             const bool         convert_to_tets)
   {
-    auto blocks = Utilities::split_string_list(parameters, ':');
-
-    AssertThrow(blocks.size() == 5,
+    // The pattern checks the number of blocks and values, and that the counts
+    // are non-negative integers.
+    using Arguments = std::tuple<std::array<double, 2>,
+                                 std::array<double, 2>,
+                                 double,
+                                 std::array<unsigned int, 3>,
+                                 bool,
+                                 bool>;
+    const auto pattern = Patterns::Tools::Convert<Arguments>::to_pattern();
+    AssertThrow(pattern->match(parameters),
                 ExcMessage(
-                  "Expected argument list as follows: length, height : a, b "
-                  "(ellipse semi-axes) : n_arc, n_radial (subdivisions) : "
-                  "n_pad_x, n_pad_y (padding away from ellipse) : colorize."
-                  " The parsed parameters are : " +
+                  "Expected argument list as follows: L, H (box dimensions) : "
+                  "a, b (ellipse semi-axes) : d (height of the lowest "
+                  "horizontal grid line, > b) : n_col, n_pad_x, n_pad_y "
+                  "(subdivisions over the ellipse, right of it and above d) : "
+                  "colorize : vertical_lines. The parsed parameters are : " +
                   parameters));
+    const Arguments args =
+      Patterns::Tools::Convert<Arguments>::to_value(parameters, *pattern);
 
-    // Each of the first four blocks is a comma-separated pair
-    const auto split_pair = [&](const std::string &block) {
-      const auto pair = Utilities::split_string_list(block, ',');
-      AssertThrow(pair.size() == 2,
-                  ExcMessage("Expected two comma-separated values in \"" +
-                             block +
-                             "\". The parsed parameters are : " + parameters));
-      return pair;
-    };
-    const auto length_height = split_pair(blocks[0]);
-    const auto semi_axes     = split_pair(blocks[1]);
-    const auto repetitions   = split_pair(blocks[2]);
-    const auto padding       = split_pair(blocks[3]);
-
-    // Parse as signed first, so that negative counts are caught instead of
-    // wrapping around to huge unsigned values.
-    const auto parse_count = [&](const std::string &str) -> unsigned int {
-      const int n = std::stoi(str);
-      AssertThrow(n >= 0,
-                  ExcMessage("Subdivision and padding counts must be "
-                             "non-negative. The parsed parameters are : " +
-                             parameters));
-      return static_cast<unsigned int>(n);
-    };
-
-    AssertThrow(blocks[4] == "true" || blocks[4] == "false",
-                ExcMessage("colorize must be \"true\" or \"false\". The parsed "
-                           "parameters are : " +
-                           parameters));
-
-    const double       length   = std::stod(length_height[0]);
-    const double       height   = std::stod(length_height[1]);
-    const double       a        = std::stod(semi_axes[0]);
-    const double       b        = std::stod(semi_axes[1]);
-    const unsigned int n_arc    = parse_count(repetitions[0]);
-    const unsigned int n_radial = parse_count(repetitions[1]);
-    const unsigned int n_pad_x  = parse_count(padding[0]);
-    const unsigned int n_pad_y  = parse_count(padding[1]);
-    const bool         colorize = blocks[4] == "true";
+    const double       length         = std::get<0>(args)[0];
+    const double       height         = std::get<0>(args)[1];
+    const double       a              = std::get<1>(args)[0];
+    const double       b              = std::get<1>(args)[1];
+    const double       d              = std::get<2>(args);
+    const unsigned int n_col          = std::get<3>(args)[0];
+    const unsigned int n_pad_x        = std::get<3>(args)[1];
+    const unsigned int n_pad_y        = std::get<3>(args)[2];
+    const bool         colorize       = std::get<4>(args);
+    const bool         vertical_lines = std::get<5>(args);
 
     // Lower left corner, 0 for now.
     const Point<2> corner;
 
     AssertThrow(a > 0. && b > 0., ExcMessage("Semi-axes must be positive."));
-    AssertThrow(length > a && height > b,
-                ExcMessage("The box must be larger than the ellipse: "
-                           "need length > a and height > b."));
-    AssertThrow(n_arc >= 1 && n_radial >= 1,
-                ExcMessage("n_arc and n_radial must be at least 1."));
+    AssertThrow(length > a,
+                ExcMessage("The box must be longer than the ellipse: "
+                           "need length > a."));
+    AssertThrow(d > b && d < height,
+                ExcMessage("The lowest horizontal grid line must lie between "
+                           "the ellipse and the top: need b < d < height."));
+    AssertThrow(n_col >= 1, ExcMessage("n_col must be at least 1."));
 
     const double tol = 1e-10 * std::max({a, b, length, height});
 
-    // Size of the core region around the hole: twice the semi-axis, unless the
-    // remaining padding strip would be thinner than half the core, in which
-    // case the core extends to the wall (avoids thin, stretched padding cells).
-    const double xc = (length < 3. * a) ? length : 2. * a;
-    const double yc = (height < 3. * b) ? height : 2. * b;
-
-    // Padding counts. Right padding cells have height yc/n_arc, top padding
-    // cells have width xc/n_arc; "automatic" makes them roughly square.
-    const auto n_padding = [](const double       width,
-                              const double       cell_size,
-                              const unsigned int requested) -> unsigned int {
-      if (width <= 0.)
-        return 0;
+    // Subdivision counts right of x = a and above y = d; 0 makes the
+    // cells roughly square, with the width a/n_col of the cells over the
+    // ellipse.
+    const auto n_subdivisions = [&](const double       width,
+                                    const unsigned int requested) {
       if (requested > 0)
         return requested;
       return std::max(1u,
-                      static_cast<unsigned int>(std::round(width / cell_size)));
+                      static_cast<unsigned int>(std::round(width * n_col / a)));
     };
-    const unsigned int npx = n_padding(length - xc, yc / n_arc, n_pad_x);
-    const unsigned int npy = n_padding(height - yc, xc / n_arc, n_pad_y);
+    const unsigned int nx_right = n_subdivisions(length - a, n_pad_x);
+    const unsigned int ny_top   = n_subdivisions(height - d, n_pad_y);
 
-    std::vector<Point<2>>    vertices;
-    std::vector<CellData<2>> cells;
+    // Cartesian grid: n_col columns over the ellipse, then nx_right columns
+    // right of x = a; one row up to y = d, then ny_top rows above. With
+    // colorize, the boundary ids are 0 (left), 1 (right), 2 (bottom) and
+    // 3 (top).
+    std::vector<std::vector<double>> step_sizes(2);
+    step_sizes[0].assign(n_col, a / n_col);
+    step_sizes[0].insert(step_sizes[0].end(),
+                         nx_right,
+                         (length - a) / nx_right);
+    step_sizes[1].assign(1, d);
+    step_sizes[1].insert(step_sizes[1].end(), ny_top, (height - d) / ny_top);
+    GridGenerator::subdivided_hyper_rectangle(
+      tria, step_sizes, corner, corner + Point<2>(length, height), colorize);
 
-    // deal.II's lexicographic ordering: v0 (bottom-left), v1 (bottom-right),
-    // v2 (top-left), v3 (top-right), so that 0-1-3-2 is counter-clockwise.
-    const auto add_cell = [&cells](const std::array<unsigned int, 4> &v) {
-      CellData<2> cell;
-      for (unsigned int i = 0; i < 4; ++i)
-        cell.vertices[i] = v[i];
-      cell.material_id = 0;
-      cells.push_back(cell);
-    };
-
-    // Block A: elliptic angle theta in [0, pi/4], outer edge x = xc.
-    // Block B: theta in [pi/4, pi/2], outer edge y = yc.
-    // Index i runs along the arc, j from the ellipse (j = 0) outwards.
-    for (unsigned int block = 0; block < 2; ++block)
-    {
-      const unsigned int offset = vertices.size();
-      for (unsigned int i = 0; i <= n_arc; ++i)
-      {
-        const double   t     = static_cast<double>(i) / n_arc;
-        const double   theta = numbers::PI / 4. * (block + t);
-        const Point<2> p_in(a * std::cos(theta), b * std::sin(theta));
-        const Point<2> p_out =
-          (block == 0) ? Point<2>(xc, yc * t) : Point<2>(xc * (1. - t), yc);
-        for (unsigned int j = 0; j <= n_radial; ++j)
-        {
-          const double r = static_cast<double>(j) / n_radial;
-          vertices.push_back(corner + p_in + r * (p_out - p_in));
-        }
-      }
-
-      const auto v = [&](const unsigned int i, const unsigned int j) {
-        return offset + i * (n_radial + 1) + j;
-      };
-      for (unsigned int i = 0; i < n_arc; ++i)
-        for (unsigned int j = 0; j < n_radial; ++j)
-          add_cell({{v(i, j), v(i, j + 1), v(i + 1, j), v(i + 1, j + 1)}});
-    }
-
-    // Padding
-    // Structured grid over the whole box; the cells covering the core are
-    // skipped. Its lines x = xc and y = yc match the core's outer vertices.
-    std::vector<double> xs, ys;
-    for (unsigned int k = 0; k <= n_arc; ++k)
-      xs.push_back(xc * k / n_arc);
-    for (unsigned int k = 1; k <= npx; ++k)
-      xs.push_back(xc + (length - xc) * k / npx);
-    for (unsigned int k = 0; k <= n_arc; ++k)
-      ys.push_back(yc * k / n_arc);
-    for (unsigned int k = 1; k <= npy; ++k)
-      ys.push_back(yc + (height - yc) * k / npy);
-
-    const unsigned int nx     = xs.size();
-    const unsigned int offset = vertices.size();
-    for (unsigned int j = 0; j < ys.size(); ++j)
-      for (unsigned int i = 0; i < nx; ++i)
-        vertices.push_back(corner + Point<2>(xs[i], ys[j]));
-
-    const auto g = [&](const unsigned int i, const unsigned int j) {
-      return offset + j * nx + i;
-    };
-    for (unsigned int j = 0; j + 1 < ys.size(); ++j)
-      for (unsigned int i = 0; i + 1 < nx; ++i)
-        if (i >= n_arc || j >= n_arc) // outside the core
-          add_cell({{g(i, j), g(i + 1, j), g(i, j + 1), g(i + 1, j + 1)}});
-
-    // Merge the vertices shared by the core and the padding, drop the unused
-    // grid vertices inside the core, and build the triangulation.
-    SubCellData               subcell_data;
-    std::vector<unsigned int> considered_vertices;
-    GridTools::delete_duplicated_vertices(
-      vertices, cells, subcell_data, considered_vertices, tol);
-    GridTools::delete_unused_vertices(vertices, cells, subcell_data);
-    GridTools::consistently_order_cells(cells);
-    tria.create_triangulation(vertices, cells, subcell_data);
-
-    // Assign manifolds
+    // Manifolds. Left of x = a, the bottom faces are moved onto the ellipse
+    // below. With vertical_lines, all cells left of x = a and their lines use
+    // the chart of the ellipse; otherwise, the cells of the bottom row use a
+    // transfinite interpolation and their bottom faces the ellipse. Right of
+    // x = a, the bottom faces are the bottom wall, with boundary id 4 (2
+    // remains on the ellipse). All other cells and lines are flat, so that the
+    // grid lines x = a and y = d remain straight.
     const types::manifold_id ellipse_manifold_id = 0;
     const types::manifold_id tfi_manifold_id     = 1;
-
-    const auto in_core = [&](const Point<2> &p) {
-      return (p[0] - corner[0] < xc - tol) && (p[1] - corner[1] < yc - tol);
-    };
-
-    // The two core cells (and their lines): transfinite
     for (const auto &cell : tria.active_cell_iterators())
-      if (in_core(cell->center()))
-        cell->set_all_manifold_ids(tfi_manifold_id);
-
-    // Padding cells (and the lines they share with the core): flat
-    for (const auto &cell : tria.active_cell_iterators())
-      if (!in_core(cell->center()))
-        cell->set_all_manifold_ids(numbers::flat_manifold_id);
-
-    // Curved boundary faces: both vertices on the ellipse
-    const auto on_ellipse = [&](const Point<2> &p) {
-      const Tensor<1, 2> d = p - corner;
-      return std::abs(d[0] * d[0] / (a * a) + d[1] * d[1] / (b * b) - 1.) <
-             1e-10;
-    };
-
-    for (const auto &cell : tria.active_cell_iterators())
-      for (const auto &face : cell->face_iterators())
-        if (face->at_boundary() && on_ellipse(face->vertex(0)) &&
-            on_ellipse(face->vertex(1)))
-          face->set_manifold_id(ellipse_manifold_id);
-
-    if (std::abs(a - b) <= tol)
     {
-      // a circle has eccentricity 0, which EllipticalManifold does not accept
-      tria.set_manifold(ellipse_manifold_id, SphericalManifold<2>(corner));
+      const bool over_ellipse = cell->center()[0] - corner[0] < a;
+      const bool bottom_row   = cell->face(2)->at_boundary(); // Bottom face
+      if (over_ellipse && vertical_lines)
+        cell->set_all_manifold_ids(ellipse_manifold_id);
+      else if (over_ellipse && bottom_row)
+      {
+        cell->set_manifold_id(tfi_manifold_id);
+        cell->face(2)->set_manifold_id(ellipse_manifold_id);
+      }
+      else if (bottom_row && colorize)
+        cell->face(2)->set_boundary_id(4);
+    }
+
+    GridTools::transform(
+      [&](const Point<2> &p) -> Point<2> {
+        const double x = p[0] - corner[0];
+        if (p[1] - corner[1] > tol || x > a - tol)
+          return p;
+        return corner + Point<2>(x, b * std::sqrt(1. - x * x / (a * a)));
+      },
+      tria);
+
+    if (vertical_lines)
+    {
+      // Chart (theta, Y) of the strip left of x = a, relative to the corner:
+      // x = a cos(theta), and y = Y above d, or y = y_e + (d - y_e) Y / d
+      // below, with y_e = b sin(theta) the ellipse. The min/max guard the
+      // square root and the arc cosine against round-off beyond x = a.
+      const std::string push_forward =
+        "x0 + a * cos(theta); "
+        "Y - y0 >= d ? Y : y0 + b * sin(theta) + "
+        "(d - b * sin(theta)) * (Y - y0) / d";
+      const std::string y_e = "b * sqrt(max(0, 1 - ((x - x0) / a)^2))";
+      const std::string pull_back =
+        "acos(min(1, (x - x0) / a)); "
+        "y - y0 >= d ? y : y0 + d * (y - y0 - " + y_e + ") / (d - " + y_e +
+        ")";
+      const std::map<std::string, double> constants = {
+        {"a", a}, {"b", b}, {"d", d}, {"x0", corner[0]}, {"y0", corner[1]}};
+      tria.set_manifold(ellipse_manifold_id,
+                        FunctionManifold<2, 2, 2>(push_forward,
+                                                  pull_back,
+                                                  Tensor<1, 2>(),
+                                                  constants,
+                                                  "theta,Y",
+                                                  "x,y"));
     }
     else
     {
-      Tensor<1, 2> major_axis;
-      major_axis[(a > b) ? 0 : 1] = 1.;
-      const double A              = std::max(a, b);
-      const double B              = std::min(a, b);
-      const double eccentricity   = std::sqrt(1. - (B * B) / (A * A));
-      tria.set_manifold(ellipse_manifold_id,
-                        EllipticalManifold<2, 2>(corner,
-                                                 major_axis,
-                                                 eccentricity));
-    }
+      if (std::abs(a - b) <= tol)
+      {
+        // a circle has eccentricity 0, which EllipticalManifold does not
+        // accept
+        tria.set_manifold(ellipse_manifold_id, SphericalManifold<2>(corner));
+      }
+      else
+      {
+        Tensor<1, 2> major_axis;
+        major_axis[(a > b) ? 0 : 1] = 1.;
+        const double A              = std::max(a, b);
+        const double B              = std::min(a, b);
+        const double eccentricity   = std::sqrt(1. - (B * B) / (A * A));
+        tria.set_manifold(ellipse_manifold_id,
+                          EllipticalManifold<2, 2>(corner,
+                                                   major_axis,
+                                                   eccentricity));
+      }
 
-    TransfiniteInterpolationManifold<2> transfinite;
-    transfinite.initialize(tria);
-    tria.set_manifold(tfi_manifold_id, transfinite);
+      TransfiniteInterpolationManifold<2> transfinite;
+      transfinite.initialize(tria);
+      tria.set_manifold(tfi_manifold_id, transfinite);
+    }
 
     if (colorize)
     {
-      for (const auto &cell : tria.active_cell_iterators())
-        for (const auto &face : cell->face_iterators())
-          if (face->at_boundary())
-          {
-            const Tensor<1, 2> c = face->center() - corner;
-            if (std::abs(c[0]) < tol)
-              face->set_boundary_id(0); // Left wall
-            else if (std::abs(c[0] - length) < tol)
-              face->set_boundary_id(1); // Right wall
-            else if (std::abs(c[1] - height) < tol)
-              face->set_boundary_id(3); // Top wall
-            else if (std::abs(c[1]) < tol)
-              face->set_boundary_id(4); // Bottom, non-ellipse wall
-            else
-              face->set_boundary_id(2); // Quarter-ellipse
-          }
-
       mesh_param.id2name.insert({0, "left"});
       mesh_param.id2name.insert({1, "right"});
       mesh_param.id2name.insert({2, "ellipse"});

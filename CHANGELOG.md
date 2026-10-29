@@ -3,7 +3,12 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
+
+## [0.0.0] 2026-10-29
  
+### Changed
+Modified the lgpi mesh preset to be more axis aligned. [#102](https://github.com/arthurbawin/fez/pull/102)
+
 ## [0.0.0] 2026-10-22
  
 ### Added

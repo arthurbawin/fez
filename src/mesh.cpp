@@ -437,17 +437,30 @@ namespace MeshTools
    * start on the ellipse. The cell left of (a, 0) is nearly invalid, since
    * the ellipse is tangent to x = a there. Only implemented in 2D.
    *
-   * Parameters: "L, H : a, b : d : n_col, n_pad_x, n_pad_y : colorize :
-   * vertical_lines", with L x H the box, a and b the semi-axes of the ellipse,
-   * and n_col, n_pad_x, n_pad_y the numbers of columns over the ellipse,
+   * The parameters are:
+   *
+   *  L, H : a, b : d : n_col, n_pad_x, n_pad_y :
+   *                             use_uniform_angle_spacing : colorize,
+   *
+   * with L x H the dimensions of the box, a and b the semi-axes of the ellipse,
+   * n_col, n_pad_x, n_pad_y the numbers of columns over the ellipse,
    * columns right of it and rows above d. n_pad_x = 0 or n_pad_y = 0 makes the
-   * cells roughly square, of width a/n_col. Below with n_col = 4, n_pad_x = 3,
-   * n_pad_y = 2 (the vertices on the ellipse are marked with *):
+   * cells roughly square, of width a/n_col.
+   *
+   * The cells left of x = a and below y = d use a transfinite interpolation,
+   * and the ellipse an EllipticalManifold, which places the new vertices on
+   * the ellipse equally spaced in elliptic angle within each coarse edge. The
+   * coarse vertices on the ellipse depend on use_uniform_angle_spacing:
+   *
+   * - false: the cartesian grids continues to the bottom, and the vertices lie
+   *   below the column lines, as shown below. The last coarse edge, ending at
+   * (a, 0), spans a larger elliptic angle than the others, so after refinement
+   * the spacing along the ellipse jumps up at its start.
    *
    * @verbatim
-   * 
+   *
    *     |<----- n_col ----->|<--- n_pad_x --->|
-   * 
+   *
    *  H  +----+----+----+----+-----+-----+-----+
    *     |    |    |    |    |     |     |     | ^
    *     +----+----+----+----+-----+-----+-----+ | n_pad_y
@@ -464,16 +477,25 @@ namespace MeshTools
    *
    * @endverbatim
    *
-   * The refinement of the bottom row left of x = a depends on vertical_lines:
-   * - false: the cells use a transfinite interpolation and the ellipse an
-   *   EllipticalManifold. New vertices on the ellipse are equally spaced in
-   *   elliptic angle, so the cells right above it are sheared.
-   * - true: all cells left of x = a use the chart (theta, y) ->
-   *   (a cos(theta), y) above y = d, and (a cos(theta), y_e + (d - y_e) y / d)
-   *   below, with y_e = b sin(theta) on the ellipse. New vertices are equally
-   *   spaced in elliptic angle, as with the EllipticalManifold, and the new
-   *   vertical grid lines remain vertical from the top down to the ellipse.
-   *   Below d, the new horizontal lines follow the ellipse.
+   * - true: the vertices are equally spaced in elliptic angle, so the spacing
+   * along the ellipse varies smoothly at all levels, decreasing towards (a, 0)
+   * if a > b. The column lines are slanted below d, from (x, d) to the ellipse,
+   *   and the coarse cells there are more sheared. The bottom of the drawing
+   *   becomes:
+   *
+   * @verbatim
+   *
+   *  d  +----+----+----+----+-----+-----+
+   *     |     \    \    \   |     |     |
+   *  b  *.......*.   \  \   |     |     |
+   *               ....*  \  |     |     |
+   *                    ..\  |     |     |
+   *                       * |     |     |
+   *       ellipse          .|     |     |
+   *  0                      *-----+-----+
+   *     0                   a
+   *
+   * @endverbatim
    */
   template <int dim>
   void create_lgpi_geometry(Triangulation<dim> &tria,
@@ -491,7 +513,7 @@ namespace MeshTools
   {
     // The pattern checks the number of blocks and values, and that the counts
     // are non-negative integers.
-    using Arguments = std::tuple<std::array<double, 2>,
+    using Arguments    = std::tuple<std::array<double, 2>,
                                  std::array<double, 2>,
                                  double,
                                  std::array<unsigned int, 3>,
@@ -504,21 +526,22 @@ namespace MeshTools
                   "a, b (ellipse semi-axes) : d (height of the lowest "
                   "horizontal grid line, > b) : n_col, n_pad_x, n_pad_y "
                   "(subdivisions over the ellipse, right of it and above d) : "
-                  "colorize : vertical_lines. The parsed parameters are : " +
+                  "use_uniform_angle_spacing : colorize. The parsed parameters "
+                  "are : " +
                   parameters));
     const Arguments args =
       Patterns::Tools::Convert<Arguments>::to_value(parameters, *pattern);
 
-    const double       length         = std::get<0>(args)[0];
-    const double       height         = std::get<0>(args)[1];
-    const double       a              = std::get<1>(args)[0];
-    const double       b              = std::get<1>(args)[1];
-    const double       d              = std::get<2>(args);
-    const unsigned int n_col          = std::get<3>(args)[0];
-    const unsigned int n_pad_x        = std::get<3>(args)[1];
-    const unsigned int n_pad_y        = std::get<3>(args)[2];
-    const bool         colorize       = std::get<4>(args);
-    const bool         vertical_lines = std::get<5>(args);
+    const double       length                    = std::get<0>(args)[0];
+    const double       height                    = std::get<0>(args)[1];
+    const double       a                         = std::get<1>(args)[0];
+    const double       b                         = std::get<1>(args)[1];
+    const double       d                         = std::get<2>(args);
+    const unsigned int n_col                     = std::get<3>(args)[0];
+    const unsigned int n_pad_x                   = std::get<3>(args)[1];
+    const unsigned int n_pad_y                   = std::get<3>(args)[2];
+    const bool         use_uniform_angle_spacing = std::get<4>(args);
+    const bool         colorize                  = std::get<5>(args);
 
     // Lower left corner, 0 for now.
     const Point<2> corner;
@@ -561,89 +584,63 @@ namespace MeshTools
     GridGenerator::subdivided_hyper_rectangle(
       tria, step_sizes, corner, corner + Point<2>(length, height), colorize);
 
-    // Manifolds. Left of x = a, the bottom faces are moved onto the ellipse
-    // below. With vertical_lines, all cells left of x = a and their lines use
-    // the chart of the ellipse; otherwise, the cells of the bottom row use a
-    // transfinite interpolation and their bottom faces the ellipse. Right of
-    // x = a, the bottom faces are the bottom wall, with boundary id 4 (2
-    // remains on the ellipse). All other cells and lines are flat, so that the
-    // grid lines x = a and y = d remain straight.
+    // Bottom row. Left of x = a, the bottom faces are moved onto the ellipse
+    // below, and the cells use a transfinite interpolation. Right of it, the
+    // bottom faces are the bottom wall, with boundary id 4 (2 remains on the
+    // ellipse). All other cells and lines are flat, so that the grid lines
+    // x = a and y = d remain straight.
     const types::manifold_id ellipse_manifold_id = 0;
     const types::manifold_id tfi_manifold_id     = 1;
     for (const auto &cell : tria.active_cell_iterators())
-    {
-      const bool over_ellipse = cell->center()[0] - corner[0] < a;
-      const bool bottom_row   = cell->face(2)->at_boundary(); // Bottom face
-      if (over_ellipse && vertical_lines)
-        cell->set_all_manifold_ids(ellipse_manifold_id);
-      else if (over_ellipse && bottom_row)
+      if (cell->face(2)->at_boundary()) // Face 2 is the bottom face
       {
-        cell->set_manifold_id(tfi_manifold_id);
-        cell->face(2)->set_manifold_id(ellipse_manifold_id);
+        if (cell->center()[0] - corner[0] < a)
+        {
+          cell->set_manifold_id(tfi_manifold_id);
+          cell->face(2)->set_manifold_id(ellipse_manifold_id);
+        }
+        else if (colorize)
+          cell->face(2)->set_boundary_id(4);
       }
-      else if (bottom_row && colorize)
-        cell->face(2)->set_boundary_id(4);
-    }
 
+    // Move the bottom vertices left of x = a onto the ellipse: vertically,
+    // below their column line, or equally spaced in elliptic angle, like the
+    // vertices that the EllipticalManifold adds when refining.
     GridTools::transform(
       [&](const Point<2> &p) -> Point<2> {
         const double x = p[0] - corner[0];
         if (p[1] - corner[1] > tol || x > a - tol)
           return p;
+        if (use_uniform_angle_spacing)
+        {
+          const double theta = numbers::PI / 2. * (1. - x / a);
+          return corner + Point<2>(a * std::cos(theta), b * std::sin(theta));
+        }
         return corner + Point<2>(x, b * std::sqrt(1. - x * x / (a * a)));
       },
       tria);
 
-    if (vertical_lines)
+    if (std::abs(a - b) <= tol)
     {
-      // Chart (theta, Y) of the strip left of x = a, relative to the corner:
-      // x = a cos(theta), and y = Y above d, or y = y_e + (d - y_e) Y / d
-      // below, with y_e = b sin(theta) the ellipse. The min/max guard the
-      // square root and the arc cosine against round-off beyond x = a.
-      const std::string push_forward =
-        "x0 + a * cos(theta); "
-        "Y - y0 >= d ? Y : y0 + b * sin(theta) + "
-        "(d - b * sin(theta)) * (Y - y0) / d";
-      const std::string y_e = "b * sqrt(max(0, 1 - ((x - x0) / a)^2))";
-      const std::string pull_back =
-        "acos(min(1, (x - x0) / a)); "
-        "y - y0 >= d ? y : y0 + d * (y - y0 - " + y_e + ") / (d - " + y_e +
-        ")";
-      const std::map<std::string, double> constants = {
-        {"a", a}, {"b", b}, {"d", d}, {"x0", corner[0]}, {"y0", corner[1]}};
-      tria.set_manifold(ellipse_manifold_id,
-                        FunctionManifold<2, 2, 2>(push_forward,
-                                                  pull_back,
-                                                  Tensor<1, 2>(),
-                                                  constants,
-                                                  "theta,Y",
-                                                  "x,y"));
+      // a circle has eccentricity 0, which EllipticalManifold does not accept
+      tria.set_manifold(ellipse_manifold_id, SphericalManifold<2>(corner));
     }
     else
     {
-      if (std::abs(a - b) <= tol)
-      {
-        // a circle has eccentricity 0, which EllipticalManifold does not
-        // accept
-        tria.set_manifold(ellipse_manifold_id, SphericalManifold<2>(corner));
-      }
-      else
-      {
-        Tensor<1, 2> major_axis;
-        major_axis[(a > b) ? 0 : 1] = 1.;
-        const double A              = std::max(a, b);
-        const double B              = std::min(a, b);
-        const double eccentricity   = std::sqrt(1. - (B * B) / (A * A));
-        tria.set_manifold(ellipse_manifold_id,
-                          EllipticalManifold<2, 2>(corner,
-                                                   major_axis,
-                                                   eccentricity));
-      }
-
-      TransfiniteInterpolationManifold<2> transfinite;
-      transfinite.initialize(tria);
-      tria.set_manifold(tfi_manifold_id, transfinite);
+      Tensor<1, 2> major_axis;
+      major_axis[(a > b) ? 0 : 1] = 1.;
+      const double A              = std::max(a, b);
+      const double B              = std::min(a, b);
+      const double eccentricity   = std::sqrt(1. - (B * B) / (A * A));
+      tria.set_manifold(ellipse_manifold_id,
+                        EllipticalManifold<2, 2>(corner,
+                                                 major_axis,
+                                                 eccentricity));
     }
+
+    TransfiniteInterpolationManifold<2> transfinite;
+    transfinite.initialize(tria);
+    tria.set_manifold(tfi_manifold_id, transfinite);
 
     if (colorize)
     {

@@ -1,0 +1,124 @@
+
+# Checks the analytic Jacobian of the Cahn-Hilliard moving-mesh forcing
+# (the "chns form" source term of the pseudosolid equation) against finite
+# differences. The forcing f = compression * eps * factor(phi) * grad phi is
+# built from a prescribed analytic phase, whose gradient and Hessian are
+# obtained by symbolic differentiation.
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write vtu results = false
+end
+
+subsection Mesh
+  set dealii preset mesh     = rectangle
+  set dealii mesh parameters = 3, 3 : 0., 0. : 1, 1 : true
+  set refinement level       = 1
+end
+
+subsection Time integration
+  set verbosity = quiet
+  set scheme    = stationary
+end
+
+subsection Nonlinear solver
+  set verbosity            = quiet
+  set tolerance            = 1e-10
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = true
+  set analytic_jacobian    = true
+
+  set compare jacobian matrix with finite differences = true
+  set analytical_jacobian_absolute_tolerance          = 1e-6
+  set analytical_jacobian_relative_tolerance          = 1e-6
+end
+
+subsection Linear solver
+  subsection elasticity
+    set verbosity      = quiet
+    set method         = direct_mumps
+    set reuse          = false
+  end
+end
+
+subsection FiniteElements
+  set Mesh position degree = 2
+end
+
+subsection Physical properties
+  set number of pseudosolids = 1
+  subsection Pseudosolid 0
+    set constitutive model = neo hookean
+    subsection lame lambda
+      set Function expression = 1
+    end
+    subsection lame mu
+      set Function expression = 1
+    end
+  end
+end
+
+subsection Initial conditions
+  subsection cahn hilliard tracer
+    set Function expression = tanh((x - 0.5) / 0.2)
+  end
+end
+
+subsection Cahn Hilliard
+  set mobility model                  = constant
+  set mobility                        = 0.1
+  set surface tension                 = 1
+  set interface thickness             = 0.2
+  set mff source term                 = chns form
+  set mff physics compression factor  = 1.0
+  set mff transport factor            = 0
+  set mff regularization gamma        = 0.8
+end
+
+subsection Elasticity
+  subsection current mesh source term
+    set enable = false
+  end
+  subsection presolver
+    # Significant forcing ramped up over several steps, so that the Jacobian is
+    # checked against finite differences at several deformed configurations.
+    set initial compression multiplier = 0.1
+    set continuation steps             = 5
+  end
+end
+
+subsection Pseudosolid boundary conditions
+  set number = 4
+  subsection boundary 0
+    set id   = 0
+    set name = x_min
+    set type = fixed
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = x_max
+    set type = fixed
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = y_min
+    set type = fixed
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = y_max
+    set type = fixed
+  end
+end
+
+subsection Manufactured solution
+  set enable = false
+end

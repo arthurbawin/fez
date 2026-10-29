@@ -582,6 +582,30 @@ void NavierStokesSolver<dim, with_moving_mesh>::
 }
 
 template <int dim, bool with_moving_mesh>
+void NavierStokesSolver<dim, with_moving_mesh>::
+  update_constraints_for_evaluation_point()
+{
+  if constexpr (with_moving_mesh)
+  {
+    // Refresh trial-geometry boundary values only for the new prescribed phase
+    // path; other boundary types retain their existing update schedule.
+    if (!BoundaryConditions::has_boundary_condition(
+          param.cahn_hilliard_bc, BoundaryConditions::Type::input_function))
+      return;
+
+    // First apply the position constraints on the mapping currently available.
+    create_nonzero_constraints();
+    nonzero_constraints.distribute(local_evaluation_point);
+    evaluation_point = local_evaluation_point;
+
+    // Rebuild all constraints on the resulting ALE mapping. In particular,
+    // input_function values must be evaluated at the deformed support points.
+    create_zero_constraints();
+    create_nonzero_constraints();
+  }
+}
+
+template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::create_base_constraints(
   const bool                 homogeneous,
   AffineConstraints<double> &constraints)
@@ -742,6 +766,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions(
       exact_solution.get() :
       param.initial_conditions.initial_velocity.get();
 
+  bool has_presolved_position = false;
   if constexpr (with_moving_mesh)
   {
     FixedMeshPosition<dim> fixed_mesh(ordering->x_lower,
@@ -754,8 +779,22 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions(
     VectorTools::interpolate(
       *fixed_mapping, *dof_handler, *mesh_fun, newton_update, position_mask);
 
+    has_presolved_position = set_solver_specific_initial_mesh_position();
+
     // Update MappingFEField *BEFORE* interpolating velocity
     evaluation_point = newton_update;
+    if (has_presolved_position)
+    {
+      // Ghost vector reinitialization must preserve the presolved geometry.
+      local_evaluation_point = newton_update;
+      // Pressure and physical boundary constraints depend on this geometry.
+      if (param.bc_data.enforce_zero_mean_pressure)
+        create_zero_mean_pressure_constraints_data();
+      create_solver_specific_constraints_data();
+      create_zero_constraints();
+      create_nonzero_constraints();
+      create_sparsity_pattern();
+    }
   }
 
   // Set velocity with moving mapping
@@ -765,6 +804,13 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions(
   // Set other solver-specific fields on moving mesh (e.g., CHNS tracer)
   set_solver_specific_initial_conditions();
 
+  // Constraints must use the initial ALE geometry, including the presolved
+  // position.
+  if constexpr (with_moving_mesh)
+    if (BoundaryConditions::has_boundary_condition(
+          param.cahn_hilliard_bc, BoundaryConditions::Type::input_function))
+      create_nonzero_constraints();
+
   // Apply non-homogeneous Dirichlet BC and set as current solution
   nonzero_constraints.distribute(newton_update);
   *present_solution = newton_update;
@@ -773,6 +819,10 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_initial_conditions(
   if (rotate_solutions)
     // FIXME: WHAT ABOUT THIS ROTATION?????????
     time_handler.rotate_solutions(*present_solution, *previous_solutions);
+
+  if (has_presolved_position && time_handler.current_time_iteration == 0)
+    for (auto &previous : *previous_solutions)
+      previous = *present_solution;
 }
 
 template <int dim, bool with_moving_mesh>

@@ -1,4 +1,5 @@
 
+#include <boost/property_tree/json_parser.hpp>
 #include <field_postprocessors.h>
 #include <parameters.h>
 #include <solver_info.h>
@@ -1542,17 +1543,38 @@ namespace Parameters
                         "false",
                         Patterns::Bool(),
                         "Enable limiter for the tracer (phase field marker)");
-      // Mesh forcing parameters
+      // Moving-mesh forcing parameters
       prm.declare_entry(
-        "alpha",
+        "mff source term",
+        "off",
+        Patterns::Selection("off|chns form|custom"),
+        "Source term forcing the pseudosolid (mesh) equation: 'off', the "
+        "built-in Cahn-Hilliard compression form ('chns form'), or a "
+        "reserved 'custom' option. Free elasticity sources are configured "
+        "independently in Elasticity/source term; custom adds no MFF law.");
+      prm.declare_entry(
+        "mff physics compression factor",
         "0.0",
         Patterns::Double(),
-        "Coefficient of pseudosolid source term alpha * phi * grad(phi).");
-      prm.declare_entry("beta",
-                        "0.0",
-                        Patterns::Double(),
-                        "Coefficient of pseudosolid source term beta * (u_ALE "
-                        "* grad(phi)) * grad(phi).");
+        "Compression factor of epsilon * factor(phi) * grad(phi). "
+        "Positive values concentrate the mesh near the interface.");
+      prm.declare_entry(
+        "mff transport factor",
+        "0.0",
+        Patterns::Double(),
+        "Transport factor of -epsilon^2 * (u_ALE * grad(phi)) * "
+        "grad(phi) in the mesh forcing; full CHNS solver only.");
+      prm.declare_entry(
+        "mff regularization gamma",
+        "0.0",
+        Patterns::Double(0.),
+        "Regularization gamma inside the saturated compression factor.");
+      prm.declare_entry(
+        "use presolver",
+        "false",
+        Patterns::Bool(),
+        "Run an elasticity presolver to pre-position the mesh and inject its "
+        "mesh position as the initial mesh of the CHNS solver.");
     }
     prm.leave_subsection();
   }
@@ -1569,9 +1591,19 @@ namespace Parameters
       surface_tension     = prm.get_double("surface tension");
       epsilon_interface   = prm.get_double("interface thickness");
       with_tracer_limiter = prm.get_bool("enable tracer limiter");
-      // mesh forcing parameters
-      alpha = prm.get_double("alpha");
-      beta  = prm.get_double("beta");
+      // moving-mesh forcing parameters
+      const std::string parsed_mff_source_term = prm.get("mff source term");
+      if (parsed_mff_source_term == "chns form")
+        mff_source_term = MeshForcingSourceTerm::chns_form;
+      else if (parsed_mff_source_term == "custom")
+        mff_source_term = MeshForcingSourceTerm::custom;
+      else
+        mff_source_term = MeshForcingSourceTerm::off;
+      mff_physics_compression_factor =
+        prm.get_double("mff physics compression factor");
+      mff_transport_factor     = prm.get_double("mff transport factor");
+      mff_regularization_gamma = prm.get_double("mff regularization gamma");
+      use_presolver            = prm.get_bool("use presolver");
     }
     prm.leave_subsection();
   }
@@ -1579,10 +1611,19 @@ namespace Parameters
   template class CahnHilliard<2>;
   template class CahnHilliard<3>;
 
-  void LinearElasticity::declare_parameters(ParameterHandler &prm)
+  void Elasticity::declare_parameters(ParameterHandler &prm)
   {
-    prm.enter_subsection("Linear elasticity");
+    prm.enter_subsection("Elasticity");
     {
+      prm.declare_entry(
+        "write final msh",
+        "false",
+        Patterns::Bool(),
+        "Write the converged elasticity/presolver mesh as "
+        "<output prefix>elasticity_final_mesh.msh in the output directory. "
+        "Requires a Gmsh .msh input mesh and Gmsh API support; preserves "
+        "the input connectivity, entities and physical groups.");
+
       prm.enter_subsection("current mesh source term");
       {
         prm.declare_entry(
@@ -1607,14 +1648,49 @@ namespace Parameters
                           "Number of steps to use in the continuation method");
       }
       prm.leave_subsection();
+
+      prm.enter_subsection("presolver");
+      {
+        prm.declare_entry(
+          "initial compression multiplier",
+          "1.",
+          Patterns::Double(0.),
+          "Cahn-Hilliard presolver: initial fraction of the compression "
+          "forcing, ramped up to its physical value (1) by continuation.");
+        prm.declare_entry(
+          "continuation steps",
+          "1",
+          Patterns::Integer(1),
+          "Cahn-Hilliard presolver: number of continuation steps used to ramp "
+          "the compression forcing up to its physical value.");
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("presolved mesh position");
+      {
+        prm.declare_entry(
+          "mode",
+          "off",
+          Patterns::Selection("off|reuse|force_recompute"),
+          "Disk cache of the presolved mesh position: 'off' disables caching, "
+          "'reuse' loads a valid cache (and writes one otherwise), "
+          "'force_recompute' always re-solves and refreshes the cache.");
+        prm.declare_entry("file",
+                          "presolved_mesh_position",
+                          Patterns::Anything(),
+                          "File name of the presolved mesh position cache.");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
   }
 
-  void LinearElasticity::read_parameters(ParameterHandler &prm)
+  void Elasticity::read_parameters(ParameterHandler &prm)
   {
-    prm.enter_subsection("Linear elasticity");
+    prm.enter_subsection("Elasticity");
     {
+      write_final_msh = prm.get_bool("write final msh");
+
       prm.enter_subsection("current mesh source term");
       {
         enable_source_term_on_current_mesh = prm.get_bool("enable");
@@ -1629,8 +1705,60 @@ namespace Parameters
         n_continuation_steps = prm.get_integer("continuation steps");
       }
       prm.leave_subsection();
+
+      prm.enter_subsection("presolver");
+      {
+        presolver_initial_compression_multiplier =
+          prm.get_double("initial compression multiplier");
+        presolver_continuation_steps = prm.get_integer("continuation steps");
+      }
+      prm.leave_subsection();
+
+      prm.enter_subsection("presolved mesh position");
+      {
+        const std::string parsed_mode = prm.get("mode");
+        if (parsed_mode == "reuse")
+          presolved_mesh_position_mode = PresolvedMeshPositionMode::reuse;
+        else if (parsed_mode == "force_recompute")
+          presolved_mesh_position_mode =
+            PresolvedMeshPositionMode::force_recompute;
+        else
+          presolved_mesh_position_mode = PresolvedMeshPositionMode::off;
+        presolved_mesh_position_file = prm.get("file");
+      }
+      prm.leave_subsection();
     }
     prm.leave_subsection();
+  }
+
+  void Elasticity::capture_presolved_mesh_inputs(const ParameterHandler &prm)
+  {
+    presolved_mesh_input_parameters.clear();
+    if (presolved_mesh_position_mode == PresolvedMeshPositionMode::off)
+      return;
+    // Preserve the complete function descriptions, including constants and
+    // per-component boundary masks, instead of hashing expressions alone.
+    std::stringstream serialized;
+    prm.print_parameters(serialized, ParameterHandler::ShortJSON);
+    boost::property_tree::ptree all, relevant;
+    boost::property_tree::read_json(serialized, all);
+    for (const std::string section : {"Mesh",
+                                      "FiniteElements",
+                                      "Physical properties",
+                                      "Pseudosolid boundary conditions",
+                                      "Elasticity",
+                                      "Nonlinear solver",
+                                      "Manufactured solution"})
+      relevant.add_child(section, all.get_child(section));
+    relevant.get_child("Elasticity").erase("presolved mesh position");
+    relevant.get_child("Elasticity").erase("write final msh");
+    relevant.add_child(
+      "phase", all.get_child("Initial conditions.cahn hilliard tracer"));
+    relevant.add_child("linear solver",
+                       all.get_child("Linear solver.elasticity"));
+    std::ostringstream canonical;
+    boost::property_tree::write_json(canonical, relevant, false);
+    presolved_mesh_input_parameters = canonical.str();
   }
 
   void CheckpointRestart::declare_parameters(ParameterHandler &prm)

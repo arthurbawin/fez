@@ -1,10 +1,10 @@
 
 #
-# This examples shows how the linear elasticity solver can be used
+# This examples shows how the elasticity solver can be used
 # to adapt a mesh to a given source term. The pseudosolid analogy
 # is used to define mesh deformation.
 #
-# A steep source term is given in the "Linear elasticity" section,
+# A steep source term is given in the "Elasticity" section,
 # and we want to adapt the mesh to concentrate the vertices around
 # the source term. To this end, the source term is evaluated on the
 # deformed mesh, that is, we provide f(x(X)) instead of f(X).
@@ -18,7 +18,7 @@
 # -div(sigma(x)) + 25 * f(x(X)) = 0.
 #
 # The coefficients multiplying the source term and number of continuation
-# steps can be adjusted in the "Linear elasticity" section.
+# steps can be adjusted in the "Elasticity" section.
 #
 # For this problem, enabling line search in the Newton solver is required,
 # as otherwise the solution oscillates without converging as the source
@@ -76,7 +76,7 @@ end
 # just use MUMPS instead...
 #
 subsection Linear solver
-  subsection linear elasticity
+  subsection elasticity
     set verbosity      = verbose
     set method         = cg
     set tolerance      = 1e-10
@@ -128,7 +128,7 @@ subsection Pseudosolid boundary conditions
   end
 end
 
-subsection Linear elasticity
+subsection Elasticity
   subsection source term
     set Function constants  = e = 0.1, xc = 0.5
     set Function expression = tanh((x-xc)/(sqrt(2)*e)) * (1./(sqrt(2)*e)) * (1 - tanh((x-xc)/(sqrt(2)*e))*tanh((x-xc)/(sqrt(2)*e))); 0

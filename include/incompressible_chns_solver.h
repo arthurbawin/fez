@@ -54,10 +54,15 @@ public:
    */
   virtual void set_solver_specific_initial_conditions() override;
 
+  virtual bool set_solver_specific_initial_mesh_position() override;
+
   /**
    * Apply exact tracer and potential
    */
   virtual void set_solver_specific_exact_solution() override;
+
+  // Update time-dependent prescribed phase boundary functions.
+  virtual void set_solver_specific_time() override;
 
   virtual void create_solver_specific_zero_constraints() override;
   virtual void create_solver_specific_nonzero_constraints() override;

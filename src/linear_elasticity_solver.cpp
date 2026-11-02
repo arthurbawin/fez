@@ -79,7 +79,8 @@ LinearElasticitySolver<dim>::LinearElasticitySolver(
 
   // Create direct solver
   direct_solver_reuse =
-    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                            mpi_communicator);
 
   scratch_data = std::make_unique<ScratchData>(
     *fe, *mapping, *quadrature, *face_quadrature, param);
@@ -110,7 +111,8 @@ void LinearElasticitySolver<dim>::reset()
 
   // Direct solver
   direct_solver_reuse =
-    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                            mpi_communicator);
 
   // Time handler (move assign a new time handler)
   time_handler = TimeHandler(param.time_integration);

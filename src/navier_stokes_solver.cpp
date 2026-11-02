@@ -348,7 +348,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
   // initial solution on this time interval. For unsteady simulations with mesh
   // adaptation with a Riemannian metric, this is needed to obtain an adapted
   // mesh that includes the initial condition.
-  postprocess_solution(interval_index);
+  postprocess_solution();
 
   while (!time_handler.is_finished())
   {
@@ -387,7 +387,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
     while (!time_handler.is_timestep_accepted(*present_solution,
                                               *previous_solutions));
 
-    postprocess_solution(interval_index);
+    postprocess_solution();
 
     /**
      * Adapt the tree-based mesh during an unsteady simulation, if the current
@@ -1026,11 +1026,7 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_errors()
 }
 
 template <int dim, bool with_moving_mesh>
-void NavierStokesSolver<dim, with_moving_mesh>::output_results(
-  const bool         is_time_subinterval,
-  const unsigned int interval_index,
-  const bool         is_prerefinement_step,
-  const unsigned int prerefinement_step)
+void NavierStokesSolver<dim, with_moving_mesh>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Write outputs");
 
@@ -1175,12 +1171,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::compute_field_integrals()
 
 template <int dim, bool with_moving_mesh>
 void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution()
-=======
-void NavierStokesSolver<dim, with_moving_mesh>::postprocess_solution(
-  const unsigned int interval_index)
->>>>>>> 66fce5d (Better output with time intervals and TFP tests)
 {
-  output_results(param.time_integration.n_time_intervals > 1, interval_index);
+  output_results();
 
   if (param.postprocessing.field_integral.enable)
     compute_field_integrals();

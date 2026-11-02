@@ -293,7 +293,7 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
   // initial solution on this time interval. For unsteady simulations with mesh
   // adaptation with a Riemannian metric, this is needed to obtain an adapted
   // mesh that includes the initial condition.
-  postprocess_solution(interval_index);
+  postprocess_solution();
 
   while (!time_handler.is_finished())
   {
@@ -328,7 +328,7 @@ void HeatSolver<dim>::run_time_subinterval(const unsigned int interval_index)
     while (!time_handler.is_timestep_accepted(*present_solution,
                                               *previous_solutions));
 
-    postprocess_solution(interval_index);
+    postprocess_solution();
 
     /**
      * Adapt the tree-based mesh during an unsteady simulation, if the current

@@ -310,7 +310,7 @@ public:
    * Post-process the numerical solution: output for visualization,
    * compute errors, forces, etc.
    */
-  void postprocess_solution(const unsigned int interval_index);
+  void postprocess_solution();
 
   /**
    * Compute the volume integrals of the selected finite element variables.
@@ -369,10 +369,7 @@ public:
   /**
    * Write the results to a vtu/pvtu file for visualization.
    */
-  void output_results(const bool         is_time_subinterval   = false,
-                      const unsigned int interval_index        = 0,
-                      const bool         is_prerefinement_step = false,
-                      const unsigned int prerefinement_step    = 0);
+  void output_results();
 
   /**
    * Add additional postprocessing data specific to each derived solver to the

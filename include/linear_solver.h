@@ -36,7 +36,8 @@ namespace LinearSolvers
               PETScWrappers::SparseDirectMUMPSReuse *mumps_solver = nullptr);
 
   /**
-   * Summary of an iterative linear solve, used to determine if the preconditioner should be rebuilt.
+   * Summary of an iterative linear solve, used to determine if the
+   * preconditioner should be rebuilt.
    */
   struct IterativeSolveInfo
   {
@@ -185,7 +186,8 @@ namespace LinearSolvers
     }
     solver->computing_timer.leave_subsection("Solve GMRES");
 
-    if (linear_solver_param.verbosity == Parameters::Verbosity::verbose)
+    if (converged &&
+        linear_solver_param.verbosity == Parameters::Verbosity::verbose)
       solver->pcout << solver_control.last_step()
                     << " GMRES iterations needed to obtain convergence"
                     << std::endl;

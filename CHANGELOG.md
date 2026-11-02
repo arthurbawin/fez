@@ -14,11 +14,15 @@ Prevent finding duplicate Lagrange multiplier DoF indices when assigning e.g. fo
 ### Fixed
 Add forgotten artifical rotation contribution in LagrangeMultiplier::WeakNoSlipAssembler matrix computation. [#109](https://github.com/arthurbawin/fez/pull/109)
 
-
 ## [0.0.0] 2026-11-04
 
 ### Added
 Added a pull request template. [#113](https://github.com/arthurbawin/fez/pull/113)
+
+### Changed
+Reworked the derived MUMPS solver (SparseDirectMUMPSReuse). If the factorization failed
+because of a memory allocation too small, then the solve is tried again with a memory increase
+for MUMPS (up to 5 times, or up to the maximum allowed relative or absolute memory increase). [#103](https://github.com/arthurbawin/fez/pull/103)
 
 ## [0.0.0] 2026-11-03
 

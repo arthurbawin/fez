@@ -215,6 +215,9 @@ void NavierStokesSolver<dim, with_moving_mesh>::finalize_interval(
         metric_for_adaptation->copy_metrics_from(*metrics[id]);
       }
 
+  // Preconditioner will have to be assembled on next mesh
+  should_assemble_preconditioner = true;
+
   finalize_interval_solver_specific(interval_index);
 }
 

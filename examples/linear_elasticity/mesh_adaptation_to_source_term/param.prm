@@ -79,8 +79,7 @@ subsection Linear solver
   subsection linear elasticity
     set verbosity      = verbose
     set method         = cg
-    set absolute tolerance = 1e-10
-    set relative tolerance = 0
+    set tolerance      = 1e-10
     set max iterations = 1000
   end
 end

@@ -35,9 +35,8 @@ public:
     // double       norm_increment = 0;
     double norm_residual = 0;
     double last_residual;
-    bool   recompute_rhs          = true;
-    bool   assemble               = false;
-    bool   preconditioner_rebuilt = false;
+    bool   recompute_rhs = true;
+    bool   assemble      = false;
 
     auto       solver = this->solver;
     const bool verbose =
@@ -75,13 +74,8 @@ public:
           // << "incr. = "  << norm_increment << " "
           << "         nonlinear residual = "
           << norm_residual
-          // Print (M) if the matrix was assembled, and (P) if the
-          // preconditioner was rebuilt, to obtain this residual norm
-          << (assemble || preconditioner_rebuilt ?
-                std::string("\t(") + (assemble ? "M" : "") +
-                  (preconditioner_rebuilt ? "P" : "") + ")" :
-                "")
-          << std::endl;
+          // Print (M) if the matrix was assembled to obtain this residual norm
+          << (assemble ? "\t(M)" : "") << std::endl;
       }
 
       // Abort if residual is too high
@@ -115,7 +109,6 @@ public:
       if (assemble)
         solver->assemble_matrix();
       solver->solve_linear_system();
-      preconditioner_rebuilt = solver->preconditioner_rebuilt_at_last_solve;
       // norm_increment = solver->newton_update.linfty_norm();
 
       if (this->param.enable_line_search)

@@ -77,7 +77,7 @@ private:
     lame_mu.resize(n_q_points);
     lame_lambda.resize(n_q_points);
 
-    components.resize(dofs_per_cell);
+    components.resize(n_q_points);
 
     position_values.resize(n_q_points);
     present_position_gradients.resize(n_q_points);

@@ -12,8 +12,6 @@
 #include <time_handler.h>
 #include <types.h>
 
-#include <cstdint>
-
 /**
  * A class storing the data that need to be duplicated for each time
  * subinterval when using the transient fixed point mesh adaptation method for
@@ -122,18 +120,18 @@ public:
    * Return the sum of the active cells among the triangulations of all time
    * intervals.
    */
-  std::uint64_t get_sum_of_active_cells() const;
+  unsigned int get_sum_of_active_cells() const;
 
   /**
    * Return the sum of the mesh vertices among the triangulations of all time
    * intervals.
    */
-  std::uint64_t get_sum_of_vertices() const;
+  unsigned int get_sum_of_vertices() const;
 
   /**
    * Return the sum of all dofs among the dof handlers of all time intervals.
    */
-  std::uint64_t get_sum_of_dofs() const;
+  unsigned int get_sum_of_dofs() const;
 
   /**
    * Return the effective space-time complexity associated with the collection
@@ -145,7 +143,7 @@ public:
    * where n_time_steps_i is the number of time steps spent in the i-th time
    * interval.
    */
-  std::uint64_t
+  unsigned int
   get_effective_space_time_complexity(const TimeHandler &time_handler) const;
 
   /**

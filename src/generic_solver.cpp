@@ -21,7 +21,6 @@ GenericSolver<VectorType>::GenericSolver(
                     TimerOutput::summary,
                     TimerOutput::wall_times)
   , solver_type(solver_type)
-  , preconditioner_rebuilt_at_last_solve(false)
   , output_param(output_param)
   , mesh_param(mesh_param)
   , time_param(time_param)
@@ -174,9 +173,7 @@ void GenericSolver<VectorType>::run_convergence_loop()
       {
         handler.compute_temporal_error();
 
-        // Print the errors at all timesteps if required, from root process only
-        if (mpi_rank != 0)
-          continue;
+        // Print the errors at all timesteps if required
         if (mms_param.print_unsteady_errors_to_console)
           handler.write_errors();
         if (mms_param.print_unsteady_errors_to_file)

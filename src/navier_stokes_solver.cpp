@@ -38,7 +38,6 @@ NavierStokesSolver<dim, with_moving_mesh>::NavierStokesSolver(
                                present_solution,
                                previous_solutions,
                                metric_for_adaptation)
-  , should_assemble_preconditioner(true)
 {
 #if !DEAL_II_VERSION_GTE(9, 9, 0)
   if constexpr (with_moving_mesh)
@@ -215,9 +214,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::finalize_interval(
         metric_for_adaptation->copy_metrics_from(*metrics[id]);
       }
 
-  // Preconditioner will have to be assembled on next mesh
-  should_assemble_preconditioner = true;
-
   finalize_interval_solver_specific(interval_index);
 }
 
@@ -332,13 +328,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::run_time_subinterval(
     if (interval_index == 0)
       set_initial_conditions();
     else
-      // FIXME: For moving-mesh solvers, moving_mapping is a MappingFEField
-      // built on the dof handler and evaluation point of the *current*
-      // interval, but the transfer also uses it to evaluate the solution on
-      // the *previous* interval's dof handler (another triangulation), which
-      // is invalid. Either use the fixed mapping for the previous interval
-      // (if the transfer is meant to be done in the reference configuration),
-      // or forbid transfer_solution with a moving mesh and several intervals.
       transient_fixed_point_data.transfer_solution_between_intervals(
         interval_index,
         *moving_mapping,
@@ -883,19 +872,35 @@ void NavierStokesSolver<dim, with_moving_mesh>::solve_linear_system()
   if (linear_solver_param.method ==
       Parameters::LinearSolver::Method::direct_mumps)
   {
-    LinearSolvers::solve_mumps(this,
-                               linear_solver_param,
-                               system_matrix,
-                               locally_owned_dofs,
-                               zero_constraints,
-                               linear_solver_param.reuse ?
-                                 direct_solver_reuse.get() :
-                                 nullptr);
+    if (linear_solver_param.reuse)
+    {
+      solve_linear_system_direct(this,
+                                 linear_solver_param,
+                                 system_matrix,
+                                 locally_owned_dofs,
+                                 zero_constraints,
+                                 *direct_solver_reuse);
+    }
+    else
+      solve_linear_system_direct(this,
+                                 linear_solver_param,
+                                 system_matrix,
+                                 locally_owned_dofs,
+                                 zero_constraints);
+  }
+  else if (linear_solver_param.method ==
+           Parameters::LinearSolver::Method::gmres)
+  {
+    solve_linear_system_iterative(this,
+                                  linear_solver_param,
+                                  system_matrix,
+                                  locally_owned_dofs,
+                                  zero_constraints);
   }
   else
-    // The choice of appropriate iterative solver and preconditioner is
-    // delegated to each derived solver
-    solve_linear_system_iterative();
+  {
+    AssertThrow(false, ExcMessage("No known resolution method"));
+  }
 }
 
 template <int dim, bool with_moving_mesh>
@@ -1246,9 +1251,6 @@ void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
     transient_fixed_point_data.transfer_solution_between_refinements(
       locally_relevant_dofs, nonzero_constraints);
   }
-
-  // Preconditioner should be assembled again since mesh has changed
-  should_assemble_preconditioner = true;
 }
 
 template <int dim, bool with_moving_mesh>

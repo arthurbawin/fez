@@ -331,16 +331,6 @@ void NSSolverLambda<dim>::setup_dofs()
   this->locally_relevant_dofs =
     DoFTools::extract_locally_relevant_dofs(*this->dof_handler);
 
-  // Setup the dofs_to_component vector
-  fill_dofs_to_component(*this->dof_handler,
-                         this->locally_relevant_dofs,
-                         this->dofs_to_component);
-
-  // Attach data to time error estimator
-  this->time_handler.attach_data_to_error_estimator(*this->ordering,
-                                                    this->locally_relevant_dofs,
-                                                    this->dofs_to_component);
-
   // Initialize parallel vectors
   this->present_solution->reinit(this->locally_owned_dofs,
                                  this->locally_relevant_dofs,
@@ -440,12 +430,12 @@ void NSSolverLambda<dim>::create_lagrange_multiplier_constraints()
 
     const unsigned int total_constrained_owned_dofs =
       Utilities::MPI::sum(constrained_owned_dofs, this->mpi_communicator);
-    this->pcout << total_constrained_owned_dofs
-                << " constrained owned lambda dofs" << std::endl;
+    std::cout << total_constrained_owned_dofs
+              << " constrained owned lambda dofs" << std::endl;
     const unsigned int total_unconstrained_owned_dofs =
       Utilities::MPI::sum(unconstrained_owned_dofs, this->mpi_communicator);
-    this->pcout << total_unconstrained_owned_dofs
-                << " unconstrained owned lambda dofs" << std::endl;
+    std::cout << total_unconstrained_owned_dofs
+              << " unconstrained owned lambda dofs" << std::endl;
 
     {
       // Print constrainted lambda dofs
@@ -515,9 +505,6 @@ void NSSolverLambda<dim>::create_hp_line_dof_identities()
       fe_lambda.n_dofs_per_cell());
     for (const auto &cell : this->dof_handler->active_cell_iterators())
     {
-      // Artificial cells have no dof indices
-      if (!(cell->is_locally_owned() || cell->is_ghost()))
-        continue;
       if (!cell_has_lambda(cell))
         continue;
       cell->get_dof_indices(dof_indices);
@@ -571,9 +558,6 @@ void NSSolverLambda<dim>::create_hp_line_dof_identities()
       fe_without_lambda.n_dofs_per_cell());
     for (const auto &cell : this->dof_handler->active_cell_iterators())
     {
-      // Artificial cells have no dof indices
-      if (!(cell->is_locally_owned() || cell->is_ghost()))
-        continue;
       if (cell_has_lambda(cell))
         continue;
 

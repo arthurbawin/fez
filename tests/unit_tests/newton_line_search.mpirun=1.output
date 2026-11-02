@@ -1,0 +1,23 @@
+
+DEAL::NaN then root steady OK
+DEAL::NaN then root adaptive OK
+DEAL::two Inf then root steady OK
+DEAL::two Inf then root adaptive OK
+DEAL::finite backtrack steady OK
+DEAL::finite backtrack adaptive OK
+DEAL::invalid gap before backtrack steady OK
+DEAL::invalid gap before backtrack adaptive OK
+DEAL::finite decreasing trials steady OK
+DEAL::finite decreasing trials adaptive OK
+DEAL::finite trial then invalid trials steady OK
+DEAL::finite trial then invalid trials adaptive OK
+DEAL::all NaN trials steady OK
+DEAL::all NaN trials adaptive OK
+DEAL::all Inf trials steady OK
+DEAL::all Inf trials adaptive OK
+DEAL::invalid initial residual steady OK
+DEAL::invalid initial residual adaptive OK
+DEAL::invalid undamped update steady OK
+DEAL::invalid undamped update adaptive OK
+DEAL::fresh residual after fallback steady OK
+DEAL::fresh residual after fallback adaptive OK

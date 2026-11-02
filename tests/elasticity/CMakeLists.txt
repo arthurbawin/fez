@@ -1,4 +1,4 @@
-set(TEST_TARGET linear_elasticity)
+set(TEST_TARGET elasticity)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} _build_type)
 

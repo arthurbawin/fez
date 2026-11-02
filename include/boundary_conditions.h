@@ -132,6 +132,16 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> w;
     std::shared_ptr<Functions::ParsedFunction<dim>> p;
 
+    /**
+     * For an input_function boundary, select which velocity components are
+     * strongly constrained. Leaving a component unconstrained allows it to be
+     * handled by another constraint (e.g. a no normal flux added on the same
+     * boundary). At least one component must be constrained.
+     */
+    bool constrain_u = true;
+    bool constrain_v = true;
+    bool constrain_w = true;
+
     // Tolerance on no slip enforcement with a Lagrange multiplier
     double weak_no_slip_tolerance;
 
@@ -179,6 +189,17 @@ namespace BoundaryConditions
     std::shared_ptr<Functions::ParsedFunction<dim>> y;
     std::shared_ptr<Functions::ParsedFunction<dim>> z;
 
+    /**
+     * For an input_function boundary, select which mesh-position components are
+     * strongly constrained by the x/y/z function. Leaving a component
+     * unconstrained lets the pseudosolid solver determine it (e.g. a wavemaker
+     * whose horizontal motion is prescribed while the vertical slides freely).
+     * At least one component must be constrained.
+     */
+    bool constrain_x = true;
+    bool constrain_y = true;
+    bool constrain_z = true;
+
   public:
     PseudosolidBC()
     {
@@ -205,9 +226,16 @@ namespace BoundaryConditions
   class CahnHilliardBC : public BoundaryCondition
   {
   public:
+    // User-defined tracer function for input_function boundary.
+    std::shared_ptr<Functions::ParsedFunction<dim>> tracer =
+      std::make_shared<Functions::ParsedFunction<dim>>();
+
     virtual void declare_parameters(ParameterHandler &prm) override;
     virtual void read_parameters(ParameterHandler &prm) override;
-    virtual void set_time(const double) override {}
+    virtual void set_time(const double new_time) override
+    {
+      tracer->set_time(new_time);
+    }
   };
 
   /**
@@ -455,7 +483,6 @@ public:
   {
     if (component == field_component)
       return field_fun.value(p);
-    DEAL_II_ASSERT_UNREACHABLE();
     return 0.;
   }
 };

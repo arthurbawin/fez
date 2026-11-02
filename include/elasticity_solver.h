@@ -1,5 +1,5 @@
-#ifndef LINEAR_ELASTICITY_SOLVER_H
-#define LINEAR_ELASTICITY_SOLVER_H
+#ifndef ELASTICITY_SOLVER_H
+#define ELASTICITY_SOLVER_H
 
 #include <assembly/assembler.h>
 #include <components_ordering.h>
@@ -18,18 +18,19 @@
 #include <generic_solver.h>
 #include <mumps_solver.h>
 #include <parameter_reader.h>
-#include <scratch_data_linear_elasticity.h>
+#include <scratch_data_elasticity.h>
 #include <time_handler.h>
 #include <types.h>
 
 using namespace dealii;
 
 /**
- * Solve the linear elasticity equation written for the mesh position :
+ * Solve the elasticity equation written for the mesh position :
  *
  * - \nabla \cdot \sigma(x) + f = 0,
  *
- * with \sigma(x) = 2\mu\epsilon(x) + \lambda\tr{\epsilon(x)} I.
+ * For the linear constitutive model,
+ * \sigma(x) = 2\mu\epsilon(x) + \lambda\tr{\epsilon(x)} I.
  * The infinitesimal strain tensor \epsilon(x) is written in terms of the mesh
  * position, and not in terms of displacement u, and thus writes:
  *
@@ -45,7 +46,7 @@ using namespace dealii;
  *
  * - \nabla \cdot \sigma(x) + alpha * f(x(X)) = 0.
  *
- * This feature is controlled by the "Linear elasticity" subsection of the
+ * This feature is controlled by the "Elasticity" subsection of the
  * parameter file. The continuation parameter alpha lies in the provided
  * [min_coeff, max_coeff] bracket, so that the last solved position field
  * satisfies :
@@ -54,19 +55,22 @@ using namespace dealii;
  *
  */
 template <int dim>
-class LinearElasticitySolver : public GenericSolver<LA::ParVectorType>
+class ElasticitySolver : public GenericSolver<LA::ParVectorType>
 {
-  using ScratchData = ScratchDataLinearElasticity<dim>;
+  using ScratchData = ScratchDataElasticity<dim>;
   using CopyData    = CopyDataBase<1>;
   using Assembler   = Assembly::AssemblerBase<ScratchData, CopyData>;
 
 public:
   /**
-   * Constructor
+   * Constructor. An optional reference triangulation is borrowed and must
+   * outlive this solver. Its topology and reference vertices stay unchanged.
    */
-  LinearElasticitySolver(const ParameterReader<dim> &param);
+  ElasticitySolver(const ParameterReader<dim> &param,
+                   parallel::DistributedTriangulationBase<dim>
+                     *reference_triangulation = nullptr);
 
-  virtual ~LinearElasticitySolver() = default;
+  virtual ~ElasticitySolver() = default;
 
 public:
   /**
@@ -127,11 +131,38 @@ public:
 
   void move_mesh();
 
+  /**
+   * Write the converged position at the original Gmsh nodes, preserving the
+   * input entities and physical groups without moving the reference mesh.
+   */
+  void write_final_msh();
+
+  /**
+   * Try to load the presolved mesh position from the disk cache. The cache is
+   * keyed by support-point location (so it is reusable with a different number
+   * of MPI processes) and guarded by a fingerprint of the presolver-defining
+   * parameters. Returns true on success; on failure it falls back to solving
+   * on an absent, stale or invalid cache. The reference mesh and DoFs must
+   * already be initialized.
+   */
+  bool try_load_presolved_mesh_cache();
+
+  /**
+   * Write the presolved mesh position to the disk cache.
+   */
+  void write_presolved_mesh_cache() const;
+
+  /**
+   * Canonical fingerprint of all parameters that affect the presolved mesh
+   * position, used to invalidate a stale cache. Requires the DoFs to be set up.
+   */
+  std::string presolved_mesh_fingerprint() const;
+
   void postprocess_solution();
 
   void compute_errors();
 
-  virtual void output_results();
+  virtual void output_results(const Mapping<dim> *output_mapping = nullptr);
 
   /**
    *
@@ -163,10 +194,12 @@ protected:
   std::unique_ptr<Quadrature<dim - 1>> face_quadrature;
   std::unique_ptr<Quadrature<dim - 1>> error_face_quadrature;
 
-  parallel::fullydistributed::Triangulation<dim> triangulation;
-  std::unique_ptr<Mapping<dim>>                  mapping;
-  DoFHandler<dim>                                dof_handler;
-  TimeHandler                                    time_handler; // dummy
+  std::unique_ptr<parallel::fullydistributed::Triangulation<dim>>
+                                               owned_triangulation;
+  parallel::DistributedTriangulationBase<dim> &triangulation;
+  std::unique_ptr<Mapping<dim>>                mapping;
+  DoFHandler<dim>                              dof_handler;
+  TimeHandler                                  time_handler; // dummy
 
   std::unique_ptr<ScratchData>            scratch_data;
   std::vector<std::unique_ptr<Assembler>> assemblers;
@@ -236,13 +269,13 @@ protected:
 /* ---------------- template and inline functions ----------------- */
 
 template <int dim>
-const ParameterReader<dim> &LinearElasticitySolver<dim>::get_parameters() const
+const ParameterReader<dim> &ElasticitySolver<dim>::get_parameters() const
 {
   return param;
 }
 
 template <int dim>
-const DoFHandler<dim> &LinearElasticitySolver<dim>::get_dof_handler() const
+const DoFHandler<dim> &ElasticitySolver<dim>::get_dof_handler() const
 {
   return dof_handler;
 }

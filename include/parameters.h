@@ -802,18 +802,39 @@ namespace Parameters
     double epsilon_interface;
     bool   with_tracer_limiter;
 
-    // Mesh forcing parameters : these parameters control the behavior of the
-    // source term in the pseudosolid equation, in the CHNS-ALE model
-    // FIXME: use more explicit names, when the formulation has been decided
-    double alpha;
-    double beta;
+    // Mesh forcing parameters control the source term in the pseudosolid
+    // equation of CHNS-ALE. Explicit names now distinguish the two factors.
+    // Moving-mesh forcing of the pseudosolid equation (CHNS-ALE model). The
+    // built-in source is the Cahn-Hilliard compression form ("chns form").
+    // The custom selector is reserved; free elasticity sources are separate.
+    enum class MeshForcingSourceTerm
+    {
+      off,
+      chns_form,
+      custom
+    } mff_source_term;
+
+    // Compression factor multiplying the phi-based forcing factor(phi)*grad
+    // phi.
+    double mff_physics_compression_factor;
+    // Transport factor (full CHNS solver only; unused by the presolver).
+    double mff_transport_factor;
+    // Regularization gamma inside the saturated compression factor.
+    double mff_regularization_gamma;
+
+    // If true, an elasticity presolver is run first to pre-position the mesh,
+    // and its mesh position is injected as the initial mesh of the CHNS solver.
+    bool use_presolver;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
   };
 
-  struct LinearElasticity
+  struct Elasticity
   {
+    // Write the final deformed mesh while preserving the input Gmsh entities.
+    bool write_final_msh;
+
     // If true, then the provided position source term is to be evaluated on
     // the current mesh, and not on the reference mesh where the elasticity
     // equation is solved (that is, we evaluate f(x(X)) instead of f(X).
@@ -828,8 +849,31 @@ namespace Parameters
     // is applied on the current configuration.
     unsigned int n_continuation_steps;
 
+    // Cahn-Hilliard presolver: the compression forcing is ramped from
+    // (initial multiplier) up to its physical value (1) over the given number
+    // of continuation steps.
+    double       presolver_initial_compression_multiplier;
+    unsigned int presolver_continuation_steps;
+
+    // Disk cache of the presolved mesh position. The cached field is keyed by
+    // support-point location, so it can be reloaded with a different number of
+    // MPI processes. 'reuse' loads a valid cache and writes one otherwise;
+    // 'force_recompute' always re-solves and refreshes the cache; 'off' (the
+    // default) disables caching entirely.
+    enum class PresolvedMeshPositionMode
+    {
+      off,
+      reuse,
+      force_recompute
+    } presolved_mesh_position_mode;
+    std::string presolved_mesh_position_file;
+    // Canonical input for functions/constants and boundary conditions used by
+    // the presolver. Runtime coefficients and mesh geometry are added on use.
+    std::string presolved_mesh_input_parameters;
+
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
+    void capture_presolved_mesh_inputs(const ParameterHandler &prm);
   };
 
   struct CheckpointRestart

@@ -27,15 +27,16 @@ subsection Nonlinear solver
   set tolerance            = 1e-10
   set divergence_tolerance = 1e+4
   set max_iterations       = 20
-  set enable_line_search   = true
+  set enable_line_search   = false
   set analytic_jacobian    = true
 end
 
 subsection Linear solver
-  subsection linear elasticity
+  subsection elasticity
     set verbosity      = quiet
-    set method         = direct_mumps
-    set reuse          = true
+    set method         = cg
+    set tolerance      = 1e-12
+    set max iterations = 1000
   end
 end
 
@@ -46,13 +47,11 @@ end
 subsection Physical properties
   set number of pseudosolids = 1
   subsection Pseudosolid 0
-    set constitutive model = ogden
-
     subsection lame lambda
-      set Function expression = 1 + 0.2 * sin(pi*x) * cos(pi*y) * cos(pi*z)
+      set Function expression = 1
     end
     subsection lame mu
-      set Function expression = 1 + 0.2 * sin(pi*x) * sin(pi*y) * sin(pi*z)
+      set Function expression = 1
     end
   end
 end
@@ -91,7 +90,7 @@ subsection Pseudosolid boundary conditions
   end
 end
 
-subsection Linear elasticity
+subsection Elasticity
   subsection current mesh source term
     set enable = false
   end
@@ -99,8 +98,7 @@ end
 
 subsection Exact solution
   subsection exact mesh displacement
-    set Function constants  = c = 0.1
-    set Function expression = x + c * sin(pi*x)*cos(pi*y)*cos(pi*z); y + c * cos(pi*x)*sin(pi*y)*sin(pi*z); z + c * sin(pi*x)*sin(pi*y)*cos(pi*z)
+    set Function expression = x + sin(pi*x)*cos(pi*y)*cos(pi*z); y + cos(pi*x)*sin(pi*y)*sin(pi*z); z + sin(pi*x)*sin(pi*y)*cos(pi*z)
   end
 end
 

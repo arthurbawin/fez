@@ -124,6 +124,9 @@ namespace ManufacturedSolutions
     gradient(const Point<dim>  &p,
              const unsigned int component = 0) const override
     {
+      if (use_fd_derivatives[component])
+        return fd_gradient(p, component);
+
       Tensor<1, dim> grad;
       for (unsigned int d = 0; d < dim; ++d)
         grad[d] = grad_function_object[component]->value(p, d);
@@ -134,6 +137,9 @@ namespace ManufacturedSolutions
     hessian(const Point<dim>  &p,
             const unsigned int component = 0) const override
     {
+      if (use_fd_derivatives[component])
+        return fd_hessian(p, component);
+
       SymmetricTensor<2, dim> hess;
       for (unsigned int di = 0; di < dim; ++di)
         for (unsigned int dj = di; dj < dim; ++dj)
@@ -164,6 +170,68 @@ namespace ManufacturedSolutions
 
   private:
     /**
+     * Centered finite-difference fallback for the gradient and hessian, used
+     * for expressions SymEngine cannot differentiate symbolically (e.g.
+     * piecewise if(...) expressions). Values remain exact (muParser); the
+     * derivatives are approximate away from the non-smooth locus and
+     * meaningless exactly on it.
+     */
+    Tensor<1, dim> fd_gradient(const Point<dim>  &p,
+                               const unsigned int component) const
+    {
+      Tensor<1, dim> grad;
+      for (unsigned int d = 0; d < dim; ++d)
+      {
+        const double h  = 1e-8 * (1. + std::abs(p[d]));
+        Point<dim>   pp = p, pm = p;
+        pp[d] += h;
+        pm[d] -= h;
+        grad[d] = (function_object.value(pp, component) -
+                   function_object.value(pm, component)) /
+                  (2. * h);
+      }
+      return grad;
+    }
+
+    SymmetricTensor<2, dim> fd_hessian(const Point<dim>  &p,
+                                       const unsigned int component) const
+    {
+      SymmetricTensor<2, dim> hess;
+      const double            f0 = function_object.value(p, component);
+      for (unsigned int di = 0; di < dim; ++di)
+      {
+        const double hi = 1e-4 * (1. + std::abs(p[di]));
+        {
+          Point<dim> pp = p, pm = p;
+          pp[di] += hi;
+          pm[di] -= hi;
+          hess[di][di] = (function_object.value(pp, component) - 2. * f0 +
+                          function_object.value(pm, component)) /
+                         (hi * hi);
+        }
+        for (unsigned int dj = di + 1; dj < dim; ++dj)
+        {
+          const double hj  = 1e-4 * (1. + std::abs(p[dj]));
+          Point<dim>   ppp = p, ppm = p, pmp = p, pmm = p;
+          ppp[di] += hi;
+          ppp[dj] += hj;
+          ppm[di] += hi;
+          ppm[dj] -= hj;
+          pmp[di] -= hi;
+          pmp[dj] += hj;
+          pmm[di] -= hi;
+          pmm[dj] -= hj;
+          hess[di][dj] = (function_object.value(ppp, component) -
+                          function_object.value(ppm, component) -
+                          function_object.value(pmp, component) +
+                          function_object.value(pmm, component)) /
+                         (4. * hi * hj);
+        }
+      }
+      return hess;
+    }
+
+    /**
      * Initialize the function objects from the expression, variables and
      * constants, and create the symbolic derivatives.
      */
@@ -187,6 +255,10 @@ namespace ManufacturedSolutions
     std::vector<std::shared_ptr<FunctionParser<dim>>> grad_function_object;
     std::vector<std::shared_ptr<FunctionParser<dim>>> hess_function_object;
     std::vector<bool>                                 function_of_time_only;
+    // Per component: true when SymEngine could not differentiate the parsed
+    // expression (e.g. piecewise if(...)); gradient/hessian then fall back to
+    // finite differences of the muParser values.
+    std::vector<bool> use_fd_derivatives;
 
     /**
      * The expressions parsed from the parameter file for this function.

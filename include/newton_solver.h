@@ -8,6 +8,9 @@
 #include <nonlinear_solver.h>
 #include <time_handler.h>
 
+#include <cmath>
+#include <limits>
+
 /**
  * Generic Newton nonlinear solver.
  */
@@ -34,7 +37,7 @@ public:
     unsigned int iter           = 0;
     // double       norm_increment = 0;
     double norm_residual = 0;
-    double last_residual;
+    double last_residual = 0.;
     bool   recompute_rhs = true;
     bool   assemble      = false;
 
@@ -54,7 +57,9 @@ public:
       time_handler.is_starting_step() ||
       time_handler.last_step_was_starting_step();
 
-    solver->evaluation_point = present_solution;
+    time_handler.set_last_nonlinear_solve_status(false);
+    solver->evaluation_point       = present_solution;
+    solver->local_evaluation_point = present_solution;
 
     while (!stop)
     {
@@ -76,6 +81,15 @@ public:
           << norm_residual
           // Print (M) if the matrix was assembled to obtain this residual norm
           << (assemble ? "\t(M)" : "") << std::endl;
+      }
+
+      // A non-finite residual at the current iterate cannot define a Newton
+      // step.
+      if (!std::isfinite(norm_residual))
+      {
+        solver->evaluation_point       = present_solution;
+        solver->local_evaluation_point = present_solution;
+        break;
       }
 
       // Abort if residual is too high
@@ -114,11 +128,14 @@ public:
       if (this->param.enable_line_search)
       {
         double norm_ls_residual;
-        double last_ls_residual = last_residual;
-        last_residual           = norm_residual;
-        unsigned int ls_iter    = 0;
+        double last_ls_residual      = last_residual;
+        last_residual                = norm_residual;
+        double previous_finite_alpha = 0.;
+        double best_ls_residual      = std::numeric_limits<double>::infinity();
+        double best_alpha            = 0.;
+        bool   accepted_step         = false;
 
-        for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
+        for (double alpha = 1.; alpha > 0.1; alpha /= 2.)
         {
           // Compute NL(u + alpha * du) and check if residual decreases
           solver->local_evaluation_point = present_solution;
@@ -134,6 +151,17 @@ public:
                           << std::setprecision(3) << alpha << std::scientific
                           << std::setprecision(8)
                           << " : res = " << norm_ls_residual << std::endl;
+          }
+
+          // An invalid trial can recover at a smaller alpha. In particular,
+          // never compare two infinite residuals in the acceptance condition.
+          if (!std::isfinite(norm_ls_residual))
+            continue;
+
+          if (norm_ls_residual <= best_ls_residual)
+          {
+            best_ls_residual = norm_ls_residual;
+            best_alpha       = alpha;
           }
 
           // Exit if next residual is below tolerance
@@ -158,29 +186,54 @@ public:
             recompute_rhs = false;
             // last_residual = norm_ls_residual;
             norm_residual = norm_ls_residual;
+            accepted_step = true;
             break;
           }
 
           // If residual increased, backtrack and exit
-          // Do not reject first iteration
-          if (norm_ls_residual > last_ls_residual && ls_iter > 0)
+          // Do not reject the first finite iteration
+          if (norm_ls_residual > last_ls_residual && previous_finite_alpha > 0.)
           {
             if (verbose)
               solver->pcout << "\tRejecting last step and backtracking"
                             << std::endl;
             // RHS will need to be recomputed for backtracked solution
-            recompute_rhs = true;
-            alpha *= 2.;
+            recompute_rhs                  = true;
+            alpha                          = previous_finite_alpha;
             solver->local_evaluation_point = present_solution;
             solver->local_evaluation_point.add(alpha, solver->newton_update);
             solver->distribute_nonzero_constraints();
             solver->evaluation_point = solver->local_evaluation_point;
+            accepted_step            = true;
             break;
           }
 
           // Residual decreased, but not enough to accept step or finish Newton
           // solve. Continue with smaller alpha.
-          last_ls_residual = norm_ls_residual;
+          last_ls_residual      = norm_ls_residual;
+          previous_finite_alpha = alpha;
+        }
+
+        // Keep the best finite trial if no step was accepted. If every trial
+        // failed, restore the current iterate and report non-convergence.
+        if (!stop && !accepted_step)
+        {
+          solver->local_evaluation_point = present_solution;
+          if (best_alpha > 0.)
+          {
+            solver->local_evaluation_point.add(best_alpha,
+                                               solver->newton_update);
+            solver->distribute_nonzero_constraints();
+            recompute_rhs = true;
+          }
+          else
+          {
+            if (verbose)
+              solver->pcout << "\tLine search failed: all residuals non-finite"
+                            << std::endl;
+            stop = true;
+          }
+          solver->evaluation_point = solver->local_evaluation_point;
         }
 
         if (!stop)
@@ -204,12 +257,10 @@ public:
     // Update present solution
     present_solution = solver->evaluation_point;
 
-    if (iter > this->param.max_iterations &&
-        norm_residual > this->param.tolerance)
-      if (throw_on_failure)
-        throw std::runtime_error("Nonlinear solver did not converge");
-
     time_handler.set_last_nonlinear_solve_status(solution_found);
+
+    if (!solution_found && throw_on_failure)
+      throw std::runtime_error("Nonlinear solver did not converge");
   }
 
 private:

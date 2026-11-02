@@ -106,11 +106,11 @@ void ParameterReader<dim>::check_parameters() const
                   "boundary condition is set to \"coupled_to_fluid\"."));
   }
 
-  // Linear elasticity
+  // Elasticity
   AssertThrow(
-    !(linear_elasticity.enable_source_term_on_current_mesh && mms_param.enable),
+    !(elasticity.enable_source_term_on_current_mesh && mms_param.enable),
     ExcMessage(
-      "The parameter file specifies that the linear elasticity solver should "
+      "The parameter file specifies that the elasticity solver should "
       "evaluate the given source term on the current mesh (not the reference "
       "mesh), but a convergence study with a manufactured solution should also "
       "be run. This is not compatible, as the source term for the linear "

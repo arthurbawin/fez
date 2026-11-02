@@ -7,10 +7,51 @@
 #include <parameters.h>
 #include <scratch_data.h>
 
+#include <algorithm>
+#include <cmath>
+
+template <int dim>
+class ScratchDataElasticity;
+
 namespace Assembly
 {
   namespace Elasticity
   {
+    /**
+     * Regularized compression coefficient of the Cahn-Hilliard moving-mesh
+     * forcing. The raw coefficient phi / (1 - gamma^2 phi^2) is singular as
+     * gamma*phi -> 1, so phi is saturated through a tanh before being used.
+     * Both the value and its derivative w.r.t. the phase are returned (the
+     * derivative is used to linearize the forcing).
+     */
+    struct MeshForcingFactor
+    {
+      double value;
+      double derivative;
+    };
+
+    inline MeshForcingFactor mesh_forcing_factor(const double phase_value,
+                                                 const double gamma)
+    {
+      constexpr double phi_max_user = 0.998;
+      const double     phi_max_safe =
+        std::min(phi_max_user, 0.98 / std::max(gamma, 1e-14));
+
+      const double z                    = phase_value / phi_max_safe;
+      const double tanh_z               = std::tanh(z);
+      const double regularized_phase    = phi_max_safe * tanh_z;
+      const double regularized_jacobian = 1. - tanh_z * tanh_z;
+      const double denominator =
+        1. - gamma * gamma * regularized_phase * regularized_phase;
+      const double support            = 1. / denominator;
+      const double support_derivative = 2. * gamma * gamma * regularized_phase *
+                                        regularized_jacobian /
+                                        (denominator * denominator);
+
+      return {phase_value * support,
+              support + phase_value * support_derivative};
+    }
+
     /**
      * Create the volume and relevant boundary assemblers, and store them as
      * unique pointers in @p assemblers.
@@ -149,10 +190,14 @@ namespace Assembly
 
     /**
      * Elasticity source term depending on the Cahn-Hilliard Navier-Stokes phase
-     * marker (tracer) and velocity.
+     * marker and velocity: compression * epsilon * factor(phi) * grad(phi)
+     * minus transport * epsilon^2 * (u_ALE . grad(phi)) * grad(phi).
+     * A positive compression factor concentrates the mesh near the interface.
      *
-     * Note: this is only instantiated for the CHNS scratch data with moving
-     * mesh.
+     * The elasticity presolver uses an analytic phase and its Hessian. The
+     * moving CHNS solver uses the discrete phase and differentiates its
+     * gradient with respect to the mesh position, phase and velocity.
+     * Instantiated for elasticity and CHNS scratch data with a moving mesh.
      */
     template <int dim, typename ScratchData, typename CopyData>
     class SourceFromCHNSTracerAssembler
@@ -221,18 +266,27 @@ namespace Assembly
           DEAL_II_ASSERT_UNREACHABLE();
       }
 
-      if (param.linear_elasticity.enable_source_term_on_current_mesh)
+      // Custom (user-defined) source term on the current mesh.
+      if (param.elasticity.enable_source_term_on_current_mesh)
         assemblers.emplace_back(
           std::make_unique<
             CurrentMeshSourceAssembler<dim, ScratchData, CopyData>>(param,
                                                                     ordering));
 
-      if constexpr (std::is_same_v<
+      // Cahn-Hilliard moving-mesh forcing ("chns form" path): function mode for
+      // the elasticity presolver (analytic phi) and field mode for the full
+      // CHNS-ALE solver (FE phi). Both share this assembler.
+      const bool with_chns_form_forcing =
+        param.cahn_hilliard.mff_source_term ==
+        Parameters::CahnHilliard<dim>::MeshForcingSourceTerm::chns_form;
+
+      if constexpr (std::is_same_v<ScratchData, ScratchDataElasticity<dim>> ||
+                    std::is_same_v<
                       ScratchData,
                       NavierStokesScratch::ScratchDataCHNS<dim, true>>)
       {
-        // FIXME: add an "enable" flag to assemble this only when needed
-        if (false)
+        // Assemble this term only when its enable flag is set.
+        if (with_chns_form_forcing)
           assemblers.emplace_back(
             std::make_unique<
               SourceFromCHNSTracerAssembler<dim, ScratchData, CopyData>>(

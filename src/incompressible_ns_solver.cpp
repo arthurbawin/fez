@@ -9,7 +9,6 @@
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
-#include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
@@ -182,7 +181,6 @@ void NSSolver<dim>::create_sparsity_pattern()
       }
   }
 
-#if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
   DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   coupling_table,
@@ -197,17 +195,6 @@ void NSSolver<dim>::create_sparsity_pattern()
                              this->locally_owned_dofs,
                              dsp,
                              this->mpi_communicator);
-#else
-  TrilinosWrappers::SparsityPattern dsp(this->locally_owned_dofs,
-                                        this->locally_owned_dofs,
-                                        this->locally_relevant_dofs,
-                                        this->mpi_communicator);
-  DoFTools::make_sparsity_pattern(*this->dof_handler,
-                                  dsp,
-                                  this->nonzero_constraints);
-  dsp.compress();
-  this->system_matrix.reinit(dsp);
-#endif
 }
 
 template <int dim>

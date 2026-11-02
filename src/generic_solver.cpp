@@ -173,7 +173,9 @@ void GenericSolver<VectorType>::run_convergence_loop()
       {
         handler.compute_temporal_error();
 
-        // Print the errors at all timesteps if required
+        // Print the errors at all timesteps if required, from root process only
+        if (mpi_rank != 0)
+          continue;
         if (mms_param.print_unsteady_errors_to_console)
           handler.write_errors();
         if (mms_param.print_unsteady_errors_to_file)

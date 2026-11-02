@@ -149,6 +149,12 @@ namespace Assembly
 
       using namespace BoundaryConditions;
 
+      // There is no traction boundary assembler for the CHNS equations for now
+      AssertThrow(!has_boundary_condition(param.fluid_bc, Type::open_mms),
+                  ExcMessage(
+                    "The open_mms boundary condition is not implemented for "
+                    "the Cahn-Hilliard Navier-Stokes solver."));
+
       const bool supg        = param.stabilization.enable_supg;
       const bool tracer_supg = param.stabilization.enable_tracer_supg;
       constexpr unsigned int moving_mesh_flag =

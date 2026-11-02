@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-02
+ 
+### Added
+Added an AMG preconditioner for the GMRES solves of the incompressible NS solver, using hypre's BoomerAMG through PETSc, with an ILU smoother. For P1-P1 and Q1-Q1 elements, the block size of the system matrix is set to the number of components, and BoomerAMG coarsens nodes rather than individual dofs. Requires PETSc 3.22 or higher, configured with hypre. [#82](https://github.com/arthurbawin/fez/pull/82)
+
+Added a preconditioner rebuild heuristic for the incompressible NS solver [#82](https://github.com/arthurbawin/fez/pull/82):
+ - Steady problems rebuild the preconditioner at each linear solve.
+ - Unsteady problems reuse it across Newton iterations and time steps, and rebuild it after a mesh or dof change, a change of the leading BDF coefficient (time step or BDF order), a non-converged GMRES solve, or when the GMRES iterations exceed both 1.5 times, and 5 more than, those of the first solve with the current preconditioner.
+ - If GMRES does not converge with a reused preconditioner, the preconditioner is rebuilt and the system is solved again once.
+ - The Newton solver output now prints "(P)" next to the residual when the preconditioner was rebuilt.
+
+Added the following parameters to the "Linear solver" subsection: "preconditioner" (none, ilu, block_jacobi or amg), "absolute tolerance", "relative tolerance", "max krylov vectors" (GMRES restart length) and "right preconditioning" (right or left preconditioning for GMRES). [#82](https://github.com/arthurbawin/fez/pull/82)
+
+### Changed
+Reworked the linear solvers into the `LinearSolvers` namespace [#82](https://github.com/arthurbawin/fez/pull/82):
+ - The "tolerance" parameter is replaced by "absolute tolerance" and "relative tolerance": iterative solvers stop when the residual norm is below the absolute tolerance, or below the relative tolerance times the initial residual norm.
+ - The preconditioner is now chosen with the "preconditioner" parameter, which defaults to none. Previously, GMRES always used ILU and CG always used block Jacobi.
+ - `solve_gmres` is templated on the preconditioner type, and returns the number of iterations and whether GMRES converged. A non-converged GMRES solve now prints a warning and its last iterate is used as an inexact Newton update, instead of throwing.
+ - The Navier-Stokes base class delegates iterative solves to the derived solvers, which choose the suitable solvers and preconditioners. The incompressible NS solver supports GMRES; the heat and linear elasticity solvers support MUMPS and CG.
+
+Renamed the tests whose output depends on optional deal.II features to state them explicitly (e.g. `with_p4est=true`, `with_lapack=true`, PETSc version and hypre), and moved the tree-based adaptation tests to the directories of their physics. [#82](https://github.com/arthurbawin/fez/pull/82)
+
 ## [0.0.0] 2026-10-29
  
 ### Changed
@@ -12,7 +34,22 @@ Modified the lgpi mesh preset to be more axis aligned. [#102](https://github.com
 ## [0.0.0] 2026-10-22
  
 ### Added
-Added the "lgpi" deal.II preset mesh (2D only) for the large gas pocket impact benchmark: a rectangular box minus a quarter ellipse in the bottom left corner.
+Added the "lgpi" deal.II preset mesh (2D only) for the large gas pocket impact benchmark: a rectangular box minus a quarter ellipse in the bottom left corner. [#99](https://github.com/arthurbawin/fez/pull/99)
+
+### Fixed
+Fixed bugs found while reviewing the solvers, assemblers and mesh adaptation tools [#100](https://github.com/arthurbawin/fez/pull/100):
+ - Linear elasticity: the ScratchData `components` vector was sized with the number of quadrature points instead of the number of dofs per cell, causing out-of-bounds writes.
+ - NS with Lagrange multiplier: the time error estimator was never attached (crash with adaptive time stepping), and the hp line identities loops now skip artificial cells.
+ - Monolithic FSI: owned boundary dofs only seen as boundary dofs by other ranks (3D) were missed when exchanging boundary dofs; the Lagrange multiplier error now uses the kinematic viscosity, consistent with the solved equations; fixed an MPI operator leak and made the rigid-body displacement check two-sided and across ranks; rigid-body rotation now throws at setup for unsupported coupling schemes.
+ - CHNS: the MMS source term now uses the solver's parameters (consistent interface thickness during fixed-point updates) and the same tracer limiter as the ScratchData; an `open_mms` boundary condition now throws instead of being silently ignored.
+ - Heat: the initial condition is now interpolated on the final mesh after initial (pre-)refinement, and constraints are applied to the exact solution.
+ - Transient fixed point: previous solutions interpolated from the exact solution at the start of a subinterval were shifted by one time step; min/max refinement levels are now enforced on all levels for tree-based adaptation; space-time complexity and mesh counts are now accumulated as 64-bit integers.
+ - Metric fields: ghost metrics are synchronized before the non-deterministic gradation, and after the deterministic one.
+ - Function objects (source terms, exact solutions) now update their own time in `set_time()`, and component lookups in `MMSSolution` use the component ordering.
+ - Per-time-step MMS errors and the Lagrange multiplier dof counts are now written from the root process only, and the parallel metric gradation only prints its progress when verbose.
+
+### Changed
+Removed the currently unsupported Trilinos code paths from the incompressible NS, CHNS, heat and compressible NS solvers. Added FIXME comments for known issues not addressed yet (compressible NS weak-pressure Jacobian and forced source term, moving-mesh solution transfer between time subintervals). [#100](https://github.com/arthurbawin/fez/pull/100)
 
 ## [0.0.0] 2026-06-04
  

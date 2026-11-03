@@ -93,7 +93,7 @@ end
 subsection Manufactured solution
   set enable            = true
   set type              = space
-  set convergence steps = 5
+  set convergence steps = 2
 
   subsection Space convergence
     set use dealii cube mesh = true

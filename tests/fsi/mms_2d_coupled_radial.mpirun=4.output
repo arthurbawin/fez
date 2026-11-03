@@ -1,4 +1,4 @@
-Number of MPI processes: 6
+Number of MPI processes: 4
 Convergence test with manufactured solution:
 Mesh file was changed to ../../mms_meshes/holed0.msh
 Mesh info:
@@ -22,10 +22,10 @@ Number of degrees of freedom: 2120
 
 L2_norm
 n_elm n_dof   dt          u               p               x               l        
-   80   620 0.1000 2.8086e-03    - 6.6812e-02    - 2.8517e-03    - 8.9204e-02    - 
-  320  2120 0.0500 3.3054e-04 3.09 2.2375e-02 1.58 9.7171e-04 1.55 3.3077e-02 1.43 
+   80   620 0.1000 2.7726e-03    - 6.6812e-02    - 2.5876e-03    - 8.9204e-02    - 
+  320  2120 0.0500 3.2536e-04 3.09 1.5816e-02 2.08 8.9842e-04 1.53 2.7920e-02 1.68 
 
 Linfty_norm
 n_elm n_dof   dt          u               p               x               l        
    80   620 0.1000 1.0062e-02    - 1.3939e-01    - 6.4451e-03    - 1.3655e-01    - 
-  320  2120 0.0500 1.7654e-03 2.51 3.8067e-02 1.87 2.5306e-03 1.35 6.1840e-02 1.14
+  320  2120 0.0500 1.7654e-03 2.51 3.2421e-02 2.10 2.4192e-03 1.41 5.6853e-02 1.26

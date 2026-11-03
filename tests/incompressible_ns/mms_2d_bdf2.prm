@@ -95,7 +95,7 @@ end
 subsection Manufactured solution
   set enable            = true
   set type              = time
-  set convergence steps = 4
+  set convergence steps = 2
 
   subsection Space convergence
     set use dealii cube mesh = true

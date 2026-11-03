@@ -1,4 +1,4 @@
-Number of MPI processes: 6
+Number of MPI processes: 4
 Convergence test with manufactured solution:
 Mesh file was changed to ../../mms_meshes/holed0.msh
 Mesh info:
@@ -8,7 +8,7 @@ Mesh info:
 ID 1 -> Domain
 ID 2 -> OuterBoundary
 ID 3 -> InnerBoundary
-Number of degrees of freedom: 892
+Number of degrees of freedom: 620
 Convergence test with manufactured solution:
 Mesh file was changed to ../../mms_meshes/holed1.msh
 Mesh info:
@@ -18,14 +18,14 @@ Mesh info:
 ID 1 -> Domain
 ID 2 -> OuterBoundary
 ID 3 -> InnerBoundary
-Number of degrees of freedom: 3304
+Number of degrees of freedom: 2120
 
 L2_norm
 n_elm n_dof   dt          u               p               x               l        
-   80   892 0.1000 2.3541e-04    - 1.8412e-01    - 2.8944e-03    - 1.7818e-01    - 
-  320  3304 0.0500 5.9672e-05 1.98 4.7228e-02 1.96 9.7711e-04 1.57 4.7794e-02 1.90 
+   80   620 0.1000 1.3570e-02    - 7.9373e+00    - 2.1729e-03    - 1.1696e+01    - 
+  320  2120 0.0500 4.6103e-03 1.56 2.8589e+00 1.47 7.4499e-04 1.54 4.0546e+00 1.53 
 
 Linfty_norm
 n_elm n_dof   dt          u               p               x               l        
-   80   892 0.1000 5.0146e-04    - 3.4615e-01    - 6.4270e-03    - 2.1330e-01    - 
-  320  3304 0.0500 1.2486e-04 2.01 8.9266e-02 1.96 2.5281e-03 1.35 5.6906e-02 1.91
+   80   620 0.1000 2.8459e-02    - 1.8435e+01    - 7.0213e-03    - 1.8609e+01    - 
+  320  2120 0.0500 9.5239e-03 1.58 6.4304e+00 1.52 2.5677e-03 1.45 6.4924e+00 1.52

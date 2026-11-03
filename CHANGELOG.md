@@ -17,28 +17,28 @@ Added 2D unsteady anisotropic mesh adaptation tests with the transient fixed-poi
 ## [0.0.0] 2026-11-02
 
 ### Changed
-Reworked the linear solvers into the `LinearSolvers` namespace [#82](https://github.com/arthurbawin/fez/pull/82):
+Reworked the linear solvers into the `LinearSolvers` namespace [#105](https://github.com/arthurbawin/fez/pull/105):
  - The "tolerance" parameter is replaced by "absolute tolerance" and "relative tolerance": iterative solvers stop when the residual norm is below the absolute tolerance, or below the relative tolerance times the initial residual norm.
  - The preconditioner is now chosen with the "preconditioner" parameter, which defaults to none. Previously, GMRES always used ILU and CG always used block Jacobi.
  - `solve_gmres` is templated on the preconditioner type, and returns the number of iterations and whether GMRES converged. A non-converged GMRES solve now prints a warning and its last iterate is used as an inexact Newton update, instead of throwing.
  - The Navier-Stokes base class delegates iterative solves to the derived solvers, which choose the suitable solvers and preconditioners. The incompressible NS solver supports GMRES; the heat and linear elasticity solvers support MUMPS and CG.
 
-Renamed the tests whose output depends on optional deal.II features to state them explicitly (e.g. `with_p4est=true`, `with_lapack=true`, PETSc version and hypre), and moved the tree-based adaptation tests to the directories of their physics. [#82](https://github.com/arthurbawin/fez/pull/82)
+Renamed the tests whose output depends on optional deal.II features to state them explicitly (e.g. `with_p4est=true`, `with_lapack=true`, PETSc version and hypre), and moved the tree-based adaptation tests to the directories of their physics. [#105](https://github.com/arthurbawin/fez/pull/105)
 
 Shortened most tests and enabled caching previously built files with ccache, to speedup CI pipelines. [#106](https://github.com/arthurbawin/fez/pull/106)
 
 Add the possible tests dependencies in their name, as for deal.II tests (e.g., with_pest=true). This groups the tests with their solver, and removes the "tests/tree_based_adaptation" directory. [#107](https://github.com/arthurbawin/fez/pull/107)
  
 ### Added
-Added an AMG preconditioner for the GMRES solves of the incompressible NS solver, using hypre's BoomerAMG through PETSc, with an ILU smoother. For P1-P1 and Q1-Q1 elements, the block size of the system matrix is set to the number of components, and BoomerAMG coarsens nodes rather than individual dofs. Requires PETSc 3.22 or higher, configured with hypre. [#82](https://github.com/arthurbawin/fez/pull/82)
+Added an AMG preconditioner for the GMRES solves of the incompressible NS solver, using hypre's BoomerAMG through PETSc, with an ILU smoother. For P1-P1 and Q1-Q1 elements, the block size of the system matrix is set to the number of components, and BoomerAMG coarsens nodes rather than individual dofs. Requires PETSc 3.22 or higher, configured with hypre. [#105](https://github.com/arthurbawin/fez/pull/105)
 
-Added a preconditioner rebuild heuristic for the incompressible NS solver [#82](https://github.com/arthurbawin/fez/pull/82):
+Added a preconditioner rebuild heuristic for the incompressible NS solver [#105](https://github.com/arthurbawin/fez/pull/105):
  - Steady problems rebuild the preconditioner at each linear solve.
  - Unsteady problems reuse it across Newton iterations and time steps, and rebuild it after a mesh or dof change, a change of the leading BDF coefficient (time step or BDF order), a non-converged GMRES solve, or when the GMRES iterations exceed both 1.5 times, and 5 more than, those of the first solve with the current preconditioner.
  - If GMRES does not converge with a reused preconditioner, the preconditioner is rebuilt and the system is solved again once.
  - The Newton solver output now prints "(P)" next to the residual when the preconditioner was rebuilt.
 
-Added the following parameters to the "Linear solver" subsection: "preconditioner" (none, ilu, block_jacobi or amg), "absolute tolerance", "relative tolerance", "max krylov vectors" (GMRES restart length) and "right preconditioning" (right or left preconditioning for GMRES). [#82](https://github.com/arthurbawin/fez/pull/82)
+Added the following parameters to the "Linear solver" subsection: "preconditioner" (none, ilu, block_jacobi or amg), "absolute tolerance", "relative tolerance", "max krylov vectors" (GMRES restart length) and "right preconditioning" (right or left preconditioning for GMRES). [#105](https://github.com/arthurbawin/fez/pull/105)
 
 ## [0.0.0] 2026-10-29
  

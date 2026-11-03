@@ -2,11 +2,271 @@
 #define CAHN_HILLIARD_H
 
 #include <parameters.h>
+#include <deal.II/base/tensor.h>
+#include <deal.II/lac/vector_type_traits.h>
 
 #include <cmath>
+#include <vector>
 
 namespace CahnHilliard
 {
+  constexpr double profile_correction_tail = 1. - 0.999 * 0.999;
+
+  struct ProfileInverse
+  {
+    double value;
+    double derivative;
+  };
+
+  /** Inverse tanh at phase nodes, with an odd C2 continuation near +/-1.
+   * The continuation has bounded positive slope, so pure phases and nodal
+   * overshoots remain finite without clipping the transported phase.
+   */
+  inline ProfileInverse inverse_profile(const double phi)
+  {
+    const double cutoff = std::sqrt(1. - 0.25 * profile_correction_tail);
+    if (std::abs(phi) <= cutoff)
+      return {std::atanh(phi), 1. / (1. - phi * phi)};
+    const double slope  = 1. / (1. - cutoff * cutoff);
+    const double length = (1. - cutoff * cutoff) / cutoff;
+    const double offset = std::abs(phi) - cutoff;
+    return {std::copysign(std::atanh(cutoff) +
+                            slope *
+                              (3. * offset +
+                               2. * length * std::expm1(-offset / length)),
+                          phi),
+            slope * (3. - 2. * std::exp(-offset / length))};
+  }
+
+  template <int dim>
+  struct ProfileVariation
+  {
+    double                 value;
+    dealii::Tensor<1, dim> gradient;
+    dealii::Tensor<2, dim> hessian;
+  };
+
+  /** The correction uses phi_r=tanh(s_h), where s_h interpolates the inverse
+   * phase values at the nodes. The CH equation and mobility still use phi_h.
+   * Store derivatives of s_h to differentiate the reconstruction without
+   * allocating another set of shape-function tables.
+   */
+  template <int dim>
+  struct ReconstructedProfile
+  {
+    double                 value = 0.;
+    dealii::Tensor<1, dim> inverse_gradient;
+    dealii::Tensor<2, dim> inverse_hessian;
+
+    dealii::Tensor<1, dim> gradient() const
+    {
+      return (1. - value * value) * inverse_gradient;
+    }
+
+    dealii::Tensor<2, dim> hessian() const
+    {
+      return (1. - value * value) *
+             (inverse_hessian -
+              2. * value * outer_product(inverse_gradient, inverse_gradient));
+    }
+
+    ProfileVariation<dim> variation(const double                  ds,
+                                    const dealii::Tensor<1, dim> &dg,
+                                    const dealii::Tensor<2, dim> &dh,
+                                    const bool with_hessian) const
+    {
+      const double          first  = 1. - value * value;
+      const double          second = -2. * value * first;
+      ProfileVariation<dim> result{first * ds,
+                                   first * dg + second * ds * inverse_gradient,
+                                   {}};
+      if (with_hessian)
+      {
+        const double third = -2. * (1. - 3. * value * value) * first;
+        result.hessian =
+          first * dh + second * ds * inverse_hessian +
+          third * ds * outer_product(inverse_gradient, inverse_gradient) +
+          second * (outer_product(dg, inverse_gradient) +
+                    outer_product(inverse_gradient, dg));
+      }
+      return result;
+    }
+  };
+
+  /** Read raw constrained phase coefficients from the current ghosted state. */
+  template <int dim, typename CellIterator, typename VectorType>
+  std::vector<ProfileInverse>
+  profile_inverse_values(const CellIterator &cell,
+                         const VectorType   &solution,
+                         const unsigned int  phase_component)
+  {
+    const auto &fe = cell->get_fe();
+    std::vector<dealii::types::global_dof_index> indices(fe.n_dofs_per_cell());
+    cell->get_dof_indices(indices);
+    std::vector<ProfileInverse> nodal(indices.size());
+    for (unsigned int j = 0; j < indices.size(); ++j)
+      if (fe.system_to_component_index(j).first == phase_component)
+      {
+        if constexpr (!dealii::is_serial_vector<VectorType>::value)
+        {
+          AssertThrow(solution.in_local_range(indices[j]) ||
+                        solution.has_ghost_elements(),
+                      dealii::ExcMessage("Profile reconstruction requires "
+                                         "locally relevant ghost values."));
+#if defined(FEZ_WITH_PETSC)
+          AssertThrow(solution.in_local_range(indices[j]) ||
+                        solution.ghost_elements().is_element(indices[j]),
+                      dealii::ExcMessage("Missing phase ghost value in "
+                                         "profile reconstruction."));
+#endif
+        }
+        nodal[j] = inverse_profile(solution[indices[j]]);
+      }
+    return nodal;
+  }
+
+  /** Shared cell-local reconstruction for assembly and diagnostics. */
+  template <int dim>
+  ReconstructedProfile<dim> reconstruct_profile(
+    const std::vector<ProfileInverse>        &nodal,
+    const std::vector<double>                &shape,
+    const std::vector<dealii::Tensor<1, dim>> &gradients)
+  {
+    AssertDimension(nodal.size(), shape.size());
+    AssertDimension(nodal.size(), gradients.size());
+    ReconstructedProfile<dim> profile;
+    double inverse_value = 0.;
+    for (unsigned int j = 0; j < nodal.size(); ++j)
+    {
+      inverse_value += nodal[j].value * shape[j];
+      profile.inverse_gradient += nodal[j].value * gradients[j];
+    }
+    profile.value = std::tanh(inverse_value);
+    return profile;
+  }
+
+  template <int dim>
+  struct ProfileCorrection
+  {
+    dealii::Tensor<1, dim> flux;
+    double                 divergence = 0.;
+  };
+
+  /** Derivatives of the profile flux and its divergence at one quadrature
+   * point. The global mobility amplitude is held constant during linearization.
+   */
+  template <int dim>
+  struct ProfileCorrectionLinearization
+  {
+    dealii::Tensor<1, dim> flux_phi;
+    dealii::Tensor<2, dim> flux_gradient;
+    double                 divergence_phi = 0.;
+    dealii::Tensor<1, dim> divergence_gradient;
+
+    ProfileCorrection<dim>
+    variation(const double                  dphi,
+              const dealii::Tensor<1, dim> &dgradient,
+              const dealii::Tensor<2, dim> &dhessian) const
+    {
+      return {dphi * flux_phi + flux_gradient * dgradient,
+              divergence_phi * dphi + divergence_gradient * dgradient +
+                scalar_product(flux_gradient, dhessian)};
+    }
+  };
+
+  /**
+   * Regularized profile flux F = a(phi)*(1-c*q/R)*grad(phi), where
+   * q=(1-phi^2)/(sqrt(2)*epsilon), R^2=|grad(phi)|^2+beta^2*q^2 and
+   * c=sqrt(1+beta^2). Thus F vanishes for the equilibrium tanh profile.
+   * The C2 activation a turns the correction off near the pure phases;
+   * beta regularizes the normal where the phase gradient vanishes.
+   * The caller supplies the global mobility amplitude separately.
+   * When requested, compute the derivatives once for all trial functions.
+   */
+  template <int dim>
+  ProfileCorrection<dim> evaluate_profile_correction(
+    const double                         phi,
+    const dealii::Tensor<1, dim>        &gradient,
+    const dealii::Tensor<2, dim>        &hessian,
+    const double                         epsilon,
+    const bool                           compute_divergence = true,
+    ProfileCorrectionLinearization<dim> *linearization      = nullptr)
+  {
+    if (linearization)
+      *linearization = {};
+    constexpr double beta         = 0.05;
+    constexpr double tail         = profile_correction_tail;
+    const double     phase_factor = 1. - phi * phi;
+    if (phase_factor <= 0.25 * tail)
+      return {};
+
+    double a = 1., da = 0., dda = 0.;
+    if (phase_factor < 0.5 * tail)
+    {
+      const double width = 0.25 * tail;
+      const double t     = (phase_factor - width) / width;
+      const double dt    = -2. * phi / width;
+      const double first = 30. * t * t * (t - 1.) * (t - 1.);
+      a                  = t * t * t * (10. + t * (-15. + 6. * t));
+      da                 = first * dt;
+      if (linearization && compute_divergence)
+        dda =
+          60. * t * (2. * t * t - 3. * t + 1.) * dt * dt - 2. * first / width;
+    }
+    const double           q = phase_factor / (std::sqrt(2.) * epsilon);
+    const double           s = gradient.norm_square();
+    const double           R = std::sqrt(s + beta * beta * q * q);
+    const double           c = std::sqrt(1. + beta * beta);
+    const double           b = 1. - c * q / R;
+    const double           f = a * b;
+    ProfileCorrection<dim> result;
+    result.flux = f * gradient;
+    if (!compute_divergence && !linearization)
+      return result;
+
+    // With F = f(phi,s)*grad(phi), s=|grad(phi)|^2, its divergence is
+    // f*tr(H) + f_phi*s + 2*f_s*grad(phi).H.grad(phi).
+    const double dq     = -2. * phi / (std::sqrt(2.) * epsilon);
+    const double inv_R3 = 1. / (R * R * R);
+    const double b_phi  = -c * dq * s * inv_R3;
+    const double b_s    = 0.5 * c * q * inv_R3;
+    const double f_phi  = da * b + a * b_phi;
+    const double f_s    = a * b_s;
+    const auto   Hg     = hessian * gradient;
+    const double gHg    = gradient * Hg;
+    if (compute_divergence)
+      result.divergence = f * trace(hessian) + f_phi * s + 2. * f_s * gHg;
+    if (linearization)
+    {
+      linearization->flux_phi = f_phi * gradient;
+      linearization->flux_gradient =
+        2. * f_s * outer_product(gradient, gradient);
+      for (unsigned int d = 0; d < dim; ++d)
+        linearization->flux_gradient[d][d] += f;
+      if (compute_divergence)
+      {
+        const double ddq    = -2. / (std::sqrt(2.) * epsilon);
+        const double inv_R5 = inv_R3 / (R * R);
+        const double b_pp =
+          -c * s * (ddq * inv_R3 - 3. * beta * beta * q * dq * dq * inv_R5);
+        const double b_ps = -c * dq * (inv_R3 - 1.5 * s * inv_R5);
+        const double b_ss = -0.75 * c * q * inv_R5;
+        const double f_pp = dda * b + 2. * da * b_phi + a * b_pp;
+        const double f_ps = da * b_s + a * b_ps;
+        const double f_ss = a * b_ss;
+        linearization->divergence_phi =
+          f_phi * trace(hessian) + f_pp * s + 2. * f_ps * gHg;
+        linearization->divergence_gradient =
+          (2. * f_s * trace(hessian) + 2. * f_ps * s + 2. * f_phi +
+           4. * f_ss * gHg) *
+            gradient +
+          4. * f_s * Hg;
+      }
+    }
+    return result;
+  }
+
+
   template <int dim>
   inline bool
   is_quasi_incompressible_model(const Parameters::CahnHilliard<dim> &param)
@@ -119,6 +379,41 @@ namespace CahnHilliard
     const Parameters::CahnHilliard<dim> &param)
   {
     return 3. / (2. * std::sqrt(2.)) * param.surface_tension;
+  }
+
+  /** Constant amplitude: no quadrature maximum or state-dependent scaling. */
+  template <int dim>
+  inline double
+  profile_correction_amplitude(const Parameters::CahnHilliard<dim> &param)
+  {
+    if (!param.enable_profile_correction)
+      return 0.;
+    AssertThrow(is_quasi_incompressible_model(param),
+                dealii::ExcMessage("Profile correction is only implemented for "
+                                   "CHNS model = quasi_incompressible."));
+    AssertThrow(!param.enable_density_mobility_compensation,
+                dealii::ExcMessage("Profile correction is not implemented with "
+                                   "density mobility compensation."));
+    AssertThrow(param.epsilon_interface > 0. && param.surface_tension > 0.,
+                dealii::ExcMessage("Profile correction requires positive "
+                                   "interface thickness and surface tension."));
+    using Model = typename Parameters::CahnHilliard<dim>::MobilityModel;
+    double reference = param.mobility;
+    if (param.mobility_model == Model::degenerate_absolute)
+      reference = param.degenerate_absolute_mobility_prefactor *
+                  param.epsilon_interface * param.epsilon_interface;
+    else if (param.mobility_model == Model::degenerate)
+    {
+      reference = param.profile_correction_reference_mobility;
+      AssertThrow(reference > 0.,
+                  dealii::ExcMessage("Profile correction with mobility model = "
+                                     "degenerate requires a positive profile "
+                                     "correction reference mobility."));
+    }
+    // Both constant and degenerate_quadratic use the mobility prefactor.
+    return 2. * param.profile_correction_strength *
+           (sigma_tilde_from_surface_tension(param) / param.epsilon_interface) *
+           reference;
   }
 
   template <int dim>

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-03
+
+### Changed
+Round metric tensors to 6 significant digits, to help get deterministic tests for anisotropic mesh adaptation. [#83](https://github.com/arthurbawin/fez/pull/83)
+
+### Added
+Added 2D unsteady anisotropic mesh adaptation tests with the transient fixed-point method, for an MMS with the heat solver, and a rising bubble with the CHNS solver. [#83](https://github.com/arthurbawin/fez/pull/83) 
+
 ## [0.0.0] 2026-11-02
 
 ### Changed

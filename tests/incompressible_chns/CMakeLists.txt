@@ -60,6 +60,16 @@ if(Python3_Interpreter_FOUND)
     PROPERTIES TIMEOUT 600 PROCESSORS 1
       FIXTURES_REQUIRED "test_dependency/incompressible_chns.executable")
   add_test(
+    NAME incompressible_chns/quasi_profile_correction
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/validate_quasi_profile_correction.py
+      --solver $<TARGET_FILE:incompressible_chns>
+      --workdir ${CMAKE_CURRENT_BINARY_DIR}/quasi_profile_correction
+      --suite core)
+  set_tests_properties(incompressible_chns/quasi_profile_correction
+    PROPERTIES TIMEOUT 1800 PROCESSORS 1
+      FIXTURES_REQUIRED "test_dependency/incompressible_chns.executable")
+  add_test(
     NAME incompressible_chns/quasi_incompressible_physics
     COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/validate_quasi_incompressible.py

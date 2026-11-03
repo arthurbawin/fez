@@ -1,0 +1,18 @@
+Number of MPI processes: 2
+Number of degrees of freedom: 108
+Number of degrees of freedom: 500
+
+L2_norm
+n_elm n_dof   dt          u               p         
+   48   108 0.1000 2.8733e-01    - 2.4442e+01     - 
+  384   500 0.0500 1.0136e-01 1.50 3.0851e+01 -0.34 
+
+Linfty_norm
+n_elm n_dof   dt          u               p         
+   48   108 0.1000 4.8918e-01    - 5.3669e+01     - 
+  384   500 0.0500 2.1894e-01 1.16 6.5379e+01 -0.28 
+
+H1_seminorm
+n_elm n_dof   dt          u               p         
+   48   108 0.1000 2.3894e+00    - 4.9533e+01     - 
+  384   500 0.0500 1.3868e+00 0.78 6.0563e+01 -0.29

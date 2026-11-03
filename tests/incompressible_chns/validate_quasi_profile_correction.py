@@ -231,6 +231,9 @@ def core_suite(solver, workdir, fixtures):
 def mms_suite(solver, workdir, fixtures):
     base = (fixtures / "mms_quasi_incompressible_2d.prm").read_text()
     base = replace_parameter(base, "convergence steps", "3")
+    # The eight-triangle mesh is pre-asymptotic for velocity at lambda=2.5.
+    base = replace_parameter(base, "dealii mesh parameters",
+                             "4, 4 : 0., 0. : 1., 1. : true")
     base = replace_parameter(base, "dt", "0.005")
     base = replace_parameter(base, "t_end", "0.01")
     base = replace_parameter(base, "compare jacobian matrix with finite differences", "false")

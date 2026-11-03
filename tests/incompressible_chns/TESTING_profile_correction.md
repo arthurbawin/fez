@@ -113,6 +113,9 @@ python3 tests/incompressible_chns/validate_quasi_profile_correction.py \
 
 This runs three spatial refinements at `lambda = 0.6` and `lambda = 2.5`, using
 the existing two-dimensional manufactured fixture and convergence helper.
+The generated cases start with a 4-by-4 rectangular subdivision, giving
+32, 128 and 512 triangles. The original eight-triangle mesh is pre-asymptotic
+for velocity at `lambda = 2.5`; the convergence thresholds are unchanged.
 Time dependence is removed from the manufactured fields to isolate spatial
 error. The phase orders must exceed 1.5. Velocity, pressure, and potential must
 have an order above 1 on the first pair and above 1.5 on the second pair.

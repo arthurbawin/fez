@@ -23,12 +23,12 @@ namespace PostProcessingTools
     {
       // Pack both phases with the domain integrals for one collective sum.
       std::array<double,
-                 CHNSIntegralData::IntegralCount +
+                 CHNSIntegralData::ProfileCorrectionWork +
                    2 * CHNSEnergyComponents::ComponentCount>
                    integrals{};
       unsigned int index = 0;
-      for (const double value : data.sums)
-        integrals[index++] = value;
+      for (unsigned int k = 0; k < CHNSIntegralData::ProfileCorrectionWork; ++k)
+        integrals[index++] = data.sums[k];
       for (const auto &phase : data.phase_energy)
         for (const double value : phase.values)
           integrals[index++] = value;
@@ -37,8 +37,8 @@ namespace PostProcessingTools
         communicator,
         ArrayView<double>(integrals.data(), integrals.size()));
       index = 0;
-      for (auto &value : data.sums)
-        value = integrals[index++];
+      for (unsigned int k = 0; k < CHNSIntegralData::ProfileCorrectionWork; ++k)
+        data.sums[k] = integrals[index++];
       for (auto &phase : data.phase_energy)
         for (auto &value : phase.values)
           value = integrals[index++];
@@ -152,6 +152,11 @@ namespace PostProcessingTools
     const std::vector<double> coefficients =
       initial ? std::vector<double>{0., 0.} :
                 time_handler.get_bdf_coefficients();
+    const bool profile_correction =
+      ch.enable_profile_correction &&
+      CahnHilliard::is_quasi_incompressible_model(ch);
+    const double profile_amplitude =
+      profile_correction ? CahnHilliard::profile_correction_amplitude(ch) : 0.;
     const bool         bdf2 = coefficients.size() == 3 && coefficients[2] != 0.;
     FEValues<dim>      fv(mapping,
                      dof_handler.get_fe(),
@@ -164,6 +169,11 @@ namespace PostProcessingTools
       old_grad_phi(nq), older_grad_phi(nq), grad_mu(nq), grad_p(nq);
     std::vector<Tensor<2, dim>>      grad_v(nq);
     const FEValuesExtractors::Scalar pressure(ordering.p_lower);
+    const unsigned int profile_dofs =
+      profile_correction ? dof_handler.get_fe().n_dofs_per_cell() : 0;
+    std::vector<CahnHilliard::ProfileInverse> profile_nodal_inverse;
+    std::vector<double>                      profile_shape(profile_dofs);
+    std::vector<Tensor<1, dim>> profile_gradient(profile_dofs);
     CHNSIntegralData                 result;
     result.has_temporal_energy_diagnostics = true;
     auto  &sums                            = result.sums;
@@ -173,6 +183,9 @@ namespace PostProcessingTools
       if (cell->is_locally_owned())
       {
         fv.reinit(cell);
+        if (profile_correction)
+          profile_nodal_inverse = CahnHilliard::profile_inverse_values<dim>(
+            cell, solution, ordering.phi_lower);
         fv[tracer_extractor].get_function_values(solution, phi);
         fv[tracer_extractor].get_function_gradients(solution, grad_phi);
         fv[velocity_extractor].get_function_values(solution, v);
@@ -228,6 +241,26 @@ namespace PostProcessingTools
           const double numerical_interfacial =
             0.5 * gamma * (grad_phi[q] - old_grad_phi[q]).norm_square();
           const auto   grad_w     = grad_mu[q] + alpha * grad_p[q];
+          double profile_work = 0., profile_flux_norm_squared = 0.;
+          if (profile_correction)
+          {
+            for (unsigned int j = 0; j < profile_dofs; ++j)
+            {
+              profile_shape[j] = fv[tracer_extractor].value(j, q);
+              profile_gradient[j] = fv[tracer_extractor].gradient(j, q);
+            }
+            const auto profile = CahnHilliard::reconstruct_profile<dim>(
+              profile_nodal_inverse, profile_shape, profile_gradient);
+            const auto correction = CahnHilliard::evaluate_profile_correction(
+              profile.value,
+              profile.gradient(),
+              Tensor<2, dim>(),
+              ch.epsilon_interface,
+              false);
+            const auto flux = profile_amplitude * correction.flux;
+            profile_work = initial ? 0. : flux * grad_w;
+            profile_flux_norm_squared = flux.norm_square();
+          }
           const double phase_rate = d.c0 * phi[q] + d.phase_history;
           const auto   gradient_rate =
             d.c0 * grad_phi[q] + coefficients[1] * old_grad_phi[q] +
@@ -312,7 +345,9 @@ namespace PostProcessingTools
              gradient,
              0.,
              0.,
-             0.}};
+             0.,
+             profile_work,
+             profile_flux_norm_squared}};
           for (unsigned int k = 0; k < sums.size(); ++k)
             sums[k] += fv.JxW(q) * values[k];
           phi_min = std::min(phi_min, phi[q]);
@@ -320,6 +355,21 @@ namespace PostProcessingTools
         }
       }
     sum_chns_integrals(result, dof_handler.get_mpi_communicator());
+    if (profile_correction)
+    {
+      // Keep the original reduction size and ordering for all existing data.
+      std::array<double, 2> profile_integrals = {
+        {sums[CHNSIntegralData::ProfileCorrectionWork],
+         sums[CHNSIntegralData::ProfileCorrectionFluxNormSquared]}};
+      Utilities::MPI::sum<double>(
+        ArrayView<const double>(profile_integrals.data(),
+                                profile_integrals.size()),
+        dof_handler.get_mpi_communicator(),
+        ArrayView<double>(profile_integrals.data(), profile_integrals.size()));
+      sums[CHNSIntegralData::ProfileCorrectionWork] = profile_integrals[0];
+      sums[CHNSIntegralData::ProfileCorrectionFluxNormSquared] =
+        profile_integrals[1];
+    }
     phi_min = Utilities::MPI::min(phi_min, dof_handler.get_mpi_communicator());
     phi_max = Utilities::MPI::max(phi_max, dof_handler.get_mpi_communicator());
     result.phi_min = phi_min;

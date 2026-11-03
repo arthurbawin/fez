@@ -2218,7 +2218,9 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
          "bdf2_constant_step,bdf2_modified_kinetic_energy,"
          "bdf2_modified_gradient_energy,bdf2_kinetic_remainder,"
          "bdf2_gradient_remainder,bdf2_kinetic_identity_residual,"
-         "bdf2_gradient_identity_residual\n";
+         "bdf2_gradient_identity_residual,profile_correction_work,"
+         "profile_correction_flux_l2,energy_balance_residual_with_correction,"
+         "temporal_energy_balance_residual_with_correction\n";
   const double energy = sums[I::KineticEnergy] + sums[I::InterfacialEnergy] +
                         sums[I::GravitationalEnergy];
   const double defect =
@@ -2272,7 +2274,12 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::
       << (constant_bdf2 ? sums[I::BDF2KineticRemainder] : nan) << ','
       << (constant_bdf2 ? sums[I::BDF2GradientRemainder] : nan) << ','
       << (constant_bdf2 ? sums[I::BDF2KineticIdentityResidual] : nan) << ','
-      << (constant_bdf2 ? sums[I::BDF2GradientIdentityResidual] : nan) << '\n';
+      << (constant_bdf2 ? sums[I::BDF2GradientIdentityResidual] : nan) << ','
+      << sums[I::ProfileCorrectionWork] << ','
+      << std::sqrt(sums[I::ProfileCorrectionFluxNormSquared]) << ','
+      << (bdf2 ? nan : defect + sums[I::NumericalEnergyLoss] +
+                        dt * sums[I::ProfileCorrectionWork]) << ','
+      << temporal_balance + sums[I::ProfileCorrectionWork] << '\n';
 }
 
 template <int dim, bool with_moving_mesh, bool with_enlarged>

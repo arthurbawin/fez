@@ -105,6 +105,8 @@ namespace PostProcessingTools
       WeightedBubbleVolume,
       WeightedBubbleHeightMoment,
       WeightedBubbleVelocityMoment,
+      ProfileCorrectionWork,
+      ProfileCorrectionFluxNormSquared,
       IntegralCount
     };
     std::array<double, IntegralCount> sums{};

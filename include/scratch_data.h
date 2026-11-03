@@ -1230,6 +1230,40 @@ namespace NavierStokesScratch
 
         }
 
+        if (!profile_correction_flux.empty())
+        {
+          const auto profile = CahnHilliard::reconstruct_profile<dim>(
+            profile_nodal_inverse, shape_phi[q], grad_shape_phi[q]);
+          CahnHilliard::ProfileCorrectionLinearization<dim> linearization;
+          const auto correction = CahnHilliard::evaluate_profile_correction(
+            profile.value,
+            profile.gradient(),
+            Tensor<2, dim>(),
+            epsilon,
+            false,
+            &linearization);
+          profile_correction_flux[q] =
+            profile_correction_coefficient * correction.flux;
+          std::fill(profile_flux_variation[q].begin(),
+                    profile_flux_variation[q].end(),
+                    Tensor<1, dim>());
+          for (unsigned int j = 0; j < dofs_per_cell; ++j)
+            if (components[j] == phi_lower)
+            {
+              const double derivative = profile_nodal_inverse[j].derivative;
+              const auto variation = profile.variation(
+                derivative * shape_phi[q][j],
+                derivative * grad_shape_phi[q][j],
+                Tensor<2, dim>(),
+                false);
+              profile_flux_variation[q][j] =
+                profile_correction_coefficient *
+                linearization.variation(variation.value,
+                                        variation.gradient,
+                                        Tensor<2, dim>()).flux;
+            }
+        }
+
         if (enable_tracer_stabilization)
         {
           /**
@@ -1354,12 +1388,22 @@ namespace NavierStokesScratch
                                  source_terms,
                                  exact_solution);
       if constexpr (enable_cahn_hilliard)
+      {
+        if (!profile_correction_flux.empty())
+        {
+          // This is exactly the state used below for tracer_values, including
+          // constrained line-search trials and locally relevant ghost entries.
+          profile_nodal_inverse = CahnHilliard::profile_inverse_values<dim>(
+            cell, current_solution, phi_lower);
+          profile_nodal_inverse.resize(max_dofs_per_cell);
+        }
         reinit_cahn_hilliard_cell(*active_fe_values_fixed,
                                   *active_fe_values,
                                   current_solution,
                                   previous_solutions,
                                   source_terms,
                                   exact_solution);
+      }
       /**
        * Face contributions
        */
@@ -1740,6 +1784,10 @@ namespace NavierStokesScratch
 
     // Tracer on current and fixed (reference) mesh
     std::vector<double>              tracer_values;
+    double profile_correction_coefficient = 0.;
+    std::vector<CahnHilliard::ProfileInverse> profile_nodal_inverse;
+    std::vector<Tensor<1, dim>> profile_correction_flux;
+    std::vector<std::vector<Tensor<1, dim>>> profile_flux_variation;
     std::vector<double>              tracer_time_derivatives;
     std::vector<Tensor<1, dim>>      tracer_gradients;
     std::vector<double>              tracer_laplacians;

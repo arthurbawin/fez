@@ -433,6 +433,10 @@ namespace NavierStokesScratch
       0.5 * (pp.fluids[0].pressure_ref - pp.fluids[1].pressure_ref);
     stepien_rho_product = density0 * density1;
     tracer_limiter      = CahnHilliard::get_limiter_function(ch);
+    if (ch.enable_profile_correction &&
+        CahnHilliard::is_quasi_incompressible_model(ch))
+      profile_correction_coefficient =
+        CahnHilliard::profile_correction_amplitude(ch);
   }
 
   template <int dim, unsigned int update_flags>
@@ -671,6 +675,13 @@ namespace NavierStokesScratch
       derivative_dynamic_viscosity_wrt_tracer.resize(n_q_points);
 
       tracer_values.resize(n_q_points);
+      if (param.cahn_hilliard.enable_profile_correction &&
+          CahnHilliard::is_quasi_incompressible_model(param.cahn_hilliard))
+      {
+        profile_correction_flux.resize(n_q_points);
+        profile_flux_variation.resize(
+          n_q_points, std::vector<Tensor<1, dim>>(max_dofs_per_cell));
+      }
       tracer_time_derivatives.resize(n_q_points);
       tracer_gradients.resize(n_q_points);
       tracer_values_fixed.resize(n_q_points);

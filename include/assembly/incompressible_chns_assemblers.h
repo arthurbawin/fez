@@ -47,7 +47,7 @@ namespace Assembly
         Tensor<1, dim> phase_gradient;
         double         potential = 0.;
         Tensor<1, dim> potential_gradient;
-        Tensor<1, dim> profile_flux_variation;
+        Tensor<1, dim> profile_flux_variation = {};
       };
 
       // Exact divided difference of F(s)=(s*s-1)^2/4, with its continuous
@@ -78,7 +78,7 @@ namespace Assembly
         Tensor<1, dim> old_velocity, weighted_velocity_history, body_force,
           source_velocity;
         double source_pressure = 0., source_phase = 0., source_potential = 0.;
-        Tensor<1, dim> profile_flux;
+        Tensor<1, dim> profile_flux = {};
       };
 
       template <int dim>

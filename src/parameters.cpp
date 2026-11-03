@@ -1495,6 +1495,21 @@ namespace Parameters
         "false",
         Patterns::Bool(),
         "Enable tracer limiter for the degenerate mobility calcul");
+      prm.declare_entry("enable profile correction",
+                        "false",
+                        Patterns::Bool(),
+                        "Enable the implicit reconstructed profile flux for "
+                        "quasi-incompressible CHNS.");
+      prm.declare_entry("profile correction strength",
+                        "0.6",
+                        Patterns::Double(0.),
+                        "Non-negative multiplier of the profile correction flux.");
+      prm.declare_entry("profile correction reference mobility",
+                        "0",
+                        Patterns::Double(),
+                        "Constant reference mobility for profile correction. "
+                        "A positive value is required for parsed degenerate "
+                        "mobility; other laws use their own prefactor.");
       prm.enter_subsection("degenerate mobility");
       {
         degenerate_mobility->declare_parameters(prm, 1, "(1 - x*x)*(1 - x*x)");
@@ -1603,6 +1618,24 @@ namespace Parameters
         prm.get_double("degenerate absolute mobility prefactor");
       enable_density_mobility_compensation =
         prm.get_bool("enable density mobility compensation");
+      enable_profile_correction = prm.get_bool("enable profile correction");
+      profile_correction_strength = prm.get_double("profile correction strength");
+      profile_correction_reference_mobility =
+        prm.get_double("profile correction reference mobility");
+      if (enable_profile_correction)
+      {
+        AssertThrow(chns_model == CHNSModel::QuasiIncompressible,
+                    ExcMessage("Profile correction is only implemented for "
+                               "CHNS model = quasi_incompressible."));
+        AssertThrow(!enable_density_mobility_compensation,
+                    ExcMessage("Profile correction is not implemented with "
+                               "density mobility compensation."));
+        AssertThrow(mobility_model != MobilityModel::degenerate ||
+                      profile_correction_reference_mobility > 0.,
+                    ExcMessage("Profile correction with mobility model = "
+                               "degenerate requires a positive profile "
+                               "correction reference mobility."));
+      }
       stepien_conservative_transport =
         prm.get_bool("stepien conservative transport");
       stepien_skew_symmetric_inertia =
@@ -1736,6 +1769,10 @@ namespace Parameters
       prm.leave_subsection();
       surface_tension   = prm.get_double("surface tension");
       epsilon_interface = prm.get_double("interface thickness");
+      AssertThrow(!enable_profile_correction ||
+                    (epsilon_interface > 0. && surface_tension > 0.),
+                  ExcMessage("Profile correction requires positive interface "
+                             "thickness and surface tension."));
       epsilon_interface_enlarged =
         prm.get_double("enlarged interface thickness");
       psi_interface_width_factor = prm.get_double("psi interface width factor");

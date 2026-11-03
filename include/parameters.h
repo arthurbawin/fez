@@ -735,6 +735,9 @@ namespace Parameters
     double degenerate_absolute_mobility_prefactor = 0.1;
     // Multiply the base mobility by (rho0*rho1/rho(phi))^2 for Stepien.
     bool enable_density_mobility_compensation = false;
+    bool   enable_profile_correction = false;
+    double profile_correction_strength = 0.6;
+    double profile_correction_reference_mobility = 0.;
     // Experimental fixed-mesh Stepien variants; retain the existing BDF scheme.
     bool stepien_conservative_transport         = false;
     bool stepien_skew_symmetric_inertia         = false;

@@ -462,3 +462,47 @@ bords. Les diagnostics de flux au temps initial décrivent l'état fourni ;
 l'identité énergétique porte sur les pas résolus. Les vérifications
 physiques et les études Hysing se lancent séparément des tests courts,
 suivant le README.
+
+### Reconstructed interfacial profile correction
+
+The optional correction is documented in the supplied
+[derivation and verification protocol](profile_correction.tex), copied as a
+LaTeX body requiring `amsmath` and `amssymb`. It is enabled only for
+`CHNS model = quasi_incompressible` with `enable profile correction = true`.
+At each quadrature point the assembler uses the same total flux in the phase
+row and in the pressure row, weighted by $-\alpha$:
+
+$$
+K=M(\phi_h)(\nabla\mu_h+\alpha\nabla p_h)+A F_\beta[\phi_{r,h}],
+\qquad
+\phi_{r,h}=\tanh\!\left(\sum_b\mathcal I(\phi_b)N_b\right).
+$$
+
+The reconstruction uses raw phase degrees of freedom after constraints, from
+the current nonlinear evaluation state. Only the corrective flux uses
+$\phi_{r,h}$; all constitutive laws, temporal terms and the chemical potential
+retain $\phi_h$. The momentum and chemical-potential equations are unchanged.
+The nodal chain rule is included in both corrected rows of the Newton matrix.
+
+The amplitude is the constant
+$A=2\lambda(\widetilde\sigma/\varepsilon)M_{\rm ref}$, where
+`profile correction strength` sets $\lambda$ (default `0.6`):
+
+| Mobility model | Constant reference mobility |
+|---|---|
+| `constant` | `mobility` |
+| `degenerate_absolute` | `degenerate absolute mobility prefactor` times $\varepsilon^2$, without a density conversion |
+| `degenerate_quadratic` | `mobility`, the prefactor of $(1-\phi_h^2)^2$ |
+| `degenerate` | The strictly positive `profile correction reference mobility` |
+
+Density mobility compensation is incompatible with this option. The appended
+diagnostics report `profile_correction_work`,
+$W=A\int F_\beta[\phi_{r,h}]\cdot(\nabla\mu_h+\alpha\nabla p_h)$, and
+`profile_correction_flux_l2`, the norm of $A F_\beta[\phi_{r,h}]$.
+The work is zero at the initial snapshot. The corrected energy balance is
+`energy_balance_residual + dt * profile_correction_work`; the corrected temporal
+balance is `temporal_energy_balance_residual + profile_correction_work`,
+because the latter is a power. These are exported as
+`energy_balance_residual_with_correction` and
+`temporal_energy_balance_residual_with_correction`, respectively.
+The work has no prescribed sign, so energy monotonicity is not guaranteed.

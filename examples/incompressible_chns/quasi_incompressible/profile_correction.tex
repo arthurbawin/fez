@@ -1,0 +1,579 @@
+% ============================================================
+% Correction de profil interfacial (Li, Choi et Kim 2016, version
+% reconstruite du code du collègue) transposée au modèle CHNS
+% quasi-incompressible à vitesse moyenne massique.
+% Corps seul : à inclure dans le document principal.
+% Paquets requis : amsmath, amssymb.
+% ============================================================
+
+\section*{Correction de profil interfacial pour le modèle quasi-incompressible à vitesse moyenne massique}
+
+Ce document transpose au modèle quasi-incompressible à vitesse moyenne massique la correction de profil interfacial implémentée dans la version à vitesse moyenne volumique (modèle d'Abels) du solveur, branche \texttt{experiment/chns-reconstructed-profile}, commit \texttt{5e94001}. Cette implémentation s'inspire de Li, Choi et Kim (\emph{Commun.\ Nonlinear Sci.\ Numer.\ Simul.}~30, 2016, p.~84--100), sans en reprendre exactement la forme.
+
+La reconstruction du profil, la fonction d'activation et la forme régularisée du terme correctif sont reprises sans modification. Ce qui change tient à la structure des flux diffusifs du modèle à vitesse massique. Le résultat se résume en trois règles.
+\begin{enumerate}
+  \item La correction est un flux de diffusion massique supplémentaire. Elle s'ajoute au flux de phase, et ce même vecteur doit apparaître dans l'équation de phase et dans l'équation de continuité. Les équations de quantité de mouvement et du potentiel chimique ne changent pas.
+  \item Le terme correctif ne dépend que du profil reconstruit. La barodiffusion n'en modifie pas la forme. Elle intervient en revanche dans le flux total auquel il s'ajoute, dans le bilan d'énergie et dans la matrice de Newton.
+  \item À l'échelle discrète, la conservation locale de la masse exige que le terme correctif soit évalué de façon identique, point de quadrature par point de quadrature, dans l'équation de phase et dans l'équation de continuité.
+\end{enumerate}
+
+% ------------------------------------------------------------
+\subsection*{1. Notations}
+
+Le fluide~1 correspond à $\phi=+1$ et le fluide~2 à $\phi=-1$. La densité affine s'écrit
+\begin{equation}\label{cp:rho}
+  \rho(\phi) = \frac{1+\phi}{2}\,\rho_1 + \frac{1-\phi}{2}\,\rho_2
+  = \bar{\rho} + \frac{\Delta\rho}{2}\,\phi,
+  \qquad
+  \bar{\rho} = \frac{\rho_1+\rho_2}{2},
+  \qquad
+  \Delta\rho = \rho_1-\rho_2 .
+\end{equation}
+Le coefficient de barodiffusion est
+\begin{equation}\label{cp:alpha}
+  \alpha = \frac{\rho_2-\rho_1}{\rho_1+\rho_2} = -\frac{\Delta\rho}{2\bar{\rho}} .
+\end{equation}
+C'est le coefficient de la relation $\hat{\mu} = \mu - \alpha\,p$ du modèle continu. Deux identités servent constamment dans la suite :
+\begin{equation}\label{cp:id}
+  \bar{\rho}\,\alpha = -\frac{\Delta\rho}{2},
+  \qquad
+  1-\alpha\,\phi = \frac{\rho(\phi)}{\bar{\rho}} .
+\end{equation}
+On note $\tilde{\sigma} = 3\sigma/(2\sqrt{2})$, de sorte que l'équation du potentiel s'écrit
+\begin{equation}
+  \mu = \frac{\tilde{\sigma}}{\varepsilon}\left(\phi^{3}-\phi\right) - \tilde{\sigma}\,\varepsilon\,\Delta\phi .
+\end{equation}
+La mobilité est $M(\phi) = m_0\,\varepsilon^{2}\left|1-\phi^{2}\right|$. Comme dans la section de discrétisation du modèle, $\mu$ désigne le potentiel de Cahn--Hilliard seul (le $\hat{\mu}$ du système continu), et le potentiel qui pilote la diffusion est $\mu + \alpha\,p$.
+
+\paragraph{Correspondance des indices avec le code du collègue.} Dans son code, le fluide d'indice~0 correspond à $\phi=+1$ et celui d'indice~1 à $\phi=-1$, avec $\rho' = (\rho_0-\rho_1)/2$. Son $\rho_0$ est donc ton $\rho_1$, son $\rho_1$ est ton $\rho_2$, et son $\rho'$ vaut $\Delta\rho/2$. Cette correspondance doit être vérifiée dans chaque fichier de paramètres utilisé pour une comparaison croisée.
+
+% ------------------------------------------------------------
+\subsection*{2. Où la correction doit entrer}
+
+\subsubsection*{2.1 Structure des flux diffusifs à vitesse massique}
+
+On note $c_1 = (1+\phi)/2$ et $c_2 = (1-\phi)/2$ les fractions volumiques, avec $c_1+c_2=1$. Les densités intrinsèques $\rho_1,\rho_2$ sont constantes. Les densités partielles valent donc $\rho_i c_i$, et $\rho = \rho_1c_1+\rho_2c_2$ est bien la loi affine \eqref{cp:rho}. Avec $\mathbf{v}_i$ la vitesse du constituant $i$, la vitesse moyenne massique est
+\begin{equation}
+  \mathbf{v} = \frac{\rho_1c_1\,\mathbf{v}_1 + \rho_2c_2\,\mathbf{v}_2}{\rho} .
+\end{equation}
+Les flux de diffusion massique $\mathbf{j}_i = \rho_ic_i\left(\mathbf{v}_i-\mathbf{v}\right)$ vérifient $\mathbf{j}_1+\mathbf{j}_2=\mathbf{0}$ par définition de $\mathbf{v}$. On pose $\mathbf{j}=\mathbf{j}_1$. Le bilan de masse de chaque constituant s'écrit
+\begin{equation}
+  \frac{\partial(\rho_ic_i)}{\partial t} + \nabla\cdot\left(\rho_ic_i\,\mathbf{v}\right) = -\nabla\cdot\mathbf{j}_i .
+\end{equation}
+En divisant par $\rho_i$, qui est constant, on obtient
+\begin{equation}
+  \frac{\partial c_1}{\partial t} + \nabla\cdot\left(c_1\mathbf{v}\right) = -\frac{1}{\rho_1}\nabla\cdot\mathbf{j},
+  \qquad
+  \frac{\partial c_2}{\partial t} + \nabla\cdot\left(c_2\mathbf{v}\right) = \frac{1}{\rho_2}\nabla\cdot\mathbf{j}.
+\end{equation}
+La somme, avec $c_1+c_2=1$, et la différence, avec $\phi=c_1-c_2$, donnent
+\begin{equation}
+  \nabla\cdot\mathbf{v} = -\left(\frac{1}{\rho_1}-\frac{1}{\rho_2}\right)\nabla\cdot\mathbf{j},
+  \qquad
+  \frac{\partial\phi}{\partial t} + \nabla\cdot\left(\phi\,\mathbf{v}\right)
+  = -\left(\frac{1}{\rho_1}+\frac{1}{\rho_2}\right)\nabla\cdot\mathbf{j}.
+\end{equation}
+On appelle flux de phase le vecteur $-\left(1/\rho_1+1/\rho_2\right)\mathbf{j}$. Comme
+\begin{equation}
+  \frac{1/\rho_1-1/\rho_2}{1/\rho_1+1/\rho_2} = \frac{\rho_2-\rho_1}{\rho_1+\rho_2} = \alpha,
+\end{equation}
+tout flux de diffusion massique impose la structure suivante, dans laquelle le même flux de phase apparaît deux fois :
+\begin{equation}\label{cp:structure}
+  \frac{\partial\phi}{\partial t} + \nabla\cdot\left(\phi\,\mathbf{v}\right)
+  = -\left(\frac{1}{\rho_1}+\frac{1}{\rho_2}\right)\nabla\cdot\mathbf{j},
+  \qquad
+  \nabla\cdot\mathbf{v}
+  = -\alpha\left(\frac{1}{\rho_1}+\frac{1}{\rho_2}\right)\nabla\cdot\mathbf{j}.
+\end{equation}
+Ton modèle correspond au choix $-\left(1/\rho_1+1/\rho_2\right)\mathbf{j} = M(\phi)\left(\nabla\mu+\alpha\nabla p\right)$, qui apparaît effectivement dans l'équation de phase et, multiplié par $\alpha$, dans l'équation de continuité.
+
+Trois conséquences en découlent.
+\begin{itemize}
+  \item \emph{Masse.} Pour tout flux de phase placé dans les deux équations de \eqref{cp:structure}, la première identité de \eqref{cp:id} donne
+  \begin{equation}
+    \frac{\partial\rho}{\partial t} + \nabla\cdot\left(\rho\,\mathbf{v}\right)
+    = \left(\frac{\Delta\rho}{2} + \bar{\rho}\,\alpha\right)
+      \left[-\left(\frac{1}{\rho_1}+\frac{1}{\rho_2}\right)\nabla\cdot\mathbf{j}\right] = 0 .
+  \end{equation}
+  Si, au contraire, le terme correctif $A\,\mathbf{F}_\beta[\phi_r]$ est ajouté seulement à l'équation de phase, on obtient
+  \begin{equation}\label{cp:masse-fausse}
+    \frac{\partial\rho}{\partial t} + \nabla\cdot\left(\rho\,\mathbf{v}\right) = \frac{\Delta\rho}{2}\,A\,\nabla\cdot\mathbf{F}_\beta[\phi_r] \neq 0 .
+  \end{equation}
+  La masse totale reste conservée, puisque le second membre est une divergence de flux nul au bord, mais la masse n'est plus conservée localement : la densité ne suit plus le transport par $\mathbf{v}$.
+  \item \emph{Quantité de mouvement.} Le flux de masse total est $\rho\,\mathbf{v}$ par définition de $\mathbf{v}$, et un flux de diffusion massique est de masse nette nulle. Il n'ajoute donc aucun terme à l'équation de quantité de mouvement. Son seul effet sur l'écoulement passe par $\nabla\cdot\mathbf{v}\neq 0$. L'équivalence entre ta forme \eqref{cp:qdm} et la forme conservative n'utilise que $\partial_t\rho+\nabla\cdot(\rho\mathbf{v})=0$, qui reste vraie avec la correction.
+  \item \emph{Potentiel chimique.} Le potentiel est la dérivée variationnelle de l'énergie libre. La correction est un terme cinétique non variationnel, qui ne modifie pas cette énergie. L'équation du potentiel reste donc inchangée.
+\end{itemize}
+
+\subsubsection*{2.2 Lien avec la formulation du collègue}
+
+La vitesse moyenne volumique est
+\begin{equation}
+  \mathbf{u} = c_1\mathbf{v}_1 + c_2\mathbf{v}_2
+  = \mathbf{v} + \left(\frac{1}{\rho_1}-\frac{1}{\rho_2}\right)\mathbf{j}
+  = \mathbf{v} - \alpha\left[-\left(\frac{1}{\rho_1}+\frac{1}{\rho_2}\right)\mathbf{j}\right],
+\end{equation}
+et \eqref{cp:structure} donne $\nabla\cdot\mathbf{u}=0$. En substituant $\mathbf{v}$ par $\mathbf{u}$ dans l'équation de phase, puis en utilisant la seconde identité de \eqref{cp:id}, on obtient
+\begin{equation}
+  \frac{\partial\phi}{\partial t} + \mathbf{u}\cdot\nabla\phi
+  = \nabla\cdot\left[\frac{\rho(\phi)}{\bar{\rho}}\left(-\left(\frac{1}{\rho_1}+\frac{1}{\rho_2}\right)\mathbf{j}\right)\right].
+\end{equation}
+Le flux de phase du repère volumique vaut donc $\rho(\phi)/\bar{\rho}$ fois celui du repère massique. Le flux de masse relatif à $\mathbf{u}$ vaut
+\begin{equation}
+  \rho\left(\mathbf{v}-\mathbf{u}\right)
+  = -\frac{\Delta\rho}{2}\,\frac{\rho(\phi)}{\bar{\rho}}\left[-\left(\frac{1}{\rho_1}+\frac{1}{\rho_2}\right)\mathbf{j}\right].
+\end{equation}
+On retrouve exactement le flux $\boldsymbol{J}=-\rho'\boldsymbol{K}$ du collègue, avec $\rho'=\Delta\rho/2$ et $\boldsymbol{K}$ son flux de phase volumique. Chez lui, ce flux apparaît dans la quantité de mouvement parce que la vitesse transportée n'est pas la vitesse de masse. Ici, il est absorbé dans la définition même de $\mathbf{v}$, puisque $\rho\mathbf{v} = \rho\mathbf{u} + \rho(\mathbf{v}-\mathbf{u})$. Sa trace dans ton système est la non-solénoïdalité de $\mathbf{v}$, c'est-à-dire le terme en $\alpha$ de l'équation de continuité. Ton intuition est donc correcte, et la règle~1 n'est pas un choix : c'est la seule façon de conserver la masse localement.
+
+\subsubsection*{2.3 Choix de la transposition}
+
+Deux transpositions conservent la masse.
+\begin{itemize}
+  \item[(T1)] On ajoute le terme correctif au flux de phase massique :
+  \begin{equation}
+    M(\phi)\left(\nabla\mu+\alpha\nabla p\right) + A\,\mathbf{F}_\beta[\phi_r].
+  \end{equation}
+  \item[(T2)] On ajoute le terme correctif divisé par le facteur de changement de repère :
+  \begin{equation}
+    M(\phi)\left(\nabla\mu+\alpha\nabla p\right) + \frac{\bar{\rho}}{\rho(\phi)}\,A\,\mathbf{F}_\beta[\phi_r].
+  \end{equation}
+  D'après la section~2.2, (T2) reproduit exactement, dans le repère volumique, le flux correctif $A\,\mathbf{F}_\beta[\phi_r]$ du collègue.
+\end{itemize}
+
+Je recommande (T1), pour trois raisons.
+\begin{enumerate}
+  \item Avec (T1), le terme correctif et le flux physique subissent le même changement de repère. Leur rapport est donc identique dans les deux repères, et $\lambda$ garde le sens qu'il a dans le code du collègue : un poids relatif à la diffusion de Cahn--Hilliard. Avec (T2), ce poids est multiplié localement par $\bar{\rho}/\rho(\phi)$, qui atteint $(\rho_1+\rho_2)/(2\rho_2)$ côté fluide léger, soit environ $500$ pour un rapport de densité de $1000$. Li et al.\ montrent qu'un poids trop grand déforme l'interface.
+  \item (T2) exige de diviser par $\rho(\phi_h)$, donc de garantir sa positivité malgré les dépassements, et ajoute une dépendance en $\phi$ dans la matrice de Newton.
+  \item À densités égales, $\alpha=0$ et $\rho=\bar{\rho}$ : (T1) et (T2) coïncident avec la formulation du collègue (section~8, étape~5).
+\end{enumerate}
+La suite du document utilise (T1).
+
+% ------------------------------------------------------------
+\subsection*{3. Rôle de la barodiffusion}
+
+\subsubsection*{3.1 Le terme correctif reste purement géométrique}
+
+Le terme correctif doit s'annuler sur le profil que le modèle cherche à maintenir. Il faut donc vérifier si la barodiffusion déplace l'équilibre du modèle non corrigé. Cet équilibre est l'état de dissipation nulle : $\mathbf{v}=\mathbf{0}$ et $\nabla\left(\mu+\alpha p\right)=\mathbf{0}$ là où $M>0$. On a donc $\mu + \alpha p = C$. L'équation de quantité de mouvement au repos donne
+\begin{equation}
+  \nabla p + \phi\,\nabla\mu = \rho\,\mathbf{g}
+  \quad\Longrightarrow\quad
+  \left(1-\alpha\phi\right)\nabla p = \rho\,\mathbf{g}
+  \quad\Longrightarrow\quad
+  \nabla p = \bar{\rho}\,\mathbf{g},
+\end{equation}
+d'après la seconde identité de \eqref{cp:id}. On en déduit
+\begin{equation}\label{cp:equilibre}
+  \mu = C' + \frac{\Delta\rho}{2}\,\mathbf{g}\cdot\mathbf{x}.
+\end{equation}
+\begin{itemize}
+  \item \emph{Sans gravité}, la pression modifiée $p$ est uniforme et $\mu$ est constant. L'équilibre est celui de Cahn--Hilliard sans barodiffusion : profil en tangente hyperbolique pour une interface plane, profil voisin pour une goutte. La cible du terme correctif ne change pas. Il n'y a donc aucune raison d'introduire $p$ dans $\mathbf{F}_\beta$.
+  \item \emph{Avec gravité}, \eqref{cp:equilibre} montre que $\mu$ varie linéairement à l'équilibre. C'est un effet physique de sédimentation par barodiffusion. En adimensionnant par $\varepsilon$, l'écart relatif au profil en tangente hyperbolique est d'ordre
+  \begin{equation}
+    \mathrm{Bo}_\varepsilon = \frac{|\Delta\rho|\,|\mathbf{g}|\,\varepsilon^{2}}{2\,\tilde{\sigma}} .
+  \end{equation}
+  Le terme correctif s'oppose à cette petite déformation physique. Par exemple, pour le cas~1 de Hysing ($\rho_1=1000$, $\rho_2=100$, $|\mathbf{g}|=0.98$, $\sigma=24.5$) et une valeur hypothétique $\varepsilon=0.005$, on obtient $\mathrm{Bo}_\varepsilon\approx 4\times10^{-4}$. Le biais introduit est alors négligeable. S'il ne l'était pas, ce serait le signe que $\varepsilon$ est trop grand pour la physique simulée.
+\end{itemize}
+
+\subsubsection*{3.2 Où la barodiffusion intervient}
+
+\begin{itemize}
+  \item \emph{Flux total.} Le terme correctif s'ajoute à $M(\phi)\left(\nabla\mu+\alpha\nabla p\right)$, et non à $M(\phi)\nabla\mu$. Les gradients de pression dynamique à travers l'interface déforment le profil, et le terme correctif doit aussi compenser cette contribution.
+  \item \emph{Énergie.} La puissance du terme correctif est $A\int_\Omega \mathbf{F}_\beta[\phi_r]\cdot\left(\nabla\mu+\alpha\nabla p\right)\mathrm{d}x$ (section~6.3). Le terme correctif échange de l'énergie avec le potentiel de diffusion complet $\mu+\alpha p$.
+  \item \emph{Matrice de Newton.} La ligne de continuité reçoit un bloc en $\phi$ provenant du terme correctif, pondéré par $-\alpha$ (section~7).
+  \item \emph{Divergence de la vitesse.} L'équation de continuité donne
+  \begin{equation}
+    \nabla\cdot\mathbf{v} = \alpha\,\nabla\cdot\left[M(\phi)\left(\nabla\mu+\alpha\nabla p\right)\right] + \alpha\,A\,\nabla\cdot\mathbf{F}_\beta[\phi_r].
+  \end{equation}
+  Le terme correctif crée une source de volume partout où il est actif. Contrairement au flux physique, il n'est pas atténué par la mobilité dégénérée. Il est actif dès que $a(\phi_r)>0$, c'est-à-dire pour $|\phi_r|<0.99975$, y compris dans les zones proches des phases pures où $\phi_h$ vaut environ $0.99$ à $0.999$ en présence de gradients. C'est cohérent avec la conservation de la masse, puisque $\rho$ change avec $\phi$, mais la divergence discrète doit être surveillée.
+\end{itemize}
+
+% ------------------------------------------------------------
+\subsection*{4. Modèle continu corrigé}
+
+Le terme correctif est défini à la section~5. Dans le modèle continu, il est évalué sur $r=\phi$ ; dans la discrétisation, sur le profil reconstruit $r=\phi_{r,h}$. Le système corrigé s'écrit
+\begin{subequations}\label{cp:continu}
+\begin{align}
+  & \nabla\cdot\mathbf{v}
+    - \alpha\,\nabla\cdot\left[M(\phi)\left(\nabla\mu + \alpha\,\nabla p\right) + A\,\mathbf{F}_\beta[\phi]\right] = 0,
+    \label{cp:continuite}\\[4pt]
+  & \tilde{\rho}\,\frac{\partial\mathbf{v}}{\partial t}
+    + \frac{1}{2}\,\frac{\partial\tilde{\rho}}{\partial t}\,\mathbf{v}
+    + \rho\,(\mathbf{v}\cdot\nabla)\mathbf{v}
+    + \frac{1}{2}\left[\nabla\cdot(\rho\,\mathbf{v})\right]\mathbf{v}
+    \nonumber\\
+  & \qquad
+    - \nabla\cdot\left[\tilde{\eta}\left(\nabla\mathbf{v} + \nabla\mathbf{v}^{T}
+      - \frac{2}{d}\,(\nabla\cdot\mathbf{v})\,\mathbf{I}\right)\right]
+    + \nabla p + \phi\,\nabla\mu = \rho\,\mathbf{g},
+    \label{cp:qdm}\\[4pt]
+  & \frac{\partial\phi}{\partial t} + \nabla\cdot\left(\phi\,\mathbf{v}\right)
+    - \nabla\cdot\left[M(\phi)\left(\nabla\mu + \alpha\,\nabla p\right) + A\,\mathbf{F}_\beta[\phi]\right] = 0,
+    \label{cp:phase}\\[4pt]
+  & \mu - \frac{\tilde{\sigma}}{\varepsilon}\left(\phi^{3}-\phi\right) + \tilde{\sigma}\,\varepsilon\,\Delta\phi = 0 .
+    \label{cp:potentiel}
+\end{align}
+\end{subequations}
+Seules \eqref{cp:continuite} et \eqref{cp:phase} changent, et le même vecteur y est ajouté. Sur $\partial\Omega$, les conditions naturelles deviennent
+\begin{equation}
+  \left[M(\phi)\left(\nabla\mu + \alpha\,\nabla p\right) + A\,\mathbf{F}_\beta[\phi]\right]\cdot\mathbf{n} = 0,
+  \qquad
+  \nabla\phi\cdot\mathbf{n} = 0 .
+\end{equation}
+Au niveau continu, $\mathbf{F}_\beta[\phi]$ est colinéaire à $\nabla\phi$. La seconde condition annule donc $\mathbf{F}_\beta[\phi]\cdot\mathbf{n}$, et la première se réduit à la condition d'origine. Au niveau discret, c'est le flux total qui est nul au sens faible, ce que les formes faibles imposent automatiquement.
+
+\paragraph{Propriétés.} La masse est conservée : $\partial_t\rho + \nabla\cdot(\rho\mathbf{v}) = 0$ (section~2.1). Pour $|\phi|\le1$, avec
+\begin{equation}
+  E = \int_\Omega\left[\frac{\rho}{2}\,|\mathbf{v}|^{2}
+  + \frac{\tilde{\sigma}}{4\varepsilon}\left(\phi^{2}-1\right)^{2}
+  + \frac{\tilde{\sigma}\varepsilon}{2}\,|\nabla\phi|^{2}
+  - \rho\,\mathbf{g}\cdot\mathbf{x}\right]\mathrm{d}x,
+\end{equation}
+la loi d'énergie devient
+\begin{multline}\label{cp:energie-continue}
+  \frac{\mathrm{d}E}{\mathrm{d}t}
+  = - \int_\Omega M(\phi)\left|\nabla\mu + \alpha\,\nabla p\right|^{2}\mathrm{d}x
+  - \frac{1}{2}\int_\Omega \eta\left|\nabla\mathbf{v} + \nabla\mathbf{v}^{T}
+    - \frac{2}{d}\,(\nabla\cdot\mathbf{v})\,\mathbf{I}\right|^{2}\mathrm{d}x\\
+  - A\int_\Omega \mathbf{F}_\beta[\phi]\cdot\left(\nabla\mu + \alpha\,\nabla p\right)\mathrm{d}x .
+\end{multline}
+Le dernier terme n'a pas de signe. Comme dans Li et al., l'énergie n'est plus garantie décroissante. La démonstration est l'analogue continu de celle de la section~6.3.
+
+% ------------------------------------------------------------
+\subsection*{5. Terme correctif et reconstruction}
+
+Cette section reprend exactement les définitions du code du collègue. Elles sont implémentées, dans le fichier d'en-tête \texttt{cahn\_hilliard.h} de son dépôt, par :
+\begin{itemize}
+  \item \texttt{CahnHilliard::inverse\_profile}, pour la transformation nodale et sa dérivée ;
+  \item \texttt{CahnHilliard::ReconstructedProfile}, pour le profil reconstruit et sa variation ;
+  \item \texttt{CahnHilliard::evaluate\_profile\_correction}, pour le terme correctif et ses dérivées.
+\end{itemize}
+Ces fonctions ne dépendent ni de la vitesse ni du modèle. Elles sont réutilisables telles quelles ; seule leur insertion dans l'assemblage change.
+
+\subsubsection*{5.1 Terme correctif}
+
+Les constantes sont
+\begin{equation}
+  T = 1-0.999^{2},
+  \qquad
+  \beta = 0.05,
+  \qquad
+  c_\beta = \sqrt{1+\beta^{2}} .
+\end{equation}
+Pour un champ scalaire $r$, on pose $s = |\nabla r|^{2}$ et
+\begin{equation}
+  Q(r) = \frac{1-r^{2}}{\sqrt{2}\,\varepsilon},
+  \qquad
+  R(r,s) = \sqrt{s + \beta^{2}\,Q(r)^{2}} .
+\end{equation}
+La fonction d'activation est
+\begin{equation}\label{cp:activation}
+  a(r) =
+  \begin{cases}
+    0, & 1-r^{2} \le T/4,\\[2pt]
+    t^{3}\left(10-15t+6t^{2}\right), & T/4 < 1-r^{2} < T/2,\\[2pt]
+    1, & 1-r^{2} \ge T/2,
+  \end{cases}
+  \qquad
+  t = \frac{1-r^{2}-T/4}{T/4} .
+\end{equation}
+Elle vaut $1$ pour $|r|\le0.9995$ et $0$ pour $|r|\ge0.99975$, ainsi que pour $|r|>1$. On définit
+\begin{equation}\label{cp:f}
+  f(r,s) = a(r)\left(1 - \frac{c_\beta\,Q(r)}{R(r,s)}\right),
+  \qquad
+  \mathbf{F}_\beta[r] = f\!\left(r,|\nabla r|^{2}\right)\nabla r .
+\end{equation}
+Pour un profil $r = \tanh\!\left(d/(\sqrt{2}\varepsilon)\right)$, avec $|\nabla d| = 1$, on a $|\nabla r| = Q(r)$, donc $R = c_\beta Q$ et $\mathbf{F}_\beta[r] = \mathbf{0}$.
+
+Les dérivées utiles sont
+\begin{equation}\label{cp:derivees}
+  f_r = a'(r)\left(1-\frac{c_\beta Q}{R}\right) - a(r)\,\frac{c_\beta\,Q'(r)\,s}{R^{3}},
+  \qquad
+  f_s = a(r)\,\frac{c_\beta\,Q}{2R^{3}},
+  \qquad
+  Q'(r) = -\frac{2r}{\sqrt{2}\,\varepsilon},
+\end{equation}
+avec, dans la zone de transition,
+\begin{equation}
+  a'(r) = -\frac{8r}{T}\cdot 30\,t^{2}\left(1-t\right)^{2},
+\end{equation}
+et $a'(r)=0$ ailleurs. Lorsque $a=0$, le flux et ses dérivées sont nuls.
+
+\subsubsection*{5.2 Reconstruction du profil}
+
+On pose
+\begin{equation}
+  \phi_\star = \sqrt{1-T/4},
+  \qquad
+  b_\star = \frac{1}{1-\phi_\star^{2}},
+  \qquad
+  \ell_\star = \frac{1-\phi_\star^{2}}{\phi_\star} .
+\end{equation}
+La transformation nodale est
+\begin{equation}\label{cp:I}
+  \mathcal{I}(x) =
+  \begin{cases}
+    \operatorname{arctanh}(x), & |x| \le \phi_\star,\\[4pt]
+    \operatorname{sgn}(x)\left[\operatorname{arctanh}(\phi_\star)
+      + b_\star\left(3\delta + 2\ell_\star\left(e^{-\delta/\ell_\star}-1\right)\right)\right],
+    & |x| > \phi_\star,
+  \end{cases}
+  \qquad
+  \delta = |x|-\phi_\star,
+\end{equation}
+de dérivée
+\begin{equation}\label{cp:Iprime}
+  \mathcal{I}'(x) =
+  \begin{cases}
+    \dfrac{1}{1-x^{2}}, & |x| \le \phi_\star,\\[8pt]
+    b_\star\left(3 - 2e^{-\delta/\ell_\star}\right), & |x| > \phi_\star .
+  \end{cases}
+\end{equation}
+Le prolongement est de classe $C^{2}$ et reste fini pour les phases pures et les dépassements. Numériquement, $\phi_\star\approx0.99975$ et $\mathcal{I}(1)\approx5.207$, donc $\tanh(\mathcal{I}(1))\approx0.99994$ : une phase pure est envoyée dans la zone où $a=0$.
+
+Sur chaque cellule, avec $\phi_b$ les coefficients nodaux de $\phi_h$ et $N_b$ ses fonctions de forme,
+\begin{equation}\label{cp:reconstruction}
+  z_h = \sum_{b}\mathcal{I}(\phi_b)\,N_b,
+  \qquad
+  \phi_{r,h} = \tanh(z_h),
+  \qquad
+  \nabla\phi_{r,h} = \left(1-\phi_{r,h}^{2}\right)\nabla z_h .
+\end{equation}
+La reconstruction est recalculée à chaque évaluation, à partir de l'état courant, et n'ajoute aucune inconnue.
+
+\paragraph{Remarques pour ta discrétisation.}
+\begin{itemize}
+  \item Les formes faibles ne font intervenir que $\mathbf{F}_\beta[\phi_{r,h}]$, après intégration par parties. Aucune dérivée seconde n'est nécessaire, quel que soit le degré de $\phi_h$. La divergence de $\mathbf{F}_\beta$ et la hessienne du profil ne servent qu'aux sources de solutions manufacturées (section~8) et à une éventuelle stabilisation de type SUPG, absente de ton schéma.
+  \item En $P_1$ sur simplexes, $\nabla z_h$ est constant par cellule, mais $\phi_{r,h}$ et $\nabla\phi_{r,h}$ ne le sont pas. L'intégration du terme correctif dépend donc réellement de la règle de quadrature.
+  \item Les coefficients $\phi_b$ sont les valeurs des degrés de liberté de l'élément de Lagrange, prises après application des contraintes (nœuds suspendus, périodicité).
+\end{itemize}
+
+\subsubsection*{5.3 Amplitude}
+
+Le collègue utilise $A = 2\lambda\,(\tilde{\sigma}/\varepsilon)\,M_{\max}$, où $\lambda$ est le paramètre \texttt{profile correction strength} ($0.6$ par défaut). Pour ta mobilité, le maximum sur $[-1,1]$ est atteint en $\phi=0$ et vaut $m_0\varepsilon^{2}$. Je recommande donc la constante
+\begin{equation}\label{cp:A}
+  A = 2\,\lambda\,\frac{\tilde{\sigma}}{\varepsilon}\,m_0\,\varepsilon^{2} = 2\,\lambda\,\tilde{\sigma}\,m_0\,\varepsilon .
+\end{equation}
+Elle a la dimension d'une diffusivité, en $\mathrm{m}^{2}/\mathrm{s}$. Le maximum échantillonné aux points de quadrature, utilisé par le collègue, en diffère très peu, mais il rend $A$ dépendant de l'état. La matrice de Newton devient alors approchée, puisque la variation de $A$ y est omise. Avec \eqref{cp:A}, la matrice est exacte.
+
+\paragraph{Correspondance avec Li et al.} Leur potentiel $\phi^{3}-\phi-\varepsilon^{2}\Delta\phi$ vaut $\varepsilon/\tilde{\sigma}$ fois le tien, et leur terme correctif s'écrit $\lambda_{\mathrm{Li}}\,M_{\mathrm{Li}}$ fois le flux non régularisé, avec $M_{\mathrm{Li}} = \tilde{\sigma}M/\varepsilon$. L'identification donne
+\begin{equation}
+  \lambda_{\mathrm{Li}} = 2\,\lambda .
+\end{equation}
+Li et al.\ retiennent $\lambda_{\mathrm{Li}} = 0.1/\varepsilon$, avec $\varepsilon$ adimensionné par leur longueur de référence $L_c$. Cela correspond à $\lambda = 0.05\,L_c/\varepsilon$, soit environ $5$ pour $\varepsilon/L_c\approx10^{-2}$. C'est un ordre de grandeur au-dessus de la valeur par défaut du collègue. La plage utile de $\lambda$ doit donc être balayée (section~8).
+
+% ------------------------------------------------------------
+\subsection*{6. Discrétisation}
+
+\subsubsection*{6.1 Formes faibles discrètes}
+
+Les espaces, le schéma d'ordre un et les instants d'évaluation sont ceux de ton schéma. Le terme correctif est implicite et évalué sur le profil reconstruit à partir de $\phi_h^{n+1}$ :
+\begin{equation}
+  \mathbf{F}_\beta[\phi_{r,h}^{n+1}],
+  \qquad
+  \phi_{r,h}^{n+1} = \tanh\!\left(\sum_b \mathcal{I}\!\left(\phi_b^{n+1}\right)N_b\right).
+\end{equation}
+Pour toutes fonctions test $\mathbf{z}_h$, $q_h$, $\psi_h$ et $\chi_h$ admissibles :
+
+\begin{multline}\label{cp:h-continuite}
+  -\int_{\Omega} q_h\,\nabla\cdot\mathbf{v}_h^{n+1}\,\mathrm{d}x\\
+  - \alpha\int_{\Omega}\left[m_0\,\varepsilon^{2}\left|1-(\phi_h^{n+1})^{2}\right|
+    \left(\nabla\mu_h^{n+1} + \alpha\,\nabla p_h^{n+1}\right)
+    + A\,\mathbf{F}_\beta[\phi_{r,h}^{n+1}]\right]\cdot\nabla q_h\,\mathrm{d}x = 0,
+\end{multline}
+
+\begin{multline}\label{cp:h-qdm}
+  \int_{\Omega} \tilde{\rho}(\phi_h^{n})\,\frac{\mathbf{v}_h^{n+1}-\mathbf{v}_h^{n}}{\Delta t_n}\cdot\mathbf{z}_h\,\mathrm{d}x
+  + \int_{\Omega} \frac{\tilde{\rho}(\phi_h^{n+1}) - \tilde{\rho}(\phi_h^{n})}{2\,\Delta t_n}\,\mathbf{v}_h^{n+1}\cdot\mathbf{z}_h\,\mathrm{d}x\\
+  + \frac{1}{2}\int_{\Omega} \rho(\phi_h^{n+1})\left[(\mathbf{v}_h^{n+1}\cdot\nabla)\mathbf{v}_h^{n+1}\right]\cdot\mathbf{z}_h\,\mathrm{d}x
+  - \frac{1}{2}\int_{\Omega} \rho(\phi_h^{n+1})\left[(\mathbf{v}_h^{n+1}\cdot\nabla)\mathbf{z}_h\right]\cdot\mathbf{v}_h^{n+1}\,\mathrm{d}x\\
+  + \int_{\Omega} \tilde{\eta}(\phi_h^{n+1})\left[\nabla\mathbf{v}_h^{n+1} + (\nabla\mathbf{v}_h^{n+1})^{T}\right] : \nabla\mathbf{z}_h\,\mathrm{d}x
+  - \frac{2}{d}\int_{\Omega} \tilde{\eta}(\phi_h^{n+1})\,(\nabla\cdot\mathbf{v}_h^{n+1})(\nabla\cdot\mathbf{z}_h)\,\mathrm{d}x\\
+  - \int_{\Omega} p_h^{n+1}\,\nabla\cdot\mathbf{z}_h\,\mathrm{d}x
+  + \int_{\Omega} \phi_h^{n+1}\,\nabla\mu_h^{n+1}\cdot\mathbf{z}_h\,\mathrm{d}x
+  - \int_{\Omega} \rho(\phi_h^{n+1})\,\mathbf{g}\cdot\mathbf{z}_h\,\mathrm{d}x = 0,
+\end{multline}
+
+\begin{multline}\label{cp:h-phase}
+  \int_{\Omega} \frac{\phi_h^{n+1}-\phi_h^{n}}{\Delta t_n}\,\psi_h\,\mathrm{d}x
+  - \int_{\Omega} \phi_h^{n+1}\,\mathbf{v}_h^{n+1}\cdot\nabla\psi_h\,\mathrm{d}x\\
+  + \int_{\Omega}\left[m_0\,\varepsilon^{2}\left|1-(\phi_h^{n+1})^{2}\right|
+    \left(\nabla\mu_h^{n+1} + \alpha\,\nabla p_h^{n+1}\right)
+    + A\,\mathbf{F}_\beta[\phi_{r,h}^{n+1}]\right]\cdot\nabla\psi_h\,\mathrm{d}x = 0,
+\end{multline}
+
+\begin{multline}\label{cp:h-potentiel}
+  \int_{\Omega} \mu_h^{n+1}\,\chi_h\,\mathrm{d}x
+  - \frac{\tilde{\sigma}}{4\varepsilon}\int_{\Omega}
+    \left(\phi_h^{n+1}+\phi_h^{n}\right)\left[(\phi_h^{n+1})^{2} + (\phi_h^{n})^{2} - 2\right]\chi_h\,\mathrm{d}x\\
+  - \tilde{\sigma}\,\varepsilon\int_{\Omega} \nabla\phi_h^{n+1}\cdot\nabla\chi_h\,\mathrm{d}x = 0 .
+\end{multline}
+
+Les équations \eqref{cp:h-qdm} et \eqref{cp:h-potentiel} sont identiques à ton schéma, puisque $\tilde{\sigma}/(4\varepsilon) = 3\sigma/(8\sqrt{2}\varepsilon)$ et $\tilde{\sigma}\varepsilon = 3\sigma\varepsilon/(2\sqrt{2})$. Les crochets de \eqref{cp:h-continuite} et \eqref{cp:h-phase} désignent le même vecteur.
+
+\subsubsection*{6.2 Conservation discrète de la masse}
+
+Les espaces de $p_h$ et de $\phi_h$ sont tous deux $P_1$. On peut donc prendre $q_h=\psi_h$ pour tout $\psi_h$ de l'espace de phase. Lorsque l'espace de pression porte une contrainte de moyenne, on prend $q_h=\psi_h-\overline{\psi_h}$. La partie constante est sans effet, car \eqref{cp:h-continuite} testée par $1$ se réduit à $-\int_{\Omega}\nabla\cdot\mathbf{v}_h^{n+1}\,\mathrm{d}x = 0$ lorsque $\mathbf{v}_h\cdot\mathbf{n}=0$ sur $\partial\Omega$.
+
+On forme $\frac{\Delta\rho}{2}\,\eqref{cp:h-phase} - \bar{\rho}\,\eqref{cp:h-continuite}$. Le crochet commun apparaît avec le coefficient $\frac{\Delta\rho}{2} + \bar{\rho}\,\alpha$, nul d'après \eqref{cp:id}. Il disparaît exactement, quel qu'il soit, à condition d'être le même dans les deux équations. Avec $\int_\Omega\psi_h\nabla\cdot\mathbf{v}_h\,\mathrm{d}x = -\int_\Omega\mathbf{v}_h\cdot\nabla\psi_h\,\mathrm{d}x$, exacte si la quadrature intègre les polynômes de degré~2, il reste
+\begin{equation}\label{cp:masse-discrete}
+  \int_{\Omega}\frac{\rho(\phi_h^{n+1})-\rho(\phi_h^{n})}{\Delta t_n}\,\psi_h\,\mathrm{d}x
+  - \int_{\Omega}\rho(\phi_h^{n+1})\,\mathbf{v}_h^{n+1}\cdot\nabla\psi_h\,\mathrm{d}x = 0
+  \qquad \forall\,\psi_h .
+\end{equation}
+C'est la forme faible locale de $\partial_t\rho+\nabla\cdot(\rho\mathbf{v})=0$, indépendante du terme correctif.
+
+\paragraph{Conséquence pratique.} Le terme correctif doit être calculé une seule fois par point de quadrature, puis utilisé dans les deux lignes : même reconstruction, même amplitude, même règle de quadrature. Toute différence entre les deux évaluations apparaît directement comme un défaut de masse.
+
+\subsubsection*{6.3 Loi d'énergie discrète}
+
+On choisit $\mathbf{z}_h=\mathbf{v}_h^{n+1}$, $q_h=p_h^{n+1}$, $\psi_h=\mu_h^{n+1}$ et $\chi_h=\phi_h^{n+1}-\phi_h^{n}$. On additionne $\Delta t_n\,\eqref{cp:h-qdm}$, $-\Delta t_n\,\eqref{cp:h-continuite}$, $\Delta t_n\,\eqref{cp:h-phase}$ et $-\eqref{cp:h-potentiel}$. Les étapes sont celles de ton schéma, avec une seule différence. Les termes de flux de $\eqref{cp:h-phase}$ et de $-\eqref{cp:h-continuite}$ se combinent en
+\begin{multline}
+  \Delta t_n\int_{\Omega}\left[m_0\,\varepsilon^{2}\left|1-(\phi_h^{n+1})^{2}\right|
+    \left(\nabla\mu_h^{n+1} + \alpha\,\nabla p_h^{n+1}\right)
+    + A\,\mathbf{F}_\beta[\phi_{r,h}^{n+1}]\right]\cdot\left(\nabla\mu_h^{n+1} + \alpha\,\nabla p_h^{n+1}\right)\mathrm{d}x\\
+  = \Delta t_n\int_{\Omega} m_0\,\varepsilon^{2}\left|1-(\phi_h^{n+1})^{2}\right|
+    \left|\nabla\mu_h^{n+1} + \alpha\,\nabla p_h^{n+1}\right|^{2}\mathrm{d}x
+  + \Delta t_n\,A\int_{\Omega}\mathbf{F}_\beta[\phi_{r,h}^{n+1}]\cdot\left(\nabla\mu_h^{n+1} + \alpha\,\nabla p_h^{n+1}\right)\mathrm{d}x .
+\end{multline}
+Le terme de gravité se traite avec \eqref{cp:masse-discrete} pour $\psi_h=\mathbf{g}\cdot\mathbf{x}$. Comme le terme correctif a déjà disparu de cette identité, ce traitement est inchangé. On obtient
+\begin{multline}\label{cp:energie-discrete}
+  \int_{\Omega} \Bigg[
+    \frac{\tilde{\rho}(\phi_h^{n+1})}{2}\,\left|\mathbf{v}_h^{n+1}\right|^{2}
+    - \frac{\tilde{\rho}(\phi_h^{n})}{2}\,\left|\mathbf{v}_h^{n}\right|^{2}
+    + \frac{\tilde{\sigma}}{4\varepsilon}\left(\left[(\phi_h^{n+1})^{2}-1\right]^{2}
+      - \left[(\phi_h^{n})^{2}-1\right]^{2}\right)\\
+    + \frac{\tilde{\sigma}\varepsilon}{2}\left(\left|\nabla\phi_h^{n+1}\right|^{2}
+      - \left|\nabla\phi_h^{n}\right|^{2}\right)
+    - \left[\rho(\phi_h^{n+1}) - \rho(\phi_h^{n})\right]\mathbf{g}\cdot\mathbf{x}
+  \Bigg]\,\mathrm{d}x\\
+  + \Delta t_n \int_{\Omega} m_0\,\varepsilon^{2}\left|1-(\phi_h^{n+1})^{2}\right|
+    \left|\nabla\mu_h^{n+1} + \alpha\,\nabla p_h^{n+1}\right|^{2}\mathrm{d}x\\
+  + \frac{\Delta t_n}{2}\int_{\Omega} \tilde{\eta}(\phi_h^{n+1})
+    \left|\nabla\mathbf{v}_h^{n+1} + (\nabla\mathbf{v}_h^{n+1})^{T}
+    - \frac{2}{d}\,(\nabla\cdot\mathbf{v}_h^{n+1})\,\mathbf{I}\right|^{2}\mathrm{d}x\\
+  + \frac{1}{2}\int_{\Omega} \tilde{\rho}(\phi_h^{n})\left|\mathbf{v}_h^{n+1}-\mathbf{v}_h^{n}\right|^{2}\mathrm{d}x
+  + \frac{\tilde{\sigma}\varepsilon}{2}\int_{\Omega}\left|\nabla\phi_h^{n+1}-\nabla\phi_h^{n}\right|^{2}\mathrm{d}x\\
+  + \Delta t_n\,A\int_{\Omega}\mathbf{F}_\beta[\phi_{r,h}^{n+1}]\cdot
+    \left(\nabla\mu_h^{n+1} + \alpha\,\nabla p_h^{n+1}\right)\mathrm{d}x = 0 .
+\end{multline}
+La dernière intégrale est le travail du terme correctif pendant le pas. Elle n'a pas de signe : le terme correctif peut dissiper ou injecter de l'énergie. C'est par ce terme que la barodiffusion se couple au terme correctif.
+
+% ------------------------------------------------------------
+\subsection*{7. Linéarisation de Newton}
+
+Seuls deux blocs changent : les dérivées de \eqref{cp:h-continuite} et de \eqref{cp:h-phase} par rapport aux coefficients de $\phi_h$. Les autres blocs, et le profil de creux de la matrice, sont inchangés, puisque la ligne de continuité est déjà couplée à $\phi_h$ par la mobilité.
+
+\paragraph{Variation de la reconstruction.} Pour la fonction de forme $N_b$ du coefficient $\phi_b$, et en un point de quadrature où $r=\phi_{r,h}$ :
+\begin{align}
+  \delta z_b &= \mathcal{I}'(\phi_b)\,N_b,
+  &
+  \nabla\delta z_b &= \mathcal{I}'(\phi_b)\,\nabla N_b,
+  \label{cp:dz}\\
+  \delta r_b &= \left(1-r^{2}\right)\delta z_b,
+  &
+  \delta(\nabla r)_b &= \left(1-r^{2}\right)\left[\nabla\delta z_b - 2r\,\delta z_b\,\nabla z_h\right].
+  \label{cp:dr}
+\end{align}
+La variation est nodale : c'est $\mathcal{I}'$ évaluée au nœud $b$ qui intervient, et non une dérivée au point de quadrature.
+
+\paragraph{Variation du terme correctif.} Avec $f$, $f_r$ et $f_s$ évalués en $\left(r,|\nabla r|^{2}\right)$ :
+\begin{equation}\label{cp:dF}
+  \delta\mathbf{F}_b
+  = \left[f_r\,\delta r_b + 2f_s\,\nabla r\cdot\delta(\nabla r)_b\right]\nabla r
+  + f\,\delta(\nabla r)_b .
+\end{equation}
+Dans le code du collègue :
+\begin{itemize}
+  \item \texttt{evaluate\_profile\_correction} fournit $f_r\nabla r$ (champ \texttt{flux\_phi}) et $f\,\mathbf{I}+2f_s\,\nabla r\otimes\nabla r$ (champ \texttt{flux\_gradient}) ;
+  \item \texttt{ReconstructedProfile::variation} calcule \eqref{cp:dr} à partir de \eqref{cp:dz}.
+\end{itemize}
+
+\paragraph{Contributions à la matrice.} Pour la ligne $a$ et la colonne $b$ du coefficient de phase :
+\begin{align}
+  \frac{\partial\,\eqref{cp:h-phase}_a}{\partial\phi_b} &\mathrel{+}=
+    A\sum_{K}\sum_{q} w_{q}\,|J_K|\;\delta\mathbf{F}_b(\mathbf{x}_{Kq})\cdot\nabla N^{\phi}_a(\mathbf{x}_{Kq}),
+  \label{cp:jac-phase}\\
+  \frac{\partial\,\eqref{cp:h-continuite}_a}{\partial\phi_b} &\mathrel{+}=
+    -\alpha\,A\sum_{K}\sum_{q} w_{q}\,|J_K|\;\delta\mathbf{F}_b(\mathbf{x}_{Kq})\cdot\nabla N^{p}_a(\mathbf{x}_{Kq}).
+  \label{cp:jac-continuite}
+\end{align}
+Avec $A$ constant \eqref{cp:A}, cette linéarisation est exacte.
+
+\paragraph{Caractère anti-diffusif.} Le terme linéarisé dans la direction normale, $n=\nabla r/|\nabla r|$, a pour diffusivité
+\begin{equation}
+  A\left(f + 2f_s\,|\nabla r|^{2}\right) = A\,a(r)\left(1 - \frac{c_\beta\,\beta^{2}\,Q^{3}}{R^{3}}\right)
+  \in \left[A\left(1-\frac{c_\beta}{\beta}\right),\,A\right) \approx \left[-19.0\,A,\,A\right).
+\end{equation}
+Elle est négative lorsque $|\nabla r| < 0.126\,Q(r)$, c'est-à-dire là où le profil est nettement plus étalé que la tangente hyperbolique. C'est le mécanisme de raidissement voulu, mais il produit localement un bloc de diffusion rétrograde, que la quatrième dérivée de Cahn--Hilliard doit dominer. En pratique, il vaut mieux augmenter $\lambda$ progressivement et garder la recherche de pas activée.
+
+% ------------------------------------------------------------
+\subsection*{8. Protocole de mise en œuvre et de vérification}
+
+\paragraph{Étape 0 : implémentation.}
+\begin{enumerate}
+  \item Calculer, pour chaque cellule, $\mathcal{I}(\phi_b)$ et $\mathcal{I}'(\phi_b)$ aux nœuds de phase \eqref{cp:I}--\eqref{cp:Iprime}.
+  \item À chaque point de quadrature, calculer $z_h$, $\nabla z_h$, $\phi_{r,h}$, $\nabla\phi_{r,h}$ \eqref{cp:reconstruction}, puis $\mathbf{F}_\beta[\phi_{r,h}]$ \eqref{cp:f}.
+  \item Ajouter $A\,\mathbf{F}_\beta$ au flux de phase une seule fois, puis utiliser ce flux dans la ligne de phase et, multiplié par $-\alpha$, dans la ligne de continuité.
+  \item Ajouter les blocs \eqref{cp:jac-phase}--\eqref{cp:jac-continuite}.
+  \item Ajouter au post-traitement énergétique le travail du terme correctif, dernière intégrale de \eqref{cp:energie-discrete}.
+\end{enumerate}
+
+\paragraph{Étape 1 : tests unitaires du terme correctif.}
+\begin{itemize}
+  \item \emph{Profil plan.} Imposer aux nœuds $\phi_b = \tanh\!\left(d_b/(\sqrt{2}\varepsilon)\right)$, avec $d$ affine et $|\phi_b|\le\phi_\star$. Alors $z_h = d/(\sqrt{2}\varepsilon)$ exactement, et $\mathbf{F}_\beta[\phi_{r,h}]$ doit être nul à la précision machine en chaque point de quadrature. C'est un test exact de la reconstruction.
+  \item \emph{Dérivées.} Comparer $\mathcal{I}'$, $a'$, $f_r$ et $f_s$ à des différences finies centrées. Dans la zone de transition de $a$, de largeur $T/4$ en $1-r^{2}$, l'erreur de différences finies décroît en $h^{2}$ et peut sembler grande pour un pas usuel.
+  \item \emph{Jacobien élémentaire.} Comparer \eqref{cp:jac-phase} à la différence finie du résidu élémentaire $A\int_K\mathbf{F}_\beta\cdot\nabla N_a$, en particulier pour des cellules contenant des nœuds au-delà de $\phi_\star$.
+\end{itemize}
+
+\paragraph{Étape 2 : test de Fréchet global.} Reprendre ton test de Fréchet sur un maillage grossier et un état aléatoire, en isolant d'abord le bloc phase--continuité. La convergence de Newton doit rester quadratique avec $A$ constant.
+
+\paragraph{Étape 3 : masse.} À chaque pas, évaluer le résidu \eqref{cp:masse-discrete} pour toutes les fonctions de base de phase. Il doit rester au niveau de la tolérance de Newton. À titre de contrôle, une variante où le terme correctif n'apparaît que dans l'équation de phase doit produire un résidu d'ordre un \eqref{cp:masse-fausse}, tout en conservant la masse totale. Ce contrôle montre que le diagnostic est bien sensible.
+
+\paragraph{Étape 4 : énergie.} Le bilan \eqref{cp:energie-discrete}, travail du terme correctif compris, doit se fermer à la tolérance de Newton près. Suivre séparément ce travail et la dissipation par diffusion permet de voir quand le terme correctif domine la dynamique de l'interface.
+
+\paragraph{Étape 5 : comparaison croisée à densités égales.} Pour $\rho_1=\rho_2$, on a $\alpha=0$ et $\rho=\bar{\rho}$. Les systèmes continus corrigés coïncident alors avec celui du collègue, à condition de prendre la même mobilité (sa loi dégénérée configurable fixée à $m_0\varepsilon^{2}|1-\phi^{2}|$), les mêmes $\varepsilon$, $\sigma$ et $\lambda$, et de tenir compte de la correspondance des indices (section~1). Les écarts restants proviennent du schéma : ordre en temps, forme de la convection, stabilisation et amplitude échantillonnée ou constante. Le test de translation d'une goutte de Li et al.\ (section~4.1 de l'article) s'y prête bien.
+
+\paragraph{Étape 6 : solutions manufacturées.} Le problème manufacturé s'écrit $\nabla\cdot\mathbf{v} - \alpha\nabla\cdot\mathbf{K} = s_p$ et $\partial_t\phi + \nabla\cdot(\phi\mathbf{v}) - \nabla\cdot\mathbf{K} = s_\phi$, où $\mathbf{K}$ désigne le flux de phase complet. Les sources valent
+\begin{equation}
+  s_p = \nabla\cdot\mathbf{v}_{e} - \alpha\,\nabla\cdot\mathbf{K}_{e},
+  \qquad
+  s_\phi = \frac{\partial\phi_{e}}{\partial t} + \nabla\cdot\left(\phi_{e}\mathbf{v}_{e}\right) - \nabla\cdot\mathbf{K}_{e},
+\end{equation}
+où $\mathbf{K}_e = M(\phi_e)\left(\nabla\mu_e+\alpha\nabla p_e\right) + A\,\mathbf{F}_\beta[\phi_e]$ est évalué sur les champs exacts. Sa divergence vaut
+\begin{multline}
+  \nabla\cdot\mathbf{K}_{e}
+  = M'(\phi_e)\,\nabla\phi_e\cdot\left(\nabla\mu_e+\alpha\nabla p_e\right)
+  + M(\phi_e)\left(\Delta\mu_e + \alpha\,\Delta p_e\right)\\
+  + A\left[f\,\operatorname{tr}\!\left(\nabla^{2}\phi_e\right) + f_r\,|\nabla\phi_e|^{2}
+  + 2f_s\,\nabla\phi_e\cdot\left(\nabla^{2}\phi_e\,\nabla\phi_e\right)\right],
+\end{multline}
+avec $M'(\phi) = -2m_0\varepsilon^{2}\phi\,\operatorname{sgn}(1-\phi^{2})$, et $f$, $f_r$, $f_s$ évalués en $\left(\phi_e,|\nabla\phi_e|^{2}\right)$. Les sources de quantité de mouvement et de potentiel sont inchangées. Trois précautions s'imposent.
+\begin{itemize}
+  \item Choisir $|\phi_e|\le0.9$ partout, pour que $a=1$ et que la reconstruction reste dans la branche $\operatorname{arctanh}$.
+  \item Choisir un $\phi_e$ qui n'est pas une tangente hyperbolique d'une distance. Sinon $\mathbf{F}_\beta[\phi_e]\equiv\mathbf{0}$ et le test ne voit pas le terme correctif.
+  \item La source utilise $\phi_e$, mais le schéma utilise $\phi_{r,h}\neq\phi_h$. La reconstruction ajoute donc une erreur spatiale, signalée par le collègue en tête du fichier \texttt{mms\_profile\_correction.prm} de son répertoire \texttt{tests/incompressible\_chns}. Il faut raffiner l'espace et le temps ensemble, ou étudier le temps sur un maillage assez fin pour que cette erreur soit dominée.
+\end{itemize}
+
+\paragraph{Étape 7 : cas physiques.} Dans l'ordre :
+\begin{enumerate}
+  \item translation d'une goutte de Li et al., avec et sans correction ;
+  \item goutte statique à rapport de densité élevé : profil, courants parasites et $\nabla\cdot\mathbf{v}_h$ près de l'interface ;
+  \item cas~1 puis cas~2 de Hysing.
+\end{enumerate}
+Pour chaque cas, balayer $\lambda$, par exemple $\lambda\in\{0,\,0.3,\,0.6,\,1.2,\,2.5,\,5\}$. Les diagnostics utiles sont : $\min\phi_h$ et $\max\phi_h$, l'aire de $\{\phi_h>0\}$ et la masse de chaque phase, la circularité et la vitesse d'ascension, la norme de $\nabla\cdot\mathbf{v}_h$ dans la bande interfaciale et dans les phases, le rapport entre le travail du terme correctif et la dissipation par diffusion, et le nombre d'itérations de Newton.
+
+\paragraph{Vérifications déjà effectuées.} Les formules ont été contrôlées sur des prototypes numériques indépendants du solveur.
+\begin{itemize}
+  \item Pour un profil plan sur $2000$ triangles $P_1$ aléatoires, $|\mathbf{F}_\beta|/|\nabla\phi_{r,h}|\le 3\times10^{-12}$.
+  \item Le Jacobien élémentaire \eqref{cp:dz}--\eqref{cp:dF} coïncide avec les différences finies, avec un écart relatif de $10^{-9}$ dans l'interface et de $10^{-7}$ à $10^{-6}$ dans les queues et pour les dépassements. Dans la zone de transition, l'écart décroît en $h^{2}$ jusqu'à $3\times10^{-8}$.
+  \item Un prototype 1D complet du schéma corrigé (vitesse $P_2$, autres champs $P_1$, Newton, $\rho_1/\rho_2=10$, $\lambda=0.6$) ferme le bilan d'énergie \eqref{cp:energie-discrete} avec une erreur relative de $1.5\times10^{-13}$ et le bilan de masse \eqref{cp:masse-discrete} à $4\times10^{-14}$. Le travail du terme correctif y change de signe d'un pas à l'autre. La variante où le terme correctif n'apparaît que dans l'équation de phase laisse un résidu de masse locale d'ordre un, alors que la masse totale reste exacte.
+\end{itemize}
+
+% ------------------------------------------------------------
+\subsection*{9. Paramètres}
+
+\begin{itemize}
+  \item $\lambda$ : poids du terme correctif, $0.6$ par défaut chez le collègue ; $\lambda_{\mathrm{Li}}=2\lambda$.
+  \item $A = 2\lambda\tilde{\sigma}m_0\varepsilon$ : amplitude, constante pour un calcul donné.
+  \item $\beta = 0.05$ et $T = 1-0.999^{2}$ : régularisation de la normale et seuil d'activation, figés dans le code du collègue.
+  \item Champs à exporter en plus : $\phi_{r,h}$, $|\mathbf{F}_\beta[\phi_{r,h}]|$, $a(\phi_{r,h})$, $\nabla\cdot\mathbf{v}_h$ et le travail local $\mathbf{F}_\beta\cdot\left(\nabla\mu_h+\alpha\nabla p_h\right)$.
+\end{itemize}

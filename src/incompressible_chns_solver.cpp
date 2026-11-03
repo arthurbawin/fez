@@ -432,8 +432,16 @@ void CHNSSolver<dim, with_moving_mesh, with_enlarged>::MMSSourceTerm::
     const double rho_affine = CahnHilliard::linear_mixing(phi, rho0, rho1);
     const double alpha      = (rho1 - rho0) / (rho0 + rho1);
     const auto   grad_w     = grad_mu + alpha * grad_p;
-    const double div_flux =
+    double div_flux =
       M * (lap_mu + alpha * lap_p) + dM_dphi * (grad_phi * grad_w);
+    if (cahn_hilliard_param.enable_profile_correction)
+    {
+      const auto correction = CahnHilliard::evaluate_profile_correction<dim>(
+        phi, grad_phi, mms.exact_tracer->hessian(p), epsilon);
+      div_flux +=
+        CahnHilliard::profile_correction_amplitude(cahn_hilliard_param) *
+        correction.divergence;
+    }
     const double lambda     = -2. / dim;
     const auto   div_stress = eta * (lap_u + (1. + lambda) * grad_div_u) +
                             2. * detadphi * (grad_phi * symmetrize(grad_u)) +

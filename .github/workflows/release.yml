@@ -6,7 +6,13 @@ name: ci-release
 on:
   push:
     branches: [ master ]
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - 'README.md'
   pull_request:
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - 'README.md'
   workflow_dispatch:
 
 concurrency:

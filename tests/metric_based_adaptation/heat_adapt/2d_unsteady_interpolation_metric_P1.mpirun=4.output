@@ -1,4 +1,4 @@
-Number of MPI processes: 6
+Number of MPI processes: 4
 Mesh file was changed to ../../../starting_mesh.msh
 Convergence test with mesh adaptation - Fixed-point iteration 1/2
 

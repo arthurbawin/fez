@@ -9,6 +9,8 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 ### Changed
 Shortened most tests and enabled caching previously built files with ccache, to speedup CI pipelines. [#106](https://github.com/arthurbawin/fez/pull/106)
 
+Add the possible tests dependencies in their name, as for deal.II tests (e.g., with_pest=true). This groups the tests with their solver, and removes the "tests/tree_based_adaptation" directory. [#107](https://github.com/arthurbawin/fez/pull/107)
+
 ## [0.0.0] 2026-10-29
  
 ### Changed

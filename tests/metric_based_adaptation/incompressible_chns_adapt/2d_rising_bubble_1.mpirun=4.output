@@ -21,8 +21,8 @@ Number of degrees of freedom: 5973
 Time step 1 - Advancing to t = 0.001.
 Newton iter.  0:          nonlinear residual = 4.67077538e+01
 Newton iter.  1:          nonlinear residual = 1.27124236e-01	(M)
-Newton iter.  2:          nonlinear residual = 6.91760054e-07	(M)
-Newton iter.  3:          nonlinear residual = 7.09893520e-13	(M)
+Newton iter.  2:          nonlinear residual = 6.91760048e-07	(M)
+Newton iter.  3:          nonlinear residual = 7.06310810e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
@@ -31,9 +31,9 @@ Time step 2 - Advancing to t = 1.00e-02.
 Newton iter.  0:          nonlinear residual = 4.58030379e+01
 Newton iter.  1:          nonlinear residual = 4.78356602e-01	(M)
 Newton iter.  2:          nonlinear residual = 4.94033175e-04	(M)
-Newton iter.  3:          nonlinear residual = 2.13803290e-07	(M)
-Newton iter.  4:          nonlinear residual = 1.16444760e-10	(M)
-Newton iter.  5:          nonlinear residual = 4.87264197e-13	(M)
+Newton iter.  3:          nonlinear residual = 2.13803289e-07	(M)
+Newton iter.  4:          nonlinear residual = 1.16441168e-10	(M)
+Newton iter.  5:          nonlinear residual = 4.72628628e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
@@ -43,8 +43,8 @@ Newton iter.  0:          nonlinear residual = 2.49159465e+01
 Newton iter.  1:          nonlinear residual = 1.26313862e-01	(M)
 Newton iter.  2:          nonlinear residual = 2.23066398e-04	(M)
 Newton iter.  3:          nonlinear residual = 2.29942262e-07	(M)
-Newton iter.  4:          nonlinear residual = 2.47538032e-10	(M)
-Newton iter.  5:          nonlinear residual = 5.53582750e-13	(M)
+Newton iter.  4:          nonlinear residual = 2.47537230e-10	(M)
+Newton iter.  5:          nonlinear residual = 5.22616046e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
@@ -69,9 +69,9 @@ Time step 4 - Advancing to t = 3.00e-02.
 Newton iter.  0:          nonlinear residual = 2.18298759e+01
 Newton iter.  1:          nonlinear residual = 9.56960674e-02	(M)
 Newton iter.  2:          nonlinear residual = 9.37530184e-05	(M)
-Newton iter.  3:          nonlinear residual = 1.15869307e-07	(M)
-Newton iter.  4:          nonlinear residual = 1.50466063e-10	(M)
-Newton iter.  5:          nonlinear residual = 5.07171506e-13	(M)
+Newton iter.  3:          nonlinear residual = 1.15869309e-07	(M)
+Newton iter.  4:          nonlinear residual = 1.50463921e-10	(M)
+Newton iter.  5:          nonlinear residual = 4.35226545e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
@@ -80,9 +80,9 @@ Time step 5 - Advancing to t = 4.00e-02.
 Newton iter.  0:          nonlinear residual = 2.06852265e+01
 Newton iter.  1:          nonlinear residual = 1.08979505e-01	(M)
 Newton iter.  2:          nonlinear residual = 9.93300126e-05	(M)
-Newton iter.  3:          nonlinear residual = 1.18290172e-07	(M)
-Newton iter.  4:          nonlinear residual = 1.42885166e-10	(M)
-Newton iter.  5:          nonlinear residual = 5.14631860e-13	(M)
+Newton iter.  3:          nonlinear residual = 1.18290173e-07	(M)
+Newton iter.  4:          nonlinear residual = 1.42883444e-10	(M)
+Newton iter.  5:          nonlinear residual = 4.55992634e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
@@ -155,28 +155,28 @@ Number of degrees of freedom: 6117
 -- Reconstructing solution and derivatives of order up to 2...
 
 Time step 1 - Advancing to t = 1.00e-03.
-Newton iter.  0:          nonlinear residual = 1.77158865e+02
-Newton iter.  1:          nonlinear residual = 2.18926789e-02	(M)
-Newton iter.  2:          nonlinear residual = 1.15710443e-07	(M)
-Newton iter.  3:          nonlinear residual = 5.81531803e-13	(M)
+Newton iter.  0:          nonlinear residual = 1.77158868e+02
+Newton iter.  1:          nonlinear residual = 2.18928494e-02	(M)
+Newton iter.  2:          nonlinear residual = 1.15710753e-07	(M)
+Newton iter.  3:          nonlinear residual = 4.07025302e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
 
 Time step 2 - Advancing to t = 1.00e-02.
-Newton iter.  0:          nonlinear residual = 1.94271185e+01
-Newton iter.  1:          nonlinear residual = 6.06730296e-02	(M)
-Newton iter.  2:          nonlinear residual = 4.73885777e-07	(M)
-Newton iter.  3:          nonlinear residual = 3.75169720e-13	(M)
+Newton iter.  0:          nonlinear residual = 1.94271102e+01
+Newton iter.  1:          nonlinear residual = 6.06734689e-02	(M)
+Newton iter.  2:          nonlinear residual = 4.73897518e-07	(M)
+Newton iter.  3:          nonlinear residual = 4.19192572e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
 
 Time step 3 - Advancing to t = 2.00e-02.
-Newton iter.  0:          nonlinear residual = 1.53051103e+01
-Newton iter.  1:          nonlinear residual = 1.46392163e-02	(M)
-Newton iter.  2:          nonlinear residual = 3.22819633e-07	(M)
-Newton iter.  3:          nonlinear residual = 5.10775192e-13	(M)
+Newton iter.  0:          nonlinear residual = 1.53051014e+01
+Newton iter.  1:          nonlinear residual = 1.46392079e-02	(M)
+Newton iter.  2:          nonlinear residual = 3.22816308e-07	(M)
+Newton iter.  3:          nonlinear residual = 4.90682397e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
@@ -198,19 +198,19 @@ Number of degrees of freedom: 6947
 -- Reconstructing solution and derivatives of order up to 2...
 
 Time step 4 - Advancing to t = 3.00e-02.
-Newton iter.  0:          nonlinear residual = 1.32258483e+01
-Newton iter.  1:          nonlinear residual = 8.16729767e-02	(M)
-Newton iter.  2:          nonlinear residual = 8.57023727e-06	(M)
-Newton iter.  3:          nonlinear residual = 6.38310600e-13	(M)
+Newton iter.  0:          nonlinear residual = 1.32258393e+01
+Newton iter.  1:          nonlinear residual = 8.16729966e-02	(M)
+Newton iter.  2:          nonlinear residual = 8.57005460e-06	(M)
+Newton iter.  3:          nonlinear residual = 6.02634596e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
 
 Time step 5 - Advancing to t = 4.00e-02.
-Newton iter.  0:          nonlinear residual = 1.31772155e+01
-Newton iter.  1:          nonlinear residual = 4.06194602e-02	(M)
-Newton iter.  2:          nonlinear residual = 3.29284576e-07	(M)
-Newton iter.  3:          nonlinear residual = 5.04643658e-13	(M)
+Newton iter.  0:          nonlinear residual = 1.31772140e+01
+Newton iter.  1:          nonlinear residual = 4.06187810e-02	(M)
+Newton iter.  2:          nonlinear residual = 3.29276246e-07	(M)
+Newton iter.  3:          nonlinear residual = 3.84257274e-13	(M)
 Stopping because residual is below prescribed tolerance (1.00e-10)
 
 -- Reconstructing solution and derivatives of order up to 2...
@@ -267,3 +267,4 @@ Sweep  14 - Number of modified edges: 0
 	Target mesh file after adaptation : ././adapted_1.msh
 	Successfully adapted the mesh
 	Number of mesh vertices after adaptation : 697
+

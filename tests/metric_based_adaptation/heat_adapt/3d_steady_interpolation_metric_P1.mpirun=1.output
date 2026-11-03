@@ -23,13 +23,13 @@ Number of degrees of freedom: 404
 	Current mesh file                 : ../../../rectangular_box.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh././adapted_0.msh
-	Number of mesh vertices after adaptation : 436
+	Number of mesh vertices after adaptation : 457
 Convergence test with mesh adaptation - Fixed-point iteration 2/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 3
- no. of cells: 1867
- boundary indicators: 2(42 faces) 3(37 faces) 4(87 faces) 5(75 faces) 6(90 faces) 7(81 faces) 
+ no. of cells: 1990
+ boundary indicators: 2(40 faces) 3(37 faces) 4(72 faces) 5(72 faces) 6(86 faces) 7(73 faces) 
 ID 1 -> box
 ID 2 -> x_min
 ID 3 -> x_max
@@ -37,7 +37,7 @@ ID 4 -> y_min
 ID 5 -> y_max
 ID 6 -> z_min
 ID 7 -> z_max
-Number of degrees of freedom: 436
+Number of degrees of freedom: 457
 
 -- Computing optimal Riemannian metric...
 	Target number of mesh vertices                   : 200
@@ -48,13 +48,13 @@ Number of degrees of freedom: 436
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh././adapted_0.msh
-	Number of mesh vertices after adaptation : 580
+	Number of mesh vertices after adaptation : 595
 Convergence test with mesh adaptation - Fixed-point iteration 3/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 3
- no. of cells: 2640
- boundary indicators: 2(33 faces) 3(40 faces) 4(85 faces) 5(75 faces) 6(123 faces) 7(110 faces) 
+ no. of cells: 2697
+ boundary indicators: 2(34 faces) 3(44 faces) 4(84 faces) 5(78 faces) 6(100 faces) 7(130 faces) 
 ID 1 -> box
 ID 2 -> x_min
 ID 3 -> x_max
@@ -62,7 +62,7 @@ ID 4 -> y_min
 ID 5 -> y_max
 ID 6 -> z_min
 ID 7 -> z_max
-Number of degrees of freedom: 580
+Number of degrees of freedom: 595
 
 -- Computing optimal Riemannian metric...
 	Target number of mesh vertices                   : 200
@@ -73,13 +73,13 @@ Number of degrees of freedom: 580
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh././adapted_0.msh
-	Number of mesh vertices after adaptation : 627
+	Number of mesh vertices after adaptation : 664
 Convergence test with mesh adaptation - Fixed-point iteration 4/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 3
- no. of cells: 2892
- boundary indicators: 2(36 faces) 3(46 faces) 4(92 faces) 5(76 faces) 6(118 faces) 7(102 faces) 
+ no. of cells: 2996
+ boundary indicators: 2(39 faces) 3(42 faces) 4(87 faces) 5(77 faces) 6(142 faces) 7(137 faces) 
 ID 1 -> box
 ID 2 -> x_min
 ID 3 -> x_max
@@ -87,7 +87,7 @@ ID 4 -> y_min
 ID 5 -> y_max
 ID 6 -> z_min
 ID 7 -> z_max
-Number of degrees of freedom: 627
+Number of degrees of freedom: 664
 
 -- Computing optimal Riemannian metric...
 	Target number of mesh vertices                   : 200
@@ -98,13 +98,13 @@ Number of degrees of freedom: 627
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh././adapted_0.msh
-	Number of mesh vertices after adaptation : 637
+	Number of mesh vertices after adaptation : 658
 Convergence test with mesh adaptation - Fixed-point iteration 5/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 3
- no. of cells: 2927
- boundary indicators: 2(47 faces) 3(31 faces) 4(87 faces) 5(90 faces) 6(134 faces) 7(125 faces) 
+ no. of cells: 3034
+ boundary indicators: 2(38 faces) 3(32 faces) 4(76 faces) 5(84 faces) 6(121 faces) 7(131 faces) 
 ID 1 -> box
 ID 2 -> x_min
 ID 3 -> x_max
@@ -112,7 +112,7 @@ ID 4 -> y_min
 ID 5 -> y_max
 ID 6 -> z_min
 ID 7 -> z_max
-Number of degrees of freedom: 637
+Number of degrees of freedom: 658
 
 -- Computing optimal Riemannian metric...
 	Target number of mesh vertices                   : 200
@@ -123,7 +123,7 @@ Number of degrees of freedom: 637
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh././adapted_0.msh
-	Number of mesh vertices after adaptation : 667
+	Number of mesh vertices after adaptation : 713
 Mesh file was changed to ../../../rectangular_box.msh
 Convergence test with mesh adaptation - Fixed-point iteration 1/5
 Mesh info:
@@ -173,13 +173,13 @@ Number of degrees of freedom: 682
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh././adapted_0.msh
-	Number of mesh vertices after adaptation : 975
+	Number of mesh vertices after adaptation : 982
 Convergence test with mesh adaptation - Fixed-point iteration 3/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 3
- no. of cells: 4575
- boundary indicators: 2(71 faces) 3(60 faces) 4(135 faces) 5(131 faces) 6(155 faces) 7(154 faces) 
+ no. of cells: 4605
+ boundary indicators: 2(63 faces) 3(72 faces) 4(122 faces) 5(145 faces) 6(169 faces) 7(161 faces) 
 ID 1 -> box
 ID 2 -> x_min
 ID 3 -> x_max
@@ -187,7 +187,7 @@ ID 4 -> y_min
 ID 5 -> y_max
 ID 6 -> z_min
 ID 7 -> z_max
-Number of degrees of freedom: 975
+Number of degrees of freedom: 982
 
 -- Computing optimal Riemannian metric...
 	Target number of mesh vertices                   : 400
@@ -198,13 +198,13 @@ Number of degrees of freedom: 975
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh././adapted_0.msh
-	Number of mesh vertices after adaptation : 1185
+	Number of mesh vertices after adaptation : 1077
 Convergence test with mesh adaptation - Fixed-point iteration 4/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 3
- no. of cells: 5630
- boundary indicators: 2(66 faces) 3(65 faces) 4(136 faces) 5(130 faces) 6(205 faces) 7(220 faces) 
+ no. of cells: 5119
+ boundary indicators: 2(65 faces) 3(61 faces) 4(129 faces) 5(133 faces) 6(201 faces) 7(203 faces) 
 ID 1 -> box
 ID 2 -> x_min
 ID 3 -> x_max
@@ -212,7 +212,7 @@ ID 4 -> y_min
 ID 5 -> y_max
 ID 6 -> z_min
 ID 7 -> z_max
-Number of degrees of freedom: 1185
+Number of degrees of freedom: 1077
 
 -- Computing optimal Riemannian metric...
 	Target number of mesh vertices                   : 400
@@ -223,13 +223,13 @@ Number of degrees of freedom: 1185
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh././adapted_0.msh
-	Number of mesh vertices after adaptation : 1132
+	Number of mesh vertices after adaptation : 1099
 Convergence test with mesh adaptation - Fixed-point iteration 5/5
 Mesh file was changed to ././adapted.msh
 Mesh info:
  dimension: 3
- no. of cells: 5422
- boundary indicators: 2(61 faces) 3(63 faces) 4(131 faces) 5(123 faces) 6(216 faces) 7(196 faces) 
+ no. of cells: 5217
+ boundary indicators: 2(62 faces) 3(62 faces) 4(131 faces) 5(138 faces) 6(208 faces) 7(199 faces) 
 ID 1 -> box
 ID 2 -> x_min
 ID 3 -> x_max
@@ -237,7 +237,7 @@ ID 4 -> y_min
 ID 5 -> y_max
 ID 6 -> z_min
 ID 7 -> z_max
-Number of degrees of freedom: 1132
+Number of degrees of freedom: 1099
 
 -- Computing optimal Riemannian metric...
 	Target number of mesh vertices                   : 400
@@ -248,19 +248,19 @@ Number of degrees of freedom: 1132
 	Current mesh file                 : ././adapted_0.msh
 	Target mesh file after adaptation : ././adapted_0.msh
 	Successfully adapted the mesh././adapted_0.msh
-	Number of mesh vertices after adaptation : 1147
+	Number of mesh vertices after adaptation : 1160
 
 L2_norm
 target_nvrt n_vrt n_elm n_dof        T        
-        200   637  2927   637 2.5902e-01    - 
-        400  1132  5422  1132 1.6631e-01 2.31 
+        200   658  3034   658 2.3339e-01    - 
+        400  1099  5217  1099 1.6558e-01 2.01 
 
 Linfty_norm
 target_nvrt n_vrt n_elm n_dof        T         
-        200   637  2927   637 7.9384e-01     - 
-        400  1132  5422  1132 8.2242e-01 -0.18 
+        200   658  3034   658 6.7336e-01     - 
+        400  1099  5217  1099 8.8672e-01 -1.61 
 
 H1_seminorm
 target_nvrt n_vrt n_elm n_dof        T        
-        200   637  2927   637 6.0279e+00    - 
-        400  1132  5422  1132 4.6365e+00 1.37
+        200   658  3034   658 5.6997e+00    - 
+        400  1099  5217  1099 4.5997e+00 1.25 

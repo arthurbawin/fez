@@ -15,7 +15,7 @@ end
 
 subsection Mesh
 
-  #set mesh file = ./rising_bubble.msh
+  #set mesh file = ../tests/metric_based_adaptation/meshes/rising_bubble.msh
   set mesh file = ../../../rising_bubble.msh
 
   subsection Adaptation

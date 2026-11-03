@@ -637,10 +637,21 @@ MetricField<dim>::compute_integral_determinant(const double exponent) const
 }
 
 #if defined(FEZ_WITH_MMG)
-inline double round_to(double x, unsigned int n_digits)
+/**
+ * Round x to n_bits significant bits of its binary mantissa
+ * (20 bits is about 6 significant decimal digits).
+ * frexp, ldexp and round are exact, so the result is identical on all
+ * IEEE-754 platforms for identical inputs, and the relative precision kept
+ * does not depend on the magnitude of x.
+ */
+inline double round_to_significant_bits(const double x, const int n_bits)
 {
-  const double scale = std::pow(10.0, n_digits);
-  return std::round(x * scale) / scale;
+  if (x == 0. || !std::isfinite(x))
+    return x;
+  int          exponent;
+  const double mantissa = std::frexp(x, &exponent);
+  return std::ldexp(std::round(std::ldexp(mantissa, n_bits)),
+                    exponent - n_bits);
 }
 
 template <int dim>
@@ -668,7 +679,7 @@ void MetricField<dim>::set_mmg_solution(
   const MMG5_int int_n_total_owned_vertices =
     static_cast<MMG5_int>(n_total_owned_vertices);
 
-  const unsigned int n_significant_digits = 10;
+  const int n_significant_bits = 20;
 
   int ier;
   if constexpr (dim == 2)
@@ -696,9 +707,9 @@ void MetricField<dim>::set_mmg_solution(
       const auto &m = gathered_metrics_map.at(pt);
 
       // Round the metric coefficients for reproducibility
-      const double m00 = round_to(m[0][0], n_significant_digits);
-      const double m01 = round_to(m[0][1], n_significant_digits);
-      const double m11 = round_to(m[1][1], n_significant_digits);
+      const double m00 = round_to_significant_bits(m[0][0], n_significant_bits);
+      const double m01 = round_to_significant_bits(m[0][1], n_significant_bits);
+      const double m11 = round_to_significant_bits(m[1][1], n_significant_bits);
 
       ier = MMG2D_Set_tensorSol(pointer_to_sol, m00, m01, m11, i);
       AssertThrow(ier == 1, ExcMessage("Error in MMG2D_Set_tensorSol"));
@@ -732,12 +743,12 @@ void MetricField<dim>::set_mmg_solution(
       const auto &m = gathered_metrics_map.at(pt);
 
       // Round the metric coefficients for reproducibility
-      const double m00 = round_to(m[0][0], n_significant_digits);
-      const double m01 = round_to(m[0][1], n_significant_digits);
-      const double m02 = round_to(m[0][2], n_significant_digits);
-      const double m11 = round_to(m[1][1], n_significant_digits);
-      const double m12 = round_to(m[1][2], n_significant_digits);
-      const double m22 = round_to(m[2][2], n_significant_digits);
+      const double m00 = round_to_significant_bits(m[0][0], n_significant_bits);
+      const double m01 = round_to_significant_bits(m[0][1], n_significant_bits);
+      const double m02 = round_to_significant_bits(m[0][2], n_significant_bits);
+      const double m11 = round_to_significant_bits(m[1][1], n_significant_bits);
+      const double m12 = round_to_significant_bits(m[1][2], n_significant_bits);
+      const double m22 = round_to_significant_bits(m[2][2], n_significant_bits);
 
       ier =
         MMG3D_Set_tensorSol(pointer_to_sol, m00, m01, m02, m11, m12, m22, i);

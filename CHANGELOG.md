@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-03
+
+### Changed
+Improved reproducibility of anisotropic mesh adaptation tests across platforms [#83](https://github.com/arthurbawin/fez/pull/83):
+ - Metric tensor coefficients given to MMG are rounded to 20 significant bits (about 6 significant digits) of their binary mantissa, using exact operations. The previous rounding kept a fixed number of decimal places, i.e., more significant digits for large coefficients.
+ - When testing is enabled, the bundled MMG is compiled with `-ffp-contract=off` (GCC and Clang), so that it does not use fused multiply-adds (on by default with Clang on arm64) and performs the same floating-point operations on all platforms.
+
+### Added
+Added 2D unsteady anisotropic mesh adaptation tests with the transient fixed-point method, for an MMS with the heat solver, and a rising bubble with the CHNS solver. [#83](https://github.com/arthurbawin/fez/pull/83) 
+
 ## [0.0.0] 2026-11-02
 
 ### Changed

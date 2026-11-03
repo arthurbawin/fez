@@ -47,6 +47,7 @@ namespace Assembly
         Tensor<1, dim> phase_gradient;
         double         potential = 0.;
         Tensor<1, dim> potential_gradient;
+        Tensor<1, dim> profile_flux_variation;
       };
 
       // Exact divided difference of F(s)=(s*s-1)^2/4, with its continuous
@@ -77,6 +78,7 @@ namespace Assembly
         Tensor<1, dim> old_velocity, weighted_velocity_history, body_force,
           source_velocity;
         double source_pressure = 0., source_phase = 0., source_potential = 0.;
+        Tensor<1, dim> profile_flux;
       };
 
       template <int dim>
@@ -185,8 +187,10 @@ namespace Assembly
         const auto  &v     = s.velocity;
         const double div_v = trace(s.velocity_gradient);
         const double div_w = trace(t.velocity_gradient);
-        const auto   flux =
+        auto         flux =
           d.mobility * (s.potential_gradient + d.alpha * s.pressure_gradient);
+        if (d.profile_flux != Tensor<1, dim>())
+          flux += d.profile_flux;
         double r = (inertia(v, d) - d.density * d.body_force +
                     s.phase * s.potential_gradient + d.source_velocity) *
                    t.velocity;
@@ -229,10 +233,12 @@ namespace Assembly
         const double div_dv = trace(z.velocity_gradient);
         const double drho   = d.density_derivative * z.phase;
         const double deta   = d.viscosity_derivative * z.phase;
-        const auto   dflux =
+        auto         dflux =
           d.mobility_derivative * z.phase *
             (s.potential_gradient + d.alpha * s.pressure_gradient) +
           d.mobility * (z.potential_gradient + d.alpha * z.pressure_gradient);
+        if (z.profile_flux_variation != Tensor<1, dim>())
+          dflux += z.profile_flux_variation;
         const auto dinertia =
           d.second_order ?
             d.c0 * d.positive_density * dv +
@@ -328,7 +334,7 @@ namespace Assembly
         static Field<dim>
         shape(const ScratchData &sd, const unsigned int q, const unsigned int i)
         {
-          return {sd.phi_u[q][i],
+          Field<dim> result{sd.phi_u[q][i],
                   sd.grad_phi_u[q][i],
                   sd.phi_p[q][i],
                   sd.grad_phi_p[q][i],
@@ -336,6 +342,9 @@ namespace Assembly
                   sd.grad_shape_phi[q][i],
                   sd.shape_mu[q][i],
                   sd.grad_shape_mu[q][i]};
+          if (!sd.profile_flux_variation.empty())
+            result.profile_flux_variation = sd.profile_flux_variation[q][i];
+          return result;
         }
 
         PointData<dim> data(const ScratchData &sd, const unsigned int q) const
@@ -360,6 +369,8 @@ namespace Assembly
           d.source_pressure  = sd.source_term_pressure[q];
           d.source_phase     = sd.source_term_tracer[q];
           d.source_potential = sd.source_term_potential[q];
+          if (!sd.profile_correction_flux.empty())
+            d.profile_flux = sd.profile_correction_flux[q];
           return d;
         }
 

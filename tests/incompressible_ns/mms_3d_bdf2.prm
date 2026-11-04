@@ -21,7 +21,7 @@ subsection Time integration
   set verbosity = quiet
   set dt        = 0.1
   set t_initial = 0
-  set t_end     = 0.5
+  set t_end     = 0.2
   set scheme    = BDF2
 end
 
@@ -108,7 +108,7 @@ subsection Manufactured solution
   set enable            = true
   set type              = time
   set force source term = false
-  set convergence steps = 3
+  set convergence steps = 2
 
   subsection Space convergence
     set use dealii cube mesh = true

@@ -36,5 +36,8 @@ build*/*
 data/*
 tmp/*
 
+# Ignore simulation results in the examples
+examples/**/results/
+
 # MacOS finder file
 .DS_Store

@@ -9,7 +9,6 @@
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/lac/sparsity_tools.h>
-#include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
@@ -21,9 +20,16 @@
 #include <scratch_data.h>
 #include <utilities.h>
 
+#if defined(DEAL_II_WITH_PETSC)
+#  include <petscmat.h>
+#endif
+
 template <int dim>
 NSSolver<dim>::NSSolver(const ParameterReader<dim> &param)
   : NavierStokesSolver<dim>(param)
+  , bdf_c0_at_preconditioner_setup(0.)
+  , n_iterations_after_preconditioner_setup(0)
+  , last_solve_info({0, true})
 {
   if (param.finite_elements.use_quads)
     fe = std::make_unique<FESystem<dim>>(
@@ -132,6 +138,13 @@ void NSSolver<dim>::create_scratch_data()
 }
 
 template <int dim>
+void NSSolver<dim>::reset_solver_specific_data()
+{
+  preconditioner.reset();
+  this->should_assemble_preconditioner = true;
+}
+
+template <int dim>
 void NSSolver<dim>::setup_assemblers()
 {
   assemblers.clear();
@@ -182,7 +195,6 @@ void NSSolver<dim>::create_sparsity_pattern()
       }
   }
 
-#if defined(FEZ_WITH_PETSC)
   DynamicSparsityPattern dsp(this->locally_relevant_dofs);
   DoFTools::make_sparsity_pattern(*this->dof_handler,
                                   coupling_table,
@@ -197,16 +209,34 @@ void NSSolver<dim>::create_sparsity_pattern()
                              this->locally_owned_dofs,
                              dsp,
                              this->mpi_communicator);
-#else
-  TrilinosWrappers::SparsityPattern dsp(this->locally_owned_dofs,
-                                        this->locally_owned_dofs,
-                                        this->locally_relevant_dofs,
-                                        this->mpi_communicator);
-  DoFTools::make_sparsity_pattern(*this->dof_handler,
-                                  dsp,
-                                  this->nonzero_constraints);
-  dsp.compress();
-  this->system_matrix.reinit(dsp);
+
+#if defined(DEAL_II_WITH_PETSC)
+  // For P1-P1 or Q1-Q1 elements, all dofs are located at the vertices, and the
+  // (u, p) dofs of each vertex are numbered consecutively, in component order.
+  // The matrix thus has a point block structure of size n_components. Expose
+  // this structure to PETSc by setting the block size of the matrix, which
+  // BoomerAMG then uses as its number of functions. Combined with the nodal
+  // coarsening option set in create_preconditioner(), BoomerAMG coarsens the
+  // vertices (nodes) rather than the individual dofs, using the Frobenius norm
+  // of each nodal block of the matrix as connection strength, so that all
+  // components of a node are kept or discarded together on the coarse levels.
+  const auto &linear_solver_param =
+    this->param.linear_solver.at(this->solver_type);
+  if (linear_solver_param.method !=
+        Parameters::LinearSolver::Method::direct_mumps &&
+      linear_solver_param.preconditioner ==
+        Parameters::LinearSolver::PreconditionerType::amg &&
+      this->param.finite_elements.velocity_degree == 1 &&
+      this->param.finite_elements.pressure_degree == 1)
+  {
+    const PetscErrorCode ierr =
+      MatSetBlockSize(this->system_matrix, n_components);
+    AssertThrow(ierr == 0,
+                ExcMessage("PETSc could not set the block size of the system "
+                           "matrix to " +
+                           std::to_string(this->ordering->n_components) +
+                           " (error code " + std::to_string(ierr) + ")"));
+  }
 #endif
 }
 
@@ -333,6 +363,178 @@ void NSSolver<dim>::copy_local_to_global_rhs(const CopyData &copy_data)
   this->zero_constraints.distribute_local_to_global(copy_data.local_rhs(),
                                                     copy_data.dof_indices(),
                                                     this->system_rhs);
+}
+
+template <int dim>
+void NSSolver<dim>::create_preconditioner()
+{
+  // Update heuristic indicators
+  this->should_assemble_preconditioner       = false;
+  this->preconditioner_rebuilt_at_last_solve = true;
+  this->bdf_c0_at_preconditioner_setup = this->time_handler.bdf_coefficients[0];
+  this->n_iterations_after_preconditioner_setup = 0;
+
+  const auto &linear_solver_param =
+    this->param.linear_solver.at(this->solver_type);
+
+  if (linear_solver_param.preconditioner ==
+      Parameters::LinearSolver::PreconditionerType::amg)
+  {
+    // Setup AMG preconditioner with ILU smoother
+    TimerOutput::Scope t(this->computing_timer, "Setup AMG preconditioner");
+
+#if defined(DEAL_II_WITH_PETSC)
+#  if !defined(DEAL_II_PETSC_WITH_HYPRE)
+    AssertThrow(false,
+                ExcMessage("PETSc must be configured with hypre to use the "
+                           "BoomerAMG preconditioner, and PETSc 3.22 onward is "
+                           "required to use BoomerAMG with ILU smoother"));
+#  endif
+    // Set options not accessible through AdditionnalData
+#  if DEAL_II_PETSC_VERSION_GTE(3, 22, 0)
+    // ILU smoother is available from PETSc 3.22 onward
+    PETScWrappers::set_option_value("-pc_hypre_boomeramg_nodal_coarsen", "1");
+    PETScWrappers::set_option_value("-pc_hypre_boomeramg_smooth_type", "ILU");
+    PETScWrappers::set_option_value("-pc_hypre_boomeramg_ilu_level",
+                                    std::to_string(
+                                      linear_solver_param.ilu_fill_level));
+#  else
+    AssertThrow(
+      false,
+      ExcMessage(
+        "PETSc 3.22 onward is required to use BoomerAMG with ILU smoother"));
+#  endif
+#endif
+
+    LA::MPI::PreconditionAMG::AdditionalData data;
+    preconditioner =
+      std::make_unique<LA::MPI::PreconditionAMG>(this->system_matrix, data);
+  }
+  else
+    // Let the common function create other standard types of preconditioner
+    LinearSolvers::create_preconditioner(linear_solver_param,
+                                         this->system_matrix,
+                                         preconditioner);
+}
+
+template <int dim>
+bool NSSolver<dim>::should_rebuild_preconditioner() const
+{
+  const bool verbose =
+    this->param.linear_solver.at(this->solver_type).verbosity ==
+    Parameters::Verbosity::verbose;
+
+  // Preconditioner not created yet
+  if (!preconditioner)
+  {
+    if (verbose)
+      this->pcout << "Building initial preconditioner" << std::endl;
+    return true;
+  }
+
+  // Preconditioner invalidated by a change of mesh, dof umbering or time
+  // interval
+  // FIXME: could connect to triangulation's signals instead
+  if (this->should_assemble_preconditioner)
+  {
+    if (verbose)
+      this->pcout << "Rebuilding preconditioner after mesh update" << std::endl;
+    return true;
+  }
+
+  // Steady problems: always rebuild, as Jacobian matrix may change
+  // significantly between Newton iterations
+  if (this->time_handler.is_steady())
+    return true;
+
+  // The mass matrix contribution to the Jacobian scales with the leading BDF
+  // coefficient, which changes with the time step or the BDF order
+  const double bdf_c0 = this->time_handler.bdf_coefficients[0];
+  if (std::abs(bdf_c0 - bdf_c0_at_preconditioner_setup) >
+      1e-10 * std::abs(bdf_c0))
+  {
+    if (verbose)
+      this->pcout << "Rebuilding preconditioner: BDF coefficient changed"
+                  << std::endl;
+    return true;
+  }
+
+  // The remaining criteria are based on the last solve performed with the
+  // current preconditioner, if any
+  const unsigned int n_ref = n_iterations_after_preconditioner_setup;
+  if (n_ref == 0)
+    return false;
+
+  if (!last_solve_info.converged)
+  {
+    if (verbose)
+      this->pcout << "Rebuilding preconditioner: GMRES did not converge"
+                  << std::endl;
+    return true;
+  }
+
+  // Rebuild if the GMRES iterations exceed both this factor times, and this
+  // increment above, the iterations of the first solve performed with the
+  // current preconditioner
+  constexpr double       max_iterations_ratio     = 1.5;
+  constexpr unsigned int max_iterations_increment = 5;
+  if (last_solve_info.n_iterations > max_iterations_ratio * n_ref &&
+      last_solve_info.n_iterations > n_ref + max_iterations_increment)
+  {
+    if (verbose)
+      this->pcout << "Rebuilding preconditioner: "
+                  << last_solve_info.n_iterations
+                  << " GMRES iterations, compared to " << n_ref
+                  << " after its last setup" << std::endl;
+    return true;
+  }
+
+  return false;
+}
+
+template <int dim>
+void NSSolver<dim>::solve_linear_system_iterative()
+{
+  const auto &linear_solver_param =
+    this->param.linear_solver.at(this->solver_type);
+
+  AssertThrow(linear_solver_param.method ==
+                Parameters::LinearSolver::Method::gmres,
+              ExcMessage("Only GMRES is available as iterative solver for "
+                         "the incompressible_ns solver"));
+
+  const auto solve = [&]() {
+    last_solve_info = LinearSolvers::solve_gmres(this,
+                                                 linear_solver_param,
+                                                 this->system_matrix,
+                                                 this->locally_owned_dofs,
+                                                 this->zero_constraints,
+                                                 preconditioner);
+    // Store the iterations of the first solve with this preconditioner
+    if (n_iterations_after_preconditioner_setup == 0)
+      n_iterations_after_preconditioner_setup =
+        std::max(last_solve_info.n_iterations, 1u);
+  };
+
+  // Set to true by create_preconditioner() if called during this solve
+  this->preconditioner_rebuilt_at_last_solve = false;
+
+  const bool rebuild = should_rebuild_preconditioner();
+  if (rebuild)
+    create_preconditioner();
+  solve();
+
+  // GMRES solver may not have converged if the preconditioner was reused.
+  // If so, rebuild the preconditioner and solve again once
+  if (!rebuild && !last_solve_info.converged)
+  {
+    if (linear_solver_param.verbosity == Parameters::Verbosity::verbose)
+      this->pcout << "Rebuilding preconditioner and solving again: GMRES did "
+                     "not converge"
+                  << std::endl;
+    create_preconditioner();
+    solve();
+  }
 }
 
 // Explicit instantiation

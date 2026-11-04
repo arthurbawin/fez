@@ -267,7 +267,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::set_interval_data(
 
   // Create a direct solver for each interval
   direct_solver_reuse =
-    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+    std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                            mpi_communicator);
 }
 
 template <int dim, bool with_moving_mesh>
@@ -1236,7 +1237,8 @@ void NavierStokesSolver<dim, with_moving_mesh>::adapt_mesh()
     create_nonzero_constraints();
     create_sparsity_pattern();
     direct_solver_reuse =
-      std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control);
+      std::make_unique<PETScWrappers::SparseDirectMUMPSReuse>(solver_control,
+                                                              mpi_communicator);
     postproc_handler->attach_triangulation_and_dof_handler(*triangulation,
                                                            *dof_handler);
     postproc_handler->create_field_postprocessors(param,

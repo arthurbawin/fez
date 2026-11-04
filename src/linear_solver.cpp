@@ -22,9 +22,6 @@ namespace LinearSolvers
     const bool verbose =
       linear_solver_param.verbosity == Parameters::Verbosity::verbose;
 
-    if (verbose)
-      solver->pcout << "Solving with MUMPS..." << std::endl;
-
     LA::ParVectorType &newton_update = solver->get_newton_update();
     LA::ParVectorType &system_rhs    = solver->get_system_rhs();
 
@@ -34,6 +31,7 @@ namespace LinearSolvers
     if (mumps_solver)
     {
       // Use existing solver
+      mumps_solver->set_verbose(verbose);
       mumps_solver->solve(system_matrix,
                           completely_distributed_solution,
                           system_rhs);
@@ -50,9 +48,6 @@ namespace LinearSolvers
 
     newton_update = completely_distributed_solution;
     zero_constraints.distribute(newton_update);
-
-    if (verbose)
-      solver->pcout << "Done" << std::endl;
   }
 
   void

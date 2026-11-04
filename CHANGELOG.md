@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/).
 Please use the tags "Added", "Changed" or "Fixed", depending on the nature of the changes.
 
+## [0.0.0] 2026-11-04
+
+### Changed
+Reworked the messy derived MUMPS solver (SparseDirectMUMPSReuse). If the factorization failed
+because of a memory allocation too small, then the solve is tried again with a memory increase
+for MUMPS (up to 5 times, or up to the maximum allowed relative or absolute memory increase). [#103](https://github.com/arthurbawin/fez/pull/103)
+
 ## [0.0.0] 2026-11-03
 
 ### Changed

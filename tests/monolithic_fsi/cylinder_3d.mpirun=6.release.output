@@ -19,7 +19,7 @@ Dim 1 : Sum of weights = -23.2101 - expected from mesh : -23.2101 - expected the
 798 unconstrained owned lambda dofs
 Removing zero constraints on cylinder
 Removing nonzero constraints on cylinder
-Matrix has 400680 nnz and size 4868 x 4868
+Matrix has 400688 nnz and size 4868 x 4868
 
 Forces on boundary with id 7 computed with method : lagrange_multiplier
 Fx = 0.000000e+00

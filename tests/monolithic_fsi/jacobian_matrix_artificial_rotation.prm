@@ -1,3 +1,5 @@
+# Regression: prescribed artificial surface rotation on a moving mesh.
+# Compare the analytical Jacobian with finite differences before Newton.
 
 #
 # Tests the accuracy of the jacobian matrix of Newton's method

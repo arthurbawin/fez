@@ -5,6 +5,7 @@
  * This structure and solve function are borrowed from the Lethe project.
  */
 
+#include <cmath>
 #include <nonlinear_solver.h>
 #include <time_handler.h>
 
@@ -120,79 +121,59 @@ public:
 
       if (this->param.enable_line_search)
       {
-        double norm_ls_residual;
-        double last_ls_residual = last_residual;
-        last_residual           = norm_residual;
-        unsigned int ls_iter    = 0;
-
-        for (double alpha = 1.; alpha > 0.1; alpha /= 2., ++ls_iter)
+        bool accepted = false;
+        double norm_ls_residual = norm_residual;
+        double alpha = 1.;
+        for (unsigned int trial = 0; trial < 20; ++trial, alpha *= 0.5)
         {
-          // Compute NL(u + alpha * du) and check if residual decreases
           solver->local_evaluation_point = present_solution;
           solver->local_evaluation_point.add(alpha, solver->newton_update);
           solver->distribute_nonzero_constraints();
           solver->evaluation_point = solver->local_evaluation_point;
-          solver->assemble_rhs(); // NL(u + alpha * du)
+          solver->assemble_rhs();
           norm_ls_residual = solver->system_rhs.l2_norm();
 
           if (verbose)
-          {
-            solver->pcout << "\tLine search with alpha = " << std::fixed
-                          << std::setprecision(3) << alpha << std::scientific
-                          << std::setprecision(8)
+            solver->pcout << "\tLine search with alpha = " << std::scientific
+                          << std::setprecision(8) << alpha
                           << " : res = " << norm_ls_residual << std::endl;
-          }
 
-          // Exit if next residual is below tolerance
-          if (norm_ls_residual <= this->param.tolerance)
+          // Compare every trial against the residual before the line search.
+          if (std::isfinite(norm_ls_residual) &&
+              (norm_ls_residual <= this->param.tolerance ||
+               norm_ls_residual <= (1. - 1e-4 * alpha) * norm_residual))
           {
-            if (verbose)
-              solver->pcout << "Stopping because residual is below "
-                               "prescribed tolerance ("
-                            << std::setprecision(2) << this->param.tolerance
-                            << ")" << std::endl;
-            // last_residual = norm_ls_residual;
-            stop           = true;
-            solution_found = true;
+            accepted = true;
             break;
           }
-
-          // Accept step if an Armijo-like sufficient condition is satisfied,
-          // exit line search and continue Newton iterations.
-          if (norm_ls_residual <= 0.1 * last_ls_residual)
-          {
-            // RHS was just computed, no need to recompute
-            recompute_rhs = false;
-            // last_residual = norm_ls_residual;
-            norm_residual = norm_ls_residual;
-            break;
-          }
-
-          // If residual increased, backtrack and exit
-          // Do not reject first iteration
-          if (norm_ls_residual > last_ls_residual && ls_iter > 0)
-          {
-            if (verbose)
-              solver->pcout << "\tRejecting last step and backtracking"
-                            << std::endl;
-            // RHS will need to be recomputed for backtracked solution
-            recompute_rhs = true;
-            alpha *= 2.;
-            solver->local_evaluation_point = present_solution;
-            solver->local_evaluation_point.add(alpha, solver->newton_update);
-            solver->distribute_nonzero_constraints();
-            solver->evaluation_point = solver->local_evaluation_point;
-            break;
-          }
-
-          // Residual decreased, but not enough to accept step or finish Newton
-          // solve. Continue with smaller alpha.
-          last_ls_residual = norm_ls_residual;
         }
 
-        if (!stop)
-          // Update present solution for the next line search
-          present_solution = solver->evaluation_point;
+        if (!accepted)
+        {
+          // Restore the accepted state when all trial updates fail.
+          solver->local_evaluation_point = present_solution;
+          solver->evaluation_point = present_solution;
+          solver->assemble_rhs();
+          time_handler.set_last_nonlinear_solve_status(false);
+          if (throw_on_failure)
+            throw std::runtime_error("Newton line search failed to reduce residual");
+          break;
+        }
+
+        last_residual = norm_residual;
+        norm_residual = norm_ls_residual;
+        recompute_rhs = false;
+        present_solution = solver->evaluation_point;
+        if (norm_residual <= this->param.tolerance)
+        {
+          if (verbose)
+            solver->pcout << "Stopping because residual is below prescribed "
+                             "tolerance ("
+                          << std::setprecision(2) << this->param.tolerance
+                          << ")" << std::endl;
+          stop = true;
+          solution_found = true;
+        }
       }
       else
       {

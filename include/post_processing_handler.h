@@ -435,13 +435,17 @@ private:
 
   /**
    * Add the computed forces to the passed table with required formatting.
+   * For stress-vector forces, optional contributions append Fx_pressure,
+   * Fx_viscous (and the other components), keeping the total force columns.
    */
   void add_force_to_table(
     const Tensor<1, dim>    &forces,
     const TimeHandler       &time_handler,
     TableHandler            &force_table,
     const types::boundary_id boundary_id,
-    const unsigned int       i_slice = numbers::invalid_unsigned_int);
+    const unsigned int       i_slice = numbers::invalid_unsigned_int,
+    const Tensor<1, dim>    *pressure_force = nullptr,
+    const Tensor<1, dim>    *viscous_force = nullptr);
 
   /**
    * Add the computed position of the structure's geometric center to the passed
@@ -824,6 +828,25 @@ void PostProcessingHandler<dim>::compute_forces(
   std::vector<Tensor<1, dim>> force_per_face(
     dof_handler.get_triangulation().n_faces());
 
+  // Decompose only forces requested through the stress-vector method.
+  const bool split_stress =
+    forces_param.method == Forces::ComputationMethod::stress_vector;
+  std::vector<Tensor<1, dim>> pressure_per_face(
+    split_stress ? force_per_face.size() : 0);
+  std::vector<Tensor<1, dim>> viscous_per_face(
+    split_stress ? force_per_face.size() : 0);
+
+  const auto compute_stress = [&](const types::boundary_id boundary_id,
+                                  std::vector<Tensor<1, dim>> &face_forces) {
+    return PostProcessingTools::compute_forces_on_boundary(
+      dof_handler, mapping, face_quadrature, solution, boundary_id,
+      FEValuesExtractors::Vector(ordering.u_lower),
+      FEValuesExtractors::Scalar(ordering.p_lower),
+      physical_properties.fluids[0].density,
+      physical_properties.fluids[0].dynamic_viscosity,
+      face_forces, &pressure_per_face, &viscous_per_face);
+  };
+
   const auto compute_on_boundary =
     [&](const types::boundary_id     boundary_id,
         std::vector<Tensor<1, dim>> &force_per_face) {
@@ -833,9 +856,6 @@ void PostProcessingHandler<dim>::compute_forces(
         case Forces::ComputationMethod::stress_vector:
         {
           method = "stress_vector";
-          const FEValuesExtractors::Vector velocity_extractor(ordering.u_lower);
-          const FEValuesExtractors::Scalar pressure_extractor(ordering.p_lower);
-
           /**
            * Depending on the model solved in each solver, the pressure is
            * scaled by either the fluid density, or is modified (in the
@@ -857,20 +877,7 @@ void PostProcessingHandler<dim>::compute_forces(
               "solver. It must recover the true pressure from the computed "
               "one, and use the density and viscosity of the mixture."));
 
-          const double pressure_scale = physical_properties.fluids[0].density;
-          const double mu = physical_properties.fluids[0].dynamic_viscosity;
-
-          forces =
-            PostProcessingTools::compute_forces_on_boundary(dof_handler,
-                                                            mapping,
-                                                            face_quadrature,
-                                                            solution,
-                                                            boundary_id,
-                                                            velocity_extractor,
-                                                            pressure_extractor,
-                                                            pressure_scale,
-                                                            mu,
-                                                            force_per_face);
+          forces = compute_stress(boundary_id, force_per_face);
           break;
         }
         case Forces::ComputationMethod::lagrange_multiplier:
@@ -929,7 +936,26 @@ void PostProcessingHandler<dim>::compute_forces(
   // Add forces to forces table and write if time step matches frequency
   {
     for (const auto &[id, force] : forces_per_boundary)
-      add_force_to_table(force, time_handler, forces_table, id);
+    {
+      Tensor<1, dim> pressure_local, viscous_local;
+      if (split_stress)
+        for (const auto &cell : dof_handler.active_cell_iterators())
+          if (cell->is_locally_owned())
+            for (const auto &face : cell->face_iterators())
+              if (face->at_boundary() && face->boundary_id() == id)
+              {
+                pressure_local += pressure_per_face[face->index()];
+                viscous_local += viscous_per_face[face->index()];
+              }
+      const auto pressure = split_stress ? Utilities::MPI::sum(
+        pressure_local, dof_handler.get_mpi_communicator()) : Tensor<1, dim>();
+      const auto viscous = split_stress ? Utilities::MPI::sum(
+        viscous_local, dof_handler.get_mpi_communicator()) : Tensor<1, dim>();
+      add_force_to_table(force, time_handler, forces_table, id,
+                         numbers::invalid_unsigned_int,
+                         split_stress ? &pressure : nullptr,
+                         split_stress ? &viscous : nullptr);
+    }
 
     if (mpi_rank == 0 && should_output_forces(time_handler))
     {
@@ -947,6 +973,8 @@ void PostProcessingHandler<dim>::compute_forces(
     {
       std::vector<Tensor<1, dim>> forces_per_slice_local(slices_param.n_slices);
       std::vector<Tensor<1, dim>> forces_per_slice(slices_param.n_slices);
+      std::vector<Tensor<1, dim>> pressure_local(slices_param.n_slices);
+      std::vector<Tensor<1, dim>> viscous_local(slices_param.n_slices);
 
       for (const auto &cell : dof_handler.active_cell_iterators())
         if (cell->is_locally_owned())
@@ -956,6 +984,13 @@ void PostProcessingHandler<dim>::compute_forces(
               AssertIndexRange(face->user_index(), slices_param.n_slices);
               forces_per_slice_local[face->user_index()] +=
                 force_per_face[face->index()];
+              if (split_stress)
+              {
+                pressure_local[face->user_index()] +=
+                  pressure_per_face[face->index()];
+                viscous_local[face->user_index()] +=
+                  viscous_per_face[face->index()];
+              }
             }
 
       for (unsigned int i = 0; i < slices_param.n_slices; ++i)
@@ -963,8 +998,14 @@ void PostProcessingHandler<dim>::compute_forces(
         forces_per_slice[i] =
           Utilities::MPI::sum(forces_per_slice_local[i],
                               dof_handler.get_mpi_communicator());
+        const auto pressure = split_stress ? Utilities::MPI::sum(
+          pressure_local[i], dof_handler.get_mpi_communicator()) : Tensor<1, dim>();
+        const auto viscous = split_stress ? Utilities::MPI::sum(
+          viscous_local[i], dof_handler.get_mpi_communicator()) : Tensor<1, dim>();
         add_force_to_table(
-          forces_per_slice[i], time_handler, forces_table_per_slice, id, i);
+          forces_per_slice[i], time_handler, forces_table_per_slice, id, i,
+          split_stress ? &pressure : nullptr,
+          split_stress ? &viscous : nullptr);
       }
 
       if (forces_param.verbosity == Parameters::Verbosity::verbose &&

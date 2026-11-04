@@ -69,6 +69,8 @@ namespace PostProcessingTools
    * integral of the stress tensor t(n) := sigma \cdot n on the boundary.
    * @p pressure_scale converts the stored pressure to physical units.
    * Only entries on this boundary in @p force_per_face are updated.
+   * Optional pressure/viscous arrays must have the same size as force_per_face.
+   * Their entries on this boundary are overwritten with the separate integrals.
    */
   template <int dim, typename VectorType>
   Tensor<1, dim> compute_forces_on_boundary(
@@ -81,7 +83,9 @@ namespace PostProcessingTools
     const FEValuesExtractors::Scalar &pressure_extractor,
     const double                      pressure_scale,
     const double                      dynamic_viscosity,
-    std::vector<Tensor<1, dim>>      &force_per_face);
+    std::vector<Tensor<1, dim>>      &force_per_face,
+    std::vector<Tensor<1, dim>>      *pressure_per_face = nullptr,
+    std::vector<Tensor<1, dim>>      *viscous_per_face = nullptr);
 
   /**
    * hp-version of the function above
@@ -97,7 +101,9 @@ namespace PostProcessingTools
     const FEValuesExtractors::Scalar &pressure_extractor,
     const double                      pressure_scale,
     const double                      dynamic_viscosity,
-    std::vector<Tensor<1, dim>>      &force_per_face);
+    std::vector<Tensor<1, dim>>      &force_per_face,
+    std::vector<Tensor<1, dim>>      *pressure_per_face = nullptr,
+    std::vector<Tensor<1, dim>>      *viscous_per_face = nullptr);
 
   /**
    * Compute the hydrodynamic forces on the given boundary by evaluating the
@@ -294,7 +300,9 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const FEValuesExtractors::Scalar &pressure_extractor,
   const double                      pressure_scale,
   const double                      dynamic_viscosity,
-  std::vector<Tensor<1, dim>>      &force_per_face)
+  std::vector<Tensor<1, dim>>      &force_per_face,
+  std::vector<Tensor<1, dim>>      *pressure_per_face,
+  std::vector<Tensor<1, dim>>      *viscous_per_face)
 {
   Tensor<1, dim> forces, forces_local;
   const double   mu = dynamic_viscosity;
@@ -325,6 +333,7 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
 
           auto &f = force_per_face[face->index()];
           f       = 0;
+          Tensor<1, dim> pressure_force, viscous_force;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
             const double p          = pressure_values[q];
@@ -340,11 +349,18 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              */
             const auto &n = -normals[q];
             // Convert stored pressure using the solver's pressure scale.
-            const auto sigma_dot_n =
-              -pressure_scale * p * n + 2. * mu * sym_grad_u * n;
-            f += sigma_dot_n * fe_face_values.JxW(q);
+            const auto pressure_traction = -pressure_scale * p * n;
+            const auto viscous_traction = 2. * mu * sym_grad_u * n;
+            const double weight = fe_face_values.JxW(q);
+            f += (pressure_traction + viscous_traction) * weight;
+            pressure_force += pressure_traction * weight;
+            viscous_force += viscous_traction * weight;
           }
 
+          if (pressure_per_face)
+            (*pressure_per_face)[face->index()] = pressure_force;
+          if (viscous_per_face)
+            (*viscous_per_face)[face->index()] = viscous_force;
           forces_local += f;
         }
       }
@@ -365,7 +381,9 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
   const FEValuesExtractors::Scalar &pressure_extractor,
   const double                      pressure_scale,
   const double                      dynamic_viscosity,
-  std::vector<Tensor<1, dim>>      &force_per_face)
+  std::vector<Tensor<1, dim>>      &force_per_face,
+  std::vector<Tensor<1, dim>>      *pressure_per_face,
+  std::vector<Tensor<1, dim>>      *viscous_per_face)
 {
   Tensor<1, dim> forces, forces_local;
   const double   mu = dynamic_viscosity;
@@ -403,6 +421,7 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
 
           auto &f = force_per_face[face->index()];
           f       = 0;
+          Tensor<1, dim> pressure_force, viscous_force;
           for (unsigned int q = 0; q < n_faces_q_points; ++q)
           {
             const double p          = pressure_values[q];
@@ -418,11 +437,18 @@ Tensor<1, dim> PostProcessingTools::compute_forces_on_boundary(
              */
             const auto &n = -normals[q];
             // Convert stored pressure using the solver's pressure scale.
-            const auto sigma_dot_n =
-              -pressure_scale * p * n + 2. * mu * sym_grad_u * n;
-            f += sigma_dot_n * fe_face_values.JxW(q);
+            const auto pressure_traction = -pressure_scale * p * n;
+            const auto viscous_traction = 2. * mu * sym_grad_u * n;
+            const double weight = fe_face_values.JxW(q);
+            f += (pressure_traction + viscous_traction) * weight;
+            pressure_force += pressure_traction * weight;
+            viscous_force += viscous_traction * weight;
           }
 
+          if (pressure_per_face)
+            (*pressure_per_face)[face->index()] = pressure_force;
+          if (viscous_per_face)
+            (*viscous_per_face)[face->index()] = viscous_force;
           forces_local += f;
         }
       }

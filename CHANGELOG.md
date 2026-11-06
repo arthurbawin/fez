@@ -8,6 +8,10 @@ Please use the tags "Added", "Changed" or "Fixed", depending on the nature of th
 
 ### Fixed
 Fixed the surface variation term in the Lagrange multiplier Jacobian for monolithic FSI with imposed artificial rigid-body rotation: the relative fluid velocity now subtracts the prescribed rotation velocity, consistently with the residual. Added a regression test comparing the analytical Jacobian with finite differences for an artificially rotating cylinder.
+## [0.0.0] 2026-11-04
+
+### Added
+Added a pull request template. [#113](https://github.com/arthurbawin/fez/pull/113)
 
 ## [0.0.0] 2026-11-03
 

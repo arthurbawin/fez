@@ -307,6 +307,22 @@ public:
   virtual void solve_linear_system() override final;
 
   /**
+   * Shift the pressure of the present solution so that its integral mean
+   * (∫Ω p dx) is zero, and return the mean that was removed.
+   */
+  double remove_mean_pressure_from_solution();
+
+  /**
+   * Return the integral mean of the pressure of the (ghosted) present solution.
+   */
+  double compute_mean_pressure() const;
+
+  /**
+   * Return the integral mean of the exact pressure.
+   */
+  double compute_exact_mean_pressure() const;
+
+  /**
    * Solve the linear system for a single nonlinear solver iteration
    * using an iterative solver (e.g., GMRES).
    *

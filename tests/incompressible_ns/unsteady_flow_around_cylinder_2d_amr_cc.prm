@@ -1,0 +1,152 @@
+#
+# Cahouet-Chabard field split preconditioner (fieldsplit_schur_cc) on the
+# unsteady flow around a cylinder of unsteady_flow_around_cylinder_2d_amr_amg,
+# with Taylor-Hood Q2-Q1 elements, at Re = 20 (nu = 0.05). Three time steps
+# (t <= 0.2), with two mesh adaptations. Covers an outflow boundary (no
+# pressure null space), hanging nodes after adaptation (constrained pressure
+# dofs with empty rows in the pressure Laplacian part) and the rebuild of the
+# preconditioner after each mesh change.
+#
+
+subsection Dimension
+  set dimension = 2
+end
+
+subsection Timer
+  set enable timer = false
+end
+
+subsection Output
+  set write vtu results = false
+end
+
+subsection Mesh
+
+  set dealii preset mesh     = uniform channel with cylinder
+  set dealii mesh parameters = 5, 15, 5, 5 : 1 : 1 : 0.75 : 2 : 2. : true : true
+  set refinement level       = 1
+
+  subsection Adaptation
+    set verbosity = verbose
+    set enable    = true
+    set strategy  = local refinement
+
+    subsection Local refinement
+      set variables for adaptation = velocity
+      set adapt frequency          = 1
+      set refinement strategy      = fixed number
+      set fraction to refine       = 0.125
+      set fraction to coarsen      = 0.5
+    end
+  end
+end
+
+subsection Time integration
+  set verbosity = quiet
+  set dt        = 0.1
+  set t_initial = 0
+  set t_end     = 0.2
+  set scheme    = BDF2
+  set bdf start method = BDF1
+  set bdf start step ratio = 0.5
+end
+
+subsection Nonlinear solver
+  # Quiet: the Newton log shows the preconditioner rebuilds, which depend on
+  # the iteration counts
+  set verbosity            = quiet
+  set tolerance            = 1e-8
+  set divergence_tolerance = 1e+4
+  set max_iterations       = 20
+  set enable_line_search   = false
+  set analytic_jacobian    = true
+end
+
+subsection Linear solver
+  subsection main physics
+    set verbosity      = quiet
+    set method         = gmres
+    set preconditioner = fieldsplit_schur_cc
+
+    # AMG on the velocity block, as block Jacobi + ILU(0) (the default for
+    # unsteady runs) is too weak here: at this low Reynolds number and with
+    # the refinement near the cylinder, c0 h^2 / nu drops below 1 in the
+    # smallest cells, where the velocity block is dominated by viscosity. With
+    # block Jacobi, the iterations about double with each refinement (up to
+    # 150 per solve), against at most 33 with AMG.
+    set velocity block preconditioner = amg
+
+    # Tight tolerance: the solution matches that of a direct solve
+    set relative tolerance = 1e-10
+    set absolute tolerance = 1e-14
+
+    # Regression bound on the GMRES iterations of every solve (about twice the
+    # observed maximum): if exceeded, a "GMRES did not converge" warning is
+    # printed and the output comparison fails. Exact counts are not compared,
+    # as they may differ slightly across platforms.
+    set max iterations     = 60
+    set max krylov vectors = 60
+  end
+end
+
+subsection FiniteElements
+  set use quads       = true
+  set Velocity degree = 2
+  set Pressure degree = 1
+
+  # Quadratic mapping for the cylinder
+  set mapping degree  = 2
+end
+
+subsection Stabilization
+  set enable supg = false
+end
+
+subsection Physical properties
+  set number of fluids = 1
+  subsection Fluid 0
+    set density             = 1
+    set kinematic viscosity = 0.05
+  end
+end
+
+subsection Initial conditions
+  subsection velocity
+    set Function expression = 1; 0
+  end
+end
+
+subsection Fluid boundary conditions
+  set number = 5
+  subsection boundary 0
+    set id   = 0
+    set name = inlet
+    set type = input_function
+    subsection u
+      set Function expression = 1
+    end
+    subsection v
+      set Function expression = 0
+    end
+  end
+  subsection boundary 1
+    set id   = 1
+    set name = outlet
+    set type = outflow
+  end
+  subsection boundary 2
+    set id   = 2
+    set name = cylinder
+    set type = no_slip
+  end
+  subsection boundary 3
+    set id   = 3
+    set name = bottom
+    set type = slip
+  end
+  subsection boundary 4
+    set id   = 4
+    set name = top
+    set type = slip
+  end
+end

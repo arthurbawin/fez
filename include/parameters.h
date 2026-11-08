@@ -1,6 +1,7 @@
 #ifndef PARAMETERS_H
 #define PARAMETERS_H
 
+#include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/parsed_function.h>
@@ -83,6 +84,9 @@ namespace Parameters
 
     bool fix_pressure_constant;
     bool enforce_zero_mean_pressure;
+    // Leave the pressure determined up to a constant and give the constant
+    // pressure mode to the iterative solver as null space (enclosed flows)
+    bool pressure_null_space;
 
     void declare_parameters(ParameterHandler &prm);
     void read_parameters(ParameterHandler &prm);
@@ -666,13 +670,23 @@ namespace Parameters
       gmres
     } method;
 
+    std::string method_name;
+
     enum class PreconditionerType
     {
       none,
       ilu,
       block_jacobi,
-      amg
+      amg,
+      // Block Schur complement (with S = -A10 A00^{-1} A01) preconditioners
+      // implemented using PETSc's PCFIELDSPLIT:
+      // S approximated with the least-squares commutator (LSC)
+      fieldsplit_schur_lsc,
+      // S approximated with the Cahouet-Chabard (CC) preconditioner
+      fieldsplit_schur_cc
     } preconditioner;
+
+    std::string preconditioner_name;
 
     // Absolute and relative tolerances and max number of iterations for
     // iterative solvers. The solver stops when the residual norm is below
@@ -687,8 +701,23 @@ namespace Parameters
     // Use right preconditioning for GMRES (left if false)
     bool right_preconditioning;
 
-    // Fill-in levels for ILU preconditioner
+    // Fill-in levels for ILU preconditioner/smoother, also used for the ILU in
+    // the velocity block preconditioner of the field split preconditioners
     unsigned int ilu_fill_level;
+
+    // Preconditioner of the velocity block A00 for the field split Schur
+    // preconditioners.
+    enum class VelocityBlockPreconditioner
+    {
+      // automatic choice: block_jacobi for fieldsplit_schur_cc in unsteady
+      // runs, amg_ilu for fieldsplit_schur_lsc, amg otherwise.
+      automatic,
+      amg,
+      amg_ilu,
+      block_jacobi
+    } velocity_block_preconditioner;
+
+    std::string velocity_block_preconditioner_name;
 
     /**
      * When using MUMPS as solver, "reuse" the symbolic factorization of the
@@ -699,17 +728,42 @@ namespace Parameters
      * which, as a beneficial side effect, also checks the MUMPS error code,
      * which is not done in deal.II. This allows throwing an error when the
      * matrix is singular, instead of getting "nan" results.
-     *
-     * TODO: the associated MUMPS solver should be looked into, as it is
-     * unclear that the factorization is indeed reused and/or that it is more
-     * efficient. Unlike Pardiso, the symbolic factorization step is not cleanly
-     * separated from the actual factorization and solve steps.
      */
     bool reuse;
 
     void declare_parameters(ParameterHandler  &prm,
                             const std::string &solver_type);
     void read_parameters(ParameterHandler &prm, const std::string &solver_type);
+
+    /**
+     * Print a summary of the linear solver settings
+     */
+    void print(ConditionalOStream &out) const;
+
+    /**
+     * Whether the linear systems are solved with an iterative method.
+     */
+    bool is_iterative() const { return method != Method::direct_mumps; }
+
+    /**
+     * Whether an iterative method is used with the given preconditioner: the
+     * monolithic AMG, the Cahouet-Chabard or LSC block Schur preconditioner.
+     */
+    bool use_amg() const
+    {
+      return is_iterative() && preconditioner == PreconditionerType::amg;
+    }
+    bool use_cc() const
+    {
+      return is_iterative() &&
+             preconditioner == PreconditionerType::fieldsplit_schur_cc;
+    }
+    bool use_lsc() const
+    {
+      return is_iterative() &&
+             preconditioner == PreconditionerType::fieldsplit_schur_lsc;
+    }
+    bool use_fieldsplit() const { return use_cc() || use_lsc(); }
   };
 
   struct TimeIntegration

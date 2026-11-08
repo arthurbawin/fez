@@ -64,6 +64,7 @@ public:
       if (recompute_rhs)
       {
         solver->assemble_rhs();
+        solver->finalize_rhs();
         norm_residual = solver->system_rhs.l2_norm();
       }
 
@@ -133,6 +134,7 @@ public:
           solver->distribute_nonzero_constraints();
           solver->evaluation_point = solver->local_evaluation_point;
           solver->assemble_rhs(); // NL(u + alpha * du)
+          solver->finalize_rhs();
           norm_ls_residual = solver->system_rhs.l2_norm();
 
           if (verbose)

@@ -1,16 +1,22 @@
 Number of MPI processes: 2
 Number of degrees of freedom: 108
+Before removing pressure: 0.0414585
+Analytic mean is        : -1.22292e-07
+After  removing pressure: -7.12104e-16
 Number of degrees of freedom: 500
+Before removing pressure: 0.0125583
+Analytic mean is        : -3.89354e-10
+After  removing pressure: -6.45317e-16
 
 L2_norm
 n_elm n_dof   dt          u               p         
-   48   108 0.1000 2.8733e-01    - 2.4442e+01     - 
-  384   500 0.0500 1.0136e-01 1.50 3.0851e+01 -0.34 
+   48   108 0.1000 2.8733e-01    - 6.9399e+00     - 
+  384   500 0.0500 1.0136e-01 1.50 1.0138e+01 -0.55 
 
 Linfty_norm
 n_elm n_dof   dt          u               p         
-   48   108 0.1000 4.8918e-01    - 5.3669e+01     - 
-  384   500 0.0500 2.1894e-01 1.16 6.5379e+01 -0.28 
+   48   108 0.1000 4.8918e-01    - 3.0581e+01     - 
+  384   500 0.0500 2.1894e-01 1.16 3.6327e+01 -0.25 
 
 H1_seminorm
 n_elm n_dof   dt          u               p         

@@ -47,7 +47,7 @@ namespace LinearSolvers
   {
     unsigned int n_iterations;
     bool         converged;
-    
+
     // Number of iterations per decade (order) of residual reduction, which
     // compares the convergence speed of solves stopped at different reductions
     // (e.g. by the absolute tolerance). Zero if the residual was not reduced.

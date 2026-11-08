@@ -10,8 +10,8 @@
 
 namespace LinearSolvers
 {
-  void solve_mumps(GenericSolver<LA::ParVectorType>      *solver,
-                   const Parameters::LinearSolver        &linear_solver_param,
+  void solve_mumps(GenericSolver<LA::ParVectorType> *solver,
+                   const Parameters::LinearSolver & /*linear_solver_param*/,
                    LA::ParMatrixType                     &system_matrix,
                    const IndexSet                        &locally_owned_dofs,
                    const AffineConstraints<double>       &zero_constraints,
@@ -126,6 +126,11 @@ namespace LinearSolvers
         AssertThrow(false,
                     ExcMessage("AMG preconditioner should be initialized in "
                                "the relevant dedicated solver."));
+      case Parameters::LinearSolver::PreconditionerType::fieldsplit_schur_lsc:
+      case Parameters::LinearSolver::PreconditionerType::fieldsplit_schur_cc:
+        AssertThrow(false,
+                    ExcMessage("The block Schur preconditioner should be"
+                               "initialized in the dedicated solver."));
       default:
         DEAL_II_NOT_IMPLEMENTED();
     }

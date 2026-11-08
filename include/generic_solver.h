@@ -130,6 +130,14 @@ public:
   virtual void assemble_rhs() = 0;
 
   /**
+   * Modify the residual assembled by assemble_rhs() before its norm is
+   * computed, e.g., to remove its component outside of the range of a
+   * singular Jacobian matrix. See also the function description in
+   * navier_stokes_solver.h.
+   */
+  virtual void finalize_rhs() {}
+
+  /**
    * Solve the linear system described by the assembly functions above.
    */
   virtual void solve_linear_system() = 0;

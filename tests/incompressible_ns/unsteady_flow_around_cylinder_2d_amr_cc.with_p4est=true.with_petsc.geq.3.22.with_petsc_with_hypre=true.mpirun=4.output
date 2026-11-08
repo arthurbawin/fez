@@ -1,0 +1,19 @@
+Number of MPI processes: 4
+Mesh info:
+ dimension: 2
+ no. of cells: 880
+ boundary indicators: 0(17 faces) 1(10 faces) 2(16 faces) 3(20 faces) 4(29 faces) 
+ID 0 -> inlet
+ID 1 -> outlet
+ID 2 -> cylinder
+ID 3 -> bottom
+ID 4 -> top
+Number of degrees of freedom: 8260
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 898
+Number of degrees of freedom: 8647
+
+-- Adapting tree-based mesh
+-- 	Number of cells after adaptation: 1036
+Number of degrees of freedom: 10337

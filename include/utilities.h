@@ -307,8 +307,15 @@ double compute_global_mean_value(const Function<dim>   &f,
 {
   double I_local = 0., vol_local = 0.;
   // Get quadrature rule from the reference cell
+#if defined(REFERENCE_CELL_WITH_TEMPLATE_PARAMETER)
   const Quadrature<dim> quadrature =
     dof_handler.get_fe().reference_cell().get_gauss_type_quadrature(n_q_points);
+#else
+  const Quadrature<dim> quadrature =
+    dof_handler.get_fe()
+      .reference_cell()
+      .template get_gauss_type_quadrature<dim>(n_q_points);
+#endif
   FEValues<dim> fe_values(mapping,
                           dof_handler.get_fe(),
                           quadrature,
